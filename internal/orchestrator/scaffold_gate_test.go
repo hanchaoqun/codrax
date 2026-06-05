@@ -132,7 +132,7 @@ func TestPlanPreHook_NonEmptyBareDirNoScaffoldNeeded(t *testing.T) {
 }
 
 // TestApplyPreHook_EmptyDirInitAuthNoScaffold — single-shot
-// `--mode=apply --plan-file=X` against an empty bare dir with only
+// `--mode=write --write-phase=apply --plan-file=X` against an empty bare dir with only
 // init authorized must be refused at applyPreHook with the same
 // scaffold-tier message planPreHook produces. This closes the
 // audit-found gap where a CLI user could skip the plan stage and
@@ -182,10 +182,10 @@ func TestStallPlateauMessage_AuthTiers(t *testing.T) {
 	}
 
 	cases := []struct {
-		name             string
-		auto, scaffold   bool
-		mustContain      []string
-		mustNotContain   []string
+		name           string
+		auto, scaffold bool
+		mustContain    []string
+		mustNotContain []string
 	}{
 		{
 			name:        "no init authorization",

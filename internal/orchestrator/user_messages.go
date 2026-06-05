@@ -191,7 +191,7 @@ func softRetryHintMessage(lang string) string {
 // name ("planner did not call emit_change_plan") into the answer
 // surface. Two real triggers:
 //
-//   - Sticky /mode plan + the user asks a "how do I X" question
+//   - Sticky /mode write + the user asks a "how do I X" question
 //     that is fundamentally a read-mode question (no code change
 //     needed). The planner LLM understood the question but had no
 //     legitimate change to plan.
@@ -200,7 +200,7 @@ func softRetryHintMessage(lang string) string {
 //     2026-04-30 stream-first-byte timeout fix; still possible.
 //
 // The message walks the user through both possibilities with a
-// concrete next-action menu (`/mode read` for advice questions,
+// concrete next-action menu (`/mode auto` for advice questions,
 // "再问一次" for transient stalls). Stays in `SetResultPlain`
 // territory because it embeds slash commands.
 func plannerProseFallbackMessage(ctx *types.BusContext) string {
@@ -210,11 +210,11 @@ func plannerProseFallbackMessage(ctx *types.BusContext) string {
 	}
 	if zh {
 		return "本轮没生成改动方案。下一步两选一:\n\n" +
-			"  • 咨询类问题(怎么装、为什么报错、是什么原因):/mode read 后再问一次\n" +
+			"  • 咨询类问题(怎么装、为什么报错、是什么原因):/mode auto 后再问一次\n" +
 			"  • 真要改代码:把目标说具体(改哪个文件 / 加什么 / 接口长什么样)再发一遍"
 	}
 	return "No actionable change plan was produced this turn. Pick one:\n\n" +
-		"  • Advice / how-to question (e.g. \"how do I install X?\"): /mode read, then re-ask\n" +
+		"  • Advice / how-to question (e.g. \"how do I install X?\"): /mode auto, then re-ask\n" +
 		"  • Real code change: re-send with a specific target — which file, what to add, what interface"
 }
 

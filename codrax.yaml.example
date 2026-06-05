@@ -732,17 +732,10 @@
 # 中文 写模式是在沙箱 git worktree 内提出并执行代码改动的 plan → apply →
 #     verify 流水线。总开关刻意只放在 yaml —— 这是部署期决定,不是逐次运行。
 
-# write_enabled — master switch. MUST be true for --mode=plan|apply|verify
+# write_enabled — master switch. MUST be true for --mode=write or /mode write
 #   to dispatch. Default false.
-#   总开关。--mode=plan|apply|verify 要生效必须为 true。默认 false。
+#   总开关。--mode=write 或 /mode write 要生效必须为 true。默认 false。
 # write_enabled: false
-
-# write_default_mode — default --mode when the CLI flag is omitted. Legal:
-#   "read" / "plan". "apply" / "verify" are side-effecting and must be
-#   opted into per-run via CLI. Default read.
-#   省略 --mode 时的默认模式。合法值:"read" / "plan"。"apply" / "verify"
-#   有副作用,必须每次运行用 CLI 显式选择。默认 read。
-# write_default_mode: read
 
 # write_approval_policy — /approve policy once write_enabled is true.
 #   Values:

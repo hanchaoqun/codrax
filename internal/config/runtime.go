@@ -1274,24 +1274,18 @@ type RuntimeSettings struct {
 	// ceiling clamp as the log cap.
 	TraceAttachMaxBytes *int `yaml:"trace_attach_max_bytes"`
 
-	// B0 write-mode knobs. `write_*` prefix groups the write-mode
-	// lifecycle settings (plan / apply / verify stages). All
-	// optional; nil values coerce to safe-by-default behavior so
-	// pre-B0 codrax.yaml files continue to produce read-mode-only
-	// behavior byte-identically.
+	// Write-mode knobs. `write_*` prefix groups the write-mode
+	// lifecycle settings. The user-facing entry point is now
+	// --mode=write or REPL /mode write; the CLI-only --write-phase
+	// selects plan / apply / verify when needed. All optional; nil
+	// values coerce to safe-by-default behavior.
 	//
 	//   WriteEnabled       — master switch. When false (default),
-	//                        any --mode=plan|apply|verify is
-	//                        rejected at flag-parse time. YAML-only
-	//                        by design (no --write-enabled CLI flag);
+	//                        --mode=write, REPL /mode write, /write,
+	//                        and /approve are rejected before any
+	//                        write workflow starts. YAML-only by
+	//                        design (no --write-enabled CLI flag);
 	//                        deploy-time configuration, not per-run.
-	//   WriteDefaultMode   — default --mode value when the CLI flag
-	//                        is omitted. Legal values: "read", "plan".
-	//                        "apply" / "verify" are REJECTED here
-	//                        because they are inherently side-effecting
-	//                        and must be opted into per-run via CLI.
-	//                        Empty / nil coerces to "read" at Run
-	//                        entry via PipelineMode.Normalize.
 	//   WriteAutoApproval  — yaml-level default for --auto-apply.
 	//                        Today unused in B0 scope (single-shot
 	//                        L4 gate uses the CLI flag directly).
@@ -1333,7 +1327,6 @@ type RuntimeSettings struct {
 	//                        false (fail-loud on empty + no scaffold
 	//                        authorization, with a clear hint).
 	WriteEnabled         *bool   `yaml:"write_enabled"`
-	WriteDefaultMode     *string `yaml:"write_default_mode"`
 	WriteAutoApproval    *bool   `yaml:"write_auto_approval"`
 	WriteApprovalPolicy  *string `yaml:"write_approval_policy"`
 	WritePlanDir         *string `yaml:"write_plan_dir"`

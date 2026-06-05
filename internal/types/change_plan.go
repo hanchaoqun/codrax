@@ -71,7 +71,7 @@ const (
 // predicate at three layers:
 //
 //   - PlanStore.Save (data layer hard constraint)
-//   - REPL /mode plan switch (UX layer rejection)
+//   - REPL /mode write switch (UX layer rejection)
 //   - REPL banner (cold-start awareness)
 //
 // pending_approval / applied / verify_failed / unverified /
@@ -200,7 +200,7 @@ type IterationRecord struct {
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
 // as .codrax/plans/<id>.json by emit_change_plan.Execute, consumed by
-// the apply stage when the user opts in via --mode=apply --plan-file.
+// the apply stage when the user opts in via --mode=write --write-phase=apply --plan-file.
 //
 // Schema is intentionally minimal for B0 skeleton. B1 will sharpen
 // ChangeUnit (per open question #1) with fields like risk grading,
@@ -212,7 +212,7 @@ type IterationRecord struct {
 //  1. Plan stage: emit_change_plan.Execute writes <id>.json,
 //     WriteClosure.PendingApplies is populated, Status="pending_approval"
 //  2. User approves (REPL /approve or --auto-apply): Status="approved"
-//     and a separate Run() with --mode=apply consumes the file.
+//     and a separate Run() with --mode=write --write-phase=apply consumes the file.
 //  3. Apply stage reads <id>.json, iterates ChangeUnits through
 //     apply_patch tool; sets applied_commit_sha on success.
 //  4. Verify stage runs tests; outcome stored on ChangeReport (below).
@@ -290,7 +290,7 @@ type ChangePlan struct {
 
 	// WorktreePath is the absolute path of the git worktree the
 	// apply stage ran in. Left on disk for user inspection after
-	// --mode=apply finishes; cleaned up by the next
+	// --mode=write --write-phase=apply finishes; cleaned up by the next
 	// worktree.PruneDeadSessions startup reap or explicit REPL
 	// /discard.
 	WorktreePath string `json:"worktree_path,omitempty"`
@@ -350,7 +350,7 @@ type ChangePlan struct {
 	// Mutable.WriteAnalysisIR from this slot at apply-stage entry
 	// when present, falling through to a fresh write_analyzer
 	// dispatch only when the slot is empty (legacy plans / pure
-	// /mode plan flow). Pointer rather than embed so plans
+	// /mode write flow). Pointer rather than embed so plans
 	// emitted before commit 9 stay JSON-compatible (omitempty
 	// elides the field on disk).
 	WriteAnalysisIR *WriteAnalysisIR `json:"write_analysis_ir,omitempty"`
@@ -694,11 +694,11 @@ const (
 // BuildErrors[] to surface concrete file:line targets the LLM /
 // operator can act on.
 type BuildError struct {
-	File    string `json:"file"`              // repo-relative or absolute as printed by the tool
-	Line    int    `json:"line,omitempty"`    // 1-based; 0 = unknown
-	Column  int    `json:"column,omitempty"`  // 1-based; 0 = unknown
-	Symbol  string `json:"symbol,omitempty"`  // optional — e.g. "TS2304" / "AssertionError"
-	Message string `json:"message"`           // the compiler's error text (single line)
+	File    string `json:"file"`             // repo-relative or absolute as printed by the tool
+	Line    int    `json:"line,omitempty"`   // 1-based; 0 = unknown
+	Column  int    `json:"column,omitempty"` // 1-based; 0 = unknown
+	Symbol  string `json:"symbol,omitempty"` // optional — e.g. "TS2304" / "AssertionError"
+	Message string `json:"message"`          // the compiler's error text (single line)
 }
 
 // TestResult is one row in ChangeReport.TestResults. Mirrors the
@@ -1015,7 +1015,7 @@ func PersistAppliedRecoveryOnDisk(path, sha string) error {
 
 // LoadChangePlanFromFile reads a ChangePlan JSON from disk and
 // returns a deserialised *ChangePlan. Called by the orchestrator's
-// the apply stage hook when --mode=apply --plan-file=X needs to install
+// the apply stage hook when --mode=write --write-phase=apply --plan-file=X needs to install
 // the plan on Mutable before the coder agent dispatches.
 //
 // Validation is minimal (non-empty ID, non-nil Changes, reasonable

@@ -74,7 +74,7 @@ func TestPlanClear_ByIDClearsPendingPointerWhenItMatches(t *testing.T) {
 // TestPlanClear_ByIDPreservesPointerWhenIDDiffers covers the
 // inverse: clearing some other plan must NOT zap the pending
 // pointer. Without this guard, deleting a stale rejected plan
-// would silently drop the user's current /mode plan output.
+// would silently drop the user's current /mode write output.
 func TestPlanClear_ByIDPreservesPointerWhenIDDiffers(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	pendingPath, _ := store.SaveForTest(&types.ChangePlan{

@@ -450,7 +450,7 @@ func TestRenderBorderedCompactDoesNotAddExtraBlankLine(t *testing.T) {
 
 // TestBannerCapabilityLine locks the startup banner contract: the
 // user sees write_enabled state + yaml path immediately, in plain
-// text, rather than discovering it via a /mode plan reject deep in
+// text, rather than discovering it via a /mode write reject deep in
 // a session.
 func TestBannerCapabilityLine(t *testing.T) {
 	cases := []struct {
@@ -460,10 +460,10 @@ func TestBannerCapabilityLine(t *testing.T) {
 		path        string
 		mustContain []string
 	}{
-		{"on", "en", true, "/etc/codrax.yaml", []string{"plan", "apply", "verify", "write_enabled=true", "/etc/codrax.yaml"}},
-		{"off", "en", false, "/etc/codrax.yaml", []string{"write_enabled=false", "disabled"}},
-		{"off-no-yaml", "en", false, "", []string{"write_enabled=false"}},
-		{"zh-off", "zh", false, "", []string{"write_enabled=false", "已禁用"}},
+		{"on", "en", true, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write_enabled=true", "/etc/codrax.yaml"}},
+		{"off", "en", false, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write disabled"}},
+		{"off-no-yaml", "en", false, "", []string{"write disabled"}},
+		{"zh-off", "zh", false, "", []string{"write 已禁用"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -517,12 +517,12 @@ func TestChitchatRouteSummary_BothLangs(t *testing.T) {
 // CLI loaded (when known) rather than a generic "in codrax.yaml" that
 // forces the user to hunt through default lookup paths.
 func TestWriteModeDisabled_NamesActualPath(t *testing.T) {
-	got := strings.Join(writeModeDisabled("en", "/mode plan", "/opt/codrax/codrax.yaml"), "\n")
+	got := strings.Join(writeModeDisabled("en", "/mode write", "/opt/codrax/codrax.yaml"), "\n")
 	if !strings.Contains(got, "/opt/codrax/codrax.yaml") {
 		t.Errorf("gate message must name the resolved yaml path; got:\n%s", got)
 	}
 	// No-yaml case names that directly so the user knows to CREATE one.
-	got2 := strings.Join(writeModeDisabled("en", "/mode plan", ""), "\n")
+	got2 := strings.Join(writeModeDisabled("en", "/mode write", ""), "\n")
 	if !strings.Contains(got2, "No codrax.yaml") {
 		t.Errorf("no-yaml case must say so; got:\n%s", got2)
 	}
@@ -533,7 +533,7 @@ func TestWriteModeDisabled_NamesActualPath(t *testing.T) {
 // fresh to write mode does not have to read the docs to find /approve.
 func TestPlanReadyNudge_NamesAllActions(t *testing.T) {
 	got := strings.Join(planReadyNudge("en", "plan-1", 3), "\n")
-	for _, want := range []string{"plan-1", "/plan show", "/approve", "/reject", "/mode read"} {
+	for _, want := range []string{"plan-1", "/plan show", "/approve", "/reject", "/mode auto"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("planReadyNudge missing %q; got:\n%s", want, got)
 		}
@@ -636,16 +636,16 @@ func TestNoPendingPlan_BothLangs(t *testing.T) {
 	if zh == en {
 		t.Error("zh and en should differ")
 	}
-	if !strings.Contains(zh, "/mode plan") || !strings.Contains(en, "/mode plan") {
-		t.Errorf("both should reference /mode plan recovery; zh=%q en=%q", zh, en)
+	if !strings.Contains(zh, "/mode write") || !strings.Contains(en, "/mode write") {
+		t.Errorf("both should reference /mode write recovery; zh=%q en=%q", zh, en)
 	}
 }
 
 func TestModeSwitched_BothLangs(t *testing.T) {
-	if !strings.Contains(modeSwitched("zh", "plan"), "已切换") {
+	if !strings.Contains(modeSwitched("zh", "write"), "已切换") {
 		t.Error("zh missing 已切换")
 	}
-	if !strings.Contains(strings.ToLower(modeSwitched("en", "plan")), "switched") {
+	if !strings.Contains(strings.ToLower(modeSwitched("en", "write")), "switched") {
 		t.Error("en missing 'switched'")
 	}
 }
@@ -742,8 +742,8 @@ func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
 				t.Errorf("/help (%s) missing write-mode group header %q; got:\n%s",
 					lang, wantSubstr, joined)
 			}
-			// Header must precede /mode (first write command).
-			modeIdx := strings.Index(joined, "/mode")
+			// Header must precede /write (first write-only command).
+			modeIdx := strings.Index(joined, "/write")
 			headerIdx := strings.Index(joined, wantSubstr)
 			if headerIdx < 0 || modeIdx < 0 || headerIdx >= modeIdx {
 				t.Errorf("write-mode header should appear BEFORE /mode; got header=%d mode=%d", headerIdx, modeIdx)

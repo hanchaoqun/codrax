@@ -129,7 +129,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 
 ```
    CODRAX  v0.1.x  /help · /exit
-   模式: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   模式: auto · code · operation · data (write 已禁用) · /home/you/tools/codrax/codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -223,7 +223,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 
 ```
    CODRAX  v0.1.x  /help · /exit
-   模式: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   模式: auto · code · operation · data · write (write_enabled=true) · /home/you/.../codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -506,7 +506,7 @@ REPL banner 立即提示:
 
 ```
    CODRAX  v0.1.X  /help · /exit
-   模式: read · plan · apply · verify (write_enabled=true)
+   模式: auto · code · operation · data · write (write_enabled=true)
    记忆: 3 recent + 0 compacted
    🗂  multi-repo: 5 sub-repos (active cap=2); /repos for list / focus / refresh
 ```
@@ -568,7 +568,7 @@ routing fold 通过你提到的子仓名(channel B)+ 关键词语言匹配(chann
 
 #### 🟡 写模式 — 必须 cd 进具体子仓
 
-写模式(`/mode plan|apply|verify`)**禁止**跨子仓 ChangePlan。当前在父目录运行写模式时,plan 阶段如果 LLM emit 的 ChangePlan 触及多个子仓,会 fail-loud:
+写模式(`/mode write` / `/write` / `--mode=write`)**禁止**跨子仓 ChangePlan。当前在父目录运行写模式时,plan 阶段如果 LLM emit 的 ChangePlan 触及多个子仓,会 fail-loud:
 
 ```
 ✗ write blocked: ChangePlan touches 2 sub-repos: api-go, web-frontend — multi-repo write banned by design
@@ -579,8 +579,8 @@ routing fold 通过你提到的子仓名(channel B)+ 关键词语言匹配(chann
 正确做法:
 
 ```bash
-cd ~/workspace/api-go && codrax --mode=apply --request "..."
-cd ~/workspace/web-frontend && codrax --mode=apply --request "..."
+cd ~/workspace/api-go && codrax --mode=write --request "..."
+cd ~/workspace/web-frontend && codrax --mode=write --request "..."
 ```
 
 #### 🔴 用户面板的 disclosure(R3 透明)
@@ -1680,16 +1680,16 @@ codrax 也会保护用户面板和上下文:
 
 **为什么这条规则重要**:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。
 
-实际行为:`/mode plan` 切换时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。
+实际行为:`/mode write` 或 `/write <需求>` 进入写模式时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。
 
 ```
-[git:master]❯❯ /mode plan
+[git:master]❯❯ /mode write
   ✗ 切换被拒:已存在未结算的改动方案 plan-XXXX(状态:applied)。
     新方案要基于当前仓状态生成,先把上一个收尾再来:
       /merge         合并到主仓
       /reject        丢弃改动(保留事后审查记录)
       /plan clear    彻底删除(无审查记录)
-    收尾后再敲 /mode plan。
+    收尾后再敲 /mode write。
 ```
 
 三个结算命令:
@@ -1716,7 +1716,7 @@ codrax 也会保护用户面板和上下文:
 write_enabled: true
 ```
 
-(默认值 false 时,任何 `/mode plan` / `/approve` / `--mode=apply` 都会被礼貌拒绝并指引你改 yaml。)
+(默认值 false 时,任何 `/mode write` / `/write` / `/approve` / `--mode=write` 都会被礼貌拒绝并指引你改 yaml。)
 
 ## 4.2 完整流程
 
@@ -1724,18 +1724,24 @@ write_enabled: true
 
 REPL 实际流程:
 
-### 第 1 步:`/mode plan`,描述要做的事
+### 第 1 步:进入写模式并描述要做的事
 
 ```
-[git:main]❯❯ /mode plan
-  ✓ 已切换到 plan 模式
+[git:main]❯❯ /mode write
+  ✓ 已切换到 write 模式
   •   下一条请求会产生改动方案,不直接回答。
-  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode read 回读模式
+  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回自动模式
 
 [git:main][mode:plan]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 [planner 生成改动方案,~1-3 分钟]
 ✓ 改动方案已就绪: plan-abc123 (3 处改动)。
-  /plan show · /approve · /approve --skip-verify · /reject · /mode read
+  /plan show · /approve · /approve --skip-verify · /reject · /mode auto
+```
+
+也可以只对这一句话强制走写模式,不改变粘滞模式:
+
+```text
+[git:main]❯❯ /write 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 ```
 
 更多虚构的 plan 请求示例(任何项目都能套用):
@@ -1774,10 +1780,10 @@ REPL 实际流程:
   是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
   > y
 [在 .codrax/worktrees/<plan-id>/ 里 git apply + 跑测试]
-✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。
+✓ apply 完成,已自动切回 auto 模式。继续改代码用 /mode write 或 /write。
 ```
 
-注意:批准成功后会**自动切回 read 模式**,你的下一句话默认是问代码,不是再开 plan。要继续改代码:**先把这个 applied 的 plan 收尾**(`/merge` 合到主仓 / `/reject` 丢弃 / `/plan clear` 删除),再 `/mode plan` 才能生成下一个 plan(写模式工作区单一不变量,见上文)。
+注意:批准成功后会**自动切回 auto 模式**,你的下一句话默认会重新由结构化路由判定。要继续改代码:**先把这个 applied 的 plan 收尾**(`/merge` 合到主仓 / `/reject` 丢弃 / `/plan clear` 删除),再 `/mode write` 或 `/write <需求>` 才能生成下一个 plan(写模式工作区单一不变量,见上文)。
 
 `/approve` 自动:
 
@@ -1809,7 +1815,7 @@ REPL 实际流程:
   > y
   ✓ 已在主仓创建分支 feature/refactor-bar,cherry-pick 3 个 commit。
   下一步:cd <主仓> && git push -u origin feature/refactor-bar,然后开 PR。
-  已自动切回 read 模式 — 直接提问就行。再 /mode plan 进入 plan 模式即可继续改代码。
+  已自动切回 auto 模式 — 直接提问即可。再 /mode write 或 /write 进入写模式即可继续改代码。
 ```
 
 | `/merge` 选项 | 行为 |
@@ -1831,7 +1837,7 @@ REPL 实际流程:
 
 **apply 失败**(代码 patch 没打进去 / 写入冲突):
 - 屏幕会打印失败原因 + worktree 保留(`/worktree list` 可看)
-- 推荐做法:`/mode plan` + 把目标说更具体一点重发,planner 通过 `/history` 看到本轮失败摘要;或 `/reject` 弃掉这版重新规划
+- 推荐做法:`/mode write` + 把目标说更具体一点重发,planner 通过 `/history` 看到本轮失败摘要;或 `/reject` 弃掉这版重新规划
 - 也可以直接 `cd` 进 worktree 路径手工调,然后 `/worktree discard <plan-id>` 清掉
 
 **verify 失败**(测试不过):
@@ -1840,7 +1846,7 @@ REPL 实际流程:
 - 本地测试根本起不了(缺依赖、缺数据库等)→ `/approve --skip-verify` 跳过 verify,只 apply
 
 **plan 阶段返回文字回答而不是改动方案**(planner 觉得这是咨询性问题):
-- 屏幕打印一段二选一引导(咨询走 `/mode read`;真改代码就把目标说具体再发)
+- 屏幕打印一段二选一引导(咨询走 `/mode code` 或 `/mode auto`;真改代码就 `/mode write` 后把目标说具体再发)
 - 直接选你需要的路径继续
 
 **目录还不是 git 仓库**(plan / apply 都需要 git 仓):
@@ -1863,7 +1869,7 @@ REPL 实际流程:
 
 **新生成的代码缺第三方依赖**(运行时 `ModuleNotFoundError` / `npm ERR! missing` 等):
 - planner 已被要求在 `summary` 里显式列出新引入的第三方依赖 + 安装命令,**优先按那段提示装**
-- 如果 planner 漏了,直接把报错信息原样贴进 codrax(它会用 LLM 推断该装哪个包),或 `/mode read` 后问 "这个 ModuleNotFoundError 怎么修?"
+- 如果 planner 漏了,直接把报错信息原样贴进 codrax(它会用 LLM 推断该装哪个包),或 `/mode code` 后问 "这个 ModuleNotFoundError 怎么修?"
 
 `/worktree list` / `/worktree discard <plan-id>` 管理保留的 worktree。
 
@@ -2107,7 +2113,6 @@ agents:
 | 键 | 默认 | 作用 |
 |---|---|---|
 | `write_enabled` | `false` | **写模式总闸**;不设 true 任何写命令都拒绝 |
-| `write_default_mode` | `read` | 启动默认模式 |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
@@ -2447,7 +2452,7 @@ operation_skills:
 代码默认值 < codrax.yaml < 命令行 flag
 ```
 
-只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--multi-repo` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--max-prescan-rounds` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color` / `--mermaid-render`。
+只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--multi-repo` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--max-prescan-rounds` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--write-phase` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color` / `--mermaid-render`。
 
 ---
 
@@ -2483,11 +2488,15 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/mermaid <body>` | 把一段 mermaid 代码渲染成 ASCII / 终端预览(独立工具,不走流水线) |
 | `!<shell-cmd>` | 在工作目录执行 shell 命令(单次) |
 
-**写模式专用**(`write_enabled: true` 才能用):
+**模式与写模式**:
 
 | 命令 | 用途 |
 |---|---|
-| `/mode read` / `plan` / `apply` / `verify` | 切换粘滞模式 |
+| `/mode auto` / `code` / `operation` / `data` / `write` | 切换粘滞任务模式;`write` 需要 `write_enabled: true` |
+| `/code <问题>` | 单次强制走代码/源码分析 |
+| `/op <任务>` | 单次强制走电脑操作 |
+| `/data <任务>` | 单次强制走数据处理 |
+| `/write <改动需求>` | 单次强制走写模式;需要 `write_enabled: true` |
 | `/plan show` | 渲染当前 pending plan(per-file diff,16 KB 上限) |
 | `/plan show <id>` | 按 ID 渲染任意 plan |
 | `/plan list` | 列出 PlanStore 里所有 plan |
@@ -2552,8 +2561,9 @@ codrax [flags] [request...]
 | `--htrace-text <inline>` | — | 内联 trace |
 | `--atrace <path>` / `--atrace-text` | — | `--htrace` / `--htrace-text` 的别名 |
 | `--chitchat-classifier[=true|false]` | — | 本次 Run 覆盖 yaml `chitchat_classifier_enabled` |
-| `--mode <read\|plan\|apply\|verify>` | `read` | 流水线模式;非 read 需 `write_enabled=true` |
-| `--auto-apply` | `false` | 单次 `--mode=apply` 必须搭配,跳过交互确认 |
+| `--mode <auto\|code\|operation\|data\|write>` | `auto` | 任务入口;显式 code/operation/data/write 可绕过自动分类 |
+| `--write-phase <plan\|apply\|verify>` | `plan` | 仅 `--mode=write` 生效;选择写模式内部阶段 |
+| `--auto-apply` | `false` | 单次 `--mode=write --write-phase=apply` 必须搭配,跳过交互确认 |
 | `--plan-out <path>` | `.codrax/plans/<id>.json` | plan-mode 落盘路径 |
 | `--plan-file <path>` | — | apply / verify 模式必填:已有 ChangePlan JSON 路径 |
 | `--auto-init-repo` | `false` | 授权把目标目录初始化为 git 仓库(`git init` + 空 commit) |
@@ -2574,14 +2584,23 @@ codrax -r "what does dispatch do?" --lang en
 # 单次 + 切到另一个 yaml
 CODRAX_SETTINGS=/etc/codrax/prod.yaml codrax -r "..."
 
+# 强制代码分析,不走自动分类
+codrax --mode=code -r "这个配置项在哪里定义和消费?"
+
+# 强制电脑操作
+codrax --mode=operation -r "查看当前系统 CPU 和内存信息"
+
+# 强制数据处理
+codrax --mode=data -r "汇总当前目录 CSV 的金额总和,只输出数字"
+
 # 写模式:产 plan + 落盘
-codrax --mode=plan -r "把 foo 拆成两个函数" --plan-out /tmp/plan.json
+codrax --mode=write --write-phase=plan -r "把 foo 拆成两个函数" --plan-out /tmp/plan.json
 
 # 写模式:批准并执行已有 plan(单次,不开 REPL)
-codrax --mode=apply --plan-file=/tmp/plan.json --auto-apply
+codrax --mode=write --write-phase=apply --plan-file=/tmp/plan.json --auto-apply
 
 # 写模式:重跑 verify
-codrax --mode=verify --plan-file=/tmp/plan.json
+codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 ```
 
 CLI 单次模式输出:
@@ -2651,7 +2670,7 @@ CLI 单次模式输出:
 
 ## 8.4 写模式特有
 
-**`/mode plan` 报 `write_enabled is false`**
+**`/mode write` 报 `write_enabled is false`**
 → `codrax.yaml` 加 `write_enabled: true`,重启 codrax。
 
 **`/approve` 报 `target ... is needs_init`**

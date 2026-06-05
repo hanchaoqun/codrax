@@ -19,7 +19,7 @@ import (
 //	/verify <plan-id>  — use the named plan (must live in PlanStore)
 //
 // Uses ModeVerify which the orchestrator already implements
-// (cmd/root.go --mode=verify wires the same path). Requires a plan
+// (cmd/root.go --mode=write --write-phase=verify wires the same path). Requires a plan
 // with a WorktreePath set (preserved via Fix 4's keep-on-success)
 // since verify has to run tests against applied bytes.
 //
@@ -37,7 +37,7 @@ func (r *REPL) handleVerifyCmd(line string) {
 	var planPath string
 	if arg == "" {
 		if r.pendingPlanPath == "" {
-			r.info("No pending plan — supply a plan id (see /plan list) or /mode plan first")
+			r.info("No pending plan — supply a plan id (see /plan list) or /mode write first")
 			return
 		}
 		planPath = r.pendingPlanPath

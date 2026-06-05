@@ -615,7 +615,7 @@ plan_output_hook:
 
 ### 10.3 触发点（可选触发多次）
 
-- `pending_approval`：emit_change_plan 后立即（单 shot 或 REPL `/mode plan` 后）
+- `pending_approval`：emit_change_plan 后立即（单 shot 或 REPL `/mode write` 后）
 - `applied`：`PlanStatus` 翻成 `applied` 时（apply + verify 都成功）
 - `verify_failed`：apply 成功但 verify 挂了时，如果客户想收"部分成功"通知
 
@@ -718,7 +718,7 @@ curl -X POST \
 
 **Case 2 —— plan 导出 hook**
 - fixture: 现有 patch_typo_go + 一个 hook 脚本把 plan.json 写到临时文件
-- eval case: `--mode=apply --auto-apply ...`
+- eval case: `--mode=write --write-phase=apply --auto-apply ...`
 - 期望：apply 后临时文件存在，内容是 plan.json
 
 ### 12.3 压测 / 边界

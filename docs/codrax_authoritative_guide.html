@@ -798,7 +798,7 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
 
           <h3>路径四 · 写模式闭环</h3>
           <p>已经明确要改什么时用。进入改动 / 验证阶段时，所有写入都只发生在沙箱工作区。</p>
-          <pre><code>codrax --mode=plan -r "修复回调幂等问题并补测试" --plan-out plan.json</code></pre>
+          <pre><code>codrax --mode=write -r "修复回调幂等问题并补测试" --plan-out plan.json</code></pre>
 
           <div class="note">
             <p><span class="note-label">建议：</span>把交互控制台当成探索工作台，把单次请求 <code>-r</code> 当成稳定分析入口。
@@ -852,7 +852,7 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
           </div>
 
           <div class="note">
-            <p><span class="note-label">写模式起手式：</span><code>/mode plan</code> 先生成计划和差异预览 →
+            <p><span class="note-label">写模式起手式：</span><code>/mode write</code> 先生成计划和差异预览 →
             <code>/approve</code> 后才进入改动 + 验证 → 失败可回灌计划器，成功可保留沙箱工作区继续复核。</p>
           </div>
         </section>

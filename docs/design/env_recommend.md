@@ -900,7 +900,7 @@ const (
   2) 手动 init(2 秒,无副作用):
      !git -C /tmp/foo init && git -C /tmp/foo add -A && git -C /tmp/foo commit -m "initial"
 
-完成后再次 /approve 或 --mode=apply。
+完成后再次 /approve 或 --mode=write --write-phase=apply。
 ```
 
 ### 19.4 复用 LLM 兜底吗?

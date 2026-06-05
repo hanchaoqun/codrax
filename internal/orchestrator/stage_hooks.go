@@ -116,7 +116,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		// unprofessional.
 		//
 		// SetResultPlain still bypasses glamour because the message
-		// contains identifier-shaped tokens (`/mode read` etc.)
+		// contains identifier-shaped tokens (`/mode auto` etc.)
 		// that chroma's tokenizer would otherwise fragment.
 		msg := plannerProseFallbackMessage(o.busCtx)
 		o.busCtx.Mutable.SetResultPlain(msg)
@@ -502,7 +502,7 @@ func applyPreHook(o *Orchestrator) error {
 				o.busCtx.Mutable.SetResultPlain(msg)
 				return fmt.Errorf("%s", msg)
 			}
-			// Apply-tier scaffold gate. Single-shot `--mode=apply
+			// Apply-tier scaffold gate. Single-shot `--mode=write --write-phase=apply
 			// --plan-file=X` against an empty bare dir must NOT
 			// silently scaffold just because init was authorized;
 			// the same two-permission split planPreHook enforces
@@ -761,7 +761,7 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 // verifyPreHook prepares the verify stage. Two responsibilities:
 //
 //  1. Load the ChangePlan from disk when ModeVerify runs standalone
-//     (`--mode=verify --plan-file=X` or REPL `/verify <id>`). In
+//     (`--mode=write --write-phase=verify --plan-file=X` or REPL `/verify <id>`). In
 //     ModeApply the plan is already on Mutable from the apply pre-
 //     hook or the planner stage; only standalone verify needs to
 //     hydrate it. Skipped when ChangePlan is already set.
@@ -792,7 +792,7 @@ func verifyPreHook(o *Orchestrator) error {
 		// recorded (preserved via pipeline_keep_worktree_on_success
 		// during the original apply), and the orchestrator wasn't
 		// explicitly told to reuse a different path, use the plan's
-		// own recorded worktree. This makes `--mode=verify
+		// own recorded worktree. This makes `--mode=write --write-phase=verify
 		// --plan-file=X` work the same way as REPL `/verify <id>`
 		// without forcing the CLI user to discover the worktree
 		// path manually.

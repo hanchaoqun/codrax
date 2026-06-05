@@ -188,26 +188,31 @@ var (
 	// unaffected — its renderer is always on.
 	flagMermaidRender bool
 
-	// B0 write-mode CLI flags. See resolveWriteMode for merge and
-	// validation rules.
+	// User-mode and write-phase CLI flags. `--mode` is the
+	// user-facing lane selector; write sub-stages live behind
+	// `--write-phase` so operation/data/code escape hatches do not
+	// collide with the internal write workflow.
 	//
-	//   --mode        — read | plan | apply | verify. Empty (default)
-	//                   coerces to "read" via PipelineMode.Normalize.
-	//   --auto-apply  — required when --mode=apply is used in single-
-	//                   shot (i.e. with --request). Acts as explicit
+	//   --mode         — auto | code | operation | data | write.
+	//                    Empty/default = auto classifier.
+	//   --write-phase  — plan | apply | verify. Only valid with
+	//                    --mode=write; default plan.
+	//   --auto-apply  — required when --mode=write --write-phase=apply
+	//                   is used in single-shot (i.e. with --request). Acts as explicit
 	//                   approval of the resulting ChangePlan without
 	//                   an interactive prompt.
 	//   --plan-out    — plan-mode output file path. When set, the
 	//                   ChangePlan JSON writes here instead of the
 	//                   default .codrax/plans/<id>.json.
 	//   --plan-file   — apply/verify input plan file. REQUIRED when
-	//                   --mode is apply or verify — those modes
-	//                   consume an existing plan, they do not produce
-	//                   one.
-	flagMode      string
-	flagAutoApply bool
-	flagPlanOut   string
-	flagPlanFile  string
+	//                   --write-phase is apply or verify — those
+	//                   phases consume an existing plan, they do
+	//                   not produce one.
+	flagMode       string
+	flagWritePhase string
+	flagAutoApply  bool
+	flagPlanOut    string
+	flagPlanFile   string
 	// flagAutoInitRepo authorizes the orchestrator to run `git init`
 	// + an empty initial commit when the target repo is bare or has
 	// no HEAD. Symmetric with --auto-apply: the user must explicitly
@@ -374,6 +379,8 @@ var maxAttachedTraceBytes = defaultAttachedLogMaxBytes
 type appContext struct {
 	renderer               *render.Renderer
 	orch                   *orchestrator.Orchestrator
+	userMode               repl.UserMode
+	writePhase             types.PipelineMode
 	mcpRegistry            *mcp.Registry
 	defaultLLM             llm.Adapter
 	memorySummarizerLLM    llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
@@ -400,7 +407,7 @@ type appContext struct {
 	operationSkillConfigs  []types.OperationSkillConfig
 	operationCommandPolicy operation.CommandPolicy
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
-	// the REPL Config so /mode plan|apply|verify and /approve can be
+	// the REPL Config so /mode write, /write, and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
 	// at the yaml knob, instead of dispatching and surfacing a confusing
 	// analyzer / planner failure deep inside the pipeline.
@@ -554,13 +561,14 @@ func init() {
 	// B6 (block_only_carrier.md, 2026-05-03) — V2 carrier per-run override.
 	// auto = follow yaml pipeline_emit_v2_default (default true at B6).
 	// on = force V2 carrier; off = force V1 (rollback). Removed at B8-T7.
-	// B0 write-mode flags. Gated by codrax.yaml :: write_enabled
-	// (default false) — registering the flags always is fine because
-	// resolveWriteMode validates the combination before orch.SetMode.
-	f.StringVar(&flagMode, "mode", "", "pipeline mode: read|plan|apply|verify (empty = read; requires codrax.yaml :: write_enabled=true for non-read modes)")
-	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=apply in single-shot)")
+	// User mode selects the task lane. Write phases are separated so
+	// `/mode data` / `--mode operation` can bypass the classifier
+	// without colliding with internal plan/apply/verify phases.
+	f.StringVar(&flagMode, "mode", "auto", "task mode: auto|code|operation|data|write")
+	f.StringVar(&flagWritePhase, "write-phase", "plan", "write mode phase: plan|apply|verify (only valid with --mode=write)")
+	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=write --write-phase=apply in single-shot)")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
-	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=apply|verify)")
+	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=write --write-phase=apply|verify)")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
 
@@ -620,6 +628,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"log-source-prefix":         {},
 	"chitchat-classifier":       {},
 	"mode":                      {},
+	"write-phase":               {},
 	"auto-apply":                {},
 	"plan-out":                  {},
 	"plan-file":                 {},
@@ -712,14 +721,14 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
 	}
 
-	// Apply / verify single-shot fallback: when --mode=apply or
-	// --mode=verify is supplied with --plan-file but NO --request, the
-	// natural intent is "run apply/verify on this saved plan", not
-	// "open the REPL." Hydrate the request from the plan file so
-	// runSingleShot can dispatch with a meaningful prompt.
-	if request == "" && flagPlanFile != "" {
-		mode := strings.TrimSpace(flagMode)
-		if mode == string(types.ModeApply) || mode == string(types.ModeVerify) {
+	// Apply / verify single-shot fallback: when --mode=write with
+	// --write-phase=apply|verify is supplied with --plan-file but NO
+	// --request, the natural intent is "run apply/verify on this saved
+	// plan", not "open the REPL." Hydrate the request from the plan file
+	// so runSingleShot can dispatch with a meaningful prompt.
+	if request == "" && flagPlanFile != "" && app.userMode == repl.UserModeWrite {
+		mode := app.writePhase
+		if mode == types.ModeApply || mode == types.ModeVerify {
 			if plan, perr := types.LoadChangePlanFromFile(flagPlanFile); perr == nil && plan != nil {
 				request = strings.TrimSpace(plan.Request)
 				if request == "" {
@@ -927,27 +936,21 @@ func truncateAttachedToCap(s string, cap int, kind string) string {
 	return s[:cap]
 }
 
-// writeModeInputs groups the parameters resolveWriteMode inspects
-// so the function stays pure (no global-state access) and the unit
-// tests can exercise every combination without constructing a full
-// RuntimeSettings + cobra.Command. initApp assembles this struct
-// from rs + flag values and hands it off.
-type writeModeInputs struct {
+// modeResolutionInputs groups the parameters resolveUserModeAndWritePhase
+// inspects so the function stays pure (no global-state access) and tests can
+// exercise every combination without constructing RuntimeSettings + cobra.
+type modeResolutionInputs struct {
 	// YamlEnabled is codrax.yaml :: write_enabled. nil = field
 	// absent in yaml (fall through to default false).
 	YamlEnabled *bool
-	// YamlDefaultMode is codrax.yaml :: write_default_mode. nil =
-	// field absent (fall through to empty, which Normalize coerces
-	// to ModeRead at Run entry).
-	YamlDefaultMode *string
-	// CLIFlagPassed is cmd.Flags().Changed("mode") — true iff the
-	// user typed --mode on the command line, even with the same
-	// value as yaml. Distinguishes "CLI explicitly read" from
-	// "CLI defaulted to yaml value".
-	CLIFlagPassed bool
-	// CLIFlagMode is the --mode flag string (empty when
-	// CLIFlagPassed=false).
+	// CLIFlagMode is the user-facing --mode flag string. Empty means
+	// "auto" (classifier decides the lane).
 	CLIFlagMode string
+	// CLIWritePhase is --write-phase. It is only meaningful when
+	// CLIFlagMode resolves to "write".
+	CLIWritePhase string
+	// CLIWritePhasePassed is true iff the user typed --write-phase.
+	CLIWritePhasePassed bool
 	// HasRequest indicates single-shot invocation (flagRequest or
 	// positional arg is non-empty). REPL mode passes false, and
 	// the L4 single-shot-apply-needs-auto-apply validation is
@@ -961,103 +964,58 @@ type writeModeInputs struct {
 	PlanFile string
 }
 
-// resolveWriteMode merges yaml + CLI into a final PipelineMode and
-// validates the combination. Errors are terminal — the caller
-// (initApp) returns them to cobra which prints and exits before any
-// Run() starts.
+// resolveUserModeAndWritePhase validates the user-facing task mode and maps it
+// to the internal PipelineMode only when the user selected write mode.
 //
-// Precedence (lowest → highest): code default ("" → ModeRead at
-// Run entry) → yaml write_default_mode → CLI --mode. Each tier only
-// overrides when it holds a non-empty value; an empty CLI flag
-// (default) falls back to yaml, which falls back to "".
+// User-facing modes:
 //
-// Validation rules, evaluated in order:
+//	auto      — classifier decides between code / operation / data / local
+//	code      — force the normal code-analysis pipeline
+//	operation — force the command/operation pipeline
+//	data      — force the data-processing pipeline
+//	write     — force write workflow; --write-phase selects plan/apply/verify
 //
-//  1. If CLIFlagMode is non-empty, it must parse to a valid
-//     PipelineMode (read / plan / apply / verify). Unknown values
-//     are rejected with "unknown mode".
-//
-//  2. If YamlDefaultMode is non-empty, same validity check. Plus
-//     a yaml-specific rule: the defaults "apply" and "verify" are
-//     rejected because those modes have real side effects (git
-//     worktree creation, test execution) and must be opted into
-//     per-run via --mode rather than silently enabled by a shared
-//     config file.
-//
-//  3. If the resolved mode is a write mode (plan / apply / verify)
-//     and YamlEnabled is nil-or-false, the whole configuration is
-//     rejected with "write mode disabled". This is the L2 red line
-//     in session 33's B0 plan — operators must explicitly opt in
-//     via codrax.yaml :: write_enabled: true before any non-read
-//     mode can run.
-//
-//  4. If HasRequest (single-shot) AND the resolved mode is
-//     ModeApply AND AutoApply is false, reject. The L4 red line:
-//     apply runs real side effects, so the single-shot workflow
-//     must confirm with --auto-apply. REPL mode skips this check
-//     because /approve provides interactive confirmation.
-//
-//  5. If the resolved mode is ModeApply or ModeVerify, PlanFile
-//     must be non-empty — those modes consume an existing plan,
-//     they do not produce one.
-//
-// On success returns the effective PipelineMode (possibly "" for
-// the default read case; caller passes it to orch.SetMode which
-// normalizes at Run entry).
-func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
-	// Tier resolution.
+// This function deliberately does not infer intent from user prose. It consumes
+// only explicit CLI flags and yaml write_enabled.
+func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types.PipelineMode, error) {
 	yamlEnabled := false
 	if in.YamlEnabled != nil {
 		yamlEnabled = *in.YamlEnabled
 	}
 
-	// Start with code default (empty).
-	mode := types.PipelineMode("")
-
-	// Apply yaml default.
-	if in.YamlDefaultMode != nil {
-		ymode := types.PipelineMode(strings.TrimSpace(*in.YamlDefaultMode))
-		if ymode != "" {
-			if !ymode.IsValid() {
-				return "", fmt.Errorf("codrax.yaml write_default_mode invalid: %q (must be one of: read, plan)", string(ymode))
-			}
-			if ymode == types.ModeApply || ymode == types.ModeVerify {
-				return "", fmt.Errorf("codrax.yaml write_default_mode cannot be %q (apply/verify require per-run --mode flag; set to 'read' or 'plan' instead)", string(ymode))
-			}
-			mode = ymode
+	userMode, err := repl.ParseUserMode(in.CLIFlagMode)
+	if err != nil {
+		return "", "", err
+	}
+	userMode = userMode.Normalize()
+	if userMode != repl.UserModeWrite {
+		if in.CLIWritePhasePassed {
+			return "", "", fmt.Errorf("--write-phase is only valid with --mode=write")
 		}
-	}
-
-	// Apply CLI override.
-	if in.CLIFlagPassed {
-		cmode := types.PipelineMode(strings.TrimSpace(in.CLIFlagMode))
-		if cmode != "" {
-			if !cmode.IsValid() {
-				return "", fmt.Errorf("unknown pipeline mode %q (must be one of: read, plan, apply, verify)", string(cmode))
-			}
-			mode = cmode
-		} else {
-			// Explicit --mode="" means "revert to empty / read".
-			mode = ""
+		if strings.TrimSpace(in.PlanFile) != "" {
+			return "", "", fmt.Errorf("--plan-file is only valid with --mode=write --write-phase=apply|verify")
 		}
+		return userMode, types.ModeRead, nil
 	}
 
-	// Write-enabled gate (L2).
-	if !yamlEnabled && mode.IsWrite() {
-		return "", fmt.Errorf("write mode disabled in codrax.yaml (write_enabled: false or unset); cannot use --mode=%s", string(mode))
+	phase := types.PipelineMode(strings.ToLower(strings.TrimSpace(in.CLIWritePhase)))
+	if phase == "" || phase == types.ModeRead {
+		phase = types.ModePlan
+	}
+	if phase != types.ModePlan && phase != types.ModeApply && phase != types.ModeVerify {
+		return "", "", fmt.Errorf("unknown write phase %q (must be one of: plan, apply, verify)", string(phase))
+	}
+	if !yamlEnabled {
+		return "", "", fmt.Errorf("write mode disabled: set write_enabled: true in codrax.yaml before using --mode=write")
+	}
+	if in.HasRequest && phase == types.ModeApply && !in.AutoApply {
+		return "", "", fmt.Errorf("--mode=write --write-phase=apply in single-shot (--request) requires --auto-apply for approval")
+	}
+	if (phase == types.ModeApply || phase == types.ModeVerify) && strings.TrimSpace(in.PlanFile) == "" {
+		return "", "", fmt.Errorf("--mode=write --write-phase=%s requires --plan-file <path>", string(phase))
 	}
 
-	// Single-shot apply needs --auto-apply (L4).
-	if in.HasRequest && mode == types.ModeApply && !in.AutoApply {
-		return "", fmt.Errorf("--mode=apply in single-shot (--request) requires --auto-apply for approval")
-	}
-
-	// Apply / verify need a plan file.
-	if (mode == types.ModeApply || mode == types.ModeVerify) && strings.TrimSpace(in.PlanFile) == "" {
-		return "", fmt.Errorf("--mode=%s requires --plan-file <path>", string(mode))
-	}
-
-	return mode, nil
+	return userMode, phase, nil
 }
 
 // runSingleShot executes one pipeline run and prints the result.
@@ -1068,7 +1026,10 @@ func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
 	app.renderer.SetOutput(os.Stderr)
-	routePolicy, routePolicyOK := classifySingleShotRoutePolicy(request)
+	routePolicy, routePolicyOK := explicitSingleShotRoutePolicy()
+	if !routePolicyOK {
+		routePolicy, routePolicyOK = classifySingleShotRoutePolicy(request)
+	}
 	// Single-shot CLI: ship mermaid source as-is in the default
 	// path so output piped to file / markdown viewer / mermaid-cli
 	// stays authoritative. The render hook is intentionally NOT
@@ -1170,7 +1131,22 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	return nil
 }
 
+func explicitSingleShotRoutePolicy() (repl.TurnPolicy, bool) {
+	if app.userMode == "" {
+		app.userMode = repl.UserModeAuto
+	}
+	switch app.userMode.Normalize() {
+	case repl.UserModeAuto, repl.UserModeWrite:
+		return repl.TurnPolicy{}, false
+	default:
+		return app.userMode.TurnPolicy()
+	}
+}
+
 func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
+	if app.userMode.Normalize() != repl.UserModeAuto {
+		return repl.TurnPolicy{}, false
+	}
 	if !singleShotRoutePolicyEnabled() {
 		return repl.TurnPolicy{}, false
 	}
@@ -1209,12 +1185,15 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 }
 
 func maybeRunSingleShotOperation(request string, policy repl.TurnPolicy, classified bool) (bool, string, error) {
-	if !classified || !singleShotOperationRoutingEnabled() {
+	if !classified {
 		return false, "", nil
 	}
 	ctx := context.Background()
 	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess || !repl.IsConcreteOperationPolicy(policy) {
 		return false, "", nil
+	}
+	if !singleShotOperationRoutingEnabled() {
+		return true, "", fmt.Errorf("operation mode requested but operation pipeline is not configured")
 	}
 	result, err := repl.RunCommandOperationCLI(ctx, request, policy, repl.CommandOperationCLIConfig{
 		Planner:       app.operationPlanner,
@@ -1232,12 +1211,15 @@ func maybeRunSingleShotOperation(request string, policy repl.TurnPolicy, classif
 }
 
 func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classified bool) (bool, string, error) {
-	if !classified || !singleShotDataTaskRoutingEnabled() {
+	if !classified {
 		return false, "", nil
 	}
 	ctx := context.Background()
 	if policy.Route != repl.RouteData || !policy.NeedsDataAccess {
 		return false, "", nil
+	}
+	if !singleShotDataTaskRoutingEnabled() {
+		return true, "", fmt.Errorf("data mode requested but data pipeline is not configured")
 	}
 	candidates, err := dataquery.DiscoverCandidateFiles(flagRepo, 240)
 	if err != nil {
@@ -1307,11 +1289,7 @@ func replDataTaskBlockedForCLI(plan dataquery.TaskPlan) string {
 }
 
 func singleShotOperationRoutingEnabled() bool {
-	if !app.operationRouteEnabled || app.operationPlanner == nil || app.chitchatClassifier == nil {
-		return false
-	}
-	mode := strings.ToLower(strings.TrimSpace(flagMode))
-	return mode == "" || mode == string(types.ModeRead)
+	return app.operationRouteEnabled && app.operationPlanner != nil
 }
 
 func singleShotRoutePolicyEnabled() bool {
@@ -1320,11 +1298,7 @@ func singleShotRoutePolicyEnabled() bool {
 }
 
 func singleShotDataTaskRoutingEnabled() bool {
-	if app.dataTaskPlanner == nil || app.chitchatClassifier == nil {
-		return false
-	}
-	mode := strings.ToLower(strings.TrimSpace(flagMode))
-	return mode == "" || mode == string(types.ModeRead)
+	return app.dataTaskPlanner != nil
 }
 
 func singleShotHasRuntimeAttachment() bool {
@@ -1458,6 +1432,7 @@ func runREPL(_ *cobra.Command) error {
 		OutputDumpMax:          app.outputDumpMax,
 		ChitchatResponder:      app.chitchatResponder,
 		ChitchatClassifier:     app.chitchatClassifier,
+		UserMode:               app.userMode,
 		OperationEnabled:       app.operationRouteEnabled,
 		OperationProviders:     append([]operation.ProviderInfo(nil), app.operationProviders...),
 		OperationPlanner:       app.operationPlanner,
@@ -3530,7 +3505,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 
 	// Stage 3 (commit 40): per-repo Failure Taxonomy wiring.
 	// Lifted out of runREPL into initApp so the single-shot CLI
-	// path (`--mode=apply --plan-file=...`) ALSO gets cross-Run
+	// path (`--mode=write --write-phase=apply --plan-file=...`) ALSO gets cross-Run
 	// learning when --cache-dir is set. Pre-commit-40 the
 	// wiring lived inside runREPL only; runSingleShot bypassed
 	// it entirely + every CLI run paid the LLM emit-tokens cost
@@ -3620,12 +3595,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// B0 write-mode resolution. Assemble inputs from yaml + CLI,
-	// validate via the pure resolveWriteMode, and install the result
-	// on the orchestrator. Errors here are terminal — an invalid
-	// --mode combination aborts before any Run() can start, so the
-	// user sees a clean cobra error message rather than a runtime
-	// failure from the orchestrator's default switch branch.
+	// User-mode + write-phase resolution. `--mode` selects the task
+	// lane; only `--mode=write` maps to the orchestrator's internal
+	// plan/apply/verify PipelineMode. Errors here are terminal — an
+	// invalid flag combination aborts before any Run() can start.
 	//
 	// Single-shot detection: flagRequest is the --request / -r flag;
 	// cobra passes the positional request into initApp's args before
@@ -3633,16 +3606,16 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// write-mode validation and startup-only REPL notices do not
 	// accidentally treat positional single-shot CLI as interactive.
 	hasRequest := strings.TrimSpace(flagRequest) != "" || len(args) > 0
-	writeInputs := writeModeInputs{
-		CLIFlagPassed: cmd.Flags().Changed("mode"),
-		CLIFlagMode:   flagMode,
-		HasRequest:    hasRequest,
-		AutoApply:     flagAutoApply,
-		PlanFile:      flagPlanFile,
+	modeInputs := modeResolutionInputs{
+		CLIFlagMode:         flagMode,
+		CLIWritePhase:       flagWritePhase,
+		CLIWritePhasePassed: cmd.Flags().Changed("write-phase"),
+		HasRequest:          hasRequest,
+		AutoApply:           flagAutoApply,
+		PlanFile:            flagPlanFile,
 	}
 	if rs != nil {
-		writeInputs.YamlEnabled = rs.WriteEnabled
-		writeInputs.YamlDefaultMode = rs.WriteDefaultMode
+		modeInputs.YamlEnabled = rs.WriteEnabled
 	}
 	// Cache the resolved yaml gate on app so the REPL Config can
 	// forward it to repl.New. nil pointer (yaml absent OR field
@@ -3673,12 +3646,17 @@ func initApp(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(settingsPath); err == nil {
 		app.settingsPath = settingsPath
 	}
-	effectiveMode, err := resolveWriteMode(writeInputs)
+	userMode, effectiveMode, err := resolveUserModeAndWritePhase(modeInputs)
 	if err != nil {
 		return err
 	}
-	if effectiveMode != "" && effectiveMode != types.ModeRead {
-		logging.Info("[cmd] pipeline mode: %s", string(effectiveMode))
+	app.userMode = userMode
+	app.writePhase = effectiveMode
+	if userMode != repl.UserModeAuto {
+		logging.Info("[cmd] user mode: %s", string(userMode))
+	}
+	if userMode == repl.UserModeWrite {
+		logging.Info("[cmd] write phase: %s", string(effectiveMode))
 	}
 	// Absolutize plan file paths so downstream tools (Day 5) see a
 	// canonical form regardless of the user's CWD.

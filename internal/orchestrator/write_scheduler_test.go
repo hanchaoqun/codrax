@@ -434,7 +434,7 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 	// is bilingual; assert one of the actionable verbs is present.
 	rem := busCtx.TaskState.LastError
 	hasHint := strings.Contains(rem, "auto-init-repo") ||
-		strings.Contains(rem, "/mode read") ||
+		strings.Contains(rem, "/mode auto") ||
 		strings.Contains(rem, "stronger model") ||
 		strings.Contains(rem, "更强的模型") ||
 		strings.Contains(rem, "空仓库")

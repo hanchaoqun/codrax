@@ -3668,9 +3668,9 @@ func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) st
 
 	// Next step — one short line.
 	if zh {
-		b.WriteString("下一步:`/mode plan` 后再发请求,失败上下文会自动带进去。")
+		b.WriteString("下一步:`/mode write` 后再发请求,失败上下文会自动带进去。")
 	} else {
-		b.WriteString("Next: `/mode plan` and re-send the request; failure context is carried in automatically.")
+		b.WriteString("Next: `/mode write` and re-send the request; failure context is carried in automatically.")
 	}
 	return b.String()
 }

@@ -118,12 +118,12 @@ func TestNormalizeREPLCommandAlias(t *testing.T) {
 		{"\\help", "/help"},
 		{"/history now", "/history now"},
 		{"how does explorer work", ""},
-		// Write-mode commands (session 35 fix for the pre-existing
-		// drift bug). Every one of these was handled by
-		// handleSlash's switch but absent from this alias map — the
-		// real REPL Loop treated them as pipeline questions.
+		// User-mode and write commands. /mode accepts only the new
+		// user-facing values at execution time; prefix normalization
+		// still keeps invalid /mode payloads out of the pipeline.
 		{"/mode", "/mode"},
-		{"/mode plan", "/mode plan"},
+		{"/mode write", "/mode write"},
+		{"/write fix typo", "/write fix typo"},
 		{"/plan", "/plan"},
 		{"/plan show", "/plan show"},
 		{"/approve", "/approve"},

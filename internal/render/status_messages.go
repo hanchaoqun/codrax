@@ -135,7 +135,7 @@ const (
 //     finalizer needs out of the explore transcript.
 //  5. finalize (StageFinalize) renders the final answer prose.
 //
-// Write mode (when --mode=plan|apply|verify):
+// Write mode (when --mode=write or REPL /mode write):
 //  1. analyze still runs as a classifier.
 //  2. plan (StagePlan) drafts a ChangePlan.
 //  3. apply (StageApply) applies patches inside a worktree.

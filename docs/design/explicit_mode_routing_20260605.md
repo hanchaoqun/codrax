@@ -70,17 +70,16 @@ only the classifier for that turn and do not mutate sticky mode.
 ## Task Ledger
 
 - [x] Write this design and task ledger.
-- [ ] Add typed user-facing mode enum and helpers.
-- [ ] Rework CLI `--mode` to accept `auto|code|operation|data|write`.
-- [ ] Add CLI `--write-phase plan|apply|verify` and map it to internal
+- [x] Add typed user-facing mode enum and helpers.
+- [x] Rework CLI `--mode` to accept `auto|code|operation|data|write`.
+- [x] Add CLI `--write-phase plan|apply|verify` and map it to internal
       `PipelineMode` only when `--mode=write`.
-- [ ] Make single-shot CLI construct typed route policies directly for
+- [x] Make single-shot CLI construct typed route policies directly for
       explicit `code|operation|data|write`.
-- [ ] Rework REPL sticky `/mode` to use the user-facing mode axis.
-- [ ] Add REPL one-shot `/code`, `/op`, `/data`, `/write`.
-- [ ] Update REPL banner and help text.
-- [ ] Refresh README and user guide without historical process notes.
-- [ ] Add tests for CLI mode parsing, REPL sticky modes, one-shot slash modes,
+- [x] Rework REPL sticky `/mode` to use the user-facing mode axis.
+- [x] Add REPL one-shot `/code`, `/op`, `/data`, `/write`.
+- [x] Update REPL banner and help text.
+- [x] Refresh README and user guide without historical process notes.
+- [x] Add tests for CLI mode parsing, REPL sticky modes, one-shot slash modes,
       and safety gates.
-- [ ] Run focused and full tests, then push.
-
+- [x] Run focused and full tests, then push.

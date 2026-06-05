@@ -96,7 +96,7 @@ func scaffoldAuthorizationMessage(ctx *types.BusContext) string {
 		fmt.Fprintf(&b, "目录 %s 是空的。从零创建新项目需要单独授权才能允许凭空生成文件,请任选一种授权方式:\n\n", repo)
 		b.WriteString("  • 永久授权:在配置文件里设 write_scaffold_enabled: true\n")
 		b.WriteString("  • 仅本次:启动时加 --allow-scaffold\n")
-		b.WriteString("\n这一项默认关闭,是为了避免在你没明确同意时擅自创建文件。如果你只是想把已有代码所在的目录变成 git 仓库,把源文件放进来再试;或者改用 /mode read 先看现有内容。")
+		b.WriteString("\n这一项默认关闭,是为了避免在你没明确同意时擅自创建文件。如果你只是想把已有代码所在的目录变成 git 仓库,把源文件放进来再试;或者改用 /mode auto 先看现有内容。")
 		b.WriteString("\n授权后请重新发送同样的请求。")
 		return b.String()
 	}
@@ -104,7 +104,7 @@ func scaffoldAuthorizationMessage(ctx *types.BusContext) string {
 	fmt.Fprintf(&b, "Directory %s is empty. Creating a new project from scratch requires a separate authorization to allow files to be generated from nothing. Pick ONE:\n\n", repo)
 	b.WriteString("  • permanent: set write_scaffold_enabled: true in your config file\n")
 	b.WriteString("  • this run only: pass --allow-scaffold at startup\n")
-	b.WriteString("\nThis is off by default so files are never fabricated without explicit consent. If you only meant to turn a directory with existing code into a git repo, drop your source files in first and retry; or switch to /mode read to inspect what is already there.")
+	b.WriteString("\nThis is off by default so files are never fabricated without explicit consent. If you only meant to turn a directory with existing code into a git repo, drop your source files in first and retry; or switch to /mode auto to inspect what is already there.")
 	b.WriteString("\nThen re-send the same request.")
 	return b.String()
 }

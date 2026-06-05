@@ -90,7 +90,7 @@ func TestVerifyPreHook_RejectsReusePathThatIsAFile(t *testing.T) {
 	}
 }
 
-// CLI `--mode=verify --plan-file=X` should auto-pick up the worktree
+// CLI `--mode=write --write-phase=verify --plan-file=X` should auto-pick up the worktree
 // path from the on-disk plan (no explicit SetReuseWorktreePath call).
 // This mirrors REPL `/verify <id>` behaviour without forcing the CLI
 // user to discover the worktree path manually.

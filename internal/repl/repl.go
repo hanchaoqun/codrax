@@ -280,6 +280,10 @@ type Config struct {
 	// `chitchat_classifier_enabled: true`. Fail-safe: any classifier
 	// error routes to the pipeline unchanged.
 	ChitchatClassifier ChitchatClassifier
+	// UserMode is the explicit user-facing task lane. Auto preserves the
+	// existing classifier-driven route; code/operation/data/write bypass
+	// classification for users who know which lane they want.
+	UserMode UserMode
 
 	// OperationEnabled is the feature gate for the future independent
 	// computer-operation / artifact-generation route. Batch 1 wires only
@@ -358,10 +362,10 @@ type Config struct {
 	SettingsPath string
 
 	// WriteEnabled mirrors codrax.yaml :: write_enabled. Gates every
-	// REPL transition into a non-read mode (`/mode plan|apply|verify`,
+	// REPL transition into a non-read mode (`/mode write|apply|verify`,
 	// `/approve`). When false, the REPL refuses the transition with a
 	// clear error pointing at the yaml knob — the alternative was the
-	// pre-fix silent state where /mode plan accepted, the planner
+	// pre-fix silent state where /mode write accepted, the planner
 	// dispatched, the analyzer failed in a confusing way ("hypothesis
 	// coverage" / "context canceled"), and the user had no idea
 	// write_enabled was the cause. cmd/root.go forwards
@@ -624,8 +628,13 @@ type REPL struct {
 	// dispatch calls runner.SetMode(currentMode) before Run so
 	// the orchestrator sees the up-to-date value. The REPL never
 	// auto-downgrades — once user enters plan mode they stay there
-	// until explicit /mode read.
+	// until explicit /mode auto.
 	currentMode types.PipelineMode
+
+	// userMode is the sticky user-facing task lane. Auto preserves the
+	// classifier-driven route; code/operation/data/write are explicit
+	// escape hatches that do not parse raw user prose.
+	userMode UserMode
 
 	// settingsPath is the resolved codrax.yaml path (or "" when no
 	// yaml was found / loaded). Surfaced verbatim by the write_enabled
@@ -642,7 +651,7 @@ type REPL struct {
 	echoTag string
 
 	// writeEnabled mirrors Config.WriteEnabled. Read by handleModeCmd
-	// (rejects `/mode plan|apply|verify`) and by handleApprove (rejects
+	// (rejects `/mode write|apply|verify`) and by handleApprove (rejects
 	// /approve) so a user with `write_enabled: false` in codrax.yaml
 	// gets a clean error at the slash-command surface instead of a
 	// confusing analyzer/planner failure deep inside the pipeline.
@@ -794,6 +803,7 @@ func New(cfg Config) *REPL {
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
 		sessionID:             fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
 		currentMode:           types.ModeRead, // B0 sticky mode; /mode rewrites
+		userMode:              cfg.UserMode.Normalize(),
 		planStore:             cfg.PlanStore,
 		planGroupStore:        cfg.PlanGroupStore,
 		failureTaxonomy:       cfg.FailureTaxonomy,
@@ -807,6 +817,12 @@ func New(cfg Config) *REPL {
 	}
 	if r.version == "" {
 		r.version = "dev"
+	}
+	if !r.userMode.IsValid() {
+		r.userMode = UserModeAuto
+	}
+	if r.userMode == UserModeWrite {
+		r.currentMode = types.ModePlan
 	}
 	if r.buildTime == "" {
 		r.buildTime = "unknown"
@@ -3915,7 +3931,7 @@ func (r *REPL) banner() {
 	// One-line capability summary so the user sees at startup which
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
-	// user does not have to wait until /mode plan to discover it.
+	// user does not have to wait until /mode write to discover it.
 	// Banner-row width budget (commit 42 P1): banners are
 	// dim FgDarkGray status lines aligned at column 2; long
 	// settings paths or long pitfall counts could push them
@@ -4003,7 +4019,7 @@ func PrintStartupHeader(out io.Writer, version, repoRoot string) {
 	// codrax is operating against (and which one /merge will fast-
 	// forward into when --branch is omitted) before they type any
 	// command. Empty when the path isn't a git repo (rare for
-	// codrax usage; possible during /mode plan auto-init scaffold).
+	// codrax usage; possible during /mode write auto-init scaffold).
 	branchInfo := ""
 	if br := gitBranchProbe(repoRoot); br != "" {
 		branchInfo = pterm.FgDarkGray.Sprintf("  git:%s", br)
@@ -4448,10 +4464,10 @@ func (r *REPL) dispatch(line, display string) {
 	// safe: any classifier error (nil adapter, chat error, unparseable
 	// response, unknown decision) routes to the pipeline unchanged,
 	// so a broken classifier cannot silently misroute real questions.
-	// `/mode plan|apply|verify` is an explicit user intent to drive
+	// `/mode write|apply|verify` is an explicit user intent to drive
 	// the write pipeline — skip the classifier so a "no repo context"
 	// verdict cannot reroute a write-mode turn to chit-chat.
-	// `/mode plan|apply|verify` is an explicit user intent to drive
+	// `/mode write|apply|verify` is an explicit user intent to drive
 	// the write pipeline — skip the classifier so a "no repo context"
 	// verdict cannot reroute a write-mode turn to chit-chat.
 	//
@@ -4483,7 +4499,32 @@ func (r *REPL) dispatch(line, display string) {
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
 		r.attachedLogAutoRouted
 
-	if r.currentMode == types.ModeRead &&
+	activeUserMode := r.userMode.Normalize()
+	if activeUserMode != UserModeAuto {
+		if policy, ok := activeUserMode.TurnPolicy(); ok {
+			policy = ApplyTurnPolicyGuards(policy, r.lastAnswerText() != "", hasAttach)
+			turnRouteHint = TurnRouteHintFromPolicy(policy)
+			debugLogTurnPolicy(policy)
+			r.emitTurnPolicyAudit(policy)
+			switch activeUserMode {
+			case UserModeOperation:
+				if !r.operationEnabled {
+					r.operationUnavailableDispatch(line, display, policy)
+					return
+				}
+				r.operationDispatch(line, display, policy)
+				return
+			case UserModeData:
+				r.dataTaskDispatch(line, display, policy)
+				return
+			case UserModeCode:
+				presentationDirective = policy.PresentationDirective
+				logging.Info("[repl/turn_policy] explicit code mode → pipeline")
+			}
+		}
+	}
+
+	if activeUserMode == UserModeAuto && r.currentMode == types.ModeRead &&
 		r.chitchatClassifier != nil && r.chitchatResponder != nil {
 		// Build a compact 1-line hint from the most recent turn so
 		// the classifier can disambiguate continuation references
@@ -5068,6 +5109,18 @@ func (r *REPL) handleSlash(line string) bool {
 		}
 		r.chitchatDispatch(args, args)
 		return false
+	case "/code":
+		r.handleOneShotUserModeCmd(line, cmd, UserModeCode)
+		return false
+	case "/op":
+		r.handleOneShotUserModeCmd(line, cmd, UserModeOperation)
+		return false
+	case "/data":
+		r.handleOneShotUserModeCmd(line, cmd, UserModeData)
+		return false
+	case "/write":
+		r.handleOneShotUserModeCmd(line, cmd, UserModeWrite)
+		return false
 	case "/mode":
 		r.handleModeCmd(line)
 		return false
@@ -5228,54 +5281,43 @@ func (r *REPL) handleSlash(line string) bool {
 
 // handleModeCmd dispatches the `/mode` subcommands. Recognised forms:
 //
-//	/mode                  — print current mode
-//	/mode read|plan|apply|verify — set current mode
+//	/mode                                — print current user mode
+//	/mode auto|code|operation|data|write — set sticky user mode
 //
-// The /mode state is sticky for the REPL session; every subsequent
-// dispatch calls runner.SetMode(currentMode) so the orchestrator
-// observes the selection. Entering plan / apply / verify before
-// codrax.yaml has write_enabled=true will silently stay local to
-// REPL state — the orchestrator's resolveWriteMode validation runs
-// at initApp time (CLI layer), not per-turn, so REPL-level /mode
-// does NOT re-validate. The orchestrator's the plan stage hook /
-// the apply stage hook / the verify stage hook dispatch is what eventually
-// surfaces any issue (e.g. "planner agent not wired").
+// The user mode is sticky for the REPL session. Auto preserves classifier-
+// driven routing. code/operation/data/write are explicit escape hatches and do
+// not parse user prose. Write mode maps to the internal plan stage; apply and
+// verify continue to be driven by /approve and /verify.
 func (r *REPL) handleModeCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/mode"))
 	if rest == "" {
-		r.info(fmt.Sprintf("current mode: %s (use /mode <read|plan|apply|verify> to change)",
-			r.currentMode))
+		r.info(fmt.Sprintf("current mode: %s (use /mode <auto|code|operation|data|write> to change)",
+			r.userMode.Normalize()))
 		return
 	}
-	target := types.PipelineMode(strings.ToLower(rest))
-	if !target.IsValid() {
+	target, err := ParseUserMode(rest)
+	if err != nil {
 		r.warn("%s", unknownModeValue(r.language, rest))
 		return
 	}
-	if target == "" {
-		target = types.ModeRead
-	}
+	target = target.Normalize()
 	// L2 gate: every non-read mode requires `write_enabled: true` in
-	// codrax.yaml. Without this check the REPL silently accepted the
-	// transition; the actual failure surfaced deep inside the pipeline
-	// as a confusing analyzer / planner error (e.g. "hypothesis
-	// coverage rejected", "context canceled"). cmd/root.go's
-	// resolveWriteMode covers --mode flag, but REPL's /mode bypassed
-	// it entirely. Reject up-front with a precise hint.
-	if target != types.ModeRead && !r.writeEnabled {
-		for _, line := range writeModeDisabled(r.language, "/mode "+string(target), r.settingsPath) {
+	// codrax.yaml. Explicit code/operation/data remain read-only or
+	// separately policy-gated and do not use this write gate.
+	if target == UserModeWrite && !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/mode write", r.settingsPath) {
 			r.warn("%s\n", line)
 		}
 		return
 	}
 	// Single-pending-plan invariant — UX layer rejection. Switching
-	// to /mode plan WHILE an unsettled plan exists in PlanStore is
+	// to /mode write WHILE an unsettled plan exists in PlanStore is
 	// refused: the new plan would be drafted against the current
 	// repo state, which the unsettled plan may already be modifying
 	// (in worktree). Keep the user at their current mode and surface
 	// a status-tailored 3-way menu (merge / reject / clear) so they
 	// can pick the right resolution for that specific status.
-	if target == types.ModePlan && r.planStore != nil {
+	if target == UserModeWrite && r.planStore != nil {
 		if blocker, ok := r.detectUnsettledPlan(); ok {
 			for _, line := range unsettledModePlanReject(r.language, blocker.ID, blocker.Status) {
 				r.info(line)
@@ -5283,21 +5325,46 @@ func (r *REPL) handleModeCmd(line string) {
 			return
 		}
 	}
-	// Apply / verify modes normally require a --plan-file; in REPL
-	// the user is expected to first /mode plan → generate plan →
-	// then /mode apply. B0 does not prevent the transition at
-	// /mode time because /approve (B1) will be the real dispatcher
-	// for apply; /mode alone is harmless — the apply stage is a
-	// stub and will fail-loud on the next dispatch.
-	r.currentMode = target
+	r.userMode = target
+	if target == UserModeWrite {
+		r.currentMode = types.ModePlan
+	} else {
+		r.currentMode = types.ModeRead
+	}
 	r.success(modeSwitched(r.language, string(target)))
 	// Workflow hint: explain in 1-3 lines what the new mode actually
 	// does. Empty for ModeRead (no special workflow). Surfaced once per
 	// /mode transition so a user new to write mode does not have to
-	// read the docs to find /approve / /reject / /mode read.
+	// read the docs to find /approve / /reject / /mode auto.
 	for _, line := range modeWorkflowHint(r.language, string(target)) {
 		r.info(line)
 	}
+}
+
+func (r *REPL) handleOneShotUserModeCmd(line, cmd string, mode UserMode) {
+	args := strings.TrimSpace(strings.TrimPrefix(line, cmd))
+	if args == "" {
+		r.info(oneShotUserModeUsage(r.language, cmd, mode))
+		return
+	}
+	r.dispatchWithUserMode(args, args, mode)
+}
+
+func (r *REPL) dispatchWithUserMode(line, display string, mode UserMode) {
+	mode = mode.Normalize()
+	oldUserMode := r.userMode
+	oldPipelineMode := r.currentMode
+	r.userMode = mode
+	if mode == UserModeWrite {
+		r.currentMode = types.ModePlan
+	} else {
+		r.currentMode = types.ModeRead
+	}
+	defer func() {
+		r.userMode = oldUserMode
+		r.currentMode = oldPipelineMode
+	}()
+	r.dispatch(line, display)
 }
 
 func (r *REPL) clearOperationContextForClear() error {
@@ -5395,7 +5462,7 @@ func (r *REPL) handlePlanCmd(line string) {
 				r.pendingPlanPath = recovered.Path
 				r.info(recoveredPendingPlan(r.language, recovered.ID))
 			} else {
-				// When write is disabled, "/mode plan" itself would bounce
+				// When write is disabled, "/mode write" itself would bounce
 				// off the L2 gate — surface that root cause instead of
 				// telling the user to run a command they can't.
 				if !r.writeEnabled {
@@ -5762,7 +5829,7 @@ func (r *REPL) handlePlanClearBulk(statusFilter, label string) {
 // Three layers consume this:
 //   - banner() prints a one-line dim status when REPL starts up
 //     and an unsettled plan is on disk
-//   - handleModeCmd("/mode plan") refuses to switch and surfaces
+//   - handleModeCmd("/mode write") refuses to switch and surfaces
 //     a 3-way menu (merge / reject / clear)
 //   - handleApprove / handleRejectCmd cold-start recovery rebinds
 //     pendingPlanPath for the in-session pointer
@@ -5996,7 +6063,7 @@ func (r *REPL) formatPlanHistoryRow(inf PlanInfo) string {
 // Preconditions probed in order:
 //  1. PlanStore configured — no store means the single-shot path
 //     never persisted a plan; nothing to approve.
-//  2. pendingPlanPath non-empty — user must run a /mode plan
+//  2. pendingPlanPath non-empty — user must run a /mode write
 //     dispatch first (or have one from a prior session).
 //  3. Plan file still loadable — user may have /plan clear'd or
 //     removed the file by hand since emission.
@@ -6057,7 +6124,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	//   2. `/approve` with r.pendingPlanPath set — the most-recent-
 	//      pending pointer set by the prior plan-mode dispatch.
 	//   3. `/approve` with empty pointer — fall through to
-	//      noPendingPlan info; the user runs /mode plan or /plan
+	//      noPendingPlan info; the user runs /mode write or /plan
 	//      list to see what's available.
 	if planArg != "" {
 		full, err := r.planStore.Load(planArg)
@@ -6097,7 +6164,7 @@ func (r *REPL) handleApproveCmd(line string) {
 
 	// /approve accepts pending_approval AND verify_failed plans.
 	// pending_approval is the obvious case (a fresh plan straight
-	// out of /mode plan). verify_failed is the env-fix retry path:
+	// out of /mode write). verify_failed is the env-fix retry path:
 	// the plan applied cleanly but tests failed because the runner
 	// binary was missing, the database wasn't running, network
 	// flakes, etc. After the operator fixes the environment, they
@@ -6344,7 +6411,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		fmt.Fprintf(r.out, "  worktree preserved: %s\n", busCtx.WorktreePath)
 	}
 	// Failure path nudge — the orchestrator's renderVerifyFailure
-	// adds an italic "Re-plan with /mode plan..." line INSIDE the
+	// adds an italic "Re-plan with /mode write..." line INSIDE the
 	// markdown body, but bordered+italic is easy to miss. Print a
 	// plain stderr-style hint OUTSIDE the bordered render so the
 	// next-steps are unambiguous. /approve does NOT auto-retry-replan
@@ -6353,7 +6420,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	// action — re-run plan-mode incorporating the failure.
 	if busCtx != nil && busCtx.TaskState.LastError != "" {
 		// No out-of-frame nudge on failure: renderVerifyFailure
-		// already carries one short "下一步: /mode plan ..." line
+		// already carries one short "下一步: /mode write ..." line
 		// as its last block. A second nudge here duplicated that
 		// guidance, and the past wording "approve 失败" mis-read
 		// as "your /approve action was rejected" — when /approve
@@ -6372,7 +6439,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		// surfaced the internal "planner did not call
 		// emit_change_plan" error. Switching to read mode here
 		// breaks that loop without taking away the user's ability
-		// to /mode plan again on demand.
+		// to /mode write again on demand.
 		r.currentMode = types.ModeRead
 		for _, line := range applyDoneNudge(r.language) {
 			r.info(line)
@@ -6538,7 +6605,7 @@ func (r *REPL) runMerge(worktreePath, targetBranch string) {
 		logging.Warning("[repl] post-merge worktree discard failed: %v", err)
 	}
 	// Settle the plan as merged so the single-pending-plan invariant
-	// recognises it as terminal and the next /mode plan can proceed.
+	// recognises it as terminal and the next /mode write can proceed.
 	// Pre-2026-04-30 only WorktreePath was cleared while Status
 	// stayed `applied`, leaving the plan permanently "unsettled" from
 	// the lifecycle's point of view.
@@ -6595,7 +6662,7 @@ func (r *REPL) runMergeFromRef(planID, ref, targetBranch string) {
 	}
 	r.info(autoModeReadAfterMergeNudge(r.language))
 	// Same Settle-to-merged as the worktree path: lifecycle reaches
-	// terminal state so the next /mode plan can proceed.
+	// terminal state so the next /mode write can proceed.
 	if r.planStore != nil && planID != "" {
 		if err := r.planStore.Settle(planID, types.PlanStatusMerged, ""); err != nil {
 			logging.Warning("[repl] post-merge-from-ref settle failed: %v", err)

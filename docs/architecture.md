@@ -1329,18 +1329,18 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 ## 8. 写模式 plan / apply / verify
 
-### 8.1 触发条件与 mode 粘滞
+### 8.1 触发条件与用户模式
 
-> *写模式像家用电锯：(1) 厂家在出厂时把"启用电锯"开关焊在主板上（write_enabled yaml）—— 没启用，不管怎么按按钮都不通电；(2) 启用后，每次用还要按"打开"按钮（--mode flag 或 REPL /mode）。两道门一起守，避免单一手滑就开锯。Mode 粘滞像档位——挂上去之后所有提问都按那档跑，不用每条命令都重选。*
+> *写模式像家用电锯：(1) 厂家在出厂时把"启用电锯"开关焊在主板上（write_enabled yaml）—— 没启用，不管怎么按按钮都不通电；(2) 启用后，用户还要显式选择写入口（CLI `--mode=write` 或 REPL `/mode write` / `/write`）。两道门一起守，避免单一手滑就开锯。*
 
 写模式的入口由两个独立 gate 控制，缺一不可：
 
 1. `codrax.yaml :: write_enabled: true`
-2. `BusContext.Mode ∈ {ModePlan, ModeApply, ModeVerify}`（CLI `--mode=plan|apply|verify` 或 REPL `/mode plan|apply|verify` 设置）
+2. 用户显式进入写入口：CLI `--mode=write`（再用 `--write-phase=plan|apply|verify` 选择内部阶段）或 REPL `/mode write` / `/write <request>`
 
 `Run()` 入口检查；缺任一 → fail-loud。这是为了避免误改：部署时设 `write_enabled: true` 是个慎重决策，不是 per-invocation flag。
 
-`PipelineMode` 是粘滞的：REPL `/mode plan` 之后所有提问都走 ModePlan，直到显式切回。CLI 单次调用每次 `--mode` 决定该次。
+用户模式是粘滞的：REPL `/mode auto|code|operation|data|write` 会影响后续 turns；`/code`、`/op`、`/data`、`/write` 是单次直达。内部 `PipelineMode` 仍只表示写阶段：`read`、`plan`、`apply`、`verify`。
 
 ```go
 // internal/types/pipeline_mode.go
@@ -2092,7 +2092,7 @@ sequenceDiagram
     participant Tool
     participant LLM
 
-    User->>Orch: --mode=apply + --plan-file（或 --mode=plan 后 /approve）
+    User->>Orch: --mode=write --write-phase=apply + --plan-file（或 /mode write 后 /approve）
     Note over Orch: writeGate：write_enabled=true？否则 fail-loud
 
     rect rgb(245,245,245)
@@ -2563,7 +2563,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `analysis_*` | emit_analysis 运行时验证 | `analysis_warn_below_keywords`（8）/ `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds`（3）/ `analysis_emit_only_correction_retries`（3）/ `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` / `analysis_evidence_profile`（permissive/balanced/strict/custom）/ `analysis_grounding_floor` / `analysis_evidence_tier1_floor` |
 | `evidence_*` | explorer completion gate | `evidence_grounding_floor` / `evidence_tier1_floor`（legacy numeric overrides; omitted values inherit the active evidence profile） |
 | `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_strict_answer_review_enabled`（true）/ `pipeline_self_consistency_review_enabled`（false，opt-in）系列 / `pipeline_semantic_quality_review_enabled`（false，opt-in）/ `pipeline_transient_retry_budget`（3）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（600）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
-| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_default_mode`（"read"，仅接受 read/plan）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` |
+| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` |
 | `gate_*` | analyzer 质量门 | `gate_coverage_min`（0.6）/ `gate_coverage_weight_{symbol,config,concept}`（1.0/0.7/0.4）/ `gate_hypothesis_min_priority` |
 | `explore_*` | explorer heuristics | `explore_per_tool_default_cap` + 15 个 ExploreHeuristics 阈值 |
 | `agent_*` | Agent 限额 | `agent_max_iterations`（20）/ `agent_max_tool_history_bytes`（150 KB）/ `agent_max_tool_history_fraction`（fraction × ctxwin × 4）/ 4 个 `agent_loop_*` / `agent_finalizer_*`（max_correction_retries / preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）/ `agent_extractor_max_correction_retries` / per-evaluator 双段 iter cap（planner 6/9 / extractor 3/5 / verifier 5/8 / coder slack=3 recovery=3）/ per-dispatch scaling（subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra + planner_complexity_extra / extractor_complexity_extra / target_paths_verifier_extra）/ scaled_iter_max ceiling 系列 / `agent_max_retry_budget_ceil`（5）/ `agent_log_triager_iter_cap`（20）/ `agent_perf_triager_iter_cap`（20）/ `agent_investigation_complete_policy`（"soft"）/ `agent_prior_conversation_policy`（"analyzer"）/ `agent_context_pressure_soft_ratio`（0.7）/ `agent_context_pressure_hard_ratio`（0.9） |

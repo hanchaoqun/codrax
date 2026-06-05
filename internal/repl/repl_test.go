@@ -1083,9 +1083,9 @@ func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 	}
 	defer store.Close()
 
-	// /mode plan flips currentMode; then /paste enters capture and
+	// /mode write flips currentMode to the internal plan phase; then /paste enters capture and
 	// expects "[mode:plan] paste> " in its prompt.
-	in := strings.NewReader("/mode plan\n/paste\n/end\n/exit\n")
+	in := strings.NewReader("/mode write\n/paste\n/end\n/exit\n")
 	out := &bytes.Buffer{}
 	r := New(Config{
 		Runner: stubRunner{}, Store: store, Render: renderNothing,
@@ -1115,7 +1115,7 @@ func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 // per-turn sticky-state tag (mode/log/trace/plan/mem!) reaches the
 // scripted-mode output stream, not just the Bubble Tea path. Real
 // bug: readInputLines used to ignore its caller's prompt and fall
-// back to r.prompt, so `/mode plan` switched the mode but the next
+// back to r.prompt, so `/mode write` switched the mode but the next
 // turn's prompt still rendered as bare `>` with no `[mode:plan]`
 // indicator visible to anyone tailing the session.
 func TestStickyTag_RendersInScriptedMode(t *testing.T) {
@@ -1126,9 +1126,9 @@ func TestStickyTag_RendersInScriptedMode(t *testing.T) {
 	}
 	defer store.Close()
 
-	// /mode plan flips currentMode; the next turn's prompt must
+	// /mode write flips currentMode to the internal plan phase; the next turn's prompt must
 	// carry [mode:plan]. /exit ends the loop after one dispatch.
-	in := strings.NewReader("/mode plan\nsome request\n/exit\n")
+	in := strings.NewReader("/mode write\nsome request\n/exit\n")
 	out := &bytes.Buffer{}
 	r := New(Config{
 		Runner: stubRunner{}, Store: store, Render: renderNothing,

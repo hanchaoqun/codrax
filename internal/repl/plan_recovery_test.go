@@ -245,10 +245,10 @@ func TestPlanStoreSettle_FlipsToRejected(t *testing.T) {
 }
 
 // TestModePlan_RefusesWhenUnsettledExists locks layer-2 of the
-// invariant: /mode plan does NOT switch when an unsettled plan
+// invariant: /mode write does NOT switch when an unsettled plan
 // blocks; the menu is printed instead. Status drives which commands
 // appear in the menu.
-func TestModePlan_RefusesWhenUnsettledExists(t *testing.T) {
+func TestModeWrite_RefusesWhenUnsettledExists(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	if _, err := store.SaveForTest(&types.ChangePlan{
 		ID:      "plan-blocker",
@@ -258,10 +258,10 @@ func TestModePlan_RefusesWhenUnsettledExists(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	r, out := newScriptedREPL(t, store)
-	r.handleModeCmd("/mode plan")
+	r.handleModeCmd("/mode write")
 
 	if r.currentMode == types.ModePlan {
-		t.Error("/mode plan must NOT switch when unsettled plan blocks")
+		t.Error("/mode write must NOT switch when unsettled plan blocks")
 	}
 	got := out.String()
 	for _, want := range []string{"plan-blocker", "/merge", "/reject", "/plan clear"} {

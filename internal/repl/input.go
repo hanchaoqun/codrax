@@ -286,6 +286,21 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		Name:   "/mode",
+		HelpEn: "show or set the sticky task mode: auto, code, operation, data, or write",
+		HelpZh: "显示 / 设置粘滞任务模式:auto、code、operation、data、write",
+		Subs: []slashSubcommand{
+			{"auto", "use the classifier to choose the route (default)", "使用分类器自动选择路径(默认)"},
+			{"code", "force the code/source analysis pipeline", "强制走代码/源码分析路径"},
+			{"operation", "force the computer-operation pipeline", "强制走电脑操作路径"},
+			{"data", "force the data-processing pipeline", "强制走数据处理路径"},
+			{"write", "force write mode (requires write_enabled: true)", "强制走写模式(需要 write_enabled: true)"},
+		},
+	},
+	{Name: "/code", HelpEn: "run one request through code/source analysis", HelpZh: "单次强制走代码/源码分析"},
+	{Name: "/op", HelpEn: "run one request through computer operation", HelpZh: "单次强制走电脑操作"},
+	{Name: "/data", HelpEn: "run one request through data processing", HelpZh: "单次强制走数据处理"},
+	{
 		Name:   "/workflow",
 		HelpEn: "show or cancel the active operation skill workflow",
 		HelpZh: "查看或取消当前 operation skill 工作流",
@@ -310,21 +325,11 @@ var slashCommands = []slashCommand{
 	// Everything below requires codrax.yaml :: write_enabled: true.
 	// helpLines (messages.go) emits a "── Write-mode commands ──"
 	// header before the first entry whose name matches
-	// isWriteModeCommand — that triggers on /mode here.
+	// isWriteModeCommand — that triggers on /write here.
 	{
-		Name:   "/mode",
-		HelpEn: "show or set the sticky pipeline mode (write-mode subcommands require write_enabled: true)",
-		HelpZh: "显示 / 设置粘滞模式(写模式子命令需要 codrax.yaml 设置 write_enabled: true)",
-		Subs: []slashSubcommand{
-			{"read", "switch to read mode (default; analyze→explore→extract→finalize)",
-				"切换到读模式(默认;analyze→explore→extract→finalize)"},
-			{"plan", "next request will produce a ChangePlan instead of an answer",
-				"下一条请求会产出 ChangePlan 而不是回答"},
-			{"apply", "consume an approved plan inside a worktree (usually reached via /approve, not directly)",
-				"在 worktree 内执行已批准的 plan(一般通过 /approve 进入,不直接 /mode apply)"},
-			{"verify", "re-run tests against an already-applied plan",
-				"对已 applied 的 plan 重跑测试"},
-		},
+		Name:   "/write",
+		HelpEn: "run one request through write mode (plan first; requires write_enabled: true)",
+		HelpZh: "单次强制走写模式(先生成方案;需要 write_enabled: true)",
 	},
 	{
 		Name:   "/plan",

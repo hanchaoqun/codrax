@@ -7,7 +7,7 @@ import (
 )
 
 // TestRunAnalyzePhase_SkipsWhenApplyHasPlanFile locks the /approve and
-// `--mode=apply --plan-file=` fast path: when the user has supplied a
+// `--mode=write --write-phase=apply --plan-file=` fast path: when the user has supplied a
 // vetted plan, the analyzer has nothing useful to do (the plan was
 // classified upstream) and running it wastes time + produces a
 // misleading task_map for files that may not even exist in the main

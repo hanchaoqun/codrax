@@ -162,8 +162,8 @@ func rejectConfirmedNoReason(lang, planID string) string {
 	return formatN(lang, "Rejected plan %s", planID)
 }
 
-// writeModeDisabled — printed when /mode plan|apply|verify or
-// /approve fires while codrax.yaml :: write_enabled is false. The
+// writeModeDisabled — printed when /mode write, /write, or /approve
+// fires while codrax.yaml :: write_enabled is false. The
 // pre-fix path silently accepted the transition and the failure
 // surfaced deep in the pipeline (analyzer "hypothesis_coverage" or
 // "context canceled"); this message names the yaml knob explicitly so
@@ -189,8 +189,8 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 	if isZh(lang) {
 		out := []string{
 			formatN(lang, "%s 已被拒绝: write_enabled 为 false (或未设置)", mode),
-			formatN(lang, "  在 %s 中设置 `write_enabled: true` 并重启即可启用 plan / apply / verify 模式。", target),
-			"  read 模式(默认)无需额外配置。",
+			formatN(lang, "  在 %s 中设置 `write_enabled: true` 并重启即可启用写模式。", target),
+			"  auto/code/operation/data 模式无需额外配置。",
 		}
 		if created != "" {
 			out = append(out, created)
@@ -199,8 +199,8 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 	}
 	out := []string{
 		formatN(lang, "%s rejected: write_enabled is false (or unset)", mode),
-		formatN(lang, "  Set `write_enabled: true` in %s and restart to enable plan / apply / verify modes.", target),
-		"  Read mode (the default) needs no extra configuration.",
+		formatN(lang, "  Set `write_enabled: true` in %s and restart to enable write mode.", target),
+		"  auto/code/operation/data modes need no extra configuration.",
 	}
 	if created != "" {
 		out = append(out, created)
@@ -211,7 +211,7 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 // bannerCapabilityLine produces a single line describing the active
 // pipeline modes + the codrax.yaml backing them. Surfaced under the
 // version badge so the user sees write_enabled state at startup
-// rather than discovering it via a /mode plan reject 30 turns in.
+// rather than discovering it via a /mode write reject 30 turns in.
 // Empty string when there's nothing useful to display (no yaml AND
 // write_enabled defaulted to false).
 // clampToTermWidth caps a banner line to fit comfortably on
@@ -290,15 +290,15 @@ func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) s
 	cap := ""
 	if writeEnabled {
 		if zh {
-			cap = "模式: read · plan · apply · verify (write_enabled=true)"
+			cap = "模式: auto · code · operation · data · write (write_enabled=true)"
 		} else {
-			cap = "Modes: read · plan · apply · verify (write_enabled=true)"
+			cap = "Modes: auto · code · operation · data · write (write_enabled=true)"
 		}
 	} else {
 		if zh {
-			cap = "模式: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
+			cap = "模式: auto · code · operation · data (write 已禁用)"
 		} else {
-			cap = "Modes: read (write_enabled=false — /mode plan / apply / verify disabled)"
+			cap = "Modes: auto · code · operation · data (write disabled)"
 		}
 	}
 	if settingsPath != "" {
@@ -338,29 +338,29 @@ func chitchatRouteSummary(lang string) (string, []string) {
 }
 
 // noPendingPlan — user typed /approve or /reject without a pending
-// plan to act on. Surface the recovery path (/mode plan first), and
-// if write_enabled is off, name THAT first since a /mode plan dispatch
+// plan to act on. Surface the recovery path (/mode write first), and
+// if write_enabled is off, name THAT first since a /mode write dispatch
 // would just bounce off the L2 gate.
 func noPendingPlan(lang string) string {
 	if isZh(lang) {
-		return "当前没有待处理的方案 — 先用 /mode plan 生成一份"
+		return "当前没有待处理的方案 — 先用 /mode write 进入写模式并生成一份"
 	}
-	return "No pending plan — run /mode plan to generate one"
+	return "No pending plan — run /mode write to generate one"
 }
 
 // noPendingPlanWriteDisabled — same surface as noPendingPlan but for
 // the case where write_enabled is off, so the recovery path is "fix
-// the yaml first" rather than "run /mode plan".
+// the yaml first" rather than "run /mode write".
 func noPendingPlanWriteDisabled(lang string) []string {
 	if isZh(lang) {
 		return []string{
 			"没有待处理的 plan,且 write 模式被禁用。",
-			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启,然后 /mode plan 生成 plan。",
+			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启,然后 /mode write 生成 plan。",
 		}
 	}
 	return []string{
 		"No pending plan, and write mode is disabled.",
-		"  Set `write_enabled: true` in codrax.yaml and restart, then run /mode plan to generate one.",
+		"  Set `write_enabled: true` in codrax.yaml and restart, then run /mode write to generate one.",
 	}
 }
 
@@ -423,12 +423,12 @@ func mergeNoApplyYet(lang string) []string {
 	if isZh(lang) {
 		return []string{
 			"没有可合并的 worktree。/merge 需要一次成功 /approve 留下的 worktree。",
-			"  先用 /mode plan 生成方案，再 /approve 落地（请确认 codrax.yaml 里 pipeline_keep_worktree_on_success: true），最后 /merge。",
+			"  先用 /mode write 生成方案，再 /approve 落地（请确认 codrax.yaml 里 pipeline_keep_worktree_on_success: true），最后 /merge。",
 		}
 	}
 	return []string{
 		"No worktree to merge from. /merge needs a worktree preserved by a successful /approve.",
-		"  Run /mode plan, then /approve (with pipeline_keep_worktree_on_success: true), then /merge.",
+		"  Run /mode write, then /approve (with pipeline_keep_worktree_on_success: true), then /merge.",
 	}
 }
 
@@ -450,7 +450,7 @@ func mergeConfirmTitle(lang, strategy, target string, count int) string {
 	}
 }
 
-// unsettledModePlanReject is the message /mode plan prints when an
+// unsettledModePlanReject is the message /mode write prints when an
 // unsettled plan blocks switching into plan mode. Three-way menu
 // is tailored to the offending plan's status: only commands that
 // move THIS status forward to a terminal state (merged / rejected)
@@ -525,15 +525,15 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 			"  新方案要基于当前仓状态生成,先把上一个收尾再来:",
 		}
 		out := append(header, menu...)
-		out = append(out, "  收尾后再敲 /mode plan。")
+		out = append(out, "  收尾后再敲 /mode write。")
 		return out
 	}
 	header := []string{
-		formatN(lang, "✗ /mode plan refused: an unsettled plan exists (%s, status=%s).", planID, status),
+		formatN(lang, "✗ /mode write refused: an unsettled plan exists (%s, status=%s).", planID, status),
 		"  Settle it first so the next plan can be drafted against the current repo state:",
 	}
 	out := append(header, menu...)
-	out = append(out, "  Then run /mode plan again.")
+	out = append(out, "  Then run /mode write again.")
 	return out
 }
 
@@ -589,9 +589,9 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 // the mode flipped so they don't get surprised.
 func autoModeReadAfterMergeNudge(lang string) string {
 	if isZh(lang) {
-		return "  已自动切回 read 模式 — 直接提问即可。要继续改代码就 /mode plan。"
+		return "  已自动切回 auto 模式 — 直接提问即可。要继续改代码就 /mode write。"
 	}
-	return "  Auto-switched back to read mode — ask your next question directly. Use /mode plan when you want to make another change."
+	return "  Auto-switched back to auto mode — ask your next question directly. Use /mode write when you want to make another change."
 }
 
 // mergeSuccess — printed after a clean MergeIntoBranch return.
@@ -719,54 +719,103 @@ func modeSwitched(lang, mode string) string {
 func modeWorkflowHint(lang, mode string) []string {
 	zh := isZh(lang)
 	switch mode {
-	case "plan":
+	case "auto":
 		if zh {
 			return []string{
-				"  下一条请求会生成改动方案，不会直接回答。",
-				"  随后可用：/plan show 查看 diff · /approve 落地 · /reject 丢弃 · /mode read 回到读模式",
+				"  后续请求会由结构化路由判定选择代码、操作、数据或本地回答路径。",
 			}
 		}
 		return []string{
-			"  Your next request will produce a change proposal instead of a direct answer.",
-			"  Then: /plan show · /approve · /reject · /mode read",
+			"  Future requests use structured routing to choose code, operation, data, or local answer paths.",
 		}
-	case "apply":
+	case "code":
 		if zh {
 			return []string{
-				"  通常用 /approve 进入 apply，直接 /mode apply 大多不是想要的效果。",
+				"  后续请求会直接进入代码/源码分析流水线，不先走自动路由。",
 			}
 		}
 		return []string{
-			"  Use /approve to enter apply; /mode apply directly is rarely what you want.",
+			"  Future requests go directly to the code/source analysis pipeline.",
 		}
-	case "verify":
+	case "operation":
 		if zh {
 			return []string{
-				"  仅对已 apply 的方案重跑测试；/history 列出方案 ID。",
+				"  后续请求会直接进入电脑操作流水线，风险策略仍会拦截危险动作。",
 			}
 		}
 		return []string{
-			"  Reruns tests against an already-applied plan; /history lists plan IDs.",
+			"  Future requests go directly to the computer-operation pipeline; risk policy still applies.",
+		}
+	case "data":
+		if zh {
+			return []string{
+				"  后续请求会直接进入数据处理流水线，不走源码证据门。",
+			}
+		}
+		return []string{
+			"  Future requests go directly to the data-processing pipeline.",
+		}
+	case "write":
+		if zh {
+			return []string{
+				"  后续请求会生成改动方案，不会直接改主仓。",
+				"  随后可用：/plan show 查看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回到自动模式",
+			}
+		}
+		return []string{
+			"  Future requests produce a change proposal; the main repo is not changed directly.",
+			"  Then: /plan show · /approve · /reject · /mode auto",
 		}
 	}
 	return nil
 }
 
+func oneShotUserModeUsage(lang, cmd string, mode UserMode) string {
+	zh := isZh(lang)
+	switch mode.Normalize() {
+	case UserModeCode:
+		if zh {
+			return cmd + " <问题> — 单次强制走代码/源码分析"
+		}
+		return cmd + " <request> — run one request through code/source analysis"
+	case UserModeOperation:
+		if zh {
+			return cmd + " <任务> — 单次强制走电脑操作"
+		}
+		return cmd + " <task> — run one request through computer operation"
+	case UserModeData:
+		if zh {
+			return cmd + " <任务> — 单次强制走数据处理"
+		}
+		return cmd + " <task> — run one request through data processing"
+	case UserModeWrite:
+		if zh {
+			return cmd + " <改动需求> — 单次强制走写模式"
+		}
+		return cmd + " <change request> — run one request through write mode"
+	default:
+		if zh {
+			return cmd + " <请求>"
+		}
+		return cmd + " <request>"
+	}
+}
+
 // planReadyNudge prints next-step actions after the orchestrator
-// emitted a ChangePlan during plan-mode dispatch and the REPL
+// emitted a ChangePlan during write-mode dispatch and the REPL
 // auto-saved it. Without this nudge the user sees "plan saved: <path>"
 // and has to remember the slash-command vocabulary; with it the path
-// to /approve / /reject / /mode read is one line away.
+// to /approve / /reject / /mode auto is one line away.
 func planReadyNudge(lang string, planID string, changeCount int) []string {
 	if isZh(lang) {
 		return []string{
 			formatN(lang, "改动方案已就绪：%s（%d 处改动）。", planID, changeCount),
-			"  /plan show · /approve · /approve --skip-verify · /reject · /mode read",
+			"  /plan show · /approve · /approve --skip-verify · /reject · /mode auto",
 		}
 	}
 	return []string{
 		formatN(lang, "Change proposal ready: %s (%d change(s)).", planID, changeCount),
-		"  /plan show · /approve · /approve --skip-verify · /reject · /mode read",
+		"  /plan show · /approve · /approve --skip-verify · /reject · /mode auto",
 	}
 }
 
@@ -789,18 +838,18 @@ func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 }
 
 // applyDoneNudge prints next-step actions after /approve completed.
-// When apply succeeded, point at /mode read for further questions and
-// /mode plan for a new change. When apply failed, the
+// When apply succeeded, point at /mode auto for further questions and
+// /mode write for a new change. When apply failed, the
 // renderVerifyFailure already carries the failure-path next-step inline — applyDoneNudge skips
 // the failure path so we don't double-print.
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"  Apply 完成，已自动切回 read 模式。要继续改代码就 /mode plan。",
+			"  Apply 完成，已自动切回 auto 模式。要继续改代码就 /mode write。",
 		}
 	}
 	return []string{
-		"  Apply complete — auto-switched to read mode. Use /mode plan to make another change.",
+		"  Apply complete — auto-switched to auto mode. Use /mode write to make another change.",
 	}
 }
 
@@ -2556,7 +2605,7 @@ func helpLines(lang string) []string {
 // only needs to flag the genuinely write-mode commands.
 func isWriteModeCommand(name string) bool {
 	switch name {
-	case "/mode",
+	case "/write",
 		"/plan",
 		"/approve",
 		"/reject",
@@ -2698,9 +2747,9 @@ func unknownPlanSubcommand(lang, sub string) string {
 // unknownModeValue — /mode <unknown>.
 func unknownModeValue(lang, val string) string {
 	if isZh(lang) {
-		return formatN(lang, "未知模式 %q —— 应是 read / plan / apply / verify 之一\n", val)
+		return formatN(lang, "未知模式 %q —— 应是 auto / code / operation / data / write 之一\n", val)
 	}
-	return formatN(lang, "Unknown mode %q — expected one of: read, plan, apply, verify\n", val)
+	return formatN(lang, "Unknown mode %q — expected one of: auto, code, operation, data, write\n", val)
 }
 
 // planNotFound — /approve <id> / /plan show <id> with non-existent ID.
@@ -2733,13 +2782,13 @@ func approveRefusedStatusMsg(lang, planID, status, pending, retry string) string
 	if isZh(lang) {
 		return formatN(lang,
 			"approve 被拒：plan %s 当前状态为 %q。可重新 approve 的状态：%q（新生成的方案）、%q（修复环境后重试）。"+
-				"用 /mode plan 生成新方案。\n",
+				"用 /mode write 生成新方案。\n",
 			planID, status, pending, retry)
 	}
 	return formatN(lang,
 		"Approve refused: plan %s is in status %q. "+
 			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
-			"Run /mode plan to generate a fresh plan.\n",
+			"Run /mode write to generate a fresh plan.\n",
 		planID, status, pending, retry)
 }
 

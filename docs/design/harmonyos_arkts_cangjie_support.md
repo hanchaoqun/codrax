@@ -950,8 +950,8 @@ codrax --htrace boot1.trace --htrace boot2.trace --request "对比冷启动"
 codrax --log /tmp/hilog.txt --htrace /tmp/jank.atrace --request "卡顿后 crash 的根因"
 
 # 写模式（HarmonyOS ArkTS 工程）
-codrax --mode=plan --request "把这个页面改成响应式布局"
-codrax --mode=apply --plan-file=.codrax/plans/<id>.json --auto-apply
+codrax --mode=write --request "把这个页面改成响应式布局"
+codrax --mode=write --write-phase=apply --plan-file=.codrax/plans/<id>.json --auto-apply
 ```
 
 REPL 同等命令通过 `/log` / `/htrace` / `/atrace` 实现，支持 `append` 子命令多文件累加。

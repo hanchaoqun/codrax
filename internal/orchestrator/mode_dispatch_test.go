@@ -30,7 +30,7 @@ import (
 func readModeRun(t *testing.T, mode types.PipelineMode) *types.BusContext {
 	t.Helper()
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
@@ -318,7 +318,7 @@ func TestMode_MainRepoRootPopulated(t *testing.T) {
 // TestMode_ApplyWithPlanPathSkipsPlanPhase pins the B1.5 invariant
 // that `ModeApply` with a pre-supplied PlanPath skips runPlanPhase
 // entirely. Without this skip, /approve (REPL) and single-shot
-// `--mode=apply --plan-file=<path>` would re-dispatch the planner
+// `--mode=write --write-phase=apply --plan-file=<path>` would re-dispatch the planner
 // and overwrite the reviewed plan with a fresh emission.
 //
 // Signal: a planner mock that marks the test failed if invoked,

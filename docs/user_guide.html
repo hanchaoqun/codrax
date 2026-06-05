@@ -370,7 +370,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 <p>启动后 codrax 会在当前目录建一个 <code>.codrax/</code> 子目录,存放日志、对话记忆、缓存等运行产物;读模式只读你的源码、从不修改。想分析的不是当前目录时,用 <code>--repo /path/to/repo</code> 显式指定。</p>
 <p>看到这个就是启动成功了(每一行都是真实输出,版本号和路径会按你的环境替换):</p>
 <pre><code>   CODRAX  v0.1.x  /help · /exit
-   模式: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   模式: auto · code · operation · data (write 已禁用) · /home/you/tools/codrax/codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -460,7 +460,7 @@ codrax --repo /path/to/repo --branch dev -r &quot;...&quot;
 <h2 id="22-看懂界面">2.2 看懂界面</h2>
 <p>启动后的屏幕(运行中的写模式 + git 仓库 + 几轮对话场景):</p>
 <pre><code>   CODRAX  v0.1.x  /help · /exit
-   模式: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   模式: auto · code · operation · data · write (write_enabled=true) · /home/you/.../codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -843,7 +843,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 <p>如果你已经明确指定 focus,系统会严格遵守你的选择,不会自动补其它子仓。显式 focus 数超过当前 cap 会直接提示你先减少 focus 或提高 <code>/repos cap</code>。</p>
 <p>REPL banner 立即提示:</p>
 <pre><code>   CODRAX  v0.1.X  /help · /exit
-   模式: read · plan · apply · verify (write_enabled=true)
+   模式: auto · code · operation · data · write (write_enabled=true)
    记忆: 3 recent + 0 compacted
    🗂  multi-repo: 5 sub-repos (active cap=2); /repos for list / focus / refresh
 </code></pre>
@@ -906,14 +906,14 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 </code></pre>
 <p>让全部 5 个子仓 active,跨仓 keyword search 自动 aggregate ranking。</p>
 <h4 id="写模式-必须-cd-进具体子仓">🟡 写模式 — 必须 cd 进具体子仓</h4>
-<p>写模式(<code>/mode plan|apply|verify</code>)<strong>禁止</strong>跨子仓 ChangePlan。当前在父目录运行写模式时,plan 阶段如果 LLM emit 的 ChangePlan 触及多个子仓,会 fail-loud:</p>
+<p>写模式(<code>/mode write</code> / <code>/write</code> / <code>--mode=write</code>)<strong>禁止</strong>跨子仓 ChangePlan。当前在父目录运行写模式时,plan 阶段如果 LLM emit 的 ChangePlan 触及多个子仓,会 fail-loud:</p>
 <pre><code>✗ write blocked: ChangePlan touches 2 sub-repos: api-go, web-frontend — multi-repo write banned by design
   Repair: split into 2 separate runs, one per sub-repo (cd into each sub-repo and re-issue the request,
           OR `/repos focus &lt;slug&gt;` then re-run with multi_repo_max_active=1)
 </code></pre>
 <p>正确做法:</p>
-<pre><code class="language-bash">cd ~/workspace/api-go &amp;&amp; codrax --mode=apply --request &quot;...&quot;
-cd ~/workspace/web-frontend &amp;&amp; codrax --mode=apply --request &quot;...&quot;
+<pre><code class="language-bash">cd ~/workspace/api-go &amp;&amp; codrax --mode=write --request &quot;...&quot;
+cd ~/workspace/web-frontend &amp;&amp; codrax --mode=write --request &quot;...&quot;
 </code></pre>
 <h4 id="用户面板的-disclosurer3-透明">🔴 用户面板的 disclosure(R3 透明)</h4>
 <p>如果 routing fold 因 cap 限制把某些子仓挡在 active 之外,answer 会自动声明"未参与本次查询的子仓"。Run 退出时 telemetry 行也会列出:</p>
@@ -2085,14 +2085,14 @@ mcp_servers:
 </blockquote>
 <p>未结算 = <code>pending_approval</code>(待批)/ <code>applied</code>(已批未合)/ <code>verify_failed</code>(验证失败)。结算 = <code>merged</code>(已合并)/ <code>rejected</code>(显式丢弃)/ <code>applied_failed</code>(apply 阶段崩了,自动终止)。</p>
 <p><strong>为什么这条规则重要</strong>:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。</p>
-<p>实际行为:<code>/mode plan</code> 切换时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。</p>
-<pre><code>[git:master]❯❯ /mode plan
+<p>实际行为:<code>/mode write</code> 切换时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。</p>
+<pre><code>[git:master]❯❯ /mode write
   ✗ 切换被拒:已存在未结算的改动方案 plan-XXXX(状态:applied)。
     新方案要基于当前仓状态生成,先把上一个收尾再来:
       /merge         合并到主仓
       /reject        丢弃改动(保留事后审查记录)
       /plan clear    彻底删除(无审查记录)
-    收尾后再敲 /mode plan。
+    收尾后再敲 /mode write。
 </code></pre>
 <p>三个结算命令:</p>
 <div class="table-wrap"><table>
@@ -2133,20 +2133,20 @@ mcp_servers:
 <p>在 <code>codrax.yaml</code> 里加一行:</p>
 <pre><code class="language-yaml">write_enabled: true
 </code></pre>
-<p>(默认值 false 时,任何 <code>/mode plan</code> / <code>/approve</code> / <code>--mode=apply</code> 都会被礼貌拒绝并指引你改 yaml。)</p>
+<p>(默认值 false 时,任何 <code>/mode write</code> / <code>/approve</code> / <code>--mode=write --write-phase=apply</code> 都会被礼貌拒绝并指引你改 yaml。)</p>
 <h2 id="42-完整流程">4.2 完整流程</h2>
 <p>写模式分三步:<strong>plan(产出改动方案)</strong>、<strong>apply(在 worktree 里执行)</strong>、<strong>verify(跑测试)</strong>。在 plan 之前还有两个隐式分类阶段——<code>analyze</code>(读模式 analyzer 复用作请求分类)+ <code>write_analyze</code>(写模式专属,产 <code>WriteAnalysisIR</code>:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。</p>
 <p>REPL 实际流程:</p>
-<h3 id="第-1-步mode-plan描述要做的事">第 1 步:<code>/mode plan</code>,描述要做的事</h3>
-<pre><code>[git:main]❯❯ /mode plan
+<h3 id="第-1-步mode-plan描述要做的事">第 1 步:<code>/mode write</code>,描述要做的事</h3>
+<pre><code>[git:main]❯❯ /mode write
   ✓ 已切换到 plan 模式
   •   下一条请求会产生改动方案,不直接回答。
-  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode read 回读模式
+  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回读模式
 
 [git:main][mode:plan]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 [planner 生成改动方案,~1-3 分钟]
 ✓ 改动方案已就绪: plan-abc123 (3 处改动)。
-  /plan show · /approve · /approve --skip-verify · /reject · /mode read
+  /plan show · /approve · /approve --skip-verify · /reject · /mode auto
 </code></pre>
 <p>更多虚构的 plan 请求示例(任何项目都能套用):</p>
 <div class="table-wrap"><table>
@@ -2196,9 +2196,9 @@ mcp_servers:
   是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
   &gt; y
 [在 .codrax/worktrees/&lt;plan-id&gt;/ 里 git apply + 跑测试]
-✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。
+✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode write。
 </code></pre>
-<p>注意:批准成功后会<strong>自动切回 read 模式</strong>,你的下一句话默认是问代码,不是再开 plan。要继续改代码:<strong>先把这个 applied 的 plan 收尾</strong>(<code>/merge</code> 合到主仓 / <code>/reject</code> 丢弃 / <code>/plan clear</code> 删除),再 <code>/mode plan</code> 才能生成下一个 plan(写模式工作区单一不变量,见上文)。</p>
+<p>注意:批准成功后会<strong>自动切回 read 模式</strong>,你的下一句话默认是问代码,不是再开 plan。要继续改代码:<strong>先把这个 applied 的 plan 收尾</strong>(<code>/merge</code> 合到主仓 / <code>/reject</code> 丢弃 / <code>/plan clear</code> 删除),再 <code>/mode write</code> 才能生成下一个 plan(写模式工作区单一不变量,见上文)。</p>
 <p><code>/approve</code> 自动:</p>
 <ol>
 <li>创建临时 worktree(基于当前 branch)</li>
@@ -2244,7 +2244,7 @@ mcp_servers:
   &gt; y
   ✓ 已在主仓创建分支 feature/refactor-bar,cherry-pick 3 个 commit。
   下一步:cd &lt;主仓&gt; &amp;&amp; git push -u origin feature/refactor-bar,然后开 PR。
-  已自动切回 read 模式 — 直接提问就行。再 /mode plan 进入 plan 模式即可继续改代码。
+  已自动切回 read 模式 — 直接提问就行。再 /mode write 进入 plan 模式即可继续改代码。
 </code></pre>
 <div class="table-wrap"><table>
 <thead>
@@ -2279,14 +2279,14 @@ mcp_servers:
 <h2 id="44-失败排错">4.4 失败排错</h2>
 <p><strong>apply 失败</strong>(代码 patch 没打进去 / 写入冲突):
 - 屏幕会打印失败原因 + worktree 保留(<code>/worktree list</code> 可看)
-- 推荐做法:<code>/mode plan</code> + 把目标说更具体一点重发,planner 通过 <code>/history</code> 看到本轮失败摘要;或 <code>/reject</code> 弃掉这版重新规划
+- 推荐做法:<code>/mode write</code> + 把目标说更具体一点重发,planner 通过 <code>/history</code> 看到本轮失败摘要;或 <code>/reject</code> 弃掉这版重新规划
 - 也可以直接 <code>cd</code> 进 worktree 路径手工调,然后 <code>/worktree discard &lt;plan-id&gt;</code> 清掉</p>
 <p><strong>verify 失败</strong>(测试不过):
 - <code>pipeline_write_retry_budget</code>(默认 3)允许 planner 自动重新规划再 apply 再 verify;失败摘要会作为补丁提示喂回 planner
 - 重试用尽仍不过 → plan 标记为"验证失败"。下次 <code>/approve &lt;plan-id&gt;</code> 仍可重试(常见于环境/CI 类抖动)
 - 本地测试根本起不了(缺依赖、缺数据库等)→ <code>/approve --skip-verify</code> 跳过 verify,只 apply</p>
 <p><strong>plan 阶段返回文字回答而不是改动方案</strong>(planner 觉得这是咨询性问题):
-- 屏幕打印一段二选一引导(咨询走 <code>/mode read</code>;真改代码就把目标说具体再发)
+- 屏幕打印一段二选一引导(咨询走 <code>/mode auto</code>;真改代码就把目标说具体再发)
 - 直接选你需要的路径继续</p>
 <p><strong>目录还不是 git 仓库</strong>(plan / apply 都需要 git 仓):
 - 屏幕打印<strong>两种(plan 阶段)或三种(apply 阶段)授权方式</strong>任选一种:
@@ -2305,7 +2305,7 @@ mcp_servers:
 - 在 <code>providers.yaml</code> 把对应 agent(<code>planner</code> / <code>coder</code> / <code>verifier</code>)路由到更强的模型重试</p>
 <p><strong>新生成的代码缺第三方依赖</strong>(运行时 <code>ModuleNotFoundError</code> / <code>npm ERR! missing</code> 等):
 - planner 已被要求在 <code>summary</code> 里显式列出新引入的第三方依赖 + 安装命令,<strong>优先按那段提示装</strong>
-- 如果 planner 漏了,直接把报错信息原样贴进 codrax(它会用 LLM 推断该装哪个包),或 <code>/mode read</code> 后问 "这个 ModuleNotFoundError 怎么修?"</p>
+- 如果 planner 漏了,直接把报错信息原样贴进 codrax(它会用 LLM 推断该装哪个包),或 <code>/mode auto</code> 后问 "这个 ModuleNotFoundError 怎么修?"</p>
 <p><code>/worktree list</code> / <code>/worktree discard &lt;plan-id&gt;</code> 管理保留的 worktree。</p>
 <hr />
 <h1 id="5-配置参考">5. 配置参考</h1>
@@ -2652,11 +2652,6 @@ mcp_servers:
 <td><code>write_enabled</code></td>
 <td><code>false</code></td>
 <td><strong>写模式总闸</strong>;不设 true 任何写命令都拒绝</td>
-</tr>
-<tr>
-<td><code>write_default_mode</code></td>
-<td><code>read</code></td>
-<td>启动默认模式</td>
 </tr>
 <tr>
 <td><code>write_auto_init_repo</code></td>
@@ -3472,7 +3467,7 @@ mcp_servers:
 </thead>
 <tbody>
 <tr>
-<td><code>/mode read</code> / <code>plan</code> / <code>apply</code> / <code>verify</code></td>
+<td><code>/mode auto</code> / <code>plan</code> / <code>apply</code> / <code>verify</code></td>
 <td>切换粘滞模式</td>
 </tr>
 <tr>
@@ -3707,14 +3702,19 @@ mcp_servers:
 <td>本次 Run 覆盖 yaml <code>chitchat_classifier_enabled</code></td>
 </tr>
 <tr>
-<td><code>--mode &lt;read\|plan\|apply\|verify&gt;</code></td>
-<td><code>read</code></td>
-<td>流水线模式;非 read 需 <code>write_enabled=true</code></td>
+<td><code>--mode &lt;auto\|code\|operation\|data\|write&gt;</code></td>
+<td><code>auto</code></td>
+<td>任务入口;显式 code/operation/data/write 可绕过自动分类</td>
+</tr>
+<tr>
+<td><code>--write-phase &lt;plan\|apply\|verify&gt;</code></td>
+<td><code>plan</code></td>
+<td>仅 <code>--mode=write</code> 生效;选择写模式内部阶段</td>
 </tr>
 <tr>
 <td><code>--auto-apply</code></td>
 <td><code>false</code></td>
-<td>单次 <code>--mode=apply</code> 必须搭配,跳过交互确认</td>
+<td>单次 <code>--mode=write --write-phase=apply</code> 必须搭配,跳过交互确认</td>
 </tr>
 <tr>
 <td><code>--plan-out &lt;path&gt;</code></td>
@@ -3752,13 +3752,13 @@ codrax -r &quot;what does dispatch do?&quot; --lang en
 CODRAX_SETTINGS=/etc/codrax/prod.yaml codrax -r &quot;...&quot;
 
 # 写模式:产 plan + 落盘
-codrax --mode=plan -r &quot;把 foo 拆成两个函数&quot; --plan-out /tmp/plan.json
+codrax --mode=write --write-phase=plan -r &quot;把 foo 拆成两个函数&quot; --plan-out /tmp/plan.json
 
 # 写模式:批准并执行已有 plan(单次,不开 REPL)
-codrax --mode=apply --plan-file=/tmp/plan.json --auto-apply
+codrax --mode=write --write-phase=apply --plan-file=/tmp/plan.json --auto-apply
 
 # 写模式:重跑 verify
-codrax --mode=verify --plan-file=/tmp/plan.json
+codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 </code></pre>
 <p>CLI 单次模式输出:</p>
 <ul>
@@ -3805,7 +3805,7 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 <p><strong>扫描超大仓库时 SSH 断连 / 远程终端卡死</strong>
 → 全量扫描会占满每个 CPU 核心,可能饿死 sshd。把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>:扫描期间 codrax 把 <code>GOMAXPROCS</code> 压低一核,让<strong>整个 Go 运行时(含 GC 线程)</strong>都留一个空闲核心给 sshd。启动日志 <code>cpu: repomap scan reserves 1 core(s)</code> 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以这里用 <code>GOMAXPROCS</code> 上限作硬保证。该键默认 <code>0</code>(不改变默认行为、不损失扫描速度);小远程机掉 SSH 就设 <code>1</code>,仍卡顿设 <code>2</code>。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
-<p><strong><code>/mode plan</code> 报 <code>write_enabled is false</code></strong>
+<p><strong><code>/mode write</code> 报 <code>write_enabled is false</code></strong>
 → <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>
 <p><strong><code>/approve</code> 报 <code>target ... is needs_init</code></strong>
 → 目标目录不是 git 仓。<code>/approve --auto-init-repo</code> 一次,或 yaml 里 <code>write_auto_init_repo: true</code> 长期允许。</p>

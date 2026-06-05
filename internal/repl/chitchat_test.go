@@ -485,15 +485,15 @@ func TestChitchatClassifier_AttachedLogPassesAttachmentSignal(t *testing.T) {
 	}
 }
 
-// TestChitchatClassifier_SkipsWhenInPlanMode verifies that an
-// explicit `/mode plan|apply|verify` selection bypasses the
+// TestChitchatClassifier_SkipsWhenInWriteMode verifies that an
+// explicit `/mode write` selection bypasses the
 // classifier. Plan mode is the user telling the REPL "drive the
 // write pipeline"; the classifier's "no repo context" verdict for a
 // fresh-code request like "用Python写一个猜数字游戏" must not
 // reroute that turn to chit-chat. Regression for a real bug observed
 // in session 36 where four consecutive plan-mode turns were silently
 // answered by the chit-chat responder.
-func TestChitchatClassifier_SkipsWhenInPlanMode(t *testing.T) {
+func TestChitchatClassifier_SkipsWhenInWriteMode(t *testing.T) {
 	dir := t.TempDir()
 	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -512,7 +512,7 @@ func TestChitchatClassifier_SkipsWhenInPlanMode(t *testing.T) {
 		Render:             renderNothing,
 		RepoRoot:           ".",
 		Branch:             "main",
-		In:                 strings.NewReader("/mode plan\nwrite a guessing game in python\n/exit\n"),
+		In:                 strings.NewReader("/mode write\nwrite a guessing game in python\n/exit\n"),
 		Out:                out,
 		Prompt:             ">",
 		PromptCont:         ".",

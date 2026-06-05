@@ -362,7 +362,7 @@ func TestApprove_RefusesTerminalStatus(t *testing.T) {
 // contract. A plan that applied cleanly but failed verify (because
 // pytest wasn't installed, the test database wasn't running, a
 // network endpoint flaked, etc.) MUST be re-approvable after the
-// operator fixes the environment — re-running /mode plan would
+// operator fixes the environment — re-running /mode write would
 // wastefully re-classify the same code-write request and produce
 // an equivalent ChangePlan.
 func TestApprove_AcceptsVerifyFailedForRetry(t *testing.T) {
