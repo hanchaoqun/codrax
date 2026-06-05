@@ -181,7 +181,7 @@ var turnPolicyTool = llm.ToolSchema{
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data"],
-      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, ledgers, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, row-level decisions, and strict JSON/CSV/single-line/tabular output. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
@@ -334,11 +334,11 @@ The six routes:
             operation pipeline once enabled.
 
   data    — the answer is a read-only data processing task over local
-            structured or semi-structured files/materials: tables,
-            ledgers, manifests, extracted text, attachment indexes, or
-            machine-readable records. Examples include CSV/TSV/JSON/
-            JSONL/text data cleaning, joins, filters, aggregations,
-            spreadsheet-like calculations, row-level decisions, and strict
+	            structured or semi-structured files/materials: tables,
+	            record sets, manifests, extracted text, attachment indexes, or
+	            machine-readable records. Examples include CSV/TSV/JSON/
+	            JSONL/text data cleaning, joins, filters, aggregations,
+	            spreadsheet-like calculations, item-level decisions, and strict
             output-only requests such as JSON-only, CSV-only, a single line,
             or a Markdown table. These examples are not exhaustive; future
             document/spreadsheet/OCR adapters can feed the same data lane.

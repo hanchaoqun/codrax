@@ -41,7 +41,7 @@ type dataTaskResultPromptView struct {
 	Answer           string                   `json:"answer,omitempty"`
 	OutputContract   dataquery.OutputContract `json:"output_contract,omitempty"`
 	AuditSummary     string                   `json:"audit_summary,omitempty"`
-	Rows             int                      `json:"row_decisions,omitempty"`
+	DecisionRecords  int                      `json:"decision_records,omitempty"`
 	Metrics          []dataquery.Metric       `json:"metrics,omitempty"`
 	ContractWarnings []string                 `json:"contract_warnings,omitempty"`
 }
@@ -76,7 +76,7 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 				Answer:           clampDataTaskWorkflowText(rec.Result.Answer, 2400),
 				OutputContract:   rec.Result.OutputContract.Normalize(),
 				AuditSummary:     clampDataTaskWorkflowText(rec.Result.AuditSummary, 1000),
-				Rows:             len(rec.Result.Rows),
+				DecisionRecords:  len(rec.Result.Rows),
 				Metrics:          rec.Result.Metrics,
 				ContractWarnings: append([]string(nil), rec.Result.ContractWarnings...),
 			}
@@ -110,4 +110,66 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 		}
 	}
 	return dataquery.Result{}, false
+}
+
+func preserveDataTaskRepairCoverage(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {
+	repaired.CoverageContract = mergeDataTaskCoverageContracts(previous.CoverageContract, repaired.CoverageContract)
+	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredPaths())
+	return repaired
+}
+
+func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) dataquery.CoverageContract {
+	out := next
+	out.RequiredMaterials = mergeDataTaskCoverageMaterials(previous.RequiredMaterials, next.RequiredMaterials, true)
+	out.OptionalMaterials = mergeDataTaskCoverageMaterials(previous.OptionalMaterials, next.OptionalMaterials, false)
+	if len(out.ValidationRules) == 0 && len(previous.ValidationRules) > 0 {
+		out.ValidationRules = append([]string(nil), previous.ValidationRules...)
+	}
+	out.DecisionRecordsRequired = previous.DecisionRecordsRequired || next.DecisionRecordsRequired
+	return out
+}
+
+func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial, forceRequired bool) []dataquery.CoverageMaterial {
+	out := make([]dataquery.CoverageMaterial, 0, len(previous)+len(next))
+	seen := map[string]bool{}
+	appendOne := func(m dataquery.CoverageMaterial) {
+		path := strings.TrimSpace(m.Path)
+		id := strings.TrimSpace(m.ID)
+		purpose := strings.TrimSpace(m.Purpose)
+		if path == "" && id == "" && purpose == "" {
+			return
+		}
+		key := path + "\x00" + id + "\x00" + purpose
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		if forceRequired {
+			m.Required = true
+		}
+		out = append(out, m)
+	}
+	for _, m := range previous {
+		appendOne(m)
+	}
+	for _, m := range next {
+		appendOne(m)
+	}
+	return out
+}
+
+func mergeDataTaskInputPaths(paths, required []string) []string {
+	out := make([]string, 0, len(paths)+len(required))
+	seen := map[string]bool{}
+	for _, list := range [][]string{paths, required} {
+		for _, path := range list {
+			path = strings.TrimSpace(path)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	return out
 }

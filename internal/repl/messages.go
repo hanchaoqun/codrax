@@ -2294,9 +2294,9 @@ func dataTaskAnswerMarkdown(lang string, result dataquery.Result) string {
 	}
 	if len(result.Rows) > 0 {
 		if isZh(lang) {
-			fmt.Fprintf(&b, "\n\n行级决策：%d 条", len(result.Rows))
+			fmt.Fprintf(&b, "\n\n决策记录：%d 条", len(result.Rows))
 		} else {
-			fmt.Fprintf(&b, "\n\nRow decisions: %d", len(result.Rows))
+			fmt.Fprintf(&b, "\n\nDecision records: %d", len(result.Rows))
 		}
 	}
 	return strings.TrimSpace(b.String())

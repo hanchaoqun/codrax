@@ -63,6 +63,47 @@ var dataTaskPlanTool = llm.ToolSchema{
       "required": ["format", "explanation_allowed"],
       "description": "Typed final-output contract derived from the user's requested shape. If the user says only output JSON/CSV/a single line, set explanation_allowed=false."
     },
+    "coverage_contract": {
+      "type": "object",
+      "properties": {
+        "required_materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type":"string"},
+              "path": {"type":"string"},
+              "purpose": {"type":"string"},
+              "required": {"type":"boolean"}
+            }
+          },
+          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories."
+        },
+        "optional_materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type":"string"},
+              "path": {"type":"string"},
+              "purpose": {"type":"string"},
+              "required": {"type":"boolean"}
+            }
+          },
+          "description": "Relevant but non-blocking materials."
+        },
+        "validation_rules": {
+          "type": "array",
+          "items": {"type":"string"},
+          "description": "Task-specific structural validation rules the result should satisfy."
+        },
+        "decision_records_required": {
+          "type": "boolean",
+          "description": "true when filtering, joining, aggregation, or item-level decisions must be auditable through generic result.rows decision records. These records may represent table rows, JSON items, text spans, pages, image regions, or any task-specific item."
+        }
+      },
+      "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; Codrax only verifies declared required materials are input and actually consumed."
+    },
     "script": {
       "type": "string",
       "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
@@ -148,7 +189,7 @@ Convert the user's request into a typed data task plan for deterministic local d
 
 Hard rules:
 - Emit only emit_data_task_plan. Do not write prose.
-- This lane is for structured/semi-structured data computation: CSV/TSV/JSON/JSONL/text cleaning, filtering, joining, aggregation, row-level decisions, and strict data-shaped output.
+- This lane is for structured/semi-structured data computation: CSV/TSV/JSON/JSONL/text cleaning, filtering, joining, aggregation, item-level decisions, and strict data-shaped output.
 - This is not source-code analysis, log/trace diagnosis, write-mode code editing, or computer operation.
 - Use candidate files when possible. If no relevant local data file is available or the user's business rule is genuinely missing, ask a short clarification question.
 - Do not make the model hand-calculate the final answer. The script must compute it.
@@ -156,6 +197,10 @@ Hard rules:
 - Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
+- Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
+- Fill coverage_contract.required_materials with every material that must be consumed to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
+- Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
+- For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
 - Script sandbox: prefer the provided helpers:
   csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, emit(obj).
 - You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator, string, textwrap, base64, binascii, hashlib, unicodedata, fractions, calendar.
@@ -163,7 +208,7 @@ Hard rules:
 - print(...) is allowed for small debug output only. It is not the final answer channel; the script must still call emit(obj) or set result.
 - If the requested task needs file writes, network, process execution, installation, deletion, remote access, or other side effects, do not smuggle that into this data script. Return status=blocked with a concise block_reason explaining that the task requires the operation pipeline and its risk/approval policy.
 - input_paths must list every path the script reads. The runner copies only those paths into an isolated temporary workspace.
-- Emit row-level audit in rows when the task includes filtering/joining/aggregation decisions. Do not misuse member_set/count semantics; numeric totals belong in answer/metrics/audit, not in member count fields.
+- Emit item-level decision records in rows when the task includes filtering/joining/aggregation decisions. A record may represent a table row, JSON item, text span, page, image region, or other task-specific item. Do not misuse member_set/count semantics; numeric totals belong in answer/metrics/audit, not in member count fields.
 `
 
 const dataTaskEvaluationSystemPrompt = `You are a data workflow evaluator.
@@ -357,21 +402,7 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## candidate_data_files\n")
-	if len(candidates) == 0 {
-		b.WriteString("(none discovered)\n")
-	} else {
-		limit := len(candidates)
-		if limit > 120 {
-			limit = 120
-		}
-		for i := 0; i < limit; i++ {
-			f := candidates[i]
-			fmt.Fprintf(&b, "- path=%s kind=%s size=%d\n", f.Path, f.Kind, f.Size)
-		}
-		if len(candidates) > limit {
-			fmt.Fprintf(&b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
-		}
-	}
+	appendCandidateDataFiles(&b, candidates)
 	return strings.TrimSpace(b.String())
 }
 
@@ -389,24 +420,12 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
+	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must be listed in input_paths and actually read by the script.\n")
+	b.WriteString("- If coverage_contract.decision_records_required=true, emit result.rows. If result.rows was missing, repair by adding generic item-level decision records rather than changing the user's final output format.\n")
 	b.WriteString("- The script must call emit(obj) or set result. Debug print is allowed only in small amounts and is not the final answer.\n")
 	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
 	b.WriteString("## candidate_data_files\n")
-	if len(candidates) == 0 {
-		b.WriteString("(none discovered)\n")
-	} else {
-		limit := len(candidates)
-		if limit > 120 {
-			limit = 120
-		}
-		for i := 0; i < limit; i++ {
-			f := candidates[i]
-			fmt.Fprintf(&b, "- path=%s kind=%s size=%d\n", f.Path, f.Kind, f.Size)
-		}
-		if len(candidates) > limit {
-			fmt.Fprintf(&b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
-		}
-	}
+	appendCandidateDataFiles(&b, candidates)
 	return strings.TrimSpace(b.String())
 }
 
@@ -422,6 +441,7 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	b.WriteString("\n\n## continuation_rules\n")
 	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
+	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
 	b.WriteString("- Do not repeat a failed script unchanged. Do not re-run successful intermediate batches unless a fresh value is required.\n")
 	b.WriteString("- Ask the user only for user-owned business inputs. Keep computing when the missing fact can be derived from available local data files.\n")
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
@@ -450,7 +470,20 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 	}
 	for i := 0; i < limit; i++ {
 		f := candidates[i]
-		fmt.Fprintf(b, "- path=%s kind=%s size=%d\n", f.Path, f.Kind, f.Size)
+		fmt.Fprintf(b, "- path=%s kind=%s size=%d", f.Path, f.Kind, f.Size)
+		if f.Lines > 0 {
+			fmt.Fprintf(b, " lines=%d", f.Lines)
+		}
+		if len(f.Headers) > 0 {
+			fmt.Fprintf(b, " headers=%s", strings.Join(f.Headers, "|"))
+		}
+		if len(f.Sample) > 0 {
+			fmt.Fprintf(b, " sample=%q", strings.Join(f.Sample, " / "))
+		}
+		if strings.TrimSpace(f.InspectError) != "" {
+			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 160))
+		}
+		b.WriteString("\n")
 	}
 	if len(candidates) > limit {
 		fmt.Fprintf(b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
@@ -461,6 +494,7 @@ type dataTaskPlanDraft struct {
 	Status              flexiblePolicyString     `json:"status"`
 	InputPaths          flexiblePolicyStringList `json:"input_paths"`
 	OutputContract      dataTaskOutputDraft      `json:"output_contract"`
+	CoverageContract    dataTaskCoverageDraft    `json:"coverage_contract"`
 	Script              flexiblePolicyString     `json:"script"`
 	Questions           []dataTaskQuestionDraft  `json:"questions"`
 	BlockReason         flexiblePolicyString     `json:"block_reason"`
@@ -483,6 +517,20 @@ type dataTaskQuestionDraft struct {
 	ID          flexiblePolicyString     `json:"id"`
 	Question    flexiblePolicyString     `json:"question"`
 	Suggestions flexiblePolicyStringList `json:"suggestions"`
+}
+
+type dataTaskCoverageDraft struct {
+	RequiredMaterials       []dataTaskCoverageMaterialDraft `json:"required_materials"`
+	OptionalMaterials       []dataTaskCoverageMaterialDraft `json:"optional_materials"`
+	ValidationRules         flexiblePolicyStringList        `json:"validation_rules"`
+	DecisionRecordsRequired flexiblePolicyBool              `json:"decision_records_required"`
+}
+
+type dataTaskCoverageMaterialDraft struct {
+	ID       flexiblePolicyString `json:"id"`
+	Path     flexiblePolicyString `json:"path"`
+	Purpose  flexiblePolicyString `json:"purpose"`
+	Required flexiblePolicyBool   `json:"required"`
 }
 
 type dataTaskEvaluationDraft struct {
@@ -521,6 +569,7 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 			ExplanationAllowed: bool(d.OutputContract.ExplanationAllowed),
 			Delimiter:          strings.TrimSpace(string(d.OutputContract.Delimiter)),
 		}.Normalize(),
+		CoverageContract:    d.CoverageContract.toCoverageContract(),
 		Script:              strings.TrimSpace(string(d.Script)),
 		Questions:           qs,
 		BlockReason:         strings.TrimSpace(string(d.BlockReason)),
@@ -532,6 +581,40 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 		WhyThisBatch:        strings.TrimSpace(string(d.WhyThisBatch)),
 		ContinueAfter:       bool(d.ContinueAfter),
 	}
+}
+
+func (d dataTaskCoverageDraft) toCoverageContract() dataquery.CoverageContract {
+	return dataquery.CoverageContract{
+		RequiredMaterials:       dataTaskCoverageMaterialsToPlan(d.RequiredMaterials, true),
+		OptionalMaterials:       dataTaskCoverageMaterialsToPlan(d.OptionalMaterials, false),
+		ValidationRules:         cleanPolicyStringList([]string(d.ValidationRules)),
+		DecisionRecordsRequired: bool(d.DecisionRecordsRequired),
+	}
+}
+
+func dataTaskCoverageMaterialsToPlan(in []dataTaskCoverageMaterialDraft, forceRequired bool) []dataquery.CoverageMaterial {
+	out := make([]dataquery.CoverageMaterial, 0, len(in))
+	seen := map[string]bool{}
+	for _, m := range in {
+		path := strings.TrimSpace(string(m.Path))
+		purpose := strings.TrimSpace(string(m.Purpose))
+		id := strings.TrimSpace(string(m.ID))
+		if path == "" && purpose == "" && id == "" {
+			continue
+		}
+		key := path + "\x00" + id + "\x00" + purpose
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, dataquery.CoverageMaterial{
+			ID:       id,
+			Path:     path,
+			Purpose:  purpose,
+			Required: forceRequired || bool(m.Required),
+		})
+	}
+	return out
 }
 
 func normalizeDataTaskPlanStatus(status string) string {

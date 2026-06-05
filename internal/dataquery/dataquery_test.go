@@ -48,6 +48,9 @@ emit({
 	if len(res.Rows) != 3 {
 		t.Fatalf("Rows=%d, want 3", len(res.Rows))
 	}
+	if strings.Join(res.ConsumedPaths, ",") != "orders.csv" {
+		t.Fatalf("ConsumedPaths=%v, want orders.csv", res.ConsumedPaths)
+	}
 }
 
 func TestRunnerJSONOnlyValidation(t *testing.T) {
@@ -215,5 +218,71 @@ func TestDiscoverCandidateFilesSkipsSource(t *testing.T) {
 	}
 	if strings.Join(paths, ",") != "a.csv,nested/b.json" {
 		t.Fatalf("paths=%v", paths)
+	}
+	for _, f := range got {
+		if f.Path == "a.csv" {
+			if strings.Join(f.Headers, ",") != "x" || f.Lines != 2 {
+				t.Fatalf("csv metadata=%+v, want header and line count", f)
+			}
+		}
+	}
+}
+
+func TestRunnerRejectsMissingRequiredMaterialConsumption(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rules.txt"), []byte("sum paid rows\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.txt"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input table", Required: true},
+				{Path: "rules.txt", Purpose: "task rules", Required: true},
+			},
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({"answer": str(len(rows)), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `required material "rules.txt" was not consumed`) {
+		t.Fatalf("Run err=%v, want required material consumption failure", err)
+	}
+}
+
+func TestRunnerRejectsMissingRequiredDecisionRecords(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:       []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired: true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({"answer": str(len(rows)), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "decision_records_required=true but result.rows is empty") {
+		t.Fatalf("Run err=%v, want decision records failure", err)
 	}
 }

@@ -1320,6 +1320,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
+				repairedPlan = preserveDataTaskRepairCoverage(currentPlan, repairedPlan)
 				r.emitDataTaskPlanAudit(repairedPlan)
 				currentPlan = repairedPlan
 				continue
@@ -2023,12 +2024,24 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 	}
 	if isZh(lang) {
 		segs := []string{status, fmt.Sprintf("输入 %d", len(plan.InputPaths)), "输出 " + format}
+		if n := len(plan.CoverageContract.RequiredPaths()); n > 0 {
+			segs = append(segs, fmt.Sprintf("必需材料 %d", n))
+		}
+		if plan.CoverageContract.DecisionRecordsRequired {
+			segs = append(segs, "需决策记录")
+		}
 		if !plan.OutputContract.ExplanationAllowed {
 			segs = append(segs, "纯输出")
 		}
 		return "数据计划", segs
 	}
 	segs := []string{status, fmt.Sprintf("%d input(s)", len(plan.InputPaths)), "output " + format}
+	if n := len(plan.CoverageContract.RequiredPaths()); n > 0 {
+		segs = append(segs, fmt.Sprintf("%d required material(s)", n))
+	}
+	if plan.CoverageContract.DecisionRecordsRequired {
+		segs = append(segs, "decision records required")
+	}
 	if !plan.OutputContract.ExplanationAllowed {
 		segs = append(segs, "output-only")
 	}

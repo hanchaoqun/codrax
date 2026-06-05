@@ -1,7 +1,9 @@
 package dataquery
 
 import (
+	"bufio"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,19 +47,49 @@ func (c OutputContract) Normalize() OutputContract {
 }
 
 type TaskPlan struct {
-	Status              string         `json:"status"`
-	InputPaths          []string       `json:"input_paths"`
-	OutputContract      OutputContract `json:"output_contract"`
-	Script              string         `json:"script"`
-	Questions           []Question     `json:"questions,omitempty"`
-	BlockReason         string         `json:"block_reason,omitempty"`
-	Goal                string         `json:"goal,omitempty"`
-	KnownConstraints    []string       `json:"known_constraints,omitempty"`
-	MissingObservations []string       `json:"missing_observations,omitempty"`
-	SuccessCriteria     []string       `json:"success_criteria,omitempty"`
-	NextBatch           string         `json:"next_batch,omitempty"`
-	WhyThisBatch        string         `json:"why_this_batch,omitempty"`
-	ContinueAfter       bool           `json:"continue_after,omitempty"`
+	Status              string           `json:"status"`
+	InputPaths          []string         `json:"input_paths"`
+	OutputContract      OutputContract   `json:"output_contract"`
+	CoverageContract    CoverageContract `json:"coverage_contract,omitempty"`
+	Script              string           `json:"script"`
+	Questions           []Question       `json:"questions,omitempty"`
+	BlockReason         string           `json:"block_reason,omitempty"`
+	Goal                string           `json:"goal,omitempty"`
+	KnownConstraints    []string         `json:"known_constraints,omitempty"`
+	MissingObservations []string         `json:"missing_observations,omitempty"`
+	SuccessCriteria     []string         `json:"success_criteria,omitempty"`
+	NextBatch           string           `json:"next_batch,omitempty"`
+	WhyThisBatch        string           `json:"why_this_batch,omitempty"`
+	ContinueAfter       bool             `json:"continue_after,omitempty"`
+}
+
+type CoverageContract struct {
+	RequiredMaterials       []CoverageMaterial `json:"required_materials,omitempty"`
+	OptionalMaterials       []CoverageMaterial `json:"optional_materials,omitempty"`
+	ValidationRules         []string           `json:"validation_rules,omitempty"`
+	DecisionRecordsRequired bool               `json:"decision_records_required,omitempty"`
+}
+
+type CoverageMaterial struct {
+	ID       string `json:"id,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Purpose  string `json:"purpose,omitempty"`
+	Required bool   `json:"required,omitempty"`
+}
+
+func (c CoverageContract) RequiredPaths() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range c.RequiredMaterials {
+		path := normalizeMaterialPath(m.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type Question struct {
@@ -72,16 +104,20 @@ type Result struct {
 	AuditSummary     string         `json:"audit_summary,omitempty"`
 	Rows             []RowDecision  `json:"rows,omitempty"`
 	Metrics          []Metric       `json:"metrics,omitempty"`
+	ConsumedPaths    []string       `json:"consumed_paths,omitempty"`
 	ContractWarnings []string       `json:"contract_warnings,omitempty"`
 }
 
 type RowDecision struct {
-	RowID       string   `json:"row_id,omitempty"`
-	Source      string   `json:"source,omitempty"`
-	Decision    string   `json:"decision,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
-	Value       string   `json:"value,omitempty"`
-	EvidenceRef []string `json:"evidence_refs,omitempty"`
+	RowID            string            `json:"row_id,omitempty"`
+	Source           string            `json:"source,omitempty"`
+	SourceLocator    string            `json:"source_locator,omitempty"`
+	Decision         string            `json:"decision,omitempty"`
+	Reason           string            `json:"reason,omitempty"`
+	Value            string            `json:"value,omitempty"`
+	Contribution     string            `json:"contribution,omitempty"`
+	NormalizedFields map[string]string `json:"normalized_fields,omitempty"`
+	EvidenceRef      []string          `json:"evidence_refs,omitempty"`
 }
 
 type Metric struct {
@@ -128,10 +164,13 @@ func NormalizeEvaluationStatus(status string) EvaluationStatus {
 }
 
 type CandidateFile struct {
-	Path  string `json:"path"`
-	Size  int64  `json:"size"`
-	Kind  string `json:"kind"`
-	Lines int    `json:"lines,omitempty"`
+	Path         string   `json:"path"`
+	Size         int64    `json:"size"`
+	Kind         string   `json:"kind"`
+	Lines        int      `json:"lines,omitempty"`
+	Headers      []string `json:"headers,omitempty"`
+	Sample       []string `json:"sample,omitempty"`
+	InspectError string   `json:"inspect_error,omitempty"`
 }
 
 type Runner struct {
@@ -196,6 +235,7 @@ func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
 			Size: info.Size(),
 			Kind: kind,
 		})
+		out[len(out)-1] = inspectCandidateFile(path, out[len(out)-1])
 		return nil
 	})
 	if err != nil {
@@ -208,6 +248,196 @@ func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
 		return out[i].Path < out[j].Path
 	})
 	return out, nil
+}
+
+func inspectCandidateFile(path string, f CandidateFile) CandidateFile {
+	switch f.Kind {
+	case "csv", "tsv":
+		return inspectDelimitedCandidate(path, f)
+	case "json":
+		return inspectJSONCandidate(path, f)
+	case "jsonl":
+		return inspectJSONLCandidate(path, f)
+	case "text":
+		return inspectTextCandidate(path, f)
+	default:
+		return f
+	}
+}
+
+func inspectDelimitedCandidate(path string, f CandidateFile) CandidateFile {
+	file, err := os.Open(path)
+	if err != nil {
+		f.InspectError = err.Error()
+		return f
+	}
+	defer file.Close()
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	if f.Kind == "tsv" {
+		reader.Comma = '\t'
+	}
+	header, err := reader.Read()
+	if err != nil {
+		if err != io.EOF {
+			f.InspectError = err.Error()
+		}
+		return f
+	}
+	f.Headers = clampStringSlice(cleanStringSlice(header), 40)
+	lines := 1
+	for len(f.Sample) < 3 {
+		row, err := reader.Read()
+		if err != nil {
+			break
+		}
+		lines++
+		f.Sample = append(f.Sample, clampOneLine(strings.Join(row, " | "), 240))
+	}
+	for {
+		_, err := reader.Read()
+		if err != nil {
+			break
+		}
+		lines++
+		if lines > 1000000 {
+			break
+		}
+	}
+	f.Lines = lines
+	return f
+}
+
+func inspectJSONCandidate(path string, f CandidateFile) CandidateFile {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		f.InspectError = err.Error()
+		return f
+	}
+	if len(data) > 256<<10 {
+		data = data[:256<<10]
+	}
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		f.Sample = []string{clampOneLine(string(data), 240)}
+		return f
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		f.Headers = clampStringSlice(keys, 40)
+	case []any:
+		f.Lines = len(x)
+		if len(x) > 0 {
+			if m, ok := x[0].(map[string]any); ok {
+				keys := make([]string, 0, len(m))
+				for k := range m {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				f.Headers = clampStringSlice(keys, 40)
+			}
+		}
+	}
+	raw, _ := json.Marshal(v)
+	if len(raw) > 0 {
+		f.Sample = []string{clampOneLine(string(raw), 240)}
+	}
+	return f
+}
+
+func inspectJSONLCandidate(path string, f CandidateFile) CandidateFile {
+	file, err := os.Open(path)
+	if err != nil {
+		f.InspectError = err.Error()
+		return f
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64<<10), 1024<<10)
+	keys := map[string]bool{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		f.Lines++
+		if len(f.Sample) < 3 {
+			f.Sample = append(f.Sample, clampOneLine(line, 240))
+		}
+		if len(keys) < 80 {
+			var m map[string]any
+			if err := json.Unmarshal([]byte(line), &m); err == nil {
+				for k := range m {
+					keys[k] = true
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		f.InspectError = err.Error()
+	}
+	for k := range keys {
+		f.Headers = append(f.Headers, k)
+	}
+	sort.Strings(f.Headers)
+	f.Headers = clampStringSlice(f.Headers, 40)
+	return f
+}
+
+func inspectTextCandidate(path string, f CandidateFile) CandidateFile {
+	file, err := os.Open(path)
+	if err != nil {
+		f.InspectError = err.Error()
+		return f
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64<<10), 1024<<10)
+	for scanner.Scan() {
+		f.Lines++
+		if len(f.Sample) < 4 {
+			f.Sample = append(f.Sample, clampOneLine(scanner.Text(), 240))
+		}
+		if f.Lines > 1000000 {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		f.InspectError = err.Error()
+	}
+	return f
+}
+
+func cleanStringSlice(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func clampStringSlice(in []string, limit int) []string {
+	if limit <= 0 || len(in) <= limit {
+		return in
+	}
+	return append(append([]string(nil), in[:limit]...), fmt.Sprintf("...%d more", len(in)-limit))
+}
+
+func clampOneLine(s string, limit int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if limit > 0 && len(s) > limit {
+		return s[:limit] + "...[truncated]"
+	}
+	return s
 }
 
 func dataKindForPath(path string) string {
@@ -277,6 +507,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if err := validateCoverageInputsDeclared(plan.CoverageContract, relPaths); err != nil {
+		return Result{}, err
+	}
 	helperPath := filepath.Join(workDir, "_runner.py")
 	if err := os.WriteFile(helperPath, []byte(renderPythonHelper(plan.Script, relPaths)), 0600); err != nil {
 		return Result{}, err
@@ -296,6 +529,13 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	res, err := parseRunnerResult(out)
 	if err != nil {
 		return Result{}, err
+	}
+	res.ConsumedPaths = normalizeMaterialPaths(res.ConsumedPaths)
+	if err := validateCoverageConsumed(plan.CoverageContract, res.ConsumedPaths); err != nil {
+		return Result{}, err
+	}
+	if plan.CoverageContract.DecisionRecordsRequired && len(res.Rows) == 0 {
+		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty")
 	}
 	if res.OutputContract.Format == "" {
 		res.OutputContract = plan.OutputContract
@@ -405,6 +645,66 @@ func resolveInputPath(root, raw string) (string, string, error) {
 	return filepath.ToSlash(rel), abs, nil
 }
 
+func validateCoverageInputsDeclared(contract CoverageContract, copied []string) error {
+	copied = normalizeMaterialPaths(copied)
+	for _, req := range contract.RequiredPaths() {
+		if !materialPathCovered(req, copied) {
+			return fmt.Errorf("data coverage incomplete: required material %q is not declared in input_paths", req)
+		}
+	}
+	return nil
+}
+
+func validateCoverageConsumed(contract CoverageContract, consumed []string) error {
+	consumed = normalizeMaterialPaths(consumed)
+	for _, req := range contract.RequiredPaths() {
+		if !materialPathCovered(req, consumed) {
+			return fmt.Errorf("data coverage incomplete: required material %q was not consumed by the script", req)
+		}
+	}
+	return nil
+}
+
+func materialPathCovered(required string, paths []string) bool {
+	required = normalizeMaterialPath(required)
+	if required == "" {
+		return true
+	}
+	for _, path := range paths {
+		path = normalizeMaterialPath(path)
+		if path == required || strings.HasPrefix(path, required+"/") || strings.HasPrefix(required, path+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMaterialPaths(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, path := range in {
+		path = normalizeMaterialPath(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeMaterialPath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	path = strings.TrimPrefix(path, "./")
+	path = filepath.Clean(path)
+	path = strings.ReplaceAll(path, "\\", "/")
+	if path == "." {
+		return ""
+	}
+	return path
+}
+
 func copyOneInput(src, dst string, maxFile int64) (int64, error) {
 	info, err := os.Stat(src)
 	if err != nil {
@@ -440,6 +740,7 @@ func renderPythonHelper(script string, relPaths []string) string {
 ALLOWED = set(%s)
 RESULT = None
 BASE_DIR = os.getcwd()
+CONSUMED = set()
 PRINT_BYTES = 0
 PRINT_BYTE_LIMIT = 20000
 PRINT_CALL_LIMIT = 4096
@@ -458,11 +759,16 @@ def _safe_path(path):
         raise ValueError("path was not declared as an input: " + path)
     return norm
 
+def _mark_consumed(path):
+    norm = _safe_path(path)
+    CONSUMED.add(norm)
+    return norm
+
 def _safe_open(path, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
     mode = str(mode or "r")
     if any(ch in mode for ch in "wax+") or not mode.startswith("r"):
         raise ValueError("data task open is read-only: " + mode)
-    norm = _safe_path(path)
+    norm = _mark_consumed(path)
     full = os.path.abspath(os.path.join(BASE_DIR, norm))
     base = os.path.abspath(BASE_DIR)
     if full != base and not full.startswith(base + os.sep):
@@ -494,24 +800,29 @@ def _safe_print(*args, sep=" ", end="\n", file=None, flush=False):
     print(data.decode("utf-8", errors="replace"), end="", flush=flush)
 
 def read_text(path, encoding="utf-8"):
-    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+    norm = _mark_consumed(path)
+    with open(norm, "r", encoding=encoding, errors="replace", newline="") as f:
         return f.read()
 
 def csv_rows(path, encoding="utf-8"):
-    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+    norm = _mark_consumed(path)
+    with open(norm, "r", encoding=encoding, errors="replace", newline="") as f:
         return list(csv.DictReader(f))
 
 def tsv_rows(path, encoding="utf-8"):
-    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+    norm = _mark_consumed(path)
+    with open(norm, "r", encoding=encoding, errors="replace", newline="") as f:
         return list(csv.DictReader(f, delimiter="\t"))
 
 def json_load(path, encoding="utf-8"):
-    with open(_safe_path(path), "r", encoding=encoding, errors="replace") as f:
+    norm = _mark_consumed(path)
+    with open(norm, "r", encoding=encoding, errors="replace") as f:
         return json.load(f)
 
 def jsonl_rows(path, encoding="utf-8"):
     rows = []
-    with open(_safe_path(path), "r", encoding=encoding, errors="replace") as f:
+    norm = _mark_consumed(path)
+    with open(norm, "r", encoding=encoding, errors="replace") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -559,6 +870,8 @@ if RESULT is None:
     RESULT = env.get("result")
 if RESULT is None:
     raise ValueError("data task script did not call emit(obj) or set result")
+if isinstance(RESULT, dict):
+    RESULT.setdefault("consumed_paths", sorted(CONSUMED))
 print(%q + json.dumps(RESULT, ensure_ascii=False, default=str))
 `, string(pathsJSON), string(scriptJSON), resultMarker)
 }

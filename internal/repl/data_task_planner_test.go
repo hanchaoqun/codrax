@@ -12,7 +12,7 @@ import (
 func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
+			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"coverageContract":{"requiredMaterials":[{"id":"m1","path":"orders.csv","purpose":"input rows","required":"true"}],"validationRules":"all totals reconcile; rows cite source","decisionRecordsRequired":"true"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
 		},
 	}
 	planner := NewDataTaskPlanner(adapter)
@@ -31,6 +31,12 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 	if plan.OutputContract.Format != dataquery.OutputCSVLine || plan.OutputContract.ExplanationAllowed {
 		t.Fatalf("OutputContract=%+v", plan.OutputContract)
+	}
+	if len(plan.CoverageContract.RequiredMaterials) != 1 || plan.CoverageContract.RequiredMaterials[0].Path != "orders.csv" || !plan.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("CoverageContract=%+v", plan.CoverageContract)
+	}
+	if len(plan.CoverageContract.ValidationRules) != 2 {
+		t.Fatalf("ValidationRules=%v", plan.CoverageContract.ValidationRules)
 	}
 	if !strings.Contains(plan.Script, "emit") {
 		t.Fatalf("Script=%q", plan.Script)
@@ -59,8 +65,11 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"open(path) is read-only",
 		"print(...) is allowed",
 		"operation pipeline",
+		"coverage_contract",
+		"material inventory",
+		"decision_records_required",
 		"network/process libraries",
-		"row-level audit",
+		"item-level decision records",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
@@ -118,6 +127,10 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 	previous := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:       []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "must read rows", Required: true}},
+			DecisionRecordsRequired: true,
+		},
 		OutputContract: dataquery.OutputContract{
 			Format:             dataquery.OutputCSVLine,
 			ExplanationAllowed: false,
@@ -132,7 +145,7 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 		t.Fatalf("repaired plan=%+v", plan)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "operation pipeline"} {
+	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "coverage_contract", "required_materials", "operation pipeline"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, user)
 		}
@@ -232,7 +245,7 @@ func TestDataTaskPlannerPromptIncludesCandidateFiles(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	plan, err := planner.PlanDataTask(context.Background(), "算一下", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{
-		{Path: "data/a.csv", Kind: "csv", Size: 123},
+		{Path: "data/a.csv", Kind: "csv", Size: 123, Lines: 3, Headers: []string{"vendor", "amount"}, Sample: []string{"A | 10"}},
 	})
 	if err != nil {
 		t.Fatalf("PlanDataTask: %v", err)
@@ -241,10 +254,39 @@ func TestDataTaskPlannerPromptIncludesCandidateFiles(t *testing.T) {
 		t.Fatalf("Questions=%v", plan.Questions)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## candidate_data_files", "path=data/a.csv", "kind=csv"} {
+	for _, want := range []string{"## candidate_data_files", "path=data/a.csv", "kind=csv", "headers=vendor|amount", `sample="A | 10"`} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("data planner prompt missing %q:\n%s", want, user)
 		}
+	}
+}
+
+func TestPreserveDataTaskRepairCoverage(t *testing.T) {
+	previous := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.txt"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input", Required: true},
+				{Path: "rules.txt", Purpose: "rules", Required: true},
+			},
+			DecisionRecordsRequired: true,
+		},
+	}
+	repaired := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "input", Required: true}},
+		},
+	}
+	got := preserveDataTaskRepairCoverage(previous, repaired)
+	if strings.Join(got.InputPaths, ",") != "orders.csv,rules.txt" {
+		t.Fatalf("InputPaths=%v", got.InputPaths)
+	}
+	if !got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("DecisionRecordsRequired=false")
+	}
+	if len(got.CoverageContract.RequiredPaths()) != 2 {
+		t.Fatalf("RequiredMaterials=%+v", got.CoverageContract.RequiredMaterials)
 	}
 }
 
