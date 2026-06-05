@@ -28,7 +28,7 @@ func TestParseSSEStream_ToolCallDelta_FiresPerChunk(t *testing.T) {
 	cb := func(idx int, name, chunk string) {
 		captured = append(captured, capture{idx, name, chunk})
 	}
-	resp, err := parseSSEStream(strings.NewReader(sse), nil, cb, nil, nil)
+	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, cb, nil, nil)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestParseSSEStream_ToolCallDelta_FiresPerChunk(t *testing.T) {
 func TestParseSSEStream_ToolCallDelta_NilCallbackHasNoEffect(t *testing.T) {
 	sse := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"x","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n" +
 		"data: [DONE]\n\n"
-	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse with nil callbacks: %v", err)
 	}
@@ -98,12 +98,12 @@ func TestParseSSEStream_ToolCallDelta_ByteIdenticalArgs(t *testing.T) {
 		"data: [DONE]",
 	}, "\n\n") + "\n\n"
 
-	respA, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+	respA, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse without cb: %v", err)
 	}
 	cb := func(int, string, string) {} // observe but do nothing
-	respB, err := parseSSEStream(strings.NewReader(sse), nil, cb, nil, nil)
+	respB, err := parseSSEStream(strings.NewReader(sse), nil, nil, cb, nil, nil)
 	if err != nil {
 		t.Fatalf("parse with cb: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestParseSSEStream_ToolCallDelta_ProgressUnaffected(t *testing.T) {
 	}, "\n\n") + "\n\n"
 	var progress atomic.Int64
 	cb := func(int, string, string) {}
-	_, err := parseSSEStream(strings.NewReader(sse), nil, cb, &progress, nil)
+	_, err := parseSSEStream(strings.NewReader(sse), nil, nil, cb, &progress, nil)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

@@ -304,7 +304,11 @@ func TestOpenAIAdapter_ReasoningContentParse(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"emit_analysis\",\"arguments\":\"{}\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
 		var deltas []string
-		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) }, nil, nil, nil)
+		var reasoningDeltas []string
+		resp, err := parseSSEStream(strings.NewReader(sse),
+			func(d string) { deltas = append(deltas, d) },
+			func(d string) { reasoningDeltas = append(reasoningDeltas, d) },
+			nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -313,6 +317,9 @@ func TestOpenAIAdapter_ReasoningContentParse(t *testing.T) {
 		}
 		if len(deltas) != 0 {
 			t.Fatalf("reasoning_content must not be surfaced through content delta, got %+v", deltas)
+		}
+		if strings.Join(reasoningDeltas, "") != "think more" {
+			t.Fatalf("reasoning deltas = %+v, want think more", reasoningDeltas)
 		}
 		if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "emit_analysis" {
 			t.Fatalf("tool call not parsed: %+v", resp.ToolCalls)
@@ -503,7 +510,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 			"data: [DONE]\n"
 		var deltas []string
-		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) }, nil, nil, nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) }, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -527,7 +534,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":42}\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -553,7 +560,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{\\\"f\\\":\\\"a.go\\\"}\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -572,7 +579,7 @@ func TestParseSSEStream(t *testing.T) {
 	})
 
 	t.Run("empty stream errors", func(t *testing.T) {
-		_, err := parseSSEStream(strings.NewReader(""), nil, nil, nil, nil)
+		_, err := parseSSEStream(strings.NewReader(""), nil, nil, nil, nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "empty stream") {
 			t.Errorf("expected empty-stream error, got %v", err)
 		}
@@ -583,7 +590,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -596,7 +603,7 @@ func TestParseSSEStream(t *testing.T) {
 		sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -725,7 +732,7 @@ func TestParseSSEStream_ProgressTrackerUpdated(t *testing.T) {
 	var tracker atomic.Int64
 	startNano := time.Now().UnixNano()
 	tracker.Store(0) // start at zero so any update is visible
-	_, err := parseSSEStream(strings.NewReader(sse), nil, nil, &tracker, nil)
+	_, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, &tracker, nil)
 	if err != nil {
 		t.Fatalf("parseSSEStream: %v", err)
 	}
@@ -746,7 +753,7 @@ func TestParseSSEStream_NilTrackerStillWorks(t *testing.T) {
 	sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
 		"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 		"data: [DONE]\n"
-	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil)
+	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("nil tracker should not fail: %v", err)
 	}

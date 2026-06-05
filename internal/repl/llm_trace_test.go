@@ -2,11 +2,13 @@ package repl
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pterm/pterm"
 
@@ -62,6 +64,57 @@ func TestEmitReplLLMTraceRendersReasoningForDirectDataAndOperationCalls(t *testi
 		if !strings.Contains(got, want) {
 			t.Fatalf("direct LLM trace output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+type directTraceStubAdapter struct {
+	response llm.Response
+}
+
+func (a directTraceStubAdapter) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	if opts.OnReasoningDelta != nil {
+		opts.OnReasoningDelta("reasoning ")
+	}
+	if opts.OnContentDelta != nil {
+		opts.OnContentDelta("content")
+	}
+	return a.response, nil
+}
+
+func (a directTraceStubAdapter) ModelID() string { return "stub-direct" }
+
+func (a directTraceStubAdapter) MaxContextTokens() int { return 200000 }
+
+func (a directTraceStubAdapter) MaxOutputTokens() int { return 0 }
+
+func (a directTraceStubAdapter) RequestTimeout() time.Duration { return time.Minute }
+
+func (a directTraceStubAdapter) RetryMaxAttempts() int { return 1 }
+
+func TestDirectLLMTraceAdapterKeepsCallbacksPassive(t *testing.T) {
+	var out bytes.Buffer
+	wrapped := NewDirectLLMTraceAdapter(directTraceStubAdapter{response: llm.Response{
+		Content:          "final content",
+		ReasoningContent: "final reasoning",
+	}}, render.New(&out, true), types.AgentName("data_planner"), types.PipelineStage("data"))
+
+	var reasoningDeltas []string
+	var contentDeltas []string
+	resp, err := wrapped.Chat(context.Background(), nil, nil, llm.ChatOptions{
+		OnReasoningDelta: func(delta string) { reasoningDeltas = append(reasoningDeltas, delta) },
+		OnContentDelta:   func(delta string) { contentDeltas = append(contentDeltas, delta) },
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "final content" || resp.ReasoningContent != "final reasoning" {
+		t.Fatalf("response was modified: %+v", resp)
+	}
+	if strings.Join(reasoningDeltas, "") != "reasoning " {
+		t.Fatalf("reasoning deltas = %+v", reasoningDeltas)
+	}
+	if strings.Join(contentDeltas, "") != "content" {
+		t.Fatalf("content deltas = %+v", contentDeltas)
 	}
 }
 

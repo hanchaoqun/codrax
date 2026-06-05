@@ -80,6 +80,17 @@ type ChatOptions struct {
 	// non-nil.
 	OnContentDelta func(delta string)
 
+	// OnReasoningDelta is an optional passive callback fired by a
+	// streaming adapter every time a provider-native reasoning chunk
+	// arrives (for OpenAI-compatible providers this is commonly the
+	// `reasoning_content` delta). Delta is the NEW text only. The
+	// final accumulated reasoning trace is still returned on Response.
+	//
+	// This is UI/debug telemetry only: callers must not use it for
+	// routing, hard gates, evidence, or answer correctness decisions.
+	// Non-streaming adapters never invoke this callback.
+	OnReasoningDelta func(delta string)
+
 	// OnToolCallDelta is an optional PASSIVE-READ callback fired by
 	// a streaming adapter every time a chunk of a tool-call's
 	// `arguments` field arrives over the wire. argsChunk is the NEW

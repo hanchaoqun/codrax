@@ -429,7 +429,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			o.model, attempt+1, maxAttempts, o.stream, len(messages), len(tools), len(bodyBytes),
 			o.requestTimeout, o.streamFirstByteTimeout, o.streamStallTimeout)
 		if o.stream {
-			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnToolCallDelta)
+			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnReasoningDelta, opts.OnToolCallDelta)
 		} else {
 			resp, err = o.doRequest(ctx, bodyBytes)
 		}
@@ -560,9 +560,9 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 // onToolCallDelta is nil — adding the callback is purely a passive
 // read-side tap so the renderer can show a streaming preview of the
 // summary field without disturbing the canonical Args parse.
-func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
 	for authAttempt := 0; authAttempt < 2; authAttempt++ {
-		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onToolCallDelta)
+		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onReasoningDelta, onToolCallDelta)
 		if err == nil {
 			return resp, nil
 		}
@@ -576,7 +576,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	return Response{}, errors.New("llm stream auth retry exhausted")
 }
 
-func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending useful stream progress for too
@@ -756,7 +756,7 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		}
 	}()
 
-	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, &lastVisibleNano)
+	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, &lastVisibleNano)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -914,11 +914,11 @@ const (
 //   - finish_reason appears in the last non-DONE chunk
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
-func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
-	return parseSSEStreamTracked(r, onDelta, onToolCallDelta, progress, firstByte, nil)
+func parseSSEStream(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
+	return parseSSEStreamTracked(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte, nil)
 }
 
-func parseSSEStreamTracked(r io.Reader, onDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, visibleProgress *atomic.Int64) (Response, error) {
+func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, visibleProgress *atomic.Int64) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -1013,6 +1013,9 @@ func parseSSEStreamTracked(r io.Reader, onDelta func(string), onToolCallDelta fu
 		for _, ch := range chunk.Choices {
 			if ch.Delta.ReasoningContent != "" {
 				reasoningBuf.WriteString(ch.Delta.ReasoningContent)
+				if onReasoningDelta != nil {
+					onReasoningDelta(ch.Delta.ReasoningContent)
+				}
 			}
 			if ch.Delta.Content != "" {
 				contentBuf.WriteString(ch.Delta.Content)
@@ -1445,7 +1448,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 	// because the body is already fully buffered by doRequest.
 	if looksLikeSSEResponse(body) {
 		logging.Debug("[llm] non-streaming request returned SSE; parsing as stream")
-		return parseSSEStream(bytes.NewReader(body), nil, nil, nil, nil)
+		return parseSSEStream(bytes.NewReader(body), nil, nil, nil, nil, nil)
 	}
 
 	var oResp openaiResponse

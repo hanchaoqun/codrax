@@ -3860,18 +3860,7 @@ func withRenderLLMTelemetry(adapter llm.Adapter, renderer *render.Renderer, agen
 	if adapter == nil || renderer == nil {
 		return adapter
 	}
-	emit := renderer.Emitter()
-	return llm.NewTelemetryAdapter(adapter, func(t llm.RequestTelemetry) {
-		emit(render.Event{
-			Kind:                  render.EventLLMRequestStart,
-			Timestamp:             time.Now(),
-			Agent:                 agentName,
-			Stage:                 stage,
-			ModelID:               t.ModelID,
-			ContextTokensEstimate: t.ContextTokensEstimate,
-			ContextWindowTokens:   t.ContextWindowTokens,
-		})
-	})
+	return repl.NewDirectLLMTraceAdapter(adapter, renderer, agentName, stage)
 }
 
 // --- Helper functions (moved from main.go) ---
