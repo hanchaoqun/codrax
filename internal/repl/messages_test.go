@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -445,6 +446,27 @@ func TestRenderBorderedCompactDoesNotAddExtraBlankLine(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "\n") {
 		t.Fatalf("compact border should still end with a newline, got %q", got)
+	}
+}
+
+func TestRenderBorderedCompactHonorsColorMode(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	var colored bytes.Buffer
+	r := &REPL{out: &colored, colorMode: render.ColorAlways}
+	r.renderBorderedCompact("最终答案")
+	got := colored.String()
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("ColorAlways should color the final-answer border: %q", got)
+	}
+	if !strings.Contains(stripANSIOnly(got), "│ 最终答案") {
+		t.Fatalf("colored border lost content: %q", got)
+	}
+
+	var plain bytes.Buffer
+	r = &REPL{out: &plain, colorMode: render.ColorNever}
+	r.renderBorderedCompact("最终答案")
+	if strings.Contains(plain.String(), "\x1b[") {
+		t.Fatalf("ColorNever must not emit ANSI in bordered panels: %q", plain.String())
 	}
 }
 

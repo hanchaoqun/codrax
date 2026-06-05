@@ -825,6 +825,7 @@ func New(cfg Config) *REPL {
 		writeScaffoldEnabled:  cfg.WriteScaffoldEnabled,
 		settingsPath:          cfg.SettingsPath,
 	}
+	r.applyPtermColorMode()
 	if r.version == "" {
 		r.version = "dev"
 	}
@@ -2068,7 +2069,7 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 	} else {
 		b.WriteString("Script preview:\n")
 	}
-	b.WriteString(r.dataTaskMutedPreview(script))
+	b.WriteString(dataTaskPanelPreview(script, r.language))
 	if artifact.ScriptPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整脚本：`%s`", artifact.ScriptPath)
@@ -2083,7 +2084,7 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 			fmt.Fprintf(&b, "\nFull plan: `%s`", artifact.PlanPath)
 		}
 	}
-	r.renderBorderedCompact(b.String())
+	r.renderBorderedMutedCompact(b.String())
 }
 
 func (r *REPL) auditDataTaskResult(round int, result dataquery.Result) dataTaskAuditArtifact {
@@ -2143,7 +2144,7 @@ func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact data
 	} else {
 		b.WriteString("Error preview:\n")
 	}
-	b.WriteString(r.dataTaskMutedPreview(errText))
+	b.WriteString(dataTaskPanelPreview(errText, r.language))
 	if artifact.ErrorPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整错误：`%s`", artifact.ErrorPath)
@@ -2151,7 +2152,7 @@ func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact data
 			fmt.Fprintf(&b, "\n\nFull error: `%s`", artifact.ErrorPath)
 		}
 	}
-	r.renderBorderedCompact(b.String())
+	r.renderBorderedMutedCompact(b.String())
 }
 
 func (r *REPL) writeDataTaskResultArtifact(round int, result dataquery.Result) dataTaskAuditArtifact {
@@ -2216,7 +2217,7 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 	} else {
 		b.WriteString("Result preview:\n")
 	}
-	b.WriteString(r.dataTaskMutedPreview(result.Answer))
+	b.WriteString(dataTaskPanelPreview(result.Answer, r.language))
 	if artifact.ResultPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整结果：`%s`", artifact.ResultPath)
@@ -2224,7 +2225,7 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 			fmt.Fprintf(&b, "\n\nFull result: `%s`", artifact.ResultPath)
 		}
 	}
-	r.renderBorderedCompact(b.String())
+	r.renderBorderedMutedCompact(b.String())
 }
 
 func dataTaskAuditNamePart(value string) string {
@@ -2317,7 +2318,7 @@ func (r *REPL) dataTaskMutedPreview(value string) string {
 	if strings.TrimSpace(preview) == "" {
 		return preview
 	}
-	if render.ResolveColorMode(r.colorMode, r.out) == render.ColorNever {
+	if !r.replColorEnabled() {
 		return preview
 	}
 	return pterm.NewStyle(pterm.FgDarkGray).Sprint(preview)
@@ -5513,8 +5514,36 @@ func (r *REPL) renderBorderedCompact(response string) {
 	r.renderBorderedWithTrailingBlank(response, false)
 }
 
+func (r *REPL) renderBorderedMutedCompact(response string) {
+	r.renderBorderedStyled(response, false, replDarkGray, replDarkGray)
+}
+
 func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bool) {
-	body := r.borderedResponseBody(response, trailingBlank)
+	r.renderBorderedStyled(response, trailingBlank, replWhite, nil)
+}
+
+type replLineStyle func(string) string
+
+func replWhite(s string) string {
+	return replPtermOrANSI(pterm.FgWhite.Sprint(s), s, "\x1b[97m")
+}
+
+func replDarkGray(s string) string {
+	return replPtermOrANSI(pterm.NewStyle(pterm.FgDarkGray).Sprint(s), s, "\x1b[90m")
+}
+
+func replPtermOrANSI(styled, plain, sgr string) string {
+	if styled != plain {
+		return styled
+	}
+	if plain == "" {
+		return plain
+	}
+	return sgr + plain + "\x1b[0m"
+}
+
+func (r *REPL) renderBorderedStyled(response string, trailingBlank bool, borderStyle, contentStyle replLineStyle) {
+	body := r.borderedResponseBodyStyled(response, trailingBlank, borderStyle, contentStyle)
 	if r.renderer != nil {
 		r.renderer.EmitScrollbackBlock(body)
 		return
@@ -5523,8 +5552,21 @@ func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bo
 }
 
 func (r *REPL) borderedResponseBody(response string, trailingBlank bool) string {
+	return r.borderedResponseBodyStyled(response, trailingBlank, replWhite, nil)
+}
+
+func (r *REPL) borderedResponseBodyStyled(response string, trailingBlank bool, borderStyle, contentStyle replLineStyle) string {
 	lines := borderedResponseLines(response)
-	bar := pterm.FgWhite.Sprint("│")
+	color := r.replColorEnabled()
+	if color {
+		pterm.EnableColor()
+	} else {
+		pterm.DisableColor()
+	}
+	bar := "│"
+	if color && borderStyle != nil {
+		bar = borderStyle(bar)
+	}
 	// Wrap each line to fit the terminal, accounting for the
 	// "  │ " prefix (4 display cols + 2 margin).
 	maxContent := 60
@@ -5537,6 +5579,9 @@ func (r *REPL) borderedResponseBody(response string, trailingBlank bool) string 
 		wrapped := borderedLineFragmentsPreserve(ln.text, maxContent, ln.visual)
 		for _, wl := range wrapped {
 			visualOverflow := (ln.visual || shouldPreserveVisualLine(wl)) && displayWidth(wl) > maxContent
+			if color && contentStyle != nil && strings.TrimSpace(wl) != "" {
+				wl = contentStyle(wl)
+			}
 			b.WriteString(borderedContentLine(bar, wl, visualOverflow && terminalAutoWrapControlSupported(r.out)))
 		}
 	}
@@ -5546,6 +5591,25 @@ func (r *REPL) borderedResponseBody(response string, trailingBlank bool) string 
 	}
 	fmt.Fprintf(&b, "  %s\n", bar)
 	return b.String()
+}
+
+func (r *REPL) applyPtermColorMode() {
+	if r.replColorEnabled() {
+		pterm.EnableColor()
+		return
+	}
+	pterm.DisableColor()
+}
+
+func (r *REPL) replColorEnabled() bool {
+	return render.ResolveColorMode(r.colorMode, r.colorWriter()) != render.ColorNever
+}
+
+func (r *REPL) colorWriter() io.Writer {
+	if r != nil && r.out != nil {
+		return r.out
+	}
+	return os.Stdout
 }
 
 func (r *REPL) writeBorderedContentLine(bar, line string, visual bool, maxContent int) {

@@ -206,3 +206,27 @@ func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
 		}
 	}
 }
+
+func TestDataTaskAuditPanelUsesMutedColorWhenEnabled(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	var out bytes.Buffer
+	r := &REPL{out: &out, language: "zh", colorMode: render.ColorAlways}
+	r.renderBorderedMutedCompact("脚本预览：\nprint('hello')\n\n完整脚本：`/tmp/script.py`")
+	got := out.String()
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("ColorAlways should color muted data audit panel: %q", got)
+	}
+	plain := stripANSIOnly(got)
+	for _, want := range []string{"│ 脚本预览", "│ print('hello')", "│ 完整脚本"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("muted data audit panel lost %q: raw=%q plain=%q", want, got, plain)
+		}
+	}
+
+	out.Reset()
+	r.colorMode = render.ColorNever
+	r.renderBorderedMutedCompact("脚本预览：\nprint('hello')")
+	if strings.Contains(out.String(), "\x1b[") {
+		t.Fatalf("ColorNever must keep data audit panels plain: %q", out.String())
+	}
+}
