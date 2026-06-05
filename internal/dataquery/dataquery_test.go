@@ -1509,3 +1509,27 @@ func TestApplyDataResultPatchPlanRejectsSemanticReconcileStatusPatch(t *testing.
 		t.Fatalf("ApplyDataResultPatchPlan err=%v, want reconcile status patch rejection", err)
 	}
 }
+
+func TestApplyDataResultPatchPlanRejectsRemoveMove(t *testing.T) {
+	plan := TaskPlan{OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false}}
+	base := Result{
+		Answer:         "10",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID: "row-1", GroupKey: "A", Metric: "amount", Value: "10", Operation: "add",
+		}},
+	}
+	for _, op := range []string{"remove", "move"} {
+		_, _, err := ApplyDataResultPatchPlan(plan, base, DataResultPatchPlan{
+			Patches: []DataResultPatch{{
+				Target: "result",
+				Op:     op,
+				Path:   "/contributions/0/metric",
+				Reason: "duplicate wrapper cleanup",
+			}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "only replace existing structural scalar fields") {
+			t.Fatalf("ApplyDataResultPatchPlan op=%q err=%v, want remove/move rejection", op, err)
+		}
+	}
+}

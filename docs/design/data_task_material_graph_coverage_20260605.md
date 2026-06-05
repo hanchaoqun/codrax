@@ -418,8 +418,13 @@ Allowed patch operations:
   contribution `operation`, `group_key`, `metric`; entity-resolution `status`;
   missing reconcile `status` only when no differences are present;
   reconcile-group `group_key`, `metric`;
-- future only: `remove`/`move` for duplicate structural wrappers, after a
-  separate validator proves data equivalence.
+- not delivered: `remove`/`move`. Current result validation consumes typed
+  `Result` structs after alias normalization, so unknown duplicate wrappers are
+  not retained with enough raw evidence to prove equivalence. Opening
+  `remove`/`move` now would let a patch delete or relocate canonical business
+  fields. When a structural fix appears to need `remove`/`move`, the model must
+  emit `needs_recompute` and the workflow should run a bounded recomputation
+  batch instead.
 
 Forbidden patch operations:
 
@@ -465,6 +470,23 @@ Delivered safeguards:
 - The deterministic applier forbids answer edits, business-record
   insertion/removal, non-result targets, and unknown paths, then re-runs the
   full validation stack.
+- The deterministic applier rejects `remove` and `move`, and the patch planner
+  is taught to return `needs_recompute` when those operations would be required.
+
+Remove/move readiness criteria:
+
+- The runner must preserve a compact raw-result object or raw-result excerpt for
+  the failing JSON path, including unknown duplicate wrapper fields that typed
+  `Result` would otherwise drop.
+- Validators must emit typed equivalence evidence proving that the source and
+  destination fields contain the same structural value and that no business
+  record, amount, decision, mapping, or output contract would change.
+- The patch applier must support a narrow allowlist such as moving an alias
+  field into an empty canonical field inside the same record, then re-run the
+  full validator stack and audit the raw-before/raw-after diff.
+
+Until all three criteria are true, `remove`/`move` remain intentionally out of
+scope for commercial safety.
 
 ### P0 Remediation Direction
 
@@ -648,6 +670,9 @@ Delivered safeguards:
 - [x] Add model-authored typed patch IR for structural result repair only,
       with patch budget, full audit, revalidation, and hard prohibition on
       business-semantic patches.
+- [x] Audit `remove`/`move` operations and keep them disabled until raw-result
+      equivalence evidence exists; add prompt guidance and deterministic
+      rejection tests.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.

@@ -318,6 +318,7 @@ Hard rules:
 - Emit only emit_data_result_patch. Do not write prose.
 - Patch only schema/shape drift in existing result fields. Do not change the user's final answer, business rules, inclusion/exclusion decisions, canonical entity choices, source values, numeric values, or add/remove business records.
 - Allowed patch operations are replace-only scalar edits on existing safe structural fields: contribution operation/group_key/metric, entity resolution status, missing reconcile status only when no differences are present, and reconcile group_key/metric.
+- Do not emit remove or move. If a structural duplicate would require remove/move, emit status=needs_recompute with an empty patches array because the current safe patch layer does not preserve enough raw-result evidence to prove data equivalence.
 - If a fix requires new data, changing a calculation, adding/removing rows/contributions/entities/groups, or interpreting a business rule differently, emit status=needs_recompute with an empty patches array.
 - The system will re-run deterministic validators after applying patches. Passing this tool is advisory; invalid or semantic patches are rejected.
 - This is data-lane repair only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.`
@@ -722,6 +723,7 @@ func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, par
 	b.WriteString("- Emit status=patch only for structural JSON-shape drift in the already-computed result.\n")
 	b.WriteString("- Do not modify answer, numeric values, source values, include/exclude decisions, canonical mapping choices, rule interpretations, or any task/business semantics.\n")
 	b.WriteString("- Do not add or remove rows, rule_coverage records, contributions, entity_resolutions, reconcile groups, metrics, or consumed_paths.\n")
+	b.WriteString("- Do not emit remove or move operations. If a duplicate wrapper or alias would require moving/removing fields, emit status=needs_recompute and patches=[] because this patch layer cannot prove raw-result data equivalence.\n")
 	b.WriteString("- Allowed paths are limited to contribution operation/group_key/metric, entity resolution status, missing reconcile status only when no differences are present, and reconcile group_key/metric.\n")
 	b.WriteString("- If the typed violation needs new computation or a business decision, emit status=needs_recompute and patches=[].\n")
 	return strings.TrimSpace(b.String())
