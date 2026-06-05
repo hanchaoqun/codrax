@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,10 +66,14 @@ type TaskPlan struct {
 }
 
 type CoverageContract struct {
-	RequiredMaterials       []CoverageMaterial `json:"required_materials,omitempty"`
-	OptionalMaterials       []CoverageMaterial `json:"optional_materials,omitempty"`
-	ValidationRules         []string           `json:"validation_rules,omitempty"`
-	DecisionRecordsRequired bool               `json:"decision_records_required,omitempty"`
+	RequiredMaterials          []CoverageMaterial `json:"required_materials,omitempty"`
+	OptionalMaterials          []CoverageMaterial `json:"optional_materials,omitempty"`
+	ValidationRules            []string           `json:"validation_rules,omitempty"`
+	DecisionRecordsRequired    bool               `json:"decision_records_required,omitempty"`
+	RuleCoverageRequired       bool               `json:"rule_coverage_required,omitempty"`
+	ContributionLedgerRequired bool               `json:"contribution_ledger_required,omitempty"`
+	EntityResolutionRequired   bool               `json:"entity_resolution_required,omitempty"`
+	ReconcileRequired          bool               `json:"reconcile_required,omitempty"`
 }
 
 type CoverageMaterial struct {
@@ -100,13 +105,91 @@ type Question struct {
 }
 
 type Result struct {
-	Answer           string         `json:"answer"`
-	OutputContract   OutputContract `json:"output_contract"`
-	AuditSummary     string         `json:"audit_summary,omitempty"`
-	Rows             []RowDecision  `json:"rows,omitempty"`
-	Metrics          []Metric       `json:"metrics,omitempty"`
-	ConsumedPaths    []string       `json:"consumed_paths,omitempty"`
-	ContractWarnings []string       `json:"contract_warnings,omitempty"`
+	Answer            string                   `json:"answer"`
+	OutputContract    OutputContract           `json:"output_contract"`
+	AuditSummary      string                   `json:"audit_summary,omitempty"`
+	Rows              []RowDecision            `json:"rows,omitempty"`
+	RuleCoverage      []RuleCoverageRecord     `json:"rule_coverage,omitempty"`
+	Contributions     []ContributionRecord     `json:"contributions,omitempty"`
+	EntityResolutions []EntityResolutionRecord `json:"entity_resolutions,omitempty"`
+	Reconcile         *ReconcileReport         `json:"reconcile,omitempty"`
+	Metrics           []Metric                 `json:"metrics,omitempty"`
+	ConsumedPaths     []string                 `json:"consumed_paths,omitempty"`
+	ContractWarnings  []string                 `json:"contract_warnings,omitempty"`
+}
+
+type LooseText string
+
+func (v *LooseText) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*v = ""
+		return nil
+	}
+	*v = LooseText(rawJSONValueString(raw))
+	return nil
+}
+
+func (v LooseText) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(v))
+}
+
+func (v LooseText) String() string {
+	return string(v)
+}
+
+type RuleCoverageRecord struct {
+	RuleID       LooseText `json:"rule_id,omitempty"`
+	RuleText     LooseText `json:"rule_text,omitempty"`
+	Status       LooseText `json:"status,omitempty"`
+	EvidenceRefs []string  `json:"evidence_refs,omitempty"`
+	Notes        LooseText `json:"notes,omitempty"`
+}
+
+type ContributionRecord struct {
+	ItemID        LooseText `json:"item_id,omitempty"`
+	Source        LooseText `json:"source,omitempty"`
+	SourceLocator LooseText `json:"source_locator,omitempty"`
+	GroupKey      LooseText `json:"group_key,omitempty"`
+	Metric        LooseText `json:"metric,omitempty"`
+	Value         LooseText `json:"value,omitempty"`
+	Operation     LooseText `json:"operation,omitempty"`
+	Reason        LooseText `json:"reason,omitempty"`
+	EvidenceRefs  []string  `json:"evidence_refs,omitempty"`
+}
+
+type EntityResolutionRecord struct {
+	ItemID         LooseText         `json:"item_id,omitempty"`
+	SourceValue    LooseText         `json:"source_value,omitempty"`
+	CanonicalID    LooseText         `json:"canonical_id,omitempty"`
+	CanonicalLabel LooseText         `json:"canonical_label,omitempty"`
+	Status         LooseText         `json:"status,omitempty"`
+	Candidates     []EntityCandidate `json:"candidates,omitempty"`
+	EvidenceRefs   []string          `json:"evidence_refs,omitempty"`
+	Reason         LooseText         `json:"reason,omitempty"`
+}
+
+type EntityCandidate struct {
+	ID         LooseText `json:"id,omitempty"`
+	Label      LooseText `json:"label,omitempty"`
+	Evidence   LooseText `json:"evidence,omitempty"`
+	Confidence LooseText `json:"confidence,omitempty"`
+}
+
+type ReconcileReport struct {
+	Status         LooseText        `json:"status,omitempty"`
+	ExpectedAnswer LooseText        `json:"expected_answer,omitempty"`
+	ActualAnswer   LooseText        `json:"actual_answer,omitempty"`
+	Differences    []string         `json:"differences,omitempty"`
+	Groups         []ReconcileGroup `json:"groups,omitempty"`
+}
+
+type ReconcileGroup struct {
+	GroupKey   LooseText `json:"group_key,omitempty"`
+	Metric     LooseText `json:"metric,omitempty"`
+	Expected   LooseText `json:"expected,omitempty"`
+	Actual     LooseText `json:"actual,omitempty"`
+	Difference LooseText `json:"difference,omitempty"`
 }
 
 type RowDecision struct {
@@ -588,6 +671,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if plan.CoverageContract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
 		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records")
 	}
+	if err := validateRequiredLedgers(plan.CoverageContract, res); err != nil {
+		return Result{}, err
+	}
 	if res.OutputContract.Format == "" {
 		res.OutputContract = plan.OutputContract
 	}
@@ -597,6 +683,218 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		res.ContractWarnings = append(res.ContractWarnings, err.Error())
 	}
 	return res, nil
+}
+
+func validateRequiredLedgers(contract CoverageContract, res Result) error {
+	if contract.RuleCoverageRequired && len(res.RuleCoverage) == 0 {
+		return errors.New("data validation incomplete: coverage_contract.rule_coverage_required=true but result.rule_coverage is empty")
+	}
+	if contract.RuleCoverageRequired && !hasMeaningfulRuleCoverage(res.RuleCoverage) {
+		return errors.New("data validation incomplete: result.rule_coverage contains no meaningful rule records")
+	}
+	if contract.ContributionLedgerRequired && len(res.Contributions) == 0 {
+		return errors.New("data validation incomplete: coverage_contract.contribution_ledger_required=true but result.contributions is empty")
+	}
+	if contract.ContributionLedgerRequired && !hasMeaningfulContribution(res.Contributions) {
+		return errors.New("data validation incomplete: result.contributions contains no meaningful contribution records")
+	}
+	if contract.EntityResolutionRequired && len(res.EntityResolutions) == 0 {
+		return errors.New("data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty")
+	}
+	if contract.EntityResolutionRequired && !hasMeaningfulEntityResolution(res.EntityResolutions) {
+		return errors.New("data validation incomplete: result.entity_resolutions contains no meaningful resolution records")
+	}
+	if contract.ReconcileRequired {
+		if res.Reconcile == nil {
+			return errors.New("data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty")
+		}
+		if err := validateReconcileReport(*res.Reconcile, res.Contributions, res.Answer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasMeaningfulRuleCoverage(records []RuleCoverageRecord) bool {
+	for _, rec := range records {
+		if strings.TrimSpace(rec.RuleID.String()) != "" ||
+			strings.TrimSpace(rec.RuleText.String()) != "" ||
+			strings.TrimSpace(rec.Status.String()) != "" ||
+			strings.TrimSpace(rec.Notes.String()) != "" ||
+			len(rec.EvidenceRefs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMeaningfulContribution(records []ContributionRecord) bool {
+	for _, rec := range records {
+		if strings.TrimSpace(rec.ItemID.String()) != "" ||
+			strings.TrimSpace(rec.Source.String()) != "" ||
+			strings.TrimSpace(rec.SourceLocator.String()) != "" ||
+			strings.TrimSpace(rec.GroupKey.String()) != "" ||
+			strings.TrimSpace(rec.Metric.String()) != "" ||
+			strings.TrimSpace(rec.Value.String()) != "" ||
+			strings.TrimSpace(rec.Operation.String()) != "" ||
+			strings.TrimSpace(rec.Reason.String()) != "" ||
+			len(rec.EvidenceRefs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMeaningfulEntityResolution(records []EntityResolutionRecord) bool {
+	for _, rec := range records {
+		if strings.TrimSpace(rec.ItemID.String()) != "" ||
+			strings.TrimSpace(rec.SourceValue.String()) != "" ||
+			strings.TrimSpace(rec.CanonicalID.String()) != "" ||
+			strings.TrimSpace(rec.CanonicalLabel.String()) != "" ||
+			strings.TrimSpace(rec.Status.String()) != "" ||
+			strings.TrimSpace(rec.Reason.String()) != "" ||
+			len(rec.Candidates) > 0 ||
+			len(rec.EvidenceRefs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func validateReconcileReport(report ReconcileReport, contributions []ContributionRecord, answer string) error {
+	status := strings.ToLower(strings.TrimSpace(report.Status.String()))
+	if status == "" {
+		return errors.New("data validation incomplete: result.reconcile.status is empty")
+	}
+	if status != "pass" {
+		if len(report.Differences) > 0 {
+			return fmt.Errorf("data reconcile failed: status=%s differences=%s", status, strings.Join(report.Differences, "; "))
+		}
+		return fmt.Errorf("data reconcile failed: status=%s", status)
+	}
+	expectedAnswer := strings.TrimSpace(report.ExpectedAnswer.String())
+	actualAnswer := strings.TrimSpace(report.ActualAnswer.String())
+	answer = strings.TrimSpace(answer)
+	if expectedAnswer != "" && answer != "" && expectedAnswer != answer {
+		return fmt.Errorf("data reconcile failed: expected_answer %q does not match result.answer %q", expectedAnswer, answer)
+	}
+	if actualAnswer != "" && answer != "" && actualAnswer != answer {
+		return fmt.Errorf("data reconcile failed: actual_answer %q does not match result.answer %q", actualAnswer, answer)
+	}
+	if len(contributions) > 0 && len(report.Groups) == 0 {
+		return errors.New("data reconcile incomplete: result.reconcile.groups is empty while contributions are present")
+	}
+	if len(report.Groups) == 0 || len(contributions) == 0 {
+		return nil
+	}
+	sums := sumContributionGroups(contributions)
+	for _, group := range report.Groups {
+		key := reconcileGroupKey(group.GroupKey.String(), group.Metric.String())
+		if strings.TrimSpace(key) == "\x00" {
+			continue
+		}
+		got, ok := sums[key]
+		if !ok {
+			return fmt.Errorf("data reconcile failed: group %q has no matching contribution records", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
+		}
+		for _, candidate := range []struct {
+			label string
+			value string
+		}{
+			{label: "expected", value: group.Expected.String()},
+			{label: "actual", value: group.Actual.String()},
+		} {
+			value := strings.TrimSpace(candidate.value)
+			if value == "" {
+				continue
+			}
+			want, err := parseDecimalRat(value)
+			if err != nil {
+				continue
+			}
+			if got.Cmp(want) != 0 {
+				return fmt.Errorf("data reconcile failed: group %q %s=%s but contributions sum to %s",
+					displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, formatRat(got))
+			}
+		}
+	}
+	return nil
+}
+
+func sumContributionGroups(contributions []ContributionRecord) map[string]*big.Rat {
+	out := map[string]*big.Rat{}
+	for _, rec := range contributions {
+		op := strings.ToLower(strings.TrimSpace(rec.Operation.String()))
+		switch op {
+		case "", "include", "add", "count", "set", "rank":
+		case "subtract":
+		default:
+			continue
+		}
+		valueText := strings.TrimSpace(rec.Value.String())
+		if valueText == "" {
+			if op == "count" {
+				valueText = "1"
+			} else {
+				continue
+			}
+		}
+		value, err := parseDecimalRat(valueText)
+		if err != nil {
+			continue
+		}
+		if op == "subtract" {
+			value.Neg(value)
+		}
+		key := reconcileGroupKey(rec.GroupKey.String(), rec.Metric.String())
+		if _, ok := out[key]; !ok {
+			out[key] = new(big.Rat)
+		}
+		out[key].Add(out[key], value)
+	}
+	return out
+}
+
+func reconcileGroupKey(groupKey, metric string) string {
+	return strings.TrimSpace(groupKey) + "\x00" + strings.TrimSpace(metric)
+}
+
+func displayReconcileGroupKey(groupKey, metric string) string {
+	groupKey = strings.TrimSpace(groupKey)
+	metric = strings.TrimSpace(metric)
+	switch {
+	case groupKey != "" && metric != "":
+		return groupKey + "/" + metric
+	case groupKey != "":
+		return groupKey
+	case metric != "":
+		return metric
+	default:
+		return "(default)"
+	}
+}
+
+func parseDecimalRat(value string) (*big.Rat, error) {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, ",", "")
+	if value == "" {
+		return nil, errors.New("empty decimal")
+	}
+	r := new(big.Rat)
+	if _, ok := r.SetString(value); ok {
+		return r, nil
+	}
+	return nil, fmt.Errorf("invalid decimal %q", value)
+}
+
+func formatRat(r *big.Rat) string {
+	if r == nil {
+		return "0"
+	}
+	if r.IsInt() {
+		return r.Num().String()
+	}
+	return strings.TrimRight(strings.TrimRight(r.FloatString(6), "0"), ".")
 }
 
 func validateScriptSafety(script string) error {

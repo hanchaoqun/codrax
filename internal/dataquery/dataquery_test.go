@@ -405,3 +405,133 @@ emit({
 		t.Fatalf("Rows=%+v, want custom fields preserved in normalized_fields", res.Rows)
 	}
 }
+
+func TestRunnerRejectsMissingRequiredValidationLedgers(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	base := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False}
+})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), base)
+	if err == nil || !strings.Contains(err.Error(), "rule_coverage_required=true") {
+		t.Fatalf("Run err=%v, want missing rule coverage failure", err)
+	}
+	base.CoverageContract.RuleCoverageRequired = false
+	_, err = (Runner{RepoRoot: root}).Run(context.Background(), base)
+	if err == nil || !strings.Contains(err.Error(), "contribution_ledger_required=true") {
+		t.Fatalf("Run err=%v, want missing contribution failure", err)
+	}
+	base.CoverageContract.ContributionLedgerRequired = false
+	_, err = (Runner{RepoRoot: root}).Run(context.Background(), base)
+	if err == nil || !strings.Contains(err.Error(), "entity_resolution_required=true") {
+		t.Fatalf("Run err=%v, want missing entity resolution failure", err)
+	}
+	base.CoverageContract.EntityResolutionRequired = false
+	_, err = (Runner{RepoRoot: root}).Run(context.Background(), base)
+	if err == nil || !strings.Contains(err.Error(), "reconcile_required=true") {
+		t.Fatalf("Run err=%v, want missing reconcile failure", err)
+	}
+}
+
+func TestRunnerValidatesContributionReconcile(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nA,7,paid\nB,5,pending\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputCSVLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "A,17",
+  "output_contract": {"format": "csv_line", "explanation_allowed": False},
+  "rule_coverage": [{"rule_id": "r1", "rule_text": "include paid rows", "status": "applied"}],
+  "entity_resolutions": [{"item_id": "A", "source_value": "A", "canonical_id": "A", "status": "resolved"}],
+  "contributions": [
+    {"item_id": "1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add"},
+    {"item_id": "2", "source": "orders.csv", "source_locator": "row 3", "group_key": "A", "metric": "amount", "value": "7", "operation": "add"}
+  ],
+  "reconcile": {
+    "status": "pass",
+    "expected_answer": "A,17",
+    "actual_answer": "A,17",
+    "groups": [{"group_key": "A", "metric": "amount", "expected": "17", "actual": "17"}]
+  }
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "A,17" || len(res.Contributions) != 2 || res.Reconcile == nil {
+		t.Fatalf("res=%+v, want contribution-backed reconcile", res)
+	}
+
+	plan.Script = strings.Replace(plan.Script, `"expected": "17", "actual": "17"`, `"expected": "18", "actual": "18"`, 1)
+	_, err = (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "contributions sum to 17") {
+		t.Fatalf("Run err=%v, want reconcile mismatch", err)
+	}
+}
+
+func TestRunnerRejectsFailedReconcileStatus(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ReconcileRequired: true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "reconcile": {"status": "fail", "differences": ["total mismatch"]}
+})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "data reconcile failed") {
+		t.Fatalf("Run err=%v, want failed reconcile rejection", err)
+	}
+}

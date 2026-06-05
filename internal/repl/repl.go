@@ -2176,8 +2176,13 @@ func (r *REPL) writeDataTaskResultArtifact(round int, result dataquery.Result) d
 }
 
 func (r *REPL) logDataTaskResultArtifact(round int, result dataquery.Result, artifact dataTaskAuditArtifact) {
-	logging.Info("[repl/data] data task result round=%d answer_len=%d decisions=%d consumed=%d result_path=%s",
-		round, len(result.Answer), len(result.Rows), len(result.ConsumedPaths), artifact.ResultPath)
+	reconcileStatus := ""
+	if result.Reconcile != nil {
+		reconcileStatus = strings.TrimSpace(result.Reconcile.Status.String())
+	}
+	logging.Info("[repl/data] data task result round=%d answer_len=%d decisions=%d rules=%d contributions=%d resolutions=%d reconcile=%s consumed=%d result_path=%s",
+		round, len(result.Answer), len(result.Rows), len(result.RuleCoverage), len(result.Contributions),
+		len(result.EntityResolutions), reconcileStatus, len(result.ConsumedPaths), artifact.ResultPath)
 	if raw, err := json.MarshalIndent(result, "", "  "); err == nil {
 		logging.Info("[repl/data] data task result full round=%d path=%s\n%s", round, artifact.ResultPath, string(raw))
 	}
@@ -2198,6 +2203,34 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 			segs = append(segs, fmt.Sprintf("决策记录 %d", len(result.Rows)))
 		} else {
 			segs = append(segs, fmt.Sprintf("%d decision records", len(result.Rows)))
+		}
+	}
+	if len(result.RuleCoverage) > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("规则覆盖 %d", len(result.RuleCoverage)))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d rule records", len(result.RuleCoverage)))
+		}
+	}
+	if len(result.Contributions) > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("贡献记录 %d", len(result.Contributions)))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d contributions", len(result.Contributions)))
+		}
+	}
+	if len(result.EntityResolutions) > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("实体归一 %d", len(result.EntityResolutions)))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d resolutions", len(result.EntityResolutions)))
+		}
+	}
+	if result.Reconcile != nil && strings.TrimSpace(result.Reconcile.Status.String()) != "" {
+		if isZh(r.language) {
+			segs = append(segs, "对账 "+strings.TrimSpace(result.Reconcile.Status.String()))
+		} else {
+			segs = append(segs, "reconcile "+strings.TrimSpace(result.Reconcile.Status.String()))
 		}
 	}
 	if artifact.ResultPath != "" {
@@ -2375,6 +2408,7 @@ func dataTaskRunnerToolDetail(plan dataquery.TaskPlan, lang string) string {
 			parts = append(parts, "decision records required")
 		}
 	}
+	parts = append(parts, dataTaskValidationFlagSegments(plan.CoverageContract, lang)...)
 	return strings.Join(parts, " ")
 }
 
@@ -2458,6 +2492,34 @@ func dataTaskWorkflowResultSegment(lang string, result dataquery.Result) string 
 			parts = append(parts, fmt.Sprintf("%d consumed material(s)", len(result.ConsumedPaths)))
 		}
 	}
+	if len(result.RuleCoverage) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("规则覆盖 %d", len(result.RuleCoverage)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d rule record(s)", len(result.RuleCoverage)))
+		}
+	}
+	if len(result.Contributions) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("贡献记录 %d", len(result.Contributions)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d contribution(s)", len(result.Contributions)))
+		}
+	}
+	if len(result.EntityResolutions) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("实体归一 %d", len(result.EntityResolutions)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d resolution(s)", len(result.EntityResolutions)))
+		}
+	}
+	if result.Reconcile != nil && strings.TrimSpace(result.Reconcile.Status.String()) != "" {
+		if isZh(lang) {
+			parts = append(parts, "对账 "+strings.TrimSpace(result.Reconcile.Status.String()))
+		} else {
+			parts = append(parts, "reconcile "+strings.TrimSpace(result.Reconcile.Status.String()))
+		}
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -2529,6 +2591,7 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 		if plan.CoverageContract.DecisionRecordsRequired {
 			segs = append(segs, "需决策记录")
 		}
+		segs = append(segs, dataTaskValidationFlagSegments(plan.CoverageContract, lang)...)
 		if !plan.OutputContract.ExplanationAllowed {
 			segs = append(segs, "纯输出")
 		}
@@ -2544,10 +2607,43 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 	if plan.CoverageContract.DecisionRecordsRequired {
 		segs = append(segs, "decision records required")
 	}
+	segs = append(segs, dataTaskValidationFlagSegments(plan.CoverageContract, lang)...)
 	if !plan.OutputContract.ExplanationAllowed {
 		segs = append(segs, "output-only")
 	}
 	return "data plan", segs
+}
+
+func dataTaskValidationFlagSegments(contract dataquery.CoverageContract, lang string) []string {
+	var segs []string
+	if isZh(lang) {
+		if contract.RuleCoverageRequired {
+			segs = append(segs, "需规则覆盖")
+		}
+		if contract.ContributionLedgerRequired {
+			segs = append(segs, "需贡献记录")
+		}
+		if contract.EntityResolutionRequired {
+			segs = append(segs, "需实体归一")
+		}
+		if contract.ReconcileRequired {
+			segs = append(segs, "需对账")
+		}
+		return segs
+	}
+	if contract.RuleCoverageRequired {
+		segs = append(segs, "rule coverage required")
+	}
+	if contract.ContributionLedgerRequired {
+		segs = append(segs, "contributions required")
+	}
+	if contract.EntityResolutionRequired {
+		segs = append(segs, "entity resolution required")
+	}
+	if contract.ReconcileRequired {
+		segs = append(segs, "reconcile required")
+	}
+	return segs
 }
 
 func dataTaskScriptLineCount(script string) int {

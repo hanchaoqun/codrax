@@ -61,13 +61,20 @@ type dataTaskWorkflowPromptRecord struct {
 }
 
 type dataTaskResultPromptView struct {
-	Answer           string                   `json:"answer,omitempty"`
-	OutputContract   dataquery.OutputContract `json:"output_contract,omitempty"`
-	AuditSummary     string                   `json:"audit_summary,omitempty"`
-	DecisionRecords  int                      `json:"decision_records,omitempty"`
-	DecisionSamples  []dataquery.RowDecision  `json:"decision_samples,omitempty"`
-	Metrics          []dataquery.Metric       `json:"metrics,omitempty"`
-	ContractWarnings []string                 `json:"contract_warnings,omitempty"`
+	Answer                  string                             `json:"answer,omitempty"`
+	OutputContract          dataquery.OutputContract           `json:"output_contract,omitempty"`
+	AuditSummary            string                             `json:"audit_summary,omitempty"`
+	DecisionRecords         int                                `json:"decision_records,omitempty"`
+	DecisionSamples         []dataquery.RowDecision            `json:"decision_samples,omitempty"`
+	RuleCoverageRecords     int                                `json:"rule_coverage_records,omitempty"`
+	RuleCoverageSamples     []dataquery.RuleCoverageRecord     `json:"rule_coverage_samples,omitempty"`
+	ContributionRecords     int                                `json:"contribution_records,omitempty"`
+	ContributionSamples     []dataquery.ContributionRecord     `json:"contribution_samples,omitempty"`
+	EntityResolutionRecords int                                `json:"entity_resolution_records,omitempty"`
+	EntityResolutionSamples []dataquery.EntityResolutionRecord `json:"entity_resolution_samples,omitempty"`
+	Reconcile               *dataquery.ReconcileReport         `json:"reconcile,omitempty"`
+	Metrics                 []dataquery.Metric                 `json:"metrics,omitempty"`
+	ContractWarnings        []string                           `json:"contract_warnings,omitempty"`
 }
 
 func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
@@ -97,13 +104,20 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 		}
 		if rec.Result != nil {
 			view.Result = &dataTaskResultPromptView{
-				Answer:           clampDataTaskWorkflowText(rec.Result.Answer, 2400),
-				OutputContract:   rec.Result.OutputContract.Normalize(),
-				AuditSummary:     clampDataTaskWorkflowText(rec.Result.AuditSummary, 1000),
-				DecisionRecords:  len(rec.Result.Rows),
-				DecisionSamples:  sampleDataTaskRowDecisions(rec.Result.Rows, 6),
-				Metrics:          rec.Result.Metrics,
-				ContractWarnings: append([]string(nil), rec.Result.ContractWarnings...),
+				Answer:                  clampDataTaskWorkflowText(rec.Result.Answer, 2400),
+				OutputContract:          rec.Result.OutputContract.Normalize(),
+				AuditSummary:            clampDataTaskWorkflowText(rec.Result.AuditSummary, 1000),
+				DecisionRecords:         len(rec.Result.Rows),
+				DecisionSamples:         sampleDataTaskRowDecisions(rec.Result.Rows, 6),
+				RuleCoverageRecords:     len(rec.Result.RuleCoverage),
+				RuleCoverageSamples:     sampleDataTaskRuleCoverage(rec.Result.RuleCoverage, 4),
+				ContributionRecords:     len(rec.Result.Contributions),
+				ContributionSamples:     sampleDataTaskContributions(rec.Result.Contributions, 6),
+				EntityResolutionRecords: len(rec.Result.EntityResolutions),
+				EntityResolutionSamples: sampleDataTaskEntityResolutions(rec.Result.EntityResolutions, 4),
+				Reconcile:               clampPromptReconcileReport(rec.Result.Reconcile),
+				Metrics:                 rec.Result.Metrics,
+				ContractWarnings:        append([]string(nil), rec.Result.ContractWarnings...),
 			}
 		}
 		if rec.Evaluation != nil {
@@ -118,6 +132,102 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 		return fmt.Sprintf("render data workflow records failed: %v\n", err)
 	}
 	return string(raw)
+}
+
+func sampleDataTaskRuleCoverage(records []dataquery.RuleCoverageRecord, limit int) []dataquery.RuleCoverageRecord {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	if len(records) > limit {
+		records = records[:limit]
+	}
+	out := make([]dataquery.RuleCoverageRecord, 0, len(records))
+	for _, rec := range records {
+		rec.RuleID = dataquery.LooseText(clampDataTaskWorkflowText(rec.RuleID.String(), 120))
+		rec.RuleText = dataquery.LooseText(clampDataTaskWorkflowText(rec.RuleText.String(), 300))
+		rec.Status = dataquery.LooseText(clampDataTaskWorkflowText(rec.Status.String(), 80))
+		rec.Notes = dataquery.LooseText(clampDataTaskWorkflowText(rec.Notes.String(), 300))
+		if len(rec.EvidenceRefs) > 6 {
+			rec.EvidenceRefs = append([]string(nil), rec.EvidenceRefs[:6]...)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func sampleDataTaskContributions(records []dataquery.ContributionRecord, limit int) []dataquery.ContributionRecord {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	if len(records) > limit {
+		records = records[:limit]
+	}
+	out := make([]dataquery.ContributionRecord, 0, len(records))
+	for _, rec := range records {
+		rec.ItemID = dataquery.LooseText(clampDataTaskWorkflowText(rec.ItemID.String(), 140))
+		rec.Source = dataquery.LooseText(clampDataTaskWorkflowText(rec.Source.String(), 200))
+		rec.SourceLocator = dataquery.LooseText(clampDataTaskWorkflowText(rec.SourceLocator.String(), 200))
+		rec.GroupKey = dataquery.LooseText(clampDataTaskWorkflowText(rec.GroupKey.String(), 160))
+		rec.Metric = dataquery.LooseText(clampDataTaskWorkflowText(rec.Metric.String(), 120))
+		rec.Value = dataquery.LooseText(clampDataTaskWorkflowText(rec.Value.String(), 120))
+		rec.Operation = dataquery.LooseText(clampDataTaskWorkflowText(rec.Operation.String(), 80))
+		rec.Reason = dataquery.LooseText(clampDataTaskWorkflowText(rec.Reason.String(), 300))
+		if len(rec.EvidenceRefs) > 6 {
+			rec.EvidenceRefs = append([]string(nil), rec.EvidenceRefs[:6]...)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func sampleDataTaskEntityResolutions(records []dataquery.EntityResolutionRecord, limit int) []dataquery.EntityResolutionRecord {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	if len(records) > limit {
+		records = records[:limit]
+	}
+	out := make([]dataquery.EntityResolutionRecord, 0, len(records))
+	for _, rec := range records {
+		rec.ItemID = dataquery.LooseText(clampDataTaskWorkflowText(rec.ItemID.String(), 140))
+		rec.SourceValue = dataquery.LooseText(clampDataTaskWorkflowText(rec.SourceValue.String(), 200))
+		rec.CanonicalID = dataquery.LooseText(clampDataTaskWorkflowText(rec.CanonicalID.String(), 160))
+		rec.CanonicalLabel = dataquery.LooseText(clampDataTaskWorkflowText(rec.CanonicalLabel.String(), 200))
+		rec.Status = dataquery.LooseText(clampDataTaskWorkflowText(rec.Status.String(), 80))
+		rec.Reason = dataquery.LooseText(clampDataTaskWorkflowText(rec.Reason.String(), 300))
+		if len(rec.Candidates) > 4 {
+			rec.Candidates = append([]dataquery.EntityCandidate(nil), rec.Candidates[:4]...)
+		}
+		if len(rec.EvidenceRefs) > 6 {
+			rec.EvidenceRefs = append([]string(nil), rec.EvidenceRefs[:6]...)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func clampPromptReconcileReport(report *dataquery.ReconcileReport) *dataquery.ReconcileReport {
+	if report == nil {
+		return nil
+	}
+	out := *report
+	out.Status = dataquery.LooseText(clampDataTaskWorkflowText(out.Status.String(), 80))
+	out.ExpectedAnswer = dataquery.LooseText(clampDataTaskWorkflowText(out.ExpectedAnswer.String(), 400))
+	out.ActualAnswer = dataquery.LooseText(clampDataTaskWorkflowText(out.ActualAnswer.String(), 400))
+	if len(out.Differences) > 6 {
+		out.Differences = append([]string(nil), out.Differences[:6]...)
+	}
+	if len(out.Groups) > 8 {
+		out.Groups = append([]dataquery.ReconcileGroup(nil), out.Groups[:8]...)
+	}
+	for i := range out.Groups {
+		out.Groups[i].GroupKey = dataquery.LooseText(clampDataTaskWorkflowText(out.Groups[i].GroupKey.String(), 160))
+		out.Groups[i].Metric = dataquery.LooseText(clampDataTaskWorkflowText(out.Groups[i].Metric.String(), 120))
+		out.Groups[i].Expected = dataquery.LooseText(clampDataTaskWorkflowText(out.Groups[i].Expected.String(), 120))
+		out.Groups[i].Actual = dataquery.LooseText(clampDataTaskWorkflowText(out.Groups[i].Actual.String(), 120))
+		out.Groups[i].Difference = dataquery.LooseText(clampDataTaskWorkflowText(out.Groups[i].Difference.String(), 120))
+	}
+	return &out
 }
 
 func sampleDataTaskRowDecisions(rows []dataquery.RowDecision, limit int) []dataquery.RowDecision {
@@ -221,6 +331,10 @@ func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) d
 		out.ValidationRules = append([]string(nil), previous.ValidationRules...)
 	}
 	out.DecisionRecordsRequired = previous.DecisionRecordsRequired || next.DecisionRecordsRequired
+	out.RuleCoverageRequired = previous.RuleCoverageRequired || next.RuleCoverageRequired
+	out.ContributionLedgerRequired = previous.ContributionLedgerRequired || next.ContributionLedgerRequired
+	out.EntityResolutionRequired = previous.EntityResolutionRequired || next.EntityResolutionRequired
+	out.ReconcileRequired = previous.ReconcileRequired || next.ReconcileRequired
 	return out
 }
 

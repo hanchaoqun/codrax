@@ -104,6 +104,7 @@ Codrax 支持面向 Android、Harmony / HiTrace、东湖等运行时 trace 的�
 - CSV / TSV / JSON / JSONL / 文本化附件索引的清洗、过滤、去重、join、汇总。
 - 条目级判定、金额/数量计算、异常记录筛选。
 - 严格输出 JSON-only、CSV-only、单行字符串或 Markdown 表格。
+- 对需要过滤、归一、汇总和对账的任务，会尽量生成可审计的材料覆盖、贡献记录和对账摘要，减少“脚本跑通但结果漂移”。
 
 纯只读数据计算不需要 command-operation 审批，也不走源码 citation gate；如果用户同时要求检查代码实现，才会进入数据 + 源码的混合分析。
 

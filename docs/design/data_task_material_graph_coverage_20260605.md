@@ -72,7 +72,42 @@ If a required material is not consumed, the runner fails with a typed coverage
 error. Existing data repair flow then asks the model to repair the plan/script,
 with compact context, rather than accepting an ungrounded answer.
 
-### 4. Decision Records
+### 4. Validation Contract Matrix
+
+The data lane uses a composable validation contract. The model decides which
+parts apply from the user goal; Codrax only validates typed structure and
+deterministic reconciliation. This avoids fitting the system to one business
+case.
+
+Common combinations:
+
+- simple sum/count/ranking: `ContributionLedger + Reconcile`;
+- cleaning/filtering: `RuleCoverage + ContributionLedger + Reconcile`;
+- multi-material join or name/entity normalization:
+  `RuleCoverage + EntityResolutionLedger + ContributionLedger + Reconcile`;
+- strict output shape: add `OutputContract`;
+- pure summary/extraction: `MaterialCoverage + OutputContract`.
+
+Contract fields:
+
+- `rule_coverage_required`: the result must include `rule_coverage` records
+  explaining which model-authored rules were applied, not applicable, or failed;
+- `contribution_ledger_required`: the result must include `contributions`
+  records for the items that contribute to totals, counts, groups, ranks, or
+  output elements;
+- `entity_resolution_required`: the result must include `entity_resolutions`
+  records for source values mapped to canonical values, including ambiguous or
+  unresolved values;
+- `reconcile_required`: the result must include a `reconcile` report. When
+  contributions and reconcile groups are present, Codrax recomputes group totals
+  from `contributions` and rejects mismatches.
+
+These are generic ledgers. A contribution item can be a table row, JSON item,
+text span, page, image region, webpage block, or any other task item. An entity
+resolution can map names, IDs, categories, labels, files, records, accounts, or
+other task-specific values. Go code must not infer those meanings.
+
+### 5. Decision Records
 
 `Result.Rows` remains the wire field for existing result shapes, but its
 meaning is generic decision records:
@@ -86,9 +121,11 @@ meaning is generic decision records:
 A decision record may represent a CSV row, Excel cell/range, JSON item, text
 span, page, image region, extracted entity, or any task-specific item. The
 model supplies semantics; Codrax checks only generic structural presence when
-`coverage_contract.decision_records_required=true`.
+`coverage_contract.decision_records_required=true`. Newer tasks should prefer
+the more specific generic ledgers above when the required validation is about
+rules, entity resolution, contribution, or reconciliation.
 
-### 5. Output Contract Separation
+### 6. Output Contract Separation
 
 Computation correctness and final output shape are separate:
 
@@ -116,5 +153,15 @@ calculation.
 - [x] Add tests for material metadata, coverage consumption, repair contract
       preservation, and JSON compatibility.
 - [x] Refresh data-task user documentation.
-- [ ] Add richer validation for declared `validation_rules` once real-world
-      data-task evals identify stable structural checks.
+- [x] Add `rule_coverage_required`, `contribution_ledger_required`,
+      `entity_resolution_required`, and `reconcile_required` to
+      `CoverageContract`.
+- [x] Add typed `rule_coverage`, `contributions`, `entity_resolutions`, and
+      `reconcile` fields to data results.
+- [x] Implement generic runner validation for required ledgers.
+- [x] Implement deterministic contribution-to-reconcile group checks.
+- [x] Expose the validation matrix in `emit_data_task_plan` schema and prompt.
+- [x] Preserve required validation contracts across repair turns.
+- [x] Include validation-ledger summaries in evaluator/continuation handoff.
+- [x] Add tests for missing ledgers, failed reconcile, passing reconcile, and
+      planner JSON compatibility.

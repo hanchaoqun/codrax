@@ -12,7 +12,7 @@ import (
 func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"coverageContract":{"requiredMaterials":[{"id":"m1","path":"orders.csv","purpose":"input rows","required":"true"}],"validationRules":"all totals reconcile; rows cite source","decisionRecordsRequired":"true"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
+			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"coverageContract":{"requiredMaterials":[{"id":"m1","path":"orders.csv","purpose":"input rows","required":"true"}],"validationRules":"all totals reconcile; rows cite source","decisionRecordsRequired":"true","ruleCoverageRequired":"true","contributionLedgerRequired":"true","entityResolutionRequired":"true","reconcileRequired":"true"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
 		},
 	}
 	planner := NewDataTaskPlanner(adapter)
@@ -34,6 +34,9 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 	if len(plan.CoverageContract.RequiredMaterials) != 1 || plan.CoverageContract.RequiredMaterials[0].Path != "orders.csv" || !plan.CoverageContract.DecisionRecordsRequired {
 		t.Fatalf("CoverageContract=%+v", plan.CoverageContract)
+	}
+	if !plan.CoverageContract.RuleCoverageRequired || !plan.CoverageContract.ContributionLedgerRequired || !plan.CoverageContract.EntityResolutionRequired || !plan.CoverageContract.ReconcileRequired {
+		t.Fatalf("CoverageContract validation flags=%+v, want all true", plan.CoverageContract)
 	}
 	if len(plan.CoverageContract.ValidationRules) != 2 {
 		t.Fatalf("ValidationRules=%v", plan.CoverageContract.ValidationRules)
@@ -68,6 +71,13 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"coverage_contract",
 		"material inventory",
 		"decision_records_required",
+		"rule_coverage_required",
+		"contribution_ledger_required",
+		"entity_resolution_required",
+		"reconcile_required",
+		"result.contributions",
+		"result.entity_resolutions",
+		"result.reconcile",
 		"network/process libraries",
 		"item-level decision records",
 	} {

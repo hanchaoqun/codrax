@@ -100,13 +100,29 @@ var dataTaskPlanTool = llm.ToolSchema{
         "decision_records_required": {
           "type": "boolean",
           "description": "true when filtering, joining, aggregation, or item-level decisions must be auditable through generic result.rows decision records. These records may represent table rows, JSON items, text spans, pages, image regions, or any task-specific item."
+        },
+        "rule_coverage_required": {
+          "type": "boolean",
+          "description": "true when the result must include generic result.rule_coverage records showing which user/model rules were applied, not applicable, failed, or unresolved. Use for cleaning/filtering/calculation rules; do not encode domain-specific rule types."
+        },
+        "contribution_ledger_required": {
+          "type": "boolean",
+          "description": "true when the result must include generic result.contributions records for items contributing to totals, counts, groups, ranks, or final output elements. A contribution item can be a row, JSON item, text span, page, image region, or other task item."
+        },
+        "entity_resolution_required": {
+          "type": "boolean",
+          "description": "true when the result must include generic result.entity_resolutions records for source values mapped to canonical values, including ambiguous/unresolved cases. Use for joins, name/id/category normalization, and cross-material linking."
+        },
+        "reconcile_required": {
+          "type": "boolean",
+          "description": "true when the result must include result.reconcile with status=pass and reconcile.groups. The system recomputes numeric group totals from result.contributions when available and rejects mismatches."
         }
       },
       "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; Codrax only verifies declared required materials are input and actually consumed."
     },
     "script": {
       "type": "string",
-      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
+      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}) or set result to that object. Include only the ledger fields required by coverage_contract for this task."
     },
     "goal": {
       "type": "string",
@@ -201,6 +217,11 @@ Hard rules:
 - Fill coverage_contract.required_materials with every material that must be consumed to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
 - Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
+- Choose validation fields from the task shape, not from a fixed domain. Simple sums/counts/rankings usually need contribution_ledger_required=true and reconcile_required=true. Cleaning/filtering usually also needs rule_coverage_required=true. Joins, name/ID/category normalization, or cross-material linking usually also need entity_resolution_required=true. Pure summary/extraction may only need material coverage and output_contract.
+- If coverage_contract.rule_coverage_required=true, emit result.rule_coverage records with rule_id, rule_text, status, evidence_refs, and notes. These are generic rule records.
+- If coverage_contract.contribution_ledger_required=true, emit result.contributions records with item_id, source, source_locator, group_key, metric, value, operation, reason, and evidence_refs. These explain how task items contribute to totals, counts, groups, ranks, or final output elements.
+- If coverage_contract.entity_resolution_required=true, emit result.entity_resolutions records with source_value, canonical_id, canonical_label, status, candidates, evidence_refs, and reason. Use this for any source-to-canonical mapping, including unresolved or ambiguous values.
+- If coverage_contract.reconcile_required=true, emit result.reconcile with status="pass", expected_answer and/or actual_answer, and reconcile.groups. The system recomputes numeric group totals from result.contributions when possible; do not mark pass unless the output and contribution ledger reconcile.
 - Script sandbox: prefer the provided helpers:
   csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, emit(obj).
 - Do not redefine provided helper names such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money, emit, or open. Use them directly.
@@ -223,6 +244,8 @@ Hard rules:
 - Existing result.answer is the authoritative computed result for its batch; do not recalculate manually.
 - If the user's strict output contract and success criteria are satisfied, emit status=complete.
 - If the result is a deliberate intermediate batch, contract warnings remain, required item decisions/audit are missing, decision samples show empty/missing parsed fields, or success criteria are not covered but can still be computed from available data files, emit status=continue_data.
+- If the plan required rule_coverage, contributions, entity_resolutions, or reconcile, those typed result ledgers must be present and reconcile.status must be pass before status=complete.
+- Do not mark complete when reconcile failed or when contribution/entity/rule samples show missing values that are needed for the user goal.
 - Do not mark a batch complete just because the script exited successfully. The result must be supported by consumed materials, decision samples, metrics, and the declared coverage contract.
 - Ask for clarification only for user-owned missing business rules or missing data files that cannot be safely discovered/read from the candidate data files.
 - If the task requires side effects such as network/process/file write/install/delete, emit blocked so the operation lane can own risk/approval.
@@ -425,6 +448,7 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
 	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must be listed in input_paths and actually read by the script.\n")
 	b.WriteString("- If coverage_contract.decision_records_required=true, emit result.rows. If result.rows was missing, repair by adding generic item-level decision records rather than changing the user's final output format.\n")
+	b.WriteString("- If a required validation ledger is missing or reconcile failed, repair by adding/fixing the generic rule_coverage, contributions, entity_resolutions, or reconcile fields and correcting the computation. Do not remove required validation flags to bypass the contract unless the previous contract was structurally wrong for the user goal; explain that structural reason in validation_rules or why_this_batch.\n")
 	b.WriteString("- The script must call emit(obj) or set result. Debug print is allowed only in small amounts and is not the final answer.\n")
 	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
 	b.WriteString("## candidate_data_files\n")
@@ -445,6 +469,7 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
 	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
+	b.WriteString("- Continue plans must preserve still-relevant required validation flags. If a prior result has missing rule coverage, missing contributions, missing entity resolutions, or failed reconcile, the next batch should repair the computation or emit a corrected bounded result.\n")
 	b.WriteString("- Do not repeat a failed script unchanged. Do not re-run successful intermediate batches unless a fresh value is required.\n")
 	b.WriteString("- Ask the user only for user-owned business inputs. Keep computing when the missing fact can be derived from available local data files.\n")
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
@@ -537,10 +562,14 @@ type dataTaskQuestionDraft struct {
 }
 
 type dataTaskCoverageDraft struct {
-	RequiredMaterials       []dataTaskCoverageMaterialDraft `json:"required_materials"`
-	OptionalMaterials       []dataTaskCoverageMaterialDraft `json:"optional_materials"`
-	ValidationRules         flexiblePolicyStringList        `json:"validation_rules"`
-	DecisionRecordsRequired flexiblePolicyBool              `json:"decision_records_required"`
+	RequiredMaterials          []dataTaskCoverageMaterialDraft `json:"required_materials"`
+	OptionalMaterials          []dataTaskCoverageMaterialDraft `json:"optional_materials"`
+	ValidationRules            flexiblePolicyStringList        `json:"validation_rules"`
+	DecisionRecordsRequired    flexiblePolicyBool              `json:"decision_records_required"`
+	RuleCoverageRequired       flexiblePolicyBool              `json:"rule_coverage_required"`
+	ContributionLedgerRequired flexiblePolicyBool              `json:"contribution_ledger_required"`
+	EntityResolutionRequired   flexiblePolicyBool              `json:"entity_resolution_required"`
+	ReconcileRequired          flexiblePolicyBool              `json:"reconcile_required"`
 }
 
 type dataTaskCoverageMaterialDraft struct {
@@ -602,10 +631,14 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 
 func (d dataTaskCoverageDraft) toCoverageContract() dataquery.CoverageContract {
 	return dataquery.CoverageContract{
-		RequiredMaterials:       dataTaskCoverageMaterialsToPlan(d.RequiredMaterials, true),
-		OptionalMaterials:       dataTaskCoverageMaterialsToPlan(d.OptionalMaterials, false),
-		ValidationRules:         cleanPolicyStringList([]string(d.ValidationRules)),
-		DecisionRecordsRequired: bool(d.DecisionRecordsRequired),
+		RequiredMaterials:          dataTaskCoverageMaterialsToPlan(d.RequiredMaterials, true),
+		OptionalMaterials:          dataTaskCoverageMaterialsToPlan(d.OptionalMaterials, false),
+		ValidationRules:            cleanPolicyStringList([]string(d.ValidationRules)),
+		DecisionRecordsRequired:    bool(d.DecisionRecordsRequired),
+		RuleCoverageRequired:       bool(d.RuleCoverageRequired),
+		ContributionLedgerRequired: bool(d.ContributionLedgerRequired),
+		EntityResolutionRequired:   bool(d.EntityResolutionRequired),
+		ReconcileRequired:          bool(d.ReconcileRequired),
 	}
 }
 
