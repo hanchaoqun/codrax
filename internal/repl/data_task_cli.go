@@ -54,6 +54,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		RepoRoot: repoRoot,
 		TempRoot: filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
 	}
+	actionRunner := dataquery.ActionRunner{
+		RepoRoot: repoRoot,
+		TempRoot: filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
+	}
 	currentPlan := plan
 	var records []dataTaskWorkflowRecord
 	repairRounds := 0
@@ -86,7 +90,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		dataRounds++
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds)
-		result, err := runner.Run(ctx, currentPlan)
+		var result dataquery.Result
+		if len(currentPlan.Actions) > 0 {
+			result, err = actionRunner.Run(ctx, currentPlan)
+		} else {
+			result, err = runner.Run(ctx, currentPlan)
+		}
 		if err != nil {
 			if patched, ok, _, reason := tryPatchDataTaskResult(ctx, cfg.Planner, request, currentPlan, err, records, cfg.Language); ok {
 				result = patched

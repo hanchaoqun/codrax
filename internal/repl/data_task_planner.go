@@ -131,6 +131,24 @@ var dataTaskPlanTool = llm.ToolSchema{
       },
       "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; the system only verifies declared required materials are input and actually consumed. Listing a file in input_paths is not consumption; the script must read it through the provided helpers and use it for the result, validation, or audit."
     },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type":"string"},
+          "kind": {"type":"string", "enum":["material_inventory","inspect_material","custom_transform"]},
+          "purpose": {"type":"string"},
+          "input_paths": {"type":"array", "items":{"type":"string"}},
+          "output_artifact": {"type":"string"},
+          "script": {"type":"string"},
+          "params": {"type":"object", "additionalProperties":{"type":"string"}},
+          "success_criteria": {"type":"array", "items":{"type":"string"}}
+        },
+        "required": ["kind"]
+      },
+      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; custom_transform runs a bounded script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform."
+    },
     "script": {
       "type": "string",
       "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and ledger helpers add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit_result(answer, output_contract=...) or emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}). Include only the ledger fields required by coverage_contract for this task."
@@ -254,7 +272,11 @@ Hard rules:
 - Do not make the model hand-calculate the final answer. The script must compute it.
 - The final result object must include answer as a string and output_contract as an object.
 - Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
-- Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the first bounded batch that discovers/normalizes enough material, set continue_after=true, and let the workflow feed real results back before planning the next batch.
+- Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, then a small custom_transform only when the needed artifact inputs are known.
+- Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the next atomic action batch, set continue_after=true when more graph expansion is needed, and let the workflow feed real artifacts back before planning the next batch.
+- An action is atomic: it should answer one small observation or transformation question. If one action would inspect many unrelated schemas, normalize entities, compute contributions, reconcile, and render output together, split it.
+- Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use custom_transform only for bounded deterministic transforms over known input_paths.
+- When actions are present, top-level script may be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
@@ -690,6 +712,7 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	b.WriteString("\n\n## continuation_rules\n")
 	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
+	b.WriteString("- Prefer extending the adaptive action graph over rewriting a large script. Use previous result.artifacts to decide the next atomic action. A failed custom_transform should usually be repaired as a smaller custom_transform or replaced by inspect_material/material_inventory first.\n")
 	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
 	b.WriteString("- Continue plans must preserve still-relevant required validation flags. If a prior result has missing rule coverage, missing contributions, missing entity resolutions, or failed reconcile, the next batch should repair the computation or emit a corrected bounded result.\n")
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields before deciding a prior result is missing items or groups.\n")
@@ -801,6 +824,7 @@ type dataTaskPlanDraft struct {
 	InputPaths          flexiblePolicyStringList `json:"input_paths"`
 	OutputContract      dataTaskOutputDraft      `json:"output_contract"`
 	CoverageContract    dataTaskCoverageDraft    `json:"coverage_contract"`
+	Actions             []dataTaskActionDraft    `json:"actions"`
 	Script              flexiblePolicyString     `json:"script"`
 	Questions           []dataTaskQuestionDraft  `json:"questions"`
 	BlockReason         flexiblePolicyString     `json:"block_reason"`
@@ -823,6 +847,17 @@ type dataTaskQuestionDraft struct {
 	ID          flexiblePolicyString     `json:"id"`
 	Question    flexiblePolicyString     `json:"question"`
 	Suggestions flexiblePolicyStringList `json:"suggestions"`
+}
+
+type dataTaskActionDraft struct {
+	ID              flexiblePolicyString     `json:"id"`
+	Kind            flexiblePolicyString     `json:"kind"`
+	Purpose         flexiblePolicyString     `json:"purpose"`
+	InputPaths      flexiblePolicyStringList `json:"input_paths"`
+	OutputArtifact  flexiblePolicyString     `json:"output_artifact"`
+	Script          flexiblePolicyString     `json:"script"`
+	Params          map[string]any           `json:"params"`
+	SuccessCriteria flexiblePolicyStringList `json:"success_criteria"`
 }
 
 type dataTaskCoverageDraft struct {
@@ -922,6 +957,7 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 			Delimiter:          strings.TrimSpace(string(d.OutputContract.Delimiter)),
 		}.Normalize(),
 		CoverageContract:    d.CoverageContract.toCoverageContract(),
+		Actions:             dataTaskActionsToPlan(d.Actions),
 		Script:              strings.TrimSpace(string(d.Script)),
 		Questions:           qs,
 		BlockReason:         strings.TrimSpace(string(d.BlockReason)),
@@ -933,6 +969,39 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 		WhyThisBatch:        strings.TrimSpace(string(d.WhyThisBatch)),
 		ContinueAfter:       bool(d.ContinueAfter),
 	}
+}
+
+func dataTaskActionsToPlan(in []dataTaskActionDraft) []dataquery.DataAction {
+	out := make([]dataquery.DataAction, 0, len(in))
+	for i, action := range in {
+		kind := strings.TrimSpace(string(action.Kind))
+		if kind == "" {
+			continue
+		}
+		params := map[string]string{}
+		for k, v := range action.Params {
+			k = strings.TrimSpace(k)
+			if k == "" || v == nil {
+				continue
+			}
+			params[k] = fmt.Sprint(v)
+		}
+		id := strings.TrimSpace(string(action.ID))
+		if id == "" {
+			id = fmt.Sprintf("action_%d", i+1)
+		}
+		out = append(out, dataquery.DataAction{
+			ID:              id,
+			Kind:            dataquery.DataActionKind(kind),
+			Purpose:         strings.TrimSpace(string(action.Purpose)),
+			InputPaths:      cleanPolicyStringList([]string(action.InputPaths)),
+			OutputArtifact:  strings.TrimSpace(string(action.OutputArtifact)),
+			Script:          strings.TrimSpace(string(action.Script)),
+			Params:          params,
+			SuccessCriteria: cleanPolicyStringList([]string(action.SuccessCriteria)),
+		})
+	}
+	return out
 }
 
 func (d dataTaskCoverageDraft) toCoverageContract() dataquery.CoverageContract {

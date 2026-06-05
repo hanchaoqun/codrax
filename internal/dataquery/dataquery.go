@@ -54,6 +54,7 @@ type TaskPlan struct {
 	InputPaths          []string         `json:"input_paths"`
 	OutputContract      OutputContract   `json:"output_contract"`
 	CoverageContract    CoverageContract `json:"coverage_contract,omitempty"`
+	Actions             []DataAction     `json:"actions,omitempty"`
 	Script              string           `json:"script"`
 	Questions           []Question       `json:"questions,omitempty"`
 	BlockReason         string           `json:"block_reason,omitempty"`
@@ -64,6 +65,37 @@ type TaskPlan struct {
 	NextBatch           string           `json:"next_batch,omitempty"`
 	WhyThisBatch        string           `json:"why_this_batch,omitempty"`
 	ContinueAfter       bool             `json:"continue_after,omitempty"`
+}
+
+type DataActionKind string
+
+const (
+	DataActionMaterialInventory DataActionKind = "material_inventory"
+	DataActionInspectMaterial   DataActionKind = "inspect_material"
+	DataActionCustomTransform   DataActionKind = "custom_transform"
+)
+
+type DataAction struct {
+	ID              string            `json:"id,omitempty"`
+	Kind            DataActionKind    `json:"kind"`
+	Purpose         string            `json:"purpose,omitempty"`
+	InputPaths      []string          `json:"input_paths,omitempty"`
+	OutputArtifact  string            `json:"output_artifact,omitempty"`
+	Script          string            `json:"script,omitempty"`
+	Params          map[string]string `json:"params,omitempty"`
+	SuccessCriteria []string          `json:"success_criteria,omitempty"`
+}
+
+type DataArtifact struct {
+	ID          string            `json:"id,omitempty"`
+	Kind        string            `json:"kind,omitempty"`
+	SourcePaths []string          `json:"source_paths,omitempty"`
+	Summary     string            `json:"summary,omitempty"`
+	Fields      map[string]string `json:"fields,omitempty"`
+	Headers     []string          `json:"headers,omitempty"`
+	Sample      []string          `json:"sample,omitempty"`
+	RowCount    int               `json:"row_count,omitempty"`
+	Children    []DataArtifact    `json:"children,omitempty"`
 }
 
 type CoverageContract struct {
@@ -305,6 +337,10 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	case hasMissingName && isLikelyDataTaskHelperName(missingName):
 		v.Code = "unknown_runner_helper"
 		v.RepairHint = "Use canonical runner helpers: add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money."
+	case strings.Contains(lower, "path was not declared as an input"):
+		v.Code = "undeclared_input_path"
+		v.ActualSnippet = parseUndeclaredInputPath(text)
+		v.RepairHint = "Every file read by a script/custom_transform must be declared in that node's input_paths. Add the path only if this atomic action should consume it; otherwise split a prior inspect/extract action or remove the read."
 	case strings.Contains(lower, "invalid literal for int()"):
 		v.Code = "numeric_parse_failure"
 		v.RepairHint = "Do not parse identifiers as integers; keep identifiers as strings and parse only fields that are truly numeric."
@@ -352,6 +388,19 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Keep the computed answer but render it exactly according to output_contract."
 	}
 	return v
+}
+
+func parseUndeclaredInputPath(text string) string {
+	const marker = "path was not declared as an input:"
+	idx := strings.Index(strings.ToLower(text), marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(text[idx+len(marker):])
+	if end := strings.IndexAny(rest, "\r\n"); end >= 0 {
+		rest = rest[:end]
+	}
+	return strings.Trim(strings.TrimSpace(rest), `"'`)
 }
 
 func parsePythonNameErrorMissingName(text string) (string, bool) {
@@ -500,6 +549,7 @@ type Result struct {
 	Answer            string                   `json:"answer"`
 	OutputContract    OutputContract           `json:"output_contract"`
 	AuditSummary      string                   `json:"audit_summary,omitempty"`
+	Artifacts         []DataArtifact           `json:"artifacts,omitempty"`
 	Rows              []RowDecision            `json:"rows,omitempty"`
 	RuleCoverage      []RuleCoverageRecord     `json:"rule_coverage,omitempty"`
 	Contributions     []ContributionRecord     `json:"contributions,omitempty"`

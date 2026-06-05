@@ -269,6 +269,68 @@ func TestDiscoverCandidateFilesSkipsSource(t *testing.T) {
 	}
 }
 
+func TestActionRunnerMaterialInventoryAndInspectArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("sum all rows\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		Actions: []DataAction{
+			{ID: "inventory", Kind: DataActionMaterialInventory, Purpose: "discover materials"},
+			{ID: "inspect_orders", Kind: DataActionInspectMaterial, InputPaths: []string{"orders.csv"}, OutputArtifact: "orders_profile"},
+		},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if len(res.Artifacts) != 2 {
+		t.Fatalf("Artifacts=%d, want 2: %+v", len(res.Artifacts), res.Artifacts)
+	}
+	if !strings.Contains(res.Answer, "discovered") || !strings.Contains(res.Answer, "inspected") {
+		t.Fatalf("Answer=%q, want artifact summary", res.Answer)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv" {
+		t.Fatalf("ConsumedPaths=%q, want orders.csv", got)
+	}
+}
+
+func TestActionRunnerCustomTransformUsesExistingRunner(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "orders.csv", Required: true}},
+		},
+		Actions: []DataAction{{
+			ID:         "sum_orders",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"orders.csv"},
+			Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit_result(str(total), output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run custom transform action: %v", err)
+	}
+	if res.Answer != "17" {
+		t.Fatalf("Answer=%q, want 17", res.Answer)
+	}
+}
+
 func TestDiscoverCandidateFilesIncludesNonTextMaterials(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "images"), 0755); err != nil {
@@ -471,11 +533,16 @@ func TestClassifyExecutionError(t *testing.T) {
 		`data reconcile failed: group "A/amount" has no matching contribution records`:                                       "reconcile_group_mismatch",
 		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                     "reconcile_sum_mismatch",
 		`NameError: name 'add_entity_resolution' is not defined`:                                                             "unknown_runner_helper",
+		`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`:                                "undeclared_input_path",
 	}
 	for text, want := range cases {
 		if got := ClassifyExecutionError(text).Code; got != want {
 			t.Fatalf("ClassifyExecutionError(%q)=%q, want %q", text, got, want)
 		}
+	}
+	v := ClassifyExecutionError(`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`)
+	if v.ActualSnippet != "text_evidence/invoices/ATT-00006.txt" || !strings.Contains(v.RepairHint, "atomic action") {
+		t.Fatalf("undeclared path violation=%+v", v)
 	}
 }
 

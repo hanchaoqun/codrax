@@ -1309,6 +1309,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		RepoRoot: r.repoRoot,
 		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
 	}
+	actionRunner := dataquery.ActionRunner{
+		RepoRoot: r.repoRoot,
+		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
+	}
 	currentPlan := plan
 	var records []dataTaskWorkflowRecord
 	repairRounds := 0
@@ -1405,7 +1409,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		dataRounds++
 		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
 		r.emitDataTaskWorkflowAudit("execute", dataRounds)
-		result, err := runner.Run(context.Background(), currentPlan)
+		var result dataquery.Result
+		if len(currentPlan.Actions) > 0 {
+			result, err = actionRunner.Run(context.Background(), currentPlan)
+		} else {
+			result, err = runner.Run(context.Background(), currentPlan)
+		}
 		if err != nil {
 			if _, ok := r.dataTaskPlanner.(DataTaskResultPatchPlanner); ok {
 				var validationErr *dataquery.DataResultValidationError
@@ -2164,7 +2173,7 @@ func (r *REPL) logDataTaskPlanArtifact(scope string, round int, plan dataquery.T
 
 func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.TaskPlan, artifact dataTaskAuditArtifact) {
 	script := strings.TrimSpace(plan.Script)
-	if r.renderer == nil || script == "" {
+	if r.renderer == nil || (script == "" && len(plan.Actions) == 0) {
 		return
 	}
 	lines := dataTaskScriptLineCount(script)
@@ -2172,7 +2181,20 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 	if isZh(r.language) {
 		label = "数据脚本"
 	}
+	if script == "" && len(plan.Actions) > 0 {
+		label = "data actions"
+		if isZh(r.language) {
+			label = "数据动作"
+		}
+	}
 	segs := []string{dataTaskAuditScopeLabel(scope, round, r.language)}
+	if len(plan.Actions) > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("%d 个动作", len(plan.Actions)))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d action(s)", len(plan.Actions)))
+		}
+	}
 	if lines > 0 {
 		if isZh(r.language) {
 			segs = append(segs, fmt.Sprintf("%d 行", lines))
@@ -2189,12 +2211,21 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 	}
 	r.renderer.EmitLightRouteSummary(label, segs)
 	var b strings.Builder
-	if isZh(r.language) {
+	if script == "" && len(plan.Actions) > 0 {
+		if isZh(r.language) {
+			b.WriteString("动作预览：\n")
+		} else {
+			b.WriteString("Action preview:\n")
+		}
+		b.WriteString(dataTaskPanelPreview(renderDataTaskActionsPreview(plan.Actions), r.language))
+	} else if isZh(r.language) {
 		b.WriteString("脚本预览：\n")
 	} else {
 		b.WriteString("Script preview:\n")
 	}
-	b.WriteString(dataTaskPanelPreview(script, r.language))
+	if script != "" {
+		b.WriteString(dataTaskPanelPreview(script, r.language))
+	}
 	if artifact.ScriptPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整脚本：`%s`", artifact.ScriptPath)
@@ -2515,6 +2546,33 @@ func dataTaskPanelPreview(value, lang string) string {
 	return fmt.Sprintf("%s\n...[panel preview truncated %d chars; see path above for full content]", preview, omitted)
 }
 
+func renderDataTaskActionsPreview(actions []dataquery.DataAction) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, action := range actions {
+		fmt.Fprintf(&b, "%d. %s", i+1, strings.TrimSpace(string(action.Kind)))
+		if id := strings.TrimSpace(action.ID); id != "" {
+			fmt.Fprintf(&b, " `%s`", id)
+		}
+		if purpose := strings.TrimSpace(action.Purpose); purpose != "" {
+			fmt.Fprintf(&b, " — %s", purpose)
+		}
+		if len(action.InputPaths) > 0 {
+			fmt.Fprintf(&b, "\n   inputs: %s", strings.Join(action.InputPaths, ", "))
+		}
+		if artifact := strings.TrimSpace(action.OutputArtifact); artifact != "" {
+			fmt.Fprintf(&b, "\n   output: %s", artifact)
+		}
+		if lines := dataTaskScriptLineCount(action.Script); lines > 0 {
+			fmt.Fprintf(&b, "\n   script: %d line(s)", lines)
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func (r *REPL) dataTaskMutedPreview(value string) string {
 	preview := dataTaskPanelPreview(value, r.language)
 	if strings.TrimSpace(preview) == "" {
@@ -2549,6 +2607,13 @@ func (r *REPL) emitDataTaskRunnerCall(plan dataquery.TaskPlan, round int) {
 
 func dataTaskRunnerToolDetail(plan dataquery.TaskPlan, lang string) string {
 	parts := []string{}
+	if len(plan.Actions) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("动作=%d", len(plan.Actions)))
+		} else {
+			parts = append(parts, fmt.Sprintf("actions=%d", len(plan.Actions)))
+		}
+	}
 	if len(plan.InputPaths) > 0 {
 		if isZh(lang) {
 			parts = append(parts, fmt.Sprintf("输入=%d", len(plan.InputPaths)))
@@ -2763,6 +2828,9 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 	}
 	if isZh(lang) {
 		segs := []string{status, fmt.Sprintf("输入 %d", len(plan.InputPaths)), "输出 " + format}
+		if len(plan.Actions) > 0 {
+			segs = append(segs, fmt.Sprintf("动作 %d", len(plan.Actions)))
+		}
 		if lines := dataTaskScriptLineCount(plan.Script); lines > 0 {
 			segs = append(segs, fmt.Sprintf("脚本 %d 行", lines))
 		}
@@ -2779,6 +2847,9 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 		return "数据计划", segs
 	}
 	segs := []string{status, fmt.Sprintf("%d input(s)", len(plan.InputPaths)), "output " + format}
+	if len(plan.Actions) > 0 {
+		segs = append(segs, fmt.Sprintf("%d action(s)", len(plan.Actions)))
+	}
 	if lines := dataTaskScriptLineCount(plan.Script); lines > 0 {
 		segs = append(segs, fmt.Sprintf("%d script line(s)", lines))
 	}

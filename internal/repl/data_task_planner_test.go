@@ -98,6 +98,40 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 }
 
+func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"markdown","explanation_allowed":true},"actions":[{"id":"inventory","kind":"material_inventory","purpose":"discover objective materials","params":{"limit":20},"success_criteria":"candidate inventory exists"},{"kind":"inspect_material","inputPaths":"orders.csv, rules.md","outputArtifact":"profiles"}],"continueAfter":"true"}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "先查看材料结构", "/repo", TurnPolicy{Route: RouteData, DataTaskKind: "data_task"}, []dataquery.CandidateFile{
+		{Path: "orders.csv", Kind: "csv", Size: 10},
+		{Path: "rules.md", Kind: "text", Size: 10},
+	})
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if len(plan.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want 2 actions", plan.Actions)
+	}
+	if plan.Actions[0].Kind != dataquery.DataActionMaterialInventory || plan.Actions[0].Params["limit"] != "20" {
+		t.Fatalf("action[0]=%+v", plan.Actions[0])
+	}
+	if strings.Join(plan.Actions[1].InputPaths, ",") != "orders.csv,rules.md" || plan.Actions[1].OutputArtifact != "profiles" {
+		t.Fatalf("action[1]=%+v", plan.Actions[1])
+	}
+	if !plan.ContinueAfter {
+		t.Fatal("ContinueAfter=false, want true for action workflow")
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
 func TestDataTaskPlannerRepairsMalformedToolParams(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

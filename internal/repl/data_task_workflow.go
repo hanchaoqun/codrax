@@ -47,6 +47,9 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	if status != "" && status != "ready" {
 		return ""
 	}
+	if len(plan.Actions) > 0 {
+		return dataTaskActionStagingGuardError(plan)
+	}
 	if plan.ContinueAfter {
 		return ""
 	}
@@ -61,6 +64,20 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	}
 	return fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller bounded batch, set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
 		lines, requiredMaterials, validationLedgers)
+}
+
+func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
+	for i, action := range plan.Actions {
+		lines := dataTaskScriptLineCount(action.Script)
+		if lines == 0 {
+			continue
+		}
+		if lines >= dataTaskOneShotScriptLineSoftLimit {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
+				i+1, strings.TrimSpace(string(action.Kind)), lines)
+		}
+	}
+	return ""
 }
 
 func dataTaskValidationLedgerCount(contract dataquery.CoverageContract) int {
@@ -94,6 +111,7 @@ type dataTaskWorkflowPromptRecord struct {
 	Round               int                       `json:"round"`
 	PlanStatus          string                    `json:"plan_status,omitempty"`
 	Goal                string                    `json:"goal,omitempty"`
+	Actions             []dataquery.DataAction    `json:"actions,omitempty"`
 	InputPaths          []string                  `json:"input_paths,omitempty"`
 	OutputContract      dataquery.OutputContract  `json:"output_contract,omitempty"`
 	SuccessCriteria     []string                  `json:"success_criteria,omitempty"`
@@ -125,6 +143,7 @@ type dataTaskResultPromptView struct {
 	ReconcileGroupKeySample  []string                           `json:"reconcile_group_key_sample,omitempty"`
 	ReconcileGroupsTruncated bool                               `json:"reconcile_groups_truncated,omitempty"`
 	Metrics                  []dataquery.Metric                 `json:"metrics,omitempty"`
+	Artifacts                []dataquery.DataArtifact           `json:"artifacts,omitempty"`
 	ContractWarnings         []string                           `json:"contract_warnings,omitempty"`
 }
 
@@ -143,6 +162,7 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 			Round:               i + 1,
 			PlanStatus:          strings.TrimSpace(rec.Plan.Status),
 			Goal:                strings.TrimSpace(rec.Plan.Goal),
+			Actions:             compactDataTaskActionsForPrompt(rec.Plan.Actions, 8, 1200),
 			InputPaths:          append([]string(nil), rec.Plan.InputPaths...),
 			OutputContract:      rec.Plan.OutputContract.Normalize(),
 			SuccessCriteria:     append([]string(nil), rec.Plan.SuccessCriteria...),
@@ -196,8 +216,48 @@ func compactDataTaskResultPromptView(result dataquery.Result, answerLimit, audit
 		ReconcileGroupKeySample:  groupKeys,
 		ReconcileGroupsTruncated: groupsTruncated,
 		Metrics:                  result.Metrics,
+		Artifacts:                sampleDataTaskArtifacts(result.Artifacts, 6),
 		ContractWarnings:         append([]string(nil), result.ContractWarnings...),
 	}
+}
+
+func compactDataTaskActionsForPrompt(actions []dataquery.DataAction, limit, scriptLimit int) []dataquery.DataAction {
+	if limit <= 0 || len(actions) == 0 {
+		return nil
+	}
+	if len(actions) > limit {
+		actions = actions[:limit]
+	}
+	out := make([]dataquery.DataAction, 0, len(actions))
+	for _, action := range actions {
+		action.Purpose = clampDataTaskWorkflowText(action.Purpose, 240)
+		action.InputPaths = clampDataTaskStringSlice(action.InputPaths, 12)
+		action.Script = clampDataTaskWorkflowText(action.Script, scriptLimit)
+		action.SuccessCriteria = clampDataTaskStringSlice(action.SuccessCriteria, 8)
+		out = append(out, action)
+	}
+	return out
+}
+
+func sampleDataTaskArtifacts(artifacts []dataquery.DataArtifact, limit int) []dataquery.DataArtifact {
+	if limit <= 0 || len(artifacts) == 0 {
+		return nil
+	}
+	if len(artifacts) > limit {
+		artifacts = artifacts[:limit]
+	}
+	out := make([]dataquery.DataArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifact.Summary = clampDataTaskWorkflowText(artifact.Summary, 300)
+		artifact.SourcePaths = clampDataTaskStringSlice(artifact.SourcePaths, 8)
+		artifact.Headers = clampDataTaskStringSlice(artifact.Headers, 12)
+		artifact.Sample = clampDataTaskStringSlice(artifact.Sample, 4)
+		if len(artifact.Children) > 4 {
+			artifact.Children = append([]dataquery.DataArtifact(nil), artifact.Children[:4]...)
+		}
+		out = append(out, artifact)
+	}
+	return out
 }
 
 func inferDataTaskAnswerItemCount(answer string, contract dataquery.OutputContract) int {
@@ -442,6 +502,15 @@ func clampDataTaskWorkflowText(value string, limit int) string {
 		return value
 	}
 	return value[:limit] + "\n...[truncated]"
+}
+
+func clampDataTaskStringSlice(values []string, limit int) []string {
+	if limit <= 0 || len(values) <= limit {
+		return append([]string(nil), values...)
+	}
+	out := append([]string(nil), values[:limit]...)
+	out = append(out, fmt.Sprintf("...%d more", len(values)-limit))
+	return out
 }
 
 func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, bool) {
