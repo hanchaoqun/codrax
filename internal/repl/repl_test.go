@@ -285,6 +285,35 @@ func TestHistoryStringsUseExpandedPasteForRecall(t *testing.T) {
 	}
 }
 
+func TestHistoryStringsSkipUnrecoverableFoldedPaste(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Append(memory.Turn{
+		ID:       "t-stale",
+		Request:  "[Pasted text #0 +1 lines +802 chars]",
+		Response: "clarify",
+		Kind:     memory.KindPipeline,
+	}); err != nil {
+		t.Fatalf("Append stale: %v", err)
+	}
+	if err := store.Append(memory.Turn{
+		ID:       "t-ok",
+		Request:  "正常问题",
+		Response: "ok",
+		Kind:     memory.KindPipeline,
+	}); err != nil {
+		t.Fatalf("Append ok: %v", err)
+	}
+	r := &REPL{store: store}
+
+	got := r.historyStrings()
+	if len(got) != 1 || got[0] != "正常问题" {
+		t.Fatalf("historyStrings should skip unrecoverable folded paste, got %#v", got)
+	}
+}
+
 func TestBorderedLineFragments_WrapsOrdinaryProse(t *testing.T) {
 	line := strings.Repeat("ordinary prose keeps wrapping ", 4)
 	got := borderedLineFragments(line, 32)

@@ -279,6 +279,13 @@ func (e *nativeLineInput) readBracketedPaste() (string, error) {
 func (e *nativeLineInput) submit() (inputResult, bool) {
 	raw := string(e.value)
 	expanded := e.expand(raw)
+	if hasUnresolvedPastePlaceholder(expanded) {
+		e.value = nil
+		e.cursor = 0
+		e.pastes = nil
+		e.showSuggest = false
+		return inputResult{}, false
+	}
 	if !hasPrintable(expanded) {
 		e.value = nil
 		e.cursor = 0
@@ -293,6 +300,13 @@ func (e *nativeLineInput) submit() (inputResult, bool) {
 		display = strings.TrimRight(display, " \t")
 		display = strings.TrimSuffix(display, "\\")
 		expanded = e.expand(display)
+		if hasUnresolvedPastePlaceholder(expanded) {
+			e.value = nil
+			e.cursor = 0
+			e.pastes = nil
+			e.showSuggest = false
+			return inputResult{}, false
+		}
 	}
 	echoBody := expanded
 	if echoBody == "" {

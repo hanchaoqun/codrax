@@ -739,6 +739,12 @@ func (m *inputModel) View() string {
 func (m *inputModel) handleSubmit() tea.Cmd {
 	raw := m.ti.Value()
 	expanded := m.expand(raw)
+	if hasUnresolvedPastePlaceholder(expanded) {
+		m.ti.SetValue("")
+		m.pastes = nil
+		m.showSuggest = false
+		return nil
+	}
 	if !hasPrintable(expanded) {
 		// Normalise: drop the empty whitespace so the cursor is clean.
 		if raw != "" {
@@ -758,6 +764,12 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 		display = strings.TrimSuffix(display, "\\")
 		// Re-expand without the trailing "\" so it doesn't reach dispatch.
 		expanded = m.expand(display)
+		if hasUnresolvedPastePlaceholder(expanded) {
+			m.ti.SetValue("")
+			m.pastes = nil
+			m.showSuggest = false
+			return nil
+		}
 	}
 	m.submitted = true
 	m.continues = continues
@@ -861,6 +873,10 @@ func (m *inputModel) expand(s string) string {
 		}
 		return m.pastes[id]
 	})
+}
+
+func hasUnresolvedPastePlaceholder(s string) bool {
+	return placeholderRE.MatchString(s)
 }
 
 // span is a rune-indexed range [start, end) for one placeholder token.
@@ -1152,6 +1168,9 @@ func (r *REPL) historyStrings() []string {
 			req = t.Request
 		}
 		if strings.TrimSpace(req) == "" {
+			continue
+		}
+		if hasUnresolvedPastePlaceholder(req) {
 			continue
 		}
 		out = append(out, req)
