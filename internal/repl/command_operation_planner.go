@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/operation"
 )
 
@@ -275,6 +277,17 @@ Hard rules:
 - Do not mention raw execution detail blocks in the reason; UI already shows per-round details.
 - Match status to a typed enum exactly.`
 
+const operationStructuredToolRepairSystemPrompt = `You repair one malformed structured tool call for the local operation lane.
+
+Hard rules:
+- Emit only the required tool call. Do not write prose.
+- The tool arguments must be a single JSON object matching the provided schema.
+- Do not encode the arguments as a JSON string.
+- Do not include markdown, XML, comments, or transport wrapper text in tool arguments.
+- Do not execute commands and do not invent observations.
+- Use the compact operation context only to restore the intended typed fields.
+- If the compact context is insufficient, emit a safe typed status such as needs_clarification, blocked, budget_exhausted, or partial_answer_possible instead of guessing.`
+
 func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error) {
 	return p.PlanCommandOperationWithSnapshot(ctx, userLine, repoRoot, policy, operation.CapabilitySnapshot{})
 }
@@ -440,7 +453,16 @@ func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Conte
 	}
 	parsed, err := unmarshalOperationEvaluation(call.Params)
 	if err != nil {
-		return operation.OperationEvaluation{}, err
+		repaired, repairErr := p.repairOperationEvaluation(ctx, err, operationStructuredToolRepairRequest{
+			Scope:          "provider operation evaluator",
+			UserLine:       userLine,
+			Language:       lang,
+			ProviderRecord: records,
+		})
+		if repairErr != nil {
+			return operation.OperationEvaluation{}, repairErr
+		}
+		parsed = repaired
 	}
 	return parsed.toEvaluation(), nil
 }
@@ -474,7 +496,16 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 	}
 	parsed, err := unmarshalOperationEvaluation(call.Params)
 	if err != nil {
-		return operation.OperationEvaluation{}, err
+		repaired, repairErr := p.repairOperationEvaluation(ctx, err, operationStructuredToolRepairRequest{
+			Scope:         "command operation evaluator",
+			UserLine:      userLine,
+			Language:      lang,
+			CommandRecord: records,
+		})
+		if repairErr != nil {
+			return operation.OperationEvaluation{}, repairErr
+		}
+		parsed = repaired
 	}
 	return parsed.toEvaluationWithSource(operation.MaterialSourceCommand), nil
 }
@@ -664,9 +695,291 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 	}
 	parsed, err := unmarshalCommandOperationPlan(call.Params)
 	if err != nil {
-		return zeroDraft, err
+		repaired, repairErr := p.repairCommandOperationPlan(ctx, err, req)
+		if repairErr != nil {
+			return zeroDraft, repairErr
+		}
+		return repaired, nil
 	}
 	return parsed, nil
+}
+
+type operationStructuredToolRepairRequest struct {
+	Scope          string
+	UserLine       string
+	Language       string
+	PlannerRequest commandOperationPlannerRequest
+	CommandRecord  []commandOperationResultRecord
+	ProviderRecord []providerOperationResultRecord
+}
+
+func (p *llmCommandOperationPlanner) repairCommandOperationPlan(ctx context.Context, parseErr error, req commandOperationPlannerRequest) (commandPlanDraft, error) {
+	raw, err := p.repairOperationStructuredToolParams(ctx, commandOperationPlanTool, parseErr, operationStructuredToolRepairRequest{
+		Scope:          "command operation planner",
+		UserLine:       req.UserLine,
+		PlannerRequest: req,
+	})
+	if err != nil {
+		return commandPlanDraft{}, err
+	}
+	parsed, err := unmarshalCommandOperationPlan(raw)
+	if err != nil {
+		return commandPlanDraft{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
+	}
+	return parsed, nil
+}
+
+func (p *llmCommandOperationPlanner) repairOperationEvaluation(ctx context.Context, parseErr error, req operationStructuredToolRepairRequest) (operationEvaluationDraft, error) {
+	raw, err := p.repairOperationStructuredToolParams(ctx, operationEvaluationTool, parseErr, req)
+	if err != nil {
+		return operationEvaluationDraft{}, err
+	}
+	parsed, err := unmarshalOperationEvaluation(raw)
+	if err != nil {
+		return operationEvaluationDraft{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
+	}
+	return parsed, nil
+}
+
+func (p *llmCommandOperationPlanner) repairOperationStructuredToolParams(ctx context.Context, tool llm.ToolSchema, parseErr error, req operationStructuredToolRepairRequest) (json.RawMessage, error) {
+	var paramErr *replStructuredToolParamError
+	if !errors.As(parseErr, &paramErr) {
+		return nil, parseErr
+	}
+	if p == nil || p.adapter == nil {
+		return nil, parseErr
+	}
+	scope := firstNonEmptyString(strings.TrimSpace(req.Scope), strings.TrimSpace(paramErr.Scope), "operation structured tool")
+	logging.Warning("[repl/operation] structured tool params invalid tool=%s scope=%s raw_bytes=%d; attempting compact repair",
+		firstNonEmptyString(tool.Name, paramErr.ToolName), scope, paramErr.RawLen)
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: operationStructuredToolRepairSystemPrompt},
+			{Role: "user", Content: operationStructuredToolRepairPrompt(tool, paramErr, req)},
+		},
+		[]llm.ToolSchema{tool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
+	}
+	if len(resp.ToolCalls) == 0 {
+		return nil, fmt.Errorf("%w; compact tool-param repair returned no tool_call", parseErr)
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != tool.Name {
+		return nil, fmt.Errorf("%w; compact tool-param repair returned unexpected tool %q", parseErr, call.Name)
+	}
+	return call.Params, nil
+}
+
+func operationStructuredToolRepairPrompt(tool llm.ToolSchema, paramErr *replStructuredToolParamError, req operationStructuredToolRepairRequest) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## repair_scope\n%s\n\n", firstNonEmptyString(strings.TrimSpace(req.Scope), strings.TrimSpace(paramErr.Scope), "operation structured tool"))
+	fmt.Fprintf(&b, "## required_tool\n%s\n\n", tool.Name)
+	fmt.Fprintf(&b, "## parse_failure\nraw_bytes=%d\nerror=%s\nhint=%s\n\n",
+		paramErr.RawLen,
+		oneLineClamp(fmt.Sprint(paramErr.Err), 400),
+		oneLineClamp(paramErr.Hint, 400))
+	b.WriteString("## schema\n")
+	b.WriteString(oneLineClamp(tool.Description, 600))
+	b.WriteString("\n")
+	b.WriteString(clampMultilineForRepair(string(tool.Parameters), 6000))
+	b.WriteString("\n\n## compact_operation_context\n")
+	b.WriteString(operationStructuredToolRepairContext(req))
+	return strings.TrimSpace(b.String())
+}
+
+func operationStructuredToolRepairContext(req operationStructuredToolRepairRequest) string {
+	if len(req.CommandRecord) > 0 {
+		return operationCommandRecordsRepairContext(req.UserLine, req.Language, req.CommandRecord)
+	}
+	if len(req.ProviderRecord) > 0 {
+		return operationProviderRecordsRepairContext(req.UserLine, req.Language, req.ProviderRecord)
+	}
+	return operationPlannerRepairContext(req.PlannerRequest)
+}
+
+func operationPlannerRepairContext(req commandOperationPlannerRequest) string {
+	var b strings.Builder
+	mode := "initial"
+	if req.Replan {
+		mode = "replan"
+	} else if req.Continuation {
+		mode = "continuation"
+	}
+	fmt.Fprintf(&b, "mode=%s\n", mode)
+	fmt.Fprintf(&b, "repo_root=%s\n", strings.TrimSpace(req.RepoRoot))
+	fmt.Fprintf(&b, "route_policy operation=%s operation_kind=%s risk=%s target=%s requires_confirmation=%t side_effects=%s\n",
+		req.Policy.Operation, req.Policy.OperationKind, req.Policy.RiskLevel, req.Policy.TargetSurface, req.Policy.RequiresConfirmation, strings.Join(req.Policy.SideEffects, ","))
+	if rendered := req.Snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
+		fmt.Fprintf(&b, "capability_snapshot=%q\n", oneLineClamp(rendered, 800))
+	}
+	if strings.TrimSpace(req.RecentOperationContext) != "" {
+		fmt.Fprintf(&b, "recent_operation_context_summary=%q\n", oneLineClamp(req.RecentOperationContext, 360))
+	}
+	if req.Replan {
+		b.WriteString(operationPlanRepairContext(req.PreviousPlan))
+		b.WriteString("\n")
+		b.WriteString(operationResultRepairContext(req.Result))
+		b.WriteString("\n")
+	}
+	if req.Continuation {
+		b.WriteString(operationCommandRecordsRepairContext(req.UserLine, "", req.Records))
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "user_request=%q\n", oneLineClamp(req.UserLine, 1200))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func operationCommandRecordsRepairContext(userLine, lang string, records []commandOperationResultRecord) string {
+	var b strings.Builder
+	if strings.TrimSpace(lang) != "" {
+		fmt.Fprintf(&b, "language=%s\n", strings.TrimSpace(lang))
+	}
+	fmt.Fprintf(&b, "user_request=%q\n", oneLineClamp(userLine, 1200))
+	start := len(records) - 3
+	if start < 0 {
+		start = 0
+	}
+	if start > 0 {
+		fmt.Fprintf(&b, "omitted_older_rounds=%d\n", start)
+	}
+	for i := start; i < len(records); i++ {
+		rec := records[i]
+		fmt.Fprintf(&b, "round[%d]\n", i+1)
+		b.WriteString(operationPlanRepairContext(rec.Plan))
+		b.WriteString("\n")
+		b.WriteString(operationResultRepairContext(rec.Result))
+		if rec.Evaluation != nil {
+			fmt.Fprintf(&b, "\nevaluation status=%s confidence=%q reason=%q material_refs=%q",
+				rec.Evaluation.Status,
+				oneLineClamp(rec.Evaluation.Confidence, 80),
+				oneLineClamp(rec.Evaluation.Reason, 320),
+				operation.RenderMaterialsInline(rec.Evaluation.Materials, 6))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func operationProviderRecordsRepairContext(userLine, lang string, records []providerOperationResultRecord) string {
+	var b strings.Builder
+	if strings.TrimSpace(lang) != "" {
+		fmt.Fprintf(&b, "language=%s\n", strings.TrimSpace(lang))
+	}
+	fmt.Fprintf(&b, "user_request=%q\n", oneLineClamp(userLine, 1200))
+	start := len(records) - 3
+	if start < 0 {
+		start = 0
+	}
+	if start > 0 {
+		fmt.Fprintf(&b, "omitted_older_provider_rounds=%d\n", start)
+	}
+	for i := start; i < len(records); i++ {
+		rec := records[i]
+		result := rec.Result
+		materials := operation.MaterialsFromProviderResult(
+			result.Provider,
+			result.Tool,
+			result.Summary,
+			result.PayloadRef,
+			result.ArtifactRefs,
+			result.Observations,
+			result.NextActions,
+			result.ReturnAction,
+			result.WorkflowState,
+		)
+		fmt.Fprintf(&b, "provider_round[%d] provider=%q tool=%q kind=%q target=%q status=%s observations=%d summary=%q error=%q payload_ref=%s artifact_refs=%s material_refs=%q next_actions=%d return_action=%q workflow_state=%q\n",
+			i+1,
+			oneLineClamp(result.Provider, 120),
+			oneLineClamp(result.Tool, 120),
+			oneLineClamp(firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation), 80),
+			oneLineClamp(firstNonEmptyString(rec.Plan.TargetSurface, rec.Request.TargetSurface), 80),
+			result.Status,
+			result.Observations,
+			oneLineClamp(result.Summary, 600),
+			oneLineClamp(result.Error, 240),
+			result.PayloadRef,
+			oneLineClamp(strings.Join(result.ArtifactRefs, ","), 500),
+			operation.RenderMaterialsInline(materials, 8),
+			len(result.NextActions),
+			oneLineClamp(result.ReturnAction.Compact(), 260),
+			oneLineClamp(result.WorkflowState.Compact(), 260))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func operationPlanRepairContext(plan operation.CommandOperationPlan) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "plan id=%s status=%s risk=%s approval=%s work_dir=%s\n",
+		plan.ID, plan.Status, plan.RiskLevel, plan.ApprovalMode, plan.WorkDir)
+	if strings.TrimSpace(plan.Goal) != "" {
+		fmt.Fprintf(&b, "  goal=%q\n", oneLineClamp(plan.Goal, 240))
+	}
+	if len(plan.KnownConstraints) > 0 {
+		fmt.Fprintf(&b, "  known_constraints=%q\n", oneLineClamp(strings.Join(plan.KnownConstraints, " | "), 360))
+	}
+	if len(plan.MissingObservations) > 0 {
+		fmt.Fprintf(&b, "  missing_observations=%q\n", oneLineClamp(strings.Join(plan.MissingObservations, " | "), 360))
+	}
+	if len(plan.SuccessCriteria) > 0 {
+		fmt.Fprintf(&b, "  success_criteria=%q\n", oneLineClamp(strings.Join(plan.SuccessCriteria, " | "), 360))
+	}
+	if strings.TrimSpace(plan.NextBatch) != "" {
+		fmt.Fprintf(&b, "  next_batch=%q\n", oneLineClamp(plan.NextBatch, 240))
+	}
+	if strings.TrimSpace(plan.WhyThisBatch) != "" {
+		fmt.Fprintf(&b, "  why_this_batch=%q\n", oneLineClamp(plan.WhyThisBatch, 300))
+	}
+	for i, step := range plan.Steps {
+		if i >= 6 {
+			fmt.Fprintf(&b, "  omitted_steps=%d\n", len(plan.Steps)-i)
+			break
+		}
+		fmt.Fprintf(&b, "  step[%d] id=%s title=%q cmd=%q risk=%s side_effects=%s\n",
+			i+1, step.ID, oneLineClamp(step.Title, 120), oneLineClamp(commandOperationStepCommand(step), 260), step.RiskLevel, strings.Join(step.SideEffects, ","))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func operationResultRepairContext(result operation.CommandOperationResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "result plan_id=%s status=%s output_preview=%q payload_ref=%s\n",
+		result.PlanID, result.Status, oneLineClamp(result.OutputPreview, 600), result.PayloadRef)
+	for i, step := range result.StepResults {
+		if i >= 8 {
+			fmt.Fprintf(&b, "  omitted_step_results=%d\n", len(result.StepResults)-i)
+			break
+		}
+		summary := operation.SummarizeStepOutput(step)
+		fmt.Fprintf(&b, "  result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification=%s output_kind=%s output_summary=%q error=%q output_preview=%q payload_ref=%s\n",
+			i+1,
+			step.StepID,
+			step.Status,
+			step.ExitCode,
+			step.TimedOut,
+			step.FailureClass,
+			step.Verification.Status,
+			summary.Kind,
+			oneLineClamp(summary.Summary, 260),
+			oneLineClamp(step.Error, 240),
+			oneLineClamp(step.OutputPreview, 600),
+			step.PayloadRef)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func clampMultilineForRepair(s string, maxRunes int) string {
+	s = strings.TrimSpace(s)
+	if maxRunes <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "\n...[compact repair context truncated]"
 }
 
 func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {

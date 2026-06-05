@@ -31,6 +31,15 @@ func operationEvaluationResp(payload string) llm.Response {
 	}
 }
 
+func lastUserMessage(messages []llm.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i].Content
+		}
+	}
+	return ""
+}
+
 func TestCommandOperationModelFacingTextAvoidsInternalCodename(t *testing.T) {
 	text := strings.Join([]string{
 		commandOperationPlanTool.Description,
@@ -40,6 +49,7 @@ func TestCommandOperationModelFacingTextAvoidsInternalCodename(t *testing.T) {
 		commandOperationPlannerSystemPrompt,
 		operationEvaluationSystemPrompt,
 		commandOperationAnswerSystemPrompt,
+		operationStructuredToolRepairSystemPrompt,
 	}, "\n")
 	if strings.Contains(text, "Codrax") {
 		t.Fatalf("model-facing operation text should not use internal product codename:\n%s", text)
@@ -168,6 +178,108 @@ func TestCommandOperationPlannerCompatJSONSchemaKeyAliases(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlannerRepairsInvalidToolParamsWithCompactPrompt(t *testing.T) {
+	hugeRecent := strings.Repeat("previous large operation output should not be replayed ", 400)
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp("ä not json"),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"probe","program":"pwd","risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationPlannerWithHandoff)
+	if !ok {
+		t.Fatal("planner should support handoff")
+	}
+	req, err := planner.PlanCommandOperationWithHandoff(context.Background(), "查询当前目录", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, hugeRecent)
+	if err != nil {
+		t.Fatalf("PlanCommandOperationWithHandoff: %v", err)
+	}
+	if len(req.Steps) != 1 || req.Steps[0].Program != "pwd" {
+		t.Fatalf("request=%+v", req)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + compact repair", len(adapter.calls))
+	}
+	firstUser := lastUserMessage(adapter.calls[0].messages)
+	secondUser := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"## repair_scope",
+		"## required_tool",
+		"emit_command_operation_plan",
+		"## parse_failure",
+		"## compact_operation_context",
+		"recent_operation_context_summary",
+	} {
+		if !strings.Contains(secondUser, want) {
+			t.Fatalf("compact repair prompt missing %q:\n%s", want, secondUser)
+		}
+	}
+	if len(secondUser) >= len(firstUser) {
+		t.Fatalf("repair prompt should be smaller than original prompt; first=%d second=%d", len(firstUser), len(secondUser))
+	}
+	if strings.Count(secondUser, "previous large operation output should not be replayed") > 10 {
+		t.Fatalf("repair prompt should clamp large recent context:\n%s", secondUser)
+	}
+}
+
+func TestCommandOperationContinuationRepairsInvalidToolParamsWithCompactRecords(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp("ä not json"),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s2","title":"read bounded payload","program":"head","args":["-50","/tmp/out.txt"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationContinuationPlanner)
+	if !ok {
+		t.Fatal("planner should support continuation")
+	}
+	hugePreview := strings.Repeat("very large output ", 500)
+	next, err := planner.ContinueCommandOperation(context.Background(), "继续读取关键内容", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-1", Status: operation.StatusExecuted, RequestText: "读取网页", Goal: "读取关键内容"},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-1",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:        "download",
+				Status:        operation.StatusExecuted,
+				OutputPreview: hugePreview,
+				PayloadRef:    "/tmp/out.txt",
+			}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ContinueCommandOperation: %v", err)
+	}
+	if next.Complete || len(next.Request.Steps) != 1 {
+		t.Fatalf("next=%+v", next)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + compact repair", len(adapter.calls))
+	}
+	secondUser := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"mode=continuation",
+		"round[1]",
+		"payload_ref=/tmp/out.txt",
+		"very large output",
+	} {
+		if !strings.Contains(secondUser, want) {
+			t.Fatalf("compact repair prompt missing %q:\n%s", want, secondUser)
+		}
+	}
+	if strings.Count(secondUser, "very large output") > 60 {
+		t.Fatalf("repair prompt should clamp command previews:\n%s", secondUser)
+	}
+}
+
 func TestProviderOperationEvaluatorCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -240,6 +352,116 @@ func TestProviderOperationEvaluatorCompatJSON(t *testing.T) {
 	} {
 		if !strings.Contains(allMessages, want) {
 			t.Fatalf("evaluator system prompt missing %q:\n%s", want, allMessages)
+		}
+	}
+}
+
+func TestCommandOperationEvaluatorRepairsInvalidToolParams(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			operationEvaluationResp("ä not json"),
+			operationEvaluationResp(`{"status":"continue_command","reason":"payload needs targeted extraction","confidence":"high","material_refs":"/tmp/payload.txt"}`),
+		},
+	}
+	evaluator, ok := NewCommandOperationPlanner(adapter).(CommandOperationEvaluator)
+	if !ok {
+		t.Fatal("planner should support command evaluation")
+	}
+	eval, err := evaluator.EvaluateCommandOperation(context.Background(), "读取 payload 后总结", []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-1", RequestText: "读取 payload 后总结"},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-1",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:     "download",
+				Status:     operation.StatusExecuted,
+				PayloadRef: "/tmp/payload.txt",
+			}},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateCommandOperation: %v", err)
+	}
+	if eval.Status != operation.EvalContinueCommand || len(eval.Materials) != 1 {
+		t.Fatalf("eval=%+v", eval)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + compact repair", len(adapter.calls))
+	}
+	secondUser := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"emit_operation_evaluation",
+		"command operation evaluator",
+		"compact_operation_context",
+		"payload_ref=/tmp/payload.txt",
+	} {
+		if !strings.Contains(secondUser, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, secondUser)
+		}
+	}
+}
+
+func TestCommandOperationStructuredToolParamFailureResult(t *testing.T) {
+	_, err := unmarshalCommandOperationPlan([]byte("ä not json"))
+	if err == nil {
+		t.Fatal("expected invalid params error")
+	}
+	result, ok := commandOperationStructuredToolParamFailureResult(operation.CommandOperationPlan{ID: "op-bad-json"}, err, "zh")
+	if !ok {
+		t.Fatal("expected structured tool params degradation")
+	}
+	if result.PlanID != "op-bad-json" || result.Status != operation.StatusFailed {
+		t.Fatalf("result=%+v", result)
+	}
+	if !strings.Contains(result.OutputPreview, "结构化工具参数") {
+		t.Fatalf("localized degradation reason missing: %+v", result)
+	}
+	if len(result.StepResults) != 1 || result.StepResults[0].FailureClass != "structured_tool_params" {
+		t.Fatalf("step result should carry structured_tool_params failure: %+v", result.StepResults)
+	}
+}
+
+func TestProviderOperationEvaluatorRepairsInvalidToolParams(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			operationEvaluationResp("ä not json"),
+			operationEvaluationResp(`{"status":"complete","reason":"provider result is enough","confidence":"medium"}`),
+		},
+	}
+	evaluator, ok := NewCommandOperationPlanner(adapter).(ProviderOperationEvaluator)
+	if !ok {
+		t.Fatal("planner should support provider evaluation")
+	}
+	eval, err := evaluator.EvaluateProviderOperation(context.Background(), "根据 provider 结果回答", []providerOperationResultRecord{{
+		Plan:    operation.Plan{Kind: "document_generation", TargetSurface: "docs"},
+		Request: operation.Request{Text: "根据 provider 结果回答", OperationKind: "document_generation", TargetSurface: "docs"},
+		Result: providerOperationResult{
+			Status:       operation.StatusExecuted,
+			Provider:     "skill:reader",
+			Tool:         "run",
+			Summary:      "read material and produced summary",
+			PayloadRef:   "/tmp/provider.txt",
+			Observations: 2,
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateProviderOperation: %v", err)
+	}
+	if eval.Status != operation.EvalComplete {
+		t.Fatalf("eval=%+v", eval)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + compact repair", len(adapter.calls))
+	}
+	secondUser := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"provider operation evaluator",
+		"provider_round[1]",
+		"skill:reader",
+		"payload_ref=/tmp/provider.txt",
+	} {
+		if !strings.Contains(secondUser, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, secondUser)
 		}
 	}
 }

@@ -1222,6 +1222,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	if isCommandOperationPolicy(policy) {
 		req := fallbackCommandOperationClarification(line, r.repoRoot)
 		if r.operationPlanner != nil {
+			r.startOperationSynthesisSpinner()
 			ctx := r.startTurn()
 			snapshot := r.commandOperationCapabilitySnapshot()
 			var (
@@ -1356,6 +1357,7 @@ func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, polic
 		return false
 	}
 	records := append([]commandOperationResultRecord(nil), r.operationResults...)
+	r.startOperationSynthesisSpinner()
 	ctx := r.startTurn()
 	snapshot := r.commandOperationCapabilitySnapshot()
 	next, err := continuer.ContinueCommandOperation(ctx, strings.TrimSpace(line), r.repoRoot, commandOperationFollowupPolicy(policy), snapshot, records)
@@ -2052,11 +2054,24 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds && r.operationPlanner != nil {
 			replanner, ok := r.operationPlanner.(CommandOperationReplanner)
 			if ok {
-				r.startOperationExecutionSpinner()
+				r.startOperationSynthesisSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				revisedReq, err := replanner.ReplanCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, currentPlan, result)
 				if err != nil {
 					logging.Warning("[repl/operation] command replan failed: %v", err)
+					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
+						r.appendCommandOperationResult(currentPlan, degraded)
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						r.renderCommandOperationRoundResult(currentPlan, degraded)
+						r.startOperationSynthesisSpinner()
+						msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+						r.finishOperationFinalAnswerHeader()
+						r.emitOperationVisibleThoughts(thoughts)
+						r.renderBordered(msg)
+						r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+						r.recordTurn(display, request, msg, memory.KindPipeline)
+						return
+					}
 				} else {
 					repairRounds++
 					revisedReq = dropRepeatedFailedCommandSteps(revisedReq, currentPlan, result)
@@ -2132,6 +2147,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			commandRounds < commandOperationMaxCommandRounds &&
 			r.operationPlanner != nil {
 			if evaluator, ok := r.operationPlanner.(CommandOperationEvaluator); ok {
+				r.startOperationSynthesisSpinner()
 				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, r.language)
 				if err != nil {
 					logging.Warning("[repl/operation] command operation evaluation failed: %v", err)
@@ -2154,11 +2170,24 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					}
 					if eval.Status == operation.EvalContinueCommand {
 						if continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner); ok {
-							r.startOperationExecutionSpinner()
+							r.startOperationSynthesisSpinner()
 							snapshot := r.commandOperationCapabilitySnapshot()
 							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
 							if err != nil {
 								logging.Warning("[repl/operation] command evaluation continuation planning failed: %v", err)
+								if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
+									r.appendCommandOperationResult(currentPlan, degraded)
+									records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+									r.renderCommandOperationRoundResult(currentPlan, degraded)
+									r.startOperationSynthesisSpinner()
+									msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+									r.finishOperationFinalAnswerHeader()
+									r.emitOperationVisibleThoughts(thoughts)
+									r.renderBordered(msg)
+									r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+									r.recordTurn(display, request, msg, memory.KindPipeline)
+									return
+								}
 							} else if !next.Complete {
 								nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
 								continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
@@ -2219,11 +2248,24 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && r.operationPlanner != nil && commandRounds < commandOperationMaxCommandRounds {
 			continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
 			if ok {
-				r.startOperationExecutionSpinner()
+				r.startOperationSynthesisSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
 				if err != nil {
 					logging.Warning("[repl/operation] command continuation planning failed: %v", err)
+					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
+						r.appendCommandOperationResult(currentPlan, degraded)
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						r.renderCommandOperationRoundResult(currentPlan, degraded)
+						r.startOperationSynthesisSpinner()
+						msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+						r.finishOperationFinalAnswerHeader()
+						r.emitOperationVisibleThoughts(thoughts)
+						r.renderBordered(msg)
+						r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+						r.recordTurn(display, request, msg, memory.KindPipeline)
+						return
+					}
 				} else if next.Complete {
 					logging.Info("[repl/operation] command continuation complete plan_id=%s reason=%q rounds=%d",
 						currentPlan.ID, oneLineClamp(next.Reason, 160), len(records))
@@ -2447,10 +2489,24 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	if !ok {
 		return false
 	}
+	r.startOperationSynthesisSpinner()
 	snapshot := r.commandOperationCapabilitySnapshot()
 	revisedReq, err := replanner.ReplanCommandOperation(ctx, failedPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(failedPlan), snapshot, failedPlan, result)
 	if err != nil {
 		logging.Warning("[repl/operation] command replan failed: %v", err)
+		if degraded, ok := commandOperationStructuredToolParamFailureResult(failedPlan, err, r.language); ok {
+			r.appendCommandOperationResult(failedPlan, degraded)
+			records = append(records, commandOperationResultRecord{Plan: failedPlan, Result: degraded})
+			r.renderCommandOperationRoundResult(failedPlan, degraded)
+			r.startOperationSynthesisSpinner()
+			msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+			r.finishOperationFinalAnswerHeader()
+			r.emitOperationVisibleThoughts(thoughts)
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+			r.recordTurn(display, request, msg, memory.KindPipeline)
+			return true
+		}
 		return false
 	}
 	revisedReq = dropRepeatedFailedCommandSteps(revisedReq, failedPlan, result)
@@ -2467,6 +2523,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 		logging.Info("[repl/operation] command replan terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
 			failedPlan.ID, revisedPlan.ID, revisedPlan.Status, oneLineClamp(revisedPlan.BlockReason, 180), len(records))
 		r.renderCommandOperationRoundResult(revisedPlan, terminal)
+		r.startOperationSynthesisSpinner()
 		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
 		r.finishOperationFinalAnswerHeader()
 		r.emitOperationVisibleThoughts(thoughts)
@@ -2492,6 +2549,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 				r.appendCommandOperationResult(revisedPlan, budget)
 				records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: budget})
 			}
+			r.startOperationSynthesisSpinner()
 			msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
 			r.finishOperationFinalAnswerHeader()
 			r.emitOperationVisibleThoughts(thoughts)
@@ -2534,10 +2592,24 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 	if !ok {
 		return false
 	}
+	r.startOperationSynthesisSpinner()
 	snapshot := r.commandOperationCapabilitySnapshot()
 	next, err := continuer.ContinueCommandOperation(ctx, plan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(plan), snapshot, records)
 	if err != nil {
 		logging.Warning("[repl/operation] command continuation planning failed: %v", err)
+		if degraded, ok := commandOperationStructuredToolParamFailureResult(plan, err, r.language); ok {
+			r.appendCommandOperationResult(plan, degraded)
+			records = append(records, commandOperationResultRecord{Plan: plan, Result: degraded})
+			r.renderCommandOperationRoundResult(plan, degraded)
+			r.startOperationSynthesisSpinner()
+			msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+			r.finishOperationFinalAnswerHeader()
+			r.emitOperationVisibleThoughts(thoughts)
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+			r.recordTurn(display, request, msg, memory.KindPipeline)
+			return true
+		}
 		return false
 	}
 	if next.Complete {
@@ -2558,6 +2630,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 		logging.Info("[repl/operation] command continuation terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
 			plan.ID, nextPlan.ID, nextPlan.Status, oneLineClamp(nextPlan.BlockReason, 180), len(records))
 		r.renderCommandOperationRoundResult(nextPlan, terminal)
+		r.startOperationSynthesisSpinner()
 		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
 		r.finishOperationFinalAnswerHeader()
 		r.emitOperationVisibleThoughts(thoughts)
@@ -2824,6 +2897,28 @@ func commandOperationBudgetResult(plan operation.CommandOperationPlan, reason st
 			FailureClass:  "budget_exhausted",
 		}},
 	}
+}
+
+func commandOperationStructuredToolParamFailureResult(plan operation.CommandOperationPlan, err error, lang string) (operation.CommandOperationResult, bool) {
+	var paramErr *replStructuredToolParamError
+	if !errors.As(err, &paramErr) {
+		return operation.CommandOperationResult{}, false
+	}
+	reason := "structured tool parameters were malformed after compact repair; no further operation commands were executed"
+	if isZh(lang) {
+		reason = "结构化工具参数在紧凑修复后仍不合法；系统未执行新的操作命令，已基于现有结果降级作答"
+	}
+	return operation.CommandOperationResult{
+		PlanID:        plan.ID,
+		Status:        operation.StatusFailed,
+		OutputPreview: reason,
+		StepResults: []operation.CommandStepResult{{
+			Status:        operation.StatusFailed,
+			OutputPreview: reason,
+			Error:         reason,
+			FailureClass:  "structured_tool_params",
+		}},
+	}, true
 }
 
 func commandOperationResultFromPlanLint(plan operation.CommandOperationPlan, lint operation.CommandPlanLintResult) operation.CommandOperationResult {

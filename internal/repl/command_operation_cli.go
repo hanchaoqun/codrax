@@ -147,6 +147,11 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				revisedReq, err := replanner.ReplanCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, currentPlan, result)
 				if err != nil {
 					logging.Warning("[cli/operation] command replan failed: %v", err)
+					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
+						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+					}
 				} else {
 					repairRounds++
 					revisedReq = dropRepeatedFailedCommandSteps(revisedReq, currentPlan, result)
@@ -214,6 +219,11 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
 							if err != nil {
 								logging.Warning("[cli/operation] command evaluation continuation planning failed: %v", err)
+								if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
+									records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+									operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
+									return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+								}
 							} else if !next.Complete {
 								nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 								decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
@@ -251,6 +261,11 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
 				if err != nil {
 					logging.Warning("[cli/operation] command continuation planning failed: %v", err)
+					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
+						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+					}
 				} else if !next.Complete {
 					nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 					decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})

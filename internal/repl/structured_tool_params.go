@@ -12,6 +12,36 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+type replStructuredToolParamError struct {
+	ToolName string
+	Scope    string
+	RawLen   int
+	Err      error
+	Hint     string
+}
+
+func (e *replStructuredToolParamError) Error() string {
+	if e == nil {
+		return ""
+	}
+	scope := strings.TrimSpace(e.Scope)
+	if scope == "" {
+		scope = "structured tool params"
+	}
+	hint := strings.TrimSpace(e.Hint)
+	if hint == "" {
+		hint = "re-emit the tool with one valid JSON object"
+	}
+	return fmt.Sprintf("%s: unmarshal tool params: %v; %s", scope, e.Err, hint)
+}
+
+func (e *replStructuredToolParamError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any, scope string) error {
 	normalized := normalizeReplStructuredToolParams(tool, json.RawMessage(raw), scope)
 	if err := json.Unmarshal(normalized, dst); err == nil {
@@ -19,10 +49,22 @@ func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any,
 	}
 	if !bytes.Equal(bytes.TrimSpace(normalized), bytes.TrimSpace(raw)) {
 		err := json.Unmarshal(normalized, dst)
-		return fmt.Errorf("%s: unmarshal normalized tool params: %w; %s", scope, err, replStructuredToolRetryHint(tool))
+		return &replStructuredToolParamError{
+			ToolName: tool.Name,
+			Scope:    scope,
+			RawLen:   len(raw),
+			Err:      fmt.Errorf("normalized params: %w", err),
+			Hint:     replStructuredToolRetryHint(tool),
+		}
 	}
 	err := json.Unmarshal(raw, dst)
-	return fmt.Errorf("%s: unmarshal tool params: %w; %s", scope, err, replStructuredToolRetryHint(tool))
+	return &replStructuredToolParamError{
+		ToolName: tool.Name,
+		Scope:    scope,
+		RawLen:   len(raw),
+		Err:      err,
+		Hint:     replStructuredToolRetryHint(tool),
+	}
 }
 
 func normalizeReplStructuredToolParams(tool llm.ToolSchema, raw json.RawMessage, scope string) json.RawMessage {
