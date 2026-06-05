@@ -978,6 +978,28 @@ func TestStatus_ToolDetailLocalized(t *testing.T) {
 	}
 }
 
+func TestStagePhraseLocalizesOperationAndDataLanes(t *testing.T) {
+	cases := []struct {
+		key   string
+		state stagePhraseState
+		zh    string
+		en    string
+	}{
+		{"operation", stagePhraseRunning, "正在处理操作任务", "Working on operation task"},
+		{"operation", stagePhraseDone, "已完成操作任务", "Operation task complete"},
+		{"data", stagePhraseRunning, "正在处理数据任务", "Working on data task"},
+		{"data", stagePhraseFailed, "数据任务未完成", "Data task incomplete"},
+	}
+	for _, tc := range cases {
+		if got := stagePhrase(tc.key, "zh", tc.state); got != tc.zh {
+			t.Fatalf("zh stagePhrase(%q,%v)=%q want %q", tc.key, tc.state, got, tc.zh)
+		}
+		if got := stagePhrase(tc.key, "en", tc.state); got != tc.en {
+			t.Fatalf("en stagePhrase(%q,%v)=%q want %q", tc.key, tc.state, got, tc.en)
+		}
+	}
+}
+
 // TestStatus_FooterLanguage pins the bilingual footer + cancel hint.
 func TestStatus_FooterLanguage(t *testing.T) {
 	zh := composeFooter("⠇", "1m18s", "", "zh")

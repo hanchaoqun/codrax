@@ -41,7 +41,7 @@ func TestTurnPolicyAuditSummaryShowsTypedRouteDecision(t *testing.T) {
 		t.Fatalf("label=%q", label)
 	}
 	joined := strings.Join(segs, " | ")
-	for _, want := range []string{"operation", "置信 82%", "未读源码", "意图 computer_operation"} {
+	for _, want := range []string{"操作", "置信 82%", "未读源码", "意图 computer_operation"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("summary %q missing %q", joined, want)
 		}
@@ -61,7 +61,7 @@ func TestDataTaskPlanAuditSummaryShowsOutputContract(t *testing.T) {
 		t.Fatalf("label=%q", label)
 	}
 	joined := strings.Join(segs, " | ")
-	for _, want := range []string{"ready", "输入 2", "输出 csv_line", "纯输出"} {
+	for _, want := range []string{"就绪", "输入 2", "输出 CSV 行", "纯输出"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("summary %q missing %q", joined, want)
 		}

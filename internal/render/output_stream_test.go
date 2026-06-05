@@ -132,6 +132,25 @@ func TestFormatReasoningFallsBackWithoutExposingUnknownAgent(t *testing.T) {
 	}
 }
 
+func TestFormatReasoningLocalizesOperationAndDataStages(t *testing.T) {
+	cases := []struct {
+		stage types.PipelineStage
+		agent string
+		body  string
+		want  string
+	}{
+		{types.PipelineStage("operation"), "operation_planner", "生成下一批操作计划。", "  ⋯ 操作 · 第 1 轮 生成下一批操作计划。"},
+		{types.PipelineStage("data"), "data_planner", "生成数据处理计划。", "  ⋯ 数据 · 第 1 轮 生成数据处理计划。"},
+	}
+	for _, tc := range cases {
+		got := formatReasoning(tc.agent, tc.stage, 0, tc.body, false, "zh")
+		plain := stripAnsiEscapes(got)
+		if plain != tc.want {
+			t.Fatalf("stage %q reasoning label changed\nwant %q\ngot  %q", tc.stage, tc.want, plain)
+		}
+	}
+}
+
 func TestFormatReasoningKeepsPlainMultilineAsCompactTrace(t *testing.T) {
 	got := formatReasoning("analyzer", types.StageAnalyze, 0, "first line\nsecond line", false, "zh")
 	plain := stripAnsiEscapes(got)

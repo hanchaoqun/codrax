@@ -1903,6 +1903,16 @@ func activityStageLabel(stage types.PipelineStage, zh bool) string {
 			return "成文"
 		}
 		return "Compose"
+	case types.PipelineStage("operation"):
+		if zh {
+			return "操作"
+		}
+		return "Operation"
+	case types.PipelineStage("data"):
+		if zh {
+			return "数据"
+		}
+		return "Data"
 	case types.StageWriteAnalyze:
 		if zh {
 			return "写前分析"
@@ -1959,6 +1969,21 @@ func activityAgentLabel(agent string, zh bool) string {
 			return "性能诊断"
 		}
 		return "Perf Triage"
+	case types.AgentName("turn_policy"):
+		if zh {
+			return "路由"
+		}
+		return "Route"
+	case types.AgentName("data_planner"):
+		if zh {
+			return "数据"
+		}
+		return "Data"
+	case types.AgentName("operation_planner"):
+		if zh {
+			return "操作"
+		}
+		return "Operation"
 	case types.AgentWriteAnalyzer:
 		if zh {
 			return "写前分析"

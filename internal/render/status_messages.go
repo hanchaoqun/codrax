@@ -220,6 +220,12 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"reconcile": {"正在归纳探索线索", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "模型响应出错,正在重新归纳证据"},
 		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现", "模型响应出错,正在重新提炼关键发现"},
 		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "未能生成最终答案", "模型响应出错,正在重新撰写答案"},
+		// Independent REPL lanes. These are not read-mode pipeline
+		// stages, but they emit the same thinking/tool-call events for
+		// transparency, so they need first-class dock wording instead of
+		// falling back to the generic "正在处理任务".
+		"operation": {"正在处理操作任务", "已完成操作任务", "待处理操作任务", "操作任务未完成", "模型响应出错,正在重新规划操作任务"},
+		"data":      {"正在处理数据任务", "已完成数据任务", "待处理数据任务", "数据任务未完成", "模型响应出错,正在重新规划数据任务"},
 		// Write-mode flow.
 		// plan failure: "未生成改动方案" — the model didn't produce a
 		//   usable plan this round; reads as "no plan" not "plan
@@ -260,6 +266,8 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"reconcile":        {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
 		"extract":          {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
 		"finalize":         {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
+		"operation":        {"Working on operation task", "Operation task complete", "Awaiting operation task", "Operation task incomplete", "Model response error, re-planning operation task"},
+		"data":             {"Working on data task", "Data task complete", "Awaiting data task", "Data task incomplete", "Model response error, re-planning data task"},
 		"write_analyze":    {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
 		"plan":             {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
 		"apply":            {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},

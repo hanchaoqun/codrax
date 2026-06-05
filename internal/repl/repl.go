@@ -1715,10 +1715,7 @@ func (r *REPL) emitTurnPolicyAudit(policy TurnPolicy) {
 }
 
 func turnPolicyAuditSummary(policy TurnPolicy, lang string) (string, []string) {
-	route := strings.TrimSpace(string(policy.Route))
-	if route == "" {
-		route = "unknown"
-	}
+	route := turnPolicyRouteDisplay(policy.Route, lang)
 	conf := fmt.Sprintf("%.0f%%", policy.Confidence*100)
 	if isZh(lang) {
 		segs := []string{route, "置信 " + conf}
@@ -1744,6 +1741,32 @@ func turnPolicyAuditSummary(policy TurnPolicy, lang string) (string, []string) {
 	return "route decision", segs
 }
 
+func turnPolicyRouteDisplay(route TurnRoute, lang string) string {
+	raw := strings.TrimSpace(string(route))
+	if raw == "" {
+		raw = "unknown"
+	}
+	if !isZh(lang) {
+		return raw
+	}
+	switch route {
+	case RouteOperation:
+		return "操作"
+	case RouteData:
+		return "数据"
+	case RouteRepo:
+		return "源码"
+	case RouteHybrid:
+		return "混合"
+	case RouteLocal:
+		return "本地回复"
+	case RouteClarify:
+		return "澄清"
+	default:
+		return raw
+	}
+}
+
 func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 	if r.renderer == nil {
 		return
@@ -1753,11 +1776,8 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 }
 
 func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []string) {
-	status := strings.TrimSpace(plan.Status)
-	if status == "" {
-		status = "ready"
-	}
-	format := string(plan.OutputContract.Normalize().Format)
+	status := dataTaskStatusDisplay(plan.Status, lang)
+	format := dataTaskOutputFormatDisplay(plan.OutputContract.Normalize().Format, lang)
 	if format == "" {
 		format = "freeform"
 	}
@@ -1773,6 +1793,58 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 		segs = append(segs, "output-only")
 	}
 	return "data plan", segs
+}
+
+func dataTaskStatusDisplay(status, lang string) string {
+	raw := strings.TrimSpace(status)
+	if raw == "" {
+		raw = "ready"
+	}
+	if !isZh(lang) {
+		return raw
+	}
+	switch strings.ToLower(raw) {
+	case "ready":
+		return "就绪"
+	case "needs_clarification":
+		return "需补充信息"
+	case "blocked":
+		return "已阻止"
+	case "complete", "completed":
+		return "已完成"
+	case "failed":
+		return "已失败"
+	default:
+		return raw
+	}
+}
+
+func dataTaskOutputFormatDisplay(format dataquery.OutputFormat, lang string) string {
+	raw := strings.TrimSpace(string(format))
+	if raw == "" {
+		raw = string(dataquery.OutputFreeform)
+	}
+	if !isZh(lang) {
+		return raw
+	}
+	switch format {
+	case dataquery.OutputPlainSingleLine:
+		return "单行文本"
+	case dataquery.OutputCSVLine:
+		return "CSV 行"
+	case dataquery.OutputJSONOnly:
+		return "JSON"
+	case dataquery.OutputMarkdownTable:
+		return "Markdown 表格"
+	case dataquery.OutputMarkdown:
+		return "Markdown"
+	case dataquery.OutputFilePath:
+		return "文件路径"
+	case dataquery.OutputFreeform:
+		return "自由文本"
+	default:
+		return raw
+	}
 }
 
 func (r *REPL) finishCommandOperationPlanHeader(plan operation.CommandOperationPlan) {

@@ -509,6 +509,10 @@ func canonicalStageKey(s string) string {
 		return "reconcile"
 	case "finalize", "finaliser", "finalizer", "render":
 		return "finalize"
+	case "operation", "operation_planner", "command_operation", "provider_operation":
+		return "operation"
+	case "data", "data_planner", "data_task":
+		return "data"
 	// Write-mode stages: distinct user surface from validate.
 	case "planner", "plan":
 		return "plan"
