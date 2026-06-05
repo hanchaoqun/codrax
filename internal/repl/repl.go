@@ -2321,7 +2321,7 @@ func (r *REPL) dataTaskMutedPreview(value string) string {
 	if !r.replColorEnabled() {
 		return preview
 	}
-	return pterm.NewStyle(pterm.FgDarkGray).Sprint(preview)
+	return pterm.FgGray.Sprint(preview)
 }
 
 func (r *REPL) emitDataTaskRunnerCall(plan dataquery.TaskPlan, round int) {
@@ -5515,7 +5515,7 @@ func (r *REPL) renderBorderedCompact(response string) {
 }
 
 func (r *REPL) renderBorderedMutedCompact(response string) {
-	r.renderBorderedStyled(response, false, replDarkGray, replDarkGray)
+	r.renderBorderedStyled(response, false, replGray, replGray)
 }
 
 func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bool) {
@@ -5526,6 +5526,10 @@ type replLineStyle func(string) string
 
 func replWhite(s string) string {
 	return replPtermOrANSI(pterm.FgWhite.Sprint(s), s, "\x1b[97m")
+}
+
+func replGray(s string) string {
+	return replPtermOrANSI(pterm.FgGray.Sprint(s), s, "\x1b[37m")
 }
 
 func replDarkGray(s string) string {
