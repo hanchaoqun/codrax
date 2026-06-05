@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pterm/pterm"
+
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -215,6 +217,10 @@ func TestDataTaskAuditPanelUsesMutedColorWhenEnabled(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "\x1b[") {
 		t.Fatalf("ColorAlways should color muted data audit panel: %q", got)
+	}
+	wantQuiet := pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy).Sprint("print('hello')")
+	if !strings.Contains(got, wantQuiet) {
+		t.Fatalf("muted data audit panel should use quiet-white preview style; want %q in %q", wantQuiet, got)
 	}
 	plain := stripANSIOnly(got)
 	for _, want := range []string{"│ 脚本预览", "│ print('hello')", "│ 完整脚本"} {
