@@ -331,6 +331,53 @@ materials, and warnings. REPL keeps its richer `[repl/data]` audit lane. Both
 are control-plane observability only; neither is used as a hard user-intent
 gate.
 
+## Data Result Patch Engine
+
+The next stability gap is result-shape repair. The product should not ask the
+model to rewrite an entire script when the script already computed the right
+data but emitted a structurally drifted result. At the same time, Codrax must
+not "fix" business meaning.
+
+The patch engine is therefore deliberately narrow:
+
+- It may patch only result structure that is unambiguous and domain-neutral:
+  canonical operation aliases, duplicate metric suffixes in group keys,
+  resolved status for entity-resolution records that already carry canonical
+  values, and other typed shape drift that can be repaired without changing
+  answer semantics.
+- It must not patch the final answer, invent records, decide whether a record
+  should be included, choose a canonical business entity, or reinterpret a
+  user rule. Those failures remain `needs_recompute` and go back through the
+  bounded workflow.
+- Every applied patch is recorded in `result.result_patches` with target,
+  operation, JSON path, value, and reason. The raw script result remains
+  available through data audit artifacts; the patched result is the one that
+  validators consume.
+- Runner helper ledgers are merged before validation even when the script uses
+  the lower-level `emit({...})` API. Scripts should still prefer helpers, but
+  completion no longer depends on the model remembering which emit API bundles
+  accumulated ledgers.
+- Validators should produce typed violations with `code`, `json_path`,
+  `expected_shape`, `actual_snippet`, and
+  `repairability=safe_patch|needs_recompute|needs_clarification`. The legacy
+  error string remains for user-facing diagnostics and existing repair prompts.
+
+Repair layering:
+
+1. L0: JSON unmarshal and helper-level normalization accepts safe structural
+   aliases.
+2. L1: deterministic result patch engine applies safe structural patches and
+   records them.
+3. L2: future model-authored typed patch IR may propose only structural
+   patches against validator violations; Codrax applies and revalidates.
+4. L3: if a violation needs business recomputation, the workflow emits a new
+   bounded data plan instead of patching the result.
+
+This is intentionally generic. It applies to tabular aggregation, JSONL
+transforms, text-span extraction, entity normalization, OCR-derived evidence,
+strict scalar output, and Markdown/JSON/CSV output contracts. It does not know
+or encode any customer domain.
+
 ### P0 Remediation Direction
 
 1. **Material usage modes.** Extend `CoverageMaterial` with generic
@@ -493,9 +540,19 @@ gate.
       completion is auditable without relying on answer prose.
 - [x] Let eval cases lower the minimum-output-length sanity floor for strict
       scalar or strict-format answers, instead of padding product output.
-- [ ] Continue reducing whole-script rewrites by adding local result-patch
-      repair for safely repairable emitted result shapes that still cannot be
-      normalized losslessly.
+- [x] Add deterministic data result patch audit records for safe structural
+      shape fixes.
+- [x] Start emitting typed validator violations with JSON paths and
+      repairability for representative ledger/reconcile failures.
+- [x] Continue reducing whole-script rewrites by adding deterministic local
+      result-patch repair for safely repairable emitted result shapes that can
+      be normalized without changing business semantics.
+- [x] Merge runner helper ledgers into direct `emit({...})` results before
+      validation so helper-backed scripts keep audit records without hand-built
+      result JSON.
+- [ ] Add model-authored typed patch IR for structural result repair only,
+      with patch budget, full audit, revalidation, and hard prohibition on
+      business-semantic patches.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.

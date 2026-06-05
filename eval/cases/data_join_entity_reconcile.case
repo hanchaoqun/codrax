@@ -1,8 +1,8 @@
 ID="data_join_entity_reconcile"
 NAME="data lane — generic join/entity resolution with reconcile"
-QUESTION="读取当前目录的数据材料，按照 instructions.md 的说明用 canonical.csv 归一 items.csv 的 raw_name，计算 Alpha 的总金额，最终只输出一个数字。"
+QUESTION="读取当前目录的数据材料，按照 instructions.md 的说明用 canonical.csv 归一 items.csv 的 raw_name，计算 Alpha 的总金额；计算过程需要可审计的贡献记录和对账校验，但最终只输出一个数字。"
 DATA_FIXTURE="data-join-ledger"
 MIN_OUTPUT_CHARS=1
 EXPECT_MATCHES_REGEX="(^|[^0-9])30([^0-9]|$)"
 EXPECT_LOG_MATCHES_REGEX="route=data
-\\[cli/data\\] data task result"
+\\[cli/data\\] data task result.*contributions=[1-9].*reconcile=pass"

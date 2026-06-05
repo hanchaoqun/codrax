@@ -2,6 +2,7 @@ package dataquery
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -914,6 +915,21 @@ emit({
 	if got := res.Reconcile.Groups[0].Actual.String(); got != "10" {
 		t.Fatalf("reconcile actual alias not normalized: %q", got)
 	}
+	if len(res.ResultPatches) < 3 {
+		t.Fatalf("ResultPatches=%+v, want structural patch audit records", res.ResultPatches)
+	}
+	patchPaths := map[string]bool{}
+	for _, patch := range res.ResultPatches {
+		patchPaths[patch.Path] = true
+		if patch.Target != "result" || patch.Op != "replace" {
+			t.Fatalf("unexpected patch=%+v", patch)
+		}
+	}
+	for _, want := range []string{"/entity_resolutions/0/status", "/contributions/0/group_key", "/contributions/0/operation", "/reconcile/groups/0/group_key"} {
+		if !patchPaths[want] {
+			t.Fatalf("patch paths=%v, missing %s", patchPaths, want)
+		}
+	}
 }
 
 func TestRunnerLedgerHelpersProduceCanonicalResult(t *testing.T) {
@@ -953,6 +969,46 @@ emit_result(str(int(total)), output_contract={"format": "plain_single_line", "ex
 	}
 	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 || len(res.RuleCoverage) != 1 || len(res.EntityResolutions) != 1 {
 		t.Fatalf("unexpected helper-backed result: %+v", res)
+	}
+}
+
+func TestRunnerEmitMergesHelperLedgers(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+add_rule_coverage(rule_id="r1", rule_text="include all rows", status="applied", notes="all rows read")
+add_resolution(source_value="A", canonical_id="A", canonical_label="A", status="resolved")
+total = Decimal("0")
+for i, row in enumerate(rows):
+    total += Decimal(row["amount"])
+    add_decision(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", decision="included", reason="included by r1", rule_refs=["r1"])
+    add_contribution(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", group_key=row["vendor"], metric="amount", value=row["amount"], operation="add", reason="included by r1", rule_refs=["r1"])
+emit({"answer": str(int(total)), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}, "audit_summary": "direct emit keeps helper ledgers", "reconcile": {"status": "pass", "groups": [{"group_key": "A", "metric": "amount", "actual": "17"}]}})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 || len(res.RuleCoverage) != 1 || len(res.EntityResolutions) != 1 {
+		t.Fatalf("direct emit did not merge helper ledgers: %+v", res)
 	}
 }
 
@@ -1298,6 +1354,19 @@ emit({
 	_, err = (Runner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "has no reason, candidates, or evidence_refs") {
 		t.Fatalf("Run err=%v, want unresolved reason failure", err)
+	}
+	var validationErr DataValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Run err=%T %v, want DataValidationError", err, err)
+	}
+	if len(validationErr.Violations) != 1 || validationErr.Violations[0].Code != "unsupported_open_entity_resolution" {
+		t.Fatalf("violations=%+v, want unsupported_open_entity_resolution", validationErr.Violations)
+	}
+	if validationErr.Violations[0].JSONPath != "/entity_resolutions/0" {
+		t.Fatalf("json_path=%q", validationErr.Violations[0].JSONPath)
+	}
+	if validationErr.Violations[0].Repairability != RepairabilityNeedsRecompute {
+		t.Fatalf("repairability=%q", validationErr.Violations[0].Repairability)
 	}
 }
 

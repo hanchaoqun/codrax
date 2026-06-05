@@ -182,10 +182,51 @@ type MaterialExtraction struct {
 	Notes      string `json:"notes,omitempty"`
 }
 
+type DataRepairability string
+
+const (
+	RepairabilitySafePatch          DataRepairability = "safe_patch"
+	RepairabilityNeedsRecompute     DataRepairability = "needs_recompute"
+	RepairabilityNeedsClarification DataRepairability = "needs_clarification"
+)
+
 type DataTaskViolation struct {
-	Code       string `json:"code"`
-	Summary    string `json:"summary,omitempty"`
-	RepairHint string `json:"repair_hint,omitempty"`
+	Code          string            `json:"code"`
+	Summary       string            `json:"summary,omitempty"`
+	JSONPath      string            `json:"json_path,omitempty"`
+	ExpectedShape string            `json:"expected_shape,omitempty"`
+	ActualSnippet string            `json:"actual_snippet,omitempty"`
+	Repairability DataRepairability `json:"repairability,omitempty"`
+	RepairHint    string            `json:"repair_hint,omitempty"`
+}
+
+type DataValidationError struct {
+	Violations []DataTaskViolation `json:"violations"`
+}
+
+func (e DataValidationError) Error() string {
+	if len(e.Violations) == 0 {
+		return "data validation failed"
+	}
+	v := e.Violations[0]
+	if strings.TrimSpace(v.Summary) != "" {
+		return v.Summary
+	}
+	if strings.TrimSpace(v.Code) != "" {
+		return "data validation failed: " + v.Code
+	}
+	return "data validation failed"
+}
+
+func dataValidationError(code, jsonPath, expectedShape, actualSnippet string, repairability DataRepairability, format string, args ...any) error {
+	return DataValidationError{Violations: []DataTaskViolation{{
+		Code:          code,
+		Summary:       fmt.Sprintf(format, args...),
+		JSONPath:      jsonPath,
+		ExpectedShape: expectedShape,
+		ActualSnippet: clampOneLine(actualSnippet, 300),
+		Repairability: repairability,
+	}}}
 }
 
 func ClassifyExecutionError(errText string) DataTaskViolation {
@@ -265,6 +306,14 @@ func clampViolationText(value string, limit int) string {
 	return value[:limit] + "...[truncated]"
 }
 
+func snippetJSON(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return clampViolationText(fmt.Sprintf("%v", value), 300)
+	}
+	return clampViolationText(string(raw), 300)
+}
+
 func FindNonTextRequiredMaterials(contract CoverageContract, candidates []CandidateFile) []NonTextRequiredMaterial {
 	byPath := map[string]CandidateFile{}
 	for _, c := range candidates {
@@ -318,6 +367,15 @@ type Result struct {
 	Metrics           []Metric                 `json:"metrics,omitempty"`
 	ConsumedPaths     []string                 `json:"consumed_paths,omitempty"`
 	ContractWarnings  []string                 `json:"contract_warnings,omitempty"`
+	ResultPatches     []DataResultPatch        `json:"result_patches,omitempty"`
+}
+
+type DataResultPatch struct {
+	Target string          `json:"target"`
+	Op     string          `json:"op"`
+	Path   string          `json:"path"`
+	Value  json.RawMessage `json:"value,omitempty"`
+	Reason string          `json:"reason,omitempty"`
 }
 
 type LooseText string
@@ -475,9 +533,6 @@ func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
 		}
 		if r.CanonicalLabel.String() == "" {
 			r.CanonicalLabel = LooseText(rawAliasString(rawMap, "label", "normalized_label", "target_label"))
-		}
-		if r.Status.String() == "" && (r.CanonicalID.String() != "" || r.CanonicalLabel.String() != "") {
-			r.Status = "resolved"
 		}
 		if r.Reason.String() == "" {
 			r.Reason = LooseText(rawAliasString(rawMap, "notes", "summary", "details"))
@@ -1202,16 +1257,30 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	normalizeResultLedgers(&res)
+	res.ResultPatches = append(res.ResultPatches, applyDataResultPatchEngine(&res)...)
 	res.ConsumedPaths = normalizeMaterialPaths(res.ConsumedPaths)
 	if err := validateCoverageConsumed(plan.CoverageContract, res.ConsumedPaths); err != nil {
 		return Result{}, err
 	}
 	if plan.CoverageContract.DecisionRecordsRequired && len(res.Rows) == 0 {
-		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty")
+		return Result{}, dataValidationError(
+			"missing_required_ledger",
+			"/rows",
+			"non-empty array of decision records",
+			"empty",
+			RepairabilityNeedsRecompute,
+			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty",
+		)
 	}
 	if plan.CoverageContract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
-		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records")
+		return Result{}, dataValidationError(
+			"empty_semantic_ledger",
+			"/rows",
+			"decision records with source locator and include/exclude/transform decision",
+			snippetJSON(res.Rows),
+			RepairabilityNeedsRecompute,
+			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records",
+		)
 	}
 	if err := validateRequiredLedgers(plan.CoverageContract, res); err != nil {
 		return Result{}, err
@@ -1229,10 +1298,24 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 
 func validateRequiredLedgers(contract CoverageContract, res Result) error {
 	if contract.RuleCoverageRequired && len(res.RuleCoverage) == 0 {
-		return errors.New("data validation incomplete: coverage_contract.rule_coverage_required=true but result.rule_coverage is empty")
+		return dataValidationError(
+			"missing_required_ledger",
+			"/rule_coverage",
+			"non-empty array of rule coverage records",
+			"empty",
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: coverage_contract.rule_coverage_required=true but result.rule_coverage is empty",
+		)
 	}
 	if contract.RuleCoverageRequired && !hasMeaningfulRuleCoverage(res.RuleCoverage) {
-		return errors.New("data validation incomplete: result.rule_coverage contains no meaningful rule records")
+		return dataValidationError(
+			"empty_semantic_ledger",
+			"/rule_coverage",
+			"rule coverage records with rule_id/rule_text/status and support",
+			snippetJSON(res.RuleCoverage),
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: result.rule_coverage contains no meaningful rule records",
+		)
 	}
 	if contract.RuleCoverageRequired {
 		if err := validateRuleCoverageRecords(res.RuleCoverage, res.Rows, res.Contributions, res.EntityResolutions); err != nil {
@@ -1240,10 +1323,24 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 		}
 	}
 	if contract.ContributionLedgerRequired && len(res.Contributions) == 0 {
-		return errors.New("data validation incomplete: coverage_contract.contribution_ledger_required=true but result.contributions is empty")
+		return dataValidationError(
+			"missing_required_ledger",
+			"/contributions",
+			"non-empty array of contribution records",
+			"empty",
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: coverage_contract.contribution_ledger_required=true but result.contributions is empty",
+		)
 	}
 	if contract.ContributionLedgerRequired && !hasMeaningfulContribution(res.Contributions) {
-		return errors.New("data validation incomplete: result.contributions contains no canonical contribution records; include item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason as needed for the task")
+		return dataValidationError(
+			"empty_semantic_ledger",
+			"/contributions",
+			"contribution records with group_key, metric, value, operation, and source",
+			snippetJSON(res.Contributions),
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: result.contributions contains no canonical contribution records; include item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason as needed for the task",
+		)
 	}
 	if contract.ContributionLedgerRequired {
 		if err := validateContributionRecords(res.Contributions); err != nil {
@@ -1251,10 +1348,24 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 		}
 	}
 	if contract.EntityResolutionRequired && len(res.EntityResolutions) == 0 {
-		return errors.New("data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty")
+		return dataValidationError(
+			"missing_required_ledger",
+			"/entity_resolutions",
+			"non-empty array of entity resolution records",
+			"empty",
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty",
+		)
 	}
 	if contract.EntityResolutionRequired && !hasMeaningfulEntityResolution(res.EntityResolutions) {
-		return errors.New("data validation incomplete: result.entity_resolutions contains no meaningful resolution records")
+		return dataValidationError(
+			"empty_semantic_ledger",
+			"/entity_resolutions",
+			"entity resolution records with source value plus canonical value or unresolved reason",
+			snippetJSON(res.EntityResolutions),
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: result.entity_resolutions contains no meaningful resolution records",
+		)
 	}
 	if contract.EntityResolutionRequired {
 		if err := validateEntityResolutionRecords(res.EntityResolutions); err != nil {
@@ -1263,7 +1374,14 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 	}
 	if contract.ReconcileRequired {
 		if res.Reconcile == nil {
-			return errors.New("data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty")
+			return dataValidationError(
+				"missing_required_ledger",
+				"/reconcile",
+				"reconcile object with status and/or groups",
+				"empty",
+				RepairabilityNeedsRecompute,
+				"data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty",
+			)
 		}
 		if err := validateReconcileReport(*res.Reconcile, res.Contributions, res.Answer); err != nil {
 			return err
@@ -1292,10 +1410,12 @@ func validateRuleCoverageRecords(records []RuleCoverageRecord, rows []RowDecisio
 		ruleText := strings.TrimSpace(rec.RuleText.String())
 		status := strings.TrimSpace(rec.Status.String())
 		if ruleID == "" && ruleText == "" {
-			return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] is missing rule_id or rule_text", i)
+			return dataValidationError("missing_rule_coverage_identity", fmt.Sprintf("/rule_coverage/%d", i), "rule_id or rule_text", "", RepairabilityNeedsRecompute,
+				"data validation incomplete: result.rule_coverage[%d] is missing rule_id or rule_text", i)
 		}
 		if status == "" {
-			return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] is missing status", i)
+			return dataValidationError("missing_rule_coverage_status", fmt.Sprintf("/rule_coverage/%d/status", i), "status", "", RepairabilityNeedsRecompute,
+				"data validation incomplete: result.rule_coverage[%d] is missing status", i)
 		}
 		if ruleID != "" {
 			knownRules[ruleID] = true
@@ -1318,7 +1438,8 @@ func validateRuleCoverageRecords(records []RuleCoverageRecord, rows []RowDecisio
 			(ruleID != "" && linked[ruleID]) {
 			continue
 		}
-		return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] has no evidence_refs, notes, or linked rule_refs", i)
+		return dataValidationError("unsupported_rule_coverage", fmt.Sprintf("/rule_coverage/%d", i), "notes, evidence_refs, or linked rule_refs", "", RepairabilityNeedsRecompute,
+			"data validation incomplete: result.rule_coverage[%d] has no evidence_refs, notes, or linked rule_refs", i)
 	}
 	return nil
 }
@@ -1355,7 +1476,8 @@ func collectRuleRefs(linked, known map[string]bool, label string, groups [][]str
 				continue
 			}
 			if len(known) > 0 && !known[ref] {
-				return fmt.Errorf("data validation incomplete: result.%s[%d] references unknown rule_id %q", label, i, ref)
+				return dataValidationError("unknown_rule_ref", fmt.Sprintf("/%s/%d/rule_refs", label, i), "rule_ref matching rule_coverage.rule_id", ref, RepairabilityNeedsRecompute,
+					"data validation incomplete: result.%s[%d] references unknown rule_id %q", label, i, ref)
 			}
 			linked[ref] = true
 		}
@@ -1375,12 +1497,14 @@ func hasMeaningfulContribution(records []ContributionRecord) bool {
 func validateContributionRecords(records []ContributionRecord) error {
 	for i, rec := range records {
 		if _, ok := normalizeContributionOperation(rec.Operation.String()); !ok {
-			return fmt.Errorf("data validation incomplete: result.contributions[%d] has unsupported operation %q; use add/sum/include/count/subtract/set/rank", i, strings.TrimSpace(rec.Operation.String()))
+			return dataValidationError("unsupported_contribution_operation", fmt.Sprintf("/contributions/%d/operation", i), "add/sum/include/count/subtract/set/rank", strings.TrimSpace(rec.Operation.String()), RepairabilityNeedsRecompute,
+				"data validation incomplete: result.contributions[%d] has unsupported operation %q; use add/sum/include/count/subtract/set/rank", i, strings.TrimSpace(rec.Operation.String()))
 		}
 		if contributionHasAnchor(rec) && contributionHasEffect(rec) {
 			continue
 		}
-		return fmt.Errorf("data validation incomplete: result.contributions[%d] is missing canonical item/effect fields; use item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason instead of task-specific aliases", i)
+		return dataValidationError("missing_contribution_canonical_fields", fmt.Sprintf("/contributions/%d", i), "anchor plus effect fields", "", RepairabilityNeedsRecompute,
+			"data validation incomplete: result.contributions[%d] is missing canonical item/effect fields; use item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason instead of task-specific aliases", i)
 	}
 	return nil
 }
@@ -1423,20 +1547,24 @@ func validateEntityResolutionRecords(records []EntityResolutionRecord) error {
 			source = strings.TrimSpace(rec.ItemID.String())
 		}
 		if source == "" {
-			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is missing source_value or item_id", i)
+			return dataValidationError("missing_entity_resolution_source", fmt.Sprintf("/entity_resolutions/%d", i), "source_value or item_id", "", RepairabilityNeedsRecompute,
+				"data validation incomplete: result.entity_resolutions[%d] is missing source_value or item_id", i)
 		}
 		status := strings.TrimSpace(rec.Status.String())
 		if status == "" {
-			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is missing status", i)
+			return dataValidationError("missing_entity_resolution_status", fmt.Sprintf("/entity_resolutions/%d/status", i), "status", "", RepairabilityNeedsRecompute,
+				"data validation incomplete: result.entity_resolutions[%d] is missing status", i)
 		}
 		if resolutionStatusIsOpen(status) {
 			if strings.TrimSpace(rec.Reason.String()) == "" && len(rec.Candidates) == 0 && len(rec.EvidenceRefs) == 0 {
-				return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is %q but has no reason, candidates, or evidence_refs", i, status)
+				return dataValidationError("unsupported_open_entity_resolution", fmt.Sprintf("/entity_resolutions/%d", i), "reason, candidates, or evidence_refs", status, RepairabilityNeedsRecompute,
+					"data validation incomplete: result.entity_resolutions[%d] is %q but has no reason, candidates, or evidence_refs", i, status)
 			}
 			continue
 		}
 		if strings.TrimSpace(rec.CanonicalID.String()) == "" && strings.TrimSpace(rec.CanonicalLabel.String()) == "" {
-			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] resolved status %q is missing canonical_id or canonical_label", i, status)
+			return dataValidationError("missing_entity_resolution_canonical", fmt.Sprintf("/entity_resolutions/%d", i), "canonical_id or canonical_label", status, RepairabilityNeedsRecompute,
+				"data validation incomplete: result.entity_resolutions[%d] resolved status %q is missing canonical_id or canonical_label", i, status)
 		}
 	}
 	return nil
@@ -1483,10 +1611,11 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	}
 	sums := sumContributionGroups(contributions)
 	seenGroups := map[string]bool{}
-	for _, group := range report.Groups {
+	for i, group := range report.Groups {
 		key := reconcileGroupKey(group.GroupKey.String(), group.Metric.String())
 		if strings.TrimSpace(group.Expected.String()) == "" && strings.TrimSpace(group.Actual.String()) == "" {
-			return fmt.Errorf("data reconcile incomplete: group %q is missing expected or actual value", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
+			return dataValidationError("missing_reconcile_group_value", fmt.Sprintf("/reconcile/groups/%d", i), "expected or actual", "", RepairabilityNeedsRecompute,
+				"data reconcile incomplete: group %q is missing expected or actual value", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
 		}
 		seenGroups[key] = true
 		got, ok := sums[key]
@@ -1494,7 +1623,8 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 			if reconcileGroupDeclaresZero(group) {
 				continue
 			}
-			return fmt.Errorf("data reconcile failed: group %q has no matching contribution records; available contribution groups: %s",
+			return dataValidationError("reconcile_group_mismatch", fmt.Sprintf("/reconcile/groups/%d", i), "group_key/metric matching contribution records", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), RepairabilityNeedsRecompute,
+				"data reconcile failed: group %q has no matching contribution records; available contribution groups: %s",
 				displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()),
 				displayContributionGroupKeys(sums))
 		}
@@ -1514,7 +1644,8 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 				continue
 			}
 			if got.Cmp(want) != 0 {
-				return fmt.Errorf("data reconcile failed: group %q %s=%s but contributions sum to %s",
+				return dataValidationError("reconcile_sum_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", i, candidate.label), "value equal to contribution sum", value, RepairabilityNeedsRecompute,
+					"data reconcile failed: group %q %s=%s but contributions sum to %s",
 					displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, formatRat(got))
 			}
 		}
@@ -1522,7 +1653,8 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	for key := range sums {
 		if !seenGroups[key] {
 			groupKey, metric := splitReconcileGroupKey(key)
-			return fmt.Errorf("data reconcile incomplete: contributions include group %q but result.reconcile.groups does not report it", displayReconcileGroupKey(groupKey, metric))
+			return dataValidationError("missing_reconcile_group", "/reconcile/groups", "group for every contribution group", displayReconcileGroupKey(groupKey, metric), RepairabilityNeedsRecompute,
+				"data reconcile incomplete: contributions include group %q but result.reconcile.groups does not report it", displayReconcileGroupKey(groupKey, metric))
 		}
 	}
 	return nil
@@ -1641,25 +1773,64 @@ func splitReconcileGroupKey(key string) (string, string) {
 	return parts[0], parts[1]
 }
 
-func normalizeResultLedgers(res *Result) {
+func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 	if res == nil {
-		return
+		return nil
 	}
+	var patches []DataResultPatch
 	for i := range res.Contributions {
 		metric := strings.TrimSpace(res.Contributions[i].Metric.String())
-		res.Contributions[i].GroupKey = LooseText(normalizeLedgerGroupKey(res.Contributions[i].GroupKey.String(), metric))
+		oldGroupKey := res.Contributions[i].GroupKey.String()
+		newGroupKey := normalizeLedgerGroupKey(oldGroupKey, metric)
+		if oldGroupKey != newGroupKey {
+			res.Contributions[i].GroupKey = LooseText(newGroupKey)
+			patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/contributions/%d/group_key", i), newGroupKey, "removed duplicated metric suffix from contribution group_key"))
+		}
 		if strings.TrimSpace(res.Contributions[i].Operation.String()) != "" {
+			oldOp := res.Contributions[i].Operation.String()
 			op, ok := normalizeContributionOperation(res.Contributions[i].Operation.String())
-			if ok {
+			if ok && oldOp != op {
 				res.Contributions[i].Operation = LooseText(op)
+				patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/contributions/%d/operation", i), op, "canonicalized contribution operation alias"))
 			}
 		}
+	}
+	for i := range res.EntityResolutions {
+		if strings.TrimSpace(res.EntityResolutions[i].Status.String()) != "" {
+			continue
+		}
+		if strings.TrimSpace(res.EntityResolutions[i].CanonicalID.String()) == "" &&
+			strings.TrimSpace(res.EntityResolutions[i].CanonicalLabel.String()) == "" {
+			continue
+		}
+		res.EntityResolutions[i].Status = "resolved"
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/status", i), "resolved", "filled resolved status for entity resolution with canonical value"))
 	}
 	if res.Reconcile != nil {
 		for i := range res.Reconcile.Groups {
 			metric := strings.TrimSpace(res.Reconcile.Groups[i].Metric.String())
-			res.Reconcile.Groups[i].GroupKey = LooseText(normalizeLedgerGroupKey(res.Reconcile.Groups[i].GroupKey.String(), metric))
+			oldGroupKey := res.Reconcile.Groups[i].GroupKey.String()
+			newGroupKey := normalizeLedgerGroupKey(oldGroupKey, metric)
+			if oldGroupKey != newGroupKey {
+				res.Reconcile.Groups[i].GroupKey = LooseText(newGroupKey)
+				patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/reconcile/groups/%d/group_key", i), newGroupKey, "removed duplicated metric suffix from reconcile group_key"))
+			}
 		}
+	}
+	return patches
+}
+
+func newDataResultPatch(op, path string, value any, reason string) DataResultPatch {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		raw = nil
+	}
+	return DataResultPatch{
+		Target: "result",
+		Op:     op,
+		Path:   path,
+		Value:  raw,
+		Reason: reason,
 	}
 }
 
@@ -2248,9 +2419,21 @@ def add_contribution(item_id="", source="", source_locator="", group_key="", met
     CONTRIBUTIONS.append(rec)
     return rec
 
+def _merge_helper_ledgers(obj):
+    if isinstance(obj, dict):
+        if "rows" not in obj and DECISIONS:
+            obj["rows"] = list(DECISIONS)
+        if "rule_coverage" not in obj and RULE_COVERAGE:
+            obj["rule_coverage"] = list(RULE_COVERAGE)
+        if "contributions" not in obj and CONTRIBUTIONS:
+            obj["contributions"] = list(CONTRIBUTIONS)
+        if "entity_resolutions" not in obj and ENTITY_RESOLUTIONS:
+            obj["entity_resolutions"] = list(ENTITY_RESOLUTIONS)
+    return obj
+
 def emit(obj):
     global RESULT
-    RESULT = obj
+    RESULT = _merge_helper_ledgers(obj)
 
 def emit_result(answer, output_contract=None, audit_summary="", rows=None, rule_coverage=None, contributions=None, entity_resolutions=None, reconcile=None, metrics=None, **extra):
     obj = {
