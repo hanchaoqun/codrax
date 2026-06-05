@@ -12,7 +12,7 @@ import (
 func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
+			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
 		},
 	}
 	planner := NewDataTaskPlanner(adapter)
@@ -35,6 +35,21 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	if !strings.Contains(plan.Script, "emit") {
 		t.Fatalf("Script=%q", plan.Script)
 	}
+	if plan.Goal != "123" {
+		t.Fatalf("Goal=%q", plan.Goal)
+	}
+	if len(plan.KnownConstraints) != 2 || plan.KnownConstraints[0] != "read only" || plan.KnownConstraints[1] != "strict output" {
+		t.Fatalf("KnownConstraints=%v", plan.KnownConstraints)
+	}
+	if len(plan.MissingObservations) != 2 || plan.MissingObservations[1] != "42" {
+		t.Fatalf("MissingObservations=%v", plan.MissingObservations)
+	}
+	if len(plan.SuccessCriteria) != 1 || plan.SuccessCriteria[0] != "final total returned" {
+		t.Fatalf("SuccessCriteria=%v", plan.SuccessCriteria)
+	}
+	if plan.NextBatch != "true" || plan.WhyThisBatch != "456" || !plan.ContinueAfter {
+		t.Fatalf("batch fields next=%q why=%q continue=%t", plan.NextBatch, plan.WhyThisBatch, plan.ContinueAfter)
+	}
 	system := adapter.calls[0].messages[0].Content
 	for _, want := range []string{
 		"not source-code analysis",
@@ -50,6 +65,42 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}
+	}
+}
+
+func TestDataTaskPlannerRepairsMalformedToolParams(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPlanResp(`ä not json`),
+			dataTaskPlanResp(`{"status":"ready","input_paths":["orders.csv"],"output_contract":{"format":"csv_line","explanation_allowed":false},"goal":"汇总订单","success_criteria":["输出最终总额"],"script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})"}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"}, []dataquery.CandidateFile{
+		{Path: "orders.csv", Kind: "csv", Size: 10},
+	})
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if plan.Status != "ready" || plan.Goal != "汇总订单" || !strings.Contains(plan.Script, "emit") {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d", len(adapter.calls))
+	}
+	repairSystem := adapter.calls[1].messages[0].Content
+	if !strings.Contains(repairSystem, "repair one malformed structured tool call") {
+		t.Fatalf("repair system prompt missing repair role:\n%s", repairSystem)
+	}
+	repairUser := adapter.calls[1].messages[1].Content
+	for _, want := range []string{"## parse_failure", "emit_data_task_plan", "## compact_data_context", "## schema"} {
+		if !strings.Contains(repairUser, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairUser)
+		}
+	}
+	trace := planner.(replLLMTraceProvider).LastReplLLMTrace()
+	if trace.Scope != "data_task_structured_tool_repair" {
+		t.Fatalf("trace.Scope=%q", trace.Scope)
 	}
 }
 
@@ -97,7 +148,7 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 		responses: []llm.Response{{
 			ToolCalls: []llm.ToolCall{{
 				Name:   dataTaskEvaluationTool.Name,
-				Params: []byte(`{"status":"continue_data","reason":"needs final aggregation","confidence":"high","missing_inputs":["final total"]}`),
+				Params: []byte(`{"status":"continue_data","reason":"needs final aggregation","confidence":"high","missingInputs":"final total, row audit"}`),
 			}},
 			StopReason: "tool_use",
 		}},
@@ -120,10 +171,55 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 	if eval.Status != dataquery.EvalContinueData || eval.Confidence != "high" {
 		t.Fatalf("eval=%+v", eval)
 	}
+	if len(eval.MissingInputs) != 2 || eval.MissingInputs[1] != "row audit" {
+		t.Fatalf("MissingInputs=%v", eval.MissingInputs)
+	}
 	user := adapter.calls[0].messages[1].Content
 	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestDataTaskEvaluatorRepairsMalformedToolParams(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{{
+			ToolCalls: []llm.ToolCall{{
+				Name:   dataTaskEvaluationTool.Name,
+				Params: []byte(`ä not json`),
+			}},
+			StopReason: "tool_use",
+		}, {
+			ToolCalls: []llm.ToolCall{{
+				Name:   dataTaskEvaluationTool.Name,
+				Params: []byte(`{"status":"complete","reason":"computed answer satisfies contract","confidence":"high"}`),
+			}},
+			StopReason: "tool_use",
+		}},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	evaluator := planner.(DataTaskEvaluator)
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}},
+		Result: &dataquery.Result{
+			Answer:         "ok,1",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputCSVLine, ExplanationAllowed: false},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateDataTask: %v", err)
+	}
+	if eval.Status != dataquery.EvalComplete || eval.Confidence != "high" {
+		t.Fatalf("eval=%+v", eval)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d", len(adapter.calls))
+	}
+	repairUser := adapter.calls[1].messages[1].Content
+	for _, want := range []string{"## parse_failure", "emit_data_task_evaluation", "## compact_data_context"} {
+		if !strings.Contains(repairUser, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairUser)
 		}
 	}
 }

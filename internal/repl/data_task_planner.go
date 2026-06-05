@@ -3,11 +3,13 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 type DataTaskPlanner interface {
@@ -179,6 +181,15 @@ Hard rules:
 - If useful progress exists but bounded workflow budget is exhausted or no safe continuation exists, emit budget_exhausted or partial_answer_possible.
 - Match status to a typed enum exactly.`
 
+const dataTaskStructuredToolRepairSystemPrompt = `You repair one malformed structured tool call for the read-only data lane.
+
+Hard rules:
+- Emit exactly one tool call using the required tool.
+- Preserve the original data-task intent, output contract, and status unless the parse failure is directly caused by those fields.
+- Return a single valid JSON object matching the tool schema. Arrays must be JSON arrays, objects must be JSON objects, and booleans/numbers must be typed values.
+- Do not add prose, markdown, comments, code fences, or extra wrapper keys.
+- Use only the compact context provided here; do not invent source-code, trace, log, or external-tool evidence.`
+
 func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
 	return p.planDataTask(ctx, "data_task_planner", dataTaskPlannerPrompt(userLine, repoRoot, policy, candidates))
 }
@@ -219,7 +230,17 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 	}
 	var parsed dataTaskEvaluationDraft
 	if err := unmarshalReplStructuredToolParams(dataTaskEvaluationTool, call.Params, &parsed, "data task evaluator"); err != nil {
-		return dataquery.Evaluation{}, err
+		parseErr := err
+		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskEvaluationTool, err, dataTaskStructuredToolRepairRequest{
+			Scope:   "data task evaluator",
+			Context: dataTaskEvaluationPrompt(userLine, records, lang),
+		})
+		if repairErr != nil {
+			return dataquery.Evaluation{}, repairErr
+		}
+		if err := unmarshalReplStructuredToolParams(dataTaskEvaluationTool, raw, &parsed, "data task evaluator"); err != nil {
+			return dataquery.Evaluation{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
+		}
 	}
 	return parsed.toEvaluation(), nil
 }
@@ -252,9 +273,74 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 	}
 	var parsed dataTaskPlanDraft
 	if err := unmarshalReplStructuredToolParams(dataTaskPlanTool, call.Params, &parsed, "data task planner"); err != nil {
-		return dataquery.TaskPlan{}, err
+		parseErr := err
+		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskPlanTool, err, dataTaskStructuredToolRepairRequest{
+			Scope:   scope,
+			Context: prompt,
+		})
+		if repairErr != nil {
+			return dataquery.TaskPlan{}, repairErr
+		}
+		if err := unmarshalReplStructuredToolParams(dataTaskPlanTool, raw, &parsed, "data task planner"); err != nil {
+			return dataquery.TaskPlan{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
+		}
 	}
 	return parsed.toPlan(), nil
+}
+
+type dataTaskStructuredToolRepairRequest struct {
+	Scope   string
+	Context string
+}
+
+func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Context, tool llm.ToolSchema, parseErr error, req dataTaskStructuredToolRepairRequest) (json.RawMessage, error) {
+	var paramErr *replStructuredToolParamError
+	if !errors.As(parseErr, &paramErr) {
+		return nil, parseErr
+	}
+	if p == nil || p.adapter == nil {
+		return nil, parseErr
+	}
+	scope := firstNonEmptyString(strings.TrimSpace(req.Scope), strings.TrimSpace(paramErr.Scope), "data structured tool")
+	logging.Warning("[repl/data] structured tool params invalid tool=%s scope=%s raw_bytes=%d; attempting compact repair",
+		firstNonEmptyString(tool.Name, paramErr.ToolName), scope, paramErr.RawLen)
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: dataTaskStructuredToolRepairSystemPrompt},
+			{Role: "user", Content: dataTaskStructuredToolRepairPrompt(tool, paramErr, req)},
+		},
+		[]llm.ToolSchema{tool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	p.lastTrace = traceFromLLMResponse("data_task_structured_tool_repair", resp)
+	if err != nil {
+		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
+	}
+	if len(resp.ToolCalls) == 0 {
+		return nil, fmt.Errorf("%w; compact tool-param repair returned no tool_call", parseErr)
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != tool.Name {
+		return nil, fmt.Errorf("%w; compact tool-param repair returned unexpected tool %q", parseErr, call.Name)
+	}
+	return call.Params, nil
+}
+
+func dataTaskStructuredToolRepairPrompt(tool llm.ToolSchema, paramErr *replStructuredToolParamError, req dataTaskStructuredToolRepairRequest) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## repair_scope\n%s\n\n", firstNonEmptyString(strings.TrimSpace(req.Scope), strings.TrimSpace(paramErr.Scope), "data structured tool"))
+	fmt.Fprintf(&b, "## required_tool\n%s\n\n", tool.Name)
+	fmt.Fprintf(&b, "## parse_failure\nraw_bytes=%d\nerror=%s\nhint=%s\n\n",
+		paramErr.RawLen,
+		oneLineClamp(fmt.Sprint(paramErr.Err), 400),
+		oneLineClamp(paramErr.Hint, 400))
+	b.WriteString("## schema\n")
+	b.WriteString(oneLineClamp(tool.Description, 600))
+	b.WriteString("\n")
+	b.WriteString(clampMultilineForRepair(string(tool.Parameters), 6000))
+	b.WriteString("\n\n## compact_data_context\n")
+	b.WriteString(clampMultilineForRepair(req.Context, 5000))
+	return strings.TrimSpace(b.String())
 }
 
 func (p *llmDataTaskPlanner) LastReplLLMTrace() replLLMCallTrace {

@@ -1825,6 +1825,8 @@ func replLLMTraceScopeLabel(scope, lang string) string {
 			return "数据目标评估"
 		case "data_task_continuation_planner":
 			return "数据继续计划"
+		case "data_task_structured_tool_repair":
+			return "数据结构化参数修复"
 		case "command_operation_planner":
 			return "操作计划"
 		case "command_operation_evaluator":
