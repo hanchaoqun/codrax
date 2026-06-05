@@ -98,6 +98,53 @@ func (c CoverageContract) RequiredPaths() []string {
 	return out
 }
 
+type NonTextRequiredMaterial struct {
+	Path              string   `json:"path"`
+	Kind              string   `json:"kind"`
+	ExtractionStatus  string   `json:"extraction_status,omitempty"`
+	TextEvidencePaths []string `json:"text_evidence_paths,omitempty"`
+}
+
+type MaterialExtraction struct {
+	SourcePath string `json:"source_path"`
+	TextPath   string `json:"text_path"`
+	Kind       string `json:"kind,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
+	Notes      string `json:"notes,omitempty"`
+}
+
+func FindNonTextRequiredMaterials(contract CoverageContract, candidates []CandidateFile) []NonTextRequiredMaterial {
+	byPath := map[string]CandidateFile{}
+	for _, c := range candidates {
+		path := normalizeMaterialPath(c.Path)
+		if path == "" {
+			continue
+		}
+		byPath[path] = c
+	}
+	seen := map[string]bool{}
+	var out []NonTextRequiredMaterial
+	for _, req := range contract.RequiredMaterials {
+		path := normalizeMaterialPath(req.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		candidate, ok := byPath[path]
+		if !ok || !candidateNeedsTextExtraction(candidate) {
+			continue
+		}
+		out = append(out, NonTextRequiredMaterial{
+			Path:              candidate.Path,
+			Kind:              candidate.Kind,
+			ExtractionStatus:  candidate.ExtractionStatus,
+			TextEvidencePaths: append([]string(nil), candidate.TextEvidencePaths...),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
 type Question struct {
 	ID          string   `json:"id,omitempty"`
 	Question    string   `json:"question"`
@@ -291,15 +338,17 @@ func NormalizeEvaluationStatus(status string) EvaluationStatus {
 }
 
 type CandidateFile struct {
-	Path         string     `json:"path"`
-	Size         int64      `json:"size"`
-	Kind         string     `json:"kind"`
-	Delimiter    string     `json:"delimiter,omitempty"`
-	Lines        int        `json:"lines,omitempty"`
-	Headers      []string   `json:"headers,omitempty"`
-	Sample       []string   `json:"sample,omitempty"`
-	SampleRows   [][]string `json:"sample_rows,omitempty"`
-	InspectError string     `json:"inspect_error,omitempty"`
+	Path              string     `json:"path"`
+	Size              int64      `json:"size"`
+	Kind              string     `json:"kind"`
+	ExtractionStatus  string     `json:"extraction_status,omitempty"`
+	TextEvidencePaths []string   `json:"text_evidence_paths,omitempty"`
+	Delimiter         string     `json:"delimiter,omitempty"`
+	Lines             int        `json:"lines,omitempty"`
+	Headers           []string   `json:"headers,omitempty"`
+	Sample            []string   `json:"sample,omitempty"`
+	SampleRows        [][]string `json:"sample_rows,omitempty"`
+	InspectError      string     `json:"inspect_error,omitempty"`
 }
 
 type Runner struct {
@@ -370,6 +419,7 @@ func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	attachRelatedTextEvidence(out)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
@@ -380,6 +430,14 @@ func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
 }
 
 func inspectCandidateFile(path string, f CandidateFile) CandidateFile {
+	if isNonTextMaterialKind(f.Kind) {
+		f.ExtractionStatus = "needs_text_extraction"
+		f.InspectError = "non-text material; semantic content requires extracted text before deterministic data processing"
+		return f
+	}
+	if isRunnerInputKind(f.Kind) {
+		f.ExtractionStatus = "text_ready"
+	}
 	switch f.Kind {
 	case "csv", "tsv":
 		return inspectDelimitedCandidate(path, f)
@@ -583,9 +641,78 @@ func dataKindForPath(path string) string {
 		return "jsonl"
 	case ".txt", ".md":
 		return "text"
+	case ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".heic":
+		return "image"
+	case ".pdf":
+		return "pdf"
 	default:
 		return ""
 	}
+}
+
+func isRunnerInputKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "csv", "tsv", "json", "jsonl", "text":
+		return true
+	default:
+		return false
+	}
+}
+
+func isNonTextMaterialKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "image", "pdf":
+		return true
+	default:
+		return false
+	}
+}
+
+func candidateNeedsTextExtraction(f CandidateFile) bool {
+	status := strings.TrimSpace(f.ExtractionStatus)
+	return status == "needs_text_extraction" || status == "related_text_available" || isNonTextMaterialKind(f.Kind)
+}
+
+func attachRelatedTextEvidence(files []CandidateFile) {
+	textByStem := map[string][]string{}
+	for _, f := range files {
+		if !isRunnerInputKind(f.Kind) {
+			continue
+		}
+		stem := materialStem(f.Path)
+		if stem == "" {
+			continue
+		}
+		textByStem[stem] = append(textByStem[stem], f.Path)
+	}
+	for i := range files {
+		if !isNonTextMaterialKind(files[i].Kind) {
+			continue
+		}
+		stem := materialStem(files[i].Path)
+		if stem == "" {
+			continue
+		}
+		related := append([]string(nil), textByStem[stem]...)
+		sort.Strings(related)
+		if len(related) > 8 {
+			related = related[:8]
+		}
+		files[i].TextEvidencePaths = related
+		if len(related) > 0 {
+			files[i].ExtractionStatus = "related_text_available"
+			files[i].InspectError = "non-text material; related text evidence candidate(s) are available"
+		}
+	}
+}
+
+func materialStem(path string) string {
+	base := filepath.Base(strings.TrimSpace(path))
+	if base == "." || base == "" {
+		return ""
+	}
+	ext := filepath.Ext(base)
+	return strings.ToLower(strings.TrimSpace(strings.TrimSuffix(base, ext)))
 }
 
 func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
@@ -971,7 +1098,7 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 				if seen[subRel] {
 					return nil
 				}
-				if dataKindForPath(path) == "" {
+				if !isRunnerInputKind(dataKindForPath(path)) {
 					return nil
 				}
 				seen[subRel] = true
@@ -990,6 +1117,13 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 				return nil, err
 			}
 			continue
+		}
+		kind := dataKindForPath(abs)
+		if kind == "" {
+			return nil, fmt.Errorf("input %s is not a supported data file", raw)
+		}
+		if !isRunnerInputKind(kind) {
+			return nil, fmt.Errorf("input %s is %s; extract text evidence first before deterministic data processing", raw, kind)
 		}
 		size, err := copyOneInput(abs, filepath.Join(workDir, rel), maxFile)
 		if err != nil {

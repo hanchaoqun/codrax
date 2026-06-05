@@ -514,14 +514,14 @@ Examples (illustrative, NOT exhaustive — judge by structure):
       operation=investigate, source=external_tool,
       confidence≈0.85
 
-  Current: "读取这几个 CSV，把供应商和品类 join 后按金额汇总，只输出 JSON"
+  Current: "读取这几个 CSV，把记录按共同键 join 后按数值字段汇总，只输出 JSON"
     → route=data, needs_data_access=true, needs_repo_access=false,
       needs_operation_access=false, operation=data_aggregation,
       data_task_kind=data_aggregation, source=data,
       risk_level=low, side_effects=[], requires_confirmation=false,
       confidence≈0.85
 
-  Current: "清洗这个采购表，过滤掉未支付记录，输出一行逗号分隔结果"
+  Current: "清洗这个记录表，过滤掉不符合条件的记录，输出一行逗号分隔结果"
     → route=data, needs_data_access=true, needs_repo_access=false,
       needs_operation_access=false, operation=data_cleaning,
       data_task_kind=data_cleaning, source=data,

@@ -27,6 +27,9 @@ func EstimateMessagesBytes(messages []Message) int {
 	total := 0
 	for _, m := range messages {
 		total += len(m.Role) + len(m.Content) + len(m.ReasoningContent) + len(m.ToolCallID)
+		for _, part := range m.ContentParts {
+			total += len(part.Type) + len(part.Text) + len(part.ImageURL) + len(part.Detail)
+		}
 		for _, tc := range m.ToolCalls {
 			total += len(tc.ID) + len(tc.Name) + len(tc.Params)
 		}

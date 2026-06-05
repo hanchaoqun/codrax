@@ -268,6 +268,55 @@ func TestDiscoverCandidateFilesSkipsSource(t *testing.T) {
 	}
 }
 
+func TestDiscoverCandidateFilesIncludesNonTextMaterials(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "images"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "images", "ATT-1.png"), []byte{0x89, 'P', 'N', 'G'}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ATT-1.txt"), []byte("extracted text\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DiscoverCandidateFiles(root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var image CandidateFile
+	for _, f := range got {
+		if f.Path == "images/ATT-1.png" {
+			image = f
+			break
+		}
+	}
+	if image.Kind != "image" {
+		t.Fatalf("image candidate not discovered: %+v", got)
+	}
+	if image.ExtractionStatus != "related_text_available" {
+		t.Fatalf("ExtractionStatus=%q", image.ExtractionStatus)
+	}
+	if strings.Join(image.TextEvidencePaths, ",") != "ATT-1.txt" {
+		t.Fatalf("TextEvidencePaths=%v", image.TextEvidencePaths)
+	}
+}
+
+func TestRunnerRejectsNonTextInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "scan.png"), []byte{0x89, 'P', 'N', 'G'}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths:     []string{"scan.png"},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine},
+		Script:         `emit({"answer":"x","output_contract":{"format":"plain_single_line","explanation_allowed":false}})`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "extract text evidence first") {
+		t.Fatalf("expected non-text rejection, got %v", err)
+	}
+}
+
 func TestRunnerRejectsMissingRequiredMaterialConsumption(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

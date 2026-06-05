@@ -1115,10 +1115,21 @@ type openaiThinking struct {
 
 type openaiMessage struct {
 	Role             string           `json:"role"`
-	Content          string           `json:"content"`
+	Content          any              `json:"content"`
 	ReasoningContent string           `json:"reasoning_content,omitempty"`
 	ToolCalls        []openaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
+}
+
+type openaiContentPart struct {
+	Type     string                 `json:"type"`
+	Text     string                 `json:"text,omitempty"`
+	ImageURL *openaiImageURLContent `json:"image_url,omitempty"`
+}
+
+type openaiImageURLContent struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type openaiTool struct {
@@ -1191,7 +1202,7 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	for _, m := range messages {
 		om := openaiMessage{
 			Role:             m.Role,
-			Content:          m.Content,
+			Content:          openAIRequestContent(m),
 			ReasoningContent: m.ReasoningContent,
 			ToolCallID:       m.ToolCallID,
 		}
@@ -1250,6 +1261,57 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	}
 
 	return req
+}
+
+func openAIRequestContent(m Message) any {
+	if len(m.ContentParts) == 0 {
+		return m.Content
+	}
+	parts := make([]openaiContentPart, 0, len(m.ContentParts)+1)
+	if strings.TrimSpace(m.Content) != "" {
+		parts = append(parts, openaiContentPart{Type: "text", Text: m.Content})
+	}
+	for _, part := range m.ContentParts {
+		switch strings.ToLower(strings.TrimSpace(part.Type)) {
+		case "image_url", "image":
+			url := strings.TrimSpace(part.ImageURL)
+			if url == "" {
+				continue
+			}
+			parts = append(parts, openaiContentPart{
+				Type: "image_url",
+				ImageURL: &openaiImageURLContent{
+					URL:    url,
+					Detail: strings.TrimSpace(part.Detail),
+				},
+			})
+		case "text", "":
+			text := strings.TrimSpace(part.Text)
+			if text == "" {
+				continue
+			}
+			parts = append(parts, openaiContentPart{Type: "text", Text: text})
+		}
+	}
+	if len(parts) == 0 {
+		return m.Content
+	}
+	return parts
+}
+
+func openAIResponseContentString(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(raw)
+	}
 }
 
 func (o *OpenAIAdapter) marshalRequest(req openaiRequest) ([]byte, error) {
@@ -1397,7 +1459,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 
 	choice := oResp.Choices[0]
 	resp := Response{
-		Content:          choice.Message.Content,
+		Content:          openAIResponseContentString(choice.Message.Content),
 		ReasoningContent: choice.Message.ReasoningContent,
 		StopReason:       mapFinishReason(choice.FinishReason),
 		Usage: TokenUsage{

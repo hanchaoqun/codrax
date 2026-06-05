@@ -399,6 +399,7 @@ type appContext struct {
 	chitchatClassifier      repl.ChitchatClassifier
 	operationPlanner        repl.CommandOperationPlanner
 	dataTaskPlanner         repl.DataTaskPlanner
+	dataMaterialExtractor   repl.DataMaterialExtractor
 	dataTaskMaxRepairRounds int
 	dataTaskMaxDataRounds   int
 	replHeaderPrinted       bool
@@ -1449,6 +1450,7 @@ func runREPL(_ *cobra.Command) error {
 		OperationProviders:      append([]operation.ProviderInfo(nil), app.operationProviders...),
 		OperationPlanner:        app.operationPlanner,
 		DataTaskPlanner:         app.dataTaskPlanner,
+		DataMaterialExtractor:   app.dataMaterialExtractor,
 		DataTaskMaxRepairRounds: app.dataTaskMaxRepairRounds,
 		DataTaskMaxDataRounds:   app.dataTaskMaxDataRounds,
 		OperationCommandPolicy:  app.operationCommandPolicy,
@@ -3836,6 +3838,18 @@ func initApp(cmd *cobra.Command, args []string) error {
 				withRenderLLMTelemetry(adapter, renderer, types.AgentName("data_planner"), types.PipelineStage("data")),
 			)
 			logging.Info("[data] task planner: ON (model=%s). Route via providers.yaml agents.data_planner.", adapter.ModelID())
+		}
+	}
+
+	if _, has := providersCfg.LLM.Agents["multimodal_material_extractor"]; has {
+		resolved := config.ResolveProvider(providersCfg, "multimodal_material_extractor")
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[data] multimodal material extractor init failed; non-text required materials will request extracted text evidence: %v", err)
+		} else {
+			app.dataMaterialExtractor = repl.NewDataMaterialExtractor(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("multimodal_material_extractor"), types.PipelineStage("data")),
+			)
+			logging.Info("[data] multimodal material extractor: ON (model=%s). Route via providers.yaml agents.multimodal_material_extractor.", adapter.ModelID())
 		}
 	}
 

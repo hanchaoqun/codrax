@@ -77,7 +77,7 @@ var dataTaskPlanTool = llm.ToolSchema{
               "required": {"type":"boolean"}
             }
           },
-          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories."
+          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories. If a required candidate has extraction_status=needs_text_extraction, the system must first provide extracted text evidence or a related text evidence path before the deterministic script can use its semantic content."
         },
         "optional_materials": {
           "type": "array",
@@ -118,7 +118,7 @@ var dataTaskPlanTool = llm.ToolSchema{
           "description": "true when the result must include result.reconcile with status=pass and reconcile.groups. The system recomputes numeric group totals from result.contributions when available and rejects mismatches."
         }
       },
-      "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; Codrax only verifies declared required materials are input and actually consumed."
+      "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; the system only verifies declared required materials are input and actually consumed."
     },
     "script": {
       "type": "string",
@@ -214,6 +214,8 @@ Hard rules:
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
+- Candidate files may include materials whose semantic content is not directly readable by the Python runner. Do not put paths with extraction_status=needs_text_extraction or extraction_status=related_text_available directly into input_paths. If such a material is required and text_evidence_paths are available, use the relevant text evidence path as the script input and keep the original non-text path in coverage_contract.required_materials only when its content must be covered. If no text evidence is available, return blocked/needs_clarification or wait for the material extraction layer instead of silently ignoring it.
+- extraction_status is objective inventory metadata. "text_ready" and "extracted_text" mean the runner can read the material; "related_text_available" means the material has candidate text evidence; "needs_text_extraction" means semantic content is not yet available to the deterministic runner.
 - Fill coverage_contract.required_materials with every material that must be consumed to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
 - Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
@@ -499,6 +501,12 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 	for i := 0; i < limit; i++ {
 		f := candidates[i]
 		fmt.Fprintf(b, "- path=%s kind=%s size=%d", f.Path, f.Kind, f.Size)
+		if strings.TrimSpace(f.ExtractionStatus) != "" {
+			fmt.Fprintf(b, " extraction_status=%s", marshalInlineJSON(f.ExtractionStatus))
+		}
+		if len(f.TextEvidencePaths) > 0 {
+			fmt.Fprintf(b, " text_evidence_paths_json=%s", marshalInlineJSON(f.TextEvidencePaths))
+		}
 		if f.Lines > 0 {
 			fmt.Fprintf(b, " lines=%d", f.Lines)
 		}

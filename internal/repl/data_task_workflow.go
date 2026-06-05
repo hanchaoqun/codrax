@@ -323,6 +323,19 @@ func preserveDataTaskRepairCoverage(previous, repaired dataquery.TaskPlan) dataq
 	return repaired
 }
 
+func preserveDataTaskMaterialRepairCoverage(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {
+	if len(repaired.CoverageContract.RequiredMaterials) == 0 && len(repaired.CoverageContract.OptionalMaterials) == 0 {
+		return preserveDataTaskRepairCoverage(previous, repaired)
+	}
+	repaired.CoverageContract.DecisionRecordsRequired = previous.CoverageContract.DecisionRecordsRequired || repaired.CoverageContract.DecisionRecordsRequired
+	repaired.CoverageContract.RuleCoverageRequired = previous.CoverageContract.RuleCoverageRequired || repaired.CoverageContract.RuleCoverageRequired
+	repaired.CoverageContract.ContributionLedgerRequired = previous.CoverageContract.ContributionLedgerRequired || repaired.CoverageContract.ContributionLedgerRequired
+	repaired.CoverageContract.EntityResolutionRequired = previous.CoverageContract.EntityResolutionRequired || repaired.CoverageContract.EntityResolutionRequired
+	repaired.CoverageContract.ReconcileRequired = previous.CoverageContract.ReconcileRequired || repaired.CoverageContract.ReconcileRequired
+	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredPaths())
+	return repaired
+}
+
 func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) dataquery.CoverageContract {
 	out := next
 	out.RequiredMaterials = mergeDataTaskCoverageMaterials(previous.RequiredMaterials, next.RequiredMaterials, true)

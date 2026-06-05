@@ -28,11 +28,22 @@ type TokenUsage struct {
 
 // Message represents a conversation message.
 type Message struct {
-	Role             string     `json:"role"`                        // system, user, assistant, tool
-	Content          string     `json:"content"`                     // assistant content must stay non-null for tool-call history
-	ReasoningContent string     `json:"reasoning_content,omitempty"` // provider-native thinking trace, round-tripped only when supplied
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // assistant messages carry tool calls
-	ToolCallID       string     `json:"tool_call_id,omitempty"`      // tool messages reference the call
+	Role             string        `json:"role"`                        // system, user, assistant, tool
+	Content          string        `json:"content"`                     // assistant content must stay non-null for tool-call history
+	ContentParts     []ContentPart `json:"content_parts,omitempty"`     // optional multimodal request parts; text-only callers leave this empty
+	ReasoningContent string        `json:"reasoning_content,omitempty"` // provider-native thinking trace, round-tripped only when supplied
+	ToolCalls        []ToolCall    `json:"tool_calls,omitempty"`        // assistant messages carry tool calls
+	ToolCallID       string        `json:"tool_call_id,omitempty"`      // tool messages reference the call
+}
+
+// ContentPart is an optional multimodal request part. Existing text-only
+// callers continue to use Message.Content; adapters serialize ContentParts
+// only when the slice is non-empty.
+type ContentPart struct {
+	Type     string `json:"type"` // "text" or "image_url"
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 // Response is what the LLM returns.

@@ -88,6 +88,36 @@ func TestOpenAIAdapter_MaxOutputTokens_WireOmitWhenZero(t *testing.T) {
 	})
 }
 
+func TestOpenAIAdapter_MultimodalContentPartsOnlyWhenRequested(t *testing.T) {
+	adapter := &OpenAIAdapter{model: "m"}
+	textReq := adapter.buildRequest([]Message{{Role: "user", Content: "hi"}}, nil, ChatOptions{})
+	textRaw, err := json.Marshal(textReq.Messages[0].Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(textRaw) != `"hi"` {
+		t.Fatalf("text-only content = %s, want string", textRaw)
+	}
+
+	mmReq := adapter.buildRequest([]Message{{
+		Role:    "user",
+		Content: "inspect",
+		ContentParts: []ContentPart{
+			{Type: "image_url", ImageURL: "data:image/png;base64,abc", Detail: "high"},
+		},
+	}}, nil, ChatOptions{})
+	raw, err := json.Marshal(mmReq.Messages[0].Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{`"type":"text"`, `"text":"inspect"`, `"type":"image_url"`, `"url":"data:image/png;base64,abc"`, `"detail":"high"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("multimodal content missing %s: %s", want, got)
+		}
+	}
+}
+
 // TestNewOpenAIAdapter_PanicsOnZeroSizing pins the fail-loud guards
 // so a future caller cannot silently construct an adapter with a
 // hung HTTP client (zero timeout) or a degenerate retry loop (zero

@@ -8,12 +8,12 @@ repair itself after a syntax/runtime failure, silently drop important inputs,
 and still produce an output that satisfies the final presentation format. That
 catches syntax and shape errors, but not data correctness errors.
 
-The fix must not encode any one business domain. Procurement, invoices,
-contracts, vendors, record sets, orders, survey items, JSON records, web extracts,
-and document spans are all user-task semantics. The model interprets those
-semantics from the current request; Codrax provides objective material
-discovery, bounded execution, consumption tracking, decision-record validation,
-and output-contract validation.
+The fix must not encode any one business domain or one material shape. Business
+roles, record types, output expectations, and material meaning are all
+user-task semantics. The model interprets those semantics from the current
+request; Codrax provides objective material discovery, bounded execution,
+consumption tracking, decision-record validation, and output-contract
+validation.
 
 ## Red Lines
 
@@ -38,12 +38,47 @@ Codrax deterministically discovers local materials and reports objective facts:
 - path, size, media kind;
 - tabular headers and row counts where cheap;
 - JSON/JSONL top-level field samples where cheap;
-- text line counts and short previews where cheap.
+- text line counts and short previews where cheap;
+- non-text material status, including whether related text evidence is already
+  available or extraction is required.
 
 The inventory does not decide that a material is a rule file, evidence file,
 reference table, source of truth, attachment, output spec, or any other
 business role. It only gives the model grounded metadata. The model decides
 material purpose for the current user goal.
+
+Non-text materials are first-class inventory entries. Go code may report
+objective media kind and extraction status, but it must not decide whether the
+content is important for a task. If the model declares a material with
+`extraction_status=needs_text_extraction` as required and no text evidence
+exists, the workflow must either call a configured material extractor or fail
+with a recoverable extraction gap. It must not silently skip the material or let
+the deterministic Python runner read binary/non-text content as if it were
+semantic text.
+
+### 1.1 Multimodal Material Extraction
+
+Multimodal extraction is a separate data-lane adjunct, not part of source-code
+analysis, trace/log diagnosis, or command operation.
+
+Trigger conditions are structural:
+
+1. the active route is the data lane;
+2. the model-authored `coverage_contract.required_materials` includes a
+   candidate whose objective inventory says text extraction is required;
+3. the inventory has no usable text evidence for that required material;
+4. a `multimodal_material_extractor` provider is configured.
+
+The extractor receives the specific required non-text material and emits a
+normalized text evidence artifact with source path, extracted text, confidence,
+and caveats. The text artifact is appended to the material inventory and the
+data planner repairs/continues with that text path. The final computation still
+runs through the same deterministic data runner, consumption telemetry,
+decision records, contribution/entity/reconcile ledgers, and output contract.
+
+If no extractor is configured, or the extractor cannot handle the material
+type, the data workflow surfaces a typed recoverable gap. It does not guess,
+skip, or ask the source-code pipeline to compensate.
 
 ### 2. Coverage Contract
 
@@ -165,3 +200,14 @@ calculation.
 - [x] Include validation-ledger summaries in evaluator/continuation handoff.
 - [x] Add tests for missing ledgers, failed reconcile, passing reconcile, and
       planner JSON compatibility.
+- [x] Detect non-text materials that need extraction in the data inventory.
+- [x] Keep non-text materials out of direct deterministic runner inputs.
+- [x] Surface related text-evidence candidates when objective path metadata
+      suggests they exist.
+- [x] Add optional `multimodal_material_extractor` provider routing for data
+      material extraction.
+- [x] Add OpenAI-compatible optional multimodal content parts without changing
+      text-only LLM requests.
+- [x] Feed extracted text evidence back into the data workflow as ordinary
+      text materials, then require the planner to repair/continue normally.
+- [x] Document extractor configuration and non-goals.

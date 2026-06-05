@@ -926,7 +926,7 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
 
-	policy, err := c.ClassifyPolicy(context.Background(), "读取 CSV，按供应商汇总金额，只输出 JSON", "", false)
+	policy, err := c.ClassifyPolicy(context.Background(), "读取 CSV，按分组键汇总数值字段，只输出 JSON", "", false)
 	if err != nil {
 		t.Fatalf("ClassifyPolicy: %v", err)
 	}

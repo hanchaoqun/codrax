@@ -301,6 +301,10 @@ type Config struct {
 	// intentionally independent from the source-analysis pipeline and the
 	// command-operation approval loop.
 	DataTaskPlanner DataTaskPlanner
+	// DataMaterialExtractor is an optional multimodal extractor used only when
+	// a data plan declares non-text materials as required and no text evidence
+	// is available to the deterministic runner.
+	DataMaterialExtractor DataMaterialExtractor
 	// DataTaskMaxRepairRounds bounds script-failure repair attempts in the
 	// read-only data lane. Zero uses DefaultDataTaskMaxRepairRounds.
 	DataTaskMaxRepairRounds int
@@ -605,6 +609,7 @@ type REPL struct {
 	operationProviders          []operation.ProviderInfo
 	operationPlanner            CommandOperationPlanner
 	dataTaskPlanner             DataTaskPlanner
+	dataMaterialExtractor       DataMaterialExtractor
 	dataTaskMaxRepairRounds     int
 	dataTaskMaxDataRounds       int
 	operationPolicy             operation.CommandPolicy
@@ -801,6 +806,7 @@ func New(cfg Config) *REPL {
 		operationProviders:      append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
 		operationPlanner:        cfg.OperationPlanner,
 		dataTaskPlanner:         cfg.DataTaskPlanner,
+		dataMaterialExtractor:   cfg.DataMaterialExtractor,
 		dataTaskMaxRepairRounds: normalizeDataTaskMaxRepairRounds(cfg.DataTaskMaxRepairRounds),
 		dataTaskMaxDataRounds:   normalizeDataTaskMaxDataRounds(cfg.DataTaskMaxDataRounds),
 		operationPolicy:         cfg.OperationCommandPolicy,
@@ -1308,6 +1314,36 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			msg := dataTaskErrorMarkdown(r.language, "data task workflow budget exhausted before producing a result")
 			r.finishDataTaskRouteSpinner("budget_exhausted")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		if errText := r.prepareDataTaskNonTextMaterials(context.Background(), &candidates, currentPlan); errText != "" {
+			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+				repairRounds++
+				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
+				ctx := r.startTurn()
+				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, candidates, currentPlan, errText)
+				r.endTurn()
+				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+				if repairErr != nil {
+					msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr))
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
+				}
+				repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+				r.emitDataTaskPlanAudit(repairedPlan)
+				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
+				currentPlan = repairedPlan
+				continue
+			}
+			msg := dataTaskErrorMarkdown(r.language, errText)
+			r.finishDataTaskRouteSpinner("failed")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
