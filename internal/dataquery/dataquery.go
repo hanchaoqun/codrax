@@ -267,9 +267,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 func validateScriptSafety(script string) error {
 	lower := strings.ToLower(script)
 	for _, denied := range []string{
-		"__", "import ", "from ", "open(", "eval(", "exec(", "compile(",
-		"subprocess", "socket", "requests", "urllib", "pathlib", "shutil",
-		"os.", "sys.", "globals(", "locals(", "vars(",
+		"__", "eval(", "exec(", "compile(", "globals(", "locals(", "vars(",
 	} {
 		if strings.Contains(lower, denied) {
 			return fmt.Errorf("data task script uses unsupported unsafe construct %q", denied)
@@ -394,9 +392,14 @@ func copyOneInput(src, dst string, maxFile int64) (int64, error) {
 func renderPythonHelper(script string, relPaths []string) string {
 	scriptJSON, _ := json.Marshal(script)
 	pathsJSON, _ := json.Marshal(relPaths)
-	return fmt.Sprintf(`import csv, json, decimal, re, os, sys
+	return fmt.Sprintf(`import csv, json, decimal, re, os, math, statistics, collections, datetime, itertools, functools, operator
 ALLOWED = set(%s)
 RESULT = None
+BASE_DIR = os.getcwd()
+ALLOWED_IMPORTS = {
+    "csv", "json", "decimal", "re", "math", "statistics", "collections",
+    "datetime", "itertools", "functools", "operator",
+}
 
 def _safe_path(path):
     path = str(path).replace("\\", "/").strip()
@@ -406,6 +409,25 @@ def _safe_path(path):
     if norm not in ALLOWED:
         raise ValueError("path was not declared as an input: " + path)
     return norm
+
+def _safe_open(path, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
+    mode = str(mode or "r")
+    if any(ch in mode for ch in "wax+") or not mode.startswith("r"):
+        raise ValueError("data task open is read-only: " + mode)
+    norm = _safe_path(path)
+    full = os.path.abspath(os.path.join(BASE_DIR, norm))
+    base = os.path.abspath(BASE_DIR)
+    if full != base and not full.startswith(base + os.sep):
+        raise ValueError("path outside data task workspace: " + str(path))
+    if "b" in mode:
+        return open(full, mode, buffering=buffering)
+    return open(full, mode, buffering=buffering, encoding=encoding or "utf-8", errors=errors or "replace", newline=newline)
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root = str(name).split(".", 1)[0]
+    if level != 0 or root not in ALLOWED_IMPORTS:
+        raise ImportError("data task import is blocked: " + str(name))
+    return __import__(name, globals, locals, fromlist, level)
 
 def read_text(path, encoding="utf-8"):
     with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
@@ -446,14 +468,18 @@ safe_builtins = {
     "str": str, "repr": repr, "round": round, "abs": abs, "list": list,
     "dict": dict, "set": set, "tuple": tuple, "any": any, "all": all,
     "zip": zip, "isinstance": isinstance, "ValueError": ValueError,
-    "Exception": Exception,
+    "TypeError": TypeError, "KeyError": KeyError, "Exception": Exception,
+    "open": _safe_open, "__import__": _safe_import,
 }
 env = {
     "__builtins__": safe_builtins,
     "csv_rows": csv_rows, "tsv_rows": tsv_rows, "json_load": json_load,
     "jsonl_rows": jsonl_rows, "read_text": read_text,
     "parse_money": parse_money, "Decimal": decimal.Decimal,
-    "re": re, "emit": emit,
+    "csv": csv, "json": json, "decimal": decimal, "re": re,
+    "math": math, "statistics": statistics, "collections": collections,
+    "datetime": datetime, "itertools": itertools, "functools": functools,
+    "operator": operator, "emit": emit,
 }
 code = %s
 exec(code, env, env)

@@ -88,6 +88,9 @@ func TestRunnerJSONOnlyValidation(t *testing.T) {
 }
 
 func TestRunnerRejectsUnsafeScript(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("x\n1\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -96,8 +99,62 @@ func TestRunnerRejectsUnsafeScript(t *testing.T) {
 		InputPaths: []string{"orders.csv"},
 		Script:     `import os; emit({"answer":"bad"})`,
 	}
-	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err == nil || !strings.Contains(err.Error(), "unsupported unsafe construct") {
-		t.Fatalf("Run unsafe err=%v, want unsafe construct rejection", err)
+	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err == nil || !strings.Contains(err.Error(), "import is blocked") {
+		t.Fatalf("Run unsafe err=%v, want blocked import rejection", err)
+	}
+}
+
+func TestRunnerAllowsCommonDataImportsAndSafeOpen(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\nB,3\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: `
+import csv
+from collections import defaultdict
+totals = defaultdict(int)
+with open("orders.csv", "r") as f:
+    for row in csv.DictReader(f):
+        totals[row["vendor"]] += int(row["amount"])
+emit({"answer": "A=" + str(totals["A"]), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "A=17" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+}
+
+func TestRunnerRejectsUnsafeOpen(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("x\n1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"absolute": `open("/etc/passwd").read(); emit({"answer":"bad"})`,
+		"write":    `open("orders.csv", "w").write("bad"); emit({"answer":"bad"})`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := TaskPlan{InputPaths: []string{"orders.csv"}, Script: script}
+			if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err == nil {
+				t.Fatal("Run unexpectedly succeeded")
+			}
+		})
 	}
 }
 

@@ -50,7 +50,7 @@ var dataTaskPlanTool = llm.ToolSchema{
     },
     "script": {
       "type": "string",
-      "description": "Python calculation body executed by a restricted helper. Use only csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). Do not import modules, call open, access os/sys, run shell commands, or write files. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
+      "description": "Python calculation body executed by a restricted read-only helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator, and open(path) only reads declared input files. Do not access os/sys/pathlib/shutil, run shell commands, use network libraries, dynamic eval/exec, or write files. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
     },
     "questions": {
       "type": "array",
@@ -86,8 +86,10 @@ Hard rules:
 - The final result object must include answer as a string and output_contract as an object.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
-- Script restrictions: no imports, no open, no os/sys/pathlib/subprocess/socket/requests/urllib/shutil, no eval/exec/compile, no filesystem writes. Use the provided helpers only:
+- Script sandbox: prefer the provided helpers:
   csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, emit(obj).
+- You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator.
+- open(path) is read-only and works only for files listed in input_paths. Never write files, run shell commands, use network/process libraries, access os/sys/pathlib/shutil, or use dynamic eval/exec/compile.
 - input_paths must list every path the script reads. The runner copies only those paths into an isolated temporary workspace.
 - Emit row-level audit in rows when the task includes filtering/joining/aggregation decisions. Do not misuse member_set/count semantics; numeric totals belong in answer/metrics/audit, not in member count fields.
 `

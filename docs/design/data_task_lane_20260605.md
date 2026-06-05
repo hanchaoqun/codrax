@@ -57,11 +57,19 @@ The data lane uses a dedicated planner and a deterministic read-only runner:
 6. Render only the final requested data answer, plus a compact audit summary
    when explanations are allowed.
 
-The helper intentionally does not expose `open`, `__import__`, shell execution,
-or repository write access. It is not a perfect OS sandbox, but it is much
-safer than enabling arbitrary read-mode shell/Python in the existing analysis
-pipeline, and it keeps all repo writes out of scope by copying inputs to a
-temporary workspace.
+The helper intentionally exposes only a narrow read-only capability surface:
+
+- `open(path)` is wrapped so it can only read files declared in `input_paths`
+  and copied into the temporary workspace.
+- `import` is wrapped so only common data standard libraries are available
+  (`csv`, `json`, `decimal`, `re`, `math`, `statistics`, `collections`,
+  `datetime`, `itertools`, `functools`, `operator`).
+- shell execution, network/process libraries, dynamic execution, repository
+  writes, and path traversal remain unavailable.
+
+This is not a perfect OS sandbox, but it is much safer than enabling arbitrary
+read-mode shell/Python in the existing analysis pipeline, and it keeps all repo
+writes out of scope by copying inputs to a temporary workspace.
 
 ## Output Contract
 
@@ -111,6 +119,14 @@ requirements.
   normalization plus `contract_warnings`; they do not hard-stop the whole
   answer. Strict-output responses omit warning prose from the user-visible
   payload to avoid violating the requested shape.
+- **Risk: data sandbox blocks normal data processing.** The first runner
+  treated `import` and `open` as unsafe strings. Real data tasks commonly need
+  standard data libraries and direct read-only file iteration, so customer
+  tasks could fail before computation. Mitigation: replace the broad static
+  denial with a capability sandbox: whitelist data-only imports and wrap
+  `open(path)` to read declared inputs only. Dangerous capabilities such as
+  network/process access, dynamic execution, repository writes, and path
+  traversal remain blocked by the runtime boundary.
 
 ## Task Ledger
 
@@ -126,6 +142,9 @@ requirements.
 - [x] Add tests for routing, planner JSON compatibility, runner safety, strict
   output contract, and source/trace/operation non-regression.
 - [x] Update user-facing documentation once the lane is functional.
+- [x] Relax the data runner from broad syntax bans to a read-only capability
+  sandbox so normal data imports and declared-input reads are allowed while
+  dangerous process/network/write behavior remains blocked.
 
 ## Delivery Batches
 

@@ -40,7 +40,9 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"not source-code analysis",
 		"or computer operation",
 		"output_contract",
-		"no imports",
+		"common data standard libraries",
+		"open(path) is read-only",
+		"network/process libraries",
 		"row-level audit",
 	} {
 		if !strings.Contains(system, want) {
