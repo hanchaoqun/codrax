@@ -213,8 +213,8 @@ var dataTaskEvaluationTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["complete", "continue_data", "needs_clarification", "blocked", "budget_exhausted", "partial_answer_possible"],
-      "description": "complete when the user's data goal and output contract are satisfied; continue_data when another bounded data plan should run; needs_clarification only for user-owned missing business inputs; blocked for capability/policy barriers; budget_exhausted/partial_answer_possible when useful progress exists but no more safe bounded work should run."
+      "enum": ["complete", "continue_data", "expand_graph", "repair_node", "continue_transform", "needs_clarification", "blocked", "budget_exhausted", "partial_answer_possible"],
+      "description": "complete when the user's data goal and output contract are satisfied. expand_graph when more inspection/extraction action nodes are needed. repair_node when a specific prior action/node should be corrected without expanding the whole graph. continue_transform when the next bounded transform over known artifacts should run. continue_data is a legacy broad continue status; prefer the more precise graph statuses. needs_clarification is only for user-owned missing business inputs; blocked is for capability/policy barriers; budget_exhausted/partial_answer_possible when useful progress exists but no more safe bounded work should run."
     },
     "reason": {"type": "string"},
     "confidence": {"type": "string"},
@@ -222,6 +222,18 @@ var dataTaskEvaluationTool = llm.ToolSchema{
       "type": "array",
       "items": {"type": "string"},
       "description": "User-owned missing inputs only. Do not list facts that can be computed from available local data files."
+    },
+    "action_id": {
+      "type": "string",
+      "description": "Optional id of the action/node to repair or continue when status is repair_node or continue_transform."
+    },
+    "action_kind": {
+      "type": "string",
+      "description": "Optional action kind such as material_inventory, inspect_material, or custom_transform."
+    },
+    "repair_locus": {
+      "type": "string",
+      "description": "Optional compact typed locus for repair, such as action id, artifact id, JSON path, or script line. Do not put prose-only reasoning here."
     }
   },
   "required": ["status", "reason"]
@@ -316,7 +328,10 @@ Hard rules:
 - This is data-lane evaluation only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.
 - Existing result.answer is the authoritative computed result for its batch; do not recalculate manually.
 - If the user's strict output contract and success criteria are satisfied, emit status=complete.
-- If the result is a deliberate intermediate batch, contract warnings remain, required item decisions/audit are missing, decision samples show empty/missing parsed fields, or success criteria are not covered but can still be computed from available data files, emit status=continue_data.
+- If more objective material/profile artifacts are needed before computing, emit status=expand_graph.
+- If one specific prior action/node is structurally wrong but the graph shape is still right, emit status=repair_node and fill action_id/action_kind/repair_locus when available.
+- If enough artifacts exist and the next step should be a bounded transform over known inputs, emit status=continue_transform.
+- If the result is a deliberate intermediate batch, contract warnings remain, required item decisions/audit are missing, decision samples show empty/missing parsed fields, or success criteria are not covered but can still be computed from available data files, emit the most precise continue status above. Use continue_data only when none of expand_graph/repair_node/continue_transform fits.
 - If the plan required rule_coverage, contributions, entity_resolutions, or reconcile, those typed result ledgers must be present and reconcile.status must be pass before status=complete.
 - Do not mark complete when reconcile failed or when contribution/entity/rule samples show missing values that are needed for the user goal.
 - Do not mark a batch complete just because the script exited successfully. The result must be supported by consumed materials, decision samples, metrics, and the declared coverage contract.
@@ -734,6 +749,7 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields to distinguish a sample from the full result.\n")
 	b.WriteString("- Do not infer missing reconcile groups, answer items, decisions, contributions, or resolutions solely because the sample list is shorter than the total count.\n")
 	b.WriteString("- Judge completion from the user goal, output_contract, counts, reconcile status, coverage warnings, and explicit failures together.\n")
+	b.WriteString("- Prefer precise continue statuses: expand_graph for more inspection/extraction artifacts, repair_node for one failed/incorrect prior node, continue_transform for a bounded transform over known artifacts. Use continue_data only when no precise status fits.\n")
 	return strings.TrimSpace(b.String())
 }
 
@@ -886,6 +902,9 @@ type dataTaskEvaluationDraft struct {
 	Reason        flexiblePolicyString     `json:"reason"`
 	Confidence    flexiblePolicyString     `json:"confidence"`
 	MissingInputs flexiblePolicyStringList `json:"missing_inputs"`
+	ActionID      flexiblePolicyString     `json:"action_id"`
+	ActionKind    flexiblePolicyString     `json:"action_kind"`
+	RepairLocus   flexiblePolicyString     `json:"repair_locus"`
 }
 
 type dataTaskResultPatchDraft struct {
@@ -909,6 +928,9 @@ func (d dataTaskEvaluationDraft) toEvaluation() dataquery.Evaluation {
 		Reason:        strings.TrimSpace(string(d.Reason)),
 		Confidence:    strings.TrimSpace(string(d.Confidence)),
 		MissingInputs: cleanPolicyStringList([]string(d.MissingInputs)),
+		ActionID:      strings.TrimSpace(string(d.ActionID)),
+		ActionKind:    strings.TrimSpace(string(d.ActionKind)),
+		RepairLocus:   strings.TrimSpace(string(d.RepairLocus)),
 	}
 }
 

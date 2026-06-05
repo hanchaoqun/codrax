@@ -229,7 +229,7 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 		responses: []llm.Response{{
 			ToolCalls: []llm.ToolCall{{
 				Name:   dataTaskEvaluationTool.Name,
-				Params: []byte(`{"status":"continue_data","reason":"needs final aggregation","confidence":"high","missingInputs":"final total, row audit"}`),
+				Params: []byte(`{"status":"repair_node","reason":"fix one transform node","confidence":"high","missingInputs":"final total, row audit","actionId":"normalize_1","actionKind":"custom_transform","repairLocus":"/artifacts/0"}`),
 			}},
 			StopReason: "tool_use",
 		}},
@@ -249,14 +249,17 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvaluateDataTask: %v", err)
 	}
-	if eval.Status != dataquery.EvalContinueData || eval.Confidence != "high" {
+	if eval.Status != dataquery.EvalRepairNode || eval.Confidence != "high" {
 		t.Fatalf("eval=%+v", eval)
+	}
+	if eval.ActionID != "normalize_1" || eval.ActionKind != "custom_transform" || eval.RepairLocus != "/artifacts/0" {
+		t.Fatalf("eval repair locus not parsed: %+v", eval)
 	}
 	if len(eval.MissingInputs) != 2 || eval.MissingInputs[1] != "row audit" {
 		t.Fatalf("MissingInputs=%v", eval.MissingInputs)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after"} {
+	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after", "expand_graph", "repair_node", "continue_transform"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
 		}

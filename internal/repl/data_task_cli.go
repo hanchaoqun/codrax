@@ -139,7 +139,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		switch eval.Status {
 		case dataquery.EvalComplete:
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
-		case dataquery.EvalContinueData:
+		case dataquery.EvalContinueData, dataquery.EvalExpandGraph, dataquery.EvalContinueTransform:
 			if !contOK {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
@@ -150,6 +150,22 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextPlan)
 			currentPlan = nextPlan
+			continue
+		case dataquery.EvalRepairNode:
+			repairer, repairOK := cfg.Planner.(DataTaskRepairPlanner)
+			if !repairOK || repairRounds >= repairRoundsMax {
+				return dataTaskAnswerMarkdown(cfg.Language, result), nil
+			}
+			repairRounds++
+			repairReason := dataTaskEvaluationRepairReason(eval)
+			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowErrorSegment(cfg.Language, repairReason))
+			repairedPlan, err := repairer.RepairDataTask(ctx, request, repoRoot, policy, candidates, currentPlan, repairReason)
+			if err != nil {
+				return "", fmt.Errorf("repair data task node: %w", err)
+			}
+			repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, repairReason)
+			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, repairedPlan)
+			currentPlan = repairedPlan
 			continue
 		case dataquery.EvalNeedsClarification:
 			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil

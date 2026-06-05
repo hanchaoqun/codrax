@@ -125,15 +125,18 @@ remove the read. This keeps repair local to the graph node.
 
 ### Batch 2: Adaptive Planner Contract
 
-- [ ] Make the data planner prefer action batches for complex tasks and use
+- [x] Make the data planner prefer action batches for complex tasks and use
       top-level `script` only for simple bounded transforms.
-- [ ] Add stronger continuation rules that consume `result.artifacts` as graph
+- [x] Add stronger continuation rules that consume `result.artifacts` as graph
       state rather than script prose.
-- [ ] Add evaluator checks for artifact progress:
+- [x] Add evaluator checks for artifact progress:
       `complete`, `expand_graph`, `repair_node`, `continue_transform`,
       `blocked`, and `partial_answer_possible`.
-- [ ] Add DAG-node budget accounting so one bad node cannot consume the entire
-      data workflow budget.
+- [x] Route evaluator statuses through distinct REPL/CLI branches:
+      graph expansion and transform continuation use continuation planning,
+      while node repair uses the repair planner with typed action/locus context.
+- [ ] Add finer DAG-node budget accounting so one bad node cannot consume the
+      entire data workflow budget.
 
 ### Batch 3: More Deterministic Atomic Ops
 
@@ -166,4 +169,3 @@ remove the read. This keeps repair local to the graph node.
       routes do not see the data DAG unless typed routing selects it.
 - [ ] Keep REPL previews compact and full artifacts/logs auditable.
 - [ ] Keep CLI progress on stderr and final answer on stdout.
-

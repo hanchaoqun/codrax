@@ -968,6 +968,9 @@ type EvaluationStatus string
 const (
 	EvalComplete              EvaluationStatus = "complete"
 	EvalContinueData          EvaluationStatus = "continue_data"
+	EvalExpandGraph           EvaluationStatus = "expand_graph"
+	EvalRepairNode            EvaluationStatus = "repair_node"
+	EvalContinueTransform     EvaluationStatus = "continue_transform"
 	EvalNeedsClarification    EvaluationStatus = "needs_clarification"
 	EvalBlocked               EvaluationStatus = "blocked"
 	EvalBudgetExhausted       EvaluationStatus = "budget_exhausted"
@@ -979,12 +982,21 @@ type Evaluation struct {
 	Reason        string           `json:"reason,omitempty"`
 	Confidence    string           `json:"confidence,omitempty"`
 	MissingInputs []string         `json:"missing_inputs,omitempty"`
+	ActionID      string           `json:"action_id,omitempty"`
+	ActionKind    string           `json:"action_kind,omitempty"`
+	RepairLocus   string           `json:"repair_locus,omitempty"`
 }
 
 func NormalizeEvaluationStatus(status string) EvaluationStatus {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case string(EvalComplete):
 		return EvalComplete
+	case string(EvalExpandGraph), "expand", "graph", "continue_graph":
+		return EvalExpandGraph
+	case string(EvalRepairNode), "repair", "node_repair":
+		return EvalRepairNode
+	case string(EvalContinueTransform), "transform":
+		return EvalContinueTransform
 	case string(EvalContinueData), "continue", "ready":
 		return EvalContinueData
 	case string(EvalNeedsClarification):

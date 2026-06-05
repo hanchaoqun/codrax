@@ -1518,7 +1518,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
-		case dataquery.EvalContinueData:
+		case dataquery.EvalContinueData, dataquery.EvalExpandGraph, dataquery.EvalContinueTransform:
 			if !contOK {
 				msg := dataTaskAnswerMarkdown(r.language, result)
 				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task evaluator requested continuation but continuation planner is unavailable: " + eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -1546,6 +1546,40 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.emitDataTaskPlanAudit(nextPlan)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextPlan)
 			currentPlan = nextPlan
+			continue
+		case dataquery.EvalRepairNode:
+			repairer, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
+			if !repairOK || repairRounds >= r.dataTaskMaxRepairRounds {
+				msg := dataTaskAnswerMarkdown(r.language, result)
+				reason := "data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted: " + eval.Reason
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+				r.finishDataTaskRouteSpinner("partial_answer_possible")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
+			repairRounds++
+			repairReason := dataTaskEvaluationRepairReason(eval)
+			r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, repairReason))
+			ctx := r.startTurn()
+			repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, candidates, currentPlan, repairReason)
+			r.endTurn()
+			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+			if repairErr != nil {
+				reason := fmt.Sprintf("%s\nrepair data task node: %v", repairReason, repairErr)
+				msg := dataTaskErrorMarkdown(r.language, reason)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+				r.finishDataTaskRouteSpinner("failed")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
+			repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, repairReason)
+			r.emitDataTaskPlanAudit(repairedPlan)
+			r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
+			currentPlan = repairedPlan
 			continue
 		case dataquery.EvalNeedsClarification:
 			msg := dataTaskEvaluationMarkdown(r.language, eval)
@@ -2644,6 +2678,23 @@ func dataTaskRunnerToolDetail(plan dataquery.TaskPlan, lang string) string {
 	}
 	parts = append(parts, dataTaskValidationFlagSegments(plan.CoverageContract, lang)...)
 	return strings.Join(parts, " ")
+}
+
+func dataTaskEvaluationRepairReason(eval dataquery.Evaluation) string {
+	parts := []string{"evaluation requested node repair"}
+	if id := strings.TrimSpace(eval.ActionID); id != "" {
+		parts = append(parts, "action_id="+id)
+	}
+	if kind := strings.TrimSpace(eval.ActionKind); kind != "" {
+		parts = append(parts, "action_kind="+kind)
+	}
+	if locus := strings.TrimSpace(eval.RepairLocus); locus != "" {
+		parts = append(parts, "repair_locus="+locus)
+	}
+	if reason := strings.TrimSpace(eval.Reason); reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...string) {
