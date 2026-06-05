@@ -21,6 +21,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -389,6 +390,7 @@ type appContext struct {
 	chitchatResponder      repl.ChitchatResponder
 	chitchatClassifier     repl.ChitchatClassifier
 	operationPlanner       repl.CommandOperationPlanner
+	dataTaskPlanner        repl.DataTaskPlanner
 	replHeaderPrinted      bool
 	replModelListLine      string
 	replModelSummaryLine   string
@@ -1074,6 +1076,22 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	// step below (gated by --mermaid-render). REPL has its own
 	// renderer at the user-output boundary; both paths follow the
 	// "render only at the user-facing edge" rule.
+	if handled, result, err := maybeRunSingleShotDataTask(request); handled {
+		if err != nil {
+			return err
+		}
+		result = strings.TrimSpace(result)
+		if result == "" {
+			fmt.Println("(no result)")
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "\n━━━\n\n")
+		fmt.Print(result)
+		if !strings.HasSuffix(result, "\n") {
+			fmt.Println()
+		}
+		return nil
+	}
 	if handled, result, err := maybeRunSingleShotOperation(request); handled {
 		if err != nil {
 			return err
@@ -1203,8 +1221,117 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 	return true, result, nil
 }
 
+func maybeRunSingleShotDataTask(request string) (bool, string, error) {
+	if !singleShotDataTaskRoutingEnabled() {
+		return false, "", nil
+	}
+	classifier, ok := app.chitchatClassifier.(repl.TurnPolicyClassifier)
+	if !ok || classifier == nil {
+		return false, "", nil
+	}
+	ctx := context.Background()
+	hasAttachment := singleShotHasRuntimeAttachment()
+	hint := ""
+	if hasAttachment {
+		hint = "attachment=true"
+	}
+	policy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
+	if err != nil {
+		logging.Warning("[cmd/data] turn-policy classifier failed; falling back to next route: %v", err)
+		return false, "", nil
+	}
+	rawPolicy := policy
+	policy = repl.ApplyTurnPolicyGuards(policy, false, hasAttachment)
+	logging.Info("[cmd/data] single-shot turn policy raw_route=%s route=%s data_task_kind=%s needs_data=%t needs_repo=%t needs_operation=%t confidence=%.2f source=%s reason=%q",
+		rawPolicy.Route,
+		policy.Route,
+		policy.DataTaskKind,
+		policy.NeedsDataAccess,
+		policy.NeedsRepoAccess,
+		policy.NeedsOperationAccess,
+		policy.Confidence,
+		policy.Source,
+		oneLineForLog(policy.Reason))
+	if policy.Route != repl.RouteData || !policy.NeedsDataAccess {
+		if app.orch != nil {
+			app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(policy))
+		}
+		return false, "", nil
+	}
+	candidates, err := dataquery.DiscoverCandidateFiles(flagRepo, 240)
+	if err != nil {
+		return true, "", fmt.Errorf("data task discover files: %w", err)
+	}
+	plan, err := app.dataTaskPlanner.PlanDataTask(ctx, request, flagRepo, policy, candidates)
+	if err != nil {
+		return true, "", fmt.Errorf("data task plan: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
+	case "needs_clarification":
+		return true, replDataTaskClarificationForCLI(plan), nil
+	case "blocked":
+		return true, replDataTaskBlockedForCLI(plan), nil
+	}
+	result, err := (dataquery.Runner{
+		RepoRoot: flagRepo,
+		TempRoot: filepath.Join(runtimeAnchorDir, "data"),
+	}).Run(ctx, plan)
+	if err != nil {
+		return true, "", fmt.Errorf("data task execute: %w", err)
+	}
+	return true, replDataTaskAnswerForCLI(result), nil
+}
+
+func replDataTaskAnswerForCLI(result dataquery.Result) string {
+	return replDataTaskAnswerMarkdown(result)
+}
+
+func replDataTaskAnswerMarkdown(result dataquery.Result) string {
+	contract := result.OutputContract.Normalize()
+	if !contract.ExplanationAllowed {
+		return strings.TrimSpace(result.Answer)
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(result.Answer))
+	if strings.TrimSpace(result.AuditSummary) != "" {
+		fmt.Fprintf(&b, "\n\nAudit summary: %s", strings.TrimSpace(result.AuditSummary))
+	}
+	if len(result.Rows) > 0 {
+		fmt.Fprintf(&b, "\n\nRow decisions: %d", len(result.Rows))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func replDataTaskClarificationForCLI(plan dataquery.TaskPlan) string {
+	if len(plan.Questions) == 0 {
+		return "Data task needs clarification."
+	}
+	var b strings.Builder
+	b.WriteString("Data task needs more information:")
+	for i, q := range plan.Questions {
+		fmt.Fprintf(&b, "\n%d. %s", i+1, strings.TrimSpace(q.Question))
+	}
+	return b.String()
+}
+
+func replDataTaskBlockedForCLI(plan dataquery.TaskPlan) string {
+	reason := strings.TrimSpace(plan.BlockReason)
+	if reason == "" {
+		reason = "data task planner blocked the request"
+	}
+	return "Data processing was blocked.\n\nReason: " + reason
+}
+
 func singleShotOperationRoutingEnabled() bool {
 	if !app.operationRouteEnabled || app.operationPlanner == nil || app.chitchatClassifier == nil {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(flagMode))
+	return mode == "" || mode == string(types.ModeRead)
+}
+
+func singleShotDataTaskRoutingEnabled() bool {
+	if app.dataTaskPlanner == nil || app.chitchatClassifier == nil {
 		return false
 	}
 	mode := strings.ToLower(strings.TrimSpace(flagMode))
@@ -1345,6 +1472,7 @@ func runREPL(_ *cobra.Command) error {
 		OperationEnabled:       app.operationRouteEnabled,
 		OperationProviders:     append([]operation.ProviderInfo(nil), app.operationProviders...),
 		OperationPlanner:       app.operationPlanner,
+		DataTaskPlanner:        app.dataTaskPlanner,
 		OperationCommandPolicy: app.operationCommandPolicy,
 		MCPServers:             app.mcpRegistry,
 		MCPServerConfigs:       append([]types.MCPServerConfig(nil), app.mcpServerConfigs...),
@@ -3706,6 +3834,21 @@ func initApp(cmd *cobra.Command, args []string) error {
 				withRenderLLMTelemetry(adapter, renderer, types.AgentName("operation_planner"), ""),
 			)
 			logging.Info("[operation] command planner: ON (model=%s). Route via providers.yaml agents.operation_planner or disable operation_route_enabled.", adapter.ModelID())
+		}
+	}
+
+	if classifierEnabled && app.chitchatResponder != nil {
+		resolved := config.ResolveProvider(providersCfg, "data_planner")
+		if _, has := providersCfg.LLM.Agents["data_planner"]; !has {
+			resolved = config.ResolveProvider(providersCfg, "chitchat_classifier")
+		}
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[data] planner adapter init failed; route=data will report unavailable: %v", err)
+		} else {
+			app.dataTaskPlanner = repl.NewDataTaskPlanner(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("data_planner"), ""),
+			)
+			logging.Info("[data] task planner: ON (model=%s). Route via providers.yaml agents.data_planner.", adapter.ModelID())
 		}
 	}
 

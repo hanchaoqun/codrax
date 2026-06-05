@@ -24,11 +24,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
@@ -71,6 +73,19 @@ type structuredErrorLegacyClassifier struct {
 	legacyErr    error
 	policyCalls  int
 	legacyCalls  int
+}
+
+type stubDataTaskPlanner struct {
+	plan       dataquery.TaskPlan
+	err        error
+	calls      int
+	candidates [][]dataquery.CandidateFile
+}
+
+func (s *stubDataTaskPlanner) PlanDataTask(_ context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
+	s.calls++
+	s.candidates = append(s.candidates, append([]dataquery.CandidateFile(nil), candidates...))
+	return s.plan, s.err
 }
 
 func (s *structuredErrorLegacyClassifier) Classify(_ context.Context, line, hint string) (bool, error) {
@@ -881,10 +896,11 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 	system := adapter.calls[0].messages[0].Content
 	for _, want := range []string{
 		"route=data",
-		"CSV/TSV/JSON/JSONL/text data cleaning",
-		"strict output-only requests",
+		"structured or semi-structured files/materials",
+		"These examples are not exhaustive",
+		"JSON-only, CSV-only",
 		"source-code implementation analysis",
-		"log/trace root-cause",
+		"root-cause diagnosis",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
@@ -1238,6 +1254,59 @@ func TestTurnPolicyDispatch_ExternalObservationAnalysisDoesNotCallOperationEvalu
 				t.Fatalf("external observation analysis must not call operation planner/evaluator; calls=%d", len(adapter.calls))
 			}
 		})
+	}
+}
+
+func TestTurnPolicyDispatch_DataRouteBypassesSourcePipeline(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteData,
+			NeedsDataAccess: true,
+			Operation:       "data_aggregation",
+			DataTaskKind:    "data_aggregation",
+			Source:          "data",
+			RiskLevel:       "low",
+			Confidence:      0.9,
+		},
+	}
+	planner := &stubDataTaskPlanner{plan: dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+		},
+		Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "explanation_allowed": False}})`,
+	}}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "汇总 orders.csv，只输出一行 CSV\n/exit\n")
+	r.repoRoot = root
+	r.runtimeAnchor = t.TempDir()
+	r.dataTaskPlanner = planner
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("data route must not enter source pipeline; requests=%v", runner.requests)
+	}
+	if planner.calls != 1 {
+		t.Fatalf("planner calls=%d, want 1", planner.calls)
+	}
+	if !strings.Contains(out.String(), "A,17") {
+		t.Fatalf("strict data answer missing from REPL output:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "审计摘要") || strings.Contains(out.String(), "Audit summary") {
+		t.Fatalf("strict output contract should not add explanation:\n%s", out.String())
 	}
 }
 

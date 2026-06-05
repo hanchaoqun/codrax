@@ -91,17 +91,17 @@ requirements.
 ## Task Ledger
 
 - [x] Record problem, red lines, selected architecture, and batch plan.
-- [ ] Add typed `data` route to turn policy, prompt, JSON compatibility, and
+- [x] Add typed `data` route to turn policy, prompt, JSON compatibility, and
   guard tests.
-- [ ] Implement `internal/dataquery` restricted runner with copied inputs,
+- [x] Implement `internal/dataquery` restricted runner with copied inputs,
   structured result, row decision ledger, and output-contract validation.
-- [ ] Implement data planner schema, prompt, JSON repair, and request/result
+- [x] Implement data planner schema, prompt, JSON repair, and request/result
   conversion.
-- [ ] Wire REPL route and CLI single-shot dispatch without touching
+- [x] Wire REPL route and CLI single-shot dispatch without touching
   orchestrator read mode.
-- [ ] Add tests for routing, planner JSON compatibility, runner safety, strict
+- [x] Add tests for routing, planner JSON compatibility, runner safety, strict
   output contract, and source/trace/operation non-regression.
-- [ ] Update user-facing documentation once the lane is functional.
+- [x] Update user-facing documentation once the lane is functional.
 
 ## Delivery Batches
 

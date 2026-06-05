@@ -37,6 +37,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pterm/pterm"
 
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -292,6 +293,10 @@ type Config struct {
 	// OperationPlanner is an optional LLM-backed command planner for
 	// route=operation + operation_kind=computer_operation.
 	OperationPlanner CommandOperationPlanner
+	// DataTaskPlanner is an optional LLM-backed planner for route=data. It is
+	// intentionally independent from the source-analysis pipeline and the
+	// command-operation approval loop.
+	DataTaskPlanner DataTaskPlanner
 	// OperationCommandPolicy controls command-operation approval/execution.
 	OperationCommandPolicy operation.CommandPolicy
 	// MCPServers is used only for explicitly configured operation providers.
@@ -589,6 +594,7 @@ type REPL struct {
 	operationEnabled            bool
 	operationProviders          []operation.ProviderInfo
 	operationPlanner            CommandOperationPlanner
+	dataTaskPlanner             DataTaskPlanner
 	operationPolicy             operation.CommandPolicy
 	pendingOperation            *operation.CommandOperationPlan
 	pendingCommandClarification *pendingCommandClarification
@@ -777,6 +783,7 @@ func New(cfg Config) *REPL {
 		operationEnabled:       cfg.OperationEnabled,
 		operationProviders:     append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
 		operationPlanner:       cfg.OperationPlanner,
+		dataTaskPlanner:        cfg.DataTaskPlanner,
 		operationPolicy:        cfg.OperationCommandPolicy,
 		mcpServers:             cfg.MCPServers,
 		mcpServerConfigs:       append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
@@ -1214,6 +1221,72 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
+func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
+	if r.dataTaskPlanner == nil {
+		msg := dataTaskUnavailableMarkdown(r.language)
+		r.finishDataTaskRouteSpinner("blocked")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+	ctx := r.startTurn()
+	candidates, err := dataquery.DiscoverCandidateFiles(r.repoRoot, 240)
+	if err != nil {
+		r.endTurn()
+		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("discover data files: %v", err))
+		r.finishDataTaskRouteSpinner("failed")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+	plan, err := r.dataTaskPlanner.PlanDataTask(ctx, line, r.repoRoot, policy, candidates)
+	r.endTurn()
+	if err != nil {
+		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("plan data task: %v", err))
+		r.finishDataTaskRouteSpinner("failed")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
+	case "needs_clarification":
+		msg := dataTaskClarificationMarkdown(r.language, plan)
+		r.finishDataTaskRouteSpinner("needs_clarification")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	case "blocked":
+		msg := dataTaskBlockedMarkdown(r.language, plan)
+		r.finishDataTaskRouteSpinner("blocked")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+	runner := dataquery.Runner{
+		RepoRoot: r.repoRoot,
+		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
+	}
+	result, err := runner.Run(context.Background(), plan)
+	if err != nil {
+		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("execute data task: %v", err))
+		r.finishDataTaskRouteSpinner("failed")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+	msg := dataTaskAnswerMarkdown(r.language, result)
+	r.finishDataTaskRouteSpinner("complete")
+	r.renderBordered(msg)
+	r.lastAnswerOrigin = replAnswerOriginLocal
+	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
 // operationDispatch is the independent operation/artifact route. Batch 2 is
 // intentionally plan-only unless a provider is explicitly registered: it gives
 // the user a structured, localized operation preflight without entering the
@@ -1522,6 +1595,39 @@ func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
 		return
 	}
 	label, segs := operationRouteSummary(r.language, status)
+	r.emitOperationLightRouteSummary(label, segs)
+}
+
+func (r *REPL) finishDataTaskRouteSpinner(status string) {
+	if r.renderer == nil {
+		return
+	}
+	label := "数据处理"
+	segs := []string{"已完成", "未读源码"}
+	if !isZh(r.language) {
+		label = "Data task"
+		segs = []string{"complete", "no source read"}
+	}
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "needs_clarification":
+		if isZh(r.language) {
+			segs[0] = "需要补充信息"
+		} else {
+			segs[0] = "needs input"
+		}
+	case "blocked":
+		if isZh(r.language) {
+			segs[0] = "已阻止"
+		} else {
+			segs[0] = "blocked"
+		}
+	case "failed":
+		if isZh(r.language) {
+			segs[0] = "未完成"
+		} else {
+			segs[0] = "failed"
+		}
+	}
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
@@ -3983,6 +4089,9 @@ func (r *REPL) dispatch(line, display string) {
 						return
 					}
 					r.operationDispatch(line, display, policy)
+					return
+				case RouteData:
+					r.dataTaskDispatch(line, display, policy)
 					return
 				case RouteHybrid:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {

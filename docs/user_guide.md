@@ -12,7 +12,8 @@
 
 - 第一次用 codrax → 直接看 **第 1 章 5 分钟入门**,跟着抄就能问出第一个答案。
 - 想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。
-- 想接外部工具、知识库或电脑操作 Skills → 看 **3.7 外部工具与外部 Skills**。
+- 想做本地数据清洗、汇总、过滤或严格格式输出 → 看 **3.7 数据处理任务**。
+- 想接外部工具、知识库或电脑操作 Skills → 看 **3.8 外部工具与外部 Skills**。
 - 想让 codrax 真改代码 → 第 4 章 写模式 `plan → apply → verify`。
 - 想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。
 
@@ -35,7 +36,8 @@
   - [3.4 记忆与会话](#34-记忆与会话)
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
   - [3.6 跨仓 workspace(multi-repo discovery)](#36-跨仓-workspacemulti-repo-discovery)
-  - [3.7 外部工具与外部 Skills](#37-外部工具与外部-skills)
+  - [3.7 数据处理任务](#37-数据处理任务)
+  - [3.8 外部工具与外部 Skills](#38-外部工具与外部-skills)
     - [先选入口](#先选入口)
     - [外部 Skills / Operation Skills](#外部-skills--operation-skills)
     - [MCP 外部工具](#mcp-外部工具)
@@ -679,7 +681,30 @@ multi_repo_enabled: false
 
 ---
 
-## 3.7 外部工具与外部 Skills
+## 3.7 数据处理任务
+
+数据处理任务用于**只读地处理本地结构化或半结构化材料**，例如表格、台账、清单、JSON/JSONL、文本化附件索引、抽取后的文档文本等。典型目标包括清洗、过滤、去重、join、汇总、排序、行级判定、金额/数量计算，以及“只输出 JSON / CSV / 单行字符串 / Markdown 表格”等严格格式结果。
+
+这条路径和源码分析、trace/log 根因分析、电脑操作是分开的：
+
+- 不把数据文件当成当前源码实现文件，不走源码 citation gate。
+- 纯只读数据计算不需要 command-operation 审批。
+- 模型负责理解规则和生成计算计划，系统用受限的确定性 runner 读取候选数据文件并产出结果、行级审计和输出契约校验。
+- 如果用户同时要求“算结果并检查代码实现”，才会进入数据 + 源码的混合流程。
+
+示例：
+
+```text
+根据当前目录下的 CSV/JSONL，把供应商相同的订单金额汇总，只输出 JSON。
+
+读取这些文本化附件和台账，按规则筛出符合条件的 PO，最终只输出逗号分隔的 PO 编号。
+
+把 orders.tsv 和 invoices.jsonl 按订单号关联，列出金额不一致的前 20 条，输出 Markdown 表格。
+```
+
+如果数据源不明确，codrax 会先请求补充路径或规则；如果用户明确要求分析源码、日志或 trace，则仍走对应的源码/外部观察管线。
+
+## 3.8 外部工具与外部 Skills
 
 Codrax 有两类外部能力入口:
 
@@ -1642,8 +1667,6 @@ codrax 也会保护用户面板和上下文:
 | 探索阶段看不到 MCP 工具 | `mcp_servers` 为空、server 没有 `tools/list`、当前不是探索类 agent | 检查 yaml、server 日志和问题是否进入探索阶段 |
 | `mcp_read_resource` 拒绝 URI | URI 没有出现在 `resources/list` | 让 server 先枚举资源;不要让模型凭空拼 URI |
 | 行号没有进入答案 | 返回的是普通文本/普通 JSON | 使用 `codrax.mcp.observation.v1` 或 `application/vnd.codrax.observation+json` |
-
----
 
 # 4. 写模式 — plan → apply → verify
 

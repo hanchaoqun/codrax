@@ -219,6 +219,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if tempRoot == "" {
 		tempRoot = os.TempDir()
 	}
+	if err := os.MkdirAll(tempRoot, 0700); err != nil {
+		return Result{}, err
+	}
 	workDir, err := os.MkdirTemp(tempRoot, "codrax-data-*")
 	if err != nil {
 		return Result{}, err

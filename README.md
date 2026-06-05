@@ -97,6 +97,16 @@ Codrax 支持面向 Android、Harmony / HiTrace、东湖等运行时 trace 的�
 
 这类问题不应该只靠模型手写 grep/awk 反复试探，Codrax 会尽量把可确定的 trace 事实结构化为证据包。
 
+### 本地数据清洗与汇总
+
+当任务的核心是读取本地结构化或半结构化材料并计算结果时，Codrax 会尽量走独立的数据处理通道，而不是把表格或台账误当源码文件：
+
+- CSV / TSV / JSON / JSONL / 文本化附件索引的清洗、过滤、去重、join、汇总。
+- 行级判定、金额/数量计算、异常记录筛选。
+- 严格输出 JSON-only、CSV-only、单行字符串或 Markdown 表格。
+
+纯只读数据计算不需要 command-operation 审批，也不走源码 citation gate；如果用户同时要求检查代码实现，才会进入数据 + 源码的混合分析。
+
 ### 外部工具与电脑操作工作流
 
 Codrax 可以通过 MCP 或 operation skills 接入外部能力，例如：

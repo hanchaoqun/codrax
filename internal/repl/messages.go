@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -2128,6 +2129,78 @@ func commandOperationDisplayPreview(s, lang string, hasPayloadRefOpt ...bool) st
 		suffix += "]"
 	}
 	return preview + suffix
+}
+
+func dataTaskUnavailableMarkdown(lang string) string {
+	if isZh(lang) {
+		return "数据处理能力未配置。当前请求已识别为只读数据计算任务，但没有可用的数据任务规划器。"
+	}
+	return "Data processing is not configured. The request was classified as a read-only data calculation task, but no data task planner is available."
+}
+
+func dataTaskErrorMarkdown(lang, errText string) string {
+	if isZh(lang) {
+		return "数据处理未完成。\n\n原因：" + strings.TrimSpace(errText)
+	}
+	return "Data processing did not complete.\n\nReason: " + strings.TrimSpace(errText)
+}
+
+func dataTaskClarificationMarkdown(lang string, plan dataquery.TaskPlan) string {
+	if len(plan.Questions) == 0 {
+		return dataTaskErrorMarkdown(lang, "data task planner requested clarification without questions")
+	}
+	var b strings.Builder
+	if isZh(lang) {
+		b.WriteString("数据处理需要补充信息：\n")
+	} else {
+		b.WriteString("Data processing needs more information:\n")
+	}
+	for i, q := range plan.Questions {
+		fmt.Fprintf(&b, "\n%d. %s\n", i+1, strings.TrimSpace(q.Question))
+		if len(q.Suggestions) > 0 {
+			if isZh(lang) {
+				fmt.Fprintf(&b, "   建议：%s\n", strings.Join(q.Suggestions, " / "))
+			} else {
+				fmt.Fprintf(&b, "   Suggestions: %s\n", strings.Join(q.Suggestions, " / "))
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func dataTaskBlockedMarkdown(lang string, plan dataquery.TaskPlan) string {
+	reason := strings.TrimSpace(plan.BlockReason)
+	if reason == "" {
+		reason = "data task planner blocked the request"
+	}
+	if isZh(lang) {
+		return "数据处理已阻止。\n\n原因：" + reason
+	}
+	return "Data processing was blocked.\n\nReason: " + reason
+}
+
+func dataTaskAnswerMarkdown(lang string, result dataquery.Result) string {
+	contract := result.OutputContract.Normalize()
+	if !contract.ExplanationAllowed {
+		return strings.TrimSpace(result.Answer)
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(result.Answer))
+	if strings.TrimSpace(result.AuditSummary) != "" {
+		if isZh(lang) {
+			fmt.Fprintf(&b, "\n\n审计摘要：%s", strings.TrimSpace(result.AuditSummary))
+		} else {
+			fmt.Fprintf(&b, "\n\nAudit summary: %s", strings.TrimSpace(result.AuditSummary))
+		}
+	}
+	if len(result.Rows) > 0 {
+		if isZh(lang) {
+			fmt.Fprintf(&b, "\n\n行级决策：%d 条", len(result.Rows))
+		} else {
+			fmt.Fprintf(&b, "\n\nRow decisions: %d", len(result.Rows))
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func commandOperationReplanIntro(lang string, plan operation.CommandOperationPlan) string {

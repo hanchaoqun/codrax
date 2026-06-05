@@ -238,7 +238,8 @@
         <a href="#34-记忆与会话">3.4 记忆与会话</a>
         <a href="#35-一台机器多仓库">3.5 一台机器多仓库</a>
         <a href="#36-跨仓-workspacemulti-repo-discovery">3.6 跨仓 workspace(multi-repo discovery)</a>
-        <a href="#37-外部工具与外部-skills">3.7 外部工具与外部 Skills</a>
+        <a href="#37-数据处理任务">3.7 数据处理任务</a>
+        <a href="#38-外部工具与外部-skills">3.8 外部工具与外部 Skills</a>
         <a href="#先选入口">先选入口</a>
         <a href="#外部-skills-operation-skills">外部 Skills / Operation Skills</a>
         <a href="#mcp-外部工具">MCP 外部工具</a>
@@ -277,7 +278,8 @@
 <ul>
 <li>第一次用 codrax → 直接看 <strong>第 1 章 5 分钟入门</strong>,跟着抄就能问出第一个答案。</li>
 <li>想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。</li>
-<li>想接外部工具、知识库或电脑操作 Skills → 看 <strong>3.7 外部工具与外部 Skills</strong>。</li>
+<li>想做本地数据清洗、汇总、过滤或严格格式输出 → 看 <strong>3.7 数据处理任务</strong>。</li>
+<li>想接外部工具、知识库或电脑操作 Skills → 看 <strong>3.8 外部工具与外部 Skills</strong>。</li>
 <li>想让 codrax 真改代码 → 第 4 章 写模式 <code>plan → apply → verify</code>。</li>
 <li>想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。</li>
 </ul>
@@ -1046,7 +1048,24 @@ multi_repo_enabled: false
 - ArkTS leak 修复(Phase 0)依然生效(它绕过 MultiGraph 在 <code>IsArkTSProject</code> 内修)</p>
 <p>适用场景:<strong>多仓 + workflow 几乎不跨仓 + 单图行为已熟悉</strong>。但默认 true 已经足够安全(单仓零开销),通常不必关。</p>
 <hr />
-<h2 id="37-外部工具与外部-skills">3.7 外部工具与外部 Skills</h2>
+<h2 id="37-数据处理任务">3.7 数据处理任务</h2>
+<p>数据处理任务用于<strong>只读地处理本地结构化或半结构化材料</strong>,例如表格、台账、清单、JSON/JSONL、文本化附件索引、抽取后的文档文本等。典型目标包括清洗、过滤、去重、join、汇总、排序、行级判定、金额/数量计算,以及“只输出 JSON / CSV / 单行字符串 / Markdown 表格”等严格格式结果。</p>
+<p>这条路径和源码分析、trace/log 根因分析、电脑操作是分开的:</p>
+<ul>
+<li>不把数据文件当成当前源码实现文件,不走源码 citation gate。</li>
+<li>纯只读数据计算不需要 command-operation 审批。</li>
+<li>模型负责理解规则和生成计算计划,系统用受限的确定性 runner 读取候选数据文件并产出结果、行级审计和输出契约校验。</li>
+<li>如果用户同时要求“算结果并检查代码实现”,才会进入数据 + 源码的混合流程。</li>
+</ul>
+<p>示例:</p>
+<pre><code class="language-text">根据当前目录下的 CSV/JSONL，把供应商相同的订单金额汇总，只输出 JSON。
+
+读取这些文本化附件和台账，按规则筛出符合条件的 PO，最终只输出逗号分隔的 PO 编号。
+
+把 orders.tsv 和 invoices.jsonl 按订单号关联，列出金额不一致的前 20 条，输出 Markdown 表格。
+</code></pre>
+<p>如果数据源不明确,codrax 会先请求补充路径或规则;如果用户明确要求分析源码、日志或 trace,则仍走对应的源码/外部观察管线。</p>
+<h2 id="38-外部工具与外部-skills">3.8 外部工具与外部 Skills</h2>
 <p>Codrax 有两类外部能力入口:</p>
 <div class="table-wrap"><table>
 <thead>
