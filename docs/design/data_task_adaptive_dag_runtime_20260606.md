@@ -152,9 +152,9 @@ remove the read. This keeps repair local to the graph node.
 
 ### Batch 4: Node-Level Repair
 
-- [ ] Return typed node failures with action id, action kind, script line,
+- [x] Return typed node failures with action id, action kind, script line,
       JSON path, and repairability.
-- [ ] Repair only the failed node when possible.
+- [x] Repair only the failed node when possible.
 - [ ] Escalate to graph expansion when a transform reads undeclared material or
       lacks schema knowledge.
 - [ ] Use result patching only for structural JSON drift, never for business

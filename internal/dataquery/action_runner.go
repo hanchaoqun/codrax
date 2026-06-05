@@ -24,6 +24,23 @@ type ActionRunner struct {
 	MaxTotalBytes int64
 }
 
+type DataActionError struct {
+	ActionID   string         `json:"action_id,omitempty"`
+	ActionKind DataActionKind `json:"action_kind,omitempty"`
+	Err        error          `json:"-"`
+}
+
+func (e DataActionError) Error() string {
+	if e.Err == nil {
+		return fmt.Sprintf("data action failed action_id=%q action_kind=%q", e.ActionID, e.ActionKind)
+	}
+	return fmt.Sprintf("data action failed action_id=%q action_kind=%q: %v", e.ActionID, e.ActionKind, e.Err)
+}
+
+func (e DataActionError) Unwrap() error {
+	return e.Err
+}
+
 func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if len(plan.Actions) == 0 {
 		return Result{}, errors.New("data action plan has no actions")
@@ -41,14 +58,14 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		case DataActionMaterialInventory:
 			artifact, err := r.runMaterialInventory(action)
 			if err != nil {
-				return Result{}, err
+				return Result{}, DataActionError{ActionID: action.ID, ActionKind: action.Kind, Err: err}
 			}
 			artifacts = append(artifacts, artifact)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionInspectMaterial:
 			artifact, err := r.runInspectMaterial(action)
 			if err != nil {
-				return Result{}, err
+				return Result{}, DataActionError{ActionID: action.ID, ActionKind: action.Kind, Err: err}
 			}
 			artifacts = append(artifacts, artifact)
 			consumed = append(consumed, artifact.SourcePaths...)
@@ -56,7 +73,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		case DataActionExtractRecords:
 			artifact, err := r.runExtractRecords(action)
 			if err != nil {
-				return Result{}, err
+				return Result{}, DataActionError{ActionID: action.ID, ActionKind: action.Kind, Err: err}
 			}
 			artifacts = append(artifacts, artifact)
 			consumed = append(consumed, artifact.SourcePaths...)
@@ -64,7 +81,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		case DataActionCustomTransform:
 			result, err := r.runCustomTransform(ctx, plan, action)
 			if err != nil {
-				return Result{}, err
+				return Result{}, DataActionError{ActionID: action.ID, ActionKind: action.Kind, Err: err}
 			}
 			lastResult = &result
 			artifacts = append(artifacts, result.Artifacts...)
@@ -73,7 +90,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				summaries = append(summaries, result.AuditSummary)
 			}
 		default:
-			return Result{}, fmt.Errorf("unsupported data action kind %q", action.Kind)
+			return Result{}, DataActionError{ActionID: action.ID, ActionKind: action.Kind, Err: fmt.Errorf("unsupported data action kind %q", action.Kind)}
 		}
 	}
 	if lastResult != nil {

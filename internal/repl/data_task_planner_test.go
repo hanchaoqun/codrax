@@ -224,6 +224,46 @@ NameError: name 'print' is not defined`
 	}
 }
 
+func TestDataTaskRepairPlannerPromptCarriesActionLocus(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false},"actions":[{"id":"fix_node","kind":"custom_transform","script":"emit_result(\"ok\", output_contract={\"format\":\"plain_single_line\",\"explanation_allowed\":false})"}]}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	repairer := planner.(DataTaskRepairPlanner)
+	previous := dataquery.TaskPlan{
+		Status:         "ready",
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []dataquery.DataAction{{
+			ID:   "transform_1",
+			Kind: dataquery.DataActionCustomTransform,
+			Script: strings.Join([]string{
+				`rows = csv_rows("orders.csv")`,
+				`value = rows[0]["missing"]`,
+				`emit_result(value, output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+			}, "\n"),
+			InputPaths: []string{"orders.csv"},
+		}},
+	}
+	executionErr := `execute data task: data action failed action_id="transform_1" action_kind="custom_transform": data task script failed: exit status 1
+Traceback (most recent call last):
+  File "/tmp/codrax-data/_runner.py", line 130, in <module>
+    exec(code, env, env)
+  File "<string>", line 2, in <module>
+KeyError: 'missing'`
+	_, err := repairer.RepairDataTask(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv", Size: 10}}, previous, executionErr)
+	if err != nil {
+		t.Fatalf("RepairDataTask: %v", err)
+	}
+	user := adapter.calls[0].messages[1].Content
+	for _, want := range []string{`"action_id": "transform_1"`, `"action_kind": "custom_transform"`, `"line": 2`, `rows[0][\"missing\"]`, "repair that action/node first"} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
 func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{{

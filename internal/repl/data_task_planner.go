@@ -590,6 +590,7 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
 	b.WriteString("## repair_rules\n")
 	b.WriteString("- typed_repair_locus.script_line is a 1-based line number in the model-authored script. typed_repair_locus.runner_line is the helper wrapper line and is usually not the line to edit. Use previous_plan_compact_json.script_line_excerpt as the primary local context when script_line is present.\n")
+	b.WriteString("- If typed_repair_locus has action_id/action_kind, repair that action/node first. Do not rewrite unrelated graph nodes unless the typed failure proves the graph needs expansion.\n")
 	b.WriteString("- If script_line is absent, repair from typed_repair_locus.code, repair_hint, JSON path details when present, and the compact previous plan; do not invent unrelated changes.\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
@@ -613,6 +614,9 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 
 type dataTaskRepairContext struct {
 	Status              string                     `json:"status,omitempty"`
+	Actions             []dataquery.DataAction     `json:"actions,omitempty"`
+	ActionID            string                     `json:"action_id,omitempty"`
+	ActionKind          string                     `json:"action_kind,omitempty"`
 	InputPaths          []string                   `json:"input_paths,omitempty"`
 	OutputContract      dataquery.OutputContract   `json:"output_contract,omitempty"`
 	CoverageContract    dataquery.CoverageContract `json:"coverage_contract,omitempty"`
@@ -640,9 +644,13 @@ func compactDataTaskRepairContext(plan dataquery.TaskPlan) dataTaskRepairContext
 
 func compactDataTaskRepairContextForViolation(plan dataquery.TaskPlan, violation dataquery.DataTaskViolation) dataTaskRepairContext {
 	scriptLine := violation.ScriptLine
-	excerpt := dataTaskScriptLineExcerpt(plan.Script, scriptLine, 8, 80)
+	script := dataTaskRepairScriptForViolation(plan, violation)
+	excerpt := dataTaskScriptLineExcerpt(script, scriptLine, 8, 80)
 	return dataTaskRepairContext{
 		Status:              strings.TrimSpace(plan.Status),
+		Actions:             compactDataTaskActionsForPrompt(plan.Actions, 12, 1800),
+		ActionID:            strings.TrimSpace(violation.ActionID),
+		ActionKind:          strings.TrimSpace(violation.ActionKind),
 		InputPaths:          append([]string(nil), plan.InputPaths...),
 		OutputContract:      plan.OutputContract,
 		CoverageContract:    plan.CoverageContract,
@@ -656,8 +664,20 @@ func compactDataTaskRepairContextForViolation(plan dataquery.TaskPlan, violation
 		ScriptLine:          scriptLine,
 		RunnerLine:          violation.RunnerLine,
 		ScriptLineExcerpt:   excerpt,
-		ScriptPreview:       clampDataTaskWorkflowText(plan.Script, 6000),
+		ScriptPreview:       clampDataTaskWorkflowText(script, 6000),
 	}
+}
+
+func dataTaskRepairScriptForViolation(plan dataquery.TaskPlan, violation dataquery.DataTaskViolation) string {
+	actionID := strings.TrimSpace(violation.ActionID)
+	if actionID != "" {
+		for _, action := range plan.Actions {
+			if strings.TrimSpace(action.ID) == actionID && strings.TrimSpace(action.Script) != "" {
+				return action.Script
+			}
+		}
+	}
+	return plan.Script
 }
 
 func dataTaskScriptLineExcerpt(script string, centerLine, contextLines, maxLines int) []dataTaskScriptLine {
