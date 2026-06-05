@@ -43,8 +43,8 @@ func TestHandleMode_ShowDefault(t *testing.T) {
 	r, out := newScriptedREPL(t, nil)
 	r.handleModeCmd("/mode")
 	got := out.String()
-	if !strings.Contains(got, "current mode: auto") {
-		t.Errorf("expected 'current mode: auto', got: %q", got)
+	if !strings.Contains(got, "Current task mode: auto") {
+		t.Errorf("expected localized current mode line, got: %q", got)
 	}
 }
 

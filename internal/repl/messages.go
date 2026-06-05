@@ -712,6 +712,13 @@ func modeSwitched(lang, mode string) string {
 	return formatN(lang, "Switched to %s mode", mode)
 }
 
+func currentUserModeMsg(lang, mode string) string {
+	if isZh(lang) {
+		return formatN(lang, "当前任务模式：%s（使用 /mode <auto|code|operation|data|write> 切换）", mode)
+	}
+	return formatN(lang, "Current task mode: %s (use /mode <auto|code|operation|data|write> to change)", mode)
+}
+
 // modeWorkflowHint returns a 1-2 line nudge for a newly-entered
 // mode. Concise, no internal terminology, only the slash commands
 // the user actually needs next. Caller wraps with r.info so the

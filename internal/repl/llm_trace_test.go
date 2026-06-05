@@ -1,12 +1,15 @@
 package repl
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestTraceFromLLMResponseCapturesReasoningAndToolCall(t *testing.T) {
@@ -28,6 +31,33 @@ func TestTraceFromLLMResponseCapturesReasoningAndToolCall(t *testing.T) {
 	}
 	if string(trace.ToolParams) != `{"route":"data"}` {
 		t.Fatalf("ToolParams=%s", trace.ToolParams)
+	}
+}
+
+type staticReplTraceProvider struct {
+	trace replLLMCallTrace
+}
+
+func (p staticReplTraceProvider) LastReplLLMTrace() replLLMCallTrace { return p.trace }
+
+func TestEmitReplLLMTraceRendersReasoningForDirectDataAndOperationCalls(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	r.emitReplLLMTrace(staticReplTraceProvider{trace: replLLMCallTrace{
+		Scope:      "data_task_planner",
+		Reasoning:  "需要先读取表格并计算总额。",
+		ToolName:   "emit_data_task_plan",
+		ToolParams: json.RawMessage(`{"status":"ready"}`),
+	}}, "data_task_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+
+	got := out.String()
+	for _, want := range []string{"需要先读取表格并计算总额", "调用工具", "emit_data_task_plan"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("direct LLM trace output missing %q:\n%s", want, got)
+		}
 	}
 }
 

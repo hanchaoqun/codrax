@@ -5291,8 +5291,7 @@ func (r *REPL) handleSlash(line string) bool {
 func (r *REPL) handleModeCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/mode"))
 	if rest == "" {
-		r.info(fmt.Sprintf("current mode: %s (use /mode <auto|code|operation|data|write> to change)",
-			r.userMode.Normalize()))
+		r.info(currentUserModeMsg(r.language, string(r.userMode.Normalize())))
 		return
 	}
 	target, err := ParseUserMode(rest)

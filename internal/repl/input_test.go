@@ -477,6 +477,23 @@ func TestHistoryReversed_TrimsAndCaps(t *testing.T) {
 	}
 }
 
+func TestHistoryRecallMultilineEntryCreatesExpandablePlaceholder(t *testing.T) {
+	expanded := "请分析下面这段长文本:\n第一行原文\n第二行原文"
+	m := newInputModel("❯❯", []string{expanded}, false, 80, 0, nil, "")
+
+	m.historyPrev()
+	if got := m.ti.Value(); !strings.Contains(got, "[Pasted text #0") {
+		t.Fatalf("history UI should fold multiline recall into a placeholder, got %q", got)
+	}
+	_ = m.handleSubmit()
+	if m.doneExpanded != expanded {
+		t.Fatalf("doneExpanded=%q, want original expanded history %q", m.doneExpanded, expanded)
+	}
+	if !strings.Contains(m.doneDisplay, "[Pasted text #0") {
+		t.Fatalf("doneDisplay should keep folded placeholder, got %q", m.doneDisplay)
+	}
+}
+
 func TestPasteSeed_InjectsAsFirstPlaceholder(t *testing.T) {
 	content := "line A\nline B\nline C"
 	m := newInputModel("❯❯", nil, false, 80, 0, &pasteSeed{content: content}, "")

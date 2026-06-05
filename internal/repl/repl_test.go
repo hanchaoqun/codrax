@@ -255,6 +255,36 @@ func TestDispatchPropagatesExpandedRequestForOutputTranscript(t *testing.T) {
 	}
 }
 
+func TestHistoryStringsUseExpandedPasteForRecall(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	folded := "请分析下面这段长文本:\n[Pasted text #0 +2 lines +20 chars]"
+	expanded := "请分析下面这段长文本:\n第一行原文\n第二行原文"
+	if err := store.Append(memory.Turn{
+		ID:                "t-folded",
+		Request:           folded,
+		RequestForSummary: expanded,
+		Response:          "ok",
+		Kind:              memory.KindPipeline,
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	r := &REPL{store: store}
+
+	got := r.historyStrings()
+	if len(got) != 1 {
+		t.Fatalf("historyStrings len=%d, want 1: %#v", len(got), got)
+	}
+	if got[0] != expanded {
+		t.Fatalf("history recall should use expanded paste, got %q want %q", got[0], expanded)
+	}
+	if strings.Contains(got[0], "[Pasted text") {
+		t.Fatalf("history recall leaked folded placeholder: %q", got[0])
+	}
+}
+
 func TestBorderedLineFragments_WrapsOrdinaryProse(t *testing.T) {
 	line := strings.Repeat("ordinary prose keeps wrapping ", 4)
 	got := borderedLineFragments(line, 32)

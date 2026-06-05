@@ -1136,7 +1136,10 @@ func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, err
 }
 
 // historyStrings returns past user Requests, oldest first, drawn from
-// the memory store when present.
+// the memory store when present. Folded paste turns store a compact
+// display Request plus the expanded RequestForSummary; history recall must
+// prefer the expanded form so pressing ↑ never re-submits a dead
+// "[Pasted text #N]" placeholder after restart.
 func (r *REPL) historyStrings() []string {
 	if r.store == nil {
 		return nil
@@ -1144,10 +1147,14 @@ func (r *REPL) historyStrings() []string {
 	turns := r.store.Recent()
 	out := make([]string, 0, len(turns))
 	for _, t := range turns {
-		if strings.TrimSpace(t.Request) == "" {
+		req := strings.TrimSpace(t.RequestForSummary)
+		if req == "" {
+			req = t.Request
+		}
+		if strings.TrimSpace(req) == "" {
 			continue
 		}
-		out = append(out, t.Request)
+		out = append(out, req)
 	}
 	return out
 }

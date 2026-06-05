@@ -650,6 +650,30 @@ func TestModeSwitched_BothLangs(t *testing.T) {
 	}
 }
 
+func TestCurrentUserModeMsg_BothLangs(t *testing.T) {
+	zh := currentUserModeMsg("zh", "data")
+	en := currentUserModeMsg("en", "data")
+	if !strings.Contains(zh, "当前任务模式") || !strings.Contains(zh, "/mode") {
+		t.Fatalf("zh current mode message malformed: %q", zh)
+	}
+	if !strings.Contains(en, "Current task mode") || !strings.Contains(en, "/mode") {
+		t.Fatalf("en current mode message malformed: %q", en)
+	}
+}
+
+func TestHelpLines_SurfaceHtraceConvertSubcommand(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			joined := strings.Join(helpLines(lang), "\n")
+			for _, want := range []string{"/htrace", "/htrace convert <binary> [out.systrace]"} {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("/help (%s) missing %q:\n%s", lang, want, joined)
+				}
+			}
+		})
+	}
+}
+
 func TestPromptStickyTag_StateCombinations(t *testing.T) {
 	cases := []struct {
 		name        string
