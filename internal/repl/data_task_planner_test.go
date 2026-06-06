@@ -1287,6 +1287,80 @@ func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T
 	}
 }
 
+func TestDataTaskWorkflowStateDoesNotTreatActionSummaryAsFinalAnswer(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			OutputContract: current.OutputContract,
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: current.CoverageContract.RequiredMaterials,
+			},
+			Actions: []dataquery.DataAction{
+				{ID: "inspect", Kind: dataquery.DataActionInspectMaterial, InputPaths: []string{"records.csv"}},
+				{ID: "extract", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"records.csv"}},
+			},
+		},
+		Result: &dataquery.Result{
+			Answer:         "2 artifact(s)",
+			OutputContract: current.OutputContract,
+			Artifacts:      []dataquery.DataArtifact{{ID: "inspect"}, {ID: "extract"}},
+			ConsumedPaths:  []string{"records.csv"},
+		},
+	}}
+	state := dataTaskWorkflowState(records, current)
+	if state.HasAnswer || state.NextStage != "emit_output_contract_answer" {
+		t.Fatalf("state=%+v, want action artifact summary to remain intermediate", state)
+	}
+}
+
+func TestDataTaskResultPromptIncludesMaterialSetHandles(t *testing.T) {
+	result := dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+		ID:   "inventory",
+		Kind: string(dataquery.DataActionMaterialInventory),
+		Children: []dataquery.DataArtifact{
+			{
+				ID:          "evidence/a.txt",
+				Kind:        "text",
+				SourcePaths: []string{"evidence/a.txt"},
+			},
+			{
+				ID:          "evidence/b.txt",
+				Kind:        "text",
+				SourcePaths: []string{"evidence/b.txt"},
+			},
+			{
+				ID:          "scan/a.png",
+				Kind:        "image",
+				SourcePaths: []string{"scan/a.png"},
+				Fields:      map[string]string{"text_evidence_paths": "evidence/a.txt, evidence/b.txt"},
+			},
+		},
+	}}}
+	view := compactDataTaskResultPromptView(result, 100, 100, 1, 1, 1)
+	if len(view.MaterialSetHandles) < 2 {
+		t.Fatalf("MaterialSetHandles=%+v, want related text and directory handles", view.MaterialSetHandles)
+	}
+	var sawRelated, sawDir bool
+	for _, handle := range view.MaterialSetHandles {
+		if handle.Kind == "related_text_evidence" && strings.Join(handle.TextEvidencePaths, ",") == "evidence/a.txt,evidence/b.txt" {
+			sawRelated = true
+		}
+		if handle.ID == "dir:evidence" && strings.Join(handle.MemberPaths, ",") == "evidence/a.txt,evidence/b.txt" {
+			sawDir = true
+		}
+	}
+	if !sawRelated || !sawDir {
+		t.Fatalf("MaterialSetHandles=%+v, want related=%t dir=%t", view.MaterialSetHandles, sawRelated, sawDir)
+	}
+}
+
 func TestDataTaskPlanStagingGuardRejectsBroadCustomTransform(t *testing.T) {
 	lines := make([]string, 0, dataTaskComplexCustomScriptLineLimit+2)
 	for i := 0; i < dataTaskComplexCustomScriptLineLimit; i++ {
@@ -1711,6 +1785,42 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		t.Fatalf("errText=%q, want cross-stage custom_transform guard", errText)
 	}
 
+	plan.ContinueAfter = true
+	plan.Actions = []dataquery.DataAction{{
+		ID:             "classify",
+		Kind:           dataquery.DataActionCustomTransform,
+		InputPaths:     []string{"records.csv", "rules.md"},
+		OutputArtifact: "classified_records.json",
+		Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
+	}}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want single intermediate custom_transform to pass", errText)
+	}
+
+	plan.Actions = []dataquery.DataAction{
+		{
+			ID:             "classify",
+			Kind:           dataquery.DataActionCustomTransform,
+			InputPaths:     []string{"records.csv", "rules.md"},
+			OutputArtifact: "classified_records.json",
+			Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
+		},
+		{
+			ID:         "compute",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"classified_records.json"},
+			Params: map[string]string{
+				"value_field": "value",
+				"group_key":   "group",
+			},
+		},
+	}
+	errText = dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" {
+		t.Fatalf("errText empty, want multi-action custom_transform batch to remain blocked")
+	}
+
+	plan.ContinueAfter = false
 	plan.Actions = []dataquery.DataAction{{
 		ID:         "normalize",
 		Kind:       dataquery.DataActionNormalizeEntities,
@@ -1718,6 +1828,76 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 	}}
 	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
 		t.Fatalf("errText=%q, want next typed stage to pass", errText)
+	}
+}
+
+func TestDataTaskWorkflowStateIncludesAllowedNextActions(t *testing.T) {
+	required := []dataquery.CoverageMaterial{
+		{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:    required,
+				RuleCoverageRequired: true,
+			},
+		},
+		Result: &dataquery.Result{ConsumedPaths: []string{"records.csv", "rules.md"}},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.NextStage != "derive_rules" {
+		t.Fatalf("NextStage=%q, want derive_rules", state.NextStage)
+	}
+	if strings.Join(state.AllowedNextActions, ",") != string(dataquery.DataActionDeriveRules) {
+		t.Fatalf("AllowedNextActions=%v, want only derive_rules", state.AllowedNextActions)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsActionOutsideAllowedNextStage(t *testing.T) {
+	required := []dataquery.CoverageMaterial{
+		{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:    required,
+				RuleCoverageRequired: true,
+			},
+		},
+		Result: &dataquery.Result{ConsumedPaths: []string{"records.csv", "rules.md"}},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:          required,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "too_early",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"records.csv"},
+			Params: map[string]string{
+				"value_field": "amount",
+				"group_key":   "all",
+				"operation":   "add",
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "allowed_next_actions") || !strings.Contains(errText, "derive_rules") {
+		t.Fatalf("errText=%q, want allowed_next_actions derive_rules guard", errText)
+	}
+
+	plan.Actions = []dataquery.DataAction{{
+		ID:         "rules",
+		Kind:       dataquery.DataActionDeriveRules,
+		InputPaths: []string{"rules.md"},
+	}}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want derive_rules stage action to pass", errText)
 	}
 }
 
@@ -1939,10 +2119,6 @@ func TestDataTaskWorkflowStagingGuardAllowsBroadCustomTransformWithPrerequisites
 				{Path: "lookup.csv", Required: true},
 				{Path: "evidence.csv", Required: true},
 			},
-			DecisionRecordsRequired:    true,
-			RuleCoverageRequired:       true,
-			ContributionLedgerRequired: true,
-			ReconcileRequired:          true,
 		},
 		Actions: []dataquery.DataAction{{
 			ID:         "final_transform",

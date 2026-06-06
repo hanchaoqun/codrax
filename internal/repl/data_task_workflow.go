@@ -842,6 +842,9 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 	if errText := dataTaskCoverageLoopGuardError(records, plan); errText != "" {
 		return errText
 	}
+	if errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan); errText != "" {
+		return errText
+	}
 	if errText := dataTaskWorkflowStageProgressGuardError(records, plan); errText != "" {
 		return errText
 	}
@@ -889,6 +892,58 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 	return ""
 }
 
+func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	if len(records) == 0 || len(plan.Actions) == 0 {
+		return ""
+	}
+	if !dataTaskWorkflowHasSuccessfulResult(records) {
+		return ""
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if len(state.AllowedNextActions) == 0 {
+		return ""
+	}
+	for i, action := range plan.Actions {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if dataTaskWorkflowActionKindAllowed(kind, state) {
+			continue
+		}
+		return fmt.Sprintf("data planning incomplete: workflow next_stage=%s allows only next actions [%s], but action %d (%s) uses %s. Emit the next bounded DAG batch using workflow_state_json.allowed_next_actions, set continue_after=true when later stages remain, and let the evaluator advance the workflow after this batch.",
+			state.NextStage, strings.Join(state.AllowedNextActions, ", "), i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind)
+	}
+	return ""
+}
+
+func dataTaskWorkflowHasSuccessfulResult(records []dataTaskWorkflowRecord) bool {
+	for _, rec := range records {
+		if rec.Result != nil && strings.TrimSpace(rec.Err) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskPlanActionsAllAllowedForWorkflowStage(plan dataquery.TaskPlan, state dataTaskWorkflowStateView) bool {
+	if len(plan.Actions) == 0 || len(state.AllowedNextActions) == 0 {
+		return false
+	}
+	for _, action := range plan.Actions {
+		if !dataTaskWorkflowActionKindAllowed(normalizeDataActionKindForWorkflow(action.Kind), state) {
+			return false
+		}
+	}
+	return true
+}
+
+func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state dataTaskWorkflowStateView) bool {
+	for _, action := range state.AllowedNextActions {
+		if kind == dataquery.DataActionKind(action) {
+			return true
+		}
+	}
+	return false
+}
+
 func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
 	state := dataTaskWorkflowState(records, plan)
 	if !state.MaterialCoverageSufficient {
@@ -901,6 +956,9 @@ func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, p
 	}
 	missingStages := dataTaskWorkflowMissingValidationStages(state)
 	if len(missingStages) <= 1 || !dataTaskPlanHasScriptedCustomTransform(plan) {
+		return ""
+	}
+	if dataTaskPlanIsSingleIntermediateCustomTransform(plan) {
 		return ""
 	}
 	return fmt.Sprintf("data planning incomplete: workflow next_stage=%s still has %d unfinished validation stage(s): %s. Do not cross multiple unfinished data DAG stages with one custom_transform. Emit the next atomic stage first (for example derive_fields/normalize_entities/enrich_records/join_records before compute_contributions, compute_contributions before reconcile_artifacts, reconcile_artifacts before the final answer), set continue_after=true, and let the workflow evaluate the reusable artifact before the next batch.",
@@ -937,6 +995,14 @@ func dataTaskPlanHasScriptedCustomTransform(plan dataquery.TaskPlan) bool {
 		}
 	}
 	return false
+}
+
+func dataTaskPlanIsSingleIntermediateCustomTransform(plan dataquery.TaskPlan) bool {
+	if !plan.ContinueAfter || len(plan.Actions) != 1 {
+		return false
+	}
+	action := plan.Actions[0]
+	return normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != ""
 }
 
 func dataTaskTextConstraintCoverageGuardError(plan dataquery.TaskPlan) string {
@@ -1071,7 +1137,7 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind)))
 		}
 		if kind == dataquery.DataActionDeriveFields && len(inputs) > 1 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields with %d input_paths. derive_fields is a single-record-set field derivation action; split different schemas into separate derive_fields actions, or create a joined/generated artifact first and derive fields from that one artifact.",
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields with %d input_paths. derive_fields is a single-record-set field derivation action. Do not use derive_fields for lookup/reference-table mapping. Split different schemas into separate derive_fields actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact, then derive fields from that one artifact.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(inputs))
 		}
 		if kind == dataquery.DataActionDeriveFields && !dataTaskDeriveFieldsActionHasSpec(action) {
@@ -1112,6 +1178,9 @@ func dataTaskDeriveFieldsActionHasSpec(action dataquery.DataAction) bool {
 func dataTaskCoverageLoopGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
 	state := dataTaskWorkflowState(records, plan)
 	if !state.MaterialCoverageSufficient || !dataTaskPlanIsCoverageOnly(plan) {
+		return ""
+	}
+	if dataTaskPlanActionsAllAllowedForWorkflowStage(plan, state) {
 		return ""
 	}
 	return fmt.Sprintf("data planning incomplete: material coverage is already sufficient for required runner materials (%d covered, missing=%d). Do not emit another coverage-only batch (material_inventory/inspect_material/extract_records/derive_rules) unless a specific new missing material is listed. Continue toward the user's data goal with compute-stage atomic actions such as derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or one narrow custom_transform over generated artifacts. workflow_next_stage=%s",
@@ -1445,6 +1514,15 @@ type dataTaskWorkflowStateView struct {
 	HasReconcile                 bool                     `json:"has_reconcile,omitempty"`
 	HasAnswer                    bool                     `json:"has_answer,omitempty"`
 	NextStage                    string                   `json:"next_stage,omitempty"`
+	AllowedNextActions           []string                 `json:"allowed_next_actions,omitempty"`
+	AllowedNextActionContracts   []dataTaskActionContract `json:"allowed_next_action_contracts,omitempty"`
+}
+
+type dataTaskActionContract struct {
+	Kind          string `json:"kind"`
+	InputBoundary string `json:"input_boundary,omitempty"`
+	UseWhen       string `json:"use_when,omitempty"`
+	Output        string `json:"output,omitempty"`
 }
 
 type dataTaskResultPromptView struct {
@@ -1467,6 +1545,7 @@ type dataTaskResultPromptView struct {
 	Metrics                  []dataquery.Metric                 `json:"metrics,omitempty"`
 	Artifacts                []dataquery.DataArtifact           `json:"artifacts,omitempty"`
 	ArtifactAccess           []dataTaskArtifactAccessPrompt     `json:"artifact_access,omitempty"`
+	MaterialSetHandles       []dataTaskMaterialSetHandlePrompt  `json:"material_set_handles,omitempty"`
 	ContractWarnings         []string                           `json:"contract_warnings,omitempty"`
 }
 
@@ -1476,6 +1555,15 @@ type dataTaskArtifactAccessPrompt struct {
 	JSONShape   string   `json:"json_shape,omitempty"`
 	AccessHint  string   `json:"access_hint,omitempty"`
 	SourcePaths []string `json:"source_paths,omitempty"`
+}
+
+type dataTaskMaterialSetHandlePrompt struct {
+	ID                string   `json:"id,omitempty"`
+	Kind              string   `json:"kind,omitempty"`
+	Scope             string   `json:"scope,omitempty"`
+	MemberPaths       []string `json:"member_paths,omitempty"`
+	TextEvidencePaths []string `json:"text_evidence_paths,omitempty"`
+	AccessHint        string   `json:"access_hint,omitempty"`
 }
 
 func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
@@ -1557,16 +1645,24 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 		if rec.Result.Reconcile != nil {
 			state.HasReconcile = true
 		}
-		if dataTaskResultIsFinalAnswerCandidate(*rec.Result, contract, outputContract) {
+		if dataTaskResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
 			state.HasAnswer = true
 		}
 	}
 	state.NextStage = dataTaskWorkflowNextStage(state)
+	state.AllowedNextActions = dataTaskWorkflowAllowedNextActions(state)
+	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
 	return state
 }
 
-func dataTaskResultIsFinalAnswerCandidate(result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
+func dataTaskResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
 	if strings.TrimSpace(result.Answer) == "" {
+		return false
+	}
+	if plan.ContinueAfter {
+		return false
+	}
+	if !dataTaskPlanMayProduceFinalAnswer(plan, result) {
 		return false
 	}
 	if expected.Format != "" {
@@ -1592,6 +1688,26 @@ func dataTaskResultIsFinalAnswerCandidate(result dataquery.Result, contract data
 		return false
 	}
 	return true
+}
+
+func dataTaskPlanMayProduceFinalAnswer(plan dataquery.TaskPlan, result dataquery.Result) bool {
+	if len(plan.Actions) == 0 {
+		return true
+	}
+	if result.Reconcile != nil && (strings.TrimSpace(result.Reconcile.ActualAnswer.String()) != "" || strings.TrimSpace(result.Reconcile.ExpectedAnswer.String()) != "") {
+		return true
+	}
+	for _, action := range plan.Actions {
+		switch normalizeDataActionKindForWorkflow(action.Kind) {
+		case dataquery.DataActionCustomTransform:
+			if strings.TrimSpace(action.Script) != "" {
+				return true
+			}
+		case dataquery.DataActionReconcile:
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.OutputContract {
@@ -1626,6 +1742,69 @@ func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
 		return "emit_output_contract_answer"
 	}
 	return "complete"
+}
+
+func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []string {
+	contracts := dataTaskWorkflowAllowedNextActionContracts(state)
+	out := make([]string, 0, len(contracts))
+	for _, contract := range contracts {
+		if contract.Kind != "" {
+			out = append(out, contract.Kind)
+		}
+	}
+	return out
+}
+
+func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView) []dataTaskActionContract {
+	contract := func(kind dataquery.DataActionKind, boundary, useWhen, output string) dataTaskActionContract {
+		return dataTaskActionContract{
+			Kind:          string(kind),
+			InputBoundary: boundary,
+			UseWhen:       useWhen,
+			Output:        output,
+		}
+	}
+	switch state.NextStage {
+	case "cover_required_materials":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionMaterialInventory, "many local material paths are OK", "discover objective file metadata before choosing specific inputs", "material inventory artifact"),
+			contract(dataquery.DataActionInspectMaterial, "one or more concrete material paths are OK", "profile file shape, headers, samples, or text preview", "inspection artifact"),
+			contract(dataquery.DataActionExtractRecords, "one or more structured/text materials are OK", "convert selected materials into bounded generic record samples", "record sample artifact"),
+			contract(dataquery.DataActionDeriveRules, "rule/constraint/instruction materials or explicit rules_json", "turn task rules or constraints into rule_coverage records", "rule coverage artifact and records"),
+		}
+	case "derive_rules":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionDeriveRules, "rule/constraint/instruction materials or explicit rules_json only", "emit rule_coverage records before later decisions, contributions, or reconcile", "rule coverage artifact and records"),
+		}
+	case "normalize_or_enrich_entities":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionDeriveFields, "exactly one existing record artifact/path", "derive same-record fields such as parsed numbers, extracted year, trimmed/lowercase values, constants, regex fields, or maps that do not require a second table", "one enriched record artifact"),
+			contract(dataquery.DataActionNormalizeEntities, "one or more inputs are OK when producing source-to-canonical mappings", "produce canonical mappings for identifiers, names, categories, accounts, people, devices, labels, or other entities", "entity_resolution records and mapping artifact"),
+			contract(dataquery.DataActionEnrichRecords, "base record artifact plus mapping/reference artifact(s)", "apply mapping/reference records to base rows and materialize added canonical or derived fields", "one enriched record artifact"),
+			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join two record sets using explicit key fields before later derivation or contribution calculation", "one joined record artifact"),
+			contract(dataquery.DataActionCustomTransform, "small bounded fallback over known artifacts only", "use only when typed actions cannot express this single normalization/enrichment step", "one reusable artifact or ledger slice"),
+		}
+	case "compute_contributions":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionDeriveFields, "exactly one existing record artifact/path", "derive final numeric/group/filter fields before contribution calculation", "one enriched record artifact"),
+			contract(dataquery.DataActionNormalizeEntities, "one or more inputs are OK when producing mappings", "repair missing canonical mappings needed by contribution calculation", "entity_resolution records and mapping artifact"),
+			contract(dataquery.DataActionEnrichRecords, "base record artifact plus mapping/reference artifact(s)", "apply mappings or reference fields needed by contribution calculation", "one enriched record artifact"),
+			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join base records with target/query/reference rows before contribution calculation", "one joined record artifact"),
+			contract(dataquery.DataActionComputeContribs, "one structured record artifact/path with existing value/group/filter fields", "compute generic sums, counts, grouped totals, or contribution ledgers", "contribution records and contribution artifact"),
+			contract(dataquery.DataActionCustomTransform, "small bounded fallback over generated/covered artifacts; do not cross compute, reconcile, and final answer in one script", "use only when generic contribution params cannot express this single compute step", "decision/contribution records or one reusable compute artifact"),
+		}
+	case "reconcile_artifacts":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionReconcile, "prior contribution records are required", "recompute group totals from contribution records and verify expected/actual values", "reconcile report"),
+		}
+	case "emit_output_contract_answer":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionReconcile, "prior contribution records are required", "refresh deterministic reconcile before answer assembly when needed", "reconcile report"),
+			contract(dataquery.DataActionCustomTransform, "small projection over reconcile/contribution artifacts only", "assemble the strict user-facing output format without changing business decisions or numeric values", "final answer matching output_contract"),
+		}
+	default:
+		return nil
+	}
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
@@ -1674,8 +1853,98 @@ func compactDataTaskResultPromptView(result dataquery.Result, answerLimit, audit
 		Metrics:                  result.Metrics,
 		Artifacts:                sampleDataTaskArtifacts(result.Artifacts, 6),
 		ArtifactAccess:           sampleDataTaskArtifactAccess(result.Artifacts, 10),
+		MaterialSetHandles:       sampleDataTaskMaterialSetHandles(result.Artifacts, 8),
 		ContractWarnings:         append([]string(nil), result.ContractWarnings...),
 	}
+}
+
+func sampleDataTaskMaterialSetHandles(artifacts []dataquery.DataArtifact, limit int) []dataTaskMaterialSetHandlePrompt {
+	if limit <= 0 || len(artifacts) == 0 {
+		return nil
+	}
+	type group struct {
+		kind    string
+		members []string
+	}
+	groups := map[string]*group{}
+	var related []dataTaskMaterialSetHandlePrompt
+	var walk func(dataquery.DataArtifact)
+	walk = func(artifact dataquery.DataArtifact) {
+		for _, p := range cleanDataTaskStrings(artifact.SourcePaths) {
+			dir := path.Dir(p)
+			if dir != "." && dir != "" {
+				g := groups[dir]
+				if g == nil {
+					g = &group{kind: strings.TrimSpace(artifact.Kind)}
+					groups[dir] = g
+				}
+				g.members = append(g.members, p)
+			}
+		}
+		if artifact.Fields != nil {
+			textPaths := cleanDataTaskStrings(strings.Split(strings.TrimSpace(artifact.Fields["text_evidence_paths"]), ","))
+			if len(textPaths) > 0 {
+				related = append(related, dataTaskMaterialSetHandlePrompt{
+					ID:                "related_text:" + strings.TrimSpace(artifact.ID),
+					Kind:              "related_text_evidence",
+					Scope:             strings.TrimSpace(artifact.ID),
+					MemberPaths:       clampDataTaskStringSlice(cleanDataTaskStrings(artifact.SourcePaths), 4),
+					TextEvidencePaths: clampDataTaskStringSlice(textPaths, 8),
+					AccessHint:        "if this source material is relevant to the data goal, add the concrete text_evidence_paths to a bounded coverage/action batch before compute",
+				})
+			}
+		}
+		for _, child := range artifact.Children {
+			walk(child)
+		}
+	}
+	for _, artifact := range artifacts {
+		walk(artifact)
+	}
+	var out []dataTaskMaterialSetHandlePrompt
+	sort.Slice(related, func(i, j int) bool { return related[i].ID < related[j].ID })
+	for _, h := range related {
+		if len(out) >= limit {
+			return out
+		}
+		out = append(out, h)
+	}
+	keys := make([]string, 0, len(groups))
+	for key, g := range groups {
+		g.members = uniqueSortedDataTaskStrings(g.members)
+		if len(g.members) >= 2 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if len(out) >= limit {
+			break
+		}
+		g := groups[key]
+		out = append(out, dataTaskMaterialSetHandlePrompt{
+			ID:          "dir:" + key,
+			Kind:        firstNonEmptyString(g.kind, "material_group"),
+			Scope:       key,
+			MemberPaths: clampDataTaskStringSlice(g.members, 12),
+			AccessHint:  "candidate file group from inventory/inspection; expand only the concrete members required by the current data goal",
+		})
+	}
+	return out
+}
+
+func uniqueSortedDataTaskStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range cleanDataTaskStrings(in) {
+		if seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int) []dataTaskArtifactAccessPrompt {

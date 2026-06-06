@@ -2342,10 +2342,10 @@ validation stages into one script.
 
 ### Remaining Follow-Ups
 
-- [ ] Feed the workflow stage guard back into the planner as a typed
+- [x] Feed the workflow stage guard back into the planner as a typed
       `allowed_next_actions` view instead of relying on a failed plan to teach
       the next attempt.
-- [ ] Add deterministic material-set expansion handles for directories or
+- [x] Add deterministic material-set expansion handles for directories or
       material groups so the model does not write scripts just to enumerate
       related files.
 - [ ] Add typed projection/final-answer assembly actions so strict final
@@ -2354,3 +2354,102 @@ validation stages into one script.
 - [ ] Add a material-influence graph and target-set coverage checker so
       required materials and target output keys are traceable into final
       contributions and reconcile groups.
+
+### Batch 59: Typed Next-Action Contract
+
+Real-data runs showed that the planner could understand
+`workflow_state_json.next_stage` in prose yet still try an action from a later
+stage, forcing the system to reject and re-prompt. This was a workflow
+contract problem, not a domain-specific data problem.
+
+The generic fix is to make the next legal DAG actions explicit:
+
+- [x] Extend `workflow_state_json` with `allowed_next_actions`, derived from
+      the same deterministic `next_stage` used by the evaluator.
+- [x] Teach continuation prompts that `allowed_next_actions` is the structural
+      contract for the next bounded batch.
+- [x] Add a workflow staging guard: after at least one data batch exists, an
+      action outside the current `allowed_next_actions` set is rejected before
+      execution with a typed repair hint.
+- [x] Keep the guard scoped to the data workflow path only. Initial data
+      planning, source-code analysis, trace/log analysis, write mode, and
+      command operation paths do not consume this contract.
+- [x] Add regression coverage for the exposed state and the guard that blocks
+      jumping from `derive_rules` directly to `compute_contributions`.
+
+This is intentionally domain-neutral. It does not know whether the task is
+finance, inventory, logs-as-data, or document extraction; it only enforces that
+the next batch advances the current data DAG stage.
+
+### Batch 60: Action Boundary Contracts
+
+The same real-data run showed that a model can obey the allowed action name but
+still misuse the action shape, for example treating a same-record field
+derivation action as a lookup/reference-table mapping action. This is not a
+business-domain issue; it is a tool-contract clarity issue.
+
+- [x] Extend `workflow_state_json` with
+      `allowed_next_action_contracts`. Each contract carries the action kind,
+      input boundary, use case, and expected output.
+- [x] Teach continuation prompts to read these contracts before writing action
+      params. The prompt now explicitly separates same-record derivation,
+      entity normalization, enrichment, joins, contribution calculation,
+      reconciliation, and final projection.
+- [x] Strengthen the `derive_fields` multi-input staging error so the repair
+      path points to `normalize_entities`, `enrich_records`, or `join_records`
+      instead of retrying the same invalid shape.
+- [x] Keep these contracts as data-workflow metadata only; they are not used by
+      source-code, trace/log, write-mode, or command-operation routing.
+
+This moves one more class of repairs from "fail first, then explain" to
+"plan with the action boundary visible up front".
+
+### Batch 61: Intermediate Transform Role
+
+The next real-data run showed that the cross-stage `custom_transform` guard was
+too coarse. A model may need one bounded Python transform to materialize a
+reusable intermediate record set when typed actions cannot express that exact
+projection yet. That is different from a terminal all-in-one transform that
+computes, reconciles, and assembles the final answer in one batch.
+
+- [x] Treat a single scripted `custom_transform` with `continue_after=true` as
+      an intermediate artifact node. It can produce one reusable artifact or
+      one ledger slice and then return to the evaluator.
+- [x] Continue rejecting terminal all-in-one custom transforms when multiple
+      validation stages remain unfinished.
+- [x] Continue rejecting batches that combine an intermediate scripted
+      `custom_transform` with later compute/reconcile actions in the same
+      batch.
+- [x] Ensure `continue_after=true` batches cannot satisfy final-answer
+      detection even if the intermediate runner result contains an answer-like
+      summary.
+- [x] Teach the data planner this distinction in the continuation prompt.
+- [x] Add regression coverage for all three boundaries above.
+
+This keeps the DAG adaptive: the system can accept one carefully scoped
+intermediate transform, inspect its artifact, and only then plan compute,
+reconcile, and final projection.
+
+### Batch 62: Prompt-Facing Material Set Handles
+
+The real-data run also showed that material coverage could be marked sufficient
+for explicitly listed files while the model still had to reason about related
+material groups such as extracted text, document shards, or directory-based
+evidence. The system should not decide the business role of those groups, but it
+can expose objective handles so the planner can expand the relevant concrete
+members in a bounded next batch.
+
+- [x] Add `result.material_set_handles` to data workflow prompt records.
+- [x] Generate handles from existing objective artifact metadata: directory
+      groups and related text evidence discovered by material
+      inventory/inspection.
+- [x] Keep handles advisory and concrete. They contain paths and access hints;
+      they do not label a file as an invoice, contract, rule, or any other
+      business role.
+- [x] Teach the planner to expand only the concrete `member_paths` or
+      `text_evidence_paths` needed by the current data goal before compute.
+- [x] Add regression coverage for directory handles and related-text handles.
+
+This closes the first version of material-set handles without adding
+domain-specific file roles. The remaining larger item is a material influence
+graph that proves which material groups actually feed final contributions.
