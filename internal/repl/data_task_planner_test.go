@@ -90,6 +90,7 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"result.contributions",
 		"result.entity_resolutions",
 		"result.reconcile",
+		"assemble_answer",
 		"rule_refs",
 		"canonical ledger field names",
 		"network/process libraries",
@@ -482,7 +483,7 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 		t.Fatal("ContinueAfter=false, want true for action workflow")
 	}
 	system := adapter.calls[0].messages[0].Content
-	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}
@@ -983,6 +984,30 @@ func TestNormalizeDataTaskPlanShapeRequiresRuleCoverageForDeriveRules(t *testing
 	}
 	if !strings.Contains(strings.Join(reasons, "\n"), "derive_rules") {
 		t.Fatalf("reasons=%v, want derive_rules normalization reason", reasons)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeFillsDeriveRulesInputsFromRequiredMaterials(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "notes.txt", Required: true, UsageMode: dataquery.MaterialUseTextEvidenceConsumed, TextEvidencePath: "notes.txt"},
+			},
+		},
+		Actions: []dataquery.DataAction{{
+			ID:   "rules",
+			Kind: dataquery.DataActionDeriveRules,
+		}},
+	}
+	got, reasons := normalizeDataTaskPlanShape(plan)
+	if strings.Join(got.Actions[0].InputPaths, ",") != "rules.md,notes.txt" {
+		t.Fatalf("InputPaths=%v, want text/rule materials only", got.Actions[0].InputPaths)
+	}
+	if !strings.Contains(strings.Join(reasons, "\n"), "filled derive_rules input_paths") {
+		t.Fatalf("reasons=%v, want derive_rules input normalization reason", reasons)
 	}
 }
 
@@ -1854,6 +1879,56 @@ func TestDataTaskWorkflowStateIncludesAllowedNextActions(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateDisablesCustomTransformAfterScriptFailure(t *testing.T) {
+	required := []dataquery.CoverageMaterial{
+		{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{
+				CoverageContract: dataquery.CoverageContract{
+					RequiredMaterials:          required,
+					RuleCoverageRequired:       true,
+					ContributionLedgerRequired: true,
+					ReconcileRequired:          true,
+				},
+			},
+			Result: &dataquery.Result{
+				ConsumedPaths: []string{"records.csv"},
+				RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: dataquery.LooseText("R1"), RuleText: dataquery.LooseText("rule"), Status: dataquery.LooseText("applied")}},
+			},
+		},
+		{
+			Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+				ID:     "wide_script",
+				Kind:   dataquery.DataActionCustomTransform,
+				Script: "emit_result('x')",
+			}}},
+			Err: `data planning incomplete: action 1 (custom_transform) is too large for one atomic data action`,
+		},
+	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if !state.CustomTransformDisabled {
+		t.Fatalf("CustomTransformDisabled=false, state=%+v", state)
+	}
+	if strings.Contains(strings.Join(state.AllowedNextActions, ","), string(dataquery.DataActionCustomTransform)) {
+		t.Fatalf("AllowedNextActions=%v, want custom_transform removed after script failure", state.AllowedNextActions)
+	}
+	if state.NextStage != "compute_contributions" {
+		t.Fatalf("NextStage=%q, want compute_contributions", state.NextStage)
+	}
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "retry_script",
+		Kind:       dataquery.DataActionCustomTransform,
+		InputPaths: []string{"records.csv"},
+		Script:     "emit_result('x')",
+	}}}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+		t.Fatalf("errText=%q, want custom_transform rejected by filtered allowed_next_actions", errText)
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsActionOutsideAllowedNextStage(t *testing.T) {
 	required := []dataquery.CoverageMaterial{
 		{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
@@ -1898,6 +1973,29 @@ func TestDataTaskWorkflowStagingGuardRejectsActionOutsideAllowedNextStage(t *tes
 	}}
 	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
 		t.Fatalf("errText=%q, want derive_rules stage action to pass", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsAssembleWithoutReconcile(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "answer",
+			Kind: dataquery.DataActionAssembleAnswer,
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "prior reconcile report") {
+		t.Fatalf("errText=%q, want prior reconcile report guard", errText)
+	}
+
+	plan.Actions = []dataquery.DataAction{
+		{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"records.json"}},
+		{ID: "reconcile", Kind: dataquery.DataActionReconcile},
+		{ID: "answer", Kind: dataquery.DataActionAssembleAnswer},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+		t.Fatalf("errText=%q, want same-batch reconcile producer to satisfy assemble guard", errText)
 	}
 }
 

@@ -70,6 +70,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		reconcile = &seedReconcile
 	}
 	var lastResult *Result
+	var projectedAnswer string
 	partialResult := func() Result {
 		outputContract := plan.OutputContract
 		if outputContract.Format == "" {
@@ -221,6 +222,22 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			artifacts = append(artifacts, artifact)
 			reconcile = &report
 			summaries = append(summaries, artifact.Summary)
+		case DataActionAssembleAnswer:
+			artifact, answer, report, err := r.runAssembleAnswer(action, reconcile, plan.OutputContract)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, map[string]any{
+				"answer":    answer,
+				"reconcile": report,
+			})
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifacts = append(artifacts, artifact)
+			reconcile = report
+			projectedAnswer = answer
+			summaries = append(summaries, artifact.Summary)
 		case DataActionCustomTransform:
 			result, err := r.runCustomTransform(ctx, plan, action)
 			if err != nil {
@@ -261,7 +278,10 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		}
 		return validateRunnerResult(actionRunnerValidationPlan(plan), out)
 	}
-	answer := renderArtifactsAnswer(artifacts, plan.OutputContract, reconcile)
+	answer := projectedAnswer
+	if strings.TrimSpace(answer) == "" {
+		answer = renderArtifactsAnswer(artifacts, plan.OutputContract, reconcile)
+	}
 	outputContract := plan.OutputContract
 	if strings.TrimSpace(r.Seed.Answer) != "" && lastResult == nil {
 		answer = r.Seed.Answer
@@ -312,6 +332,8 @@ func actionRunnerIntermediateCoverageContract(plan TaskPlan) CoverageContract {
 			out.ContributionLedgerRequired = out.ContributionLedgerRequired || plan.CoverageContract.ContributionLedgerRequired
 		case DataActionReconcile:
 			out.ReconcileRequired = out.ReconcileRequired || plan.CoverageContract.ReconcileRequired
+		case DataActionAssembleAnswer:
+			out.ReconcileRequired = out.ReconcileRequired || plan.CoverageContract.ReconcileRequired
 		}
 	}
 	return out
@@ -339,6 +361,8 @@ func normalizeDataActionKind(kind DataActionKind) DataActionKind {
 		return DataActionComputeContribs
 	case DataActionReconcile:
 		return DataActionReconcile
+	case DataActionAssembleAnswer:
+		return DataActionAssembleAnswer
 	case DataActionCustomTransform, "":
 		return DataActionCustomTransform
 	default:
@@ -2288,6 +2312,148 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 	}, report, nil
 }
 
+func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileReport, contract OutputContract) (DataArtifact, string, *ReconcileReport, error) {
+	if reconcile == nil {
+		return DataArtifact{}, "", nil, errors.New("assemble_answer requires prior reconcile report")
+	}
+	if len(reconcile.Groups) == 0 {
+		return DataArtifact{}, "", nil, errors.New("assemble_answer requires reconcile groups")
+	}
+	contract = contract.Normalize()
+	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
+	valueField := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["value_field"], "actual")))
+	orderBy := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["order_by"], "group_key")))
+	switch orderBy {
+	case "input", "none", "stable":
+	case "metric":
+		sort.SliceStable(groups, func(i, j int) bool {
+			return naturalLess(groups[i].Metric.String()+"\x00"+groups[i].GroupKey.String(), groups[j].Metric.String()+"\x00"+groups[j].GroupKey.String())
+		})
+	case "value":
+		sort.SliceStable(groups, func(i, j int) bool {
+			return naturalLess(reconcileGroupValueByField(groups[i], valueField), reconcileGroupValueByField(groups[j], valueField))
+		})
+	default:
+		sort.SliceStable(groups, func(i, j int) bool {
+			return naturalLess(groups[i].GroupKey.String()+"\x00"+groups[i].Metric.String(), groups[j].GroupKey.String()+"\x00"+groups[j].Metric.String())
+		})
+		orderBy = "group_key"
+	}
+	projection := strings.ToLower(strings.TrimSpace(action.Params["projection"]))
+	includeKeys := parseBoolActionParam(action.Params["include_keys"])
+	if projection == "" {
+		switch contract.Format {
+		case OutputCSVLine:
+			projection = "values"
+		case OutputPlainSingleLine:
+			if !contract.ExplanationAllowed {
+				projection = "values"
+			} else {
+				projection = "key_values"
+			}
+		case OutputJSONOnly:
+			projection = "json_groups"
+		case OutputMarkdownTable:
+			projection = "markdown_table"
+		default:
+			projection = "key_values"
+		}
+	}
+	delimiter := strings.TrimSpace(firstNonEmptyString(action.Params["delimiter"], contract.Delimiter))
+	if delimiter == "" {
+		delimiter = ","
+	}
+	var answer string
+	switch projection {
+	case "values", "value_list", "csv_values":
+		values := make([]string, 0, len(groups))
+		for _, group := range groups {
+			value := reconcileGroupValueByField(group, valueField)
+			if value == "" {
+				continue
+			}
+			if includeKeys {
+				value = displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()) + "=" + value
+			}
+			values = append(values, value)
+		}
+		answer = strings.Join(values, delimiter)
+	case "json_groups", "json":
+		items := make([]map[string]string, 0, len(groups))
+		for _, group := range groups {
+			items = append(items, map[string]string{
+				"group_key": group.GroupKey.String(),
+				"metric":    group.Metric.String(),
+				"value":     reconcileGroupValueByField(group, valueField),
+			})
+		}
+		raw, _ := json.Marshal(items)
+		answer = string(raw)
+	case "markdown_table":
+		var b strings.Builder
+		b.WriteString("| group | metric | value |\n|---|---|---|\n")
+		for _, group := range groups {
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", group.GroupKey.String(), group.Metric.String(), reconcileGroupValueByField(group, valueField))
+		}
+		answer = strings.TrimSpace(b.String())
+	default:
+		parts := make([]string, 0, len(groups))
+		for _, group := range groups {
+			value := reconcileGroupValueByField(group, valueField)
+			if value == "" {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s=%s", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), value))
+		}
+		answer = strings.Join(parts, "; ")
+		projection = "key_values"
+	}
+	if err := ValidateAnswer(answer, contract); err != nil {
+		return DataArtifact{}, "", nil, fmt.Errorf("assemble_answer output does not satisfy output contract: %w", err)
+	}
+	next := *reconcile
+	next.ActualAnswer = LooseText(answer)
+	next.ExpectedAnswer = LooseText(answer)
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "assembled_answer")
+	return DataArtifact{
+		ID:      id,
+		Kind:    string(DataActionAssembleAnswer),
+		Summary: fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
+		Fields: map[string]string{
+			"group_count": fmt.Sprintf("%d", len(groups)),
+			"projection":  projection,
+			"order_by":    orderBy,
+			"value_field": valueField,
+			"delimiter":   delimiter,
+			"answer_len":  fmt.Sprintf("%d", len(answer)),
+		},
+	}, answer, &next, nil
+}
+
+func reconcileGroupValue(group ReconcileGroup) string {
+	return reconcileGroupValueByField(group, "actual")
+}
+
+func reconcileGroupValueByField(group ReconcileGroup, field string) string {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "expected":
+		return strings.TrimSpace(firstNonEmptyString(group.Expected.String(), group.Actual.String()))
+	case "actual", "":
+		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	default:
+		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	}
+}
+
+func parseBoolActionParam(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on", "include", "key_values", "keys":
+		return true
+	default:
+		return false
+	}
+}
+
 func (r ActionRunner) readActionRecords(path string, maxRecords int) ([]actionRecord, []string, int, string, error) {
 	abs, rel, err := r.resolveActionInputPath(path)
 	if err != nil {
@@ -3563,6 +3729,63 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func naturalLess(a, b string) bool {
+	ta := naturalTokens(a)
+	tb := naturalTokens(b)
+	n := len(ta)
+	if len(tb) < n {
+		n = len(tb)
+	}
+	for i := 0; i < n; i++ {
+		if ta[i].isNum && tb[i].isNum {
+			if ta[i].num != tb[i].num {
+				return ta[i].num < tb[i].num
+			}
+			if ta[i].text != tb[i].text {
+				return len(ta[i].text) < len(tb[i].text)
+			}
+			continue
+		}
+		if ta[i].text != tb[i].text {
+			return ta[i].text < tb[i].text
+		}
+	}
+	if len(ta) != len(tb) {
+		return len(ta) < len(tb)
+	}
+	return a < b
+}
+
+type naturalToken struct {
+	text  string
+	num   int64
+	isNum bool
+}
+
+func naturalTokens(value string) []naturalToken {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return nil
+	}
+	var out []naturalToken
+	for i := 0; i < len(value); {
+		start := i
+		isDigit := value[i] >= '0' && value[i] <= '9'
+		for i < len(value) && ((value[i] >= '0' && value[i] <= '9') == isDigit) {
+			i++
+		}
+		text := value[start:i]
+		token := naturalToken{text: text, isNum: isDigit}
+		if isDigit {
+			if n, err := strconv.ParseInt(text, 10, 64); err == nil {
+				token.num = n
+			}
+		}
+		out = append(out, token)
+	}
+	return out
 }
 
 func candidateArtifact(f CandidateFile) DataArtifact {

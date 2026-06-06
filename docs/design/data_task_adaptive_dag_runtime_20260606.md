@@ -2348,7 +2348,7 @@ validation stages into one script.
 - [x] Add deterministic material-set expansion handles for directories or
       material groups so the model does not write scripts just to enumerate
       related files.
-- [ ] Add typed projection/final-answer assembly actions so strict final
+- [x] Add typed projection/final-answer assembly actions so strict final
       output can be produced from reconcile artifacts without a broad
       terminal script.
 - [ ] Add a material-influence graph and target-set coverage checker so
@@ -2453,3 +2453,94 @@ members in a bounded next batch.
 This closes the first version of material-set handles without adding
 domain-specific file roles. The remaining larger item is a material influence
 graph that proves which material groups actually feed final contributions.
+
+### Batch 63: Material Influence Edge and Typed Answer Projection
+
+The latest real-data run exposed another generic DAG gap. A plan can list a
+text/rule/constraint material at the workflow level while emitting a
+`derive_rules` action without `input_paths`. The action then derives only from
+generic validation text, and later workflow state treats the real material as
+missing. This is a material influence edge problem, not a business-domain
+problem: a required material must be connected to the typed action that is
+supposed to consume or distill it.
+
+The same run also showed that strict final output should not require a broad
+terminal script once contribution and reconcile ledgers already exist. The
+system should project the final answer from typed reconcile groups.
+
+- [x] Normalize `derive_rules` actions that omit `input_paths` by filling
+      them from required text/rule/constraint materials declared in the
+      coverage contract. This uses objective material usage modes and file
+      shape, not business labels or user-prose keywords.
+- [x] Preserve the distinction between planner-distilled and script/action
+      consumed materials. Only materials declared for runner/action
+      consumption are auto-linked.
+- [x] Add `assemble_answer` as a typed data action. It projects existing
+      reconcile groups into the workflow output contract without changing
+      business decisions, numeric values, or contribution membership.
+- [x] Support generic projection modes: values, key-values, JSON groups, and
+      Markdown table; support deterministic ordering and delimiter selection.
+- [x] Add deterministic validation that the projected answer still satisfies
+      the output contract and matches reconcile group values.
+- [x] Teach the planner schema, prompt, and allowed-next-action contracts about
+      `assemble_answer`.
+- [x] Add regression coverage for required-material input normalization,
+      assemble-before-reconcile rejection, and reconcile-group value
+      projection.
+
+Remaining larger architecture item: build a full material influence graph so
+required materials can be traced through generated artifacts, rule coverage,
+entity resolutions, decisions, contribution records, reconcile groups, and the
+final projected answer.
+
+### Batch 64: Script-Failure Cooldown for Atomic DAG Convergence
+
+The same real run showed that, after material and rule coverage were fixed, the
+planner could still fall back to a large `custom_transform` for normalization,
+join, contribution calculation, reconcile, and final answer assembly. The
+existing size guard rejected that script, but the next repair attempt could
+emit another broad script with a different action id. This is a generic
+workflow-control gap: if a script node fails, the next batch should not keep
+retrying free-form code in the same stage.
+
+The fix is a structural cooldown, not a prompt-only hint:
+
+- [x] Add `custom_transform_failures` and `custom_transform_disabled` to
+      `workflow_state_json`.
+- [x] Derive the cooldown from typed workflow records: the latest relevant data
+      event is a failed scripted `custom_transform`, and no later successful
+      non-script typed action has advanced the graph.
+- [x] Keep coverage/rule-only actions from prematurely releasing the cooldown.
+      A successful `inspect_material`, `extract_records`, or `derive_rules`
+      batch can cover prerequisites, but it does not prove the compute graph
+      has advanced. The cooldown is released only by typed progress in
+      derivation, normalization, enrichment, join, contribution, reconcile, or
+      answer assembly stages.
+- [x] Filter `custom_transform` out of `allowed_next_actions` and
+      `allowed_next_action_contracts` while the cooldown is active.
+- [x] Let the existing allowed-action guard reject another script before
+      execution. This prevents id-renaming from bypassing the prior failure.
+- [x] Teach continuation prompts that `custom_transform_disabled=true` means
+      the next batch must move through typed atomic actions until a non-script
+      action succeeds.
+- [x] Add regression coverage proving the filtered state and guard behavior.
+
+This remains domain-neutral. It does not forbid custom scripts globally; it
+turns off the script fallback only after a script failure, and only inside the
+data workflow path. Source analysis, trace/log analysis, command operation, and
+write mode do not consume this state.
+
+### Remaining Follow-Ups
+
+- [ ] Add a compact typed-compute scaffold when
+      `custom_transform_disabled=true` and `next_stage=compute_contributions`.
+      The scaffold should present the next one or two valid typed action shapes
+      and the available artifact fields, so the planner does not spend a long
+      model turn trying to mentally translate a full ETL workflow.
+- [ ] Continue expanding typed compute actions so common record transforms can
+      be represented as `derive_fields`, `normalize_entities`,
+      `enrich_records`, `join_records`, and `compute_contributions` instead of
+      needing broad Python fallback scripts.
+- [ ] Add an evaluator-side budget signal for long LLM planning turns in data
+      workflows. If no tool call arrives near timeout, retry with a compact
+      workflow state rather than the full previous-round material history.

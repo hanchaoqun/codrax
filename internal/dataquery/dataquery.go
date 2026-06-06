@@ -80,6 +80,7 @@ const (
 	DataActionJoinRecords       DataActionKind = "join_records"
 	DataActionComputeContribs   DataActionKind = "compute_contributions"
 	DataActionReconcile         DataActionKind = "reconcile_artifacts"
+	DataActionAssembleAnswer    DataActionKind = "assemble_answer"
 	DataActionCustomTransform   DataActionKind = "custom_transform"
 )
 

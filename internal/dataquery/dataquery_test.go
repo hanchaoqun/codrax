@@ -3145,6 +3145,63 @@ emit({
 	}
 }
 
+func TestActionRunnerAssembleAnswerProjectsReconcileGroups(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "values",
+					"order_by":   "group_key",
+					"delimiter":  ",",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("item10"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("line:10"),
+			GroupKey:      LooseText("Q10"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("20"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("item2"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("line:2"),
+			GroupKey:      LooseText("Q2"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("10"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10,20" {
+		t.Fatalf("Answer=%q, want natural group-key value projection", res.Answer)
+	}
+	if res.Reconcile == nil || res.Reconcile.ActualAnswer.String() != "10,20" {
+		t.Fatalf("Reconcile=%+v, want projected actual answer", res.Reconcile)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[len(res.Artifacts)-1].Kind != string(DataActionAssembleAnswer) {
+		t.Fatalf("Artifacts=%+v, want assemble_answer artifact", res.Artifacts)
+	}
+}
+
 func TestRunnerRejectsMismatchedAnswerScopedReconcileGroup(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

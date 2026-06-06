@@ -137,6 +137,9 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 	if normalizeDataTaskPlanPathLists(&plan) {
 		reasons = append(reasons, "normalized comma-separated path lists in data plan fields")
 	}
+	if normalizeDataTaskDeriveRulesInputs(&plan) {
+		reasons = append(reasons, "filled derive_rules input_paths from required rule/constraint materials")
+	}
 	if normalizeDataTaskPlanContractFromActions(&plan) {
 		reasons = append(reasons, "enabled rule_coverage_required because the plan contains derive_rules actions")
 	}
@@ -233,6 +236,64 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 		reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
 	}
 	return plan, reasons
+}
+
+func normalizeDataTaskDeriveRulesInputs(plan *dataquery.TaskPlan) bool {
+	if plan == nil || len(plan.Actions) == 0 {
+		return false
+	}
+	inputs := dataTaskRequiredRuleMaterialInputs(plan.CoverageContract)
+	if len(inputs) == 0 {
+		return false
+	}
+	changed := false
+	for i := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) != dataquery.DataActionDeriveRules {
+			continue
+		}
+		if len(cleanDataTaskStrings(plan.Actions[i].InputPaths)) > 0 {
+			continue
+		}
+		if dataTaskDeriveRulesActionHasExplicitRules(plan.Actions[i]) {
+			continue
+		}
+		plan.Actions[i].InputPaths = append([]string(nil), inputs...)
+		changed = true
+	}
+	return changed
+}
+
+func dataTaskDeriveRulesActionHasExplicitRules(action dataquery.DataAction) bool {
+	if len(action.Params) == 0 {
+		return false
+	}
+	for _, key := range []string{"rules_json", "rules", "validation_rules_json", "rule_text", "rule"} {
+		if strings.TrimSpace(action.Params[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskRequiredRuleMaterialInputs(contract dataquery.CoverageContract) []string {
+	var out []string
+	for _, material := range contract.RequiredMaterials {
+		mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
+		var p string
+		switch mode {
+		case dataquery.MaterialUseScriptConsumed:
+			p = normalizeDataTaskCoveragePath(material.Path)
+		case dataquery.MaterialUseTextEvidenceConsumed:
+			p = normalizeDataTaskCoveragePath(material.TextEvidencePath)
+		default:
+			continue
+		}
+		if p == "" || !dataTaskPathLooksLikeTextConstraintMaterial(p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return cleanDataTaskStrings(out)
 }
 
 func dataTaskTopLevelScriptDuplicatesActionScript(script string, actions []dataquery.DataAction) bool {
@@ -1154,6 +1215,11 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 			return fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
 		}
+	case dataquery.DataActionAssembleAnswer:
+		if !dataTaskWorkflowHasReconcileProducer(records, plan, actionIndex) {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
 	}
 	return ""
 }
@@ -1270,6 +1336,23 @@ func dataTaskWorkflowHasContributionProducer(records []dataTaskWorkflowRecord, p
 	}
 	for i := 0; i < beforeActionIndex; i++ {
 		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) == dataquery.DataActionComputeContribs {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskWorkflowHasReconcileProducer(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) bool {
+	for _, rec := range records {
+		if rec.Result != nil && rec.Result.Reconcile != nil {
+			return true
+		}
+	}
+	if beforeActionIndex > len(plan.Actions) {
+		beforeActionIndex = len(plan.Actions)
+	}
+	for i := 0; i < beforeActionIndex; i++ {
+		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) == dataquery.DataActionReconcile {
 			return true
 		}
 	}
@@ -1514,6 +1597,8 @@ type dataTaskWorkflowStateView struct {
 	HasReconcile                 bool                     `json:"has_reconcile,omitempty"`
 	HasAnswer                    bool                     `json:"has_answer,omitempty"`
 	NextStage                    string                   `json:"next_stage,omitempty"`
+	CustomTransformFailures      int                      `json:"custom_transform_failures,omitempty"`
+	CustomTransformDisabled      bool                     `json:"custom_transform_disabled,omitempty"`
 	AllowedNextActions           []string                 `json:"allowed_next_actions,omitempty"`
 	AllowedNextActionContracts   []dataTaskActionContract `json:"allowed_next_action_contracts,omitempty"`
 }
@@ -1649,10 +1734,71 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 			state.HasAnswer = true
 		}
 	}
+	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
+	state.CustomTransformDisabled = dataTaskCustomTransformCooldown(records)
 	state.NextStage = dataTaskWorkflowNextStage(state)
-	state.AllowedNextActions = dataTaskWorkflowAllowedNextActions(state)
 	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
+	if state.CustomTransformDisabled {
+		state.AllowedNextActionContracts = dataTaskFilterCustomTransformContracts(state.AllowedNextActionContracts)
+	}
+	state.AllowedNextActions = dataTaskActionKindsFromContracts(state.AllowedNextActionContracts)
 	return state
+}
+
+func dataTaskActionKindsFromContracts(contracts []dataTaskActionContract) []string {
+	out := make([]string, 0, len(contracts))
+	for _, contract := range contracts {
+		if contract.Kind != "" {
+			out = append(out, contract.Kind)
+		}
+	}
+	return out
+}
+
+func dataTaskFilterCustomTransformContracts(contracts []dataTaskActionContract) []dataTaskActionContract {
+	out := make([]dataTaskActionContract, 0, len(contracts))
+	for _, contract := range contracts {
+		if contract.Kind == string(dataquery.DataActionCustomTransform) {
+			continue
+		}
+		out = append(out, contract)
+	}
+	return out
+}
+
+func dataTaskCustomTransformCooldown(records []dataTaskWorkflowRecord) bool {
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if strings.TrimSpace(rec.Err) != "" && dataTaskRecordHasCustomTransformScript(rec) {
+			return true
+		}
+		if strings.TrimSpace(rec.Err) == "" && dataTaskRecordHasPostScriptTypedProgress(rec) {
+			return false
+		}
+	}
+	return false
+}
+
+func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
+	if rec.Result == nil || dataTaskRecordHasCustomTransformScript(rec) {
+		return false
+	}
+	if len(rec.Result.Contributions) > 0 || len(rec.Result.EntityResolutions) > 0 || rec.Result.Reconcile != nil {
+		return true
+	}
+	for _, action := range rec.Plan.Actions {
+		switch normalizeDataActionKindForWorkflow(action.Kind) {
+		case dataquery.DataActionDeriveFields,
+			dataquery.DataActionNormalizeEntities,
+			dataquery.DataActionEnrichRecords,
+			dataquery.DataActionJoinRecords,
+			dataquery.DataActionComputeContribs,
+			dataquery.DataActionReconcile,
+			dataquery.DataActionAssembleAnswer:
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
@@ -1800,6 +1946,7 @@ func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView)
 	case "emit_output_contract_answer":
 		return []dataTaskActionContract{
 			contract(dataquery.DataActionReconcile, "prior contribution records are required", "refresh deterministic reconcile before answer assembly when needed", "reconcile report"),
+			contract(dataquery.DataActionAssembleAnswer, "prior reconcile report is required", "project reconcile groups into the strict user-facing output contract without changing business decisions or numeric values", "final answer matching output_contract"),
 			contract(dataquery.DataActionCustomTransform, "small projection over reconcile/contribution artifacts only", "assemble the strict user-facing output format without changing business decisions or numeric values", "final answer matching output_contract"),
 		}
 	default:
