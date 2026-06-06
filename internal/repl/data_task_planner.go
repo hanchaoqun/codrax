@@ -126,7 +126,7 @@ var dataTaskPlanTool = llm.ToolSchema{
         },
         "reconcile_required": {
           "type": "boolean",
-          "description": "true when the result must include result.reconcile with status=pass and reconcile.groups. The system recomputes numeric group totals from result.contributions when available and rejects mismatches."
+          "description": "true when the result must include result.reconcile with status=pass and reconcile.groups. The system recomputes numeric group totals from target result.contributions when available and rejects mismatches. Auxiliary/audit contributions may exist for material coverage or diagnostics but do not replace target metric reconciliation."
         }
       },
       "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; the system only verifies declared required materials are input and actually consumed. Listing a file in input_paths is not consumption; the script must read it through the provided helpers and use it for the result, validation, or audit."
@@ -137,7 +137,7 @@ var dataTaskPlanTool = llm.ToolSchema{
         "type": "object",
         "properties": {
           "id": {"type":"string"},
-          "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","derive_rules","normalize_entities","compute_contributions","reconcile_artifacts","custom_transform"]},
+          "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","derive_rules","derive_fields","normalize_entities","enrich_records","join_records","compute_contributions","reconcile_artifacts","custom_transform"]},
           "purpose": {"type":"string"},
           "input_paths": {"type":"array", "items":{"type":"string"}},
           "output_artifact": {"type":"string"},
@@ -147,11 +147,11 @@ var dataTaskPlanTool = llm.ToolSchema{
         },
         "required": ["kind"]
       },
-      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; derive_rules turns task rules/constraints into typed generic rule records; normalize_entities emits typed source-to-canonical mappings; compute_contributions reads declared local inputs and creates generic contribution records from field/filter params; reconcile_artifacts deterministically reconciles accumulated contributions; custom_transform is the bounded fallback script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform."
+      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; derive_rules turns task rules/constraints into typed generic rule records; derive_fields materializes generic derived fields such as regex extracts, parsed numbers, lower/upper/trimmed strings, maps, constants, or substrings on an existing record artifact; normalize_entities emits typed source-to-canonical mappings; enrich_records applies mapping/reference records to a base record set and materializes added canonical/derived fields for later joins; join_records creates reusable joined records from two structured inputs using one or more key fields; compute_contributions reads declared local inputs and creates generic contribution records from field/filter params; reconcile_artifacts deterministically reconciles accumulated contributions; custom_transform is the bounded fallback script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform. A batch may contain at most one scripted custom_transform; split multiple transforms into separate batches or express them as typed actions over reusable artifacts."
     },
     "script": {
       "type": "string",
-      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and ledger helpers add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit_result(answer, output_contract=...) or emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}). Include only the ledger fields required by coverage_contract for this task."
+      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), json_records(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and ledger helpers add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...). json_records(path) reads array/object/wrapper JSON as a record list and is usually safest for generated action artifacts. You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit_result(answer, output_contract=...) or emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}). Include only the ledger fields required by coverage_contract for this task."
     },
     "goal": {
       "type": "string",
@@ -284,15 +284,21 @@ Hard rules:
 - Do not make the model hand-calculate the final answer. The script must compute it.
 - The final result object must include answer as a string and output_contract as an object.
 - Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
-- Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, extract_records, derive_rules, normalize_entities, compute_contributions, reconcile_artifacts, then a small custom_transform only when generic typed actions cannot express the bounded step.
+- Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, then a small custom_transform only when generic typed actions cannot express the bounded step.
 - Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the next atomic action batch, set continue_after=true when more graph expansion is needed, and let the workflow feed real artifacts back before planning the next batch.
 - An action is atomic: it should answer one small observation or transformation question. If one action would inspect many unrelated schemas, normalize entities, compute contributions, reconcile, and render output together, split it.
+- Action outputs are reusable read-only JSON materials. A later action can list an earlier action id or output_artifact in input_paths and read it with json_load(path) or json_records(path), or let typed actions consume it as structured records. Use this for stepwise DAG convergence instead of rebuilding all raw files in each step. Previous result.artifact_access is the authoritative access catalog for generated artifacts: it lists aliases, json_shape, and access_hint. Follow it before writing script code; for array-shaped artifacts use json_records(alias) or iterate json_load(alias) as a list, and never call .get() on the top-level array. Do not ask the user to clarify the internal shape of a system-generated artifact; inspect/read that artifact or use json_records(path).
 - Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use extract_records when you need bounded generic records from selected structured or text materials.
-- Use derive_rules when task rules, constraints, examples, or prior distilled notes should become auditable rule_coverage records before calculation. Params can include rules_json (array of {id,text,status,notes,evidence_refs}) or rules (newline text).
+- Use derive_rules when task rules, constraints, examples, or prior distilled notes should become auditable rule_coverage records before calculation. Params can include rules_json (array of {id,text,status,notes,evidence_refs}) or rules (newline text). If later rows/contributions/entity_resolutions will cite rule_refs, give each rule a stable generic ID using "RULE_ID: rule text" or rules_json.id, then cite exactly that ID.
+- Use derive_fields when an existing record artifact needs generic derived columns before filtering, joining, or aggregation. Provide input_path or one input_paths item, output_artifact, and params.field_specs_json as an array. Each spec can include source_field, target_field, operation, pattern, group, replacement, value, default, mapping, multiplier, divisor, start, length. Supported operations are copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, year/extract_year, and constant. parse_number extracts a decimal token from any string; optional multiplier/divisor can normalize an objective numeric unit when the user/material defines the conversion. This action is field-level and domain-neutral; it does not decide business rules.
 - Use normalize_entities when the current task needs source values mapped to canonical values. It has two generic modes: (1) params.resolutions_json or mappings_json is an array of generic entity_resolutions records; or (2) input_paths plus params.source_field/source_fields/name_fields and canonical_id_field/canonical_label_field derive mappings from structured local materials. Use filters_json/filter_field/filter_value to restrict records when needed. Do not encode domain-specific categories in the schema.
+- Use enrich_records when a base record set needs generic canonical/reference fields before it can be joined, filtered, or aggregated. Provide params.base_path plus mapping_specs_json. Each mapping spec can include mapping_path/reference_path, source_field/base_field, mapping_source_fields/reference_fields, mapping_value_field/reference_value_field, target_field, match_mode exact|mapping_contains_source|source_contains_mapping|contains, and optional mapping_filters. If a field can be derived directly from the same record by regex/parse/map/trim, use derive_fields first. This is domain-neutral: it applies mappings from reference/action artifacts and produces a reusable enriched JSON table with source lineage.
+- Use join_records when the current task needs a reusable joined table before filtering or aggregation. Provide two input_paths or params.left_path/right_path, plus params.left_fields/right_fields as JSON arrays or comma lists. For composite joins, use arrays of equal length. If a join key is derived or canonicalized, first use enrich_records to materialize that field on the left/right records; do not ask join_records to join on a field that is not present yet. join_records is field-level and domain-neutral; it does not decide business rules.
 - Use compute_contributions for generic sums, counts, filters, grouped totals, or contribution ledgers over declared local structured/text inputs. Params are domain-neutral: value_field, group_key_field or group_key, metric, operation, item_id_field, filters_json, rule_refs, max_records, max_contributions.
 - Use reconcile_artifacts after compute_contributions when reconcile_required=true or when the final scalar/list must be backed by a deterministic contribution sum.
 - Use custom_transform only for bounded deterministic transforms over known input_paths that cannot be represented by the typed actions above.
+- A broad custom_transform over many input_paths, required materials, or ledger outputs is not a discovery node. It is allowed only after earlier typed actions or previous rounds have already inspected/derived/normalized/enriched/joined/computed the relevant inputs. If any required input is still unprofiled or a needed field is missing, add inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records first and set continue_after=true.
+- An actions[] batch may contain at most one scripted custom_transform. If the work needs several transforms, emit one batch, let it produce an artifact, then continue with the next batch.
 - When actions are present, top-level script must be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
@@ -301,20 +307,20 @@ Hard rules:
 - extraction_status is objective inventory metadata. "text_ready" and "extracted_text" mean the runner can read the material; "related_text_available" means the material has candidate text evidence; "needs_text_extraction" means semantic content is not yet available to the deterministic runner.
 - Fill coverage_contract.required_materials with every material that must be covered to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
 - For each required material choose usage_mode. Default/empty is script_consumed. Use script_consumed when the script must directly read that material. Use text_evidence_consumed when an original material is covered by an extracted or related text evidence file; set text_evidence_path and read that path in the script. Use planner_distilled only when the material content has already been distilled into typed validation_rules/constraints for this batch; include distilled_notes. Use reference_only in optional_materials, not as a blocking requirement.
-- A script_consumed material is consumed only when the script reads it through a provided helper such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, or safe open, and then uses the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary. Listing a path in input_paths or required_materials is not enough.
+- A script_consumed material is consumed only when the script reads it through a provided helper such as csv_rows, tsv_rows, json_load, json_records, jsonl_rows, read_text, or safe open, and then uses the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary. Listing a path in input_paths or required_materials is not enough.
 - If you mark a rule/instruction/example/schema/text document as required with script_consumed, read it with read_text(path) and use its content to drive rule_coverage, validation, parsing choices, or audit notes. Do not add dummy comments or assertions solely to satisfy consumption.
 - Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
 - Choose validation fields from the task shape, not from a fixed domain. Simple sums/counts/rankings usually need contribution_ledger_required=true and reconcile_required=true. Cleaning/filtering usually also needs rule_coverage_required=true. Joins, name/ID/category normalization, or cross-material linking usually also need entity_resolution_required=true. Pure summary/extraction may only need material coverage and output_contract.
 - If coverage_contract.rule_coverage_required=true, emit result.rule_coverage records with rule_id, rule_text, status, evidence_refs, and notes. These are generic rule records.
 - Rule coverage records must be supported: each rule needs rule_id/rule_text, status, and either notes, evidence_refs, or linked rule_refs from rows/contributions/entity_resolutions.
-- If coverage_contract.contribution_ledger_required=true, emit result.contributions records with item_id, source, source_locator, group_key, metric, value, operation, reason, evidence_refs, and rule_refs when a contribution is governed by specific rules. These explain how task items contribute to totals, counts, groups, ranks, or final output elements. Prefer add_contribution(...) so the runner owns the JSON shape. Use operation="add" or "sum" for positive numeric totals, "count" for item counts, and "subtract" for negative adjustments.
+- If coverage_contract.contribution_ledger_required=true, emit result.contributions records with item_id, source, source_locator, group_key, metric, value, operation, role, reason, evidence_refs, and rule_refs when a contribution is governed by specific rules. These explain how task items contribute to totals, counts, groups, ranks, or final output elements. Prefer add_contribution(...) so the runner owns the JSON shape. Use operation="add" or "sum" for positive numeric totals, "count" for item counts, and "subtract" for negative adjustments. Use role="target" only for atomic sourced items that participate in the final answer; each target contribution must have source, source_locator, or evidence_refs. Do not add aggregate summary rows as target contributions. Put aggregate values in reconcile.groups; use role="audit" or role="intermediate" only for material coverage, samples, diagnostics, summaries, or non-output helper statistics.
 - If coverage_contract.entity_resolution_required=true, emit result.entity_resolutions records with source_value, canonical_id, canonical_label, status, candidates, evidence_refs, reason, and rule_refs when the mapping is governed by specific rules. Use this for any source-to-canonical mapping, including unresolved or ambiguous values. Prefer add_resolution(...); if candidates are present, each candidate should be an object with id/label/evidence/confidence.
-- If coverage_contract.reconcile_required=true, emit result.reconcile with status="pass", expected_answer and/or actual_answer, and reconcile.groups. The system recomputes numeric group totals from result.contributions when possible; do not mark pass unless the output and contribution ledger reconcile.
+- If coverage_contract.reconcile_required=true, emit result.reconcile with status="pass", expected_answer and/or actual_answer, and reconcile.groups. The system recomputes numeric group totals from target result.contributions when possible; do not mark pass unless the output and target contribution ledger reconcile. For ordinary group checks, reconcile.groups must use group_key/metric matching target contributions. For a final composite output string or object, a reconcile group may use scope="answer" (or role="answer") with expected/actual equal to the final answer; this is answer-level reconciliation, not a replacement for per-group checks when the task needs them. Audit/intermediate contributions are allowed for traceability but do not satisfy final metric reconciliation.
 - Use the canonical ledger field names exactly. Task-specific aliases may be useful inside normalized_fields or reason text, but they do not replace item_id/group_key/metric/value/source_locator in result.contributions or group_key/metric/expected/actual in result.reconcile.groups. Keep group_key as dimensions only; put the measure name in metric so the same metric is not encoded twice.
 - Script sandbox: prefer the provided helpers:
-  csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...), emit(obj).
-- Do not redefine provided helper names such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money, add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, or open. Use them directly.
+  csv_rows(path), tsv_rows(path), json_load(path), json_records(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...), emit(obj).
+- Do not redefine provided helper names such as csv_rows, tsv_rows, json_load, json_records, jsonl_rows, read_text, parse_money, add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, or open. Use them directly.
 - Candidate table metadata uses structured JSON fields. headers_json and sample_rows_json describe columns/rows; delimiter shows the real file delimiter. Do not infer a pipe delimiter from display punctuation.
 - You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator, string, textwrap, base64, binascii, hashlib, unicodedata, fractions, calendar.
 - open(path) is read-only and works only for files listed in input_paths. Never write files, run shell commands, use network/process libraries, access os/sys/pathlib/shutil, or use dynamic eval/exec/compile.
@@ -384,10 +390,11 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 	if p == nil || p.adapter == nil {
 		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator is not configured")
 	}
+	basePrompt := dataTaskEvaluationPrompt(userLine, records, lang)
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
 			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
-			{Role: "user", Content: dataTaskEvaluationPrompt(userLine, records, lang)},
+			{Role: "user", Content: basePrompt},
 		},
 		[]llm.ToolSchema{dataTaskEvaluationTool},
 		llm.ChatOptions{ToolChoice: "required"},
@@ -397,7 +404,21 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 		return dataquery.Evaluation{}, err
 	}
 	if len(resp.ToolCalls) == 0 {
-		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator returned no tool_call")
+		retryResp, retryErr := p.adapter.Chat(ctx,
+			[]llm.Message{
+				{Role: "system", Content: dataTaskEvaluationSystemPrompt},
+				{Role: "user", Content: dataTaskEvaluationNoToolRepairPrompt(basePrompt, resp)},
+			},
+			[]llm.ToolSchema{dataTaskEvaluationTool},
+			llm.ChatOptions{ToolChoice: "required"},
+		)
+		if retryErr == nil {
+			p.lastTrace = traceFromLLMResponse("data_task_evaluator_repair", retryResp)
+			resp = retryResp
+		}
+		if retryErr != nil || len(resp.ToolCalls) == 0 {
+			return fallbackDataTaskEvaluation(records, resp), nil
+		}
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != dataTaskEvaluationTool.Name {
@@ -418,6 +439,45 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 		}
 	}
 	return parsed.toEvaluation(), nil
+}
+
+func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Response) string {
+	var b strings.Builder
+	b.WriteString("## parse_failure\n")
+	b.WriteString("The previous evaluator response did not call the required tool. Re-emit exactly one emit_data_task_evaluation tool call. Do not write prose.\n\n")
+	if content := strings.TrimSpace(previous.Content); content != "" {
+		fmt.Fprintf(&b, "## previous_content_preview\n%s\n\n", clampDataTaskWorkflowText(content, 1600))
+	}
+	if reasoning := strings.TrimSpace(previous.ReasoningContent); reasoning != "" {
+		fmt.Fprintf(&b, "## previous_reasoning_preview\n%s\n\n", clampDataTaskWorkflowText(reasoning, 1600))
+	}
+	b.WriteString("## original_evaluation_context\n")
+	b.WriteString(basePrompt)
+	return strings.TrimSpace(b.String())
+}
+
+func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Response) dataquery.Evaluation {
+	reason := "evaluator produced no structured tool call; continuing conservatively from deterministic workflow state"
+	if content := strings.TrimSpace(resp.Content); content != "" {
+		reason = "evaluator produced no structured tool call after prose response; continuing conservatively"
+	}
+	if len(records) == 0 {
+		return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
+	}
+	last := records[len(records)-1]
+	if strings.TrimSpace(last.Err) != "" {
+		eval := dataquery.Evaluation{Status: dataquery.EvalRepairNode, Confidence: "low", Reason: reason}
+		if len(last.Plan.Actions) > 0 {
+			action := last.Plan.Actions[len(last.Plan.Actions)-1]
+			eval.ActionID = action.ID
+			eval.ActionKind = string(action.Kind)
+		}
+		return eval
+	}
+	if last.Result != nil && len(last.Result.Artifacts) > 0 {
+		return dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason}
+	}
+	return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
 }
 
 func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
@@ -599,6 +659,7 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("- If script_line is absent, repair from typed_repair_locus.code, repair_hint, JSON path details when present, and the compact previous plan; do not invent unrelated changes.\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
+	b.WriteString("- Generated action artifact structure is not user-owned missing information. If a failure shows JSON array/object shape mismatch, use artifact json_shape metadata, inspect/read the artifact, or use json_records(path) instead of asking the user.\n")
 	b.WriteString("- If typed_repair_locus.code is oversized_data_plan, do not rewrite another giant one-shot script. Emit a smaller bounded batch with concrete next_batch/why_this_batch and continue_after=true when the overall data goal needs more batches.\n")
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
 	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must keep a verifiable usage_mode.\n")
@@ -607,8 +668,9 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("- If coverage_contract.decision_records_required=true, emit result.rows. If result.rows was missing, repair by adding generic item-level decision records rather than changing the user's final output format.\n")
 	b.WriteString("- If a required validation ledger is missing or reconcile failed, repair by adding/fixing the generic rule_coverage, contributions, entity_resolutions, or reconcile fields and correcting the computation. Do not remove required validation flags to bypass the contract unless the previous contract was structurally wrong for the user goal; explain that structural reason in validation_rules or why_this_batch.\n")
 	b.WriteString("- Prefer runner ledger helpers for repaired structures: add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), and emit_result(...). These helpers reduce JSON-shape drift.\n")
-	b.WriteString("- Use canonical ledger field names exactly. Task-specific aliases do not satisfy contribution/reconcile validation: contributions need item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason as needed; reconcile.groups need group_key/metric and expected/actual values.\n")
-	b.WriteString("- Contribution operation values are canonicalized, but use operation=\"add\" or \"sum\" for positive numeric totals, \"count\" for counts, and \"subtract\" for negative adjustments. Keep group_key as dimensions only and metric as the measure name; do not encode metric inside group_key.\n")
+	b.WriteString("- Use canonical ledger field names exactly. Task-specific aliases do not satisfy contribution/reconcile validation: contributions need item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/role/reason as needed; reconcile.groups need group_key/metric and expected/actual values.\n")
+	b.WriteString("- If the final output is a composite string/object and the reconcile group checks that exact final payload, set reconcile.groups[].scope=\"answer\" or role=\"answer\" and make expected/actual equal to result.answer. Ordinary reconcile groups still need group_key/metric matching target contributions.\n")
+	b.WriteString("- Contribution operation values are canonicalized, but use operation=\"add\" or \"sum\" for positive numeric totals, \"count\" for counts, and \"subtract\" for negative adjustments. Keep group_key as dimensions only and metric as the measure name; do not encode metric inside group_key. Use role=\"target\" for final answer metrics; role=\"audit\" or role=\"intermediate\" is only for material coverage, sample counts, diagnostics, or helper statistics that should not force final answer reconciliation.\n")
 	b.WriteString("- Rule coverage records must be supported by notes, evidence_refs, or rule_refs on rows/contributions/entity_resolutions. Resolved entity_resolutions need canonical_id/canonical_label; unresolved or ambiguous mappings need reason, candidates, or evidence_refs. Candidate entries should be objects with id/label/evidence/confidence, not task-specific aliases.\n")
 	b.WriteString("- The script must call emit(obj) or set result. Debug print is allowed only in small amounts and is not the final answer.\n")
 	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
@@ -749,10 +811,18 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## previous_data_rounds\n")
 	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	if stateJSON := marshalDataTaskWorkflowState(records, dataquery.TaskPlan{}); stateJSON != "" {
+		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
+	}
 	b.WriteString("\n\n## continuation_rules\n")
 	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
 	b.WriteString("- Prefer extending the adaptive action graph over rewriting a large script. Use previous result.artifacts to decide the next atomic action. A failed custom_transform should usually be repaired as a smaller custom_transform or replaced by inspect_material/material_inventory first.\n")
+	b.WriteString("- Follow workflow_state_json.next_stage. If material_coverage_sufficient=true, do not emit another coverage-only batch (material_inventory, inspect_material, extract_records, derive_rules) unless workflow_state_json.missing_required_materials names a specific new material. Move to derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or one narrow custom_transform over generated artifacts.\n")
+	b.WriteString("- Previous action ids and output_artifact names are reusable read-only JSON materials. Later actions can list them in input_paths and read them with json_load(path), or typed actions can consume them as structured records.\n")
+	b.WriteString("- Use result.artifact_access as the access contract for generated artifacts. It gives aliases, json_shape, and access_hint. If an artifact is array-shaped, use json_records(alias) or iterate json_load(alias) as a list; do not call .get() on the top-level value.\n")
+	b.WriteString("- A custom_transform that reads many materials or emits multiple ledgers must be a final bounded transform over known inputs. If prior results have not consumed/profiled every required input, emit typed prerequisite actions first instead of another broad script.\n")
+	b.WriteString("- Emit at most one scripted custom_transform per actions[] batch. If multiple fallback transforms are needed, produce one artifact now and request continuation for the next batch.\n")
 	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
 	b.WriteString("- Continue plans must preserve still-relevant required validation flags. If a prior result has missing rule coverage, missing contributions, missing entity resolutions, or failed reconcile, the next batch should repair the computation or emit a corrected bounded result.\n")
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields before deciding a prior result is missing items or groups.\n")
@@ -770,12 +840,24 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	b.WriteString("## data_workflow_rounds\n")
 	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	if stateJSON := marshalDataTaskWorkflowState(records, dataquery.TaskPlan{}); stateJSON != "" {
+		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
+	}
 	b.WriteString("\n\n## evaluator_rules\n")
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields to distinguish a sample from the full result.\n")
 	b.WriteString("- Do not infer missing reconcile groups, answer items, decisions, contributions, or resolutions solely because the sample list is shorter than the total count.\n")
 	b.WriteString("- Judge completion from the user goal, output_contract, counts, reconcile status, coverage warnings, and explicit failures together.\n")
 	b.WriteString("- Prefer precise continue statuses: expand_graph for more inspection/extraction artifacts, repair_node for one failed/incorrect prior node, continue_transform for a bounded transform over known artifacts. Use continue_data only when no precise status fits.\n")
+	b.WriteString("- If workflow_state_json.material_coverage_sufficient=true and there is still no contribution/reconcile/final answer, evaluate toward compute-stage continuation; do not ask for more material coverage unless missing_required_materials is non-empty.\n")
 	return strings.TrimSpace(b.String())
+}
+
+func marshalDataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	raw, err := json.MarshalIndent(dataTaskWorkflowState(records, current), "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) string {

@@ -54,6 +54,114 @@ emit({
 	}
 }
 
+func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nA,7,paid\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired: true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+for idx, row in enumerate(rows, start=1):
+    add_decision(row_id=str(idx), decision="include", source="orders.csv", source_locator="row " + str(idx + 1), value=row["amount"])
+emit_result({
+  "answer": str(sum(int(r["amount"]) for r in rows)),
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "audit_summary": "object-style emit_result should be treated as a result object",
+  "rows": []
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17" {
+		t.Fatalf("Answer=%q, want object answer field only", res.Answer)
+	}
+	if len(res.Rows) != 2 {
+		t.Fatalf("Rows=%d, want helper rows merged", len(res.Rows))
+	}
+}
+
+func TestRunnerPreservesExtraEmitPayloadAsArtifact(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rules.md"), []byte("R1: keep paid rows\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{RepoRoot: dir}
+	result, err := runner.Run(context.Background(), TaskPlan{
+		InputPaths: []string{"rules.md"},
+		OutputContract: OutputContract{
+			Format:             OutputFreeform,
+			ExplanationAllowed: true,
+		},
+		Script: `content = read_text("rules.md")
+emit({"content": content, "line_count": len(content.splitlines())})`,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Artifacts) == 0 || result.Artifacts[0].ID != "emitted_payload" {
+		t.Fatalf("Artifacts=%+v, want emitted payload artifact", result.Artifacts)
+	}
+	if !strings.Contains(strings.Join(result.Artifacts[0].Sample, "\n"), "keep paid rows") {
+		t.Fatalf("payload artifact sample=%v", result.Artifacts[0].Sample)
+	}
+	if !strings.Contains(result.Artifacts[0].Fields["payload_keys"], "content") {
+		t.Fatalf("payload artifact fields=%v", result.Artifacts[0].Fields)
+	}
+}
+
+func TestRunnerNormalizesScalarRowDecisions(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired: true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": rows[0]["amount"],
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "rows": ["included paid row", 3, True]
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Rows) != 3 {
+		t.Fatalf("Rows=%d, want 3", len(res.Rows))
+	}
+	if res.Rows[0].Decision != "observed" || res.Rows[0].Reason != "included paid row" {
+		t.Fatalf("Rows[0]=%+v, want observed scalar row", res.Rows[0])
+	}
+}
+
 func TestRunnerJSONOnlyValidation(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -300,6 +408,37 @@ func TestActionRunnerMaterialInventoryAndInspectArtifacts(t *testing.T) {
 	}
 }
 
+func TestActionRunnerReturnsPartialArtifactsOnLaterActionFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		Actions: []DataAction{
+			{ID: "inspect_orders", Kind: DataActionInspectMaterial, InputPaths: []string{"orders.csv"}, OutputArtifact: "orders_profile"},
+			{ID: "bad_next_node", Kind: DataActionKind("unsupported_action"), Purpose: "force a later action failure"},
+		},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatalf("Run unexpectedly succeeded")
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("partial Artifacts=%d, want 1: %+v", len(res.Artifacts), res.Artifacts)
+	}
+	if res.Artifacts[0].ID != "orders_profile" {
+		t.Fatalf("partial artifact=%+v, want orders_profile", res.Artifacts[0])
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv" {
+		t.Fatalf("partial ConsumedPaths=%q, want orders.csv", got)
+	}
+	if !strings.Contains(res.AuditSummary, "inspected") {
+		t.Fatalf("partial AuditSummary=%q, want inspected summary", res.AuditSummary)
+	}
+}
+
 func TestActionRunnerExtractRecordsArtifacts(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
@@ -337,8 +476,267 @@ func TestActionRunnerExtractRecordsArtifacts(t *testing.T) {
 	if csvArtifact.Kind != "extract_records/csv" || strings.Join(csvArtifact.Headers, ",") != "id,amount" || csvArtifact.RowCount != 2 || len(csvArtifact.Sample) != 1 {
 		t.Fatalf("csv artifact=%+v", csvArtifact)
 	}
+	if shape := res.Artifacts[0].Fields["json_shape"]; !strings.Contains(shape, "array") {
+		t.Fatalf("artifact json_shape=%q, want array shape", shape)
+	}
 	if got := strings.Join(res.ConsumedPaths, ","); !strings.Contains(got, "orders.csv") || !strings.Contains(got, "events.jsonl") {
 		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
+func TestActionRunnerCustomTransformConsumesPriorActionArtifact(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{
+				ID:             "extract_orders",
+				Kind:           DataActionExtractRecords,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "orders_records",
+				Params:         map[string]string{"limit": "10"},
+			},
+			{
+				ID:         "sum_orders",
+				Kind:       DataActionCustomTransform,
+				InputPaths: []string{"artifacts/orders_records.json"},
+				Script: `
+rows = json_load("artifacts/orders_records.json")
+total = sum(int(row["amount"]) for row in rows)
+emit_result(str(total), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if res.Answer != "30" {
+		t.Fatalf("Answer=%q, want 30", res.Answer)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "artifacts/orders_records.json,orders.csv" {
+		t.Fatalf("ConsumedPaths=%q, want source plus materialized artifact", got)
+	}
+}
+
+func TestActionRunnerCustomTransformConsumesActionNamespacedArtifact(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{
+				ID:             "extract_orders",
+				Kind:           DataActionExtractRecords,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "orders_records",
+				Params:         map[string]string{"limit": "10"},
+			},
+			{
+				ID:         "sum_orders",
+				Kind:       DataActionCustomTransform,
+				InputPaths: []string{"artifacts/extract_orders/orders_records.json"},
+				Script: `
+rows = json_load("artifacts/extract_orders/orders_records.json")
+total = sum(int(row["amount"]) for row in rows)
+emit_result(str(total), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions with namespaced artifact alias: %v", err)
+	}
+	if res.Answer != "30" {
+		t.Fatalf("Answer=%q, want 30", res.Answer)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "artifacts/extract_orders/orders_records.json,orders.csv" {
+		t.Fatalf("ConsumedPaths=%q, want namespaced alias plus source", got)
+	}
+}
+
+func TestActionRunnerCustomTransformConsumesSeedArtifactAcrossBatches(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	tempRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		ContinueAfter:  true,
+		Actions: []DataAction{{
+			ID:             "extract_orders",
+			Kind:           DataActionExtractRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "orders_records",
+			Params:         map[string]string{"limit": "10"},
+		}},
+	}
+	seed, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot}).Run(context.Background(), first)
+	if err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	if len(seed.Artifacts) == 0 || seed.Artifacts[0].Fields["artifact_path"] == "" {
+		t.Fatalf("seed artifacts missing materialized path: %+v", seed.Artifacts)
+	}
+	if _, err := os.Stat(seed.Artifacts[0].Fields["artifact_path"]); err != nil {
+		t.Fatalf("materialized artifact was not persisted across batches: %v", err)
+	}
+	second := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "sum_orders",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"artifacts/orders_records.json"},
+			Script: `
+rows = json_load("artifacts/orders_records.json")
+total = sum(int(row["amount"]) for row in rows)
+emit_result(str(total), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot, Seed: seed}).Run(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second Run consumed seed artifact: %v", err)
+	}
+	if res.Answer != "30" {
+		t.Fatalf("Answer=%q, want 30", res.Answer)
+	}
+}
+
+func TestActionRunnerJSONRecordsReadsArrayAndWrapperArtifacts(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	tempRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		ContinueAfter:  true,
+		Actions: []DataAction{{
+			ID:             "extract_orders",
+			Kind:           DataActionExtractRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "orders_records",
+			Params:         map[string]string{"limit": "10"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("seed Run: %v", err)
+	}
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot, Seed: seed}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "sum_records",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"orders_records"},
+			Script: `
+rows = json_records("orders_records")
+total = sum(int(row["amount"]) for row in rows)
+emit_result(str(total), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("json_records array artifact: %v", err)
+	}
+	if res.Answer != "30" {
+		t.Fatalf("Answer=%q, want 30", res.Answer)
+	}
+
+	wrapper := filepath.Join(root, "wrapped.json")
+	if err := os.WriteFile(wrapper, []byte(`{"rules":[{"id":"R1"},{"id":"R2"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err = (Runner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		InputPaths:       []string{"wrapped.json"},
+		OutputContract:   OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{},
+		Script: `
+rows = json_records("wrapped.json")
+emit_result(str(len(rows)), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+	})
+	if err != nil {
+		t.Fatalf("json_records wrapper object: %v", err)
+	}
+	if res.Answer != "2" {
+		t.Fatalf("Answer=%q, want 2", res.Answer)
+	}
+}
+
+func TestActionRunnerTypedActionConsumesPriorActionArtifact(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nB,5,pending\nA,7,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "extract_orders",
+				Kind:           DataActionExtractRecords,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "orders_records",
+				Params:         map[string]string{"limit": "10"},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"orders_records"},
+				Params: map[string]string{
+					"group_key_field": "vendor",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"filters_json":    `[{"field":"status","op":"eq","value":"paid"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if res.Answer != "17" {
+		t.Fatalf("Answer=%q, want 17", res.Answer)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2", res.Contributions)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv,orders_records" {
+		t.Fatalf("ConsumedPaths=%q, want source plus materialized artifact", got)
 	}
 }
 
@@ -397,6 +795,718 @@ func TestActionRunnerRuleContributionReconcileActions(t *testing.T) {
 	}
 	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv" {
 		t.Fatalf("ConsumedPaths=%q, want orders.csv", got)
+	}
+}
+
+func TestActionRunnerJoinRecordsContributionReconcileActions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,vendor_id,amount,status\nO1,V1,10,paid\nO2,V2,5,pending\nO3,V1,7,accepted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vendors.csv"), []byte("vendor_id,category\nV1,compute\nV2,office\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "join_orders_vendors",
+				Kind:           DataActionJoinRecords,
+				InputPaths:     []string{"orders.csv", "vendors.csv"},
+				OutputArtifact: "orders_with_vendor",
+				Params: map[string]string{
+					"left_fields":  `["vendor_id"]`,
+					"right_fields": `["vendor_id"]`,
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"artifacts/join_orders_vendors/orders_with_vendor.json"},
+				Params: map[string]string{
+					"group_key_field": "category",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "order_id",
+					"filters_json":    `[{"field":"status","op":"in","value":["paid","accepted"]}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run join/contribution actions: %v", err)
+	}
+	if res.Answer != "17" {
+		t.Fatalf("Answer=%q, want 17", res.Answer)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2 joined paid/accepted rows", res.Contributions)
+	}
+	if res.Artifacts[0].Kind != string(DataActionJoinRecords) || res.Artifacts[0].RowCount != 3 {
+		t.Fatalf("join artifact=%+v", res.Artifacts[0])
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "artifacts/join_orders_vendors/orders_with_vendor.json,orders.csv,vendors.csv" {
+		t.Fatalf("ConsumedPaths=%q, want joined artifact plus sources", got)
+	}
+}
+
+func TestActionRunnerEnrichJoinContributionReconcileActions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,vendor_id,category_raw,amount,status\nO1,V1,云资源,10,paid\nO2,V1,办公,5,paid\nO3,V1,算力服务,7,accepted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "categories.csv"), []byte("category_code,category_name,aliases\nCOMPUTE,算力服务,云资源;算力\nOFFICE,办公用品,办公;文具\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "queries.csv"), []byte("query_id,vendor_id,category_code\nQ1,V1,COMPUTE\nQ2,V1,OFFICE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "enrich_orders",
+				Kind:           DataActionEnrichRecords,
+				InputPaths:     []string{"orders.csv", "categories.csv"},
+				OutputArtifact: "orders_enriched",
+				Params: map[string]string{
+					"base_path":             "orders.csv",
+					"mapping_path":          "categories.csv",
+					"source_field":          "category_raw",
+					"mapping_source_fields": `["category_name","aliases"]`,
+					"mapping_value_field":   "category_code",
+					"target_field":          "category_code",
+					"match_mode":            "mapping_contains_source",
+				},
+			},
+			{
+				ID:             "join_queries",
+				Kind:           DataActionJoinRecords,
+				InputPaths:     []string{"orders_enriched", "queries.csv"},
+				OutputArtifact: "orders_query_joined",
+				Params: map[string]string{
+					"left_fields":  `["vendor_id","category_code"]`,
+					"right_fields": `["vendor_id","category_code"]`,
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"orders_query_joined"},
+				Params: map[string]string{
+					"group_key_field": "query_id",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "order_id",
+					"filters_json":    `[{"field":"status","op":"in","value":["paid","accepted"]}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run enrich/join/contribution actions: %v", err)
+	}
+	if res.Answer != "Q1/amount=17; Q2/amount=5" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if len(res.Contributions) != 3 {
+		t.Fatalf("Contributions=%+v, want 3 matched rows", res.Contributions)
+	}
+	if len(res.Artifacts) < 4 || res.Artifacts[0].Kind != string(DataActionEnrichRecords) {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	if got := res.Artifacts[0].Fields["matches_category_code"]; got != "3" {
+		t.Fatalf("enrich matches=%q, want 3", got)
+	}
+}
+
+func TestActionRunnerDeriveFieldsContributionReconcileActions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("item_id,token,value_raw,flag\nA,group:alpha,1.234s,ok\nB,group:beta,9ms,skip\nC,group:alpha,0.007s,ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "derive",
+				Kind:           DataActionDeriveFields,
+				InputPaths:     []string{"events.csv"},
+				OutputArtifact: "events_derived",
+				Params: map[string]string{
+					"field_specs_json": `[
+						{"source_field":"token","target_field":"group","operation":"regex_extract","pattern":"group:([a-z]+)"},
+						{"source_field":"value_raw","target_field":"value_ms","operation":"parse_number","multiplier":"1000"},
+						{"source_field":"flag","target_field":"flag_bucket","operation":"map","mapping":{"ok":"include","skip":"exclude"}}
+					]`,
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"events_derived"},
+				Params: map[string]string{
+					"group_key_field": "flag_bucket",
+					"metric":          "value_ms",
+					"value_field":     "value_ms",
+					"operation":       "add",
+					"item_id_field":   "item_id",
+					"filters_json":    `[{"field":"group","op":"eq","value":"alpha"},{"field":"flag_bucket","op":"eq","value":"include"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run derive/contribution actions: %v", err)
+	}
+	if res.Answer != "1241" {
+		t.Fatalf("Answer=%q, want 1241", res.Answer)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2 matched rows", res.Contributions)
+	}
+	if len(res.Artifacts) < 3 || res.Artifacts[0].Kind != string(DataActionDeriveFields) {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	if got := res.Artifacts[0].Fields["derived_fields"]; got != "group,value_ms,flag_bucket" {
+		t.Fatalf("derived fields=%q", got)
+	}
+}
+
+func TestActionRunnerComputeContributionsInheritsRuleRefsAndMaterializesPayload(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nB,5,pending\nA,7,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:   "rules",
+				Kind: DataActionDeriveRules,
+				Params: map[string]string{
+					"rules_json": `[{"id":"r1","text":"include paid records only","status":"applied","notes":"filter status=paid"}]`,
+				},
+			},
+			{
+				ID:             "contrib",
+				Kind:           DataActionComputeContribs,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "totals",
+				Params: map[string]string{
+					"group_key_field": "vendor",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"filters_json":    `[{"field":"status","op":"eq","value":"paid"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:         "final",
+				Kind:       DataActionCustomTransform,
+				InputPaths: []string{"totals.json"},
+				Script: `data = json_load("totals.json")
+total = sum(parse_money(c.get("value", "0")) for c in data.get("contributions", []))
+emit_result(str(int(total)), output_contract={"format":"plain_single_line","explanation_allowed":False})`,
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if res.Answer != "17" {
+		t.Fatalf("Answer=%q, want 17", res.Answer)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2 paid rows", res.Contributions)
+	}
+	for i, rec := range res.Contributions {
+		if got := strings.Join(rec.RuleRefs, ","); got != "r1" {
+			t.Fatalf("Contributions[%d].RuleRefs=%v, want inherited r1", i, rec.RuleRefs)
+		}
+		if rec.Role.String() != "target" {
+			t.Fatalf("Contributions[%d].Role=%q, want target", i, rec.Role.String())
+		}
+	}
+}
+
+func TestActionRunnerImplicitCountContributionIsAuditRole(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.csv"), []byte("id,path\nA,one.txt\nB,two.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:         "count_material",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"manifest.csv"},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run implicit count action: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2 count records", res.Contributions)
+	}
+	for i, rec := range res.Contributions {
+		if rec.Role.String() != "audit" {
+			t.Fatalf("Contributions[%d].Role=%q, want audit", i, rec.Role.String())
+		}
+	}
+}
+
+func TestActionRunnerComputeContributionsAllowsNonContributingInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.csv"), []byte("id,path,amount\nA,one.txt,\nB,two.txt,\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "manifest.csv", Required: true}},
+		},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"manifest.csv"},
+			Params: map[string]string{
+				"group_key_field": "id",
+				"metric":          "amount",
+				"value_field":     "amount",
+				"operation":       "add",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run empty contribution action: %v", err)
+	}
+	if len(res.Contributions) != 0 {
+		t.Fatalf("Contributions=%+v, want empty intermediate artifact", res.Contributions)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].Fields["count"] != "0" {
+		t.Fatalf("Artifacts=%+v, want count=0 artifact", res.Artifacts)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "manifest.csv" {
+		t.Fatalf("ConsumedPaths=%q, want manifest.csv", got)
+	}
+}
+
+func TestActionRunnerComputeContributionsRejectsUnknownFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.csv"), []byte("id,path\nA,one.txt\nB,two.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"manifest.csv"},
+			Params: map[string]string{
+				"group_key_field": "id",
+				"metric":          "amount",
+				"value_field":     "amount",
+				"operation":       "add",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "value_field") || !strings.Contains(err.Error(), "amount") {
+		t.Fatalf("Run err=%v, want missing value_field diagnostic", err)
+	}
+}
+
+func TestActionRunnerComputeContributionsAcceptsArrayFilterValue(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\nA,paid,10\nB,draft,5\nC,accepted,7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"group_key":    "all",
+				"metric":       "amount",
+				"value_field":  "amount",
+				"operation":    "sum",
+				"filters_json": `[{"field":"status","op":"in","value":["paid","accepted"]}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run array filter action: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want paid+accepted rows", res.Contributions)
+	}
+}
+
+func TestCustomTransformAllowsUniqueLooseRawFieldAlias(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount_raw\nA,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths:     []string{"orders.csv"},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit_result(str(rows[0]["amount"]), output_contract={"format": "plain_single_line", "explanation_allowed": False})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run loose alias script: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q, want 10", res.Answer)
+	}
+}
+
+func TestCustomTransformDoesNotAliasCodeToRawField(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,category_raw\nA,compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths:     []string{"orders.csv"},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit_result(str(rows[0]["category_code"]), output_contract={"format": "plain_single_line", "explanation_allowed": False})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `KeyError: 'category_code'`) {
+		t.Fatalf("Run err=%v, want category_code runtime rejection", err)
+	}
+}
+
+func TestActionRunnerReconcileUsesSeedContributions(t *testing.T) {
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID:   "reconcile",
+			Kind: DataActionReconcile,
+		}},
+	}
+	seed := Result{
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("item1"),
+			Source:        LooseText("orders.csv"),
+			SourceLocator: LooseText("row 2"),
+			GroupKey:      LooseText("Q001"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("10"),
+			Operation:     LooseText("add"),
+			Reason:        LooseText("seeded contribution"),
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run seeded reconcile: %v", err)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 || res.Reconcile.Groups[0].Actual.String() != "10" {
+		t.Fatalf("Reconcile=%+v, want seeded contribution group", res.Reconcile)
+	}
+	if len(res.Contributions) != 1 {
+		t.Fatalf("Contributions=%+v, want seeded contribution preserved", res.Contributions)
+	}
+}
+
+func TestActionRunnerDeriveRulesConsumesInputMaterial(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("# Rules\n- include completed rows\n- exclude pending rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:    []CoverageMaterial{{Path: "rules.md", Purpose: "task rules", Required: true}},
+			RuleCoverageRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "rules",
+			Kind:       DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+			Params:     map[string]string{"limit": "10"},
+		}},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "rules.md" {
+		t.Fatalf("ConsumedPaths=%q, want rules.md", got)
+	}
+	if len(res.RuleCoverage) < 2 {
+		t.Fatalf("RuleCoverage=%+v, want rules derived from input text", res.RuleCoverage)
+	}
+	if !strings.Contains(res.RuleCoverage[0].EvidenceRefs[0], "rules.md:") {
+		t.Fatalf("RuleCoverage[0]=%+v, want line-backed evidence ref", res.RuleCoverage[0])
+	}
+}
+
+func TestActionRunnerDeriveRulesPreservesExplicitRuleIDs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("RULE_KEEP: include completed rows\nRULE_SKIP: exclude pending rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:    []CoverageMaterial{{Path: "rules.md", Purpose: "task rules", Required: true}},
+			RuleCoverageRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "rules",
+			Kind:       DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+			Params: map[string]string{
+				"rules": "RULE_KEEP: include completed rows\nRULE_SKIP: exclude pending rows",
+			},
+		}},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	ids := map[string]RuleCoverageRecord{}
+	for _, rec := range res.RuleCoverage {
+		ids[rec.RuleID.String()] = rec
+	}
+	for _, id := range []string{"RULE_KEEP", "RULE_SKIP"} {
+		rec, ok := ids[id]
+		if !ok {
+			t.Fatalf("RuleCoverage IDs=%v, want %s", ids, id)
+		}
+		if got := strings.Join(rec.EvidenceRefs, ","); !strings.Contains(got, "rules.md") {
+			t.Fatalf("RuleCoverage[%s]=%+v, want source-backed evidence ref", id, rec)
+		}
+	}
+}
+
+func TestActionRunnerCustomTransformCanReferenceDerivedExplicitRuleID(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("RULE_KEEP: include completed rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\n1,completed,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "rules.md", Purpose: "task rules", Required: true},
+				{Path: "orders.csv", Purpose: "source rows", Required: true},
+			},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:         "rules",
+				Kind:       DataActionDeriveRules,
+				InputPaths: []string{"rules.md"},
+				Params:     map[string]string{"rules": "RULE_KEEP: include completed rows"},
+			},
+			{
+				ID:         "compute",
+				Kind:       DataActionCustomTransform,
+				InputPaths: []string{"orders.csv"},
+				Script: `
+rows = csv_rows("orders.csv")
+total = 0
+for row in rows:
+    if row["status"] == "completed":
+        total += int(row["amount"])
+        add_decision(item_id=row["id"], source="orders.csv", source_locator="line 2", decision="include", rule_refs=["RULE_KEEP"], evidence_refs=["orders.csv:2"])
+        add_contribution(item_id=row["id"], source="orders.csv", source_locator="line 2", group_key="all", metric="amount", value=row["amount"], operation="add", role="target", rule_refs=["RULE_KEEP"], evidence_refs=["orders.csv:2"])
+emit_result(str(total), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q, want 10", res.Answer)
+	}
+}
+
+func TestActionRunnerIntermediateActionUsesLocalCoverageContract(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("- include completed rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status\n1,completed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "rules.md", Purpose: "task rules", Required: true},
+				{Path: "orders.csv", Purpose: "source rows", Required: true},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID:         "derive_rules",
+			Kind:       DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+		}},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("intermediate ActionRunner.Run should use action-local coverage: %v", err)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "rules.md" {
+		t.Fatalf("ConsumedPaths=%q, want rules.md", got)
+	}
+	if len(res.RuleCoverage) == 0 {
+		t.Fatalf("RuleCoverage empty")
+	}
+}
+
+func TestActionRunnerTerminalActionStillRequiresWorkflowCoverage(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("- include completed rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status\n1,completed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "rules.md", Purpose: "task rules", Required: true},
+				{Path: "orders.csv", Purpose: "source rows", Required: true},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID:         "derive_rules",
+			Kind:       DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("terminal ActionRunner.Run unexpectedly accepted missing workflow coverage")
+	}
+	if !strings.Contains(err.Error(), "orders.csv") {
+		t.Fatalf("err=%v, want missing orders.csv", err)
+	}
+}
+
+func TestActionRunnerDeriveRulesPrefersExplicitInputMaterial(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("- include paid rows\n- exclude cancelled rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ValidationRules:      []string{"format output as a single line"},
+			RuleCoverageRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "rules",
+			Kind:       DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+		}},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run actions: %v", err)
+	}
+	if len(res.RuleCoverage) < 2 {
+		t.Fatalf("RuleCoverage=%+v, want input-derived records", res.RuleCoverage)
+	}
+	if !strings.Contains(res.RuleCoverage[0].EvidenceRefs[0], "rules.md:") {
+		t.Fatalf("RuleCoverage[0]=%+v, want evidence from explicit input material", res.RuleCoverage[0])
+	}
+	for _, rec := range res.RuleCoverage {
+		if strings.Contains(rec.RuleText.String(), "format output") {
+			t.Fatalf("validation-only rule was used before explicit input material: %+v", res.RuleCoverage)
+		}
 	}
 }
 
@@ -475,6 +1585,88 @@ func TestActionRunnerNormalizeEntitiesFromStructuredInput(t *testing.T) {
 	}
 }
 
+func TestActionRunnerNormalizeEntitiesAllowsEmptyIntermediateArtifact(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "status.csv"), []byte("status,code\npaid,1\ncompleted,2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "status.csv", Required: true}},
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_status",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"status.csv"},
+			Params: map[string]string{
+				"source_field":       "missing_source",
+				"canonical_id_field": "missing_canonical",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run empty normalize action: %v", err)
+	}
+	if len(res.EntityResolutions) != 0 {
+		t.Fatalf("EntityResolutions=%+v, want empty intermediate artifact", res.EntityResolutions)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].Fields["count"] != "0" {
+		t.Fatalf("Artifacts=%+v, want count=0 artifact", res.Artifacts)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "status.csv" {
+		t.Fatalf("ConsumedPaths=%q, want status.csv", got)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesInfersStructuredFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entities.csv"), []byte("entity_id,display_name,alias,amount\nE001,Alpha Ltd,Alpha,100\nE002,Beta LLC,Beta,200\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_entities",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"entities.csv"},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run inferred normalize action: %v", err)
+	}
+	if len(res.EntityResolutions) == 0 {
+		t.Fatalf("EntityResolutions empty")
+	}
+	for _, rec := range res.EntityResolutions {
+		if rec.CanonicalID.String() == "" {
+			t.Fatalf("CanonicalID empty in inferred record: %+v", rec)
+		}
+		if rec.SourceValue.String() == "100" || rec.SourceValue.String() == "200" {
+			t.Fatalf("numeric field should not be inferred as entity source: %+v", rec)
+		}
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Children) == 0 {
+		t.Fatalf("expected inferred artifact children: %+v", res.Artifacts)
+	}
+	foundInference := false
+	for _, child := range res.Artifacts[0].Children {
+		if child.Fields["inferred_schema"] == "true" {
+			foundInference = true
+		}
+	}
+	if !foundInference {
+		t.Fatalf("expected inferred_schema=true in child artifacts: %+v", res.Artifacts[0].Children)
+	}
+}
+
 func TestActionRunnerCustomTransformUsesExistingRunner(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -503,6 +1695,78 @@ emit_result(str(total), output_contract={"format": "plain_single_line", "explana
 	}
 	if res.Answer != "17" {
 		t.Fatalf("Answer=%q, want 17", res.Answer)
+	}
+}
+
+func TestActionRunnerCustomTransformRejectsUnsafeCSVFieldAliasBeforeExecution(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,category_raw\nA,compute\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "bad_fields",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"orders.csv"},
+			Script: `rows = csv_rows("orders.csv")
+for row in rows:
+    total = row["category_code"]
+emit_result("0", output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run unexpectedly accepted unsafe CSV field alias")
+	}
+	if !strings.Contains(err.Error(), "custom_transform field contract failed") ||
+		!strings.Contains(err.Error(), `line 3`) ||
+		!strings.Contains(err.Error(), `missing field "category_code"`) ||
+		!strings.Contains(err.Error(), "category_raw") {
+		t.Fatalf("err=%v, want field contract with line and known headers", err)
+	}
+	violation := ClassifyExecutionError(err.Error())
+	if violation.Code != "custom_transform_field_contract" || violation.ScriptLine != 3 {
+		t.Fatalf("top violation=%+v, want custom_transform_field_contract line 3", violation)
+	}
+	if nested := ClassifyExecutionError(errors.Unwrap(err).Error()); nested.Code != "custom_transform_field_contract" || nested.ScriptLine != 3 {
+		t.Fatalf("nested violation=%+v, want custom_transform_field_contract line 3", nested)
+	}
+}
+
+func TestActionRunnerCustomTransformRejectsRequiredDirectoryMaterial(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "evidence"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "evidence", "a.txt"), []byte("alpha"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "evidence", Required: true, UsageMode: MaterialUseScriptConsumed}},
+		},
+		Actions: []DataAction{{
+			ID:         "bad_directory",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"evidence"},
+			Script:     `emit_result("ok", output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run unexpectedly accepted required directory material")
+	}
+	if !strings.Contains(err.Error(), "custom_transform material contract failed") ||
+		!strings.Contains(err.Error(), "evidence") {
+		t.Fatalf("err=%v, want directory material contract rejection", err)
 	}
 }
 
@@ -712,6 +1976,7 @@ func TestClassifyExecutionError(t *testing.T) {
 		`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`:                                                                    "undeclared_input_path",
 		`execute data task: data action failed action_id="extract_1" action_kind="extract_records": open missing.csv: no such file or directory`:                 "data_action_failed",
 		`execute data task: data action failed action_id="transform_1" action_kind="custom_transform": ValueError: path was not declared as an input: extra.csv`: "undeclared_input_path",
+		`execute data task: data action failed action_id="transform_1" action_kind="custom_transform": AttributeError: 'list' object has no attribute 'get'`:     "json_shape_mismatch",
 	}
 	for text, want := range cases {
 		if got := ClassifyExecutionError(text).Code; got != want {
@@ -1094,8 +2359,8 @@ emit({
   "rule_coverage": [{"rule_id": "r1", "rule_text": "include paid rows", "status": "applied", "notes": "paid rows are included"}],
   "entity_resolutions": [{"item_id": "A", "source_value": "A", "canonical_id": "A", "status": "resolved"}],
   "contributions": [
-    {"item_id": "1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add"},
-    {"item_id": "2", "source": "orders.csv", "source_locator": "row 3", "group_key": "A", "metric": "amount", "value": "7", "operation": "add"}
+    {"item_id": "1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add", "rule_refs": ["r1"]},
+    {"item_id": "2", "source": "orders.csv", "source_locator": "row 3", "group_key": "A", "metric": "amount", "value": "7", "operation": "add", "rule_refs": ["r1"]}
   ],
   "reconcile": {
     "status": "pass",
@@ -1118,6 +2383,39 @@ emit({
 	_, err = (Runner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "contributions sum to 17") {
 		t.Fatalf("Run err=%v, want reconcile mismatch", err)
+	}
+}
+
+func TestValidateReconcileAllowsAuditGroupsOutsideTargetContributions(t *testing.T) {
+	res := Result{
+		Answer:         "10",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID: "row-1", Source: "orders.csv", SourceLocator: "line:2", GroupKey: "Q001", Metric: "amount", Value: "10", Operation: "add", Role: "target",
+		}},
+		Reconcile: &ReconcileReport{
+			Status: "pass",
+			Groups: []ReconcileGroup{
+				{GroupKey: "Q001", Metric: "amount", Expected: "10", Actual: "10"},
+				{GroupKey: "overall", Metric: "query_count", Role: "audit", Expected: "12", Actual: "12"},
+				{Role: "answer", Expected: "10", Actual: "10"},
+			},
+		},
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	if _, err := validateRunnerResult(plan, res); err != nil {
+		t.Fatalf("validateRunnerResult: %v", err)
+	}
+	res.Reconcile.Groups[1].Role = ""
+	_, err := validateRunnerResult(plan, res)
+	if err == nil || !strings.Contains(err.Error(), "overall/query_count") {
+		t.Fatalf("validateRunnerResult err=%v, want non-audit reconcile group mismatch", err)
 	}
 }
 
@@ -1275,6 +2573,71 @@ emit_result(str(int(total)), output_contract={"format": "plain_single_line", "ex
 	}
 }
 
+func TestRunnerRowsExposeGenericSourceMetadata(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths:     []string{"orders.csv"},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit_result(rows[0]["_source"] + "|" + rows[0]["_source_index"] + "|" + rows[0]["_source_locator"], output_contract={"format": "plain_single_line", "explanation_allowed": False})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got, want := res.Answer, "orders.csv|1|line:2"; got != want {
+		t.Fatalf("Answer=%q, want %q", got, want)
+	}
+}
+
+func TestRunnerDerivesDecisionRowsFromContributionLedger(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+add_rule_coverage(rule_id="r1", rule_text="include all rows", status="applied")
+add_contribution(item_id="row1", source=rows[0]["_source"], source_locator=rows[0]["_source_locator"], group_key="A", metric="amount", value=rows[0]["amount"], operation="sum", reason="included by r1", rule_refs=["r1"])
+emit_result("10", output_contract={"format": "plain_single_line", "explanation_allowed": False})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0].Decision != "include" || res.Rows[0].SourceLocator != "line:2" {
+		t.Fatalf("derived rows=%+v", res.Rows)
+	}
+	if len(res.RuleCoverage) != 1 || strings.TrimSpace(res.RuleCoverage[0].Notes.String()) == "" {
+		t.Fatalf("rule coverage should carry helper support note: %+v", res.RuleCoverage)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 {
+		t.Fatalf("reconcile not derived from contribution: %+v", res.Reconcile)
+	}
+}
+
 func TestRunnerEmitMergesHelperLedgers(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -1312,6 +2675,86 @@ emit({"answer": str(int(total)), "output_contract": {"format": "plain_single_lin
 	}
 	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 || len(res.RuleCoverage) != 1 || len(res.EntityResolutions) != 1 {
 		t.Fatalf("direct emit did not merge helper ledgers: %+v", res)
+	}
+}
+
+func TestRunnerEmptyExplicitLedgersDoNotOverrideHelperLedgers(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+total = Decimal("0")
+for i, row in enumerate(rows):
+    total += Decimal(row["amount"])
+    add_decision(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", decision="included", reason="included")
+    add_contribution(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", group_key=row["vendor"], metric="amount", value=row["amount"], operation="add", reason="included")
+emit_result(str(int(total)), output_contract={"format": "plain_single_line", "explanation_allowed": False}, rows=[], contributions=[], reconcile={"status": "pass", "groups": []})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 {
+		t.Fatalf("helper ledgers were overwritten by explicit empty lists: %+v", res)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 || res.Reconcile.Groups[0].Actual.String() != "17" {
+		t.Fatalf("reconcile not filled from contribution ledger: %+v", res.Reconcile)
+	}
+}
+
+func TestRunnerLedgerHelpersSupportOptionalLocalListSink(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+local_rows = []
+local_rules = []
+local_contribs = []
+add_rule_coverage(local_rules, rule_id="r1", rule_text="include rows", status="applied")
+total = Decimal("0")
+for i, row in enumerate(rows):
+    total += Decimal(row["amount"])
+    add_decision(local_rows, item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", decision="include", reason="included", rule_refs=["r1"])
+    add_contribution(local_contribs, item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", group_key=row["vendor"], metric="amount", value=row["amount"], operation="sum", reason="included", rule_refs=["r1"])
+emit_result(str(int(total)), output_contract={"format": "plain_single_line", "explanation_allowed": False}, rows=local_rows, rule_coverage=local_rules, contributions=local_contribs, reconcile={"status": "pass", "groups": [{"group_key": "A", "metric": "amount", "expected": "17", "actual": "17"}]})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 || len(res.RuleCoverage) != 1 {
+		t.Fatalf("optional local sink ledgers not preserved: %+v", res)
 	}
 }
 
@@ -1372,6 +2815,53 @@ emit({
 	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "has no evidence_refs, notes, or linked rule_refs") {
 		t.Fatalf("Run err=%v, want unsupported rule coverage failure", err)
+	}
+}
+
+func TestRunnerRejectsUnlinkedRuleCoverageWhenLedgersAreRequired(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+amount = rows[0]["amount"]
+add_rule_coverage(rule_id="r1", rule_text="include selected rows", status="applied", evidence_refs=["orders.csv:1"])
+add_contribution(item_id="row1", source="orders.csv", source_locator="row 2", group_key="A", metric="amount", value=amount, operation="add", reason="selected")
+emit_result(amount, output_contract={"format": "plain_single_line", "explanation_allowed": False}, reconcile={"status": "pass", "groups": [{"group_key": "A", "metric": "amount", "expected": amount, "actual": amount}]})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "no decision/contribution/entity record links") {
+		t.Fatalf("Run err=%v, want unlinked rule coverage", err)
+	}
+	plan.Script = `
+rows = csv_rows("orders.csv")
+amount = rows[0]["amount"]
+add_rule_coverage(rule_id="r1", rule_text="include selected rows", status="applied", evidence_refs=["orders.csv:1"])
+add_contribution(item_id="row1", source="orders.csv", source_locator="row 2", group_key="A", metric="amount", value=amount, operation="add", reason="selected", rule_refs=["r1"])
+emit_result(amount, output_contract={"format": "plain_single_line", "explanation_allowed": False}, reconcile={"status": "pass", "groups": [{"group_key": "A", "metric": "amount", "expected": amount, "actual": amount}]})
+`
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run linked rule coverage: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q, want 10", res.Answer)
 	}
 }
 
@@ -1541,6 +3031,190 @@ emit({
 	}
 }
 
+func TestRunnerAllowsAnswerScopedReconcileGroup(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("query,amount\nQ001,10\nQ002,5\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10,5",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "Q001", "metric": "amount", "value": "10", "operation": "add"},
+    {"item_id": "row2", "source": "orders.csv", "source_locator": "row 3", "group_key": "Q002", "metric": "amount", "value": "5", "operation": "add"}
+  ],
+  "reconcile": {"status": "pass", "groups": [{"scope": "answer", "group_key": "final", "metric": "payload", "expected": "10,5", "actual": "10,5"}]}
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10,5" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+}
+
+func TestRunnerInfersAnswerScopedReconcileGroupFromFinalAnswerValue(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("query,amount\nQ001,10\nQ002,5\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10,5",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "Q001", "metric": "amount", "value": "10", "operation": "add"},
+    {"item_id": "row2", "source": "orders.csv", "source_locator": "row 3", "group_key": "Q002", "metric": "amount", "value": "5", "operation": "add"}
+  ],
+  "reconcile": {"status": "pass", "groups": [{"group_key": "total", "metric": "payload", "expected": "10,5", "actual": "10,5"}]}
+})
+`,
+	}
+	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestRunnerValidatesFinalAnswerAgainstOrdinaryReconcileGroups(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("query,amount\nQ001,10\nQ002,5\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10,5",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "Q001", "metric": "amount", "value": "10", "operation": "add"},
+    {"item_id": "row2", "source": "orders.csv", "source_locator": "row 3", "group_key": "Q002", "metric": "amount", "value": "5", "operation": "add"}
+  ],
+  "reconcile": {"status": "pass", "groups": [
+    {"group_key": "Q001", "metric": "amount", "expected": "10", "actual": "10"},
+    {"group_key": "Q002", "metric": "amount", "expected": "5", "actual": "5"}
+  ]}
+})
+`,
+	}
+	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err != nil {
+		t.Fatalf("Run matching answer: %v", err)
+	}
+	plan.Script = strings.Replace(plan.Script, `"answer": "10,5"`, `"answer": "0,0"`, 1)
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "result.answer values") {
+		t.Fatalf("Run err=%v, want answer/reconcile mismatch", err)
+	}
+}
+
+func TestRunnerRejectsMismatchedAnswerScopedReconcileGroup(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("query,amount\nQ001,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [{"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "Q001", "metric": "amount", "value": "10", "operation": "add"}],
+  "reconcile": {"status": "pass", "groups": [{"scope": "answer", "group_key": "final", "metric": "payload", "expected": "11", "actual": "11"}]}
+})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "answer-scope group") {
+		t.Fatalf("Run err=%v, want answer-scope mismatch", err)
+	}
+}
+
+func TestRunnerIgnoresAuditContributionForMissingReconcileGroup(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add", "role": "target"},
+    {"item_id": "orders.csv#sample", "source": "orders.csv", "source_locator": "sample", "group_key": "all", "metric": "count", "value": "1", "operation": "count", "role": "audit"}
+  ],
+  "reconcile": {"status": "pass", "expected_answer": "10", "actual_answer": "10", "groups": [{"group_key": "A", "metric": "amount", "expected": "10", "actual": "10"}]}
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+}
+
 func TestRunnerAllowsZeroReconcileGroupWithoutContributions(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -1703,6 +3377,54 @@ emit({
 	}
 }
 
+func TestActionRunnerCustomTransformUsesNodeCoverageAndWorkflowCoverage(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("beta"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "a.txt", Required: true},
+				{Path: "b.txt", Required: true},
+			},
+		},
+		Actions: []DataAction{
+			{
+				ID:         "inspect_b",
+				Kind:       DataActionInspectMaterial,
+				InputPaths: []string{"b.txt"},
+			},
+			{
+				ID:         "transform_a",
+				Kind:       DataActionCustomTransform,
+				InputPaths: []string{"a.txt"},
+				Script: `
+text = read_text("a.txt")
+emit_result("ok", output_contract={"format": "plain_single_line", "explanation_allowed": False}, audit_summary=text)
+`,
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ActionRunner.Run: %v", err)
+	}
+	if res.Answer != "ok" {
+		t.Fatalf("answer=%q, want ok", res.Answer)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "a.txt,b.txt" {
+		t.Fatalf("ConsumedPaths=%q, want a.txt,b.txt", got)
+	}
+}
+
 func TestApplyDataResultPatchPlanRepairsStructuralOperationDrift(t *testing.T) {
 	plan := TaskPlan{
 		CoverageContract: CoverageContract{
@@ -1815,5 +3537,70 @@ func TestApplyDataResultPatchPlanRejectsRemoveMove(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "only replace existing structural scalar fields") {
 			t.Fatalf("ApplyDataResultPatchPlan op=%q err=%v, want remove/move rejection", op, err)
 		}
+	}
+}
+
+func TestActionRunnerLedgerOnlyBatchPreservesSeedAnswer(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entities.csv"), []byte("id,name\nA,Alpha\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{
+		Answer:         "42",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID: "row-1", Source: "orders.csv", SourceLocator: "line:2", GroupKey: "all", Metric: "amount", Value: "42", Operation: "add", Reason: "seed",
+		}},
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "complete_entities",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"entities.csv"},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ActionRunner.Run: %v", err)
+	}
+	if res.Answer != "42" {
+		t.Fatalf("Answer=%q, want preserved seed answer", res.Answer)
+	}
+	if len(res.EntityResolutions) == 0 {
+		t.Fatal("entity resolutions not completed")
+	}
+}
+
+func TestValidateRuleCoverageRequiresSourceBackedLinksWhenAvailable(t *testing.T) {
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+		},
+	}
+	res := Result{
+		RuleCoverage: []RuleCoverageRecord{
+			{RuleID: "source_rule", RuleText: "from source", Status: "derived", EvidenceRefs: []string{"rules.md:1"}},
+			{RuleID: "local_rule", RuleText: "local", Status: "applied", Notes: "model generated"},
+		},
+		Contributions: []ContributionRecord{{
+			ItemID: "row-1", Source: "orders.csv", SourceLocator: "line:2", GroupKey: "all", Metric: "amount", Value: "7", Operation: "add", Reason: "linked only to local", RuleRefs: []string{"local_rule"},
+		}},
+	}
+	_, err := validateRunnerResult(plan, res)
+	if err == nil || !strings.Contains(err.Error(), "source-backed rule coverage") {
+		t.Fatalf("validateRunnerResult err=%v, want source-backed rule link failure", err)
+	}
+	res.Contributions[0].RuleRefs = []string{"source_rule"}
+	if _, err := validateRunnerResult(plan, res); err != nil {
+		t.Fatalf("validateRunnerResult with source-backed rule ref: %v", err)
 	}
 }

@@ -1407,7 +1407,8 @@ func TestTurnPolicyDispatch_DataRouteRepairsFailedScript(t *testing.T) {
 				Format:             dataquery.OutputCSVLine,
 				ExplanationAllowed: false,
 			},
-			Script: `raise ValueError("simulated script bug")`,
+			Script: `raise ValueError("simulated script bug")
+emit({"answer":"unreachable"})`,
 		},
 		repairPlan: dataquery.TaskPlan{
 			Status:     "ready",
@@ -1459,7 +1460,8 @@ func TestRunDataTaskCLIRepairsFailedScript(t *testing.T) {
 				Format:             dataquery.OutputPlainSingleLine,
 				ExplanationAllowed: false,
 			},
-			Script: `raise ValueError("simulated cli data bug")`,
+			Script: `raise ValueError("simulated cli data bug")
+emit({"answer":"unreachable"})`,
 		},
 		repairPlan: dataquery.TaskPlan{
 			Status:     "ready",
@@ -1513,6 +1515,18 @@ func TestRunDataTaskCLIPatchesStructuralResultBeforeScriptRepair(t *testing.T) {
 		plan: dataquery.TaskPlan{
 			Status:     "ready",
 			InputPaths: []string{"orders.csv"},
+			Actions: []dataquery.DataAction{{
+				ID:         "transform",
+				Kind:       dataquery.DataActionCustomTransform,
+				InputPaths: []string{"orders.csv"},
+				Script: `rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [{"item_id": "row-1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "totalize"}],
+  "reconcile": {"status": "pass", "actual_answer": "10", "groups": [{"group_key": "A", "metric": "amount", "expected": "10", "actual": "10"}]}
+})`,
+			}},
 			CoverageContract: dataquery.CoverageContract{
 				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
 				ContributionLedgerRequired: true,
@@ -1522,13 +1536,6 @@ func TestRunDataTaskCLIPatchesStructuralResultBeforeScriptRepair(t *testing.T) {
 				Format:             dataquery.OutputPlainSingleLine,
 				ExplanationAllowed: false,
 			},
-			Script: `rows = csv_rows("orders.csv")
-emit({
-  "answer": "10",
-  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
-  "contributions": [{"item_id": "row-1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "totalize"}],
-  "reconcile": {"status": "pass", "actual_answer": "10", "groups": [{"group_key": "A", "metric": "amount", "expected": "10", "actual": "10"}]}
-})`,
 		},
 		patchPlan: dataquery.DataResultPatchPlan{
 			Status: "patch",
@@ -1642,7 +1649,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 }
 
 func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
-	largeScript := strings.Repeat("x = 1\n", dataTaskOneShotScriptLineSoftLimit+5)
+	largeScript := strings.Repeat("x = 1\n", dataTaskOneShotScriptLineSoftLimit+5) + `emit({"answer":"ok"})` + "\n"
 	plan := dataquery.TaskPlan{
 		Status: "ready",
 		Script: largeScript,
@@ -1657,17 +1664,17 @@ func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
 		},
 	}
 	errText := dataTaskPlanStagingGuardError(plan)
-	if !strings.Contains(errText, "bounded data batch") {
-		t.Fatalf("guard err=%q, want bounded batch repair", errText)
+	if !strings.Contains(errText, "complex data task") {
+		t.Fatalf("guard err=%q, want complex action repair", errText)
 	}
 	plan.ContinueAfter = true
-	if got := dataTaskPlanStagingGuardError(plan); got != "" {
-		t.Fatalf("continue_after plan should pass staging guard, got %q", got)
+	if got := dataTaskPlanStagingGuardError(plan); !strings.Contains(got, "complex data task") {
+		t.Fatalf("continue_after plan should still require bounded atomic work, got %q", got)
 	}
 }
 
 func TestDataTaskPlanStagingGuardRejectsComplexOneShotBeforeExecution(t *testing.T) {
-	script := strings.Repeat("x = 1\n", 190)
+	script := strings.Repeat("x = 1\n", 40) + `emit({"answer":"ok"})` + "\n"
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
@@ -1690,10 +1697,37 @@ func TestDataTaskPlanStagingGuardAllowsSimpleOneShot(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"single.csv"},
-		Script:     strings.Repeat("x = 1\n", 120),
+		Script:     strings.Repeat("x = 1\n", 120) + `emit({"answer":"ok"})` + "\n",
 	}
 	if got := dataTaskPlanStagingGuardError(plan); got != "" {
 		t.Fatalf("simple plan should pass staging guard, got %q", got)
+	}
+}
+
+func TestDataTaskPlanStagingGuardRejectsScriptWithoutEmitter(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"single.csv"},
+		Script:     "rows = csv_rows('single.csv')\nprint(len(rows))\n",
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "no result emitter") {
+		t.Fatalf("guard err=%q, want emitter rejection", errText)
+	}
+}
+
+func TestDataTaskPlanStagingGuardRejectsCustomTransformWithoutEmitter(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:     "transform",
+			Kind:   dataquery.DataActionCustomTransform,
+			Script: "rows = csv_rows('single.csv')\nprint(len(rows))\n",
+		}},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "script has no result emitter") {
+		t.Fatalf("guard err=%q, want emitter rejection", errText)
 	}
 }
 
@@ -1722,6 +1756,41 @@ func TestDataTaskRepeatedNodeFailureDetectsTypedAction(t *testing.T) {
 	key, count, repeated = dataTaskRepeatedNodeFailure(records, errText, 2)
 	if key != "transform_1|custom_transform" || count != 2 || !repeated {
 		t.Fatalf("second failure key=%q count=%d repeated=%v", key, count, repeated)
+	}
+}
+
+func TestDataTaskRequiredLedgerCompletionPlanAddsEntityNode(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "entities.csv", Required: true},
+			},
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "42",
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		ConsumedPaths:  []string{"entities.csv"},
+		Contributions: []dataquery.ContributionRecord{{
+			ItemID: "row-1", Source: "entities.csv", SourceLocator: "line:2", GroupKey: "all", Metric: "amount", Value: "42", Operation: "add", Reason: "seed",
+		}},
+	}
+	errText := `validate data workflow completion: data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty`
+	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, errText)
+	if !ok {
+		t.Fatal("expected deterministic ledger completion plan")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionNormalizeEntities {
+		t.Fatalf("actions=%+v, want one normalize_entities action", plan.Actions)
+	}
+	if got := plan.OutputContract.Normalize().Format; got != dataquery.OutputPlainSingleLine {
+		t.Fatalf("output format=%q, want plain_single_line", got)
+	}
+	if plan.ContinueAfter {
+		t.Fatal("ledger completion should be terminal by default")
 	}
 }
 
@@ -1819,7 +1888,8 @@ func TestTurnPolicyDispatch_DataRouteEvaluatesSuccessfulBatchBeforeFinalAnswer(t
 				Format:             dataquery.OutputPlainSingleLine,
 				ExplanationAllowed: false,
 			},
-			Script: `emit({"answer": "0", "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
+			Script: `rows = csv_rows("orders.csv")
+emit({"answer": "0", "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
 		},
 		evals: []dataquery.Evaluation{
 			{Status: dataquery.EvalContinueData, Reason: "computed answer does not satisfy the goal", Confidence: "high"},

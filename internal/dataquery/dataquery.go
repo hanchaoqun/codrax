@@ -74,7 +74,10 @@ const (
 	DataActionInspectMaterial   DataActionKind = "inspect_material"
 	DataActionExtractRecords    DataActionKind = "extract_records"
 	DataActionDeriveRules       DataActionKind = "derive_rules"
+	DataActionDeriveFields      DataActionKind = "derive_fields"
 	DataActionNormalizeEntities DataActionKind = "normalize_entities"
+	DataActionEnrichRecords     DataActionKind = "enrich_records"
+	DataActionJoinRecords       DataActionKind = "join_records"
 	DataActionComputeContribs   DataActionKind = "compute_contributions"
 	DataActionReconcile         DataActionKind = "reconcile_artifacts"
 	DataActionCustomTransform   DataActionKind = "custom_transform"
@@ -335,20 +338,60 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.ActionID = parseQuotedErrorField(text, "action_id")
 		v.ActionKind = parseQuotedErrorField(text, "action_kind")
 		v.RepairHint = "Repair the failed typed data action/node. Keep the action atomic; if the failure shows missing schema/material knowledge, split or insert inspect/extract actions before retrying the transform."
+		if strings.Contains(lower, "custom_transform field contract failed") {
+			v.Code = "custom_transform_field_contract"
+			v.ScriptLine = firstLineNumberInText(text)
+			v.RepairHint = "Use only fields that exist in the inspected source headers, or add an inspect/extract action first and update the transform to consume the real field names."
+		}
+		if strings.Contains(lower, "custom_transform material contract failed") {
+			v.Code = "custom_transform_material_contract"
+			v.RepairHint = "A terminal custom_transform cannot directly prove consumption of a required directory material. Expand/profile concrete child files with typed actions, use text_evidence_consumed for extracted text, or use planner_distilled with distilled_notes."
+		}
 		if strings.Contains(lower, "path was not declared as an input") {
 			v.Code = "undeclared_input_path"
 			v.ActualSnippet = parseUndeclaredInputPath(text)
 			v.RepairHint = "The failed action read an undeclared path. Add the path only if that action should consume it; otherwise expand the graph with inspect/extract actions and retry a smaller transform."
 		}
+		if strings.Contains(lower, "object has no attribute") && strings.Contains(lower, "get") {
+			v.Code = "json_shape_mismatch"
+			v.RepairHint = "The script assumed a JSON object/dict shape. Generated JSON artifacts may be arrays or objects; inspect artifact json_shape metadata or use json_records(path) to read array/object/wrapper JSON as records. Do not ask the user to clarify internal generated artifact structure."
+		}
+		if strings.Contains(lower, "compute_contributions") && strings.Contains(lower, "was not found in any input record field") {
+			v.Code = "compute_contribution_field_contract"
+			v.RepairHint = "compute_contributions can only use existing record fields. If the value/group/filter is derived, first create a focused extract/custom_transform artifact with that field, or use a bounded custom_transform for the derived computation instead of referencing a nonexistent field."
+		}
+		if strings.Contains(lower, "target result.contributions") && strings.Contains(lower, "no source anchor") {
+			v.Code = "missing_target_contribution_source_anchor"
+			v.RepairHint = "Final target contributions must be atomic sourced items with source, source_locator, or evidence_refs. Do not add aggregate summary rows as target contributions; put aggregate values in reconcile.groups or mark helper diagnostics as role=intermediate/audit."
+		}
 	case strings.Contains(lower, "data planning incomplete") && strings.Contains(lower, "bounded data batch"):
 		v.Code = "oversized_data_plan"
 		v.RepairHint = "Split the plan into a smaller bounded batch, set continue_after=true when more work remains, and let the workflow feed real results into later batches."
+	case strings.Contains(lower, "data planning incomplete") && strings.Contains(lower, "too broad for one bounded custom_transform"):
+		v.Code = "oversized_action_plan"
+		v.RepairHint = "Split the broad custom_transform into smaller typed action nodes or a narrow continue_after batch; do not put the whole workflow into one action."
+	case strings.Contains(lower, "terminal data calculation consumes text/rule material"):
+		v.Code = "text_constraint_rule_coverage_required"
+		v.RepairHint = "When a terminal data calculation consumes text/rule/instruction materials and emits auditable ledgers, add derive_rules or emit rule_coverage records linked from decisions, contributions, or entity resolutions."
+	case strings.Contains(lower, "target result.contributions") && strings.Contains(lower, "no source anchor"):
+		v.Code = "missing_target_contribution_source_anchor"
+		v.RepairHint = "Final target contributions must be atomic sourced items with source, source_locator, or evidence_refs. Do not add aggregate summary rows as target contributions; put aggregate values in reconcile.groups or mark helper diagnostics as role=intermediate/audit."
 	case strings.Contains(lower, "actions[] plans must not carry a top-level script"):
 		v.Code = "action_top_level_script"
 		v.RepairHint = "When actions[] are present, keep plan.script empty. Put each bounded script on its custom_transform action, or split into typed atomic actions."
+	case strings.Contains(lower, "terminal batch declares") && strings.Contains(lower, "required material"):
+		v.Code = "terminal_required_material_not_scheduled"
+		v.RepairHint = "Do not silently drop required materials to pass staging. Either schedule a focused action/script that consumes the required material, choose a verifiable usage_mode with evidence fields, or keep continue_after=true until coverage is complete."
 	case strings.Contains(lower, "data task script redefines reserved helper"):
 		v.Code = "reserved_helper_redefined"
 		v.RepairHint = "Remove any function/variable assignment that redefines runner helpers; call the provided helper directly."
+	case strings.Contains(lower, "custom_transform field contract failed"):
+		v.Code = "custom_transform_field_contract"
+		v.ScriptLine = firstLineNumberInText(text)
+		v.RepairHint = "Use only fields that exist in the inspected source headers, or add an inspect/extract action first and update the transform to consume the real field names."
+	case strings.Contains(lower, "custom_transform material contract failed"):
+		v.Code = "custom_transform_material_contract"
+		v.RepairHint = "A terminal custom_transform cannot directly prove consumption of a required directory material. Expand/profile concrete child files with typed actions, use text_evidence_consumed for extracted text, or use planner_distilled with distilled_notes."
 	case strings.Contains(lower, "name 'false' is not defined") ||
 		strings.Contains(lower, "name 'true' is not defined") ||
 		strings.Contains(lower, "name 'null' is not defined"):
@@ -356,7 +399,7 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Use Python constants True/False/None, or rely on runner-provided true/false/null constants without redefining them."
 	case hasMissingName && isLikelyDataTaskHelperName(missingName):
 		v.Code = "unknown_runner_helper"
-		v.RepairHint = "Use canonical runner helpers: add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money."
+		v.RepairHint = "Use canonical runner helpers: add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, csv_rows, tsv_rows, json_load, json_records, jsonl_rows, read_text, parse_money."
 	case strings.Contains(lower, "path was not declared as an input"):
 		v.Code = "undeclared_input_path"
 		v.ActualSnippet = parseUndeclaredInputPath(text)
@@ -384,6 +427,23 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Read the material with a helper and use the content, or use a verifiable non-direct usage_mode with required evidence fields."
 	case strings.Contains(lower, "coverage_contract.") && strings.Contains(lower, "but result.") && strings.Contains(lower, "is empty"):
 		v.Code = "missing_required_ledger"
+		switch {
+		case strings.Contains(lower, "result.rows is empty"):
+			v.JSONPath = "/rows"
+			v.ExpectedShape = "non-empty array of decision records"
+		case strings.Contains(lower, "result.rule_coverage is empty"):
+			v.JSONPath = "/rule_coverage"
+			v.ExpectedShape = "non-empty array of rule coverage records"
+		case strings.Contains(lower, "result.contributions is empty"):
+			v.JSONPath = "/contributions"
+			v.ExpectedShape = "non-empty array of contribution records"
+		case strings.Contains(lower, "result.entity_resolutions is empty"):
+			v.JSONPath = "/entity_resolutions"
+			v.ExpectedShape = "non-empty array of entity resolution records"
+		case strings.Contains(lower, "result.reconcile is empty"):
+			v.JSONPath = "/reconcile"
+			v.ExpectedShape = "reconcile object with status and/or groups"
+		}
 		v.RepairHint = "Emit the required generic ledger instead of weakening the contract."
 	case strings.Contains(lower, "unsupported operation"):
 		v.Code = "unsupported_contribution_operation"
@@ -408,6 +468,30 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Keep the computed answer but render it exactly according to output_contract."
 	}
 	return v
+}
+
+func firstLineNumberInText(text string) int {
+	lower := strings.ToLower(text)
+	for _, marker := range []string{" line ", "line:"} {
+		idx := strings.Index(lower, marker)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(marker)
+		for start < len(lower) && (lower[start] == ' ' || lower[start] == '\t') {
+			start++
+		}
+		end := start
+		for end < len(lower) && lower[end] >= '0' && lower[end] <= '9' {
+			end++
+		}
+		if end > start {
+			if n, err := strconv.Atoi(lower[start:end]); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func parseQuotedErrorField(text, key string) string {
@@ -470,7 +554,7 @@ func isLikelyDataTaskHelperName(name string) bool {
 		return true
 	case strings.HasSuffix(name, "_rows"):
 		return true
-	case name == "read_text" || name == "json_load" || name == "jsonl_rows" || name == "parse_money":
+	case name == "read_text" || name == "json_load" || name == "json_records" || name == "jsonl_rows" || name == "parse_money":
 		return true
 	default:
 		return false
@@ -680,6 +764,7 @@ type ContributionRecord struct {
 	Metric        LooseText `json:"metric,omitempty"`
 	Value         LooseText `json:"value,omitempty"`
 	Operation     LooseText `json:"operation,omitempty"`
+	Role          LooseText `json:"role,omitempty"`
 	Reason        LooseText `json:"reason,omitempty"`
 	EvidenceRefs  []string  `json:"evidence_refs,omitempty"`
 	RuleRefs      []string  `json:"rule_refs,omitempty"`
@@ -711,6 +796,9 @@ func (r *ContributionRecord) UnmarshalJSON(data []byte) error {
 	}
 	if r.Operation.String() == "" {
 		r.Operation = LooseText(rawAliasString(raw, "op", "aggregation"))
+	}
+	if r.Role.String() == "" {
+		r.Role = LooseText(rawAliasString(raw, "scope", "ledger_role", "contribution_role"))
 	}
 	if r.Reason.String() == "" {
 		r.Reason = LooseText(rawAliasString(raw, "notes", "summary", "details"))
@@ -847,6 +935,8 @@ type ReconcileReport struct {
 type ReconcileGroup struct {
 	GroupKey   LooseText `json:"group_key,omitempty"`
 	Metric     LooseText `json:"metric,omitempty"`
+	Scope      LooseText `json:"scope,omitempty"`
+	Role       LooseText `json:"role,omitempty"`
 	Expected   LooseText `json:"expected,omitempty"`
 	Actual     LooseText `json:"actual,omitempty"`
 	Difference LooseText `json:"difference,omitempty"`
@@ -869,6 +959,12 @@ func (r *ReconcileGroup) UnmarshalJSON(data []byte) error {
 	}
 	if r.Metric.String() == "" {
 		r.Metric = LooseText(rawAliasString(raw, "measure", "field", "metric_name"))
+	}
+	if r.Scope.String() == "" {
+		r.Scope = LooseText(rawAliasString(raw, "level", "reconcile_scope"))
+	}
+	if r.Role.String() == "" {
+		r.Role = LooseText(rawAliasString(raw, "kind", "reconcile_role"))
 	}
 	if r.Expected.String() == "" {
 		r.Expected = LooseText(rawAliasString(raw, "expected_value", "expected_total"))
@@ -896,6 +992,23 @@ type RowDecision struct {
 }
 
 func (r *RowDecision) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*r = RowDecision{}
+		return nil
+	}
+	if len(data) > 0 && data[0] != '{' {
+		text := rawJSONValueString(data)
+		if strings.TrimSpace(text) == "" {
+			*r = RowDecision{}
+			return nil
+		}
+		*r = RowDecision{
+			Decision: "observed",
+			Reason:   text,
+		}
+		return nil
+	}
 	type rowDecisionAlias RowDecision
 	var known rowDecisionAlias
 	if err := json.Unmarshal(data, &known); err != nil {
@@ -1068,11 +1181,12 @@ type CandidateFile struct {
 }
 
 type Runner struct {
-	RepoRoot      string
-	TempRoot      string
-	Timeout       time.Duration
-	MaxFileBytes  int64
-	MaxTotalBytes int64
+	RepoRoot        string
+	TempRoot        string
+	Timeout         time.Duration
+	MaxFileBytes    int64
+	MaxTotalBytes   int64
+	ExtraInputFiles map[string]string
 }
 
 const (
@@ -1481,7 +1595,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	defer os.RemoveAll(workDir)
 
-	relPaths, err := copyInputs(absRoot, workDir, plan.InputPaths, maxFile, maxTotal)
+	relPaths, err := copyInputsWithExtras(absRoot, workDir, plan.InputPaths, maxFile, maxTotal, r.ExtraInputFiles)
 	if err != nil {
 		return Result{}, err
 	}
@@ -1513,11 +1627,20 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 }
 
 func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
+	contract := plan.CoverageContract
+	if plan.ContinueAfter && len(plan.Actions) == 0 {
+		// A top-level script with continue_after=true is an intermediate
+		// observation batch. The full workflow contract is checked when a
+		// terminal batch is evaluated against accumulated records, while typed
+		// action batches still validate their action-scoped contract via
+		// actionRunnerValidationPlan.
+		contract = CoverageContract{}
+	}
 	res.ConsumedPaths = normalizeMaterialPaths(res.ConsumedPaths)
-	if err := validateCoverageConsumed(plan.CoverageContract, res.ConsumedPaths); err != nil {
+	if err := validateCoverageConsumed(contract, res.ConsumedPaths); err != nil {
 		return Result{}, err
 	}
-	if plan.CoverageContract.DecisionRecordsRequired && len(res.Rows) == 0 {
+	if contract.DecisionRecordsRequired && len(res.Rows) == 0 {
 		return Result{}, wrapDataResultValidationError(res, dataValidationError(
 			"missing_required_ledger",
 			"/rows",
@@ -1527,7 +1650,7 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty",
 		))
 	}
-	if plan.CoverageContract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
+	if contract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
 		return Result{}, wrapDataResultValidationError(res, dataValidationError(
 			"empty_semantic_ledger",
 			"/rows",
@@ -1537,7 +1660,7 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records",
 		))
 	}
-	if err := validateRequiredLedgers(plan.CoverageContract, res); err != nil {
+	if err := validateRequiredLedgers(contract, res); err != nil {
 		return Result{}, wrapDataResultValidationError(res, err)
 	}
 	if res.OutputContract.Format == "" {
@@ -1574,6 +1697,9 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 	}
 	if contract.RuleCoverageRequired {
 		if err := validateRuleCoverageRecords(res.RuleCoverage, res.Rows, res.Contributions, res.EntityResolutions); err != nil {
+			return err
+		}
+		if err := validateRuleCoverageLinkedToRequiredLedgers(contract, res.RuleCoverage, res.Rows, res.Contributions, res.EntityResolutions); err != nil {
 			return err
 		}
 	}
@@ -1645,6 +1771,28 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 	return nil
 }
 
+// ValidateResultAgainstContract re-checks a produced result against a
+// workflow-level coverage contract. Runner.Run validates the plan-local
+// contract before returning a result; adaptive data workflows can merge
+// contracts across multiple batches and call this helper before accepting a
+// later result as complete.
+func ValidateResultAgainstContract(contract CoverageContract, res Result) error {
+	if err := validateCoverageConsumed(contract, res.ConsumedPaths); err != nil {
+		return dataValidationError(
+			"workflow_material_coverage_incomplete",
+			"/coverage_contract/required_materials",
+			"all workflow-required materials consumed by the result",
+			strings.Join(res.ConsumedPaths, ","),
+			RepairabilityNeedsRecompute,
+			"%s", err.Error(),
+		)
+	}
+	if err := validateRequiredLedgers(contract, res); err != nil {
+		return err
+	}
+	return nil
+}
+
 func hasMeaningfulRuleCoverage(records []RuleCoverageRecord) bool {
 	for _, rec := range records {
 		if strings.TrimSpace(rec.RuleID.String()) != "" ||
@@ -1697,6 +1845,66 @@ func validateRuleCoverageRecords(records []RuleCoverageRecord, rows []RowDecisio
 			"data validation incomplete: result.rule_coverage[%d] has no evidence_refs, notes, or linked rule_refs", i)
 	}
 	return nil
+}
+
+func validateRuleCoverageLinkedToRequiredLedgers(contract CoverageContract, records []RuleCoverageRecord, rows []RowDecision, contributions []ContributionRecord, resolutions []EntityResolutionRecord) error {
+	if !contract.DecisionRecordsRequired && !contract.ContributionLedgerRequired && !contract.EntityResolutionRequired {
+		return nil
+	}
+	if len(rows) == 0 && len(contributions) == 0 && len(resolutions) == 0 {
+		return nil
+	}
+	knownRules := map[string]bool{}
+	for _, rec := range records {
+		id := strings.TrimSpace(rec.RuleID.String())
+		if id != "" {
+			knownRules[id] = true
+		}
+	}
+	if len(knownRules) == 0 {
+		return dataValidationError("unlinked_rule_coverage", "/rule_coverage", "rule_id values linked from rows, contributions, or entity_resolutions", "", RepairabilityNeedsRecompute,
+			"data validation incomplete: rule coverage is required with item ledgers, but no rule_id can be linked")
+	}
+	sourceRules := sourceBackedRuleIDs(records)
+	if len(sourceRules) > 0 {
+		if anyRuleRefLinks(sourceRules, rowRuleRefs(rows)) ||
+			anyRuleRefLinks(sourceRules, contributionRuleRefs(contributions)) ||
+			anyRuleRefLinks(sourceRules, entityResolutionRuleRefs(resolutions)) {
+			return nil
+		}
+		return dataValidationError("unlinked_source_rule_coverage", "/rule_coverage", "at least one item ledger rule_refs entry matching source-backed rule_coverage.rule_id", "", RepairabilityNeedsRecompute,
+			"data validation incomplete: source-backed rule coverage exists, but no decision/contribution/entity record links to a source-backed rule_id")
+	}
+	if anyRuleRefLinks(knownRules, rowRuleRefs(rows)) ||
+		anyRuleRefLinks(knownRules, contributionRuleRefs(contributions)) ||
+		anyRuleRefLinks(knownRules, entityResolutionRuleRefs(resolutions)) {
+		return nil
+	}
+	return dataValidationError("unlinked_rule_coverage", "/rule_coverage", "at least one row/contribution/entity_resolution rule_refs entry matching result.rule_coverage.rule_id", "", RepairabilityNeedsRecompute,
+		"data validation incomplete: rule coverage is required with item ledgers, but no decision/contribution/entity record links to a rule_id")
+}
+
+func sourceBackedRuleIDs(records []RuleCoverageRecord) map[string]bool {
+	out := map[string]bool{}
+	for _, rec := range records {
+		id := strings.TrimSpace(rec.RuleID.String())
+		if id == "" || len(cleanStringList(rec.EvidenceRefs)) == 0 {
+			continue
+		}
+		out[id] = true
+	}
+	return out
+}
+
+func anyRuleRefLinks(knownRules map[string]bool, refs [][]string) bool {
+	for _, group := range refs {
+		for _, ref := range group {
+			if knownRules[strings.TrimSpace(ref)] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func rowRuleRefs(rows []RowDecision) [][]string {
@@ -1755,6 +1963,10 @@ func validateContributionRecords(records []ContributionRecord) error {
 			return dataValidationError("unsupported_contribution_operation", fmt.Sprintf("/contributions/%d/operation", i), "add/sum/include/count/subtract/set/rank", strings.TrimSpace(rec.Operation.String()), RepairabilityNeedsRecompute,
 				"data validation incomplete: result.contributions[%d] has unsupported operation %q; use add/sum/include/count/subtract/set/rank", i, strings.TrimSpace(rec.Operation.String()))
 		}
+		if contributionParticipatesInReconcile(rec) && !contributionHasSourceAnchor(rec) {
+			return dataValidationError("missing_target_contribution_source_anchor", fmt.Sprintf("/contributions/%d", i), "source, source_locator, or evidence_refs for every target contribution", "", RepairabilityNeedsRecompute,
+				"data validation incomplete: target result.contributions[%d] has no source anchor. Contributions that participate in final reconcile must be atomic sourced items; aggregate summary rows should be role=intermediate/audit or represented in reconcile.groups, not target contributions", i)
+		}
 		if contributionHasAnchor(rec) && contributionHasEffect(rec) {
 			continue
 		}
@@ -1766,7 +1978,11 @@ func validateContributionRecords(records []ContributionRecord) error {
 
 func contributionHasAnchor(rec ContributionRecord) bool {
 	return strings.TrimSpace(rec.ItemID.String()) != "" ||
-		strings.TrimSpace(rec.Source.String()) != "" ||
+		contributionHasSourceAnchor(rec)
+}
+
+func contributionHasSourceAnchor(rec ContributionRecord) bool {
+	return strings.TrimSpace(rec.Source.String()) != "" ||
 		strings.TrimSpace(rec.SourceLocator.String()) != "" ||
 		len(rec.EvidenceRefs) > 0
 }
@@ -1836,6 +2052,7 @@ func resolutionStatusIsOpen(status string) bool {
 }
 
 func validateReconcileReport(report ReconcileReport, contributions []ContributionRecord, answer string) error {
+	targetContributions := reconcileTargetContributions(contributions)
 	status := strings.ToLower(strings.TrimSpace(report.Status.String()))
 	if status == "" {
 		return dataValidationError("missing_reconcile_status", "/reconcile/status", "pass/fail/partial/blocked status", "", RepairabilityNeedsRecompute,
@@ -1858,28 +2075,64 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	if actualAnswer != "" && answer != "" && actualAnswer != answer {
 		return fmt.Errorf("data reconcile failed: actual_answer %q does not match result.answer %q", actualAnswer, answer)
 	}
-	if len(contributions) > 0 && len(report.Groups) == 0 {
+	if len(targetContributions) > 0 && len(report.Groups) == 0 {
 		return dataValidationError("missing_reconcile_groups", "/reconcile/groups", "group for every contribution group", "empty", RepairabilityNeedsRecompute,
 			"data reconcile incomplete: result.reconcile.groups is empty while contributions are present")
 	}
-	if len(contributions) > 0 && len(report.Groups) > 0 && !hasMeaningfulReconcileGroup(report.Groups) {
+	if len(targetContributions) > 0 && len(report.Groups) > 0 && !hasMeaningfulReconcileGroup(report.Groups) {
 		return dataValidationError("empty_semantic_ledger", "/reconcile/groups", "reconcile groups with group_key/metric and expected/actual values", snippetJSON(report.Groups), RepairabilityNeedsRecompute,
 			"data reconcile incomplete: result.reconcile.groups contains no canonical group records; include group_key/metric and expected/actual values instead of task-specific aliases")
 	}
-	if len(report.Groups) == 0 || len(contributions) == 0 {
+	if len(report.Groups) == 0 || len(targetContributions) == 0 {
 		return nil
 	}
-	sums := sumContributionGroups(contributions)
+	sums := sumContributionGroups(targetContributions)
+	allSums := sumContributionGroups(contributions)
 	seenGroups := map[string]bool{}
+	answerScoped := false
 	for i, group := range report.Groups {
 		key := reconcileGroupKey(group.GroupKey.String(), group.Metric.String())
 		if strings.TrimSpace(group.Expected.String()) == "" && strings.TrimSpace(group.Actual.String()) == "" {
 			return dataValidationError("missing_reconcile_group_value", fmt.Sprintf("/reconcile/groups/%d", i), "expected or actual", "", RepairabilityNeedsRecompute,
 				"data reconcile incomplete: group %q is missing expected or actual value", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
 		}
+		if reconcileGroupIsAnswerScoped(group, answer) {
+			answerScoped = true
+			if err := validateAnswerScopedReconcileGroup(group, answer, i); err != nil {
+				return err
+			}
+			continue
+		}
+		if !reconcileGroupParticipatesInTargetCheck(group) {
+			continue
+		}
 		seenGroups[key] = true
 		got, ok := sums[key]
 		if !ok {
+			if auxiliaryGot, ok := allSums[key]; ok {
+				for _, candidate := range []struct {
+					label string
+					value string
+				}{
+					{label: "expected", value: group.Expected.String()},
+					{label: "actual", value: group.Actual.String()},
+				} {
+					value := strings.TrimSpace(candidate.value)
+					if value == "" {
+						continue
+					}
+					want, err := parseDecimalRat(value)
+					if err != nil {
+						continue
+					}
+					if auxiliaryGot.Cmp(want) != 0 {
+						return dataValidationError("reconcile_sum_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", i, candidate.label), "value equal to contribution sum", value, RepairabilityNeedsRecompute,
+							"data reconcile failed: group %q %s=%s but contributions sum to %s",
+							displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, formatRat(auxiliaryGot))
+					}
+				}
+				continue
+			}
 			if reconcileGroupDeclaresZero(group) {
 				continue
 			}
@@ -1910,6 +2163,9 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 			}
 		}
 	}
+	if answerScoped {
+		return nil
+	}
 	for key := range sums {
 		if !seenGroups[key] {
 			groupKey, metric := splitReconcileGroupKey(key)
@@ -1917,7 +2173,159 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 				"data reconcile incomplete: contributions include group %q but result.reconcile.groups does not report it", displayReconcileGroupKey(groupKey, metric))
 		}
 	}
+	if err := validateAnswerNumericSequenceAgainstReconcileGroups(report.Groups, answer); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateAnswerNumericSequenceAgainstReconcileGroups(groups []ReconcileGroup, answer string) error {
+	answerValues, ok := numericSequenceFromAnswer(answer, len(groups))
+	if !ok || len(answerValues) == 0 {
+		return nil
+	}
+	var groupValues []string
+	for _, group := range groups {
+		if reconcileGroupIsAnswerScoped(group, answer) {
+			continue
+		}
+		value := firstNonEmptyString(strings.TrimSpace(group.Actual.String()), strings.TrimSpace(group.Expected.String()))
+		if value == "" {
+			return nil
+		}
+		parsed, err := parseDecimalRat(value)
+		if err != nil {
+			return nil
+		}
+		groupValues = append(groupValues, formatRat(parsed))
+	}
+	if len(groupValues) == 0 || len(groupValues) != len(answerValues) {
+		return nil
+	}
+	if sameStringMultiset(answerValues, groupValues) {
+		return nil
+	}
+	return dataValidationError(
+		"answer_reconcile_mismatch",
+		"/answer",
+		"final numeric answer values matching reconcile group actual/expected values",
+		strings.Join(answerValues, ","),
+		RepairabilityNeedsRecompute,
+		"data reconcile failed: result.answer values %q do not match reconcile group values %q",
+		strings.Join(answerValues, ","),
+		strings.Join(groupValues, ","),
+	)
+}
+
+func numericSequenceFromAnswer(answer string, groupCount int) ([]string, bool) {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return nil, false
+	}
+	var parts []string
+	if strings.Contains(answer, ",") {
+		parts = strings.Split(answer, ",")
+	} else if groupCount <= 1 {
+		parts = []string{answer}
+	} else {
+		return nil, false
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		parsed, err := parseDecimalRat(part)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, formatRat(parsed))
+	}
+	return out, true
+}
+
+func sameStringMultiset(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := map[string]int{}
+	for _, value := range a {
+		counts[value]++
+	}
+	for _, value := range b {
+		counts[value]--
+		if counts[value] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func reconcileGroupIsAnswerScoped(group ReconcileGroup, answer string) bool {
+	scope := strings.ToLower(strings.TrimSpace(firstNonEmptyString(group.Scope.String(), group.Role.String())))
+	switch scope {
+	case "answer", "output", "final", "final_answer", "result":
+		return true
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return false
+	}
+	for _, value := range []string{group.Expected.String(), group.Actual.String()} {
+		if strings.TrimSpace(value) == answer {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileGroupParticipatesInTargetCheck(group ReconcileGroup) bool {
+	switch normalizeContributionRole(firstNonEmptyString(group.Role.String(), group.Scope.String())) {
+	case "audit", "coverage", "sample", "intermediate", "diagnostic", "material":
+		return false
+	default:
+		return true
+	}
+}
+
+func validateAnswerScopedReconcileGroup(group ReconcileGroup, answer string, index int) error {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return nil
+	}
+	for _, candidate := range []struct {
+		label string
+		value string
+	}{
+		{label: "expected", value: group.Expected.String()},
+		{label: "actual", value: group.Actual.String()},
+	} {
+		value := strings.TrimSpace(candidate.value)
+		if value == "" {
+			continue
+		}
+		if value != answer {
+			return dataValidationError("answer_reconcile_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", index, candidate.label), "value equal to final answer", value, RepairabilityNeedsRecompute,
+				"data reconcile failed: answer-scope group %s=%q does not match result.answer %q", candidate.label, value, answer)
+		}
+	}
+	return nil
+}
+
+func reconcileTargetContributions(contributions []ContributionRecord) []ContributionRecord {
+	out := make([]ContributionRecord, 0, len(contributions))
+	for _, rec := range contributions {
+		if contributionParticipatesInReconcile(rec) {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+func contributionParticipatesInReconcile(rec ContributionRecord) bool {
+	switch normalizeContributionRole(rec.Role.String()) {
+	case "audit", "coverage", "sample", "intermediate", "diagnostic", "material":
+		return false
+	default:
+		return true
+	}
 }
 
 func reconcileGroupDeclaresZero(group ReconcileGroup) bool {
@@ -2066,6 +2474,13 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		res.EntityResolutions[i].Status = "resolved"
 		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/status", i), "resolved", "filled resolved status for entity resolution with canonical value"))
 	}
+	if len(res.Rows) == 0 && len(res.Contributions) > 0 {
+		rows := rowDecisionsFromContributions(res.Contributions)
+		if len(rows) > 0 {
+			res.Rows = rows
+			patches = append(patches, newDataResultPatch("add", "/rows", len(rows), "derived include decision records from contribution ledger"))
+		}
+	}
 	if res.Reconcile != nil {
 		for i := range res.Reconcile.Groups {
 			metric := strings.TrimSpace(res.Reconcile.Groups[i].Metric.String())
@@ -2077,7 +2492,72 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 			}
 		}
 	}
+	if len(res.Contributions) > 0 && (res.Reconcile == nil || len(res.Reconcile.Groups) == 0) {
+		report := reconcileReportFromContributions(res.Contributions)
+		if res.Reconcile != nil {
+			report.ExpectedAnswer = res.Reconcile.ExpectedAnswer
+			report.ActualAnswer = res.Reconcile.ActualAnswer
+			report.Differences = append([]string(nil), res.Reconcile.Differences...)
+		}
+		res.Reconcile = &report
+		patches = append(patches, newDataResultPatch("add", "/reconcile/groups", len(report.Groups), "filled reconcile groups from contribution ledger"))
+	}
 	return patches
+}
+
+func rowDecisionsFromContributions(contributions []ContributionRecord) []RowDecision {
+	out := make([]RowDecision, 0, len(contributions))
+	for _, rec := range contributions {
+		if !contributionHasAnchor(rec) || !contributionHasEffect(rec) {
+			continue
+		}
+		decision := "include"
+		if strings.EqualFold(strings.TrimSpace(normalizeContributionRole(rec.Role.String())), "excluded") {
+			decision = "exclude"
+		}
+		out = append(out, RowDecision{
+			RowID:         rec.ItemID.String(),
+			Source:        rec.Source.String(),
+			SourceLocator: rec.SourceLocator.String(),
+			Decision:      decision,
+			Reason:        firstNonEmptyString(rec.Reason.String(), "derived from contribution record"),
+			Value:         rec.Value.String(),
+			Contribution:  rec.Operation.String(),
+			EvidenceRef:   cleanStringList(rec.EvidenceRefs),
+			RuleRefs:      cleanStringList(rec.RuleRefs),
+			NormalizedFields: map[string]string{
+				"group_key": rec.GroupKey.String(),
+				"metric":    rec.Metric.String(),
+				"role":      rec.Role.String(),
+			},
+		})
+	}
+	return out
+}
+
+func reconcileReportFromContributions(contributions []ContributionRecord) ReconcileReport {
+	sums := sumContributionGroups(contributions)
+	keys := make([]string, 0, len(sums))
+	for key := range sums {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	groups := make([]ReconcileGroup, 0, len(keys))
+	for _, key := range keys {
+		groupKey, metric := splitReconcileGroupKey(key)
+		value := formatRat(sums[key])
+		groups = append(groups, ReconcileGroup{
+			GroupKey:   LooseText(groupKey),
+			Metric:     LooseText(metric),
+			Expected:   LooseText(value),
+			Actual:     LooseText(value),
+			Difference: LooseText("0"),
+		})
+	}
+	return ReconcileReport{
+		Status: LooseText("pass"),
+		Groups: groups,
+	}
 }
 
 func ApplyDataResultPatchPlan(plan TaskPlan, base Result, patchPlan DataResultPatchPlan) (Result, []DataResultPatch, error) {
@@ -2297,6 +2777,18 @@ func normalizeContributionOperation(op string) (string, bool) {
 	}
 }
 
+func normalizeContributionRole(role string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "audit", "coverage", "sample", "intermediate", "diagnostic", "material":
+		return role
+	case "target", "metric", "output", "final", "business":
+		return "target"
+	default:
+		return role
+	}
+}
+
 func parseDecimalRat(value string) (*big.Rat, error) {
 	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, ",", "")
@@ -2330,7 +2822,7 @@ func validateScriptSafety(script string) error {
 		}
 	}
 	reservedHelpers := []string{
-		"csv_rows", "tsv_rows", "json_load", "jsonl_rows", "read_text", "parse_money",
+		"csv_rows", "tsv_rows", "json_load", "json_records", "jsonl_rows", "read_text", "parse_money",
 		"add_decision", "add_rule_coverage", "add_contribution", "add_resolution", "add_entity_resolution",
 		"emit_result", "emit", "open",
 	}
@@ -2369,6 +2861,10 @@ func hasMeaningfulRowDecision(rows []RowDecision) bool {
 }
 
 func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) ([]string, error) {
+	return copyInputsWithExtras(root, workDir, paths, maxFile, maxTotal, nil)
+}
+
+func copyInputsWithExtras(root, workDir string, paths []string, maxFile, maxTotal int64, extra map[string]string) ([]string, error) {
 	seen := map[string]bool{}
 	var rels []string
 	var total int64
@@ -2376,6 +2872,22 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 		rel, abs, err := resolveInputPath(root, raw)
 		if err != nil {
 			return nil, err
+		}
+		if extraAbs := extraInputFileForPath(rel, abs, extra); extraAbs != "" {
+			if seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			size, err := copyOneInput(extraAbs, filepath.Join(workDir, rel), maxFile)
+			if err != nil {
+				return nil, err
+			}
+			total += size
+			if total > maxTotal {
+				return nil, fmt.Errorf("data task input total exceeds %d bytes", maxTotal)
+			}
+			rels = append(rels, rel)
+			continue
 		}
 		if seen[rel] {
 			continue
@@ -2440,6 +2952,27 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 	}
 	sort.Strings(rels)
 	return rels, nil
+}
+
+func extraInputFileForPath(rel, abs string, extra map[string]string) string {
+	if len(extra) == 0 {
+		return ""
+	}
+	if _, err := os.Stat(abs); err == nil {
+		return ""
+	}
+	key := normalizeMaterialPath(rel)
+	if key == "" {
+		return ""
+	}
+	extraAbs := strings.TrimSpace(extra[key])
+	if extraAbs == "" {
+		return ""
+	}
+	if info, err := os.Stat(extraAbs); err != nil || info.IsDir() {
+		return ""
+	}
+	return extraAbs
 }
 
 func resolveInputPath(root, raw string) (string, string, error) {
@@ -2682,6 +3215,60 @@ def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
         raise ImportError("data task import is blocked: " + str(name))
     return __import__(name, globals, locals, fromlist, level)
 
+def _loose_field_alias_key(name):
+    text = re.sub(r"[^a-z0-9]+", "_", str(name or "").strip().lower()).strip("_")
+    for suffix in ("_raw", "_value", "_text"):
+        if text.endswith(suffix):
+            text = text[:-len(suffix)]
+            break
+    return text.replace("_", "")
+
+class DataTaskRow(dict):
+    def _alias_for(self, key):
+        wanted = _loose_field_alias_key(key)
+        if not wanted:
+            return None
+        matches = [k for k in self.keys() if _loose_field_alias_key(k) == wanted]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def __getitem__(self, key):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        alias = self._alias_for(key)
+        if alias is not None:
+            return dict.__getitem__(self, alias)
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key):
+            return dict.get(self, key, default)
+        alias = self._alias_for(key)
+        if alias is not None:
+            return dict.get(self, alias, default)
+        return default
+
+def _wrap_rows(rows):
+    return [DataTaskRow(row) if isinstance(row, dict) else row for row in list(rows or [])]
+
+def _annotate_record(row, source_path, index, line=None):
+    if not isinstance(row, dict):
+        return row
+    out = dict(row)
+    out.setdefault("_source", str(source_path or ""))
+    out.setdefault("_source_index", str(index or ""))
+    out.setdefault("_row_index", str(index or ""))
+    if line not in (None, ""):
+        out.setdefault("_line", str(line))
+        out.setdefault("_source_locator", "line:" + str(line))
+    else:
+        out.setdefault("_source_locator", "record:" + str(index or ""))
+    return out
+
+def _annotate_records(rows, source_path):
+    return [_annotate_record(row, source_path, i + 1) for i, row in enumerate(list(rows or []))]
+
 def _safe_print(*args, sep=" ", end="\n", file=None, flush=False):
     global PRINT_BYTES
     if file is not None:
@@ -2706,27 +3293,51 @@ def read_text(path, encoding="utf-8"):
 def csv_rows(path, encoding="utf-8"):
     norm = _mark_consumed(path)
     with open(norm, "r", encoding=encoding, errors="replace", newline="") as f:
-        return list(csv.DictReader(f))
+        reader = csv.DictReader(f)
+        rows = []
+        for index, row in enumerate(reader, 1):
+            rows.append(_annotate_record(row, path, index, getattr(reader, "line_num", None)))
+        return _wrap_rows(rows)
 
 def tsv_rows(path, encoding="utf-8"):
     norm = _mark_consumed(path)
     with open(norm, "r", encoding=encoding, errors="replace", newline="") as f:
-        return list(csv.DictReader(f, delimiter="\t"))
+        reader = csv.DictReader(f, delimiter="\t")
+        rows = []
+        for index, row in enumerate(reader, 1):
+            rows.append(_annotate_record(row, path, index, getattr(reader, "line_num", None)))
+        return _wrap_rows(rows)
 
 def json_load(path, encoding="utf-8"):
     norm = _mark_consumed(path)
     with open(norm, "r", encoding=encoding, errors="replace") as f:
         return json.load(f)
 
+def json_records(path, record_key="", encoding="utf-8"):
+    data = json_load(path, encoding=encoding)
+    if isinstance(data, list):
+        return _wrap_rows(_annotate_records(data, path))
+    if isinstance(data, dict):
+        keys = []
+        if record_key:
+            keys.append(record_key)
+        keys.extend(["records", "rows", "items", "data", "rules", "rule_coverage", "contributions", "entity_resolutions", "children"])
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return _wrap_rows(_annotate_records(value, path))
+        return _wrap_rows(_annotate_records([data], path))
+    return []
+
 def jsonl_rows(path, encoding="utf-8"):
     rows = []
     norm = _mark_consumed(path)
     with open(norm, "r", encoding=encoding, errors="replace") as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             line = line.strip()
             if line:
-                rows.append(json.loads(line))
-    return rows
+                rows.append(_annotate_record(json.loads(line), path, len(rows) + 1, line_no))
+    return _wrap_rows(rows)
 
 def parse_money(value):
     text = str(value).strip().replace(",", "")
@@ -2747,7 +3358,38 @@ def _listify(value):
         return [str(v) for v in value if v not in (None, "")]
     return [str(value)]
 
-def add_decision(item_id="", source="", source_locator="", decision="", reason="", value="", contribution="", normalized_fields=None, evidence_refs=None, rule_refs=None, **extra):
+def _optional_sink_and_args(args):
+    args = list(args or [])
+    if args and isinstance(args[0], list):
+        return args[0], args[1:]
+    return None, args
+
+def _pos(args, index, default=""):
+    if index < len(args):
+        return args[index]
+    return default
+
+def _kw(extra, name, default=""):
+    if name in extra:
+        return extra.pop(name)
+    return default
+
+def _append_sink(sink, rec):
+    if isinstance(sink, list):
+        sink.append(rec)
+
+def add_decision(*args, **extra):
+    sink, args = _optional_sink_and_args(args)
+    item_id = _kw(extra, "item_id", _pos(args, 0, ""))
+    source = _kw(extra, "source", _pos(args, 1, ""))
+    source_locator = _kw(extra, "source_locator", _pos(args, 2, ""))
+    decision = _kw(extra, "decision", _pos(args, 3, ""))
+    reason = _kw(extra, "reason", _pos(args, 4, ""))
+    value = _kw(extra, "value", _pos(args, 5, ""))
+    contribution = _kw(extra, "contribution", _pos(args, 6, ""))
+    normalized_fields = _kw(extra, "normalized_fields", None)
+    evidence_refs = _kw(extra, "evidence_refs", None)
+    rule_refs = _kw(extra, "rule_refs", None)
     item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
     source_locator = source_locator or _pop_first(extra, ["locator", "location", "span", "cell", "row"])
     decision = decision or _pop_first(extra, ["status", "outcome", "action"])
@@ -2771,14 +3413,23 @@ def add_decision(item_id="", source="", source_locator="", decision="", reason="
         "rule_refs": _listify(rule_refs),
     }
     DECISIONS.append(rec)
+    _append_sink(sink, rec)
     return rec
 
-def add_rule_coverage(rule_id="", rule_text="", status="", evidence_refs=None, notes="", **extra):
+def add_rule_coverage(*args, **extra):
+    sink, args = _optional_sink_and_args(args)
+    rule_id = _kw(extra, "rule_id", _pos(args, 0, ""))
+    rule_text = _kw(extra, "rule_text", _pos(args, 1, ""))
+    status = _kw(extra, "status", _pos(args, 2, ""))
+    evidence_refs = _kw(extra, "evidence_refs", None)
+    notes = _kw(extra, "notes", _pos(args, 3, ""))
     rule_id = rule_id or _pop_first(extra, ["id", "rule", "rule_ref"])
     rule_text = rule_text or _pop_first(extra, ["text", "description", "condition"])
     status = status or _pop_first(extra, ["outcome", "decision"], "applied")
     if not notes:
         notes = _pop_first(extra, ["reason", "summary", "details"])
+    if not notes and not evidence_refs:
+        notes = "emitted by data task helper"
     rec = {
         "rule_id": str(rule_id or ""),
         "rule_text": str(rule_text or ""),
@@ -2788,6 +3439,7 @@ def add_rule_coverage(rule_id="", rule_text="", status="", evidence_refs=None, n
     }
     rec.update(extra)
     RULE_COVERAGE.append(rec)
+    _append_sink(sink, rec)
     return rec
 
 def _candidate_obj(candidate):
@@ -2795,7 +3447,17 @@ def _candidate_obj(candidate):
         return candidate
     return {"id": str(candidate)}
 
-def add_resolution(item_id="", source_value="", canonical_id="", canonical_label="", status="", candidates=None, evidence_refs=None, rule_refs=None, reason="", **extra):
+def add_resolution(*args, **extra):
+    sink, args = _optional_sink_and_args(args)
+    item_id = _kw(extra, "item_id", _pos(args, 0, ""))
+    source_value = _kw(extra, "source_value", _pos(args, 1, ""))
+    canonical_id = _kw(extra, "canonical_id", _pos(args, 2, ""))
+    canonical_label = _kw(extra, "canonical_label", _pos(args, 3, ""))
+    status = _kw(extra, "status", _pos(args, 4, ""))
+    candidates = _kw(extra, "candidates", None)
+    evidence_refs = _kw(extra, "evidence_refs", None)
+    rule_refs = _kw(extra, "rule_refs", None)
+    reason = _kw(extra, "reason", _pos(args, 5, ""))
     item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
     source_value = source_value or _pop_first(extra, ["source", "raw", "raw_value", "value"])
     canonical_id = canonical_id or _pop_first(extra, ["canonical", "normalized_id", "target_id"])
@@ -2819,17 +3481,31 @@ def add_resolution(item_id="", source_value="", canonical_id="", canonical_label
     }
     rec.update(extra)
     ENTITY_RESOLUTIONS.append(rec)
+    _append_sink(sink, rec)
     return rec
 
 def add_entity_resolution(*args, **kwargs):
     return add_resolution(*args, **kwargs)
 
-def add_contribution(item_id="", source="", source_locator="", group_key="", metric="", value="", operation="add", reason="", evidence_refs=None, rule_refs=None, **extra):
+def add_contribution(*args, **extra):
+    sink, args = _optional_sink_and_args(args)
+    item_id = _kw(extra, "item_id", _pos(args, 0, ""))
+    source = _kw(extra, "source", _pos(args, 1, ""))
+    source_locator = _kw(extra, "source_locator", _pos(args, 2, ""))
+    group_key = _kw(extra, "group_key", _pos(args, 3, ""))
+    metric = _kw(extra, "metric", _pos(args, 4, ""))
+    value = _kw(extra, "value", _pos(args, 5, ""))
+    operation = _kw(extra, "operation", _pos(args, 6, "add"))
+    reason = _kw(extra, "reason", _pos(args, 7, ""))
+    role = _kw(extra, "role", None)
+    evidence_refs = _kw(extra, "evidence_refs", None)
+    rule_refs = _kw(extra, "rule_refs", None)
     item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
     source_locator = source_locator or _pop_first(extra, ["locator", "location", "span", "cell", "row"])
     group_key = group_key or _pop_first(extra, ["group", "dimensions", "dimension_key", "bucket"])
     metric = metric or _pop_first(extra, ["measure", "field", "metric_name"])
     operation = operation or _pop_first(extra, ["op", "aggregation"], "add")
+    role = role or _pop_first(extra, ["scope", "ledger_role", "contribution_role"], "")
     if not rule_refs:
         rule_refs = _pop_first(extra, ["rule_refs", "rule_ref", "rule_id", "rule"])
     if not reason:
@@ -2842,23 +3518,25 @@ def add_contribution(item_id="", source="", source_locator="", group_key="", met
         "metric": str(metric or ""),
         "value": str(value or ""),
         "operation": str(operation or "add"),
+        "role": str(role or ""),
         "reason": str(reason or ""),
         "evidence_refs": list(evidence_refs or []),
         "rule_refs": _listify(rule_refs),
     }
     rec.update(extra)
     CONTRIBUTIONS.append(rec)
+    _append_sink(sink, rec)
     return rec
 
 def _merge_helper_ledgers(obj):
     if isinstance(obj, dict):
-        if "rows" not in obj and DECISIONS:
+        if ("rows" not in obj or (obj.get("rows") == [] and DECISIONS)) and DECISIONS:
             obj["rows"] = list(DECISIONS)
-        if "rule_coverage" not in obj and RULE_COVERAGE:
+        if ("rule_coverage" not in obj or (obj.get("rule_coverage") == [] and RULE_COVERAGE)) and RULE_COVERAGE:
             obj["rule_coverage"] = list(RULE_COVERAGE)
-        if "contributions" not in obj and CONTRIBUTIONS:
+        if ("contributions" not in obj or (obj.get("contributions") == [] and CONTRIBUTIONS)) and CONTRIBUTIONS:
             obj["contributions"] = list(CONTRIBUTIONS)
-        if "entity_resolutions" not in obj and ENTITY_RESOLUTIONS:
+        if ("entity_resolutions" not in obj or (obj.get("entity_resolutions") == [] and ENTITY_RESOLUTIONS)) and ENTITY_RESOLUTIONS:
             obj["entity_resolutions"] = list(ENTITY_RESOLUTIONS)
     return obj
 
@@ -2867,16 +3545,30 @@ def emit(obj):
     RESULT = _merge_helper_ledgers(obj)
 
 def emit_result(answer, output_contract=None, audit_summary="", rows=None, rule_coverage=None, contributions=None, entity_resolutions=None, reconcile=None, metrics=None, **extra):
-    obj = {
-        "answer": str(answer),
-        "output_contract": output_contract or {},
-        "audit_summary": str(audit_summary or ""),
-        "rows": list(rows if rows is not None else DECISIONS),
-        "rule_coverage": list(rule_coverage if rule_coverage is not None else RULE_COVERAGE),
-        "contributions": list(contributions if contributions is not None else CONTRIBUTIONS),
-        "entity_resolutions": list(entity_resolutions if entity_resolutions is not None else ENTITY_RESOLUTIONS),
-        "metrics": list(metrics or []),
-    }
+    def _choose_ledger(explicit, helper):
+        if explicit is None:
+            return list(helper)
+        if isinstance(explicit, (list, tuple)) and len(explicit) == 0 and helper:
+            return list(helper)
+        return list(explicit)
+    if isinstance(answer, dict):
+        obj = dict(answer)
+    else:
+        obj = {"answer": str(answer)}
+    if output_contract is not None:
+        obj["output_contract"] = output_contract
+    else:
+        obj.setdefault("output_contract", {})
+    if audit_summary:
+        obj["audit_summary"] = str(audit_summary or "")
+    else:
+        obj.setdefault("audit_summary", "")
+    obj["rows"] = _choose_ledger(rows if rows is not None else obj.get("rows"), DECISIONS)
+    obj["rule_coverage"] = _choose_ledger(rule_coverage if rule_coverage is not None else obj.get("rule_coverage"), RULE_COVERAGE)
+    obj["contributions"] = _choose_ledger(contributions if contributions is not None else obj.get("contributions"), CONTRIBUTIONS)
+    obj["entity_resolutions"] = _choose_ledger(entity_resolutions if entity_resolutions is not None else obj.get("entity_resolutions"), ENTITY_RESOLUTIONS)
+    metric_values = metrics if metrics is not None else obj.get("metrics")
+    obj["metrics"] = list(metric_values or [])
     if reconcile is not None:
         obj["reconcile"] = reconcile
     obj.update(extra)
@@ -2903,7 +3595,7 @@ safe_builtins = {
 env = {
     "__builtins__": safe_builtins,
     "csv_rows": csv_rows, "tsv_rows": tsv_rows, "json_load": json_load,
-    "jsonl_rows": jsonl_rows, "read_text": read_text,
+    "json_records": json_records, "jsonl_rows": jsonl_rows, "read_text": read_text,
     "parse_money": parse_money, "Decimal": decimal.Decimal,
     "add_decision": add_decision, "add_rule_coverage": add_rule_coverage,
     "add_contribution": add_contribution, "add_resolution": add_resolution,
@@ -2934,14 +3626,75 @@ func parseRunnerResult(out []byte) (Result, error) {
 		if !strings.HasPrefix(line, resultMarker) {
 			continue
 		}
+		payload := []byte(strings.TrimPrefix(line, resultMarker))
 		var res Result
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, resultMarker)), &res); err != nil {
+		if err := json.Unmarshal(payload, &res); err != nil {
 			return Result{}, fmt.Errorf("parse data task result: %w", err)
 		}
+		res.Artifacts = appendRunnerPayloadArtifact(payload, res.Artifacts)
 		res.Answer = strings.TrimSpace(res.Answer)
 		return res, nil
 	}
 	return Result{}, fmt.Errorf("data task script did not emit a structured result; output=%s", strings.TrimSpace(string(out)))
+}
+
+func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []DataArtifact {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return artifacts
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &raw); err != nil || len(raw) == 0 {
+		return artifacts
+	}
+	known := map[string]bool{
+		"answer":             true,
+		"output_contract":    true,
+		"audit_summary":      true,
+		"artifacts":          true,
+		"rows":               true,
+		"rule_coverage":      true,
+		"contributions":      true,
+		"entity_resolutions": true,
+		"reconcile":          true,
+		"metrics":            true,
+		"consumed_paths":     true,
+		"contract_warnings":  true,
+		"result_patches":     true,
+	}
+	extra := make(map[string]json.RawMessage)
+	keys := make([]string, 0, len(raw))
+	for key, value := range raw {
+		if known[key] {
+			continue
+		}
+		extra[key] = value
+		keys = append(keys, key)
+	}
+	if len(extra) == 0 {
+		return artifacts
+	}
+	sort.Strings(keys)
+	extraPayload, err := json.Marshal(extra)
+	if err != nil {
+		return artifacts
+	}
+	sample := string(extraPayload)
+	if len(sample) > 1200 {
+		sample = sample[:1200] + "\n...[truncated]"
+	}
+	artifact := DataArtifact{
+		ID:       "emitted_payload",
+		Kind:     "custom_payload",
+		Summary:  fmt.Sprintf("script emitted extra payload field(s): %s", strings.Join(keys, ", ")),
+		Sample:   []string{sample},
+		RowCount: 1,
+		Fields: map[string]string{
+			"payload_keys": strings.Join(keys, ","),
+			"json_shape":   dataActionArtifactJSONShape(extraPayload),
+		},
+	}
+	return append([]DataArtifact{artifact}, artifacts...)
 }
 
 func ValidateAnswer(answer string, contract OutputContract) error {
