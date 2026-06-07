@@ -9332,9 +9332,9 @@ Remaining architecture items:
       rather than REPL helper functions.
 - [ ] Persist artifact node classes and lineage snapshots into data-audit
       records.
-- [ ] Add `artifact_schema_projection` validation to action guards so typed
+- [x] Add `artifact_schema_projection` validation to action guards so typed
       actions consume exact executable schema contracts instead of prompt
-      samples.
+      samples. Completed for field-contract guards in Batch 209.
 
 ### Batch 205: Shared ActionDAG Role-Path Normalization
 
@@ -9478,3 +9478,38 @@ Remaining architecture items:
       interrupted workflows can replay state transitions exactly.
 - [ ] Move deferred queues and blocked-node reasons into the shared reducer
       instead of REPL-specific slices and guard errors.
+
+### Batch 209: ArtifactSchema Field Contract Helper
+
+Field-contract guards were structurally correct but still owned their schema
+lookup in REPL helper code. The same exact check will be needed by CLI,
+standalone data workflows, and future reducer-level blocked-node decisions.
+Keeping the lookup in UI code makes those paths diverge.
+
+This batch moves the schema lookup and missing-field calculation into
+`internal/dataworkflow`:
+
+- resolve an `ArtifactSchemaProjection` by id/path/alias;
+- compare requested fields against the artifact's exact field list;
+- return missing fields only when a schema is known;
+- preserve the existing safe behavior that unknown schemas do not hard-block
+  a plan by themselves.
+
+This is precise structural validation, not business inference. It does not
+guess field meaning or parse model prose.
+
+Changes:
+
+- [x] Added `dataworkflow.ArtifactSchemaByAlias`.
+- [x] Added `dataworkflow.MissingFieldsOnArtifactSchema`.
+- [x] Rewired REPL missing-field action guards to consume the shared
+      `ArtifactSchemaProjection` helper.
+- [x] Added regression coverage for alias resolution, duplicate missing-field
+      cleanup, and unknown-schema no-op behavior.
+
+Remaining architecture items:
+
+- [ ] Move candidate-artifact ranking and repair hints for field-contract
+      violations into a shared typed schema-violation builder.
+- [ ] Feed schema-contract failures into the shared ActionGraph reducer as
+      blocked nodes instead of REPL prose guard errors.

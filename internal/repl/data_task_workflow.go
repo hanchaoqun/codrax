@@ -4147,25 +4147,26 @@ func dataTaskFieldContractCandidateArtifacts(access []dataTaskArtifactAccessProm
 }
 
 func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alias string, fields []string) []string {
-	artifact, ok := dataTaskArtifactAccessByAlias(access, alias)
-	if !ok || len(artifact.Fields) == 0 {
-		return nil
-	}
-	set := dataTaskFieldSet(artifact.Fields)
-	var missing []string
-	seen := map[string]bool{}
-	for _, field := range cleanDataTaskStrings(fields) {
-		key := strings.ToLower(strings.TrimSpace(field))
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		if set[key] == "" {
-			missing = append(missing, field)
-		}
-	}
+	missing := dataworkflow.MissingFieldsOnArtifactSchema(dataTaskArtifactAccessSchemaProjection(access), alias, fields)
 	sort.Strings(missing)
 	return missing
+}
+
+func dataTaskArtifactAccessSchemaProjection(access []dataTaskArtifactAccessPrompt) []dataworkflow.ArtifactSchemaProjection {
+	out := make([]dataworkflow.ArtifactSchemaProjection, 0, len(access))
+	for _, artifact := range access {
+		out = append(out, dataworkflow.ArtifactSchemaProjection{
+			ID:          strings.TrimSpace(artifact.ID),
+			Kind:        strings.TrimSpace(artifact.Kind),
+			NodeClass:   strings.TrimSpace(artifact.NodeClass),
+			Aliases:     cleanDataTaskStrings(artifact.Aliases),
+			JSONShape:   strings.TrimSpace(artifact.JSONShape),
+			Fields:      cleanDataTaskStrings(artifact.Fields),
+			AccessHint:  strings.TrimSpace(artifact.AccessHint),
+			SourcePaths: cleanDataTaskStrings(artifact.SourcePaths),
+		})
+	}
+	return out
 }
 
 func dataTaskMissingDeriveFieldInputs(access []dataTaskArtifactAccessPrompt, alias string, action dataquery.DataAction) []string {

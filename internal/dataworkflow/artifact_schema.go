@@ -131,6 +131,62 @@ func ArtifactAccessHint(shape string) string {
 	}
 }
 
+func ArtifactSchemaByAlias(projections []ArtifactSchemaProjection, alias string) (ArtifactSchemaProjection, bool) {
+	target := normalizeAccessPath(alias)
+	if target == "" {
+		return ArtifactSchemaProjection{}, false
+	}
+	for _, projection := range projections {
+		for _, candidate := range artifactSchemaAliases(projection) {
+			if normalizeAccessPath(candidate) == target {
+				return projection, true
+			}
+		}
+	}
+	return ArtifactSchemaProjection{}, false
+}
+
+func MissingFieldsOnArtifactSchema(projections []ArtifactSchemaProjection, alias string, fields []string) []string {
+	projection, ok := ArtifactSchemaByAlias(projections, alias)
+	if !ok || len(projection.Fields) == 0 {
+		return nil
+	}
+	known := artifactFieldSet(projection.Fields)
+	var missing []string
+	seen := map[string]bool{}
+	for _, field := range cleanStrings(fields) {
+		key := strings.ToLower(strings.TrimSpace(field))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if known[key] == "" {
+			missing = append(missing, field)
+		}
+	}
+	return cleanStrings(missing)
+}
+
+func artifactSchemaAliases(projection ArtifactSchemaProjection) []string {
+	aliases := append([]string(nil), projection.Aliases...)
+	if strings.TrimSpace(projection.ID) != "" {
+		aliases = append(aliases, projection.ID)
+	}
+	return cleanStrings(aliases)
+}
+
+func artifactFieldSet(fields []string) map[string]string {
+	out := map[string]string{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		out[strings.ToLower(field)] = field
+	}
+	return out
+}
+
 const (
 	ArtifactNodeClassArtifact        = "artifact"
 	ArtifactNodeClassRecord          = "record"

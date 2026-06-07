@@ -113,6 +113,25 @@ func TestProjectArtifactSchemasClassifiesWorkflowLedgerAndDiagnosticChildren(t *
 	}
 }
 
+func TestMissingFieldsOnArtifactSchemaUsesAliasContract(t *testing.T) {
+	projections := []ArtifactSchemaProjection{{
+		ID:      "records",
+		Aliases: []string{"records.json", "/tmp/work/records.json"},
+		Fields:  []string{"id", "amount", "status"},
+	}}
+
+	missing := MissingFieldsOnArtifactSchema(projections, "records.json", []string{"amount", "currency", "status", "currency"})
+	if len(missing) != 1 || missing[0] != "currency" {
+		t.Fatalf("missing=%v, want currency only", missing)
+	}
+	if _, ok := ArtifactSchemaByAlias(projections, "/tmp/work/records.json"); !ok {
+		t.Fatalf("expected path alias to resolve")
+	}
+	if missing := MissingFieldsOnArtifactSchema(projections, "unknown.json", []string{"amount"}); len(missing) != 0 {
+		t.Fatalf("unknown schema should not hard fail, missing=%v", missing)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
