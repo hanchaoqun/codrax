@@ -10198,8 +10198,37 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert the deeper field-contract, zero-match, unmatched-resolution, and
-      zero-eligible guard helpers to return typed violations/results directly.
+- [x] Convert the field-contract guard entrypoint and direct missing-field
+      helpers to return typed violations/results.
+- [ ] Convert relation-specific field sub-guards, zero-match,
+      unmatched-resolution, and zero-eligible helpers to return typed
+      violations/results directly.
 - [ ] Feed action dependency `GuardResult` objects into checkpoints from
       staging loops once action guard results are propagated through the parent
       staging guard result.
+
+### Batch 231: Typed Field-Contract Guard Result
+
+The missing-field helper already produced `WorkflowViolation`, but the
+action-level field-contract guard still returned only prose. This batch moves
+the field-contract entrypoint to `GuardResult` and preserves the existing
+string wrapper for current callers.
+
+Changes:
+
+- [x] Added `dataTaskActionFieldContractGuardResult`.
+- [x] Added `dataTaskActionMissingFieldContractGuardResult`.
+- [x] Direct missing-field checks now return a `GuardResult` carrying the
+      typed `WorkflowViolation` payload.
+- [x] Zero-match, unmatched-resolution, and zero-eligible guards now have stable
+      typed guard codes at the field-contract boundary.
+- [x] Added regression coverage that missing-field guard results include the
+      typed violation payload.
+
+Remaining architecture items:
+
+- [ ] Convert relation-specific field sub-guards (`join_records`,
+      `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
+      produce typed field-contract violations instead of wrapped messages.
+- [ ] Propagate child action guard results through staging guard results so
+      checkpoint guard payloads include the deepest typed violation.

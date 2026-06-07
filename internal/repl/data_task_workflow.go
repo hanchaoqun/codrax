@@ -3843,42 +3843,46 @@ func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord,
 }
 
 func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	access := dataTaskWorkflowArtifactContractAccess(records)
 	if len(access) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	if msg := dataTaskActionZeroMatchFilterInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return msg
+		return dataTaskGuardResultFromMessage("zero_match_filter", msg)
 	}
 	if msg := dataTaskActionUnmatchedResolutionInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return msg
+		return dataTaskGuardResultFromMessage("unmatched_resolution", msg)
 	}
 	if msg := dataTaskActionZeroEligibleInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return msg
+		return dataTaskGuardResultFromMessage("zero_eligible_records", msg)
 	}
 	switch kind {
 	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingDeriveFieldInputs(access, inputs[0], action)
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionGroupRecords:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingFieldRefsOnArtifact(access, inputs[0], dataTaskGroupRecordsActionFieldRefs(action))
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionExpandRecords:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		fields := parseDataTaskActionStringListParam(firstNonEmptyString(
 			action.Params["source_field"],
@@ -3887,53 +3891,53 @@ func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, pla
 			action.Params["value_field"],
 		))
 		if len(fields) == 0 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionFilterRecords:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		fields := dataTaskFilterActionFieldRefs(action)
 		if len(fields) == 0 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionQualifyRecords:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		fields := dataTaskQualifyActionFieldRefs(action)
 		if len(fields) == 0 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionComputeContribs:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) != 1 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		fields := dataTaskComputeActionFieldRefs(action)
 		if len(fields) == 0 {
-			return ""
+			return dataworkflow.GuardResult{}
 		}
 		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
-		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionJoinRecords:
-		return dataTaskJoinActionFieldContractGuardError(access, action, actionIndex)
+		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskJoinActionFieldContractGuardError(access, action, actionIndex))
 	case dataquery.DataActionNormalizeEntities:
-		return dataTaskNormalizeActionFieldContractGuardError(access, action, actionIndex)
+		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskNormalizeActionFieldContractGuardError(access, action, actionIndex))
 	case dataquery.DataActionEnrichRecords:
-		return dataTaskEnrichActionFieldContractGuardError(access, action, actionIndex)
+		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskEnrichActionFieldContractGuardError(access, action, actionIndex))
 	case dataquery.DataActionApplyResolutions:
-		return dataTaskApplyResolutionActionFieldContractGuardError(access, action, actionIndex)
+		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskApplyResolutionActionFieldContractGuardError(access, action, actionIndex))
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskActionZeroMatchFilterInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
@@ -4087,11 +4091,21 @@ func dataTaskZeroEligibleIssueAliases(issue dataTaskZeroEligibleIssue) []string 
 }
 
 func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, actionIndex int, input string, missing []string, access []dataTaskArtifactAccessPrompt) string {
+	return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, input, missing, access).ErrorText()
+}
+
+func dataTaskActionMissingFieldContractGuardResult(action dataquery.DataAction, actionIndex int, input string, missing []string, access []dataTaskArtifactAccessPrompt) dataworkflow.GuardResult {
 	violation, ok := dataTaskActionMissingFieldContractViolation(action, input, missing, access)
 	if !ok {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return dataTaskActionMissingFieldContractViolationMessage(action, actionIndex, violation)
+	return dataworkflow.NewGuardResult(
+		"field_contract_violation",
+		"error",
+		dataworkflow.RepairNeedsTypedAction,
+		dataTaskActionMissingFieldContractViolationMessage(action, actionIndex, violation),
+		violation,
+	)
 }
 
 func dataTaskActionMissingFieldContractViolation(action dataquery.DataAction, input string, missing []string, access []dataTaskArtifactAccessPrompt) (dataworkflow.WorkflowViolation, bool) {

@@ -2162,6 +2162,14 @@ func TestDataTaskMissingFieldGuardProducesTypedViolation(t *testing.T) {
 	if violation.Code != "field_contract_violation" || violation.IdempotencyKey == "" || violation.DependencyRank == 0 {
 		t.Fatalf("violation=%+v, want typed field contract guard violation", violation)
 	}
+	guard := dataTaskActionMissingFieldContractGuardResult(action, 0, "records", []string{"status"}, []dataTaskArtifactAccessPrompt{{
+		ID:      "records",
+		Aliases: []string{"records"},
+		Fields:  []string{"id", "amount"},
+	}})
+	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want field_contract_violation with typed violation payload", guard)
+	}
 }
 
 func TestDataTaskContinuationPromptIncludesDeferredActionGraph(t *testing.T) {
