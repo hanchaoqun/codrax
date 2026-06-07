@@ -110,15 +110,18 @@ type DataAction struct {
 }
 
 type DataArtifact struct {
-	ID          string            `json:"id,omitempty"`
-	Kind        string            `json:"kind,omitempty"`
-	SourcePaths []string          `json:"source_paths,omitempty"`
-	Summary     string            `json:"summary,omitempty"`
-	Fields      map[string]string `json:"fields,omitempty"`
-	Headers     []string          `json:"headers,omitempty"`
-	Sample      []string          `json:"sample,omitempty"`
-	RowCount    int               `json:"row_count,omitempty"`
-	Children    []DataArtifact    `json:"children,omitempty"`
+	ID                string            `json:"id,omitempty"`
+	Kind              string            `json:"kind,omitempty"`
+	SourcePaths       []string          `json:"source_paths,omitempty"`
+	SourceRecordPaths []string          `json:"source_record_paths,omitempty"`
+	ReferencePaths    []string          `json:"reference_paths,omitempty"`
+	EvidencePaths     []string          `json:"evidence_paths,omitempty"`
+	Summary           string            `json:"summary,omitempty"`
+	Fields            map[string]string `json:"fields,omitempty"`
+	Headers           []string          `json:"headers,omitempty"`
+	Sample            []string          `json:"sample,omitempty"`
+	RowCount          int               `json:"row_count,omitempty"`
+	Children          []DataArtifact    `json:"children,omitempty"`
 }
 
 type CoverageContract struct {

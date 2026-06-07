@@ -4675,6 +4675,21 @@ func dataTaskArtifactLineageContains(artifact dataTaskArtifactAccessPrompt, alia
 			return true
 		}
 	}
+	for _, source := range artifact.SourceRecordPaths {
+		if normalizeDataTaskCoveragePath(source) == want {
+			return true
+		}
+	}
+	for _, source := range artifact.ReferencePaths {
+		if normalizeDataTaskCoveragePath(source) == want {
+			return true
+		}
+	}
+	for _, source := range artifact.EvidencePaths {
+		if normalizeDataTaskCoveragePath(source) == want {
+			return true
+		}
+	}
 	for _, candidate := range artifact.Aliases {
 		if normalizeDataTaskCoveragePath(candidate) == want {
 			return true
@@ -4684,7 +4699,10 @@ func dataTaskArtifactLineageContains(artifact dataTaskArtifactAccessPrompt, alia
 }
 
 func dataTaskApplyResolutionBaseCompatibleWithMapping(base dataTaskArtifactAccessPrompt, mapping dataTaskArtifactAccessPrompt) bool {
-	sourcePaths := cleanDataTaskStrings(mapping.SourcePaths)
+	sourcePaths := cleanDataTaskStrings(mapping.SourceRecordPaths)
+	if len(sourcePaths) == 0 {
+		sourcePaths = cleanDataTaskStrings(mapping.SourcePaths)
+	}
 	if len(sourcePaths) == 0 {
 		return true
 	}
@@ -4697,7 +4715,7 @@ func dataTaskApplyResolutionBaseCompatibleWithMapping(base dataTaskArtifactAcces
 }
 
 func dataTaskArtifactLineageSummary(alias string, artifact dataTaskArtifactAccessPrompt) string {
-	values := cleanDataTaskStrings(append(append([]string{alias, artifact.ID}, artifact.Aliases...), artifact.SourcePaths...))
+	values := cleanDataTaskStrings(append(append(append(append(append([]string{alias, artifact.ID}, artifact.Aliases...), artifact.SourceRecordPaths...), artifact.ReferencePaths...), artifact.EvidencePaths...), artifact.SourcePaths...))
 	return strings.Join(clampDataTaskStringSlice(values, 8), ", ")
 }
 
@@ -5705,15 +5723,18 @@ type dataTaskLedgerProjection struct {
 }
 
 type dataTaskArtifactAccessPrompt struct {
-	ID           string              `json:"id,omitempty"`
-	Kind         string              `json:"kind,omitempty"`
-	NodeClass    string              `json:"node_class,omitempty"`
-	Aliases      []string            `json:"aliases,omitempty"`
-	JSONShape    string              `json:"json_shape,omitempty"`
-	Fields       []string            `json:"fields,omitempty"`
-	FieldSamples map[string][]string `json:"field_samples,omitempty"`
-	AccessHint   string              `json:"access_hint,omitempty"`
-	SourcePaths  []string            `json:"source_paths,omitempty"`
+	ID                string              `json:"id,omitempty"`
+	Kind              string              `json:"kind,omitempty"`
+	NodeClass         string              `json:"node_class,omitempty"`
+	Aliases           []string            `json:"aliases,omitempty"`
+	JSONShape         string              `json:"json_shape,omitempty"`
+	Fields            []string            `json:"fields,omitempty"`
+	FieldSamples      map[string][]string `json:"field_samples,omitempty"`
+	AccessHint        string              `json:"access_hint,omitempty"`
+	SourcePaths       []string            `json:"source_paths,omitempty"`
+	SourceRecordPaths []string            `json:"source_record_paths,omitempty"`
+	ReferencePaths    []string            `json:"reference_paths,omitempty"`
+	EvidencePaths     []string            `json:"evidence_paths,omitempty"`
 }
 
 type dataTaskMaterialSetHandlePrompt struct {
@@ -6990,14 +7011,17 @@ func dataTaskArtifactUsableForRecordAction(artifact dataTaskArtifactAccessPrompt
 
 func dataTaskArtifactAccessToSchemaProjection(artifact dataTaskArtifactAccessPrompt) dataworkflow.ArtifactSchemaProjection {
 	return dataworkflow.ArtifactSchemaProjection{
-		ID:          strings.TrimSpace(artifact.ID),
-		Kind:        strings.TrimSpace(artifact.Kind),
-		NodeClass:   strings.TrimSpace(artifact.NodeClass),
-		Aliases:     cleanDataTaskStrings(artifact.Aliases),
-		JSONShape:   strings.TrimSpace(artifact.JSONShape),
-		Fields:      cleanDataTaskStrings(artifact.Fields),
-		AccessHint:  strings.TrimSpace(artifact.AccessHint),
-		SourcePaths: cleanDataTaskStrings(artifact.SourcePaths),
+		ID:                strings.TrimSpace(artifact.ID),
+		Kind:              strings.TrimSpace(artifact.Kind),
+		NodeClass:         strings.TrimSpace(artifact.NodeClass),
+		Aliases:           cleanDataTaskStrings(artifact.Aliases),
+		JSONShape:         strings.TrimSpace(artifact.JSONShape),
+		Fields:            cleanDataTaskStrings(artifact.Fields),
+		AccessHint:        strings.TrimSpace(artifact.AccessHint),
+		SourcePaths:       cleanDataTaskStrings(artifact.SourcePaths),
+		SourceRecordPaths: cleanDataTaskStrings(artifact.SourceRecordPaths),
+		ReferencePaths:    cleanDataTaskStrings(artifact.ReferencePaths),
+		EvidencePaths:     cleanDataTaskStrings(artifact.EvidencePaths),
 	}
 }
 
@@ -7625,14 +7649,17 @@ func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []
 	out := make([]dataTaskArtifactAccessPrompt, 0, len(projections))
 	for _, projection := range projections {
 		out = append(out, dataTaskArtifactAccessPrompt{
-			ID:          projection.ID,
-			Kind:        projection.Kind,
-			NodeClass:   projection.NodeClass,
-			Aliases:     projection.Aliases,
-			JSONShape:   projection.JSONShape,
-			Fields:      projection.Fields,
-			AccessHint:  projection.AccessHint,
-			SourcePaths: projection.SourcePaths,
+			ID:                projection.ID,
+			Kind:              projection.Kind,
+			NodeClass:         projection.NodeClass,
+			Aliases:           projection.Aliases,
+			JSONShape:         projection.JSONShape,
+			Fields:            projection.Fields,
+			AccessHint:        projection.AccessHint,
+			SourcePaths:       projection.SourcePaths,
+			SourceRecordPaths: projection.SourceRecordPaths,
+			ReferencePaths:    projection.ReferencePaths,
+			EvidencePaths:     projection.EvidencePaths,
 		})
 	}
 	return out
@@ -8136,15 +8163,18 @@ func sampleDataTaskArtifactAccessWithFieldSamples(artifacts []dataquery.DataArti
 			}
 			fields := clampDataTaskStringSlice(artifactAccessFields(artifact), 32)
 			out = append(out, dataTaskArtifactAccessPrompt{
-				ID:           strings.TrimSpace(artifact.ID),
-				Kind:         strings.TrimSpace(artifact.Kind),
-				NodeClass:    dataworkflow.ArtifactNodeClass(artifact),
-				Aliases:      clampDataTaskStringSlice(aliases, 8),
-				JSONShape:    clampDataTaskWorkflowText(shape, 240),
-				Fields:       fields,
-				FieldSamples: artifactAccessFieldSamples(artifact, fields, maxSampleFields, maxSampleValues),
-				AccessHint:   dataTaskArtifactAccessHint(shape),
-				SourcePaths:  clampDataTaskStringSlice(artifact.SourcePaths, 6),
+				ID:                strings.TrimSpace(artifact.ID),
+				Kind:              strings.TrimSpace(artifact.Kind),
+				NodeClass:         dataworkflow.ArtifactNodeClass(artifact),
+				Aliases:           clampDataTaskStringSlice(aliases, 8),
+				JSONShape:         clampDataTaskWorkflowText(shape, 240),
+				Fields:            fields,
+				FieldSamples:      artifactAccessFieldSamples(artifact, fields, maxSampleFields, maxSampleValues),
+				AccessHint:        dataTaskArtifactAccessHint(shape),
+				SourcePaths:       clampDataTaskStringSlice(artifact.SourcePaths, 6),
+				SourceRecordPaths: clampDataTaskStringSlice(artifact.SourceRecordPaths, 6),
+				ReferencePaths:    clampDataTaskStringSlice(artifact.ReferencePaths, 6),
+				EvidencePaths:     clampDataTaskStringSlice(artifact.EvidencePaths, 6),
 			})
 		}
 		for _, child := range artifact.Children {

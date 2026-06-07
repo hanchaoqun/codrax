@@ -226,6 +226,49 @@ func TestDataTaskApplyResolutionGuardAcceptsMappingWhenBaseMatchesLaterSourceLin
 	}
 }
 
+func TestDataTaskApplyResolutionGuardPrefersSourceRecordLineageRole(t *testing.T) {
+	access := []dataTaskArtifactAccessPrompt{{
+		ID:          "resolved_records.json",
+		Kind:        string(dataquery.DataActionApplyResolutions),
+		NodeClass:   dataworkflow.ArtifactNodeClassRecord,
+		Aliases:     []string{"resolved_records.json"},
+		SourcePaths: []string{"records.csv", "lookup_a.csv"},
+		JSONShape:   "array(len=20)",
+		Fields:      []string{"item_id", "category_raw", "lookup_id"},
+	}, {
+		ID:                "entity_mappings_category_raw.json",
+		Kind:              string(dataquery.DataActionNormalizeEntities),
+		NodeClass:         dataworkflow.ArtifactNodeClassArtifact,
+		Aliases:           []string{"entity_mappings_category_raw.json"},
+		SourcePaths:       []string{"lookup_b.csv", "unrelated_reference.csv", "resolved_records.json"},
+		SourceRecordPaths: []string{"resolved_records.json"},
+		ReferencePaths:    []string{"lookup_b.csv"},
+		JSONShape:         "array(len=8)",
+		Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+	}}
+	action := dataquery.DataAction{
+		ID:         "apply_category",
+		Kind:       dataquery.DataActionApplyResolutions,
+		InputPaths: []string{"resolved_records.json", "entity_mappings_category_raw.json"},
+		Params: map[string]string{
+			"base_path": "resolved_records.json",
+			"resolution_specs": `[{
+				"resolution_path":"entity_mappings_category_raw.json",
+				"source_field":"category_raw",
+				"resolution_key_fields":["item_id"],
+				"target_id_field":"category_code"
+			}]`,
+		},
+	}
+	if guard := dataTaskApplyResolutionActionFieldContractGuardResult(access, action, 0); !guard.Empty() {
+		t.Fatalf("guard=%+v, want source_record_paths role to be compatible", guard)
+	}
+	access[1].SourceRecordPaths = []string{"other_records.json"}
+	if guard := dataTaskApplyResolutionActionFieldContractGuardResult(access, action, 0); guard.Empty() {
+		t.Fatalf("guard empty, want source_record_paths role mismatch to reject even when mixed source_paths contains base")
+	}
+}
+
 func TestDataTaskApplyResolutionGuardRejectsMappingWithNoBaseSourceLineage(t *testing.T) {
 	access := []dataTaskArtifactAccessPrompt{{
 		ID:          "resolved_records.json",

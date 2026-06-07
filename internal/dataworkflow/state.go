@@ -80,15 +80,18 @@ type WorkflowDecision struct {
 }
 
 type ArtifactSchemaProjection struct {
-	ID          string   `json:"id,omitempty"`
-	Kind        string   `json:"kind,omitempty"`
-	NodeClass   string   `json:"node_class,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
-	JSONShape   string   `json:"json_shape,omitempty"`
-	Fields      []string `json:"fields,omitempty"`
-	AccessHint  string   `json:"access_hint,omitempty"`
-	SourcePaths []string `json:"source_paths,omitempty"`
-	RowCount    int      `json:"row_count,omitempty"`
+	ID                string   `json:"id,omitempty"`
+	Kind              string   `json:"kind,omitempty"`
+	NodeClass         string   `json:"node_class,omitempty"`
+	Aliases           []string `json:"aliases,omitempty"`
+	JSONShape         string   `json:"json_shape,omitempty"`
+	Fields            []string `json:"fields,omitempty"`
+	AccessHint        string   `json:"access_hint,omitempty"`
+	SourcePaths       []string `json:"source_paths,omitempty"`
+	SourceRecordPaths []string `json:"source_record_paths,omitempty"`
+	ReferencePaths    []string `json:"reference_paths,omitempty"`
+	EvidencePaths     []string `json:"evidence_paths,omitempty"`
+	RowCount          int      `json:"row_count,omitempty"`
 }
 
 // ArtifactProjectionSource is intentionally small: dataquery.DataArtifact is

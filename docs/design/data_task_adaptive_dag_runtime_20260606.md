@@ -10644,7 +10644,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Split mapping ledger lineage into explicit `source_record_paths`,
+- [x] Split mapping ledger lineage into explicit `source_record_paths`,
       `reference_paths`, and `evidence_paths` in runner-produced ArtifactGraph
       metadata so future guards do not need to infer roles from mixed lineage.
 - [ ] Move the apply-resolution compatibility guard into `internal/dataworkflow`
@@ -10694,7 +10694,7 @@ Remaining architecture items:
 - [ ] Extend the progress signature with field-set deltas, row-count deltas,
       ledger deltas, and stage movement so a relation action that truly changes
       the executable schema is distinguished from a no-op relation loop.
-- [ ] Move relation-family progress signatures into `internal/dataworkflow`
+- [x] Move relation-family progress signatures into `internal/dataworkflow`
       with ActionDAG/ArtifactGraph/LedgerGraph state instead of keeping the
       policy in REPL-local workflow code.
 
@@ -10726,10 +10726,10 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move relation-family no-progress signatures into `internal/dataworkflow`
+- [x] Move relation-family no-progress signatures into `internal/dataworkflow`
       so stage progress is decided from typed action/ledger deltas rather than
       REPL records.
-- [ ] Move relation scaffold sorting and concrete fallback builders behind
+- [x] Move relation scaffold sorting and concrete fallback builders behind
       ArtifactGraph-aware workflow helpers.
 - [ ] Make CLI and REPL consume the same workflow reducer and event sink so
       progress, violations, and terminal failures render consistently without
@@ -10776,7 +10776,7 @@ Remaining architecture items:
 - [ ] Extend progress signatures with field-set deltas, row-count deltas,
       schema deltas, ledger deltas, and stage movement so productive relation
       materialization is not confused with no-op relation loops.
-- [ ] Move concrete relation scaffold sorting and fallback construction behind
+- [x] Move concrete relation scaffold sorting and fallback construction behind
       ArtifactGraph-aware workflow helpers.
 - [ ] Feed relation progress signatures into the shared CLI/REPL event sink so
       users see business-facing progress and compact audit details consistently.
@@ -10811,7 +10811,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move concrete scaffold-to-action materialization into
+- [x] Move concrete scaffold-to-action materialization into
       `internal/dataworkflow` so action ids, output aliases, and params are
       generated from one typed policy.
 - [ ] Move fallback plan assembly behind a shared CLI/REPL workflow reducer.
@@ -10853,8 +10853,9 @@ Remaining architecture items:
 - [ ] Move full fallback plan assembly into a shared data workflow reducer so
       CLI and REPL no longer each own plan-status, reason, and terminal-error
       recovery behavior.
-- [ ] Add graph-edge readiness checks that use explicit ArtifactGraph lineage
-      roles, not mixed `source_paths`, before materializing relation actions.
+- [x] Add apply-resolution graph-edge readiness checks that use explicit
+      ArtifactGraph lineage roles, not mixed `source_paths`, before
+      materializing mapping-to-base edges.
 - [ ] Expand concrete scaffold materialization beyond relation actions to
       filter/qualify/contribution projection where the params are fully
       concrete and validated by artifact schema projection.
@@ -10897,3 +10898,44 @@ Remaining architecture items:
       terminal guard outputs.
 - [ ] Replace raw CLI terminal errors with structured failure events that still
       keep stdout clean.
+
+### Batch 248: Role-Aware Mapping Lineage
+
+The previous source-lineage fix made compatibility order-independent, but the
+architecture was still weaker than it should be: mapping artifacts carried
+source records, reference records, and evidence refs inside one mixed
+`source_paths` list. A guard could avoid ordering bugs, but it still could not
+distinguish "this mapping was produced from the base rows" from "this mapping
+also read a reference table".
+
+This is a generic ArtifactGraph issue. Any mapping/normalization step may read
+source records plus reference/evidence materials. Graph-edge readiness should
+use role-specific lineage when it exists and fall back to mixed lineage only
+for older or non-role-bearing artifacts.
+
+Changes:
+
+- [x] Extended `dataquery.DataArtifact` with `source_record_paths`,
+      `reference_paths`, and `evidence_paths`.
+- [x] Projected those lineage roles through
+      `dataworkflow.ArtifactSchemaProjection`.
+- [x] Added role lineage to `normalize_entities` artifacts and their
+      source/reference diagnostic children.
+- [x] Extended compact artifact access so CLI/REPL prompt state and guards see
+      the same role-specific lineage.
+- [x] Changed apply-resolution compatibility to prefer
+      `source_record_paths`; mixed `source_paths` is now only a fallback when
+      role lineage is absent.
+- [x] Added regression coverage for runner lineage output, ArtifactGraph
+      projection, and role-preferred apply-resolution guard behavior.
+
+Remaining architecture items:
+
+- [ ] Move the apply-resolution compatibility guard itself into
+      `internal/dataworkflow` once relation readiness is represented as a
+      first-class graph edge validator.
+- [ ] Extend role-aware readiness to other relation edges where role ambiguity
+      matters, such as enrichment and joins that consume explicit
+      reference-side artifacts.
+- [ ] Persist role lineage in workflow journal snapshots for postmortem audit
+      and opt-in resume.

@@ -935,15 +935,19 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 			return DataArtifact{}, nil, err
 		}
 	}
+	sourceRecordPaths, referencePaths, evidencePaths := entityResolutionLineageRoles(action, consumed, records)
 	if len(records) == 0 {
 		id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "entity_resolutions")
 		artifact := DataArtifact{
-			ID:          id,
-			Kind:        string(DataActionNormalizeEntities),
-			SourcePaths: normalizeMaterialPaths(consumed),
-			Summary:     "normalized 0 entity value(s)",
-			Fields:      map[string]string{"count": "0"},
-			Children:    children,
+			ID:                id,
+			Kind:              string(DataActionNormalizeEntities),
+			SourcePaths:       normalizeMaterialPaths(consumed),
+			SourceRecordPaths: sourceRecordPaths,
+			ReferencePaths:    referencePaths,
+			EvidencePaths:     evidencePaths,
+			Summary:           "normalized 0 entity value(s)",
+			Fields:            map[string]string{"count": "0"},
+			Children:          children,
 		}
 		if requireNonEmpty {
 			return artifact, nil, fmt.Errorf("normalize_entities produced zero entity resolution records while entity resolution ledger is required; diagnostics=%s. Check source/reference input paths, source_fields, reference_fields, canonical_id_field, match_mode, and role-specific source_filters/reference_filters against available fields and samples",
@@ -957,9 +961,12 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 	for i, rec := range records {
 		id := firstNonEmptyString(rec.ItemID.String(), fmt.Sprintf("entity_%d", i+1))
 		children = append(children, DataArtifact{
-			ID:      id,
-			Kind:    "entity_resolution",
-			Summary: fmt.Sprintf("%s -> %s", rec.SourceValue.String(), firstNonEmptyString(rec.CanonicalLabel.String(), rec.CanonicalID.String(), rec.Status.String())),
+			ID:                id,
+			Kind:              "entity_resolution",
+			SourceRecordPaths: sourceRecordPaths,
+			ReferencePaths:    referencePaths,
+			EvidencePaths:     cleanStringList(rec.EvidenceRefs),
+			Summary:           fmt.Sprintf("%s -> %s", rec.SourceValue.String(), firstNonEmptyString(rec.CanonicalLabel.String(), rec.CanonicalID.String(), rec.Status.String())),
 			Fields: map[string]string{
 				"source_value":    rec.SourceValue.String(),
 				"canonical_id":    rec.CanonicalID.String(),
@@ -971,13 +978,44 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "entity_resolutions")
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionNormalizeEntities),
-		SourcePaths: normalizeMaterialPaths(consumed),
-		Summary:     fmt.Sprintf("normalized %d entity value(s)", len(records)),
-		Fields:      map[string]string{"count": fmt.Sprintf("%d", len(records))},
-		Children:    children,
+		ID:                id,
+		Kind:              string(DataActionNormalizeEntities),
+		SourcePaths:       normalizeMaterialPaths(consumed),
+		SourceRecordPaths: sourceRecordPaths,
+		ReferencePaths:    referencePaths,
+		EvidencePaths:     evidencePaths,
+		Summary:           fmt.Sprintf("normalized %d entity value(s)", len(records)),
+		Fields:            map[string]string{"count": fmt.Sprintf("%d", len(records))},
+		Children:          children,
 	}, records, nil
+}
+
+func entityResolutionLineageRoles(action DataAction, consumed []string, records []EntityResolutionRecord) ([]string, []string, []string) {
+	source := firstNonEmptyString(action.Params["source_path"], action.Params["source"], action.Params["base_path"])
+	reference := firstNonEmptyString(action.Params["reference_path"], action.Params["lookup_path"], action.Params["mapping_path"])
+	inputs := cleanStringList(action.InputPaths)
+	if strings.TrimSpace(source) == "" && len(inputs) > 0 {
+		source = inputs[0]
+	}
+	if strings.TrimSpace(reference) == "" && len(inputs) > 1 {
+		reference = inputs[1]
+	}
+	sourceRecordPaths := normalizeMaterialPaths(cleanStringList([]string{source}))
+	referencePaths := normalizeMaterialPaths(cleanStringList([]string{reference}))
+	var evidence []string
+	for _, rec := range records {
+		evidence = append(evidence, rec.EvidenceRefs...)
+	}
+	consumedSet := map[string]bool{}
+	for _, path := range append(sourceRecordPaths, referencePaths...) {
+		consumedSet[normalizeMaterialPath(path)] = true
+	}
+	for _, path := range normalizeMaterialPaths(consumed) {
+		if !consumedSet[normalizeMaterialPath(path)] {
+			evidence = append(evidence, path)
+		}
+	}
+	return sourceRecordPaths, referencePaths, cleanStringList(evidence)
 }
 
 func parseExplicitEntityResolutionRecords(raw string) ([]EntityResolutionRecord, error) {
@@ -1460,12 +1498,13 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 	}
 	children := []DataArtifact{
 		{
-			ID:          sourceRel + "#entity_source",
-			Kind:        "entity_resolution/source",
-			SourcePaths: []string{sourceRel},
-			Headers:     sourceHeaders,
-			RowCount:    sourceTotal,
-			Summary:     fmt.Sprintf("%s supplied %d source record(s) for entity normalization", sourceRel, sourceTotal),
+			ID:                sourceRel + "#entity_source",
+			Kind:              "entity_resolution/source",
+			SourcePaths:       []string{sourceRel},
+			SourceRecordPaths: []string{sourceRel},
+			Headers:           sourceHeaders,
+			RowCount:          sourceTotal,
+			Summary:           fmt.Sprintf("%s supplied %d source record(s) for entity normalization", sourceRel, sourceTotal),
 			Fields: map[string]string{
 				"source_fields":      strings.Join(sourceFields, ","),
 				"matched":            fmt.Sprintf("%d", len(out)),
@@ -1477,12 +1516,13 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 			},
 		},
 		{
-			ID:          referenceRel + "#entity_reference",
-			Kind:        "entity_resolution/reference",
-			SourcePaths: []string{referenceRel},
-			Headers:     referenceHeaders,
-			RowCount:    referenceTotal,
-			Summary:     fmt.Sprintf("%s supplied %d reference record(s) for entity normalization", referenceRel, referenceTotal),
+			ID:             referenceRel + "#entity_reference",
+			Kind:           "entity_resolution/reference",
+			SourcePaths:    []string{referenceRel},
+			ReferencePaths: []string{referenceRel},
+			Headers:        referenceHeaders,
+			RowCount:       referenceTotal,
+			Summary:        fmt.Sprintf("%s supplied %d reference record(s) for entity normalization", referenceRel, referenceTotal),
 			Fields: map[string]string{
 				"reference_fields":      strings.Join(referenceFields, ","),
 				"canonical_id_field":    canonicalIDField,

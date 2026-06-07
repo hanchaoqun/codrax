@@ -29,15 +29,18 @@ func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []A
 				seen[key] = true
 			}
 			out = append(out, ArtifactSchemaProjection{
-				ID:          strings.TrimSpace(artifact.ID),
-				Kind:        strings.TrimSpace(artifact.Kind),
-				NodeClass:   ArtifactNodeClass(artifact),
-				Aliases:     aliases,
-				JSONShape:   strings.TrimSpace(shape),
-				Fields:      ArtifactFields(artifact),
-				AccessHint:  ArtifactAccessHint(shape),
-				SourcePaths: cleanStrings(artifact.SourcePaths),
-				RowCount:    artifact.RowCount,
+				ID:                strings.TrimSpace(artifact.ID),
+				Kind:              strings.TrimSpace(artifact.Kind),
+				NodeClass:         ArtifactNodeClass(artifact),
+				Aliases:           aliases,
+				JSONShape:         strings.TrimSpace(shape),
+				Fields:            ArtifactFields(artifact),
+				AccessHint:        ArtifactAccessHint(shape),
+				SourcePaths:       cleanStrings(artifact.SourcePaths),
+				SourceRecordPaths: cleanStrings(artifact.SourceRecordPaths),
+				ReferencePaths:    cleanStrings(artifact.ReferencePaths),
+				EvidencePaths:     cleanStrings(artifact.EvidencePaths),
+				RowCount:          artifact.RowCount,
 			})
 		}
 		for _, child := range artifact.Children {

@@ -1595,6 +1595,16 @@ func TestActionRunnerNormalizeEntitiesReferenceModeUsesSourceCanonicalID(t *test
 	if got["A1"] != "A1" || got["B2"] != "B2" {
 		t.Fatalf("source canonical id resolutions=%+v, want A1/B2 exact matches", res.EntityResolutions)
 	}
+	if len(res.Artifacts) == 0 {
+		t.Fatalf("Artifacts empty, want normalize artifact")
+	}
+	artifact := res.Artifacts[0]
+	if strings.Join(artifact.SourceRecordPaths, ",") != "items.csv" {
+		t.Fatalf("SourceRecordPaths=%v, want items.csv", artifact.SourceRecordPaths)
+	}
+	if strings.Join(artifact.ReferencePaths, ",") != "reference.csv" {
+		t.Fatalf("ReferencePaths=%v, want reference.csv", artifact.ReferencePaths)
+	}
 }
 
 func TestActionRunnerNormalizeEntitiesReferenceModeFeedsEnrich(t *testing.T) {

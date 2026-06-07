@@ -28,6 +28,26 @@ func TestProjectArtifactSchemasPreservesFullFields(t *testing.T) {
 	}
 }
 
+func TestProjectArtifactSchemasPreservesLineageRoles(t *testing.T) {
+	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{{
+		ID:                "mapping",
+		Kind:              string(dataquery.DataActionNormalizeEntities),
+		SourcePaths:       []string{"reference.csv", "items.csv"},
+		SourceRecordPaths: []string{"items.csv"},
+		ReferencePaths:    []string{"reference.csv"},
+		EvidencePaths:     []string{"items.csv:2"},
+		Fields: map[string]string{
+			"json_shape": "array(len=2)",
+		},
+	}})
+	if len(projections) != 1 {
+		t.Fatalf("projection count = %d, want 1", len(projections))
+	}
+	if got := projections[0]; !containsString(got.SourceRecordPaths, "items.csv") || !containsString(got.ReferencePaths, "reference.csv") || !containsString(got.EvidencePaths, "items.csv:2") {
+		t.Fatalf("projection=%+v, want source/reference/evidence lineage roles", got)
+	}
+}
+
 func TestProjectArtifactSchemasNewestFirstDedupesByAlias(t *testing.T) {
 	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{
 		{
