@@ -14007,6 +14007,54 @@ Remaining architecture items:
       snapshot plus bounded record views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
       REPL-local stage summaries.
-- [ ] Move typed violation discovery itself behind package-level reducer
+- [x] Move typed violation discovery itself behind package-level reducer
       inputs; the current reducer consumes typed violations but does not yet
       discover all of them.
+
+### Batch 310: Workflow Violation Reducer Boundary
+
+The snapshot reducer consumed typed violations, but one important violation
+class still lived as a REPL-local discovery function: relation/action
+no-progress. The underlying inputs are already package-neutral (`StageFacts`
+and `ProgressEvent`), so keeping the discovery outside `dataworkflow` made the
+reducer boundary look thinner than it really was.
+
+This batch adds `WorkflowViolationInput` and `BuildWorkflowViolations`. The
+builder combines guard/admission violations, package-level no-progress
+violations, and additional typed issues supplied by adapters. REPL-specific
+field-contract/zero-match/unmatched/eligibility issue discovery remains in the
+adapter for now because it still depends on prompt artifact-access views, but
+the workflow-level violation reducer now owns composition and no-progress
+discovery.
+
+Generic invariants:
+
+- guard violations, progress-derived violations, and adapter-discovered typed
+  issues are all `WorkflowViolation` values before they reach scheduling
+  decisions;
+- no-progress detection depends on typed facts and progress events, not model
+  prose or business labels;
+- adapters may discover extra typed issues while legacy prompt views exist,
+  but they should pass those issues into the reducer instead of composing final
+  violation lists themselves;
+- no source, trace, log, operation, or write-mode flow is touched.
+
+Changes:
+
+- [x] Added `WorkflowViolationInput`.
+- [x] Added `BuildWorkflowViolations`.
+- [x] Rewired REPL data workflow typed-violation assembly to delegate
+      guard/no-progress/additional composition to `dataworkflow`.
+- [x] Removed the REPL-local no-progress violation helper.
+- [x] Added regression coverage for combined guard, no-progress, and
+      additional typed violations.
+
+Remaining architecture items:
+
+- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+      issue discovery behind package-level artifact/schema inputs instead of
+      REPL prompt views.
+- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+      snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.

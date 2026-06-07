@@ -5635,16 +5635,16 @@ func dataTaskWorkflowStateSnapshot(state dataTaskWorkflowStateView) dataworkflow
 }
 
 func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
-	var out []dataworkflow.WorkflowViolation
+	var guardViolations []dataworkflow.WorkflowViolation
 	for _, rec := range records {
 		if rec.Admission == nil || rec.Admission.FinalGuard.Empty() {
 			continue
 		}
-		out = append(out, rec.Admission.FinalGuard.Violations...)
+		guardViolations = append(guardViolations, rec.Admission.FinalGuard.Violations...)
 	}
-	out = append(out, dataTaskWorkflowStageNoProgressViolations(records, state)...)
+	var additional []dataworkflow.WorkflowViolation
 	for _, issue := range state.FieldContractViolations {
-		out = append(out, dataworkflow.WorkflowViolation{
+		additional = append(additional, dataworkflow.WorkflowViolation{
 			Code:                 "field_contract_violation",
 			Severity:             "error",
 			Repairability:        dataworkflow.RepairNeedsTypedAction,
@@ -5673,7 +5673,7 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 			InputPaths:     cleanDataTaskStrings([]string{input}),
 			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
 		}
-		out = append(out, dataworkflow.NewActionInputViolation(
+		additional = append(additional, dataworkflow.NewActionInputViolation(
 			"zero_match_filter",
 			"warning",
 			dataworkflow.RepairNeedsTypedAction,
@@ -5695,7 +5695,7 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 			InputPaths:     cleanDataTaskStrings([]string{input}),
 			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
 		}
-		out = append(out, dataworkflow.NewActionInputViolation(
+		additional = append(additional, dataworkflow.NewActionInputViolation(
 			"unmatched_resolution",
 			"warning",
 			dataworkflow.RepairNeedsTypedAction,
@@ -5717,7 +5717,7 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 			InputPaths:     cleanDataTaskStrings([]string{input}),
 			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
 		}
-		out = append(out, dataworkflow.NewActionInputViolation(
+		additional = append(additional, dataworkflow.NewActionInputViolation(
 			"zero_eligible_records",
 			"warning",
 			dataworkflow.RepairNeedsTypedAction,
@@ -5728,19 +5728,13 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 			issue.RepairActionHints,
 		))
 	}
-	return out
-}
-
-func dataTaskWorkflowStageNoProgressViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
-	violation, ok := dataworkflow.RelationNoProgressViolation(
-		dataTaskWorkflowStageFacts(state),
-		dataTaskWorkflowProgressEvents(records),
-		DefaultDataTaskMaxNodeFailures,
-	)
-	if !ok {
-		return nil
-	}
-	return []dataworkflow.WorkflowViolation{violation}
+	return dataworkflow.BuildWorkflowViolations(dataworkflow.WorkflowViolationInput{
+		Facts:               dataTaskWorkflowStageFacts(state),
+		Records:             records,
+		NoProgressThreshold: DefaultDataTaskMaxNodeFailures,
+		GuardViolations:     guardViolations,
+		Additional:          additional,
+	})
 }
 
 func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {

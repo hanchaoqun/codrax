@@ -26,3 +26,25 @@ type WorkflowViolation struct {
 	RepairActionHints    []string               `json:"repair_action_hints,omitempty"`
 	Reason               string                 `json:"reason,omitempty"`
 }
+
+type WorkflowViolationInput struct {
+	Facts               StageFacts
+	Records             []WorkflowRecord
+	ProgressEvents      []ProgressEvent
+	NoProgressThreshold int
+	GuardViolations     []WorkflowViolation
+	Additional          []WorkflowViolation
+}
+
+func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {
+	out := append([]WorkflowViolation(nil), input.GuardViolations...)
+	events := input.ProgressEvents
+	if len(events) == 0 {
+		events = ProgressEventsFromRecords(input.Records)
+	}
+	if violation, ok := RelationNoProgressViolation(input.Facts, events, input.NoProgressThreshold); ok {
+		out = append(out, violation)
+	}
+	out = append(out, input.Additional...)
+	return out
+}
