@@ -9922,3 +9922,36 @@ Remaining architecture items:
       once no fallback/test path depends on them.
 - [ ] Add scaffold eligibility/skip diagnostics to audit snapshots without
       increasing user-facing noise.
+
+### Batch 221: Typed Non-Field Guard Violations
+
+Field-contract failures were the first guard class to use shared
+`WorkflowViolation` builders. This batch applies the same structural path to
+non-field data workflow issues that already have typed issue records:
+
+- zero-match filter artifacts;
+- all-unmatched resolution application artifacts;
+- zero-eligible qualification artifacts.
+
+The change does not parse model prose. It consumes existing typed issue
+objects and constructs action-input violations with normalized action kind,
+input aliases, output alias, dependency rank, idempotency key, repairability,
+and repair hints. Blocked ActionGraph nodes now come from the same reducer path
+for these issue classes.
+
+Changes:
+
+- [x] Replaced local ad hoc non-field `WorkflowViolation` assembly with
+      `dataworkflow.NewActionInputViolation`.
+- [x] Preserved typed issue details in `workflow_state_json` for planner
+      guidance.
+- [x] Added regression coverage that zero-match and unmatched-resolution issues
+      produce typed workflow violations and blocked graph nodes with stable
+      idempotency keys.
+
+Remaining architecture items:
+
+- [ ] Convert guard entrypoint return types from prose strings to typed
+      `WorkflowViolation` values, with prose rendered only at the UI/planner
+      boundary.
+- [ ] Persist violation objects in the workflow journal as first-class events.

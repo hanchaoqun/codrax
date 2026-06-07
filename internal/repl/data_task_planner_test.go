@@ -3299,6 +3299,12 @@ func TestDataTaskWorkflowStateProjectsZeroMatchFilterViolations(t *testing.T) {
 	if !strings.Contains(got.FilterDiagnostics, "combined_match") || len(got.RepairActionHints) == 0 {
 		t.Fatalf("violation=%+v, want diagnostics and repair hints", got)
 	}
+	if len(state.WorkflowViolations) == 0 || state.WorkflowViolations[0].Code != "zero_match_filter" || state.WorkflowViolations[0].IdempotencyKey == "" {
+		t.Fatalf("WorkflowViolations=%+v, want typed zero-match violation with idempotency", state.WorkflowViolations)
+	}
+	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].Status != dataworkflow.ActionStatusBlocked || state.ActionGraph.Blocked[0].DependencyRank == 0 {
+		t.Fatalf("blocked graph=%+v, want typed blocked zero-match node", state.ActionGraph.Blocked)
+	}
 }
 
 func TestDataTaskWorkflowStateSuppressesStaleZeroMatchFilterViolation(t *testing.T) {
@@ -3438,6 +3444,9 @@ func TestDataTaskWorkflowStateProjectsUnmatchedResolutionViolations(t *testing.T
 	got := state.UnmatchedResolutionViolations[0]
 	if got.ArtifactID != "records_resolved" || got.BaseRows != 12 || strings.Join(got.TargetFields, ",") != "canonical_id" {
 		t.Fatalf("violation=%+v, want resolution artifact identity and target field", got)
+	}
+	if len(state.WorkflowViolations) == 0 || state.WorkflowViolations[0].Code != "unmatched_resolution" || state.WorkflowViolations[0].IdempotencyKey == "" {
+		t.Fatalf("WorkflowViolations=%+v, want typed unmatched-resolution violation with idempotency", state.WorkflowViolations)
 	}
 }
 

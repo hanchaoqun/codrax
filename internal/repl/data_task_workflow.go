@@ -5911,45 +5911,70 @@ func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []datawork
 		})
 	}
 	for _, issue := range state.ZeroMatchFilterViolations {
-		out = append(out, dataworkflow.WorkflowViolation{
-			Code:              "zero_match_filter",
-			Severity:          "warning",
-			Repairability:     dataworkflow.RepairNeedsTypedAction,
-			ActionKind:        string(dataquery.DataActionFilterRecords),
-			InputAlias:        strings.TrimSpace(issue.InputPath),
-			InputAliases:      cleanDataTaskStrings([]string{issue.InputPath}),
-			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
-			MissingFields:     append([]string(nil), issue.FilterFields...),
-			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
-			Reason:            strings.TrimSpace(issue.Reason),
-		})
+		aliases := dataTaskZeroMatchFilterIssueAliases(issue)
+		input := strings.TrimSpace(issue.InputPath)
+		if input == "" && len(aliases) > 0 {
+			input = aliases[0]
+		}
+		action := dataquery.DataAction{
+			Kind:           dataquery.DataActionFilterRecords,
+			InputPaths:     cleanDataTaskStrings([]string{input}),
+			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
+		}
+		out = append(out, dataworkflow.NewActionInputViolation(
+			"zero_match_filter",
+			"warning",
+			dataworkflow.RepairNeedsTypedAction,
+			action,
+			input,
+			issue.FilterFields,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
 	}
 	for _, issue := range state.UnmatchedResolutionViolations {
-		out = append(out, dataworkflow.WorkflowViolation{
-			Code:              "unmatched_resolution",
-			Severity:          "warning",
-			Repairability:     dataworkflow.RepairNeedsTypedAction,
-			ActionKind:        string(dataquery.DataActionApplyResolutions),
-			InputAlias:        strings.TrimSpace(issue.BasePath),
-			InputAliases:      cleanDataTaskStrings([]string{issue.BasePath}),
-			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
-			MissingFields:     append([]string(nil), issue.TargetFields...),
-			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
-			Reason:            strings.TrimSpace(issue.Reason),
-		})
+		aliases := dataTaskUnmatchedResolutionIssueAliases(issue)
+		input := strings.TrimSpace(issue.BasePath)
+		if input == "" && len(aliases) > 0 {
+			input = aliases[0]
+		}
+		action := dataquery.DataAction{
+			Kind:           dataquery.DataActionApplyResolutions,
+			InputPaths:     cleanDataTaskStrings([]string{input}),
+			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
+		}
+		out = append(out, dataworkflow.NewActionInputViolation(
+			"unmatched_resolution",
+			"warning",
+			dataworkflow.RepairNeedsTypedAction,
+			action,
+			input,
+			issue.TargetFields,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
 	}
 	for _, issue := range state.ZeroEligibleViolations {
-		out = append(out, dataworkflow.WorkflowViolation{
-			Code:              "zero_eligible_records",
-			Severity:          "warning",
-			Repairability:     dataworkflow.RepairNeedsTypedAction,
-			ActionKind:        string(dataquery.DataActionQualifyRecords),
-			InputAlias:        strings.TrimSpace(issue.InputPath),
-			InputAliases:      cleanDataTaskStrings([]string{issue.InputPath}),
-			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
-			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
-			Reason:            strings.TrimSpace(issue.Reason),
-		})
+		aliases := dataTaskZeroEligibleIssueAliases(issue)
+		input := strings.TrimSpace(issue.InputPath)
+		if input == "" && len(aliases) > 0 {
+			input = aliases[0]
+		}
+		action := dataquery.DataAction{
+			Kind:           dataquery.DataActionQualifyRecords,
+			InputPaths:     cleanDataTaskStrings([]string{input}),
+			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
+		}
+		out = append(out, dataworkflow.NewActionInputViolation(
+			"zero_eligible_records",
+			"warning",
+			dataworkflow.RepairNeedsTypedAction,
+			action,
+			input,
+			nil,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
 	}
 	return out
 }
