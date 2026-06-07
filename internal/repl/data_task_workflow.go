@@ -4067,20 +4067,31 @@ func dataTaskZeroEligibleIssueAliases(issue dataTaskZeroEligibleIssue) []string 
 }
 
 func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, actionIndex int, input string, missing []string, access []dataTaskArtifactAccessPrompt) string {
-	if len(missing) == 0 {
+	violation, ok := dataTaskActionMissingFieldContractViolation(action, input, missing, access)
+	if !ok {
 		return ""
+	}
+	return dataTaskActionMissingFieldContractViolationMessage(action, actionIndex, violation)
+}
+
+func dataTaskActionMissingFieldContractViolation(action dataquery.DataAction, input string, missing []string, access []dataTaskArtifactAccessPrompt) (dataworkflow.WorkflowViolation, bool) {
+	if len(missing) == 0 {
+		return dataworkflow.WorkflowViolation{}, false
 	}
 	artifact, ok := dataTaskArtifactAccessByAlias(access, input)
 	if !ok || len(artifact.Fields) == 0 {
-		return ""
+		return dataworkflow.WorkflowViolation{}, false
 	}
-	violation := dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
+	return dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
 		Action:            action,
 		InputAlias:        input,
 		MissingFields:     missing,
 		AvailableFields:   artifact.Fields,
 		SchemaProjections: dataTaskArtifactAccessSchemaProjection(access),
-	})
+	}), true
+}
+
+func dataTaskActionMissingFieldContractViolationMessage(action dataquery.DataAction, actionIndex int, violation dataworkflow.WorkflowViolation) string {
 	candidates := violation.CandidateArtifacts
 	candidateHint := ""
 	if len(candidates) > 0 {
@@ -4089,9 +4100,9 @@ func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, acti
 	return fmt.Sprintf("data planning incomplete: action %d (%s) references field(s) [%s] that are not present on input %s fields [%s].%s Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.",
 		actionIndex+1,
 		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-		strings.Join(missing, ", "),
-		input,
-		strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", "),
+		strings.Join(violation.MissingFields, ", "),
+		violation.InputAlias,
+		strings.Join(clampDataTaskStringSlice(violation.AvailableFieldSample, 32), ", "),
 		candidateHint)
 }
 

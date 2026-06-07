@@ -10016,3 +10016,26 @@ Remaining architecture items:
       terminal snapshot construction.
 - [ ] Persist journal checkpoints before terminal exit so interrupted sessions
       can resume typed graph state.
+
+### Batch 224: Typed Field-Contract Guard Entry
+
+Earlier batches projected field-contract failures into typed workflow state
+after the guard had already returned prose. This batch starts the guard-entry
+conversion: the missing-field guard now produces a typed `WorkflowViolation`
+first and renders the legacy prose message from that object for existing
+callers.
+
+Changes:
+
+- [x] Added `dataTaskActionMissingFieldContractViolation` as a typed guard
+      helper.
+- [x] Rendered the legacy field-contract message from the typed violation.
+- [x] Added regression coverage that the guard helper returns code,
+      dependency rank, and idempotency key.
+
+Remaining architecture items:
+
+- [ ] Convert zero-match, unmatched-resolution, zero-eligible, dependency, and
+      stage guards to the same typed-return shape.
+- [ ] Change top-level staging/terminal guard APIs to return typed guard
+      results, with prose generated only at UI/planner boundaries.

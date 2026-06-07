@@ -2145,6 +2145,25 @@ func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	}
 }
 
+func TestDataTaskMissingFieldGuardProducesTypedViolation(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "filter_status",
+		Kind:       dataquery.DataActionFilterRecords,
+		InputPaths: []string{"records"},
+	}
+	violation, ok := dataTaskActionMissingFieldContractViolation(action, "records", []string{"status"}, []dataTaskArtifactAccessPrompt{{
+		ID:      "records",
+		Aliases: []string{"records"},
+		Fields:  []string{"id", "amount"},
+	}})
+	if !ok {
+		t.Fatalf("expected typed guard violation")
+	}
+	if violation.Code != "field_contract_violation" || violation.IdempotencyKey == "" || violation.DependencyRank == 0 {
+		t.Fatalf("violation=%+v, want typed field contract guard violation", violation)
+	}
+}
+
 func TestDataTaskContinuationPromptIncludesDeferredActionGraph(t *testing.T) {
 	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
 		ID:         "join_next",
