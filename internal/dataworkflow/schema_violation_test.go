@@ -198,3 +198,49 @@ func TestMissingUpstreamLedgerGuardResult(t *testing.T) {
 		t.Fatalf("assemble=%+v", assemble)
 	}
 }
+
+func TestEmptySetDiagnosticGuardResultsAreReducerOwned(t *testing.T) {
+	action := dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"filtered"}}
+
+	zeroMatch := ZeroMatchFilterGuardResult(ZeroMatchFilterGuardInput{
+		Action:       action,
+		ActionIndex:  0,
+		InputAlias:   "filtered",
+		ArtifactID:   "filtered",
+		InputRows:    10,
+		OutputRows:   0,
+		SourcePath:   "rows",
+		FilterFields: []string{"status"},
+	})
+	if zeroMatch.Code != "zero_match_filter" || !strings.Contains(zeroMatch.ErrorText(), "zero-match filter artifact filtered") {
+		t.Fatalf("zeroMatch=%+v", zeroMatch)
+	}
+	if len(zeroMatch.Violations) != 1 || zeroMatch.Violations[0].InputAlias != "filtered" || !strings.Contains(strings.Join(zeroMatch.Violations[0].MissingFields, ","), "status") {
+		t.Fatalf("zeroMatch violation=%+v", zeroMatch.Violations)
+	}
+
+	unmatched := UnmatchedResolutionGuardResult(UnmatchedResolutionGuardInput{
+		Action:       action,
+		ActionIndex:  1,
+		InputAlias:   "resolved",
+		ArtifactID:   "resolved",
+		BasePath:     "rows",
+		BaseRows:     5,
+		TargetFields: []string{"canonical_id"},
+	})
+	if unmatched.Code != "unmatched_resolution" || !strings.Contains(unmatched.ErrorText(), "all-unmatched resolution artifact resolved") {
+		t.Fatalf("unmatched=%+v", unmatched)
+	}
+
+	zeroEligible := ZeroEligibleGuardResult(ZeroEligibleGuardInput{
+		Action:       action,
+		ActionIndex:  2,
+		InputAlias:   "eligible",
+		ArtifactID:   "eligible",
+		InputRows:    7,
+		EligibleRows: 0,
+	})
+	if zeroEligible.Code != "zero_eligible_records" || !strings.Contains(zeroEligible.ErrorText(), "zero-eligible qualification artifact eligible") {
+		t.Fatalf("zeroEligible=%+v", zeroEligible)
+	}
+}

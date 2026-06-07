@@ -12049,6 +12049,57 @@ Current backlog before real-scenario testing:
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
 
+### Batch 273: Reducer-Owned Empty-Set Diagnostic Guards
+
+The next IR pass moved another family of hard guard results out of the REPL
+adapter: empty-set continuation diagnostics. The adapter still derives these
+facts from deterministic result artifacts and workflow state, but the guard
+result itself is now reducer-owned.
+
+This covers three generic failure classes:
+
+- `filter_records` produced zero rows, but downstream contribution/reconcile
+  stages still require non-empty candidates;
+- `apply_entity_resolutions` produced a base artifact whose target canonical
+  fields are all unmatched while downstream computation still depends on those
+  fields;
+- `qualify_records` produced zero eligible rows while contribution/reconcile
+  work remains.
+
+These are not business rules. They are typed graph convergence signals: a
+downstream action should not keep consuming a structurally empty candidate set
+when the workflow still requires ledgers or reconciliation.
+
+Changes:
+
+- [x] Added reducer-owned guard builders for zero-match filter artifacts,
+      all-unmatched resolution artifacts, and zero-eligible qualification
+      artifacts.
+- [x] Updated REPL diagnostic guards to pass structured counts, artifact ids,
+      field lists, source/base paths, reasons, and repair hints into
+      `dataworkflow`.
+- [x] Kept row/count/status extraction in the adapter where artifact result
+      projection currently lives.
+- [x] Added reducer regression coverage for the three empty-set diagnostic
+      guard builders.
+
+Current backlog before real-scenario testing:
+
+- [ ] Promote the artifact result diagnostics that feed these guards into a
+      durable `ArtifactGraph` state object so evaluator prompts receive typed
+      zero-match/unmatched/zero-eligible signals without scanning recent
+      record summaries.
+- [ ] Add action lineage summaries to workflow state so planner/evaluator can
+      choose the latest compatible artifact by producer, role, fields, row
+      count, and status.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
+
 ### Batch 269: Domain-Neutral Mapping Candidate Action
 
 The next architecture pass split a relation-stage responsibility that was still

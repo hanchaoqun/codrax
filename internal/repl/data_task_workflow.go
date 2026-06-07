@@ -3685,28 +3685,18 @@ func dataTaskActionZeroMatchFilterInputGuardResult(records []dataTaskWorkflowRec
 		for _, issue := range issues {
 			for _, alias := range dataTaskZeroMatchFilterIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-match filter artifact %s (%d/%d rows) while contribution/reconcile is still required. Inspect actual filter field values or rerun filter_records against %s with corrected filters before join_records or compute_contributions; do not continue from an empty candidate set.",
-						actionIndex+1,
-						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-						firstNonEmptyString(issue.ArtifactID, input),
-						issue.OutputRows,
-						issue.InputRows,
-						firstNonEmptyString(issue.InputPath, "the non-empty source artifact"))
-					reason := firstNonEmptyString(
-						strings.TrimSpace(issue.Reason),
-						fmt.Sprintf("zero-match filter artifact %s produced %d rows from %d input rows", firstNonEmptyString(issue.ArtifactID, input), issue.OutputRows, issue.InputRows),
-					)
-					violation := dataworkflow.NewActionInputViolation(
-						"zero_match_filter",
-						"error",
-						dataworkflow.RepairNeedsTypedAction,
-						action,
-						input,
-						issue.FilterFields,
-						reason,
-						issue.RepairActionHints,
-					)
-					return dataworkflow.NewGuardResult("zero_match_filter", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+					return dataworkflow.ZeroMatchFilterGuardResult(dataworkflow.ZeroMatchFilterGuardInput{
+						Action:            action,
+						ActionIndex:       actionIndex,
+						InputAlias:        input,
+						ArtifactID:        issue.ArtifactID,
+						InputRows:         issue.InputRows,
+						OutputRows:        issue.OutputRows,
+						SourcePath:        issue.InputPath,
+						FilterFields:      issue.FilterFields,
+						Reason:            issue.Reason,
+						RepairActionHints: issue.RepairActionHints,
+					})
 				}
 			}
 		}
@@ -3757,28 +3747,17 @@ func dataTaskActionUnmatchedResolutionInputGuardResult(records []dataTaskWorkflo
 		for _, issue := range issues {
 			for _, alias := range dataTaskUnmatchedResolutionIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes all-unmatched resolution artifact %s (base_rows=%d target_fields=[%s]) while contribution/reconcile is still required. Repair apply_entity_resolutions key/role matching against %s before filtering, qualification, join, or contribution calculation.",
-						actionIndex+1,
-						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-						firstNonEmptyString(issue.ArtifactID, input),
-						issue.BaseRows,
-						strings.Join(issue.TargetFields, ", "),
-						firstNonEmptyString(issue.BasePath, "the base record artifact"))
-					reason := firstNonEmptyString(
-						strings.TrimSpace(issue.Reason),
-						fmt.Sprintf("all-unmatched resolution artifact %s has %d base rows and target fields [%s]", firstNonEmptyString(issue.ArtifactID, input), issue.BaseRows, strings.Join(issue.TargetFields, ", ")),
-					)
-					violation := dataworkflow.NewActionInputViolation(
-						"unmatched_resolution",
-						"error",
-						dataworkflow.RepairNeedsTypedAction,
-						action,
-						input,
-						issue.TargetFields,
-						reason,
-						issue.RepairActionHints,
-					)
-					return dataworkflow.NewGuardResult("unmatched_resolution", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+					return dataworkflow.UnmatchedResolutionGuardResult(dataworkflow.UnmatchedResolutionGuardInput{
+						Action:            action,
+						ActionIndex:       actionIndex,
+						InputAlias:        input,
+						ArtifactID:        issue.ArtifactID,
+						BasePath:          issue.BasePath,
+						BaseRows:          issue.BaseRows,
+						TargetFields:      issue.TargetFields,
+						Reason:            issue.Reason,
+						RepairActionHints: issue.RepairActionHints,
+					})
 				}
 			}
 		}
@@ -3819,27 +3798,16 @@ func dataTaskActionZeroEligibleInputGuardResult(records []dataTaskWorkflowRecord
 		for _, issue := range issues {
 			for _, alias := range dataTaskZeroEligibleIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-eligible qualification artifact %s (%d/%d eligible rows) while contribution/reconcile is still required. Repair the upstream field materialization, resolution application, or qualify_records filters before join_records or compute_contributions.",
-						actionIndex+1,
-						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-						firstNonEmptyString(issue.ArtifactID, input),
-						issue.EligibleRows,
-						issue.InputRows)
-					reason := firstNonEmptyString(
-						strings.TrimSpace(issue.Reason),
-						fmt.Sprintf("zero-eligible qualification artifact %s has %d eligible rows from %d input rows", firstNonEmptyString(issue.ArtifactID, input), issue.EligibleRows, issue.InputRows),
-					)
-					violation := dataworkflow.NewActionInputViolation(
-						"zero_eligible_records",
-						"error",
-						dataworkflow.RepairNeedsTypedAction,
-						action,
-						input,
-						nil,
-						reason,
-						issue.RepairActionHints,
-					)
-					return dataworkflow.NewGuardResult("zero_eligible_records", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+					return dataworkflow.ZeroEligibleGuardResult(dataworkflow.ZeroEligibleGuardInput{
+						Action:            action,
+						ActionIndex:       actionIndex,
+						InputAlias:        input,
+						ArtifactID:        issue.ArtifactID,
+						InputRows:         issue.InputRows,
+						EligibleRows:      issue.EligibleRows,
+						Reason:            issue.Reason,
+						RepairActionHints: issue.RepairActionHints,
+					})
 				}
 			}
 		}

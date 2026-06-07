@@ -61,6 +61,42 @@ type MissingUpstreamLedgerGuardInput struct {
 	Ledger      LedgerKind
 }
 
+type ZeroMatchFilterGuardInput struct {
+	Action            dataquery.DataAction
+	ActionIndex       int
+	InputAlias        string
+	ArtifactID        string
+	InputRows         int
+	OutputRows        int
+	SourcePath        string
+	FilterFields      []string
+	Reason            string
+	RepairActionHints []string
+}
+
+type UnmatchedResolutionGuardInput struct {
+	Action            dataquery.DataAction
+	ActionIndex       int
+	InputAlias        string
+	ArtifactID        string
+	BasePath          string
+	BaseRows          int
+	TargetFields      []string
+	Reason            string
+	RepairActionHints []string
+}
+
+type ZeroEligibleGuardInput struct {
+	Action            dataquery.DataAction
+	ActionIndex       int
+	InputAlias        string
+	ArtifactID        string
+	InputRows         int
+	EligibleRows      int
+	Reason            string
+	RepairActionHints []string
+}
+
 type ApplyResolutionDiagnosticInputGuardInput struct {
 	Action         dataquery.DataAction
 	ActionIndex    int
@@ -286,6 +322,96 @@ func MissingUpstreamLedgerGuardResult(input MissingUpstreamLedgerGuardInput) Gua
 		Action:  input.Action,
 		Message: message,
 	})
+}
+
+func ZeroMatchFilterGuardResult(input ZeroMatchFilterGuardInput) GuardResult {
+	inputAlias := strings.TrimSpace(input.InputAlias)
+	artifactID := firstNonEmptyGuardText(input.ArtifactID, inputAlias)
+	if inputAlias == "" || artifactID == "" {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-match filter artifact %s (%d/%d rows) while contribution/reconcile is still required. Inspect actual filter field values or rerun filter_records against %s with corrected filters before join_records or compute_contributions; do not continue from an empty candidate set.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		artifactID,
+		input.OutputRows,
+		input.InputRows,
+		firstNonEmptyGuardText(input.SourcePath, "the non-empty source artifact"))
+	reason := firstNonEmptyGuardText(
+		input.Reason,
+		fmt.Sprintf("zero-match filter artifact %s produced %d rows from %d input rows", artifactID, input.OutputRows, input.InputRows),
+	)
+	violation := NewActionInputViolation(
+		"zero_match_filter",
+		"error",
+		RepairNeedsTypedAction,
+		input.Action,
+		inputAlias,
+		input.FilterFields,
+		reason,
+		input.RepairActionHints,
+	)
+	return NewGuardResult("zero_match_filter", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func UnmatchedResolutionGuardResult(input UnmatchedResolutionGuardInput) GuardResult {
+	inputAlias := strings.TrimSpace(input.InputAlias)
+	artifactID := firstNonEmptyGuardText(input.ArtifactID, inputAlias)
+	targetFields := cleanStrings(input.TargetFields)
+	if inputAlias == "" || artifactID == "" {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes all-unmatched resolution artifact %s (base_rows=%d target_fields=[%s]) while contribution/reconcile is still required. Repair apply_entity_resolutions key/role matching against %s before filtering, qualification, join, or contribution calculation.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		artifactID,
+		input.BaseRows,
+		strings.Join(targetFields, ", "),
+		firstNonEmptyGuardText(input.BasePath, "the base record artifact"))
+	reason := firstNonEmptyGuardText(
+		input.Reason,
+		fmt.Sprintf("all-unmatched resolution artifact %s has %d base rows and target fields [%s]", artifactID, input.BaseRows, strings.Join(targetFields, ", ")),
+	)
+	violation := NewActionInputViolation(
+		"unmatched_resolution",
+		"error",
+		RepairNeedsTypedAction,
+		input.Action,
+		inputAlias,
+		targetFields,
+		reason,
+		input.RepairActionHints,
+	)
+	return NewGuardResult("unmatched_resolution", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func ZeroEligibleGuardResult(input ZeroEligibleGuardInput) GuardResult {
+	inputAlias := strings.TrimSpace(input.InputAlias)
+	artifactID := firstNonEmptyGuardText(input.ArtifactID, inputAlias)
+	if inputAlias == "" || artifactID == "" {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-eligible qualification artifact %s (%d/%d eligible rows) while contribution/reconcile is still required. Repair the upstream field materialization, resolution application, or qualify_records filters before join_records or compute_contributions.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		artifactID,
+		input.EligibleRows,
+		input.InputRows)
+	reason := firstNonEmptyGuardText(
+		input.Reason,
+		fmt.Sprintf("zero-eligible qualification artifact %s has %d eligible rows from %d input rows", artifactID, input.EligibleRows, input.InputRows),
+	)
+	violation := NewActionInputViolation(
+		"zero_eligible_records",
+		"error",
+		RepairNeedsTypedAction,
+		input.Action,
+		inputAlias,
+		nil,
+		reason,
+		input.RepairActionHints,
+	)
+	return NewGuardResult("zero_eligible_records", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func ApplyResolutionDiagnosticInputGuardResult(input ApplyResolutionDiagnosticInputGuardInput) GuardResult {
