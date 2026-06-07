@@ -6730,24 +6730,8 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 			})
 		}
 	}
-	if allowed[string(dataquery.DataActionNormalizeEntities)] {
-		for _, scaffold := range dataTaskNormalizeEntityActionScaffolds(recordAccess, 4) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionApplyResolutions)] {
-		for _, scaffold := range dataTaskApplyResolutionActionScaffolds(access, 4) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
 	if allowed[string(dataquery.DataActionEnrichRecords)] {
-		for _, scaffold := range dataTaskEnrichActionScaffolds(access, 4) {
+		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.EnrichRecordScaffolds(dataTaskArtifactAccessSchemaProjection(access), 4)) {
 			if len(out) >= 8 {
 				return out
 			}
@@ -6755,7 +6739,23 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 		}
 	}
 	if allowed[string(dataquery.DataActionJoinRecords)] {
-		for _, scaffold := range dataTaskJoinActionScaffolds(recordAccess, 4) {
+		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.JoinRecordScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionNormalizeEntities)] {
+		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.NormalizeEntityScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionApplyResolutions)] {
+		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.ApplyResolutionScaffolds(dataTaskArtifactAccessSchemaProjection(access), 4)) {
 			if len(out) >= 8 {
 				return out
 			}
@@ -6835,6 +6835,23 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 				Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
 			})
 		}
+	}
+	return out
+}
+
+func dataTaskWorkflowActionScaffoldViews(scaffolds []dataworkflow.ActionScaffold) []dataTaskActionScaffold {
+	out := make([]dataTaskActionScaffold, 0, len(scaffolds))
+	for _, scaffold := range scaffolds {
+		out = append(out, dataTaskActionScaffold{
+			Kind:           strings.TrimSpace(scaffold.Kind),
+			UseWhen:        strings.TrimSpace(scaffold.UseWhen),
+			InputPath:      strings.TrimSpace(scaffold.InputPath),
+			InputPaths:     cleanDataTaskStrings(scaffold.InputPaths),
+			Fields:         cleanDataTaskStrings(scaffold.Fields),
+			CommonFields:   cleanDataTaskStrings(scaffold.CommonFields),
+			ParamsTemplate: scaffold.ParamsTemplate,
+			Note:           strings.TrimSpace(scaffold.Note),
+		})
 	}
 	return out
 }

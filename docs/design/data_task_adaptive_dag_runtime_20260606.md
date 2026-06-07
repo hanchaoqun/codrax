@@ -9882,3 +9882,43 @@ Remaining architecture items:
 - [ ] Improve business-facing process summaries by rendering model-provided
       goal/batch/next-step/reason fields before internal counters.
 - [ ] Add realistic multi-file eval gates after these IR closures are complete.
+
+### Batch 220: ArtifactGraph-Aware Relation Scaffolds
+
+Relation scaffolds were still mostly built from REPL prompt structs. This batch
+moves the relation-candidate construction into `internal/dataworkflow` so the
+templates come from ArtifactGraph schema projections:
+
+- record bases are selected by `ArtifactUsableForRecordAction`;
+- diagnostic children are excluded from relation inputs;
+- lookup/reference/enrichment inputs can be ordinary record artifacts or
+  mapping/ledger-shaped artifacts with fields;
+- join candidates use shared field intersections from artifact schemas;
+- enrich candidates preserve base row cardinality and expose typed
+  `lookup_specs`;
+- normalize/apply-resolution candidates are structural templates over source,
+  reference, and mapping artifacts, not business-domain classifiers.
+
+The builder remains advisory. It does not decide that any relation is business
+correct; it only shows structurally plausible typed action shapes that the
+model may adapt to the current user goal.
+
+Changes:
+
+- [x] Added `dataworkflow.ActionScaffold` and ArtifactGraph-aware relation
+      scaffold builders.
+- [x] Rewired REPL relation scaffold rendering to adapt shared scaffolds into
+      prompt views.
+- [x] Kept relation candidates domain-neutral: only fields, aliases, node
+      class, action kind, and allowed actions are used.
+- [x] Added regression coverage for relation scaffolds excluding diagnostic
+      artifacts while producing enrich/join candidates.
+- [x] Preserved existing REPL scaffold tests for enrich/reference-table
+      suggestions and rule-artifact exclusion.
+
+Remaining architecture items:
+
+- [ ] Remove or demote old REPL-local relation scaffold helper implementations
+      once no fallback/test path depends on them.
+- [ ] Add scaffold eligibility/skip diagnostics to audit snapshots without
+      increasing user-facing noise.
