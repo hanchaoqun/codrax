@@ -12997,11 +12997,67 @@ Changes:
 
 Remaining P0 LedgerGraph work:
 
-- [ ] Move terminal completion gates to consume LedgerGraph dependencies
-      directly instead of running separate REPL-local ledger checks.
+- [x] Move terminal missing-ledger completion gates to consume LedgerGraph
+      dependencies directly instead of running separate REPL-local ledger
+      checks for required validation ledgers.
 - [ ] Feed first-missing-ledger and missing-prerequisite summaries into
       `WorkflowDecision` so CLI/REPL UX can show user-relevant blockers without
       repeating internal stage jargon.
 - [ ] Make deterministic completion/fallback builders consume LedgerGraph
       rather than raw `StageFacts` where the decision is specifically about
       ledger dependencies.
+- [ ] Split final-answer projection into its own typed OutputProjectionGraph so
+      strict output contracts, reference-complete projections, and ordinary
+      already-answerable results do not get conflated with validation ledgers.
+
+### Batch 289: LedgerGraph Completion Guard For Missing Ledgers
+
+After Batch 288, the workflow state exposed a typed LedgerGraph, but the
+completion gate still reported missing required ledgers by re-running the old
+REPL-local interpretation around `ValidateResultAgainstContract`. This batch
+keeps dataquery's typed result validation as the source of truth for semantic
+ledger correctness, then uses LedgerGraph to explain missing required ledger
+dependencies and repair actions.
+
+This is intentionally narrower than a blanket final-answer gate. A real result
+may already have a valid answer when no strict output projection is required,
+even if the current batch was marked `continue_after`. Conversely, reference
+complete output projection has richer structural information than a generic
+`final_projection` node. Those output concerns should become a separate
+OutputProjectionGraph rather than being forced into validation-ledger logic.
+
+Generic invariants:
+
+- missing validation ledgers are represented by typed LedgerGraph completion
+  guards with `missing_workflow_ledger` or `blocked_workflow_ledger`;
+- the guard carries producer action hints from the ledger dependency, such as
+  `compute_contributions` or `reconcile_artifacts`;
+- material coverage errors keep their path-specific diagnostics and are not
+  flattened into ledger messages;
+- semantic ledger failures, such as empty/invalid ledger records or failed
+  reconcile validation, remain dataquery validation errors;
+- final-answer projection remains governed by OutputContract/reference
+  projection gates until it is promoted into a dedicated output projection IR.
+
+Changes:
+
+- [x] Added `LedgerGraphCompletionGuardResult` in `internal/dataworkflow`.
+- [x] Rewired data workflow completion error handling to use the LedgerGraph
+      guard only when the typed validation error code is
+      `missing_required_ledger`.
+- [x] Preserved material coverage diagnostics and reference-complete
+      projection diagnostics.
+- [x] Added regression coverage for LedgerGraph completion guards and REPL
+      completion-gate missing-ledger errors.
+
+Remaining P0 completion/output work:
+
+- [ ] Move deterministic completion-repair plan selection for missing ledgers
+      to consume LedgerGraph dependencies directly instead of dataquery error
+      JSON paths.
+- [ ] Introduce OutputProjectionGraph for final answer readiness, reference key
+      completeness, strict output contract projection, and answer-candidate
+      precedence.
+- [ ] Feed ledger guard summaries into workflow journal/process events so users
+      see the business-relevant next action rather than only a validation
+      string.

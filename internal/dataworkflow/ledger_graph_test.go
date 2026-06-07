@@ -89,3 +89,31 @@ func TestLedgerGraphDependenciesAreOrderedAndActionable(t *testing.T) {
 		t.Fatalf("Reconcile=%+v, want actionable reconcile dependency", graph.Reconcile)
 	}
 }
+
+func TestLedgerGraphCompletionGuardUsesTypedDependency(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+	})
+	guard := LedgerGraphCompletionGuardResult(graph)
+	if guard.Code != "missing_workflow_ledger" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want missing ledger guard", guard)
+	}
+	if guard.Violations[0].ActionKind != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("violation=%+v, want compute_contributions repair action", guard.Violations[0])
+	}
+}
+
+func TestLedgerGraphCompletionGuardReportsFinalProjection(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+		ContributionRecords:        1,
+		ReconcileRequired:          true,
+		HasReconcile:               true,
+	})
+	guard := LedgerGraphCompletionGuardResult(graph)
+	if guard.Code != "missing_workflow_ledger" || !strings.Contains(guard.ErrorText(), "final answer projection") {
+		t.Fatalf("guard=%+v, want missing final projection", guard)
+	}
+}

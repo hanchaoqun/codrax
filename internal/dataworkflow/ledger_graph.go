@@ -1,6 +1,11 @@
 package dataworkflow
 
-import "github.com/hanchaoqun/codrax/internal/dataquery"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
 
 const (
 	LedgerStatusOptional              = "optional"
@@ -127,6 +132,74 @@ func FirstMissingLedger(graph LedgerGraph) string {
 		}
 		if dep.Status == LedgerStatusMissing || dep.Status == LedgerStatusBlockedByPrerequisite {
 			return dep.Ledger
+		}
+	}
+	return ""
+}
+
+func LedgerGraphCompletionGuardResult(graph LedgerGraph) GuardResult {
+	dep, ok := firstIncompleteRequiredLedger(graph)
+	if !ok {
+		return GuardResult{}
+	}
+	code := "missing_workflow_ledger"
+	if dep.Status == LedgerStatusBlockedByPrerequisite {
+		code = "blocked_workflow_ledger"
+	}
+	message := ledgerCompletionMessage(dep)
+	action := dataquery.DataAction{
+		ID:   "complete_" + strings.ReplaceAll(strings.TrimSpace(dep.Ledger), "/", "_"),
+		Kind: firstLedgerProducerAction(dep.ProducesActions),
+	}
+	violation := NewActionInputViolation(
+		code,
+		"error",
+		RepairNeedsTypedAction,
+		action,
+		"",
+		nil,
+		message,
+		dep.ProducesActions,
+	)
+	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func firstIncompleteRequiredLedger(graph LedgerGraph) (LedgerDependency, bool) {
+	for _, dep := range graph.Dependencies {
+		if !dep.Required || dep.Present {
+			continue
+		}
+		if dep.Status == LedgerStatusMissing || dep.Status == LedgerStatusBlockedByPrerequisite {
+			return dep, true
+		}
+	}
+	return LedgerDependency{}, false
+}
+
+func ledgerCompletionMessage(dep LedgerDependency) string {
+	ledger := strings.TrimSpace(dep.Ledger)
+	if ledger == string(LedgerFinalProjection) {
+		ledger = "final answer projection"
+	}
+	var parts []string
+	if len(dep.MissingPrerequisites) > 0 {
+		parts = append(parts, fmt.Sprintf("missing_prerequisites=[%s]", strings.Join(dep.MissingPrerequisites, ", ")))
+	}
+	if len(dep.ProducesActions) > 0 {
+		parts = append(parts, fmt.Sprintf("producer_actions=[%s]", strings.Join(dep.ProducesActions, ", ")))
+	}
+	detail := ""
+	if len(parts) > 0 {
+		detail = " (" + strings.Join(parts, "; ") + ")"
+	}
+	return fmt.Sprintf("data validation incomplete: required ledger %s is %s%s", ledger, dep.Status, detail)
+}
+
+func firstLedgerProducerAction(actions []string) dataquery.DataActionKind {
+	for _, action := range actions {
+		action = strings.TrimSpace(action)
+		if action != "" {
+			return dataquery.DataActionKind(action)
 		}
 	}
 	return ""

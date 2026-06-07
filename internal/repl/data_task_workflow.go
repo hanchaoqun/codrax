@@ -2,6 +2,7 @@ package repl
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -8382,6 +8383,11 @@ func dataTaskWorkflowCompletionGateError(records []dataTaskWorkflowRecord, curre
 
 func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
 	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+		if dataTaskValidationErrorHasCode(err, "missing_required_ledger") {
+			if guard := dataTaskWorkflowCompletionLedgerGuardResult(records, current, result); !guard.Empty() {
+				return fmt.Sprintf("validate data workflow completion: %s", guard.ErrorText())
+			}
+		}
 		return fmt.Sprintf("validate data workflow completion: %v", err)
 	}
 	if candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); ok {
@@ -8392,6 +8398,38 @@ func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []data
 		return "validate data workflow completion: data output incomplete: output_contract requires final answer projection but result.answer is empty while reconcile groups are available"
 	}
 	return ""
+}
+
+func dataTaskWorkflowCompletionLedgerGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	completionRecords := make([]dataTaskWorkflowRecord, 0, len(records)+1)
+	completionRecords = append(completionRecords, records...)
+	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
+	state := dataTaskWorkflowState(completionRecords, current)
+	return dataworkflow.LedgerGraphCompletionGuardResult(state.LedgerGraph)
+}
+
+func dataTaskValidationErrorHasCode(err error, code string) bool {
+	code = strings.TrimSpace(code)
+	if err == nil || code == "" {
+		return false
+	}
+	var validationErr dataquery.DataValidationError
+	if errors.As(err, &validationErr) {
+		for _, violation := range validationErr.Violations {
+			if strings.TrimSpace(violation.Code) == code {
+				return true
+			}
+		}
+	}
+	var resultErr *dataquery.DataResultValidationError
+	if errors.As(err, &resultErr) {
+		for _, violation := range resultErr.Violations {
+			if strings.TrimSpace(violation.Code) == code {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {

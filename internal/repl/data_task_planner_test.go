@@ -1249,6 +1249,22 @@ func TestDataTaskWorkflowCompletionGateRequiresOutputProjection(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateUsesLedgerGraphForMissingLedger(t *testing.T) {
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+	}
+	result := dataquery.Result{ConsumedPaths: []string{"records.csv"}}
+	errText := dataTaskWorkflowCompletionGateError(nil, current, result)
+	if errText == "" || !strings.Contains(errText, "required ledger contributions") {
+		t.Fatalf("completion gate err=%q, want LedgerGraph missing contribution", errText)
+	}
+	if !strings.Contains(errText, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("completion gate err=%q, want typed producer action hint", errText)
+	}
+}
+
 func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nB\nC\n"), 0600); err != nil {
