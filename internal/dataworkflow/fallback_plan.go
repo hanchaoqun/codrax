@@ -57,6 +57,8 @@ type CompletionRepairTransitionInput struct {
 	Coverage               dataquery.CoverageContract
 	Output                 dataquery.OutputContract
 	Result                 dataquery.Result
+	LedgerGraph            LedgerGraph
+	UseLedgerGraph         bool
 	ErrorText              string
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
@@ -84,6 +86,8 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 		Coverage:               input.Coverage,
 		Output:                 input.Output,
 		Result:                 input.Result,
+		LedgerGraph:            input.LedgerGraph,
+		UseLedgerGraph:         input.UseLedgerGraph,
 		ErrorText:              errText,
 		ReferenceGap:           input.ReferenceGap,
 		PlanHasCustomTransform: input.PlanHasCustomTransform,
@@ -543,6 +547,8 @@ type RequiredLedgerCompletionPlanInput struct {
 	Coverage               dataquery.CoverageContract
 	Output                 dataquery.OutputContract
 	Result                 dataquery.Result
+	LedgerGraph            LedgerGraph
+	UseLedgerGraph         bool
 	ErrorText              string
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
@@ -559,21 +565,14 @@ func BuildRequiredLedgerCompletionPlan(input RequiredLedgerCompletionPlanInput) 
 	}); ok {
 		return plan, true
 	}
+	if input.UseLedgerGraph {
+		return buildRequiredLedgerCompletionPlanFromGraph(input)
+	}
 	violation := dataquery.ClassifyExecutionError(input.ErrorText)
 	if strings.TrimSpace(violation.Code) != "missing_required_ledger" {
 		return dataquery.TaskPlan{}, false
 	}
-	plan := dataquery.TaskPlan{
-		Status:           "ready",
-		OutputContract:   BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract),
-		CoverageContract: input.Coverage,
-		Goal:             strings.TrimSpace(input.Current.Goal),
-		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
-		ContinueAfter:    false,
-	}
-	if strings.TrimSpace(plan.Goal) == "" {
-		plan.Goal = "complete required data validation ledgers without changing the computed answer"
-	}
+	plan := requiredLedgerCompletionBasePlan(input)
 	switch strings.TrimSpace(violation.JSONPath) {
 	case "/rule_coverage":
 		action := RuleCoverageCompletionAction(input.Coverage)
@@ -601,6 +600,54 @@ func BuildRequiredLedgerCompletionPlan(input RequiredLedgerCompletionPlanInput) 
 	default:
 		return dataquery.TaskPlan{}, false
 	}
+}
+
+func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPlanInput) (dataquery.TaskPlan, bool) {
+	dep, ok := FirstIncompleteRequiredLedger(input.LedgerGraph)
+	if !ok {
+		return dataquery.TaskPlan{}, false
+	}
+	plan := requiredLedgerCompletionBasePlan(input)
+	switch strings.TrimSpace(dep.Ledger) {
+	case string(LedgerRuleCoverage):
+		action := RuleCoverageCompletionAction(input.Coverage)
+		if strings.TrimSpace(action.ID) == "" {
+			return dataquery.TaskPlan{}, false
+		}
+		plan.Actions = []dataquery.DataAction{action}
+		plan.InputPaths = mergeActionInputPaths(plan.InputPaths, action.InputPaths)
+		plan.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
+		return plan, true
+	case string(LedgerReconcile):
+		if len(input.Result.Contributions) == 0 || dep.Status == LedgerStatusBlockedByPrerequisite {
+			return dataquery.TaskPlan{}, false
+		}
+		plan.Actions = []dataquery.DataAction{{
+			ID:             "complete_reconcile",
+			Kind:           dataquery.DataActionReconcile,
+			Purpose:        "complete missing reconcile ledger from existing contribution records",
+			OutputArtifact: "reconcile_result.json",
+		}}
+		plan.WhyThisBatch = "complete missing reconcile ledger from existing contribution records"
+		return plan, true
+	default:
+		return dataquery.TaskPlan{}, false
+	}
+}
+
+func requiredLedgerCompletionBasePlan(input RequiredLedgerCompletionPlanInput) dataquery.TaskPlan {
+	plan := dataquery.TaskPlan{
+		Status:           "ready",
+		OutputContract:   BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract),
+		CoverageContract: input.Coverage,
+		Goal:             strings.TrimSpace(input.Current.Goal),
+		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
+		ContinueAfter:    false,
+	}
+	if strings.TrimSpace(plan.Goal) == "" {
+		plan.Goal = "complete required data validation ledgers without changing the computed answer"
+	}
+	return plan
 }
 
 func RuleCoverageCompletionAction(contract dataquery.CoverageContract) dataquery.DataAction {

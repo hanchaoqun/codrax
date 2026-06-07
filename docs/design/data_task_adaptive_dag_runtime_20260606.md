@@ -13003,9 +13003,8 @@ Remaining P0 LedgerGraph work:
 - [ ] Feed first-missing-ledger and missing-prerequisite summaries into
       `WorkflowDecision` so CLI/REPL UX can show user-relevant blockers without
       repeating internal stage jargon.
-- [ ] Make deterministic completion/fallback builders consume LedgerGraph
-      rather than raw `StageFacts` where the decision is specifically about
-      ledger dependencies.
+- [x] Make deterministic completion/fallback builders consume LedgerGraph for
+      missing-ledger repair decisions in the REPL/CLI completion path.
 - [ ] Split final-answer projection into its own typed OutputProjectionGraph so
       strict output contracts, reference-complete projections, and ordinary
       already-answerable results do not get conflated with validation ledgers.
@@ -13052,12 +13051,56 @@ Changes:
 
 Remaining P0 completion/output work:
 
-- [ ] Move deterministic completion-repair plan selection for missing ledgers
-      to consume LedgerGraph dependencies directly instead of dataquery error
-      JSON paths.
+- [x] Move deterministic completion-repair plan selection for missing ledgers
+      to consume LedgerGraph dependencies directly in the REPL/CLI completion
+      path instead of dataquery error JSON paths.
 - [ ] Introduce OutputProjectionGraph for final answer readiness, reference key
       completeness, strict output contract projection, and answer-candidate
       precedence.
 - [ ] Feed ledger guard summaries into workflow journal/process events so users
       see the business-relevant next action rather than only a validation
       string.
+
+### Batch 290: LedgerGraph-Driven Completion Repair Plans
+
+Batch 289 made missing required ledgers visible as typed LedgerGraph guards,
+but deterministic completion repair still selected plans from legacy
+dataquery-error JSON paths. That meant the main data workflow could say
+"missing ledger" through the new graph, then choose the repair action through a
+separate error-text-derived path. This batch closes that split for the
+REPL/CLI completion path.
+
+The migration is deliberately scoped to validation-ledger repair. Final output
+projection remains outside LedgerGraph until OutputProjectionGraph exists,
+because output readiness has different structure: strict format, reference key
+universe, answer-candidate precedence, and projection artifacts.
+
+Generic invariants:
+
+- deterministic missing-ledger repair consumes the first incomplete required
+  LedgerGraph dependency;
+- a missing rule coverage ledger may produce a `derive_rules` repair plan when
+  rule/constraint material or distilled rules are available;
+- a missing reconcile ledger may produce a `reconcile_artifacts` repair plan
+  only after contribution records already exist;
+- the repair builder must not skip an earlier missing contribution ledger in
+  order to run reconcile;
+- legacy error-text fallback remains only for direct/unmigrated callers; the
+  REPL/CLI completion path passes LedgerGraph explicitly.
+
+Changes:
+
+- [x] Added LedgerGraph fields to completion-repair planner inputs.
+- [x] Added graph-first deterministic missing-ledger repair selection.
+- [x] Rewired REPL/CLI completion repair to pass the completion LedgerGraph.
+- [x] Added regression coverage for graph-driven reconcile repair and
+      blocked-by-earlier-ledger behavior.
+
+Remaining P0 completion/output work:
+
+- [ ] Introduce OutputProjectionGraph and move final-answer readiness out of
+      mixed REPL-local output checks.
+- [ ] Feed LedgerGraph repair decisions into workflow process events and UX
+      summaries.
+- [ ] Remove the legacy error-text fallback once all internal callers pass
+      typed graph/violation inputs.

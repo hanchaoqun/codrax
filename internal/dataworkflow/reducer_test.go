@@ -336,6 +336,53 @@ func TestBuildRequiredLedgerCompletionPlanCompletesReconcileFromContributions(t 
 	}
 }
 
+func TestBuildRequiredLedgerCompletionPlanUsesLedgerGraph(t *testing.T) {
+	result := dataquery.Result{Contributions: []dataquery.ContributionRecord{{
+		ItemID:    dataquery.LooseText("row-1"),
+		GroupKey:  dataquery.LooseText("A"),
+		Metric:    dataquery.LooseText("value"),
+		Value:     dataquery.LooseText("10"),
+		Operation: dataquery.LooseText("add"),
+	}}}
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+		ContributionRecords:        1,
+		ReconcileRequired:          true,
+	})
+	plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
+		Current:        dataquery.TaskPlan{Goal: "finish validation"},
+		Coverage:       dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
+		Result:         result,
+		LedgerGraph:    graph,
+		UseLedgerGraph: true,
+		ErrorText:      "typed ledger guard without a dataquery json path",
+	})
+	if !ok {
+		t.Fatal("BuildRequiredLedgerCompletionPlan ok=false, want graph-driven reconcile")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile_artifacts from ledger graph", plan.Actions)
+	}
+}
+
+func TestBuildRequiredLedgerCompletionPlanDoesNotSkipEarlierLedgerGraphGap(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	})
+	plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
+		Coverage:       dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
+		LedgerGraph:    graph,
+		UseLedgerGraph: true,
+		ErrorText:      "typed ledger guard without a dataquery json path",
+	})
+	if ok || len(plan.Actions) > 0 {
+		t.Fatalf("plan=%+v, ok=%t; missing contributions must not jump to reconcile", plan, ok)
+	}
+}
+
 func TestBuildWorkflowNextStageFallbackPlanCompletesReconcileStage(t *testing.T) {
 	result := dataquery.Result{Contributions: []dataquery.ContributionRecord{{
 		ItemID:    dataquery.LooseText("row-1"),

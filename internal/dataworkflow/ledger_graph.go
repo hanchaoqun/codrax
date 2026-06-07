@@ -138,7 +138,7 @@ func FirstMissingLedger(graph LedgerGraph) string {
 }
 
 func LedgerGraphCompletionGuardResult(graph LedgerGraph) GuardResult {
-	dep, ok := firstIncompleteRequiredLedger(graph)
+	dep, ok := FirstIncompleteRequiredLedger(graph)
 	if !ok {
 		return GuardResult{}
 	}
@@ -164,7 +164,7 @@ func LedgerGraphCompletionGuardResult(graph LedgerGraph) GuardResult {
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
 }
 
-func firstIncompleteRequiredLedger(graph LedgerGraph) (LedgerDependency, bool) {
+func FirstIncompleteRequiredLedger(graph LedgerGraph) (LedgerDependency, bool) {
 	for _, dep := range graph.Dependencies {
 		if !dep.Required || dep.Present {
 			continue

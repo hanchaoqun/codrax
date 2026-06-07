@@ -8401,11 +8401,15 @@ func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []data
 }
 
 func dataTaskWorkflowCompletionLedgerGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	return dataworkflow.LedgerGraphCompletionGuardResult(dataTaskWorkflowCompletionLedgerGraph(records, current, result))
+}
+
+func dataTaskWorkflowCompletionLedgerGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.LedgerGraph {
 	completionRecords := make([]dataTaskWorkflowRecord, 0, len(records)+1)
 	completionRecords = append(completionRecords, records...)
 	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
 	state := dataTaskWorkflowState(completionRecords, current)
-	return dataworkflow.LedgerGraphCompletionGuardResult(state.LedgerGraph)
+	return state.LedgerGraph
 }
 
 func dataTaskValidationErrorHasCode(err error, code string) bool {
@@ -8572,6 +8576,8 @@ func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataT
 		Coverage:               dataTaskWorkflowCoverageContract(records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
 		Result:                 result,
+		LedgerGraph:            dataTaskWorkflowCompletionLedgerGraph(records, current, result),
+		UseLedgerGraph:         true,
 		ErrorText:              errText,
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
