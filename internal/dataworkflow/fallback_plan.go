@@ -22,6 +22,124 @@ type RecordMaterializationFallbackInput struct {
 	ExtractLimit       int
 }
 
+type CoverageExpansionPlanInput struct {
+	Current            dataquery.TaskPlan
+	Coverage           dataquery.CoverageContract
+	MissingPaths       []string
+	DeriveRulesForText bool
+	MaxActions         int
+	ValidationRule     string
+}
+
+func BuildCoverageExpansionPlan(input CoverageExpansionPlanInput) (dataquery.TaskPlan, bool) {
+	missing := cleanStrings(input.MissingPaths)
+	if len(missing) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	var ruleInputs, structuredInputs, inspectInputs []string
+	for _, p := range missing {
+		switch {
+		case input.DeriveRulesForText && PathLooksLikeTextConstraintMaterial(p):
+			ruleInputs = append(ruleInputs, p)
+		case PathLooksLikeStructuredMaterial(p):
+			structuredInputs = append(structuredInputs, p)
+		default:
+			inspectInputs = append(inspectInputs, p)
+		}
+	}
+	var actions []dataquery.DataAction
+	if len(ruleInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "cover_required_rules",
+			Kind:           dataquery.DataActionDeriveRules,
+			Purpose:        "derive generic rules from required text or constraint materials before later data transforms",
+			InputPaths:     cleanStrings(ruleInputs),
+			OutputArtifact: "coverage_rules.json",
+		})
+	}
+	if len(structuredInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "cover_required_records",
+			Kind:           dataquery.DataActionExtractRecords,
+			Purpose:        "extract record samples from required structured materials before later data transforms",
+			InputPaths:     cleanStrings(structuredInputs),
+			OutputArtifact: "coverage_records.json",
+			Params:         map[string]string{"limit": "120"},
+		})
+	}
+	if len(inspectInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "cover_required_materials",
+			Kind:           dataquery.DataActionInspectMaterial,
+			Purpose:        "inspect required materials before later data transforms",
+			InputPaths:     cleanStrings(inspectInputs),
+			OutputArtifact: "coverage_inspection.json",
+		})
+	}
+	if len(actions) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	maxActions := input.MaxActions
+	if maxActions > 0 && len(actions) > maxActions {
+		actions = actions[:maxActions]
+	}
+	coverage := input.Coverage
+	if len(coverage.ValidationRules) == 0 {
+		coverage.ValidationRules = appendValidationRule(coverage.ValidationRules, input.ValidationRule)
+	}
+	return dataquery.TaskPlan{
+		Status:           "ready",
+		InputPaths:       missing,
+		OutputContract:   dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: coverage,
+		Goal:             strings.TrimSpace(input.Current.Goal),
+		KnownConstraints: append([]string(nil), input.Current.KnownConstraints...),
+		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
+		ContinueAfter:    true,
+		WhyThisBatch:     "cover missing required or prerequisite materials with atomic data actions before later transforms",
+		NextBatch:        "continue the data workflow using these material artifacts instead of re-planning the same broad transform",
+		Actions:          actions,
+	}, true
+}
+
+type MaterialDiscoveryPlanInput struct {
+	Current        dataquery.TaskPlan
+	Coverage       dataquery.CoverageContract
+	Paths          []string
+	ValidationRule string
+}
+
+func BuildMaterialDiscoveryPlan(input MaterialDiscoveryPlanInput) (dataquery.TaskPlan, bool) {
+	paths := cleanStrings(input.Paths)
+	if len(paths) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	coverage := input.Coverage
+	coverage.RequiredMaterials = nil
+	coverage.OptionalMaterials = nil
+	coverage.ValidationRules = appendValidationRule(coverage.ValidationRules, input.ValidationRule)
+	plan := dataquery.TaskPlan{
+		Status:           "ready",
+		InputPaths:       paths,
+		OutputContract:   dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: coverage,
+		Goal:             strings.TrimSpace(input.Current.Goal),
+		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
+		ContinueAfter:    true,
+		WhyThisBatch:     "discover objective material inventory before choosing the next bounded data action batch",
+		Actions: []dataquery.DataAction{{
+			ID:         "material_inventory",
+			Kind:       dataquery.DataActionMaterialInventory,
+			Purpose:    "discover material types, paths, and objective metadata for the next data workflow batch",
+			InputPaths: paths,
+		}},
+	}
+	if strings.TrimSpace(plan.Goal) == "" {
+		plan.Goal = "discover data task materials"
+	}
+	return plan, true
+}
+
 func BuildRecordMaterializationFallbackPlan(input RecordMaterializationFallbackInput) (dataquery.TaskPlan, string, bool) {
 	if !actionAllowed(input.AllowedNextActions, dataquery.DataActionExtractRecords) {
 		return dataquery.TaskPlan{}, "", false
@@ -376,6 +494,16 @@ func PathLooksLikeTextConstraintMaterial(p string) bool {
 	}
 }
 
+func PathLooksLikeStructuredMaterial(p string) bool {
+	ext := strings.ToLower(path.Ext(strings.TrimSpace(p)))
+	switch ext {
+	case ".csv", ".tsv", ".json", ".jsonl":
+		return true
+	default:
+		return false
+	}
+}
+
 func baseContinuationPlan(current dataquery.TaskPlan, coverage dataquery.CoverageContract, output dataquery.OutputContract) dataquery.TaskPlan {
 	plan := dataquery.TaskPlan{
 		Status:           "ready",
@@ -394,4 +522,12 @@ func baseContinuationPlan(current dataquery.TaskPlan, coverage dataquery.Coverag
 func actionAllowed(values []string, kind dataquery.DataActionKind) bool {
 	allowed := allowedActionSet(values)
 	return allowed[string(NormalizeActionKind(kind))]
+}
+
+func appendValidationRule(values []string, rule string) []string {
+	rule = strings.TrimSpace(rule)
+	if rule == "" {
+		return cleanStrings(values)
+	}
+	return cleanStrings(append(append([]string(nil), values...), rule))
 }

@@ -11197,9 +11197,58 @@ Remaining architecture items:
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
-- [ ] Move coverage-expansion/material-discovery and repeated-node typed
-      repair plans into reducer transitions where they depend only on typed
-      violations and contracts.
+- [ ] Move repeated-node typed repair plans into reducer transitions where
+      they depend only on typed violations and contracts. Coverage expansion
+      and material discovery plan assembly moved in Batch 254.
+- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 254: Reducer-Owned Coverage And Discovery Plans
+
+The next reducer pass moved two more deterministic plan builders out of the
+REPL package: missing-material coverage expansion and broad material discovery.
+The trigger decisions still live in adapters for now because they depend on
+history, candidate lists, terminal scheduling checks, and broad custom-action
+surface checks. The plan assembly itself is now reducer-owned.
+
+The generalized invariant is:
+
+- when typed adapter state says required materials are missing, the reducer
+  builds an atomic coverage batch by objective material shape: text-like
+  materials can derive rule coverage when the workflow contract needs rules,
+  structured files can materialize record samples, and other materials can be
+  inspected;
+- when typed adapter state says a broad plan needs inventory first, the
+  reducer builds a single material-inventory batch and clears speculative
+  material floors for that inventory turn;
+- material shape uses file-format metadata only. It does not inspect user
+  intent, model prose, or domain-specific names;
+- validation-rule breadcrumbs remain audit-only context; they do not drive hard
+  scheduling behavior.
+
+Changes:
+
+- [x] Added `BuildCoverageExpansionPlan`.
+- [x] Added `BuildMaterialDiscoveryPlan`.
+- [x] Added reducer-owned `PathLooksLikeStructuredMaterial` alongside the
+      existing text-material shape helper.
+- [x] Changed REPL coverage expansion and material discovery fallbacks to pass
+      typed missing paths / discovery paths into `internal/dataworkflow`.
+- [x] Kept trigger predicates in REPL adapters for now; reducer owns only the
+      plan transition once typed inputs are available.
+- [x] Added reducer regression coverage for mixed material-shape coverage
+      expansion and material discovery floor clearing.
+
+Remaining architecture items:
+
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
+- [ ] Move repeated-node typed repair plans into reducer transitions where
+      they depend only on typed violations and contracts.
 - [ ] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event

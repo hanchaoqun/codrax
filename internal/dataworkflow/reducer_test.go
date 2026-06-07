@@ -171,6 +171,60 @@ func TestBuildRecordMaterializationFallbackPlanUsesRequiredMaterials(t *testing.
 	}
 }
 
+func TestBuildCoverageExpansionPlanSplitsMaterialShapes(t *testing.T) {
+	plan, ok := BuildCoverageExpansionPlan(CoverageExpansionPlanInput{
+		Current:            dataquery.TaskPlan{Goal: "cover materials"},
+		Coverage:           dataquery.CoverageContract{RuleCoverageRequired: true},
+		MissingPaths:       []string{"rules.md", "records.csv", "blob.bin"},
+		DeriveRulesForText: true,
+		MaxActions:         4,
+		ValidationRule:     "coverage guard requested atomic material coverage",
+	})
+	if !ok {
+		t.Fatal("BuildCoverageExpansionPlan ok=false")
+	}
+	if len(plan.Actions) != 3 {
+		t.Fatalf("actions=%+v, want rule/record/inspect actions", plan.Actions)
+	}
+	gotKinds := []dataquery.DataActionKind{plan.Actions[0].Kind, plan.Actions[1].Kind, plan.Actions[2].Kind}
+	wantKinds := []dataquery.DataActionKind{dataquery.DataActionDeriveRules, dataquery.DataActionExtractRecords, dataquery.DataActionInspectMaterial}
+	for i := range wantKinds {
+		if gotKinds[i] != wantKinds[i] {
+			t.Fatalf("action kinds=%v, want %v", gotKinds, wantKinds)
+		}
+	}
+	if strings.Join(plan.InputPaths, ",") != "rules.md,records.csv,blob.bin" {
+		t.Fatalf("InputPaths=%v, want missing paths preserved", plan.InputPaths)
+	}
+	if len(plan.CoverageContract.ValidationRules) != 1 {
+		t.Fatalf("ValidationRules=%v, want supplied typed validation rule", plan.CoverageContract.ValidationRules)
+	}
+}
+
+func TestBuildMaterialDiscoveryPlanClearsCoverageFloors(t *testing.T) {
+	plan, ok := BuildMaterialDiscoveryPlan(MaterialDiscoveryPlanInput{
+		Current: dataquery.TaskPlan{Goal: "discover inputs"},
+		Coverage: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "wide.csv", Required: true}},
+			OptionalMaterials: []dataquery.CoverageMaterial{{Path: "notes.txt"}},
+		},
+		Paths:          []string{"wide.csv", "notes.txt"},
+		ValidationRule: "previous broad plan was converted into material discovery",
+	})
+	if !ok {
+		t.Fatal("BuildMaterialDiscoveryPlan ok=false")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionMaterialInventory {
+		t.Fatalf("actions=%+v, want material_inventory", plan.Actions)
+	}
+	if len(plan.CoverageContract.RequiredMaterials) != 0 || len(plan.CoverageContract.OptionalMaterials) != 0 {
+		t.Fatalf("coverage=%+v, want cleared material floors during inventory", plan.CoverageContract)
+	}
+	if len(plan.CoverageContract.ValidationRules) != 1 {
+		t.Fatalf("ValidationRules=%v, want audit rule", plan.CoverageContract.ValidationRules)
+	}
+}
+
 func TestBuildRequiredOutputProjectionPlanUsesReconcileGroups(t *testing.T) {
 	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
 		Current:  dataquery.TaskPlan{Goal: "format final values"},

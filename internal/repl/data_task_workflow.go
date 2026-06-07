@@ -1070,35 +1070,16 @@ func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan da
 	if strings.TrimSpace(plan.Script) == "" && !dataTaskPlanHasCustomTransform(plan) {
 		return dataquery.TaskPlan{}, false
 	}
-	contract := dataTaskWorkflowCoverageContract(records, plan)
-	contract.RequiredMaterials = nil
-	contract.OptionalMaterials = nil
-	out := dataquery.TaskPlan{
-		Status:           "ready",
-		InputPaths:       paths,
-		OutputContract:   dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
-		CoverageContract: contract,
-		Goal:             strings.TrimSpace(plan.Goal),
-		SuccessCriteria:  append([]string(nil), plan.SuccessCriteria...),
-		ContinueAfter:    true,
-		WhyThisBatch:     "discover objective material inventory before choosing the next bounded data action batch",
-		Actions: []dataquery.DataAction{{
-			ID:         "material_inventory",
-			Kind:       dataquery.DataActionMaterialInventory,
-			Purpose:    "discover material types, paths, and objective metadata for the next data workflow batch",
-			InputPaths: paths,
-		}},
-	}
-	if strings.TrimSpace(out.Goal) == "" {
-		out.Goal = "discover data task materials"
-	}
+	validationRule := ""
 	if strings.TrimSpace(errText) != "" {
-		out.CoverageContract.ValidationRules = mergeDataTaskValidationRules(
-			out.CoverageContract.ValidationRules,
-			[]string{"previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)},
-		)
+		validationRule = "previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)
 	}
-	return out, true
+	return dataworkflow.BuildMaterialDiscoveryPlan(dataworkflow.MaterialDiscoveryPlanInput{
+		Current:        plan,
+		Coverage:       dataTaskWorkflowCoverageContract(records, plan),
+		Paths:          paths,
+		ValidationRule: validationRule,
+	})
 }
 
 func dataTaskCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
@@ -1125,69 +1106,19 @@ func dataTaskBuildCoverageExpansionFallback(records []dataTaskWorkflowRecord, pl
 	if len(missing) == 0 {
 		return dataquery.TaskPlan{}, false
 	}
-	var ruleInputs, structuredInputs, inspectInputs []string
-	for _, p := range missing {
-		switch {
-		case dataTaskPathLooksLikeTextConstraintMaterial(p) && dataTaskPlanShouldDeriveRulesForTextCoverage(plan):
-			ruleInputs = append(ruleInputs, p)
-		case dataTaskPathLooksLikeStructuredMaterial(p):
-			structuredInputs = append(structuredInputs, p)
-		default:
-			inspectInputs = append(inspectInputs, p)
-		}
-	}
-	var actions []dataquery.DataAction
-	if len(ruleInputs) > 0 {
-		actions = append(actions, dataquery.DataAction{
-			ID:             "cover_required_rules",
-			Kind:           dataquery.DataActionDeriveRules,
-			Purpose:        "derive generic rules from required text or constraint materials before later data transforms",
-			InputPaths:     cleanDataTaskStrings(ruleInputs),
-			OutputArtifact: "coverage_rules.json",
-		})
-	}
-	if len(structuredInputs) > 0 {
-		actions = append(actions, dataquery.DataAction{
-			ID:             "cover_required_records",
-			Kind:           dataquery.DataActionExtractRecords,
-			Purpose:        "extract record samples from required structured materials before later data transforms",
-			InputPaths:     cleanDataTaskStrings(structuredInputs),
-			OutputArtifact: "coverage_records.json",
-			Params:         map[string]string{"limit": "120"},
-		})
-	}
-	if len(inspectInputs) > 0 {
-		actions = append(actions, dataquery.DataAction{
-			ID:             "cover_required_materials",
-			Kind:           dataquery.DataActionInspectMaterial,
-			Purpose:        "inspect required materials before later data transforms",
-			InputPaths:     cleanDataTaskStrings(inspectInputs),
-			OutputArtifact: "coverage_inspection.json",
-		})
-	}
-	if len(actions) == 0 {
-		return dataquery.TaskPlan{}, false
-	}
-	if len(actions) > dataTaskMaxActionsPerBatch {
-		actions = actions[:dataTaskMaxActionsPerBatch]
-	}
 	contract := dataTaskWorkflowCoverageContract(records, plan)
+	validationRule := ""
 	if len(contract.ValidationRules) == 0 && strings.TrimSpace(errText) != "" {
-		contract.ValidationRules = []string{"previous structural coverage guard requested an atomic material-coverage batch: " + oneLineClamp(errText, 240)}
+		validationRule = "previous structural coverage guard requested an atomic material-coverage batch: " + oneLineClamp(errText, 240)
 	}
-	return dataquery.TaskPlan{
-		Status:           "ready",
-		InputPaths:       missing,
-		OutputContract:   dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
-		CoverageContract: contract,
-		Goal:             strings.TrimSpace(plan.Goal),
-		KnownConstraints: append([]string(nil), plan.KnownConstraints...),
-		SuccessCriteria:  append([]string(nil), plan.SuccessCriteria...),
-		ContinueAfter:    true,
-		WhyThisBatch:     "cover missing required or prerequisite materials with atomic data actions before later transforms",
-		NextBatch:        "continue the data workflow using these material artifacts instead of re-planning the same broad transform",
-		Actions:          actions,
-	}, true
+	return dataworkflow.BuildCoverageExpansionPlan(dataworkflow.CoverageExpansionPlanInput{
+		Current:            plan,
+		Coverage:           contract,
+		MissingPaths:       missing,
+		DeriveRulesForText: dataTaskPlanShouldDeriveRulesForTextCoverage(plan),
+		MaxActions:         dataTaskMaxActionsPerBatch,
+		ValidationRule:     validationRule,
+	})
 }
 
 func dataTaskPlanShouldDeriveRulesForTextCoverage(plan dataquery.TaskPlan) bool {
@@ -3520,13 +3451,7 @@ func dataTaskTextConstraintCoverageGuardError(plan dataquery.TaskPlan) string {
 }
 
 func dataTaskPathLooksLikeTextConstraintMaterial(p string) bool {
-	ext := strings.ToLower(path.Ext(strings.TrimSpace(p)))
-	switch ext {
-	case ".md", ".markdown", ".txt", ".text", ".rst", ".adoc", ".asciidoc":
-		return true
-	default:
-		return false
-	}
+	return dataworkflow.PathLooksLikeTextConstraintMaterial(p)
 }
 
 func normalizeCoverageMaterialUseModeForWorkflow(mode dataquery.CoverageMaterialUseMode) dataquery.CoverageMaterialUseMode {
@@ -9602,13 +9527,7 @@ func dataTaskEntityResolutionCompletionInputs(records []dataTaskWorkflowRecord, 
 }
 
 func dataTaskPathLooksLikeStructuredMaterial(p string) bool {
-	ext := strings.ToLower(path.Ext(strings.TrimSpace(p)))
-	switch ext {
-	case ".csv", ".tsv", ".json", ".jsonl":
-		return true
-	default:
-		return false
-	}
+	return dataworkflow.PathLooksLikeStructuredMaterial(p)
 }
 
 func dataTaskTerminalPlanCompletionGateError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
