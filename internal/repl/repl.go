@@ -2738,6 +2738,10 @@ func (r *REPL) logDataTaskPlanArtifact(scope string, round int, plan dataquery.T
 }
 
 func dataTaskActionAuditSnapshotFor(scope string, round int, actions []dataquery.DataAction) dataTaskActionAuditSnapshot {
+	status := dataworkflow.ActionStatusReady
+	if strings.EqualFold(strings.TrimSpace(scope), "deferred") {
+		status = dataworkflow.ActionStatusDeferred
+	}
 	out := dataTaskActionAuditSnapshot{
 		Scope: strings.TrimSpace(scope),
 		Round: round,
@@ -2747,7 +2751,7 @@ func dataTaskActionAuditSnapshotFor(scope string, round int, actions []dataquery
 		out.Actions = append(out.Actions, dataTaskActionAuditSnapshotItem{
 			Original:   action,
 			Normalized: normalized,
-			Node:       dataworkflow.ActionNodeFor(action, dataworkflow.ActionStatusReady),
+			Node:       dataworkflow.ActionNodeFor(action, status),
 		})
 	}
 	return out

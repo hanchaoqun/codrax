@@ -9200,8 +9200,9 @@ Remaining architecture items:
       REPL-only helper logic.
 - [x] Persist action graph snapshots in data-audit records. Completed in
       Batches 207 and 214.
-- [ ] Expose deferred queued nodes as `ActionNode{status=deferred}` in the
+- [x] Expose deferred queued nodes as `ActionNode{status=deferred}` in the
       shared reducer.
+      Completed for deferred queue audit snapshots in Batch 217.
 - [ ] Add typed `WorkflowViolation` records that point to action-node
       idempotency keys, dependency ranks, and blocked input aliases.
 
@@ -9745,3 +9746,27 @@ Remaining architecture items:
 
 - [ ] Add an equivalent stderr-only terminal audit path for non-REPL CLI data
       runs that preserves stdout-only final answers.
+
+### Batch 217: Deferred Action Audit Status
+
+Deferred action queues were already saved as plan audit artifacts, but their
+ActionGraph audit snapshot reused the default `ready` status. That made audit
+state ambiguous: a queued future rank looked like the batch currently being
+executed.
+
+This batch marks `scope=deferred` action snapshots as
+`ActionNode{status=deferred}`. It does not change dispatch behavior; it makes
+the persisted graph state match the runtime queue state.
+
+Changes:
+
+- [x] Action audit snapshots now choose node status from audit scope.
+- [x] Deferred queue audits persist deferred action nodes with
+      `status=deferred`.
+- [x] Added regression coverage for deferred action audit status.
+
+Remaining architecture items:
+
+- [ ] Surface deferred queued nodes in live `workflow_state_json.action_graph`
+      once deferred queues move from REPL-local variables into shared workflow
+      state.

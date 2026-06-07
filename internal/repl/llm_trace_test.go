@@ -471,6 +471,29 @@ func TestAuditDataTaskPlanWritesActionGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestAuditDataTaskPlanMarksDeferredActions(t *testing.T) {
+	r := &REPL{runtimeAnchor: t.TempDir(), repoRoot: t.TempDir()}
+	artifact := r.auditDataTaskPlan("deferred", 4, dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:             "join_later",
+			Kind:           dataquery.DataActionJoinRecords,
+			InputPaths:     []string{"left.json", "right.json"},
+			OutputArtifact: "joined.json",
+		}},
+	})
+	if artifact.ActionGraphPath == "" {
+		t.Fatalf("expected deferred action graph path")
+	}
+	raw, err := os.ReadFile(artifact.ActionGraphPath)
+	if err != nil {
+		t.Fatalf("read deferred action graph: %v", err)
+	}
+	if !strings.Contains(string(raw), `"status": "deferred"`) {
+		t.Fatalf("deferred action graph did not mark node deferred:\n%s", string(raw))
+	}
+}
+
 func TestAuditDataTaskResultWritesArtifactGraphSnapshot(t *testing.T) {
 	var out bytes.Buffer
 	anchor := t.TempDir()
