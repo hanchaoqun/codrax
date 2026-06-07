@@ -12418,7 +12418,52 @@ Changes:
 
 Current backlog before real-scenario testing:
 
-- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+- [x] Add multi-run real-scenario gates and CI/status checks after the single
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
-      and volatility properties.
+      and volatility properties. Closed by Batch 278.
+
+### Batch 278: Multi-Run Real-Scenario Gate Contract
+
+The last deterministic pre-scenario backlog item was the release gate itself.
+The repo already had an opt-in `eval/data_real_scenario_gate.sh`, but it was a
+single-run check. That could prove one answer shape, but it could not catch
+answer volatility across repeated runs and did not inspect the terminal audit
+JSON artifact itself.
+
+The gate is intentionally generic:
+
+- it runs only when the operator supplies a local scenario directory and a
+  request; private customer-like materials do not enter the repo;
+- stdout remains the final answer only, while run paths, progress, and
+  diagnostics go to stderr;
+- the expected-answer check is optional, but if set it compares normalized
+  final stdout;
+- multiple runs compare final stdout for volatility without interpreting
+  business fields;
+- audit checks require typed workflow state families, not business-specific
+  material names: action graph, artifact graph, progress window, decision,
+  process events, and resume payload;
+- contribution and reconcile signals are still configurable gate requirements
+  because this gate targets complex calculation workflows, while simpler data
+  tasks can run ordinary eval cases.
+
+Changes:
+
+- [x] Added `DATA_REAL_SCENARIO_RUNS` support with stable-answer comparison.
+- [x] Added per-run summary TSV under `.codrax/real-scenario-gates/`.
+- [x] Added terminal audit file existence and JSON-key checks for action graph,
+      artifact graph, progress, decision, process events, and resume payload.
+- [x] Kept ledger/reconcile checks on by default while making them explicit
+      environment-controlled requirements.
+- [x] Added `make eval-data-real` as the local/CI status-check entrypoint.
+- [x] Added shell regression coverage with a fake codrax binary for stable
+      multi-run PASS and volatile-answer FAIL.
+
+Current backlog before real-scenario testing:
+
+- [x] No deterministic architecture backlog item remains open in the current
+      tail ledger. Historical "Remaining architecture items" above are kept as
+      chronological audit entries; their current-state closure is reflected in
+      the later batches. Real-scenario testing can now be used to validate
+      behavior, not to discover known unimplemented IR contracts.

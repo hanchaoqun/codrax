@@ -213,4 +213,84 @@ CASE
   fi
 fi
 
+scenario_dir="$tmp/data-real-scenario"
+mkdir -p "$scenario_dir"
+fake_codrax="$tmp/fake-codrax-data-gate"
+cat >"$fake_codrax" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$PWD/.codrax/data-audit"
+terminal="$PWD/.codrax/data-audit/fake-terminal.json"
+cat >"$terminal" <<'JSON'
+{
+  "status": "completed",
+  "action_graph": {},
+  "artifact_graph": {},
+  "progress": {},
+  "decision": {},
+  "process_events": [],
+  "resume": {"records": []}
+}
+JSON
+echo "[cli/data] data task result contributions=2 reconcile=pass" >&2
+echo "[cli/data] terminal full path=$terminal" >&2
+printf '42\n'
+FAKE
+chmod +x "$fake_codrax"
+gate_out="$(
+  DATA_REAL_SCENARIO_DIR="$scenario_dir" \
+    DATA_REAL_SCENARIO_REQUEST="gate smoke" \
+    DATA_REAL_SCENARIO_EXPECTED="42" \
+    DATA_REAL_SCENARIO_RUNS=2 \
+    CODRAX_BIN="$fake_codrax" \
+    bash eval/data_real_scenario_gate.sh 2>"$tmp/data-real-gate.err"
+)"
+assert_eq "$gate_out" "42" "data real scenario gate stable stdout"
+if ! grep -q 'PASS runs=2' "$tmp/data-real-gate.err"; then
+  fail "data real scenario gate did not report multi-run pass"
+fi
+
+volatile_count="$tmp/fake-codrax-volatile-count"
+fake_volatile="$tmp/fake-codrax-data-gate-volatile"
+cat >"$fake_volatile" <<FAKE
+#!/usr/bin/env bash
+set -euo pipefail
+count_file="$volatile_count"
+count=0
+if [[ -f "\$count_file" ]]; then
+  count="\$(cat "\$count_file")"
+fi
+count=\$((count + 1))
+printf '%s' "\$count" >"\$count_file"
+mkdir -p "\$PWD/.codrax/data-audit"
+terminal="\$PWD/.codrax/data-audit/fake-terminal-\$count.json"
+cat >"\$terminal" <<'JSON'
+{
+  "status": "completed",
+  "action_graph": {},
+  "artifact_graph": {},
+  "progress": {},
+  "decision": {},
+  "process_events": [],
+  "resume": {"records": []}
+}
+JSON
+echo "[cli/data] data task result contributions=2 reconcile=pass" >&2
+echo "[cli/data] terminal full path=\$terminal" >&2
+printf '%s\n' "\$count"
+FAKE
+chmod +x "$fake_volatile"
+DATA_REAL_SCENARIO_DIR="$scenario_dir" \
+  DATA_REAL_SCENARIO_REQUEST="gate volatility smoke" \
+  DATA_REAL_SCENARIO_RUNS=2 \
+  CODRAX_BIN="$fake_volatile" \
+  bash eval/data_real_scenario_gate.sh >"$tmp/data-real-gate-volatile.out" 2>"$tmp/data-real-gate-volatile.err"
+rc=$?
+if [[ "$rc" -eq 0 ]]; then
+  fail "data real scenario gate should fail volatile answers"
+fi
+if ! grep -q 'answer volatility detected' "$tmp/data-real-gate-volatile.err"; then
+  fail "data real scenario gate volatility failure was not explained"
+fi
+
 echo "ok eval runner contracts"
