@@ -106,3 +106,36 @@ func TestDeferredQueueSnapshotCarriesStatusAndLifecycle(t *testing.T) {
 		t.Fatalf("LifecycleAction=%q, want retain", snapshot.LifecycleAction)
 	}
 }
+
+func TestDeferredQueueStateTransitionsCarryTypedEvents(t *testing.T) {
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "join_later",
+		Kind: dataquery.DataActionJoinRecords,
+		Params: map[string]string{
+			"join_type": "left",
+		},
+	}}}
+	queue := EnqueueDeferredQueue(DeferredQueueState{}, 3, plan, "split staged plan")
+	if len(queue.Plan.Actions) != 1 || len(queue.Events) != 1 || queue.Events[0].Action != DeferredQueueTransitionEnqueue {
+		t.Fatalf("queue=%+v, want enqueue event and cloned plan", queue)
+	}
+	plan.Actions[0].Params["join_type"] = "inner"
+	if queue.Plan.Actions[0].Params["join_type"] != "left" {
+		t.Fatalf("queue plan was mutated through source plan: %+v", queue.Plan.Actions[0].Params)
+	}
+	status := DeferredDispatchStatus{
+		Actions:         1,
+		FirstActionID:   "join_later",
+		FirstActionKind: string(dataquery.DataActionJoinRecords),
+		ReasonCode:      DeferredBlockInputUnavailable,
+		Reason:          "right side missing",
+	}
+	queue = RetainDeferredQueue(queue, 4, status)
+	if len(queue.Events) != 2 || queue.Events[1].Action != DeferredQueueTransitionRetain || queue.Events[1].ReasonCode != DeferredBlockInputUnavailable {
+		t.Fatalf("queue events=%+v, want retain event", queue.Events)
+	}
+	queue = DiscardDeferredQueue(queue, 5, status, "stale queue")
+	if len(queue.Plan.Actions) != 0 || len(queue.Events) != 3 || queue.Events[2].Action != DeferredQueueTransitionDiscard {
+		t.Fatalf("queue=%+v, want discarded plan and discard event", queue)
+	}
+}

@@ -2645,6 +2645,22 @@ func TestDataTaskContinuationPromptIncludesDeferredActionGraph(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateCarriesDeferredQueueEvents(t *testing.T) {
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "join_next",
+		Kind:       dataquery.DataActionJoinRecords,
+		InputPaths: []string{"left.json", "right.json"},
+	}}}
+	queue := dataworkflow.EnqueueDeferredQueue(dataworkflow.DeferredQueueState{}, 2, deferred, "split staged plan")
+	state := dataTaskWorkflowStateWithDeferredQueue(nil, dataquery.TaskPlan{}, queue)
+	if state.ActionGraph.DeferredPlan == nil || len(state.ActionGraph.DeferredPlan.Actions) != 1 {
+		t.Fatalf("DeferredPlan=%+v, want plan in action graph", state.ActionGraph.DeferredPlan)
+	}
+	if len(state.ActionGraph.DeferredEvents) != 1 || state.ActionGraph.DeferredEvents[0].Action != dataworkflow.DeferredQueueTransitionEnqueue {
+		t.Fatalf("DeferredEvents=%+v, want enqueue transition", state.ActionGraph.DeferredEvents)
+	}
+}
+
 func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

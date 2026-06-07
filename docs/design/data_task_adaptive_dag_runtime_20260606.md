@@ -13285,6 +13285,54 @@ Changes:
 
 Remaining P0 deferred-storage work:
 
-- [ ] Replace direct REPL/CLI deferred-plan mutations with reducer-owned
-      enqueue/pop/retain/discard transition helpers.
-- [ ] Emit those deferred queue transitions as typed ActionGraph events.
+- [ ] Finish replacing direct REPL/CLI deferred-plan mutations with
+      reducer-owned pop/dispatch transition helpers. Enqueue, retain, discard,
+      and clear already use the queue API.
+- [ ] Emit pop/dispatch transitions as typed ActionGraph events. Enqueue,
+      retain, discard, and clear transitions already enter ActionGraph events.
+
+### Batch 295: Deferred Queue Transition API
+
+After Batch 294, the executable deferred plan lived inside ActionGraph, but the
+REPL/CLI loops still mutated the queue by assigning a raw `TaskPlan` variable.
+That kept the state machine split: graph state could show the queue, while loop
+code still owned enqueue/retain/discard decisions.
+
+This batch introduces a reducer-owned `DeferredQueueState` and typed queue
+transition events. It starts by moving enqueue, retain, discard, and clear
+through dataworkflow helpers. The remaining pop/dispatch path is intentionally
+left as a separate follow-up so the next batch can adjust dispatch semantics
+without mixing them with queue storage and audit changes.
+
+Generic invariants:
+
+- the deferred queue is a typed state object with a cloned executable plan and
+  bounded transition events;
+- enqueue, retain, discard, and clear are structural queue transitions, not UI
+  strings;
+- ActionGraph exposes `deferred_events` alongside `deferred_plan`,
+  `deferred_queue`, and deferred nodes;
+- queue transitions do not inspect business roles, file names, row values, or
+  model prose;
+- old checkpoint callers can still pass a raw deferred plan through the wrapper
+  while CLI/REPL main loops use the queue state API.
+
+Changes:
+
+- [x] Added `DeferredQueueState` and `DeferredQueueEvent`.
+- [x] Added queue transition helpers for enqueue, retain, discard, and clear.
+- [x] Added bounded event retention and plan cloning to keep queue state stable
+      under later adapter mutations.
+- [x] Added `ActionGraph.DeferredEvents`.
+- [x] Rewired CLI and REPL data loops so save/discard/retain/clear go through
+      the queue API.
+- [x] Added a queue-aware checkpoint writer so deferred transition events are
+      included in ActionGraph.
+- [x] Added reducer, journal JSON, and REPL workflow-state regression coverage.
+
+Remaining P0 deferred dispatch work:
+
+- [ ] Move `dataTaskPopDeferredActionBatch` to return/update
+      `DeferredQueueState` through a reducer-owned dispatch transition.
+- [ ] Replace post-pop `saveDeferredPlan` calls with a dispatch event that
+      atomically records the executed rank and remaining queue.

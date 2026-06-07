@@ -5566,6 +5566,10 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 }
 
 func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferredQueue(records, current, dataworkflow.NewDeferredQueue(deferred))
+}
+
+func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState) dataTaskWorkflowStateView {
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	currentBatchContract, currentBatchLayer := dataTaskWorkflowCurrentBatchContract(records, current, contract)
 	outputContract := dataTaskWorkflowOutputContract(records, current)
@@ -5594,7 +5598,7 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 		MaterialCoverageAuthoritative: true,
 		WorkflowContract:              dataworkflow.CoverageContractViewFor(dataworkflow.CoverageLayerWorkflow, contract),
 		CurrentBatchContract:          dataworkflow.CoverageContractViewFor(currentBatchLayer, currentBatchContract),
-		ActionGraph:                   dataTaskWorkflowActionGraphWithDeferred(records, current, deferred, 48),
+		ActionGraph:                   dataTaskWorkflowActionGraphWithDeferredQueue(records, current, deferredQueue, 48),
 		RequiredMaterialCount:         len(required),
 		RequiredMaterials:             required,
 		CoveredRequiredMaterials:      coveredRequired,
@@ -5678,7 +5682,7 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 			OutputGraph:        state.OutputProjectionGraph,
 		})
 	}
-	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, state.WorkflowViolations, 48)
+	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records, current, deferredQueue, state.WorkflowViolations, 48)
 	return state
 }
 
@@ -5891,21 +5895,31 @@ func dataTaskWorkflowActionGraphWithDeferred(records []dataTaskWorkflowRecord, c
 }
 
 func dataTaskWorkflowActionGraphWithDeferredAndViolations(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraph {
+	return dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records, current, dataworkflow.NewDeferredQueue(deferred), violations, limit)
+}
+
+func dataTaskWorkflowActionGraphWithDeferredQueue(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, limit int) dataworkflow.ActionGraph {
+	return dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records, current, deferredQueue, nil, limit)
+}
+
+func dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraph {
 	var ready []dataquery.DataAction
 	if dataTaskPlanHasExecutableBatch(current) {
 		ready = current.Actions
 	}
+	deferred := dataworkflow.DeferredQueuePlan(deferredQueue)
 	var deferredActions []dataquery.DataAction
 	if dataTaskPlanHasExecutableBatch(deferred) {
 		deferredActions = deferred.Actions
 	}
 	graph := dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
-		Events:       dataTaskWorkflowActionEvents(records),
-		Ready:        ready,
-		Deferred:     deferredActions,
-		DeferredPlan: deferred,
-		Blocked:      violations,
-		EventLimit:   limit,
+		Events:        dataTaskWorkflowActionEvents(records),
+		Ready:         ready,
+		Deferred:      deferredActions,
+		DeferredPlan:  deferred,
+		DeferredQueue: deferredQueue,
+		Blocked:       violations,
+		EventLimit:    limit,
 	})
 	if len(deferred.Actions) > 0 {
 		graph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForPlan(deferred)

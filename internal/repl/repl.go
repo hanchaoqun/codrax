@@ -1308,13 +1308,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		plan = normalized
 	}
 	var records []dataTaskWorkflowRecord
-	var deferredPlan dataquery.TaskPlan
+	var deferredQueue dataworkflow.DeferredQueueState
 	var currentAdmission dataworkflow.ActionDAGAdmissionDecision
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
 	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		deferredPlan = remainder
+		deferredQueue = dataworkflow.EnqueueDeferredQueue(deferredQueue, round, remainder, reason)
 		if len(remainder.Actions) == 0 {
 			return
 		}
@@ -1322,13 +1322,20 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.emitDataTaskWorkflowAudit("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, remainder, reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
+		deferredPlan := dataworkflow.DeferredQueuePlan(deferredQueue)
 		if len(deferredPlan.Actions) > 0 {
+			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+			deferredQueue = dataworkflow.DiscardDeferredQueue(deferredQueue, round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(r.language, deferredPlan, reason)
 			r.emitDataTaskWorkflowAudit("deferred", round, detail)
 			first := deferredPlan.Actions[0]
 			logging.Info("[repl/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
+			return
 		}
-		deferredPlan = dataquery.TaskPlan{}
+		deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, round, reason)
+	}
+	currentDeferredPlan := func() dataquery.TaskPlan {
+		return dataworkflow.DeferredQueuePlan(deferredQueue)
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
@@ -1430,7 +1437,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -1525,7 +1532,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
@@ -1735,7 +1742,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					detail := fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount)
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, detail)
 					ctx := r.startTurn()
-					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
+					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if contErr == nil {
@@ -1840,9 +1847,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(currentAdmission, currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
-		writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "repl")
+		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredQueue, dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
 		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
+		deferredPlan := currentDeferredPlan()
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -1852,11 +1860,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			saveDeferredPlan(dataRounds+1, remainingDeferred, "remaining deferred typed data action rank(s)")
 			continue
 		}
+		deferredPlan = currentDeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
 			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
 			switch decision.Action {
 			case dataworkflow.DeferredQueueLifecycleRetain:
+				deferredQueue = dataworkflow.RetainDeferredQueue(deferredQueue, dataRounds, status)
 				r.emitDataTaskWorkflowAudit("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(r.language, status))
 				logging.Info("[repl/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
 					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
@@ -1866,10 +1876,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
 			default:
-				deferredPlan = dataquery.TaskPlan{}
+				deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, decision.Reason)
 			}
 		} else {
-			deferredPlan = dataquery.TaskPlan{}
+			deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, "")
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
@@ -1910,7 +1920,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
 		ctx := r.startTurn()
-		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, deferredPlan, r.language)
+		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, currentDeferredPlan(), r.language)
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
@@ -2001,7 +2011,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			r.emitDataTaskWorkflowAudit("continue", dataRounds)
 			ctx := r.startTurn()
-			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
+			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if contErr != nil {
@@ -2974,12 +2984,17 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 }
 
 func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
+	return writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot, records, current, dataworkflow.NewDeferredQueue(deferred), dataRounds, repairRounds, reason, logScope, guards...)
+}
+
+func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
 	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
 		return ""
 	}
-	state := dataTaskWorkflowStateWithDeferred(records, current, deferred)
+	deferred := dataworkflow.DeferredQueuePlan(deferredQueue)
+	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
 	if len(deferred.Actions) > 0 {
 		status := dataTaskDeferredQueueStatus(records, deferred)
 		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))

@@ -107,6 +107,7 @@ func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
 		Kind:       dataquery.DataActionJoinRecords,
 		InputPaths: []string{"left.json", "right.json"},
 	}}
+	queue := EnqueueDeferredQueue(DeferredQueueState{}, 2, dataquery.TaskPlan{Actions: deferred}, "split staged plan")
 	blockedAction := dataquery.DataAction{
 		ID:             "filter_bad",
 		Kind:           dataquery.DataActionFilterRecords,
@@ -125,14 +126,18 @@ func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
 	)
 
 	graph := ReduceActionGraphState(ActionGraphInput{
-		Deferred: deferred,
-		Blocked:  []WorkflowViolation{violation},
+		Deferred:      deferred,
+		DeferredQueue: queue,
+		Blocked:       []WorkflowViolation{violation},
 	})
 	if len(graph.Deferred) != 1 || graph.Deferred[0].Status != ActionStatusDeferred || graph.Deferred[0].ID != "join_later" {
 		t.Fatalf("Deferred=%+v, want deferred join node", graph.Deferred)
 	}
 	if graph.DeferredPlan == nil || len(graph.DeferredPlan.Actions) != 1 || graph.DeferredPlan.Actions[0].ID != "join_later" {
 		t.Fatalf("DeferredPlan=%+v, want live executable deferred plan", graph.DeferredPlan)
+	}
+	if len(graph.DeferredEvents) != 1 || graph.DeferredEvents[0].Action != DeferredQueueTransitionEnqueue {
+		t.Fatalf("DeferredEvents=%+v, want enqueue transition", graph.DeferredEvents)
 	}
 	if len(graph.Blocked) != 1 || graph.Blocked[0].Status != ActionStatusBlocked || graph.Blocked[0].IdempotencyKey == "" {
 		t.Fatalf("Blocked=%+v, want typed blocked node", graph.Blocked)

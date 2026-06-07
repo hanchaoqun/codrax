@@ -51,6 +51,85 @@ type DeferredQueueLifecycleDecision struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+type DeferredQueueState struct {
+	Plan   dataquery.TaskPlan   `json:"plan,omitempty"`
+	Events []DeferredQueueEvent `json:"events,omitempty"`
+}
+
+type DeferredQueueEvent struct {
+	Action           string `json:"action,omitempty"`
+	Round            int    `json:"round,omitempty"`
+	Actions          int    `json:"actions,omitempty"`
+	RemainingActions int    `json:"remaining_actions,omitempty"`
+	FirstActionID    string `json:"first_action_id,omitempty"`
+	FirstActionKind  string `json:"first_action_kind,omitempty"`
+	ReasonCode       string `json:"reason_code,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	Ready            bool   `json:"ready,omitempty"`
+}
+
+const (
+	DeferredQueueTransitionEnqueue = "enqueue"
+	DeferredQueueTransitionRetain  = "retain"
+	DeferredQueueTransitionDiscard = "discard"
+	DeferredQueueTransitionClear   = "clear"
+)
+
+func NewDeferredQueue(plan dataquery.TaskPlan) DeferredQueueState {
+	if len(plan.Actions) == 0 {
+		return DeferredQueueState{}
+	}
+	copied := cloneTaskPlan(plan)
+	if copied == nil {
+		return DeferredQueueState{}
+	}
+	return DeferredQueueState{Plan: *copied}
+}
+
+func DeferredQueuePlan(queue DeferredQueueState) dataquery.TaskPlan {
+	copied := cloneTaskPlan(queue.Plan)
+	if copied == nil {
+		return dataquery.TaskPlan{}
+	}
+	return *copied
+}
+
+func EnqueueDeferredQueue(queue DeferredQueueState, round int, plan dataquery.TaskPlan, reason string) DeferredQueueState {
+	next := cloneDeferredQueue(queue)
+	copied := cloneTaskPlan(plan)
+	if copied == nil {
+		next.Plan = dataquery.TaskPlan{}
+		return next
+	}
+	next.Plan = *copied
+	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueEvent(DeferredQueueTransitionEnqueue, round, next.Plan, DeferredDispatchStatus{}, reason))
+	return next
+}
+
+func RetainDeferredQueue(queue DeferredQueueState, round int, status DeferredDispatchStatus) DeferredQueueState {
+	next := cloneDeferredQueue(queue)
+	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueEvent(DeferredQueueTransitionRetain, round, next.Plan, status, status.Reason))
+	return next
+}
+
+func DiscardDeferredQueue(queue DeferredQueueState, round int, status DeferredDispatchStatus, reason string) DeferredQueueState {
+	next := cloneDeferredQueue(queue)
+	eventReason := firstNonEmpty(reason, status.Reason)
+	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueEvent(DeferredQueueTransitionDiscard, round, next.Plan, status, eventReason))
+	next.Plan = dataquery.TaskPlan{}
+	return next
+}
+
+func ClearDeferredQueue(queue DeferredQueueState, round int, reason string) DeferredQueueState {
+	next := cloneDeferredQueue(queue)
+	if len(next.Plan.Actions) == 0 {
+		return DeferredQueueState{}
+	}
+	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueEvent(DeferredQueueTransitionClear, round, next.Plan, DeferredDispatchStatus{}, reason))
+	next.Plan = dataquery.TaskPlan{}
+	return next
+}
+
 func BuildDeferredDispatchPlan(input DeferredDispatchInput) (dataquery.TaskPlan, dataquery.TaskPlan, DeferredDispatchStatus, bool) {
 	status := DeferredDispatchStatus{Actions: len(input.Plan.Actions)}
 	if len(input.Plan.Actions) == 0 {
@@ -222,6 +301,51 @@ func deferredBlockedReason(action dataquery.DataAction, reason string) string {
 		return name
 	}
 	return fmt.Sprintf("%s: %s", name, reason)
+}
+
+func cloneDeferredQueue(queue DeferredQueueState) DeferredQueueState {
+	out := DeferredQueueState{}
+	if copied := cloneTaskPlan(queue.Plan); copied != nil {
+		out.Plan = *copied
+	}
+	out.Events = append([]DeferredQueueEvent(nil), queue.Events...)
+	return out
+}
+
+func appendDeferredQueueEvent(events []DeferredQueueEvent, event DeferredQueueEvent) []DeferredQueueEvent {
+	if event.Action == "" {
+		return events
+	}
+	const maxDeferredQueueEvents = 32
+	out := append(append([]DeferredQueueEvent(nil), events...), event)
+	if len(out) > maxDeferredQueueEvents {
+		out = out[len(out)-maxDeferredQueueEvents:]
+	}
+	return out
+}
+
+func buildDeferredQueueEvent(action string, round int, plan dataquery.TaskPlan, status DeferredDispatchStatus, reason string) DeferredQueueEvent {
+	event := DeferredQueueEvent{
+		Action:           strings.TrimSpace(action),
+		Round:            round,
+		Actions:          len(plan.Actions),
+		RemainingActions: len(plan.Actions),
+		FirstActionID:    strings.TrimSpace(status.FirstActionID),
+		FirstActionKind:  strings.TrimSpace(status.FirstActionKind),
+		ReasonCode:       strings.TrimSpace(status.ReasonCode),
+		Reason:           strings.TrimSpace(firstNonEmpty(reason, status.Reason)),
+		Ready:            status.Ready,
+	}
+	if len(plan.Actions) > 0 {
+		first := plan.Actions[0]
+		if event.FirstActionID == "" {
+			event.FirstActionID = strings.TrimSpace(first.ID)
+		}
+		if event.FirstActionKind == "" {
+			event.FirstActionKind = string(NormalizeActionKind(first.Kind))
+		}
+	}
+	return event
 }
 
 func firstNonEmpty(values ...string) string {

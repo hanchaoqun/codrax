@@ -24,12 +24,13 @@ type ActionEvent struct {
 }
 
 type ActionGraphInput struct {
-	Events       []ActionEvent
-	Ready        []dataquery.DataAction
-	Deferred     []dataquery.DataAction
-	DeferredPlan dataquery.TaskPlan
-	Blocked      []WorkflowViolation
-	EventLimit   int
+	Events        []ActionEvent
+	Ready         []dataquery.DataAction
+	Deferred      []dataquery.DataAction
+	DeferredPlan  dataquery.TaskPlan
+	DeferredQueue DeferredQueueState
+	Blocked       []WorkflowViolation
+	EventLimit    int
 }
 
 func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, limit int) ActionGraph {
@@ -66,15 +67,19 @@ func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	if len(input.Ready) > 0 {
 		graph.Ready = filterSuppressedActionNodes(ActionNodesFor(input.Ready, ActionStatusReady), suppressed)
 	}
+	deferredPlanInput := input.DeferredPlan
+	if len(deferredPlanInput.Actions) == 0 && len(input.DeferredQueue.Plan.Actions) > 0 {
+		deferredPlanInput = input.DeferredQueue.Plan
+	}
 	deferredActions := input.Deferred
-	if len(deferredActions) == 0 && len(input.DeferredPlan.Actions) > 0 {
-		deferredActions = input.DeferredPlan.Actions
+	if len(deferredActions) == 0 && len(deferredPlanInput.Actions) > 0 {
+		deferredActions = deferredPlanInput.Actions
 	}
 	deferredActions = filterSuppressedDataActions(deferredActions, suppressed)
 	if len(deferredActions) > 0 {
 		graph.Deferred = ActionNodesFor(deferredActions, ActionStatusDeferred)
 	}
-	deferredPlan := input.DeferredPlan
+	deferredPlan := deferredPlanInput
 	if len(deferredPlan.Actions) == 0 && len(deferredActions) > 0 {
 		deferredPlan.Actions = deferredActions
 	} else if len(deferredPlan.Actions) > 0 {
@@ -83,6 +88,7 @@ func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	if len(deferredPlan.Actions) > 0 {
 		graph.DeferredPlan = cloneTaskPlan(deferredPlan)
 	}
+	graph.DeferredEvents = cloneDeferredQueueEvents(input.DeferredQueue.Events)
 	if input.EventLimit > 0 && len(graph.Executed) > input.EventLimit {
 		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-input.EventLimit:]...)
 	}
@@ -102,6 +108,10 @@ func filterSuppressedDataActions(actions []dataquery.DataAction, suppressed map[
 		out = append(out, action)
 	}
 	return out
+}
+
+func cloneDeferredQueueEvents(events []DeferredQueueEvent) []DeferredQueueEvent {
+	return append([]DeferredQueueEvent(nil), events...)
 }
 
 func cloneTaskPlan(plan dataquery.TaskPlan) *dataquery.TaskPlan {
