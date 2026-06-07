@@ -11860,3 +11860,48 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 267: Reducer-Owned Field Contract Guard Result
+
+The next IR pass moved missing-field guard result construction into
+`internal/dataworkflow`. Before this batch, field contract violations were
+already typed, but the REPL adapter still converted those violations into the
+hard guard message and `GuardResult`.
+
+This is a generic schema-contract invariant. The adapter may still project
+artifact access and compute missing fields because that depends on local
+ArtifactGraph visibility. Once it has a typed `WorkflowViolation`, the reducer
+owns the final guard result and user/audit message. No user intent, business
+role, or model prose is parsed for this decision.
+
+Changes:
+
+- [x] Added `FieldContractGuardInput` and `FieldContractGuardResult` in
+      `internal/dataworkflow`.
+- [x] Changed REPL missing-field guard construction to call the reducer guard
+      result instead of formatting the message locally.
+- [x] Kept schema projection, field matching, and candidate artifact ranking in
+      existing typed helpers; no duplicate field-contract system was added.
+- [x] Added reducer regression coverage proving the guard uses typed violation
+      fields, action index, input alias, missing fields, and candidate artifact
+      hints.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining REPL adapter-owned scheduling predicates behind
+      reducer-owned transition inputs. Plan shape, terminal required-material
+      scheduling, material discovery, broad custom prerequisites, and field
+      contract guard result are done; remaining relation-specific entrypoints
+      and progress signatures still need reducer ownership where they make hard
+      scheduling decisions.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

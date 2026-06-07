@@ -3868,13 +3868,11 @@ func dataTaskActionMissingFieldContractGuardResult(action dataquery.DataAction, 
 	if !ok {
 		return dataworkflow.GuardResult{}
 	}
-	return dataworkflow.NewGuardResult(
-		"field_contract_violation",
-		"error",
-		dataworkflow.RepairNeedsTypedAction,
-		dataTaskActionMissingFieldContractViolationMessage(action, actionIndex, violation),
-		violation,
-	)
+	return dataworkflow.FieldContractGuardResult(dataworkflow.FieldContractGuardInput{
+		Action:      action,
+		ActionIndex: actionIndex,
+		Violation:   violation,
+	})
 }
 
 func dataTaskActionInputContractGuardResult(code string, action dataquery.DataAction, inputAlias string, missingFields []string, message string, hints []string) dataworkflow.GuardResult {
@@ -3910,21 +3908,6 @@ func dataTaskActionMissingFieldContractViolation(action dataquery.DataAction, in
 		AvailableFields:   artifact.Fields,
 		SchemaProjections: dataTaskArtifactAccessSchemaProjection(access),
 	}), true
-}
-
-func dataTaskActionMissingFieldContractViolationMessage(action dataquery.DataAction, actionIndex int, violation dataworkflow.WorkflowViolation) string {
-	candidates := violation.CandidateArtifacts
-	candidateHint := ""
-	if len(candidates) > 0 {
-		candidateHint = " Candidate artifact(s) with relevant field(s): " + strings.Join(candidates, "; ") + "."
-	}
-	return fmt.Sprintf("data planning incomplete: action %d (%s) references field(s) [%s] that are not present on input %s fields [%s].%s Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.",
-		actionIndex+1,
-		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-		strings.Join(violation.MissingFields, ", "),
-		violation.InputAlias,
-		strings.Join(clampDataTaskStringSlice(violation.AvailableFieldSample, 32), ", "),
-		candidateHint)
 }
 
 func dataTaskFieldContractCandidateArtifacts(access []dataTaskArtifactAccessPrompt, input string, missing []string) []string {

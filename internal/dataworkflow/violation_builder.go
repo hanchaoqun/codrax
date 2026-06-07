@@ -16,6 +16,12 @@ type FieldContractViolationInput struct {
 	AllowedNextActions []string
 }
 
+type FieldContractGuardInput struct {
+	Action      dataquery.DataAction
+	ActionIndex int
+	Violation   WorkflowViolation
+}
+
 type GenericViolationInput struct {
 	Code               string
 	Severity           string
@@ -29,6 +35,38 @@ type GenericViolationInput struct {
 	CandidateArtifacts []string
 	RepairActionHints  []string
 	Reason             string
+}
+
+func FieldContractGuardResult(input FieldContractGuardInput) GuardResult {
+	violation := input.Violation
+	if strings.TrimSpace(violation.Code) == "" ||
+		len(violation.MissingFields) == 0 ||
+		strings.TrimSpace(violation.InputAlias) == "" {
+		return GuardResult{}
+	}
+	action := input.Action
+	actionNumber := input.ActionIndex + 1
+	if actionNumber <= 0 {
+		actionNumber = 1
+	}
+	actionLabel := firstNonEmptyGuardText(
+		strings.TrimSpace(action.ID),
+		strings.TrimSpace(violation.ActionID),
+		strings.TrimSpace(string(NormalizeActionKind(action.Kind))),
+		strings.TrimSpace(violation.ActionKind),
+	)
+	candidateHint := ""
+	if len(violation.CandidateArtifacts) > 0 {
+		candidateHint = " Candidate artifact(s) with relevant field(s): " + strings.Join(violation.CandidateArtifacts, "; ") + "."
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) references field(s) [%s] that are not present on input %s fields [%s].%s Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.",
+		actionNumber,
+		actionLabel,
+		strings.Join(violation.MissingFields, ", "),
+		violation.InputAlias,
+		strings.Join(clampStrings(violation.AvailableFieldSample, 32), ", "),
+		candidateHint)
+	return NewGuardResult("field_contract_violation", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func NewFieldContractViolation(input FieldContractViolationInput) WorkflowViolation {

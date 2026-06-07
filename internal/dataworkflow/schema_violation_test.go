@@ -3,6 +3,8 @@ package dataworkflow
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
 func TestFieldContractCandidateArtifactsRanksCompleteMatches(t *testing.T) {
@@ -34,5 +36,33 @@ func TestFieldContractRepairHintsFollowAllowedActions(t *testing.T) {
 	}
 	if strings.Contains(hints, "join_records") {
 		t.Fatalf("hints=%q should not mention disallowed join_records", hints)
+	}
+}
+
+func TestFieldContractGuardResultUsesTypedViolation(t *testing.T) {
+	violation := NewFieldContractViolation(FieldContractViolationInput{
+		Action: dataquery.DataAction{
+			ID:         "compute",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"rows.json"},
+		},
+		InputAlias:        "rows.json",
+		MissingFields:     []string{"amount"},
+		AvailableFields:   []string{"id", "currency"},
+		SchemaProjections: []ArtifactSchemaProjection{{ID: "candidate", Aliases: []string{"candidate.json"}, Fields: []string{"amount"}}},
+	})
+	guard := FieldContractGuardResult(FieldContractGuardInput{
+		Action:      dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs},
+		ActionIndex: 1,
+		Violation:   violation,
+	})
+	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed field_contract_violation", guard)
+	}
+	msg := guard.ErrorText()
+	for _, want := range []string{"action 2", "amount", "rows.json", "candidate.json"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message=%q, want %q", msg, want)
+		}
 	}
 }
