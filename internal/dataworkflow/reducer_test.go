@@ -25,9 +25,10 @@ func TestBuildConcreteFallbackPlanUsesTypedScaffoldAndContracts(t *testing.T) {
 		},
 		ReasonPrefix: "batch result completed",
 		Scaffolds: []ActionScaffold{{
-			Kind:      string(dataquery.DataActionValueDistribution),
-			InputPath: "records.json",
-			Fields:    []string{"_source", "status", "amount"},
+			Kind:       string(dataquery.DataActionValueDistribution),
+			Executable: true,
+			InputPath:  "records.json",
+			Fields:     []string{"_source", "status", "amount"},
 			ParamsTemplate: map[string]string{
 				"fields": `["<existing field from fields>"]`,
 			},
@@ -55,9 +56,10 @@ func TestBuildConcreteFallbackPlanUsesTypedScaffoldAndContracts(t *testing.T) {
 
 func TestBuildConcreteFallbackPlanSkipsSeenActionKeys(t *testing.T) {
 	scaffold := ActionScaffold{
-		Kind:      string(dataquery.DataActionValueDistribution),
-		InputPath: "records.json",
-		Fields:    []string{"status"},
+		Kind:       string(dataquery.DataActionValueDistribution),
+		Executable: true,
+		InputPath:  "records.json",
+		Fields:     []string{"status"},
 	}
 	action, ok := ConcreteActionFromScaffold(scaffold)
 	if !ok {

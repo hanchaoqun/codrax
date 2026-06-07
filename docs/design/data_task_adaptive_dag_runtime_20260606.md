@@ -11143,8 +11143,9 @@ Remaining architecture items:
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
-- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
-      cannot be made concrete from `ArtifactSchemaProjection`.
+- [x] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`. Completed in
+      Batch 256.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.
@@ -11200,8 +11201,9 @@ Remaining architecture items:
 - [ ] Move repeated-node typed repair plans into reducer transitions where
       they depend only on typed violations and contracts. Coverage expansion
       and material discovery plan assembly moved in Batch 254.
-- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
-      cannot be made concrete from `ArtifactSchemaProjection`.
+- [x] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`. Completed in
+      Batch 256.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.
@@ -11251,8 +11253,9 @@ Remaining architecture items:
       they depend only on typed violations and contracts. Repeated-failure
       detection and custom-transform guard construction moved in Batch 255;
       deterministic replacement plan generation remains open.
-- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
-      cannot be made concrete from `ArtifactSchemaProjection`.
+- [x] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`. Completed in
+      Batch 256.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.
@@ -11297,8 +11300,71 @@ Remaining architecture items:
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
-- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
-      cannot be made concrete from `ArtifactSchemaProjection`.
+- [x] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`. Completed in
+      Batch 256.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 256: Executable Scaffold Boundary
+
+The next IR pass closed an important scaffold boundary. Before this batch,
+`action_scaffold` entries were all the same shape: some were fully concrete
+system-generated candidates that could safely become the next typed action,
+while others were prompt-only templates that still contained placeholders or
+required the model to choose task-specific parameters. The converter happened
+to reject many prompt-only templates because placeholders remained, but the
+contract was implicit and easy to regress.
+
+This is a generic data-DAG issue, not a business-domain issue. A workflow
+runtime can suggest templates to the model, but deterministic execution must
+only consume templates whose fields and params have been closed by system-owned
+artifact schema projection. The model remains responsible for business meaning;
+the reducer owns only structural conversion of executable IR.
+
+The generalized invariant is:
+
+- `ActionScaffold.executable=true` means the scaffold has enough concrete
+  artifact fields, input aliases, and action params for the reducer to attempt
+  deterministic materialization;
+- missing or false `executable` means prompt-only guidance. It may appear in
+  `workflow_state_json.action_scaffold`, but cannot be converted directly into
+  a `DataAction`;
+- executable marking is produced by system builders from
+  `ArtifactSchemaProjection`, not by parsing user intent, model prose, or
+  domain-specific file names;
+- prompt-only templates can still help the planner fill concrete fields for
+  `filter_records`, `qualify_records`, `compute_contributions`, or
+  `enrich_records`, but execution waits for a real action plan with concrete
+  params.
+
+Changes:
+
+- [x] Added `ActionScaffold.Executable` to the workflow IR.
+- [x] Made `ConcreteActionFromScaffold` reject prompt-only scaffolds before
+      action-kind conversion.
+- [x] Marked shared concrete relation scaffolds executable only when the
+      reducer can close them from artifact schema projection:
+      `normalize_entities`, `join_records`, and `apply_entity_resolutions`.
+- [x] Kept `enrich_records` prompt-only until a concrete target field and
+      lookup spec are supplied by the planner.
+- [x] Marked REPL value-distribution scaffolds executable because the reducer
+      can replace placeholder fields with concrete non-internal artifact
+      fields.
+- [x] Taught the planner prompt to distinguish executable scaffolds from
+      prompt-only templates without using that distinction as a business gate.
+- [x] Added regression coverage that concrete scaffolds still materialize and
+      prompt-only scaffolds cannot enter deterministic fallback.
+
+Remaining architecture items:
+
+- [ ] Generate deterministic replacement plans for repeated typed failures
+      when the violation carries enough structural context; otherwise continue
+      to planner expansion with typed guard state.
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.

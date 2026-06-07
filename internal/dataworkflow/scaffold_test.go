@@ -53,6 +53,18 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	if !slices.Contains(kinds, string(dataquery.DataActionJoinRecords)) {
 		t.Fatalf("scaffolds=%+v, want join_records scaffold", scaffolds)
 	}
+	for _, scaffold := range scaffolds {
+		switch scaffold.Kind {
+		case string(dataquery.DataActionJoinRecords):
+			if !scaffold.Executable {
+				t.Fatalf("join scaffold=%+v, want executable concrete scaffold", scaffold)
+			}
+		case string(dataquery.DataActionEnrichRecords):
+			if scaffold.Executable {
+				t.Fatalf("enrich scaffold=%+v, want prompt-only scaffold until target field is concrete", scaffold)
+			}
+		}
+	}
 }
 
 func TestJoinRecordScaffoldsIgnoreInternalLineageFields(t *testing.T) {
@@ -167,6 +179,7 @@ func TestPrioritizeConcreteScaffoldsUsesWorkflowStageFacts(t *testing.T) {
 func TestConcreteActionFromScaffoldAcceptsStructuredSourceFields(t *testing.T) {
 	action, ok := ConcreteActionFromScaffold(ActionScaffold{
 		Kind:       string(dataquery.DataActionNormalizeEntities),
+		Executable: true,
 		InputPaths: []string{"records.json", "lookup.json"},
 		ParamsTemplate: map[string]string{
 			"source_fields":         `["raw_name","alias"]`,
@@ -193,6 +206,7 @@ func TestConcreteActionFromScaffoldAcceptsStructuredSourceFields(t *testing.T) {
 func TestConcreteActionFromScaffoldMaterializesJoinFields(t *testing.T) {
 	action, ok := ConcreteActionFromScaffold(ActionScaffold{
 		Kind:         string(dataquery.DataActionJoinRecords),
+		Executable:   true,
 		InputPaths:   []string{"left.json", "right.json"},
 		CommonFields: []string{"id"},
 		ParamsTemplate: map[string]string{
@@ -213,9 +227,10 @@ func TestConcreteActionFromScaffoldMaterializesJoinFields(t *testing.T) {
 
 func TestConcreteActionFromScaffoldMaterializesValueDistribution(t *testing.T) {
 	action, ok := ConcreteActionFromScaffold(ActionScaffold{
-		Kind:      string(dataquery.DataActionValueDistribution),
-		InputPath: "records.json",
-		Fields:    []string{"_source", "status", "group"},
+		Kind:       string(dataquery.DataActionValueDistribution),
+		Executable: true,
+		InputPath:  "records.json",
+		Fields:     []string{"_source", "status", "group"},
 		ParamsTemplate: map[string]string{
 			"fields": `["<existing field from fields>"]`,
 		},
@@ -228,6 +243,20 @@ func TestConcreteActionFromScaffoldMaterializesValueDistribution(t *testing.T) {
 	}
 	if action.Params["fields"] != `["status","group"]` {
 		t.Fatalf("fields param=%q, want concrete field array", action.Params["fields"])
+	}
+}
+
+func TestConcreteActionFromScaffoldRejectsPromptOnlyTemplate(t *testing.T) {
+	_, ok := ConcreteActionFromScaffold(ActionScaffold{
+		Kind:         string(dataquery.DataActionJoinRecords),
+		InputPaths:   []string{"left.json", "right.json"},
+		CommonFields: []string{"id"},
+		ParamsTemplate: map[string]string{
+			"join_type": "inner",
+		},
+	})
+	if ok {
+		t.Fatal("ConcreteActionFromScaffold ok=true, want prompt-only scaffold rejected")
 	}
 }
 

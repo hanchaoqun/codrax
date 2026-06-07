@@ -6792,10 +6792,11 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 				continue
 			}
 			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionValueDistribution),
-				UseWhen:   "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
+				Kind:       string(dataquery.DataActionValueDistribution),
+				Executable: true,
+				UseWhen:    "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
+				InputPath:  alias,
+				Fields:     clampDataTaskStringSlice(artifact.Fields, 20),
 				ParamsTemplate: map[string]string{
 					"fields":      `["<existing field from fields>"]`,
 					"top_n":       "8",

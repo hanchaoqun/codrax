@@ -10,6 +10,7 @@ import (
 
 type ActionScaffold struct {
 	Kind           string            `json:"kind"`
+	Executable     bool              `json:"executable,omitempty"`
 	UseWhen        string            `json:"use_when,omitempty"`
 	InputPath      string            `json:"input_path,omitempty"`
 	InputPaths     []string          `json:"input_paths,omitempty"`
@@ -105,6 +106,9 @@ func ConcreteFallbackScaffolds(scaffolds []ActionScaffold, facts StageFacts) []A
 }
 
 func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, bool) {
+	if !scaffold.Executable {
+		return dataquery.DataAction{}, false
+	}
 	kind := NormalizeActionKind(dataquery.DataActionKind(scaffold.Kind))
 	params := concreteScaffoldParams(scaffold.ParamsTemplate)
 	switch kind {
@@ -299,6 +303,7 @@ func JoinRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Action
 			}
 			out = append(out, ActionScaffold{
 				Kind:         string(dataquery.DataActionJoinRecords),
+				Executable:   true,
 				UseWhen:      "join two record artifacts when both sides already contain compatible key fields",
 				InputPaths:   []string{leftAlias, rightAlias},
 				CommonFields: common,
@@ -360,6 +365,7 @@ func EnrichRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Acti
 			}}
 			out = append(out, ActionScaffold{
 				Kind:       string(dataquery.DataActionEnrichRecords),
+				Executable: false,
 				UseWhen:    "apply lookup/reference values onto base records while preserving base row cardinality",
 				InputPaths: []string{baseAlias, lookupAlias},
 				Fields:     clampStrings(base.Fields, 20),
@@ -410,6 +416,7 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 			}
 			scaffold := ActionScaffold{
 				Kind:       string(dataquery.DataActionNormalizeEntities),
+				Executable: true,
 				UseWhen:    "produce a reusable mapping ledger between source records and reference records before applying canonical fields",
 				InputPaths: []string{sourceAlias, referenceAlias},
 				Fields:     clampStrings(source.Fields, 20),
@@ -488,6 +495,7 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 			}}
 			out = append(out, ActionScaffold{
 				Kind:       string(dataquery.DataActionApplyResolutions),
+				Executable: true,
 				UseWhen:    "apply an existing mapping/resolution ledger back onto base records before filtering, joining, or contribution calculation",
 				InputPaths: []string{baseAlias, ledgerAlias},
 				Fields:     clampStrings(base.Fields, 20),
