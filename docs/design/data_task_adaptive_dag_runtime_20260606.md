@@ -10734,3 +10734,49 @@ Remaining architecture items:
 - [ ] Make CLI and REPL consume the same workflow reducer and event sink so
       progress, violations, and terminal failures render consistently without
       duplicating orchestration policy.
+
+### Batch 244: Relation Progress Signatures In Workflow IR
+
+After stage policy moved into `internal/dataworkflow`, the next remaining hard
+gate still lived in REPL-local code: repeated relation materialization without
+ledger progress. That check is critical for convergence because relation
+actions can keep producing intermediate artifacts while the workflow never
+reaches contribution or reconciliation ledgers. Keeping it in REPL records made
+the policy hard to share with CLI and made future workflow-state reducers
+harder to reason about.
+
+The generalized invariant is:
+
+- relation materialization is a typed action family, currently
+  `apply_entity_resolutions`, `enrich_records`, and `join_records`;
+- a recent run of relation-family result events without contribution or
+  reconcile progress is a stage progress violation when the workflow is trying
+  to prepare or compute contributions;
+- this decision uses only typed action kinds, result presence, errors, ledger
+  counts, and stage facts;
+- model prose, action ids, business nouns, and UI text do not participate in
+  the hard gate.
+
+Changes:
+
+- [x] Added `dataworkflow.ProgressEvent` as the compact typed history view for
+      progress checks.
+- [x] Added shared relation-family detection and
+      `SingleRelationMaterializationKind`.
+- [x] Added `RecentRelationNoProgressCount`,
+      `RelationNoProgressViolation`, and `WouldRepeatRelationNoProgress` in
+      `internal/dataworkflow`.
+- [x] Changed REPL workflow code to adapt records into progress events and
+      delegate no-progress violation/fallback blocking to the workflow IR.
+- [x] Added regression coverage for typed no-progress violation construction
+      and relation fallback blocking.
+
+Remaining architecture items:
+
+- [ ] Extend progress signatures with field-set deltas, row-count deltas,
+      schema deltas, ledger deltas, and stage movement so productive relation
+      materialization is not confused with no-op relation loops.
+- [ ] Move concrete relation scaffold sorting and fallback construction behind
+      ArtifactGraph-aware workflow helpers.
+- [ ] Feed relation progress signatures into the shared CLI/REPL event sink so
+      users see business-facing progress and compact audit details consistently.
