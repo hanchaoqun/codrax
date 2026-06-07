@@ -11087,9 +11087,9 @@ Remaining architecture items:
 - [ ] Replace REPL-local fallback signatures with reducer-owned action graph
       replay checks everywhere, including deferred-plan and terminal-repair
       paths.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 252: Next-Stage Concrete Fallback Reducer
 
@@ -11146,9 +11146,9 @@ Remaining architecture items:
 - [x] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`. Completed in
       Batch 256.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 253: Reducer-Owned Materialization And Completion Plans
 
@@ -11204,9 +11204,9 @@ Remaining architecture items:
 - [x] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`. Completed in
       Batch 256.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 254: Reducer-Owned Coverage And Discovery Plans
 
@@ -11256,9 +11256,9 @@ Remaining architecture items:
 - [x] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`. Completed in
       Batch 256.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 255: Typed Repeated-Failure Guards
 
@@ -11303,9 +11303,9 @@ Remaining architecture items:
 - [x] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`. Completed in
       Batch 256.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 256: Executable Scaffold Boundary
 
@@ -11365,9 +11365,9 @@ Remaining architecture items:
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 257: Repeated Failure Replacement Transition
 
@@ -11415,9 +11415,9 @@ Remaining architecture items:
 - [ ] Finish replacing REPL-local fallback signatures with reducer-owned action
       graph replay checks for terminal-repair paths. Deferred-plan replay moved
       in Batch 258.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 258: Reducer-Owned Deferred Dispatch
 
@@ -11463,9 +11463,9 @@ Remaining architecture items:
 - [x] Move terminal-completion repair signatures behind reducer-owned
       transition objects. Terminal next-stage fallback and output projection
       moved in Batch 259; completion repair transition moved in Batch 260.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 259: Reducer-Owned Terminal Next-Stage Fallback
 
@@ -11516,9 +11516,9 @@ Remaining architecture items:
       terminal audit failure state share one state-machine result. Completed in
       Batch 260 for completion transition; repair-failure fallback still emits
       through the shared process-event item below.
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
 
 ### Batch 260: Completion Repair Transition
 
@@ -11562,6 +11562,59 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+- [x] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
-      low-noise.
+      low-noise. Completed in Batch 261.
+
+### Batch 261: Shared Process Event Sink And Business-Facing Data UX
+
+The next IR pass closed the user-facing transparency gap without moving
+scheduling policy back into the REPL layer. Before this batch, CLI, REPL, and
+workflow journal snapshots each rebuilt process summaries in slightly different
+ways. Business-facing fields such as goal, batch purpose, next step, and action
+purpose were available in the typed plan, but the display path still passed
+plain strings around and re-classified them from localized prefixes.
+
+This is a generic process-event problem, not a business-domain problem. Data
+workflows should expose what the model is trying to do in business terms while
+keeping internal counters available as low-noise audit details. The system must
+not parse user intent or model prose to decide hard behavior; the display layer
+may render already-typed plan fields for transparency.
+
+The generalized invariant is:
+
+- `internal/dataworkflow` owns the typed process event shape used by journals,
+  CLI, and REPL;
+- process events carry structured fields: goal, batch purpose, next step,
+  action summary, audit details, status, reason, and optional guard state;
+- action summary prefers `action.purpose` when present and falls back to typed
+  action kind, never to business-specific file names or domain keywords;
+- REPL/CLI render details from typed markers, not from localized prefix
+  matching;
+- plan panels may show full business intent; workflow result/evaluate rows keep
+  audit counters low-noise and avoid repeating the same goal every batch.
+
+Changes:
+
+- [x] Added `WorkflowProcessEventInput` and
+      `BuildWorkflowProcessEvent` in `internal/dataworkflow`.
+- [x] Added reducer-level `ActionIntentSummary` and neutral
+      `ResultAuditDetails` so terminal/checkpoint journals and UI can share one
+      process-event projection.
+- [x] Changed checkpoint and terminal journal event construction to use the
+      shared process-event builder.
+- [x] Changed REPL and CLI plan/workflow details to render typed business
+      details through internal markers instead of localized prefix matching.
+- [x] Changed data workflow execution details to show batch purpose, next step,
+      and action intent without repeating the overall goal on every result and
+      evaluation row.
+- [x] Kept CLI progress on stderr and final answer on stdout; the request line
+      remains emitted through the existing stderr progress channel.
+- [x] Added regression coverage for typed process events, neutral result audit
+      details, marker stripping, and low-noise result/evaluate rendering.
+
+Remaining architecture items:
+
+- [ ] Re-audit the full design document for historical `Remaining architecture
+      items` that are already superseded by later batches, and split any truly
+      open items into a short current backlog before running the real scenario.

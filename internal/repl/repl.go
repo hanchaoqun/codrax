@@ -1665,7 +1665,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		dataRounds++
 		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
-		r.emitDataTaskWorkflowAudit("execute", dataRounds, dataTaskPlanAuditDetails(currentPlan, r.language)...)
+		r.emitDataTaskWorkflowAudit("execute", dataRounds, dataTaskWorkflowPlanContextDetails("execute", currentPlan, r.language)...)
 		var result dataquery.Result
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
@@ -1839,7 +1839,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		r.auditDataTaskResult(dataRounds, result)
 		writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "repl")
-		r.emitDataTaskWorkflowAudit("result", dataRounds, append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskPlanAuditDetails(currentPlan, r.language)...)...)
+		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
+		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -1895,7 +1896,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskPlanAuditDetails(currentPlan, r.language)...)
+		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
 		ctx := r.startTurn()
 		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, deferredPlan, r.language)
 		r.endTurn()
@@ -2660,7 +2661,7 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 	label, segs := dataTaskPlanAuditSummary(plan, r.language)
 	r.renderer.EmitLightRouteSummary(label, segs)
 	if details := dataTaskPlanAuditDetails(plan, r.language); len(details) > 0 {
-		r.renderBorderedDataProcessCompact(strings.Join(details, "\n"))
+		r.renderBorderedDataProcessCompact(strings.Join(dataTaskDisplayDetailLines(details), "\n"))
 	}
 }
 
@@ -2979,18 +2980,15 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		}
 		violations = append(violations, guard.Violations...)
 		copied := guard
-		processEvents = append(processEvents, dataworkflow.WorkflowJournalEvent{
-			Kind:          "guard",
-			Round:         dataRounds,
-			Status:        firstNonEmptyString(guard.Severity, "blocked"),
-			Reason:        guard.ErrorText(),
-			Goal:          strings.TrimSpace(current.Goal),
-			BatchPurpose:  strings.TrimSpace(current.WhyThisBatch),
-			NextStep:      strings.TrimSpace(current.NextBatch),
-			ActionSummary: strings.TrimPrefix(dataTaskActionSummarySegment(current.Actions, "en"), "steps "),
-			AuditDetails:  cleanDataTaskStrings([]string{guard.Code}),
-			Guard:         &copied,
-		})
+		processEvents = append(processEvents, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:         "guard",
+			Round:        dataRounds,
+			Status:       firstNonEmptyString(guard.Severity, "blocked"),
+			Reason:       guard.ErrorText(),
+			Plan:         current,
+			AuditDetails: cleanDataTaskStrings([]string{guard.Code}),
+			Guard:        &copied,
+		}))
 	}
 	snapshot := dataworkflow.WorkflowJournal{
 		Status:             "checkpoint",
@@ -3055,23 +3053,14 @@ func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkf
 			status = "failed"
 			reason = firstNonEmptyString(oneLineClamp(rec.Err, 240), reason)
 		}
-		auditDetails := []string{}
-		if rec.Result != nil {
-			if detail := dataTaskWorkflowResultSegment("en", *rec.Result); strings.TrimSpace(detail) != "" {
-				auditDetails = append(auditDetails, detail)
-			}
-		}
-		events = append(events, dataworkflow.WorkflowJournalEvent{
-			Kind:          kind,
-			Round:         i + 1,
-			Status:        status,
-			Reason:        reason,
-			Goal:          strings.TrimSpace(rec.Plan.Goal),
-			BatchPurpose:  strings.TrimSpace(rec.Plan.WhyThisBatch),
-			NextStep:      strings.TrimSpace(rec.Plan.NextBatch),
-			ActionSummary: strings.TrimPrefix(dataTaskActionSummarySegment(rec.Plan.Actions, "en"), "steps "),
-			AuditDetails:  cleanDataTaskStrings(auditDetails),
-		})
+		events = append(events, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:   kind,
+			Round:  i + 1,
+			Status: status,
+			Reason: reason,
+			Plan:   rec.Plan,
+			Result: rec.Result,
+		}))
 	}
 	return events
 }
@@ -3558,9 +3547,9 @@ func dataTaskWorkflowErrorSegment(lang, errText string) string {
 		return ""
 	}
 	if isZh(lang) {
-		return "上次失败 " + errText
+		return dataTaskFailureDetail("上次失败 " + errText)
 	}
-	return "last failure " + errText
+	return dataTaskFailureDetail("last failure " + errText)
 }
 
 func dataTaskWorkflowResultSegment(lang string, result dataquery.Result) string {
@@ -3614,6 +3603,50 @@ func dataTaskWorkflowInlineSegments(kind, lang string, details ...string) []stri
 	return nil
 }
 
+const (
+	dataTaskDetailBusinessMarker = "\x1fdata-business:"
+	dataTaskDetailFailureMarker  = "\x1fdata-failure:"
+)
+
+func dataTaskBusinessDetail(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	return dataTaskDetailBusinessMarker + line
+}
+
+func dataTaskFailureDetail(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	return dataTaskDetailFailureMarker + line
+}
+
+func dataTaskWorkflowDetailClass(detail string) (string, string) {
+	detail = strings.TrimSpace(detail)
+	switch {
+	case strings.HasPrefix(detail, dataTaskDetailBusinessMarker):
+		return "business", strings.TrimSpace(strings.TrimPrefix(detail, dataTaskDetailBusinessMarker))
+	case strings.HasPrefix(detail, dataTaskDetailFailureMarker):
+		return "failure", strings.TrimSpace(strings.TrimPrefix(detail, dataTaskDetailFailureMarker))
+	default:
+		return "audit", detail
+	}
+}
+
+func dataTaskDisplayDetailLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		_, text := dataTaskWorkflowDetailClass(line)
+		if text = strings.TrimSpace(text); text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
 func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ...string) []string {
 	zh := isZh(lang)
 	var lines []string
@@ -3626,15 +3659,19 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 	}
 	var businessDetails []string
 	var auditDetails []string
+	var failureDetails []string
 	for _, detail := range details {
-		detail = strings.TrimSpace(detail)
-		if detail == "" {
+		class, text := dataTaskWorkflowDetailClass(detail)
+		if text == "" {
 			continue
 		}
-		if dataTaskWorkflowDetailLooksBusinessFacing(detail, lang) {
-			businessDetails = append(businessDetails, detail)
-		} else {
-			auditDetails = append(auditDetails, detail)
+		switch class {
+		case "business":
+			businessDetails = append(businessDetails, text)
+		case "failure":
+			failureDetails = append(failureDetails, text)
+		default:
+			auditDetails = append(auditDetails, text)
 		}
 	}
 	showBusinessDetails := dataTaskWorkflowShouldShowBusinessDetails(kind, auditDetails)
@@ -3687,15 +3724,14 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 			}
 		}
 	}
-	for _, detail := range auditDetails {
-		if dataTaskWorkflowDetailLooksFailure(detail, lang) {
-			if zh {
-				add("原因：", detail)
-			} else {
-				add("Reason: ", detail)
-			}
-			continue
+	for _, detail := range failureDetails {
+		if zh {
+			add("原因：", detail)
+		} else {
+			add("Reason: ", detail)
 		}
+	}
+	for _, detail := range auditDetails {
 		if zh {
 			add("审计：", detail)
 		} else {
@@ -3712,41 +3748,6 @@ func dataTaskWorkflowShouldShowBusinessDetails(kind string, auditDetails []strin
 	default:
 		return true
 	}
-}
-
-func dataTaskWorkflowDetailLooksBusinessFacing(detail, lang string) bool {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		return false
-	}
-	prefixes := []string{"Goal:", "Batch:", "Next:", "Actions:"}
-	if isZh(lang) {
-		prefixes = []string{"目标：", "本批：", "下一步：", "步骤 "}
-	}
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(detail, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func dataTaskWorkflowDetailLooksFailure(detail, lang string) bool {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		return false
-	}
-	prefixes := []string{"last failure ", "failed ", "error "}
-	if isZh(lang) {
-		prefixes = []string{"上次失败 ", "失败 ", "错误 "}
-	}
-	lower := strings.ToLower(detail)
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string, dataRounds, repairRounds int) bool {
@@ -3855,65 +3856,68 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 }
 
 func dataTaskPlanAuditDetails(plan dataquery.TaskPlan, lang string) []string {
-	var segs []string
-	zh := isZh(lang)
-	if goal := strings.TrimSpace(plan.Goal); goal != "" {
-		if zh {
-			segs = append(segs, "目标："+oneLineClamp(goal, 180))
-		} else {
-			segs = append(segs, "Goal: "+oneLineClamp(goal, 180))
-		}
-	}
-	if why := strings.TrimSpace(plan.WhyThisBatch); why != "" {
-		if zh {
-			segs = append(segs, "本批："+oneLineClamp(why, 180))
-		} else {
-			segs = append(segs, "Batch: "+oneLineClamp(why, 180))
-		}
-	}
-	if next := strings.TrimSpace(plan.NextBatch); next != "" {
-		if zh {
-			segs = append(segs, "下一步："+oneLineClamp(next, 180))
-		} else {
-			segs = append(segs, "Next: "+oneLineClamp(next, 180))
-		}
-	}
-	if summary := dataTaskActionSummarySegment(plan.Actions, lang); summary != "" {
-		segs = append(segs, summary)
-	}
-	return segs
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind: "plan",
+		Plan: plan,
+	})
+	return dataTaskWorkflowEventBusinessDetails(event, lang, true, true, true, true)
 }
 
-func dataTaskActionSummarySegment(actions []dataquery.DataAction, lang string) string {
-	if len(actions) == 0 {
-		return ""
+func dataTaskWorkflowPlanContextDetails(kind string, plan dataquery.TaskPlan, lang string) []string {
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind: strings.TrimSpace(kind),
+		Plan: plan,
+	})
+	switch strings.TrimSpace(kind) {
+	case "execute", "continue", "repair":
+		return dataTaskWorkflowEventBusinessDetails(event, lang, false, true, true, true)
+	case "result":
+		return dataTaskWorkflowEventBusinessDetails(event, lang, false, true, false, true)
+	default:
+		return nil
 	}
-	limit := len(actions)
-	if limit > 3 {
-		limit = 3
-	}
-	parts := make([]string, 0, limit)
-	for i := 0; i < limit; i++ {
-		action := actions[i]
-		kind := strings.TrimSpace(string(action.Kind))
-		if kind == "" {
-			kind = strings.TrimSpace(action.ID)
+}
+
+func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEvent, lang string, includeGoal, includeBatch, includeNext, includeActions bool) []string {
+	var segs []string
+	zh := isZh(lang)
+	if includeGoal {
+		if goal := strings.TrimSpace(event.Goal); goal != "" {
+			if zh {
+				segs = append(segs, dataTaskBusinessDetail("目标："+oneLineClamp(goal, 180)))
+			} else {
+				segs = append(segs, dataTaskBusinessDetail("Goal: "+oneLineClamp(goal, 180)))
+			}
 		}
-		if kind == "" {
-			continue
+	}
+	if includeBatch {
+		if batch := strings.TrimSpace(event.BatchPurpose); batch != "" {
+			if zh {
+				segs = append(segs, dataTaskBusinessDetail("本批："+oneLineClamp(batch, 180)))
+			} else {
+				segs = append(segs, dataTaskBusinessDetail("Batch: "+oneLineClamp(batch, 180)))
+			}
 		}
-		parts = append(parts, kind)
 	}
-	if len(parts) == 0 {
-		return ""
+	if includeNext {
+		if next := strings.TrimSpace(event.NextStep); next != "" {
+			if zh {
+				segs = append(segs, dataTaskBusinessDetail("下一步："+oneLineClamp(next, 180)))
+			} else {
+				segs = append(segs, dataTaskBusinessDetail("Next: "+oneLineClamp(next, 180)))
+			}
+		}
 	}
-	if len(actions) > limit {
-		parts = append(parts, fmt.Sprintf("+%d", len(actions)-limit))
+	if includeActions {
+		if summary := strings.TrimSpace(event.ActionSummary); summary != "" {
+			if zh {
+				segs = append(segs, dataTaskBusinessDetail("动作："+oneLineClamp(summary, 180)))
+			} else {
+				segs = append(segs, dataTaskBusinessDetail("Actions: "+oneLineClamp(summary, 180)))
+			}
+		}
 	}
-	if isZh(lang) {
-		return "步骤 " + strings.Join(parts, " → ")
-	}
-	return "steps " + strings.Join(parts, " -> ")
+	return segs
 }
 
 func dataTaskValidationFlagSegments(contract dataquery.CoverageContract, lang string) []string {

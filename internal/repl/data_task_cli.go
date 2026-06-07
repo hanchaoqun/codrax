@@ -345,7 +345,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
 		dataRounds++
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds, dataTaskPlanAuditDetails(currentPlan, cfg.Language)...)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds, dataTaskWorkflowPlanContextDetails("execute", currentPlan, cfg.Language)...)
 		var result dataquery.Result
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
@@ -456,7 +456,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
 		writeDataTaskWorkflowCheckpointFile(cfg.RuntimeAnchor, repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "cli")
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskPlanAuditDetails(currentPlan, cfg.Language)...)...)
+		resultDetails := append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, cfg.Language)...)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, resultDetails...)
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -497,7 +498,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds, dataTaskPlanAuditDetails(currentPlan, cfg.Language)...)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds)
 		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, deferredPlan, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
@@ -911,7 +912,7 @@ func dataTaskCLIPlanProgress(w io.Writer, lang string, plan dataquery.TaskPlan) 
 	}
 	label, segs := dataTaskPlanAuditSummary(plan, lang)
 	cliLightRouteSummary(w, label, segs)
-	cliLightRouteDetails(w, dataTaskPlanAuditDetails(plan, lang))
+	cliLightRouteDetails(w, dataTaskDisplayDetailLines(dataTaskPlanAuditDetails(plan, lang)))
 }
 
 func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, details ...string) {
