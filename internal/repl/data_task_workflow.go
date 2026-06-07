@@ -84,31 +84,35 @@ func dataTaskViolationNodeKey(v dataquery.DataTaskViolation) string {
 }
 
 func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
+	return dataTaskPlanStagingGuardResult(plan).ErrorText()
+}
+
+func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	status := strings.ToLower(strings.TrimSpace(plan.Status))
 	if status != "" && status != "ready" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskActionStagingGuardError(plan)
+		return dataTaskGuardResultFromMessage("action_staging_guard", dataTaskActionStagingGuardError(plan))
 	}
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return errText
+		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
 	}
 	if strings.TrimSpace(plan.Script) == "" {
-		return "data planning incomplete: ready data plan has no executable body. Emit a bounded actions[] batch or a script with emit_result/emit; do not mark a data plan ready when it only declares inputs, contracts, or prose."
+		return dataTaskGuardResultFromMessage("missing_executable_body", "data planning incomplete: ready data plan has no executable body. Emit a bounded actions[] batch or a script with emit_result/emit; do not mark a data plan ready when it only declares inputs, contracts, or prose.")
 	}
 	lines := dataTaskScriptLineCount(plan.Script)
 	if lines > 0 && !dataTaskScriptHasResultEmitter(plan.Script) {
-		return fmt.Sprintf("data planning incomplete: script has no result emitter (script_lines=%d). A bounded data script must call emit(...), emit_result(...), or assign result before it can complete; otherwise split the workflow into typed actions that produce reusable artifacts.",
-			lines)
+		return dataTaskGuardResultFromMessage("missing_result_emitter", fmt.Sprintf("data planning incomplete: script has no result emitter (script_lines=%d). A bounded data script must call emit(...), emit_result(...), or assign result before it can complete; otherwise split the workflow into typed actions that produce reusable artifacts.",
+			lines))
 	}
 	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
 	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
 	inputs := len(plan.InputPaths)
 	complexBatch := requiredMaterials >= 4 || validationLedgers >= 2 || inputs >= 4
 	if lines > 0 && complexBatch {
-		return fmt.Sprintf("data planning incomplete: complex data task should not start as one top-level script (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Emit an atomic actions[] batch such as inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform, and set continue_after=true when more graph work remains.",
-			lines, inputs, requiredMaterials, validationLedgers)
+		return dataTaskGuardResultFromMessage("complex_top_level_script", fmt.Sprintf("data planning incomplete: complex data task should not start as one top-level script (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Emit an atomic actions[] batch such as inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform, and set continue_after=true when more graph work remains.",
+			lines, inputs, requiredMaterials, validationLedgers))
 	}
 	oversized := lines >= dataTaskOneShotScriptLineHardLimit ||
 		(lines >= dataTaskOneShotScriptLineSoftLimit && (requiredMaterials >= dataTaskOneShotRequiredMaterialLimit || validationLedgers >= dataTaskOneShotValidationLedgerLimit)) ||
@@ -116,29 +120,41 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 		(requiredMaterials >= dataTaskOneShotRequiredMaterialLimit+4 && validationLedgers >= dataTaskOneShotValidationLedgerLimit)
 	if !oversized {
 		if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); errText != "" {
-			return errText
+			return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
 		}
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller atomic actions[] batch such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform; set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
-		lines, inputs, requiredMaterials, validationLedgers)
+	return dataTaskGuardResultFromMessage("oversized_data_batch", fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller atomic actions[] batch such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform; set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
+		lines, inputs, requiredMaterials, validationLedgers))
 }
 
 func dataTaskWorkflowStagingGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowStagingGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	status := strings.ToLower(strings.TrimSpace(plan.Status))
 	if status != "" && status != "ready" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskWorkflowActionStagingGuardError(records, plan)
+		return dataTaskGuardResultFromMessage("workflow_action_staging_guard", dataTaskWorkflowActionStagingGuardError(records, plan))
 	}
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return errText
+		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
 	}
 	if errText := dataTaskTerminalRequiredMaterialSchedulingError(records, plan); errText != "" {
-		return errText
+		return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
 	}
-	return dataTaskPlanStagingGuardError(plan)
+	return dataTaskPlanStagingGuardResult(plan)
+}
+
+func dataTaskGuardResultFromMessage(code, message string) dataworkflow.GuardResult {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return dataworkflow.GuardResult{}
+	}
+	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message)
 }
 
 func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {

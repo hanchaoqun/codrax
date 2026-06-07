@@ -6494,6 +6494,19 @@ func TestDataTaskTerminalWorkflowGuardRejectsPrematureBlockedPlan(t *testing.T) 
 	}
 }
 
+func TestDataTaskWorkflowStagingGuardResultCarriesTypedCode(t *testing.T) {
+	guard := dataTaskWorkflowStagingGuardResult(nil, dataquery.TaskPlan{Status: "ready"})
+	if guard.Empty() {
+		t.Fatal("guard should reject ready plan without executable body")
+	}
+	if guard.Code != "missing_executable_body" {
+		t.Fatalf("guard.Code=%q, want missing_executable_body", guard.Code)
+	}
+	if !strings.Contains(guard.ErrorText(), "no executable body") {
+		t.Fatalf("guard text=%q, want executable body guidance", guard.ErrorText())
+	}
+}
+
 func TestNormalizeDataTaskEvaluationUsesTypedGraphWhenCustomDisabled(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

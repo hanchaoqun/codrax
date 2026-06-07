@@ -10100,3 +10100,27 @@ Remaining architecture items:
       return `GuardResult` directly.
 - [ ] Persist workflow journal checkpoints during execution, not only at
       terminal exit.
+
+### Batch 227: Typed Staging Guard Entrypoint
+
+The terminal guard now emits a typed result, but staging still exposed only
+prose. This batch adds typed staging entrypoints while keeping the existing
+string functions as compatibility wrappers for the current REPL/CLI loops.
+The hard decision still comes from deterministic guard conditions; no logic
+parses the rendered message.
+
+Changes:
+
+- [x] Added `dataTaskPlanStagingGuardResult`.
+- [x] Added `dataTaskWorkflowStagingGuardResult`.
+- [x] Kept `dataTaskPlanStagingGuardError` and
+      `dataTaskWorkflowStagingGuardError` as thin string renderers.
+- [x] Added regression coverage that a ready plan without an executable body
+      produces a typed `missing_executable_body` guard result.
+
+Remaining architecture items:
+
+- [ ] Convert large action-level guard internals to emit typed violation/result
+      objects directly instead of wrapping rendered messages.
+- [ ] Attach staging guard results to workflow journal process events before
+      repair/continuation planning.
