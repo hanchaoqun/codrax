@@ -11905,3 +11905,46 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 268: Generic Progress Signatures
+
+The next IR pass extended data workflow progress events beyond relation-family
+no-progress. Before this batch, `ProgressEvent` only carried actions,
+result/error presence, contribution count, and reconcile presence. That made
+relation materialization convergence too coarse: a join/enrich/apply batch that
+changed schema or row shape could still look identical to an unproductive loop
+until contribution or reconcile records appeared.
+
+The generalized invariant is that convergence checks should compare typed
+structural movement, not model prose and not business-specific fields. A
+progress event now carries artifact count, aggregate row count, artifact field
+set, decision/rule/entity/contribution ledger counts, reconcile presence,
+answer presence, and optional stage. Relation no-progress counts only repeated
+relation events with the same generic signature; a field/row/ledger/stage
+change breaks the repeated-no-progress streak.
+
+Changes:
+
+- [x] Extended `dataworkflow.ProgressEvent` with generic artifact, schema,
+      ledger, answer, and stage fields.
+- [x] Added `ProgressSignature` in `internal/dataworkflow`.
+- [x] Updated `RecentRelationNoProgressCount` to stop when a recent relation
+      result has a different structural progress signature.
+- [x] Updated the REPL adapter to populate progress events from `dataquery`
+      results, including nested artifact fields and row counts.
+- [x] Added reducer regression coverage proving schema/field progress prevents
+      a repeated relation no-progress classification.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move remaining relation-specific hard guard entrypoints behind
+      reducer-owned transition inputs where they still produce scheduling
+      decisions from local wrappers.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

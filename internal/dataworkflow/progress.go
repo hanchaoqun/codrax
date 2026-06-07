@@ -14,11 +14,19 @@ const ViolationStageNoProgress = "stage_no_progress"
 // checks. It carries typed action and ledger facts only; UI records and model
 // prose stay outside the hard policy layer.
 type ProgressEvent struct {
-	Actions             []dataquery.DataAction `json:"actions,omitempty"`
-	ResultPresent       bool                   `json:"result_present,omitempty"`
-	Error               string                 `json:"error,omitempty"`
-	ContributionRecords int                    `json:"contribution_records,omitempty"`
-	HasReconcile        bool                   `json:"has_reconcile,omitempty"`
+	Actions                 []dataquery.DataAction `json:"actions,omitempty"`
+	ResultPresent           bool                   `json:"result_present,omitempty"`
+	Error                   string                 `json:"error,omitempty"`
+	ArtifactCount           int                    `json:"artifact_count,omitempty"`
+	ArtifactRows            int                    `json:"artifact_rows,omitempty"`
+	ArtifactFields          []string               `json:"artifact_fields,omitempty"`
+	DecisionRecords         int                    `json:"decision_records,omitempty"`
+	RuleCoverageRecords     int                    `json:"rule_coverage_records,omitempty"`
+	EntityResolutionRecords int                    `json:"entity_resolution_records,omitempty"`
+	ContributionRecords     int                    `json:"contribution_records,omitempty"`
+	HasReconcile            bool                   `json:"has_reconcile,omitempty"`
+	AnswerPresent           bool                   `json:"answer_present,omitempty"`
+	Stage                   string                 `json:"stage,omitempty"`
 }
 
 func IsRelationMaterialization(kind dataquery.DataActionKind) bool {
@@ -56,6 +64,7 @@ func RecentRelationNoProgressCount(events []ProgressEvent) (int, []string) {
 	count := 0
 	seen := make(map[string]bool)
 	var kinds []string
+	var latestSignature string
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
 		if !event.ResultPresent || strings.TrimSpace(event.Error) != "" {
@@ -68,6 +77,12 @@ func RecentRelationNoProgressCount(events []ProgressEvent) (int, []string) {
 		if !ok {
 			break
 		}
+		signature := ProgressSignature(event)
+		if latestSignature == "" {
+			latestSignature = signature
+		} else if signature != latestSignature {
+			break
+		}
 		count++
 		if !seen[kind] {
 			seen[kind] = true
@@ -76,6 +91,22 @@ func RecentRelationNoProgressCount(events []ProgressEvent) (int, []string) {
 	}
 	sort.Strings(kinds)
 	return count, kinds
+}
+
+func ProgressSignature(event ProgressEvent) string {
+	fields := cleanStrings(event.ArtifactFields)
+	sort.Strings(fields)
+	return fmt.Sprintf("stage=%s artifacts=%d rows=%d fields=%s rule=%d decisions=%d entities=%d contrib=%d reconcile=%t answer=%t",
+		strings.TrimSpace(event.Stage),
+		event.ArtifactCount,
+		event.ArtifactRows,
+		strings.Join(fields, ","),
+		event.RuleCoverageRecords,
+		event.DecisionRecords,
+		event.EntityResolutionRecords,
+		event.ContributionRecords,
+		event.HasReconcile,
+		event.AnswerPresent)
 }
 
 func RelationNoProgressViolation(facts StageFacts, events []ProgressEvent, threshold int) (WorkflowViolation, bool) {

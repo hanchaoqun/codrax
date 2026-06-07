@@ -34,6 +34,38 @@ func TestRecentRelationNoProgressCountStopsAtLedgerProgress(t *testing.T) {
 	}
 }
 
+func TestRecentRelationNoProgressCountStopsAtProgressSignatureChange(t *testing.T) {
+	events := []ProgressEvent{
+		{
+			ResultPresent: true,
+			ArtifactCount: 1,
+			ArtifactRows:  5,
+			ArtifactFields: []string{
+				"id",
+			},
+			Actions: []dataquery.DataAction{{
+				Kind: dataquery.DataActionJoinRecords,
+			}},
+		},
+		{
+			ResultPresent: true,
+			ArtifactCount: 1,
+			ArtifactRows:  5,
+			ArtifactFields: []string{
+				"id",
+				"canonical_id",
+			},
+			Actions: []dataquery.DataAction{{
+				Kind: dataquery.DataActionJoinRecords,
+			}},
+		},
+	}
+	count, kinds := RecentRelationNoProgressCount(events)
+	if count != 1 || len(kinds) != 1 || kinds[0] != string(dataquery.DataActionJoinRecords) {
+		t.Fatalf("count=%d kinds=%v, want only latest relation event because schema changed", count, kinds)
+	}
+}
+
 func TestRelationNoProgressViolationUsesTypedFacts(t *testing.T) {
 	facts := StageFacts{
 		MaterialCoverageSufficient: true,

@@ -5872,12 +5872,49 @@ func dataTaskWorkflowProgressEvents(records []dataTaskWorkflowRecord) []datawork
 			Error:         strings.TrimSpace(rec.Err),
 		}
 		if rec.Result != nil {
+			event.ArtifactCount, event.ArtifactRows, event.ArtifactFields = dataTaskResultArtifactProgressShape(*rec.Result)
+			event.DecisionRecords = len(rec.Result.Rows)
+			event.RuleCoverageRecords = len(rec.Result.RuleCoverage)
+			event.EntityResolutionRecords = len(rec.Result.EntityResolutions)
 			event.ContributionRecords = len(rec.Result.Contributions)
 			event.HasReconcile = rec.Result.Reconcile != nil
+			event.AnswerPresent = strings.TrimSpace(rec.Result.Answer) != ""
 		}
 		events = append(events, event)
 	}
 	return events
+}
+
+func dataTaskResultArtifactProgressShape(result dataquery.Result) (count int, rows int, fields []string) {
+	seenFields := map[string]bool{}
+	for _, artifact := range result.Artifacts {
+		dataTaskAccumulateArtifactProgressShape(artifact, &count, &rows, seenFields)
+	}
+	fields = make([]string, 0, len(seenFields))
+	for field := range seenFields {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	return count, rows, fields
+}
+
+func dataTaskAccumulateArtifactProgressShape(artifact dataquery.DataArtifact, count *int, rows *int, fields map[string]bool) {
+	*count = *count + 1
+	if artifact.RowCount > 0 {
+		*rows += artifact.RowCount
+	}
+	for field := range artifact.Fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			fields[field] = true
+		}
+	}
+	for _, header := range cleanDataTaskStrings(artifact.Headers) {
+		fields[header] = true
+	}
+	for _, child := range artifact.Children {
+		dataTaskAccumulateArtifactProgressShape(child, count, rows, fields)
+	}
 }
 
 func dataTaskPlanSingleRelationMaterializationKind(plan dataquery.TaskPlan) (string, bool) {
