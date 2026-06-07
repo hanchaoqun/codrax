@@ -495,12 +495,10 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 	}
 	var ledgers []ArtifactSchemaProjection
 	for _, projection := range projections {
-		if projection.NodeClass == ArtifactNodeClassDiagnosticChild {
+		if projection.NodeClass == ArtifactNodeClassDiagnosticChild || projection.NodeClass == ArtifactNodeClassWorkflowLedger {
 			continue
 		}
-		if projection.NodeClass == ArtifactNodeClassWorkflowLedger ||
-			artifactKindHasPrefix(projection.Kind, dataquery.DataActionNormalizeEntities, dataquery.DataActionApplyResolutions) ||
-			looksLikeResolutionProjection(projection) {
+		if artifactKindHasPrefix(projection.Kind, dataquery.DataActionNormalizeEntities) || looksLikeResolutionProjection(projection) {
 			ledgers = append(ledgers, projection)
 		}
 	}
@@ -519,14 +517,36 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 			if ledgerAlias == "" || ledgerAlias == baseAlias {
 				continue
 			}
+			if !applyResolutionBaseCompatibleWithLedger(base, ledger) {
+				continue
+			}
+			targetPrefix := resolutionTargetFieldPrefix(ledgerAlias)
+			targetFields := []string{
+				targetPrefix + "_canonical_id",
+				targetPrefix + "_canonical_label",
+				targetPrefix + "_resolution_status",
+			}
+			if projectionHasAnyNamedField(base, targetFields...) && projectionLineageContains(base, ledgerAlias) {
+				continue
+			}
 			spec := []map[string]any{{
 				"resolution_path":       ledgerAlias,
 				"resolution_key_fields": []string{"item_id"},
-				"target_id_field":       resolutionTargetFieldPrefix(ledgerAlias) + "_canonical_id",
-				"target_label_field":    resolutionTargetFieldPrefix(ledgerAlias) + "_canonical_label",
-				"target_status_field":   resolutionTargetFieldPrefix(ledgerAlias) + "_resolution_status",
+				"target_id_field":       targetPrefix + "_canonical_id",
+				"target_label_field":    targetPrefix + "_canonical_label",
+				"target_status_field":   targetPrefix + "_resolution_status",
 				"unmatched_status":      "unmatched",
 			}}
+			if existingIDField := applyResolutionExistingIDField(base.Fields, targetPrefix); existingIDField != "" {
+				if reference, ok := applyResolutionReferenceProjection(projections, baseAlias, ledgerAlias, existingIDField, ledger); ok {
+					spec[0]["existing_id_field"] = existingIDField
+					spec[0]["reference_path"] = firstProjectionAlias(reference)
+					spec[0]["reference_id_field"] = existingIDField
+					if labelField := applyResolutionReferenceLabelField(reference.Fields, existingIDField); labelField != "" {
+						spec[0]["reference_label_field"] = labelField
+					}
+				}
+			}
 			out = append(out, ActionScaffold{
 				Kind:       string(dataquery.DataActionApplyResolutions),
 				Executable: true,
@@ -547,6 +567,179 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 		}
 	}
 	return out
+}
+
+func applyResolutionBaseCompatibleWithLedger(base, ledger ArtifactSchemaProjection) bool {
+	sources, precise := applyResolutionSourceCandidates(ledger)
+	if len(sources) == 0 {
+		return true
+	}
+	if !precise {
+		return false
+	}
+	for _, source := range sources {
+		if projectionLineageContains(base, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyResolutionSourceCandidates(ledger ArtifactSchemaProjection) ([]string, bool) {
+	if sources := cleanStrings(ledger.SourceRecordPaths); len(sources) > 0 {
+		return sources, true
+	}
+	sourcePaths := cleanStrings(ledger.SourcePaths)
+	if len(sourcePaths) == 0 {
+		return nil, true
+	}
+	referenceSet := map[string]bool{}
+	for _, reference := range cleanStrings(ledger.ReferencePaths) {
+		if key := normalizeAccessPath(reference); key != "" {
+			referenceSet[key] = true
+		}
+	}
+	var nonReference []string
+	for _, source := range sourcePaths {
+		if key := normalizeAccessPath(source); key != "" && referenceSet[key] {
+			continue
+		}
+		nonReference = append(nonReference, source)
+	}
+	if len(nonReference) == 1 {
+		return nonReference, true
+	}
+	if len(nonReference) > 1 {
+		return nonReference, false
+	}
+	if len(sourcePaths) == 1 {
+		return sourcePaths, true
+	}
+	return sourcePaths, false
+}
+
+func projectionLineageContains(projection ArtifactSchemaProjection, alias string) bool {
+	want := normalizeAccessPath(alias)
+	if want == "" {
+		return false
+	}
+	candidates := append([]string{projection.ID}, projection.Aliases...)
+	candidates = append(candidates, projection.SourceRecordPaths...)
+	candidates = append(candidates, projection.ReferencePaths...)
+	candidates = append(candidates, projection.EvidencePaths...)
+	candidates = append(candidates, projection.SourcePaths...)
+	for _, candidate := range candidates {
+		if normalizeAccessPath(candidate) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func projectionHasAnyNamedField(projection ArtifactSchemaProjection, fields ...string) bool {
+	set := artifactFieldSet(projection.Fields)
+	for _, field := range fields {
+		if set[strings.ToLower(strings.TrimSpace(field))] != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func applyResolutionExistingIDField(fields []string, targetPrefix string) string {
+	prefix := strings.Trim(cleanIdentifier(targetPrefix), "_")
+	if prefix == "" {
+		return ""
+	}
+	var candidates []string
+	add := func(value string) {
+		value = strings.Trim(value, "_")
+		if value != "" {
+			candidates = append(candidates, value)
+		}
+	}
+	add(prefix + "_id")
+	add(prefix + "_code")
+	for _, suffix := range []string{"_canonical", "_entity", "_dimension"} {
+		if strings.HasSuffix(prefix, suffix) && len(prefix) > len(suffix) {
+			base := strings.TrimSuffix(prefix, suffix)
+			add(base + "_id")
+			add(base + "_code")
+		}
+	}
+	return firstExistingProjectionField(fields, candidates...)
+}
+
+func applyResolutionReferenceProjection(projections []ArtifactSchemaProjection, baseAlias, ledgerAlias, existingIDField string, ledger ArtifactSchemaProjection) (ArtifactSchemaProjection, bool) {
+	sourceHints := map[string]int{}
+	hints := cleanStrings(ledger.ReferencePaths)
+	if len(hints) == 0 {
+		sourceSet := map[string]bool{}
+		for _, source := range cleanStrings(ledger.SourceRecordPaths) {
+			if key := normalizeAccessPath(source); key != "" {
+				sourceSet[key] = true
+			}
+		}
+		for _, source := range cleanStrings(ledger.SourcePaths) {
+			if key := normalizeAccessPath(source); key != "" && !sourceSet[key] {
+				hints = append(hints, source)
+			}
+		}
+	}
+	for i, source := range hints {
+		if key := normalizeAccessPath(source); key != "" {
+			sourceHints[key] = 100 - i
+		}
+	}
+	bestScore := -1
+	var best ArtifactSchemaProjection
+	for _, projection := range projections {
+		alias := firstProjectionAlias(projection)
+		if alias == "" || normalizeAccessPath(alias) == normalizeAccessPath(baseAlias) || normalizeAccessPath(alias) == normalizeAccessPath(ledgerAlias) {
+			continue
+		}
+		if len(projection.Fields) == 0 || projection.NodeClass == ArtifactNodeClassDiagnosticChild || projection.NodeClass == ArtifactNodeClassWorkflowLedger || projectionLooksLikeResolutionLedger(projection) {
+			continue
+		}
+		if firstExistingProjectionField(projection.Fields, existingIDField) == "" {
+			continue
+		}
+		score := 1
+		for _, candidate := range append([]string{projection.ID}, projection.Aliases...) {
+			if sourceHints[normalizeAccessPath(candidate)] > score {
+				score = sourceHints[normalizeAccessPath(candidate)]
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = projection
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func applyResolutionReferenceLabelField(fields []string, existingIDField string) string {
+	base := strings.TrimSpace(existingIDField)
+	lower := strings.ToLower(base)
+	var candidates []string
+	if strings.HasSuffix(lower, "_id") && len(base) > 3 {
+		candidates = append(candidates, base[:len(base)-3]+"_label", base[:len(base)-3]+"_name")
+	}
+	if strings.HasSuffix(lower, "_code") && len(base) > 5 {
+		candidates = append(candidates, base[:len(base)-5]+"_label", base[:len(base)-5]+"_name")
+	}
+	candidates = append(candidates, "canonical_label", "label", "name", "display_name", "title")
+	return firstExistingProjectionField(fields, candidates...)
+}
+
+func firstExistingProjectionField(fields []string, candidates ...string) string {
+	set := artifactFieldSet(fields)
+	for _, candidate := range candidates {
+		if got := set[strings.ToLower(strings.TrimSpace(candidate))]; got != "" {
+			return got
+		}
+	}
+	return ""
 }
 
 func normalizeScaffoldDirectionScore(sourceFields, referenceFields, chosenSourceFields, chosenReferenceFields []string, canonicalID, canonicalLabel string) int {
@@ -753,10 +946,18 @@ func hasAnyField(fields []string, wants ...string) bool {
 }
 
 func looksLikeResolutionProjection(projection ArtifactSchemaProjection) bool {
+	return projectionLooksLikeResolutionLedger(projection)
+}
+
+func projectionLooksLikeResolutionLedger(projection ArtifactSchemaProjection) bool {
 	fields := projection.Fields
-	hasLocator := hasAnyField(fields, "item_id", "source_locator", "_source_locator", "source_index", "_source_index", "row_index")
-	hasResolutionValue := hasAnyField(fields, "canonical_id", "canonical_label", "resolution_status", "status")
-	return hasLocator && hasResolutionValue
+	hasLocator := hasAnyField(fields, "item_id", "source_locator", "_source_locator", "source_index", "_source_index", "row_index", "record_id", "row_id")
+	hasSource := hasAnyField(fields, "source_value", "source_field", "evidence_refs")
+	hasCanonical := hasAnyField(fields, "canonical_id", "canonical_label", "canonical_value")
+	if hasLocator && hasCanonical && (hasSource || artifactKindHasPrefix(projection.Kind, dataquery.DataActionNormalizeEntities)) {
+		return true
+	}
+	return artifactKindHasPrefix(projection.Kind, dataquery.DataActionNormalizeEntities) && hasCanonical
 }
 
 func mustJSON(value any) string {

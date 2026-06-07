@@ -150,13 +150,15 @@ func TestApplyResolutionScaffoldsIgnoreDiagnosticResolutionChildren(t *testing.T
 			Fields:    []string{"item_id", "name"},
 		},
 		{
-			ID:          "entity_mappings.json",
-			Kind:        string(dataquery.DataActionNormalizeEntities),
-			NodeClass:   ArtifactNodeClassArtifact,
-			Aliases:     []string{"entity_mappings.json"},
-			JSONShape:   "array(len=2,item=object(keys=item_id,source_value,canonical_id,canonical_label))",
-			Fields:      []string{"item_id", "source_value", "canonical_id", "canonical_label"},
-			SourcePaths: []string{"records.json", "reference.json"},
+			ID:                "entity_mappings.json",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"entity_mappings.json"},
+			JSONShape:         "array(len=2,item=object(keys=item_id,source_value,canonical_id,canonical_label))",
+			Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label"},
+			SourcePaths:       []string{"records.json", "reference.json"},
+			SourceRecordPaths: []string{"records.json"},
+			ReferencePaths:    []string{"reference.json"},
 		},
 		{
 			ID:        "entity_mappings.json#entity_resolution_source",
@@ -174,6 +176,171 @@ func TestApplyResolutionScaffoldsIgnoreDiagnosticResolutionChildren(t *testing.T
 	}
 	if strings.Join(scaffolds[0].InputPaths, ",") != "records.json,entity_mappings.json" {
 		t.Fatalf("InputPaths=%v, want diagnostic child excluded", scaffolds[0].InputPaths)
+	}
+}
+
+func TestApplyResolutionScaffoldsSkipWorkflowLedgerHandleAndDiagnosticChildren(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:        "records.json#base",
+			Kind:      "apply_entity_resolutions/base",
+			NodeClass: ArtifactNodeClassDiagnosticChild,
+			Aliases:   []string{"records.json#base"},
+			JSONShape: "array(len=2,item=object(keys=_source_index,raw_name))",
+			Fields:    []string{"_source_index", "raw_name"},
+		},
+		{
+			ID:        "workflow_entity_resolutions",
+			Kind:      "workflow_ledger/entity_resolutions",
+			NodeClass: ArtifactNodeClassWorkflowLedger,
+			Aliases:   []string{"workflow_entity_resolutions"},
+			JSONShape: "array(len=2,item=object(keys=item_id,source_value,canonical_id,canonical_label,status))",
+			Fields:    []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+		},
+		{
+			ID:        "records",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"records"},
+			JSONShape: "array(len=2,item=object(keys=_source_index,raw_name))",
+			Fields:    []string{"_source_index", "raw_name"},
+		},
+	}
+
+	if got := ApplyResolutionScaffolds(projections, 8); len(got) != 0 {
+		t.Fatalf("ApplyResolutionScaffolds=%+v, want no auto scaffold from workflow-wide ledger handle or diagnostic child", got)
+	}
+}
+
+func TestApplyResolutionScaffoldsSkipAlreadyAppliedLedger(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "orders_with_vendor",
+			Kind:        string(dataquery.DataActionApplyResolutions),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"orders_with_vendor", "orders_with_vendor.json"},
+			JSONShape:   "array(len=2,item=object(keys=_source_index,order_id,vendor_canonical_id,vendor_resolution_status))",
+			Fields:      []string{"_source_index", "order_id", "vendor_canonical_id", "vendor_resolution_status"},
+			SourcePaths: []string{"orders", "vendor_resolution"},
+		},
+		{
+			ID:                "vendor_resolution",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"vendor_resolution", "vendor_resolution.json"},
+			Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+			SourceRecordPaths: []string{"orders"},
+			ReferencePaths:    []string{"vendors"},
+		},
+	}
+
+	for _, scaffold := range ApplyResolutionScaffolds(projections, 4) {
+		if len(scaffold.InputPaths) >= 2 &&
+			normalizeAccessPath(scaffold.InputPaths[0]) == "orders_with_vendor" &&
+			normalizeAccessPath(scaffold.InputPaths[1]) == "vendor_resolution" {
+			t.Fatalf("scaffold re-applies already applied ledger: %+v", scaffold)
+		}
+	}
+}
+
+func TestApplyResolutionScaffoldsSkipIncompatibleSourceLineage(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "rules_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"rules_records", "rules_records.json"},
+			JSONShape:   "array(len=3,item=object(keys=_source_index,text))",
+			SourcePaths: []string{"data_rules.md"},
+			Fields:      []string{"_source_index", "text"},
+		},
+		{
+			ID:                "vendor_resolution",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"vendor_resolution", "vendor_resolution.json"},
+			Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+			SourceRecordPaths: []string{"orders_cleaned"},
+			ReferencePaths:    []string{"vendors.csv"},
+		},
+	}
+
+	if got := ApplyResolutionScaffolds(projections, 4); len(got) != 0 {
+		t.Fatalf("ApplyResolutionScaffolds=%+v, want no apply-resolution scaffold for incompatible source lineage", got)
+	}
+}
+
+func TestApplyResolutionScaffoldsUseStructuredLineageNotSourcePathOrder(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "orders_cleaned",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"orders_cleaned"},
+			JSONShape:   "array(len=3,item=object(keys=_source_index,raw_name))",
+			SourcePaths: []string{"orders.csv"},
+			Fields:      []string{"_source_index", "raw_name"},
+		},
+		{
+			ID:                "vendor_resolution",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"vendor_resolution"},
+			Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+			SourcePaths:       []string{"vendors.csv", "orders_cleaned"},
+			SourceRecordPaths: []string{"orders_cleaned"},
+			ReferencePaths:    []string{"vendors.csv"},
+		},
+	}
+
+	got := ApplyResolutionScaffolds(projections, 4)
+	if len(got) != 1 {
+		t.Fatalf("ApplyResolutionScaffolds=%+v, want one scaffold using source_record_paths despite reversed source_paths", got)
+	}
+	if strings.Join(got[0].InputPaths, ",") != "orders_cleaned,vendor_resolution" {
+		t.Fatalf("InputPaths=%v, want base then resolution ledger", got[0].InputPaths)
+	}
+}
+
+func TestApplyResolutionScaffoldsAddExistingIDReferenceSpec(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "orders_cleaned",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"orders_cleaned"},
+			JSONShape:   "array(len=3,item=object(keys=_source_index,vendor_id,raw_name))",
+			SourcePaths: []string{"orders.csv"},
+			Fields:      []string{"_source_index", "vendor_id", "raw_name"},
+		},
+		{
+			ID:        "vendors",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"vendors"},
+			JSONShape: "array(len=3,item=object(keys=vendor_id,vendor_name))",
+			Fields:    []string{"vendor_id", "vendor_name"},
+		},
+		{
+			ID:                "vendor_resolution",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"vendor_resolution"},
+			Fields:            []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+			SourceRecordPaths: []string{"orders_cleaned"},
+			ReferencePaths:    []string{"vendors"},
+		},
+	}
+
+	got := ApplyResolutionScaffolds(projections, 4)
+	if len(got) == 0 {
+		t.Fatal("ApplyResolutionScaffolds empty, want scaffold")
+	}
+	spec := got[0].ParamsTemplate["resolution_specs"]
+	for _, want := range []string{`"existing_id_field":"vendor_id"`, `"reference_path":"vendors"`, `"reference_id_field":"vendor_id"`, `"reference_label_field":"vendor_name"`} {
+		if !strings.Contains(spec, want) {
+			t.Fatalf("resolution_specs=%s, want %s", spec, want)
+		}
 	}
 }
 

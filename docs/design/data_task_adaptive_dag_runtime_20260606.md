@@ -12005,3 +12005,67 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 270: Reducer-Owned Relation Scaffold Compatibility
+
+The next IR pass removed another split-brain path. Production planning already
+used `internal/dataworkflow` scaffold builders, but several old REPL-only
+relation helpers still carried compatibility checks and tests. That meant a
+test could pass against a path that the runtime no longer used, while the
+production `ApplyResolutionScaffolds` builder still lacked some of the old
+ArtifactGraph constraints.
+
+This is a generic graph-contract issue, not a data-domain rule. Automatic
+relation scaffolds should be generated from typed artifact projections only
+when the graph edge is structurally safe:
+
+- workflow-wide ledger handles and diagnostic children are not executable
+  relation inputs;
+- source/reference lineage must come from role-specific projection fields such
+  as `source_record_paths` and `reference_paths` when available, not from a
+  positional guess over mixed `source_paths`;
+- applying the same resolution ledger to an already-resolved base artifact is
+  an idempotent no-progress edge and should not be suggested again;
+- existing canonical/id fields on a base artifact may be used only with a
+  structurally compatible reference artifact.
+
+Changes:
+
+- [x] Moved apply-resolution scaffold compatibility into
+      `dataworkflow.ApplyResolutionScaffolds`.
+- [x] Skipped workflow-ledger handles and diagnostic children during automatic
+      apply-resolution scaffold generation.
+- [x] Stopped treating prior `apply_entity_resolutions` output artifacts as
+      reusable resolution ledgers.
+- [x] Added role-aware lineage compatibility using `source_record_paths` first,
+      with conservative handling when only ambiguous mixed `source_paths` are
+      available.
+- [x] Skipped scaffold edges that would reapply a resolution ledger already
+      present in the base artifact lineage and fields.
+- [x] Added generic existing-ID/reference verification hints to reducer-owned
+      apply-resolution scaffolds.
+- [x] Removed the unused REPL-only relation scaffold helpers for apply,
+      normalize, enrich, and join so the runtime and tests do not maintain two
+      relation-scaffold systems.
+- [x] Migrated regression coverage to `internal/dataworkflow` for diagnostic
+      children, workflow ledger handles, repeated application, source-lineage
+      compatibility, role-aware lineage ordering, and existing-ID reference
+      specs.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move remaining relation-specific hard guard entrypoints behind
+      reducer-owned transition inputs where they still produce scheduling
+      decisions from local wrappers. Scaffold generation is now reducer-owned;
+      execution-time field/lineage guard result construction still has REPL
+      adapter pieces that should be reduced to typed workflow inputs.
+- [ ] Add ArtifactGraph lineage/action summaries to evaluator state so later
+      actions can select latest compatible artifacts by producer, role, fields,
+      and row shape instead of relying on aliases alone.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

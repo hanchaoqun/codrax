@@ -5271,64 +5271,6 @@ func TestDataTaskWorkflowStagingRejectsRepeatedApplyResolutionEdge(t *testing.T)
 	}
 }
 
-func TestDataTaskApplyResolutionScaffoldsSkipAlreadyAppliedLedger(t *testing.T) {
-	access := []dataTaskArtifactAccessPrompt{
-		{
-			ID:          "orders_with_vendor",
-			Kind:        string(dataquery.DataActionApplyResolutions),
-			Aliases:     []string{"orders_with_vendor", "orders_with_vendor.json"},
-			SourcePaths: []string{"orders", "vendor_resolution"},
-			Fields:      []string{"_source_index", "order_id", "vendor_canonical_id", "vendor_resolution_status"},
-		},
-		{
-			ID:      "vendor_resolution",
-			Kind:    string(dataquery.DataActionNormalizeEntities),
-			Aliases: []string{"vendor_resolution", "vendor_resolution.json"},
-			Fields:  []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
-		},
-	}
-	scaffolds := dataTaskApplyResolutionActionScaffolds(access, 4)
-	for _, scaffold := range scaffolds {
-		if len(scaffold.InputPaths) >= 2 &&
-			normalizeDataTaskCoveragePath(scaffold.InputPaths[0]) == "orders_with_vendor" &&
-			normalizeDataTaskCoveragePath(scaffold.InputPaths[1]) == "vendor_resolution" {
-			t.Fatalf("scaffold re-applies already applied ledger: %+v", scaffold)
-		}
-	}
-}
-
-func TestDataTaskApplyResolutionScaffoldsSkipWorkflowLedgerHandleAndDiagnosticChildren(t *testing.T) {
-	access := []dataTaskArtifactAccessPrompt{
-		{
-			ID:        "records.json#base",
-			Kind:      "apply_entity_resolutions/base",
-			NodeClass: dataworkflow.ArtifactNodeClassDiagnosticChild,
-			Aliases:   []string{"records.json#base"},
-			Fields:    []string{"_source_index", "raw_name"},
-		},
-		{
-			ID:        "workflow_entity_resolutions",
-			Kind:      "workflow_ledger/entity_resolutions",
-			NodeClass: dataworkflow.ArtifactNodeClassWorkflowLedger,
-			Aliases:   []string{"workflow_entity_resolutions"},
-			Fields:    []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
-		},
-		{
-			ID:      "records",
-			Kind:    string(dataquery.DataActionExtractRecords),
-			Aliases: []string{"records"},
-			Fields:  []string{"_source_index", "raw_name"},
-		},
-	}
-	if dataTaskArtifactUsableForRecordAction(access[0]) {
-		t.Fatalf("diagnostic base child should not be a record-action scaffold base")
-	}
-	scaffolds := dataTaskApplyResolutionActionScaffolds(access, 8)
-	if len(scaffolds) != 0 {
-		t.Fatalf("scaffolds=%+v, want no auto apply scaffold from workflow-wide ledger handle or diagnostic child", scaffolds)
-	}
-}
-
 func TestDataTaskWorkflowStagingRejectsApplyResolutionIncompatibleSourceLineage(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Result: &dataquery.Result{
@@ -5377,29 +5319,6 @@ func TestDataTaskWorkflowStagingRejectsApplyResolutionIncompatibleSourceLineage(
 	errText := dataTaskWorkflowStagingGuardError(records, plan)
 	if errText == "" || !strings.Contains(errText, "source lineage") || !strings.Contains(errText, "not compatible") {
 		t.Fatalf("errText=%q, want incompatible source-lineage rejection", errText)
-	}
-}
-
-func TestDataTaskApplyResolutionScaffoldsSkipIncompatibleSourceLineage(t *testing.T) {
-	access := []dataTaskArtifactAccessPrompt{
-		{
-			ID:          "rules_records",
-			Kind:        string(dataquery.DataActionExtractRecords),
-			Aliases:     []string{"rules_records", "rules_records.json"},
-			SourcePaths: []string{"data_rules.md"},
-			Fields:      []string{"_source_index", "text"},
-		},
-		{
-			ID:          "vendor_resolution",
-			Kind:        string(dataquery.DataActionNormalizeEntities),
-			Aliases:     []string{"vendor_resolution", "vendor_resolution.json"},
-			SourcePaths: []string{"orders_cleaned", "vendors.csv"},
-			Fields:      []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
-		},
-	}
-	scaffolds := dataTaskApplyResolutionActionScaffolds(access, 4)
-	if len(scaffolds) != 0 {
-		t.Fatalf("scaffolds=%+v, want no apply-resolution scaffold for incompatible source lineage", scaffolds)
 	}
 }
 
