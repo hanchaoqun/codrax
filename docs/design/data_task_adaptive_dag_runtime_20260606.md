@@ -9680,6 +9680,37 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Persist reducer event streams, not only projected terminal snapshots.
+- [x] Persist reducer event streams, not only projected terminal snapshots.
+      Completed in Batch 215.
 - [ ] Add low-noise CLI/REPL links to terminal audit snapshots when useful,
       without polluting strict stdout output.
+
+### Batch 215: Terminal Action Event Streams
+
+Batch 214 persisted projected terminal graphs. Projection is enough for most
+debugging, but replay and reducer migration need the event stream as well:
+which action batches entered the reducer, and with what executed/failed status.
+
+This batch persists the typed `ActionEvent` stream in terminal audit snapshots:
+
+- REPL records are adapted once into `dataworkflow.ActionEvent`;
+- ActionGraph projection and terminal audit consume the same adapter;
+- terminal snapshots now carry both `action_events` and projected
+  `action_graph`.
+
+This keeps replay data structural and compact: no full materials, no model
+prose, and no business-specific interpretation.
+
+Changes:
+
+- [x] Added shared REPL adapter `dataTaskWorkflowActionEvents`.
+- [x] Reused the adapter for ActionGraph reduction.
+- [x] Persisted `action_events` in terminal data audit snapshots.
+- [x] Added regression coverage for terminal action event persistence.
+
+Remaining architecture items:
+
+- [ ] Move action event persistence into a storage-neutral workflow journal so
+      CLI and future non-REPL runners do not depend on REPL terminal audit.
+- [ ] Add terminal audit links to REPL/CLI process output with strict-output
+      safety.

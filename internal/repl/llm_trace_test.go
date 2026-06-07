@@ -552,7 +552,7 @@ func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
 		t.Fatalf("read terminal audit: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"action_graph"`, `"artifact_graph"`, `"workflow_violations"`, `"blocked"`, `"records"`} {
+	for _, want := range []string{`"action_events"`, `"action_graph"`, `"artifact_graph"`, `"workflow_violations"`, `"blocked"`, `"records"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("terminal audit missing %q:\n%s", want, text)
 		}

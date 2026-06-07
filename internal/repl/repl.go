@@ -175,6 +175,7 @@ type dataTaskTerminalAuditSnapshot struct {
 	RecordCount        int                                     `json:"record_count,omitempty"`
 	ResultSummary      string                                  `json:"result_summary,omitempty"`
 	LastError          string                                  `json:"last_error,omitempty"`
+	ActionEvents       []dataworkflow.ActionEvent              `json:"action_events,omitempty"`
 	ActionGraph        dataworkflow.ActionGraph                `json:"action_graph,omitempty"`
 	ArtifactGraph      []dataworkflow.ArtifactSchemaProjection `json:"artifact_graph,omitempty"`
 	WorkflowViolations []dataworkflow.WorkflowViolation        `json:"workflow_violations,omitempty"`
@@ -2898,6 +2899,7 @@ func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, re
 		RecordCount:        len(a.Records),
 		ResultSummary:      resultSummary,
 		LastError:          lastErr,
+		ActionEvents:       dataTaskWorkflowActionEvents(a.Records),
 		ActionGraph:        state.ActionGraph,
 		ArtifactGraph:      artifactGraph,
 		WorkflowViolations: state.WorkflowViolations,
