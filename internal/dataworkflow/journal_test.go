@@ -22,6 +22,7 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			PrimaryAlias:          "records.json",
 			ExecutableRecordInput: true,
 		}}, NodeCount: 1, ExecutableRecordAliases: []string{"records.json"}},
+		Progress: ProgressWindow{Latest: ProgressFrame{Round: 2, Signature: "rows=2"}, RepeatedSignatureCount: 1},
 		Decision: WorkflowDecision{Status: "continue", ReasonCode: "compute_contributions", NextActions: []string{"compute_contributions"}},
 		ProcessEvents: []WorkflowJournalEvent{{
 			Kind:          "evaluate",
@@ -37,7 +38,7 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "artifact_graph", "executable_record_aliases", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}

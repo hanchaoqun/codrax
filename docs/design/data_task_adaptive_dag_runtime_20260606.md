@@ -12323,3 +12323,52 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 276: Generic Progress Window IR
+
+The next IR pass made structural progress visible for all typed data action
+families without immediately widening hard no-progress gates. Before this
+batch, `ProgressSignature` already included fields, rows, ledger counts, and
+answer/reconcile flags, but the runtime used it mainly for relation-family
+no-progress detection. Evaluator and continuation prompts still had to infer
+whether the graph was moving from recent records and process text.
+
+The generic invariant is:
+
+- hard gates should remain conservative until their signal is precise enough;
+- evaluator/planner state should still receive objective progress facts for
+  every action family;
+- a repeated artifact/ledger/stage signature is a structural signal, not a
+  business conclusion;
+- real progress means some typed dimension changed: fields, row counts,
+  artifact count, ledger counts, reconcile/answer presence, or stage state.
+
+Changes:
+
+- [x] Added reducer-owned `ProgressWindow`, `ProgressFrame`, and
+      `ProgressDelta` IR.
+- [x] `BuildProgressWindow` now reports latest frame, recent frames, latest
+      signature, repeated signature count, row/artifact deltas, added/removed
+      fields, ledger deltas, reconcile changes, and answer-presence changes.
+- [x] Kept existing relation-family hard no-progress guard unchanged; the new
+      generic window is advisory/evaluator state until broader hard policy is
+      proven safe.
+- [x] Exposed `workflow_state_json.progress_signatures` in live data workflow
+      state.
+- [x] Persisted the progress window in terminal and checkpoint workflow
+      journals.
+- [x] Updated planner/evaluator guidance to use progress signatures for
+      choosing a different typed action when repeated signatures grow without
+      ledger/reconcile/final projection progress.
+- [x] Added reducer and REPL regression coverage for field, row, artifact,
+      ledger, and repeated-signature projection.
+
+Current backlog before real-scenario testing:
+
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

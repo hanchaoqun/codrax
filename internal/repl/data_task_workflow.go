@@ -5359,6 +5359,7 @@ type dataTaskWorkflowStateView struct {
 	ArtifactAvailability          []dataTaskArtifactAccessPrompt     `json:"artifact_availability,omitempty"`
 	AllowedNextActions            []string                           `json:"allowed_next_actions,omitempty"`
 	AllowedNextActionContracts    []dataTaskActionContract           `json:"allowed_next_action_contracts,omitempty"`
+	ProgressSignatures            dataworkflow.ProgressWindow        `json:"progress_signatures,omitempty"`
 	Decision                      dataworkflow.WorkflowDecision      `json:"decision,omitempty"`
 	ActionScaffold                []dataTaskActionScaffold           `json:"action_scaffold,omitempty"`
 	FieldContractViolations       []dataTaskFieldContractViolation   `json:"field_contract_violations,omitempty"`
@@ -5655,6 +5656,7 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 	state.ArtifactGraph = dataworkflow.BuildArtifactGraphState(dataTaskWorkflowArtifactsNewestFirst(records), 48)
 	state.ArtifactAvailability, state.ArtifactAvailabilityCount, state.ArtifactAvailabilityTruncated = dataTaskWorkflowArtifactAvailability(records, 48)
 	state.AllowedNextActions = dataTaskActionKindsFromContracts(state.AllowedNextActionContracts)
+	state.ProgressSignatures = dataworkflow.BuildProgressWindow(dataTaskWorkflowProgressEvents(records), 6)
 	state.ActionScaffold = dataTaskWorkflowActionScaffold(records, state)
 	state.FieldContractViolations = dataTaskWorkflowFieldContractViolations(records, state, 4)
 	state.ZeroMatchFilterViolations = dataTaskWorkflowZeroMatchFilterIssues(records, state, 4)
@@ -5799,6 +5801,7 @@ func dataTaskWorkflowProgressEvents(records []dataTaskWorkflowRecord) []datawork
 	events := make([]dataworkflow.ProgressEvent, 0, len(records))
 	for _, rec := range records {
 		event := dataworkflow.ProgressEvent{
+			Round:         len(events) + 1,
 			Actions:       append([]dataquery.DataAction(nil), rec.Plan.Actions...),
 			ResultPresent: rec.Result != nil,
 			Error:         strings.TrimSpace(rec.Err),

@@ -7997,6 +7997,47 @@ func TestDataTaskWorkflowStateIncludesArtifactGraph(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateIncludesProgressSignatures(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{Kind: dataquery.DataActionExtractRecords}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:       "records",
+			Kind:     string(dataquery.DataActionExtractRecords),
+			Headers:  []string{"id", "amount"},
+			RowCount: 2,
+			Fields:   map[string]string{"artifact_aliases": "records", "json_shape": "array(len=2)"},
+		}}},
+	}, {
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{Kind: dataquery.DataActionDeriveFields}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:       "records_ready",
+			Kind:     string(dataquery.DataActionDeriveFields),
+			Headers:  []string{"id", "amount", "amount_num"},
+			RowCount: 2,
+			Fields:   map[string]string{"artifact_aliases": "records_ready", "json_shape": "array(len=2)"},
+		}}},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.ProgressSignatures.Latest.Round != 2 || state.ProgressSignatures.LatestDelta.ArtifactRowsDelta != 0 {
+		t.Fatalf("progress=%+v, want latest round 2 with row delta 0", state.ProgressSignatures)
+	}
+	if !slices.Contains(state.ProgressSignatures.LatestDelta.AddedFields, "amount_num") {
+		t.Fatalf("progress delta=%+v, want added derived field", state.ProgressSignatures.LatestDelta)
+	}
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	for _, want := range []string{`"progress_signatures"`, `"latest_delta"`, `"added_fields"`, "structural progress"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestDataTaskPromptsExplainCustomTransformDisabledStillAllowsTypedActions(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
