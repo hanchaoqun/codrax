@@ -48,3 +48,31 @@ func TestAllowedNextActionContractsLiveInWorkflowIR(t *testing.T) {
 		t.Fatalf("filtered contracts still include custom_transform: %s", filtered)
 	}
 }
+
+func TestMissingValidationStagesUseTypedFacts(t *testing.T) {
+	got := strings.Join(MissingValidationStages(StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		DecisionRecordsRequired:    true,
+		EntityResolutionRequired:   true,
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	}), ",")
+	want := "rule_coverage,entity_resolution,decision_records,contribution_ledger,reconcile,final_answer"
+	if got != want {
+		t.Fatalf("MissingValidationStages=%q, want %q", got, want)
+	}
+}
+
+func TestTerminalWorkflowGuardResultUsesSharedStageFacts(t *testing.T) {
+	guard := TerminalWorkflowGuardResult("complete", StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+	}, []string{string(dataquery.DataActionComputeContribs)})
+	if guard.Code != "unfinished_validation_stage" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want unfinished validation guard", guard)
+	}
+	if !strings.Contains(guard.Message, "terminal status") || !strings.Contains(guard.Message, "compute_contributions") {
+		t.Fatalf("message=%q, want terminal status and legal action hint", guard.Message)
+	}
+}

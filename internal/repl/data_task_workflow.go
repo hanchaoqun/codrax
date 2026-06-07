@@ -3459,26 +3459,7 @@ func dataTaskActionDependencyRank(kind dataquery.DataActionKind) int {
 }
 
 func dataTaskWorkflowMissingValidationStages(state dataTaskWorkflowStateView) []string {
-	var out []string
-	if state.RuleCoverageRequired && state.RuleCoverageRecords == 0 {
-		out = append(out, "rule_coverage")
-	}
-	if state.EntityResolutionRequired && state.EntityResolutionRecords == 0 && !state.EntityStageMaterialized {
-		out = append(out, "entity_resolution")
-	}
-	if state.DecisionRecordsRequired && state.DecisionRecords == 0 {
-		out = append(out, "decision_records")
-	}
-	if state.ContributionLedgerRequired && state.ContributionRecords == 0 {
-		out = append(out, "contribution_ledger")
-	}
-	if state.ReconcileRequired && !state.HasReconcile {
-		out = append(out, "reconcile")
-	}
-	if !state.HasAnswer {
-		out = append(out, "final_answer")
-	}
-	return out
+	return dataworkflow.MissingValidationStages(dataTaskWorkflowStageFacts(state))
 }
 
 func dataTaskPlanHasScriptedCustomTransform(plan dataquery.TaskPlan) bool {
@@ -7944,6 +7925,8 @@ func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.St
 		MaterialCoverageSufficient: state.MaterialCoverageSufficient,
 		RuleCoverageRequired:       state.RuleCoverageRequired,
 		RuleCoverageRecords:        state.RuleCoverageRecords,
+		DecisionRecordsRequired:    state.DecisionRecordsRequired,
+		DecisionRecords:            state.DecisionRecords,
 		EntityResolutionRequired:   state.EntityResolutionRequired,
 		EntityResolutionRecords:    state.EntityResolutionRecords,
 		EntityStageMaterialized:    state.EntityStageMaterialized,
@@ -9750,28 +9733,8 @@ func dataTaskConcreteActionWouldRepeatNoProgress(records []dataTaskWorkflowRecor
 }
 
 func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
-	if !dataTaskPlanStatusLooksTerminal(current.Status) {
-		return dataworkflow.GuardResult{}
-	}
 	state := dataTaskWorkflowState(records, current)
-	missing := dataTaskWorkflowMissingValidationStages(state)
-	if len(missing) == 0 || len(state.AllowedNextActions) == 0 {
-		return dataworkflow.GuardResult{}
-	}
-	msg := fmt.Sprintf("data planning incomplete: terminal status=%q is invalid because workflow next_stage=%s still has unfinished validation stage(s): %s and legal next actions [%s]. Emit status=ready with one bounded typed action batch from workflow_state_json.allowed_next_actions; use continue_after=true when later stages remain. blocked is only for true capability/policy barriers, not for ordinary unfinished typed data workflow stages.",
-		strings.TrimSpace(current.Status),
-		state.NextStage,
-		strings.Join(missing, ", "),
-		strings.Join(state.AllowedNextActions, ", "))
-	violation := dataworkflow.WorkflowViolation{
-		Code:              "unfinished_validation_stage",
-		Severity:          "error",
-		Repairability:     dataworkflow.RepairNeedsTypedAction,
-		ActionKind:        firstNonEmptyString(state.NextStage, "data_workflow"),
-		RepairActionHints: append([]string(nil), state.AllowedNextActions...),
-		Reason:            msg,
-	}
-	return dataworkflow.NewGuardResult("unfinished_validation_stage", "error", dataworkflow.RepairNeedsTypedAction, msg, violation)
+	return dataworkflow.TerminalWorkflowGuardResult(current.Status, dataTaskWorkflowStageFacts(state), state.AllowedNextActions)
 }
 
 func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
@@ -9779,12 +9742,7 @@ func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, curren
 }
 
 func dataTaskPlanStatusLooksTerminal(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "needs_clarification", "blocked", "complete", "completed", "budget_exhausted", "partial_answer_possible":
-		return true
-	default:
-		return false
-	}
+	return dataworkflow.PlanStatusLooksTerminal(status)
 }
 
 func firstNonEmptyOutputContract(values ...dataquery.OutputContract) dataquery.OutputContract {

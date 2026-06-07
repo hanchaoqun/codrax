@@ -1,6 +1,11 @@
 package dataworkflow
 
-import "github.com/hanchaoqun/codrax/internal/dataquery"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
 
 const (
 	StageCoverRequiredMaterials    = "cover_required_materials"
@@ -19,6 +24,8 @@ type StageFacts struct {
 	MaterialCoverageSufficient bool `json:"material_coverage_sufficient,omitempty"`
 	RuleCoverageRequired       bool `json:"rule_coverage_required,omitempty"`
 	RuleCoverageRecords        int  `json:"rule_coverage_records,omitempty"`
+	DecisionRecordsRequired    bool `json:"decision_records_required,omitempty"`
+	DecisionRecords            int  `json:"decision_records,omitempty"`
 	EntityResolutionRequired   bool `json:"entity_resolution_required,omitempty"`
 	EntityResolutionRecords    int  `json:"entity_resolution_records,omitempty"`
 	EntityStageMaterialized    bool `json:"entity_stage_materialized,omitempty"`
@@ -59,6 +66,66 @@ func NextStage(facts StageFacts) string {
 		return StageEmitOutputContractAnswer
 	}
 	return StageComplete
+}
+
+func MissingValidationStages(facts StageFacts) []string {
+	var out []string
+	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 {
+		out = append(out, "rule_coverage")
+	}
+	if facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized {
+		out = append(out, "entity_resolution")
+	}
+	if facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {
+		out = append(out, "decision_records")
+	}
+	if facts.ContributionLedgerRequired && facts.ContributionRecords == 0 {
+		out = append(out, "contribution_ledger")
+	}
+	if facts.ReconcileRequired && !facts.HasReconcile {
+		out = append(out, "reconcile")
+	}
+	if !facts.HasAnswer {
+		out = append(out, "final_answer")
+	}
+	return out
+}
+
+func PlanStatusLooksTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "needs_clarification", "blocked", "complete", "completed", "budget_exhausted", "partial_answer_possible":
+		return true
+	default:
+		return false
+	}
+}
+
+func TerminalWorkflowGuardResult(status string, facts StageFacts, allowedNextActions []string) GuardResult {
+	if !PlanStatusLooksTerminal(status) {
+		return GuardResult{}
+	}
+	missing := MissingValidationStages(facts)
+	if len(missing) == 0 || len(allowedNextActions) == 0 {
+		return GuardResult{}
+	}
+	nextStage := facts.NextStage()
+	if nextStage == "" {
+		nextStage = "data_workflow"
+	}
+	msg := fmt.Sprintf("data planning incomplete: terminal status=%q is invalid because workflow next_stage=%s still has unfinished validation stage(s): %s and legal next actions [%s]. Emit status=ready with one bounded typed action batch from workflow_state_json.allowed_next_actions; use continue_after=true when later stages remain. blocked is only for true capability/policy barriers, not for ordinary unfinished typed data workflow stages.",
+		strings.TrimSpace(status),
+		nextStage,
+		strings.Join(missing, ", "),
+		strings.Join(cleanStrings(allowedNextActions), ", "))
+	violation := WorkflowViolation{
+		Code:              "unfinished_validation_stage",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		ActionKind:        nextStage,
+		RepairActionHints: cleanStrings(allowedNextActions),
+		Reason:            msg,
+	}
+	return NewGuardResult("unfinished_validation_stage", "error", RepairNeedsTypedAction, msg, violation)
 }
 
 func AllowedNextActionContracts(stage string) []ActionContract {

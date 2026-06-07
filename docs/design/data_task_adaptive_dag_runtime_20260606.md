@@ -10858,3 +10858,42 @@ Remaining architecture items:
 - [ ] Expand concrete scaffold materialization beyond relation actions to
       filter/qualify/contribution projection where the params are fully
       concrete and validated by artifact schema projection.
+
+### Batch 247: Validation Stage And Terminal Guard IR
+
+The architecture audit then moved another hard workflow decision out of the
+REPL layer: unfinished validation-stage detection and terminal-plan rejection.
+Both CLI and REPL depend on this logic, and it directly controls whether the
+workflow should continue, repair, or surface a terminal failure. Keeping it in
+the UI package made it too easy for terminal behavior and repair hints to
+drift from the actual workflow state machine.
+
+The generalized invariant is:
+
+- missing validation stages are derived from typed facts only: rule coverage,
+  decision records, entity resolution, contribution ledger, reconcile, and
+  final answer projection;
+- terminal statuses are structural control states, not model prose to parse for
+  business meaning;
+- a terminal plan with unfinished validation stages must produce one typed
+  `unfinished_validation_stage` guard with legal next-action hints.
+
+Changes:
+
+- [x] Extended `dataworkflow.StageFacts` with decision-record facts.
+- [x] Added `dataworkflow.MissingValidationStages`.
+- [x] Added shared terminal-status classification and
+      `TerminalWorkflowGuardResult`.
+- [x] Changed REPL workflow adapters to delegate missing-stage and terminal
+      guard decisions to `internal/dataworkflow`.
+- [x] Added regression coverage for missing-stage ordering and terminal guard
+      construction.
+
+Remaining architecture items:
+
+- [ ] Move full fallback plan assembly and continuation repair into a shared
+      reducer so CLI and REPL consume the same state transition object.
+- [ ] Add storage-neutral workflow journal snapshots for reducer inputs and
+      terminal guard outputs.
+- [ ] Replace raw CLI terminal errors with structured failure events that still
+      keep stdout clean.
