@@ -13005,7 +13005,7 @@ Remaining P0 LedgerGraph work:
       repeating internal stage jargon.
 - [x] Make deterministic completion/fallback builders consume LedgerGraph for
       missing-ledger repair decisions in the REPL/CLI completion path.
-- [ ] Split final-answer projection into its own typed OutputProjectionGraph so
+- [x] Split final-answer projection into its own typed OutputProjectionGraph so
       strict output contracts, reference-complete projections, and ordinary
       already-answerable results do not get conflated with validation ledgers.
 
@@ -13054,7 +13054,7 @@ Remaining P0 completion/output work:
 - [x] Move deterministic completion-repair plan selection for missing ledgers
       to consume LedgerGraph dependencies directly in the REPL/CLI completion
       path instead of dataquery error JSON paths.
-- [ ] Introduce OutputProjectionGraph for final answer readiness, reference key
+- [x] Introduce OutputProjectionGraph for final answer readiness, reference key
       completeness, strict output contract projection, and answer-candidate
       precedence.
 - [ ] Feed ledger guard summaries into workflow journal/process events so users
@@ -13098,9 +13098,59 @@ Changes:
 
 Remaining P0 completion/output work:
 
-- [ ] Introduce OutputProjectionGraph and move final-answer readiness out of
-      mixed REPL-local output checks.
+- [x] Introduce OutputProjectionGraph and move final-answer readiness out of
+      mixed REPL-local output checks for completion-gate decisions.
 - [ ] Feed LedgerGraph repair decisions into workflow process events and UX
       summaries.
 - [ ] Remove the legacy error-text fallback once all internal callers pass
       typed graph/violation inputs.
+
+### Batch 291: OutputProjectionGraph For Final Answer Readiness
+
+The LedgerGraph work made one boundary explicit: final answer readiness should
+not be modeled as another validation ledger. Output projection has different
+structure from rule, decision, entity, contribution, and reconcile ledgers:
+strict user output contracts, answer-candidate precedence, assemble-answer
+artifacts, reference key completeness, and already-answerable freeform results.
+
+This batch introduces OutputProjectionGraph as a separate typed IR. The graph
+is domain-neutral; it does not encode any business-specific target fields or
+numeric meanings. It only models whether the workflow already has an acceptable
+answer, needs an `assemble_answer` projection, or must complete a declared
+reference universe before final output.
+
+Generic invariants:
+
+- ordinary answer-present results are not blocked when no strict projection is
+  required;
+- strict output contracts over reconcile groups require a projection artifact
+  or an allowed projection-producing transform;
+- reference-complete gaps are represented separately from generic missing
+  projection so deterministic repair can preserve the missing key universe;
+- OutputProjectionGraph is persisted in workflow state and journals, just like
+  ActionGraph, ArtifactGraph, and LedgerGraph;
+- prompts may use the graph for guidance, while hard completion decisions read
+  typed graph status.
+
+Changes:
+
+- [x] Added `OutputProjectionGraph` and `BuildOutputProjectionGraph`.
+- [x] Added typed statuses: `satisfied`, `missing_answer`,
+      `missing_projection`, and `incomplete_reference`.
+- [x] Exposed `output_projection_graph` in `workflow_state_json`.
+- [x] Persisted `output_projection_graph` in terminal and checkpoint journals.
+- [x] Rewired completion-gate output readiness checks to consume
+      OutputProjectionGraph status while preserving existing detailed reference
+      diagnostics.
+- [x] Taught continuation/evaluator prompts to read
+      `workflow_state_json.output_projection_graph`.
+- [x] Added tests for ordinary answer acceptance, strict projection, reference
+      incompleteness, journal JSON, state projection, and existing completion
+      gate behavior.
+
+Remaining P0 output work:
+
+- [ ] Move deterministic output-projection repair plan selection to consume
+      OutputProjectionGraph directly instead of recomputing reference gaps.
+- [ ] Feed OutputProjectionGraph status and repair action hints into process
+      events/UX summaries.

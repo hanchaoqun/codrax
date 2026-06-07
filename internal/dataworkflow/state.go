@@ -9,12 +9,13 @@ import (
 // WorkflowState is the durable IR boundary for adaptive data tasks. REPL and
 // CLI code should render or adapt this state instead of owning workflow rules.
 type WorkflowState struct {
-	Materials MaterialGraph      `json:"materials,omitempty"`
-	Actions   ActionGraph        `json:"actions,omitempty"`
-	Ledgers   LedgerGraph        `json:"ledgers,omitempty"`
-	Artifacts ArtifactGraphState `json:"artifacts,omitempty"`
-	Progress  WorkflowProgress   `json:"progress,omitempty"`
-	Decision  WorkflowDecision   `json:"decision,omitempty"`
+	Materials MaterialGraph         `json:"materials,omitempty"`
+	Actions   ActionGraph           `json:"actions,omitempty"`
+	Ledgers   LedgerGraph           `json:"ledgers,omitempty"`
+	Output    OutputProjectionGraph `json:"output,omitempty"`
+	Artifacts ArtifactGraphState    `json:"artifacts,omitempty"`
+	Progress  WorkflowProgress      `json:"progress,omitempty"`
+	Decision  WorkflowDecision      `json:"decision,omitempty"`
 }
 
 type MaterialGraph struct {
@@ -100,6 +101,23 @@ type LedgerDependency struct {
 	ProducesActions      []string `json:"produces_actions,omitempty"`
 	DependsOn            []string `json:"depends_on,omitempty"`
 	MissingPrerequisites []string `json:"missing_prerequisites,omitempty"`
+}
+
+type OutputProjectionGraph struct {
+	Required                  bool     `json:"required,omitempty"`
+	StrictContract            bool     `json:"strict_contract,omitempty"`
+	AnswerPresent             bool     `json:"answer_present,omitempty"`
+	ProjectionArtifactPresent bool     `json:"projection_artifact_present,omitempty"`
+	ReconcilePresent          bool     `json:"reconcile_present,omitempty"`
+	ReconcileGroups           int      `json:"reconcile_groups,omitempty"`
+	ReferenceCompleteRequired bool     `json:"reference_complete_required,omitempty"`
+	ReferenceComplete         bool     `json:"reference_complete,omitempty"`
+	ReferenceKeyCount         int      `json:"reference_key_count,omitempty"`
+	AnswerItemCount           int      `json:"answer_item_count,omitempty"`
+	Status                    string   `json:"status,omitempty"`
+	ReasonCode                string   `json:"reason_code,omitempty"`
+	ProducesActions           []string `json:"produces_actions,omitempty"`
+	MissingPrerequisites      []string `json:"missing_prerequisites,omitempty"`
 }
 
 type WorkflowProgress struct {

@@ -5336,6 +5336,7 @@ type dataTaskWorkflowStateView struct {
 	HasReconcile                  bool                               `json:"has_reconcile,omitempty"`
 	HasAnswer                     bool                               `json:"has_answer,omitempty"`
 	LedgerGraph                   dataworkflow.LedgerGraph           `json:"ledger_graph,omitempty"`
+	OutputProjectionGraph         dataworkflow.OutputProjectionGraph `json:"output_projection_graph,omitempty"`
 	NextStage                     string                             `json:"next_stage,omitempty"`
 	CustomTransformFailures       int                                `json:"custom_transform_failures,omitempty"`
 	CustomTransformDisabled       bool                               `json:"custom_transform_disabled,omitempty"`
@@ -5634,6 +5635,13 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
 	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
 	state.LedgerGraph = dataworkflow.BuildLedgerGraph(dataTaskWorkflowStageFacts(state))
+	state.OutputProjectionGraph = dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
+		Output:                 outputContract,
+		Coverage:               contract,
+		AnswerPresent:          state.HasAnswer,
+		ReconcilePresent:       state.HasReconcile,
+		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
+	})
 	state.NextStage = dataTaskWorkflowNextStage(state)
 	state.CustomTransformDisabled = dataTaskCustomTransformCooldownForState(records, state)
 	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
@@ -8390,11 +8398,12 @@ func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []data
 		}
 		return fmt.Sprintf("validate data workflow completion: %v", err)
 	}
-	if candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); ok {
+	outputGraph := dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result)
+	if candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); ok && outputGraph.Status == dataworkflow.OutputProjectionStatusIncompleteReference {
 		return fmt.Sprintf("validate data workflow completion: data output incomplete: final answer has %d item(s), but reference field %q in %q defines %d output key(s); run assemble_answer with complete_reference=true, reference_path, and reference_key_field to project missing zero/empty values without changing contribution records",
 			answerItems, candidate.Field, candidate.Path, candidate.KeyCount)
 	}
-	if dataTaskResultNeedsOutputProjection(records, current, result) {
+	if outputGraph.Status == dataworkflow.OutputProjectionStatusMissingProjection {
 		return "validate data workflow completion: data output incomplete: output_contract requires final answer projection but result.answer is empty while reconcile groups are available"
 	}
 	return ""
@@ -8448,6 +8457,32 @@ func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, curre
 
 func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContract) bool {
 	return dataworkflow.OutputContractNeedsFinalProjection(contract)
+}
+
+func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.OutputProjectionGraph {
+	var referenceGap dataworkflow.ReferenceProjectionGap
+	var answerItems int
+	candidate, count, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	if hasReferenceGap {
+		referenceGap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		answerItems = count
+	}
+	reconcileGroups := 0
+	if result.Reconcile != nil {
+		reconcileGroups = len(result.Reconcile.Groups)
+	}
+	return dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
+		Output:                    firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
+		Coverage:                  dataTaskWorkflowCoverageContract(records, current),
+		AnswerPresent:             strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer),
+		ProjectionArtifactPresent: dataworkflow.ResultHasAssembleAnswerArtifact(result),
+		ReconcilePresent:          result.Reconcile != nil,
+		ReconcileGroups:           reconcileGroups,
+		PlanHasCustomTransform:    dataTaskPlanHasCustomTransform(current),
+		ReferenceGapPresent:       referenceGap.Present,
+		ReferenceKeyCount:         referenceGap.Candidate.KeyCount,
+		AnswerItemCount:           answerItems,
+	})
 }
 
 func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool) {

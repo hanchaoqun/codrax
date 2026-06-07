@@ -28,6 +28,10 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			MaterialCoverageSufficient: true,
 			ContributionLedgerRequired: true,
 		}),
+		OutputGraph: BuildOutputProjectionGraph(OutputProjectionGraphInput{
+			Output:        dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+			AnswerPresent: true,
+		}),
 		ArtifactGraph: ArtifactGraphState{Nodes: []ArtifactGraphNode{{
 			ID:                    "records",
 			PrimaryAlias:          "records.json",
@@ -50,7 +54,7 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "ledger_graph", "dependencies", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "ledger_graph", "dependencies", "output_projection_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}

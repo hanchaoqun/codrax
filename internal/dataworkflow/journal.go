@@ -13,6 +13,7 @@ type WorkflowJournal struct {
 	ActionEvents       []ActionEvent          `json:"action_events,omitempty"`
 	ActionGraph        ActionGraph            `json:"action_graph,omitempty"`
 	LedgerGraph        LedgerGraph            `json:"ledger_graph,omitempty"`
+	OutputGraph        OutputProjectionGraph  `json:"output_projection_graph,omitempty"`
 	ArtifactGraph      ArtifactGraphState     `json:"artifact_graph,omitempty"`
 	Progress           ProgressWindow         `json:"progress,omitempty"`
 	WorkflowViolations []WorkflowViolation    `json:"workflow_violations,omitempty"`

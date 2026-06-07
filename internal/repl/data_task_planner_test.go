@@ -2532,6 +2532,19 @@ func TestDataTaskWorkflowStateExposesLedgerGraphContract(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateExposesOutputProjectionGraph(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{},
+		Result: &dataquery.Result{
+			Answer: "42",
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusSatisfied {
+		t.Fatalf("OutputProjectionGraph=%+v, want satisfied answer", state.OutputProjectionGraph)
+	}
+}
+
 func TestDataTaskWorkflowStatePromotesLatestEvaluationIntoDecision(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Evaluation: &dataquery.Evaluation{
