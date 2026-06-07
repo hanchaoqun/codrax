@@ -90,6 +90,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	var deferredPlan dataquery.TaskPlan
 	var plan dataquery.TaskPlan
+	var currentAdmission dataworkflow.ActionDAGAdmissionDecision
 	var resumed bool
 	var resumeCurrentPlan dataquery.TaskPlan
 	if resumePath := strings.TrimSpace(cfg.ResumePath); resumePath != "" {
@@ -137,8 +138,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
+		currentAdmission = preflight
 		if preflight.Rewritten {
-			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr})
+			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", round, preflight.Reason)
 			scope = "continue"
 		}
@@ -453,7 +455,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				return "", fmt.Errorf("%s", errText)
 			}
 		}
-		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
+		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(currentAdmission, currentPlan)})
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
 		writeDataTaskWorkflowCheckpointFile(cfg.RuntimeAnchor, repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "cli")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, cfg.Language)...)

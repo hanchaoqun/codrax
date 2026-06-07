@@ -1309,6 +1309,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	var records []dataTaskWorkflowRecord
 	var deferredPlan dataquery.TaskPlan
+	var currentAdmission dataworkflow.ActionDAGAdmissionDecision
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
@@ -1331,8 +1332,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
+		currentAdmission = preflight
 		if preflight.Rewritten {
-			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr})
+			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			r.emitDataTaskWorkflowAudit("continue", round, preflight.Reason)
 			scope = "continue"
 		}
@@ -1836,7 +1838,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				return
 			}
 		}
-		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
+		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(currentAdmission, currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
 		writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
@@ -3057,6 +3059,9 @@ func dataTaskWorkflowResumePayload(records []dataTaskWorkflowRecord, current, de
 func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowJournalEvent {
 	events := make([]dataworkflow.WorkflowJournalEvent, 0, len(records))
 	for i, rec := range records {
+		if rec.Admission != nil {
+			events = append(events, dataworkflow.BuildAdmissionProcessEvent(i+1, *rec.Admission))
+		}
 		kind := "data_batch"
 		if len(rec.Plan.Actions) > 0 {
 			kind = "action_batch"

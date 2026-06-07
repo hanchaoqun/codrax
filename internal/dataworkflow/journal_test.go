@@ -32,16 +32,44 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			NextStep:      "assemble final answer",
 			ActionSummary: "extract:extract_records",
 			AuditDetails:  []string{"2 consumed material(s)"},
+			Admission:     &ActionDAGAdmissionSummary{Status: "rewritten", RemainderActions: 1},
 		}},
 	})
 	if err != nil {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}
+	}
+}
+
+func TestBuildAdmissionProcessEventSummarizesDecision(t *testing.T) {
+	decision := ActionDAGAdmissionDecision{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:      "derive",
+			Kind:    dataquery.DataActionDeriveFields,
+			Purpose: "derive fields",
+		}}},
+		Remainder: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}}},
+		Guard:     NewGuardResult("intra_batch_dependency", "error", RepairNeedsTypedAction, "split dependency"),
+		Reason:    "split dependency rank",
+		Rewritten: true,
+	}
+	event := BuildAdmissionProcessEvent(3, decision)
+	if event.Kind != "admission" || event.Status != "rewritten" || event.Admission == nil {
+		t.Fatalf("event=%+v, want rewritten admission event", event)
+	}
+	if event.Admission.RemainderActions != 1 || event.Admission.GuardCode != "intra_batch_dependency" {
+		t.Fatalf("Admission=%+v, want remainder and guard code", event.Admission)
+	}
+	if !strings.Contains(strings.Join(event.AuditDetails, ","), "admission_remainder_actions=1") {
+		t.Fatalf("AuditDetails=%v, want admission details", event.AuditDetails)
 	}
 }
 

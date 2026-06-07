@@ -5237,6 +5237,7 @@ type dataTaskWorkflowRecord struct {
 	Result     *dataquery.Result
 	Err        string
 	Evaluation *dataquery.Evaluation
+	Admission  *dataworkflow.ActionDAGAdmissionDecision
 }
 
 type dataTaskWorkflowPlanPreflight = dataworkflow.ActionDAGAdmissionDecision
@@ -5262,6 +5263,32 @@ func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataqu
 			return dataTaskWorkflowDeterministicFallback(records, current, guard.ErrorText())
 		},
 	})
+}
+
+func dataTaskAdmissionDecisionForPlan(decision dataworkflow.ActionDAGAdmissionDecision, plan dataquery.TaskPlan) *dataworkflow.ActionDAGAdmissionDecision {
+	if !dataTaskAdmissionPlanMatches(decision.Plan, plan) {
+		return nil
+	}
+	copied := decision
+	return &copied
+}
+
+func dataTaskAdmissionPlanMatches(a, b dataquery.TaskPlan) bool {
+	if len(a.Actions) != len(b.Actions) {
+		return false
+	}
+	if strings.TrimSpace(a.Status) != strings.TrimSpace(b.Status) {
+		return false
+	}
+	if strings.TrimSpace(a.Script) != strings.TrimSpace(b.Script) {
+		return false
+	}
+	for i := range a.Actions {
+		if dataworkflow.ActionIdempotencyKey(a.Actions[i]) != dataworkflow.ActionIdempotencyKey(b.Actions[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 type dataTaskWorkflowPromptRecord struct {

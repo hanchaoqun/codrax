@@ -48,6 +48,63 @@ func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalE
 	return event
 }
 
+func BuildAdmissionProcessEvent(round int, decision ActionDAGAdmissionDecision) WorkflowJournalEvent {
+	summary := AdmissionSummary(decision)
+	guard := decision.FinalGuard
+	if guard.Empty() {
+		guard = decision.Guard
+	}
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:   "admission",
+		Round:  round,
+		Status: summary.Status,
+		Reason: firstNonEmptyProcessText(summary.Reason, guard.ErrorText()),
+		Plan:   decision.Plan,
+	})
+	event.Admission = &summary
+	if !guard.Empty() {
+		event.Guard = &guard
+	}
+	event.AuditDetails = append(event.AuditDetails, admissionAuditDetails(summary)...)
+	event.AuditDetails = cleanStrings(event.AuditDetails)
+	return event
+}
+
+func AdmissionSummary(decision ActionDAGAdmissionDecision) ActionDAGAdmissionSummary {
+	status := "accepted"
+	if !decision.FinalGuard.Empty() || strings.TrimSpace(decision.FinalGuardErr) != "" {
+		status = "rejected"
+	} else if decision.Rewritten {
+		status = "rewritten"
+	}
+	return ActionDAGAdmissionSummary{
+		Status:           status,
+		Rewritten:        decision.Rewritten,
+		PlanActions:      len(decision.Plan.Actions),
+		RemainderActions: len(decision.Remainder.Actions),
+		GuardCode:        strings.TrimSpace(decision.Guard.Code),
+		FinalGuardCode:   strings.TrimSpace(decision.FinalGuard.Code),
+		Reason:           strings.TrimSpace(decision.Reason),
+	}
+}
+
+func admissionAuditDetails(summary ActionDAGAdmissionSummary) []string {
+	var details []string
+	if summary.PlanActions > 0 {
+		details = append(details, fmt.Sprintf("admission_plan_actions=%d", summary.PlanActions))
+	}
+	if summary.RemainderActions > 0 {
+		details = append(details, fmt.Sprintf("admission_remainder_actions=%d", summary.RemainderActions))
+	}
+	if summary.GuardCode != "" {
+		details = append(details, "admission_guard="+summary.GuardCode)
+	}
+	if summary.FinalGuardCode != "" {
+		details = append(details, "admission_final_guard="+summary.FinalGuardCode)
+	}
+	return details
+}
+
 func ActionIntentSummary(actions []dataquery.DataAction, limit int) string {
 	actions = normalizeProcessActions(actions)
 	if limit <= 0 || limit > len(actions) {

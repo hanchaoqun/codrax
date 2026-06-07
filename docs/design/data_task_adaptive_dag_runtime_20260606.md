@@ -12855,3 +12855,50 @@ Remaining typed-guard work:
       into typed `GuardResult` producers.
 - [ ] Feed admission guard codes into ActionGraph blocked nodes and workflow
       journal entries instead of only storing textual `Err`.
+
+### Batch 286: Admission Decisions In Workflow Journal
+
+The previous batches made admission typed, but terminal/checkpoint journals
+still mainly showed action events, artifacts, progress, and batch results. A
+reader could inspect plan artifacts to infer that a plan had been split or
+rewritten, but the workflow journal did not carry a first-class admission
+process event. That keeps the system too close to REPL/CLI-local control flow:
+the graph decision is visible in logs, but not in the durable IR audit.
+
+This batch moves admission decisions into the durable journal as compact
+summaries. It does not store another full copy of every plan in the event; full
+plan/action artifacts remain in `data-audit`. The journal gets enough typed
+state for reducers, resume tooling, and UX to understand whether a batch was
+accepted, rewritten, or rejected, and which guard code drove the decision.
+
+Generic invariants:
+
+- admission decisions are workflow process events, not UI-only messages;
+- journal events carry compact structural summaries: status, rewritten flag,
+  plan action count, remainder action count, guard code, final guard code, and
+  reason;
+- full plans/scripts/actions remain in existing audit artifacts to avoid
+  bloating every process event;
+- execution behavior is unchanged. Admission events describe decisions already
+  made by the reducer; they do not authorize execution.
+
+Changes:
+
+- [x] Added `ActionDAGAdmissionSummary` to workflow journal events.
+- [x] Added `BuildAdmissionProcessEvent` and `AdmissionSummary` in
+      `internal/dataworkflow`.
+- [x] Added an optional admission decision pointer to data workflow records.
+- [x] Wired CLI and REPL accepted/rewrite preflight decisions into records
+      when the admitted plan is the plan that later executes.
+- [x] Emitted admission events before the corresponding batch event in
+      workflow journal construction.
+- [x] Added regression coverage for journal JSON shape, admission event
+      summary, and REPL journal event ordering.
+
+Remaining P0 journal/action-graph work:
+
+- [ ] Move deferred queue storage from the REPL/CLI outer variable into the
+      workflow journal / live ActionGraph state, with the outer variable only
+      as a temporary adapter.
+- [ ] Feed admission guard codes into ActionGraph blocked nodes directly, so a
+      rejected admission appears as a blocked graph node even before execution.

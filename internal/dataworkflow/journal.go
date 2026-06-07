@@ -27,14 +27,25 @@ type WorkflowResumePayload struct {
 }
 
 type WorkflowJournalEvent struct {
-	Kind          string       `json:"kind,omitempty"`
-	Round         int          `json:"round,omitempty"`
-	Status        string       `json:"status,omitempty"`
-	Reason        string       `json:"reason,omitempty"`
-	Goal          string       `json:"goal,omitempty"`
-	BatchPurpose  string       `json:"batch_purpose,omitempty"`
-	NextStep      string       `json:"next_step,omitempty"`
-	ActionSummary string       `json:"action_summary,omitempty"`
-	AuditDetails  []string     `json:"audit_details,omitempty"`
-	Guard         *GuardResult `json:"guard,omitempty"`
+	Kind          string                     `json:"kind,omitempty"`
+	Round         int                        `json:"round,omitempty"`
+	Status        string                     `json:"status,omitempty"`
+	Reason        string                     `json:"reason,omitempty"`
+	Goal          string                     `json:"goal,omitempty"`
+	BatchPurpose  string                     `json:"batch_purpose,omitempty"`
+	NextStep      string                     `json:"next_step,omitempty"`
+	ActionSummary string                     `json:"action_summary,omitempty"`
+	AuditDetails  []string                   `json:"audit_details,omitempty"`
+	Guard         *GuardResult               `json:"guard,omitempty"`
+	Admission     *ActionDAGAdmissionSummary `json:"admission,omitempty"`
+}
+
+type ActionDAGAdmissionSummary struct {
+	Status           string `json:"status,omitempty"`
+	Rewritten        bool   `json:"rewritten,omitempty"`
+	PlanActions      int    `json:"plan_actions,omitempty"`
+	RemainderActions int    `json:"remainder_actions,omitempty"`
+	GuardCode        string `json:"guard_code,omitempty"`
+	FinalGuardCode   string `json:"final_guard_code,omitempty"`
+	Reason           string `json:"reason,omitempty"`
 }

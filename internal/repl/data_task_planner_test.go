@@ -5795,6 +5795,39 @@ func TestDataTaskPreflightMarksRejectedCandidate(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowJournalEventsIncludeAdmissionDecision(t *testing.T) {
+	decision := dataworkflow.ActionDAGAdmissionDecision{
+		Plan: dataquery.TaskPlan{
+			Actions: []dataquery.DataAction{{
+				ID:      "derive",
+				Kind:    dataquery.DataActionDeriveFields,
+				Purpose: "derive reusable fields",
+			}},
+		},
+		Remainder: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}}},
+		Rewritten: true,
+		Reason:    "split typed dependency rank",
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan:      decision.Plan,
+		Result:    &dataquery.Result{},
+		Admission: &decision,
+	}}
+	events := dataTaskWorkflowJournalEvents(records)
+	if len(events) < 2 {
+		t.Fatalf("events=%+v, want admission and batch event", events)
+	}
+	if events[0].Kind != "admission" || events[0].Admission == nil || events[0].Admission.RemainderActions != 1 {
+		t.Fatalf("first event=%+v, want admission summary", events[0])
+	}
+	if events[1].Kind != "action_batch" {
+		t.Fatalf("second event=%+v, want action batch event", events[1])
+	}
+}
+
 func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
