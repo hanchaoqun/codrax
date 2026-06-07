@@ -11136,12 +11136,70 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move record-materialization, rule/reconcile/final-projection fallback
+- [x] Move record-materialization, rule/reconcile/final-projection fallback
       assembly into the shared reducer so all continuation transitions share
-      one state-machine boundary.
+      one state-machine boundary. Completed in Batch 253 for plan assembly;
+      adapter-only context gathering remains outside the reducer.
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
+- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 253: Reducer-Owned Materialization And Completion Plans
+
+The next reducer pass moved more deterministic fallback plan construction out
+of the REPL package. Before this batch, REPL code still owned plan assembly for
+record materialization, rule coverage completion, reconcile completion, and
+final output projection. These are not UI concerns: they are typed workflow
+state transitions that should be generated from contracts, stage facts, and
+validated result state.
+
+The generalized invariant is:
+
+- the reducer builds deterministic continuation/completion plans from typed
+  contracts and result state;
+- adapters may collect environment-bound context such as artifact projections
+  or structural reference-key candidates, but plan assembly lives in
+  `internal/dataworkflow`;
+- final projection changes formatting and missing reference-key projection
+  only; it must not alter contribution records, business decisions, or numeric
+  values;
+- missing ledger completion is driven by typed validation violations and
+  existing structured result data, not by parsing model prose.
+
+Changes:
+
+- [x] Added `BuildRecordMaterializationFallbackPlan`.
+- [x] Added `RecordMaterializationPaths` and `HasRecordActionArtifact` so
+      required-material-to-record-artifact fallback is reducer-owned.
+- [x] Added `BuildRequiredOutputProjectionPlan` and
+      `ResultNeedsOutputProjection` for terminal `assemble_answer` planning.
+- [x] Added `BuildRequiredLedgerCompletionPlan` for missing rule coverage and
+      missing reconcile ledger completion.
+- [x] Added reducer-owned `RuleCoverageCompletionAction`,
+      `BestOutputContract`, `NormalizeCoverageMaterialUseMode`, and
+      `PathLooksLikeTextConstraintMaterial` helpers.
+- [x] Changed REPL output projection, ledger completion, derive-rules
+      fallback, and record-materialization fallback to delegate plan assembly
+      to `internal/dataworkflow`.
+- [x] Kept environment-bound reference-key inference in the adapter: the
+      reducer consumes a typed `ReferenceProjectionGap` instead of reading
+      files or inferring business meaning itself.
+- [x] Added reducer regression coverage for record materialization,
+      assemble-answer projection, and reconcile-ledger completion.
+
+Remaining architecture items:
+
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
+- [ ] Move coverage-expansion/material-discovery and repeated-node typed
+      repair plans into reducer transitions where they depend only on typed
+      violations and contracts.
 - [ ] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event

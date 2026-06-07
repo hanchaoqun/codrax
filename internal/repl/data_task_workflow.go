@@ -222,7 +222,7 @@ func dataTaskMatchingActionDependencyGuardResult(records []dataTaskWorkflowRecor
 func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
 	if strings.TrimSpace(dataquery.ClassifyExecutionError(errText).Code) == "text_constraint_rule_coverage_required" {
 		contract := dataTaskWorkflowCoverageContract(records, plan)
-		action := dataTaskRuleCoverageCompletionAction(contract)
+		action := dataworkflow.RuleCoverageCompletionAction(contract)
 		if strings.TrimSpace(action.ID) != "" {
 			out := plan
 			out.Status = "ready"
@@ -9290,48 +9290,17 @@ func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []data
 }
 
 func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
-	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract)
-	if contract.Format == "" {
-		return false
-	}
-	contract = contract.Normalize()
-	if result.Reconcile != nil && len(result.Reconcile.Groups) > 0 &&
-		dataTaskOutputContractNeedsFinalProjection(contract) &&
-		!dataTaskResultHasAssembleAnswerArtifact(result) &&
-		!dataTaskPlanHasCustomTransform(current) {
-		return true
-	}
-	if strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
-		return false
-	}
-	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
-		return false
-	}
-	if contract.Format != dataquery.OutputFreeform {
-		return true
-	}
-	if !contract.ExplanationAllowed {
-		return true
-	}
-	coverage := dataTaskWorkflowCoverageContract(records, current)
-	return coverage.ReconcileRequired
+	return dataworkflow.ResultNeedsOutputProjection(dataworkflow.ResultProjectionNeedInput{
+		Current:                current,
+		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Output:                 dataTaskWorkflowOutputContract(records, current),
+		Result:                 result,
+		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
+	})
 }
 
 func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContract) bool {
-	contract = contract.Normalize()
-	if contract.Format == "" {
-		return false
-	}
-	return contract.Format != dataquery.OutputFreeform || !contract.ExplanationAllowed
-}
-
-func dataTaskResultHasAssembleAnswerArtifact(result dataquery.Result) bool {
-	for _, artifact := range result.Artifacts {
-		if strings.EqualFold(strings.TrimSpace(artifact.Kind), string(dataquery.DataActionAssembleAnswer)) {
-			return true
-		}
-	}
-	return false
+	return dataworkflow.OutputContractNeedsFinalProjection(contract)
 }
 
 func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool) {
@@ -9422,53 +9391,19 @@ func dataTaskRequiredOutputProjectionPlan(records []dataTaskWorkflowRecord, curr
 }
 
 func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, bool) {
-	needsProjection := dataTaskResultNeedsOutputProjection(records, current, result)
+	var gap dataworkflow.ReferenceProjectionGap
 	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
-	if !needsProjection && !hasReferenceGap {
-		return dataquery.TaskPlan{}, false
-	}
-	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract)
-	coverage := dataTaskWorkflowCoverageContract(records, current)
-	coverage.ReconcileRequired = true
-	params := map[string]string{
-		"order_by":    "group_key",
-		"value_field": "actual",
-	}
-	if delimiter := strings.TrimSpace(contract.Delimiter); delimiter != "" {
-		params["delimiter"] = delimiter
-	}
 	if hasReferenceGap {
-		contract.CompleteReference = true
-		contract.ReferencePath = candidate.Path
-		contract.ReferenceKeyField = candidate.Field
-		params["complete_reference"] = "true"
-		params["reference_path"] = candidate.Path
-		params["reference_key_field"] = candidate.Field
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
 	}
-	base := dataquery.TaskPlan{
-		Status:           "ready",
-		OutputContract:   contract,
-		CoverageContract: coverage,
-		Goal:             strings.TrimSpace(current.Goal),
-		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
-		ContinueAfter:    false,
-		Actions: []dataquery.DataAction{{
-			ID:             "complete_output_contract_answer",
-			Kind:           dataquery.DataActionAssembleAnswer,
-			Purpose:        "project existing reconcile groups into the requested output contract without changing business decisions or numeric values",
-			OutputArtifact: "final_answer.json",
-			Params:         params,
-		}},
-		WhyThisBatch: "project existing reconcile groups into the requested output contract",
-	}
-	if hasReferenceGap {
-		base.WhyThisBatch = "project existing reconcile groups across the complete structural reference key universe"
-		base.NextBatch = fmt.Sprintf("assemble_answer will preserve %d reference key(s) from %s.%s and fill missing groups with zero/empty values", candidate.KeyCount, candidate.Path, candidate.Field)
-	}
-	if strings.TrimSpace(base.Goal) == "" {
-		base.Goal = "complete the final answer projection from already reconciled data"
-	}
-	return base, true
+	return dataworkflow.BuildRequiredOutputProjectionPlan(dataworkflow.OutputProjectionPlanInput{
+		Current:                current,
+		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Output:                 dataTaskWorkflowOutputContract(records, current),
+		Result:                 result,
+		ReferenceGap:           gap,
+		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
+	})
 }
 
 func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
@@ -9476,53 +9411,20 @@ func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, curr
 }
 
 func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
-	if plan, ok := dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot, records, current, result); ok {
-		return plan, true
+	var gap dataworkflow.ReferenceProjectionGap
+	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	if hasReferenceGap {
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
 	}
-	violation := dataquery.ClassifyExecutionError(errText)
-	if strings.TrimSpace(violation.Code) != "missing_required_ledger" {
-		return dataquery.TaskPlan{}, false
-	}
-	contract := dataTaskWorkflowCoverageContract(records, current)
-	base := dataquery.TaskPlan{
-		Status:           "ready",
-		OutputContract:   firstNonEmptyOutputContract(result.OutputContract, current.OutputContract),
-		CoverageContract: contract,
-		Goal:             strings.TrimSpace(current.Goal),
-		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
-		ContinueAfter:    false,
-	}
-	if strings.TrimSpace(base.Goal) == "" {
-		base.Goal = "complete required data validation ledgers without changing the computed answer"
-	}
-	jsonPath := strings.TrimSpace(violation.JSONPath)
-	switch jsonPath {
-	case "/rule_coverage":
-		action := dataTaskRuleCoverageCompletionAction(contract)
-		if strings.TrimSpace(action.ID) == "" {
-			return dataquery.TaskPlan{}, false
-		}
-		base.Actions = []dataquery.DataAction{action}
-		base.InputPaths = mergeDataTaskInputPaths(base.InputPaths, action.InputPaths)
-		base.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
-		return base, true
-	case "/entity_resolutions":
-		return dataquery.TaskPlan{}, false
-	case "/reconcile":
-		if len(result.Contributions) == 0 {
-			return dataquery.TaskPlan{}, false
-		}
-		base.Actions = []dataquery.DataAction{{
-			ID:             "complete_reconcile",
-			Kind:           dataquery.DataActionReconcile,
-			Purpose:        "complete missing reconcile ledger from existing contribution records",
-			OutputArtifact: "reconcile_result.json",
-		}}
-		base.WhyThisBatch = "complete missing reconcile ledger from existing contribution records"
-		return base, true
-	default:
-		return dataquery.TaskPlan{}, false
-	}
+	return dataworkflow.BuildRequiredLedgerCompletionPlan(dataworkflow.RequiredLedgerCompletionPlanInput{
+		Current:                current,
+		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Output:                 dataTaskWorkflowOutputContract(records, current),
+		Result:                 result,
+		ErrorText:              errText,
+		ReferenceGap:           gap,
+		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
+	})
 }
 
 func dataTaskTerminalWorkflowFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) (dataquery.TaskPlan, string, bool) {
@@ -9572,7 +9474,7 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 	}
 	switch state.NextStage {
 	case "derive_rules":
-		action := dataTaskRuleCoverageCompletionAction(contract)
+		action := dataworkflow.RuleCoverageCompletionAction(contract)
 		if strings.TrimSpace(action.ID) == "" {
 			return dataquery.TaskPlan{}, "", false
 		}
@@ -9625,61 +9527,18 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 }
 
 func dataTaskWorkflowRecordMaterializationFallback(records []dataTaskWorkflowRecord, base dataquery.TaskPlan, state dataTaskWorkflowStateView, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	if !dataTaskStringSliceContainsFold(state.AllowedNextActions, string(dataquery.DataActionExtractRecords)) {
-		return dataquery.TaskPlan{}, "", false
-	}
 	access := dataTaskWorkflowArtifactContractAccess(records)
-	if len(dataTaskWorkflowRecordActionArtifacts(access)) > 0 {
-		return dataquery.TaskPlan{}, "", false
-	}
-	paths := dataTaskRecordMaterializationPaths(base.CoverageContract)
-	if len(paths) == 0 {
-		return dataquery.TaskPlan{}, "", false
-	}
-	out := base
-	out.Status = "ready"
-	out.Script = ""
-	out.Actions = []dataquery.DataAction{{
-		ID:             "continue_extract_records",
-		Kind:           dataquery.DataActionExtractRecords,
-		Purpose:        "materialize required local materials into reusable record artifacts before typed graph computation",
-		InputPaths:     paths,
-		OutputArtifact: "source_records.json",
-		Params: map[string]string{
-			"limit": fmt.Sprintf("%d", dataTaskExactExtractRecordLimit),
-		},
-	}}
-	out.InputPaths = mergeDataTaskInputPaths(out.InputPaths, paths)
-	out.ContinueAfter = true
-	out.WhyThisBatch = reasonPrefix + "; materialize required local materials as reusable record artifacts before the next typed DAG stage"
-	out.NextBatch = "continue with normalization, enrichment, filtering, contribution, and reconcile actions after record artifacts exist"
-	if dataTaskFallbackPlanAlreadySeen(records, out) {
-		return dataquery.TaskPlan{}, "", false
-	}
-	return out, reasonPrefix + "; converted to required record materialization stage", true
-}
-
-func dataTaskRecordMaterializationPaths(contract dataquery.CoverageContract) []string {
-	var out []string
-	for _, material := range contract.RequiredMaterials {
-		if !material.Required {
-			continue
-		}
-		mode := dataquery.CoverageMaterialUseMode(strings.ToLower(strings.TrimSpace(string(material.UsageMode))))
-		switch mode {
-		case dataquery.MaterialUsePlannerDistilled, dataquery.MaterialUseReferenceOnly:
-			continue
-		case dataquery.MaterialUseTextEvidenceConsumed:
-			if textPath := strings.TrimSpace(material.TextEvidencePath); textPath != "" {
-				out = append(out, textPath)
-				continue
-			}
-		}
-		if path := strings.TrimSpace(material.Path); path != "" {
-			out = append(out, path)
-		}
-	}
-	return cleanDataTaskStrings(out)
+	return dataworkflow.BuildRecordMaterializationFallbackPlan(dataworkflow.RecordMaterializationFallbackInput{
+		Current:            base,
+		Coverage:           base.CoverageContract,
+		Output:             base.OutputContract,
+		Facts:              dataTaskWorkflowStageFacts(state),
+		AllowedNextActions: state.AllowedNextActions,
+		Artifacts:          dataTaskArtifactAccessSchemaProjection(access),
+		ReasonPrefix:       reasonPrefix,
+		SeenActionKeys:     dataTaskWorkflowSeenActionKeys(records),
+		ExtractLimit:       dataTaskExactExtractRecordLimit,
+	})
 }
 
 func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord, base dataquery.TaskPlan, state dataTaskWorkflowStateView, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
@@ -9716,72 +9575,7 @@ func dataTaskPlanStatusLooksTerminal(status string) bool {
 }
 
 func firstNonEmptyOutputContract(values ...dataquery.OutputContract) dataquery.OutputContract {
-	var best dataquery.OutputContract
-	bestScore := -1
-	for _, value := range values {
-		score := dataTaskOutputContractSpecificity(value)
-		if score > bestScore {
-			best = value.Normalize()
-			bestScore = score
-		}
-	}
-	if bestScore >= 0 {
-		return best
-	}
-	return dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true}
-}
-
-func dataTaskOutputContractSpecificity(value dataquery.OutputContract) int {
-	rawFormat := strings.TrimSpace(string(value.Format))
-	rawDelimiter := strings.TrimSpace(value.Delimiter)
-	if rawFormat == "" && rawDelimiter == "" {
-		return -1
-	}
-	value = value.Normalize()
-	score := 0
-	if rawFormat != "" {
-		score++
-	}
-	if value.Format != dataquery.OutputFreeform {
-		score += 10
-	}
-	if !value.ExplanationAllowed {
-		score += 2
-	}
-	if rawDelimiter != "" {
-		score++
-	}
-	return score
-}
-
-func dataTaskRuleCoverageCompletionAction(contract dataquery.CoverageContract) dataquery.DataAction {
-	var inputs []string
-	for _, material := range contract.RequiredMaterials {
-		mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
-		if mode != dataquery.MaterialUseScriptConsumed && mode != dataquery.MaterialUsePlannerDistilled {
-			continue
-		}
-		p := normalizeDataTaskCoveragePath(material.Path)
-		if p == "" || !dataTaskPathLooksLikeTextConstraintMaterial(p) {
-			continue
-		}
-		inputs = append(inputs, p)
-	}
-	params := map[string]string{}
-	if len(inputs) == 0 && len(contract.ValidationRules) > 0 {
-		params["rules"] = strings.Join(cleanDataTaskStrings(contract.ValidationRules), "\n")
-	}
-	if len(inputs) == 0 && strings.TrimSpace(params["rules"]) == "" {
-		return dataquery.DataAction{}
-	}
-	return dataquery.DataAction{
-		ID:             "complete_rule_coverage",
-		Kind:           dataquery.DataActionDeriveRules,
-		Purpose:        "complete missing generic rule coverage ledger from required rule/constraint materials",
-		InputPaths:     cleanDataTaskStrings(inputs),
-		OutputArtifact: "rules_artifacts.json",
-		Params:         params,
-	}
+	return dataworkflow.BestOutputContract(values...)
 }
 
 func dataTaskEntityResolutionCompletionInputs(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) []string {

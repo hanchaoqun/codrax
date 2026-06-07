@@ -140,3 +140,87 @@ func TestBuildNextStageConcreteFallbackPlanBlocksRepeatedRelationNoProgress(t *t
 		t.Fatal("BuildNextStageConcreteFallbackPlan ok=true, want repeated relation no-progress blocked")
 	}
 }
+
+func TestBuildRecordMaterializationFallbackPlanUsesRequiredMaterials(t *testing.T) {
+	plan, reason, ok := BuildRecordMaterializationFallbackPlan(RecordMaterializationFallbackInput{
+		Current: dataquery.TaskPlan{Goal: "prepare typed records"},
+		Coverage: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{{
+			Path:      "records.csv",
+			Required:  true,
+			UsageMode: dataquery.MaterialUseScriptConsumed,
+		}}},
+		Output:             dataquery.OutputContract{Format: dataquery.OutputMarkdown, ExplanationAllowed: true},
+		AllowedNextActions: []string{string(dataquery.DataActionExtractRecords)},
+		ExtractLimit:       77,
+		ReasonPrefix:       "batch result completed",
+	})
+	if !ok {
+		t.Fatal("BuildRecordMaterializationFallbackPlan ok=false")
+	}
+	if !strings.Contains(reason, "record materialization") {
+		t.Fatalf("reason=%q, want record materialization reason", reason)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionExtractRecords {
+		t.Fatalf("actions=%+v, want extract_records", plan.Actions)
+	}
+	if strings.Join(plan.Actions[0].InputPaths, ",") != "records.csv" || plan.Actions[0].Params["limit"] != "77" {
+		t.Fatalf("action=%+v, want required input and configured limit", plan.Actions[0])
+	}
+	if !plan.ContinueAfter || plan.OutputContract.Format != dataquery.OutputMarkdown {
+		t.Fatalf("plan=%+v, want continuation preserving output contract", plan)
+	}
+}
+
+func TestBuildRequiredOutputProjectionPlanUsesReconcileGroups(t *testing.T) {
+	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+		Current:  dataquery.TaskPlan{Goal: "format final values"},
+		Coverage: dataquery.CoverageContract{ReconcileRequired: true},
+		Output:   dataquery.OutputContract{Format: dataquery.OutputCSVLine, ExplanationAllowed: false},
+		Result: dataquery.Result{
+			Reconcile: &dataquery.ReconcileReport{
+				Status: dataquery.LooseText("pass"),
+				Groups: []dataquery.ReconcileGroup{{
+					GroupKey: dataquery.LooseText("A"),
+					Metric:   dataquery.LooseText("value"),
+					Actual:   dataquery.LooseText("10"),
+				}},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("BuildRequiredOutputProjectionPlan ok=false")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("actions=%+v, want assemble_answer", plan.Actions)
+	}
+	if plan.ContinueAfter {
+		t.Fatalf("ContinueAfter=true, want terminal projection batch")
+	}
+	if !plan.CoverageContract.ReconcileRequired {
+		t.Fatalf("CoverageContract=%+v, want reconcile required preserved", plan.CoverageContract)
+	}
+}
+
+func TestBuildRequiredLedgerCompletionPlanCompletesReconcileFromContributions(t *testing.T) {
+	plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
+		Current:  dataquery.TaskPlan{Goal: "finish validation"},
+		Coverage: dataquery.CoverageContract{ReconcileRequired: true},
+		Result: dataquery.Result{Contributions: []dataquery.ContributionRecord{{
+			ItemID:    dataquery.LooseText("row-1"),
+			GroupKey:  dataquery.LooseText("A"),
+			Metric:    dataquery.LooseText("value"),
+			Value:     dataquery.LooseText("10"),
+			Operation: dataquery.LooseText("add"),
+		}}},
+		ErrorText: `validate data workflow completion: data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty`,
+	})
+	if !ok {
+		t.Fatal("BuildRequiredLedgerCompletionPlan ok=false")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile_artifacts", plan.Actions)
+	}
+	if plan.ContinueAfter {
+		t.Fatalf("ContinueAfter=true, want terminal ledger repair batch")
+	}
+}
