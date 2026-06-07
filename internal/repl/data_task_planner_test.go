@@ -6533,6 +6533,27 @@ func TestDataTaskActionDependencyGuardResultCarriesTypedCode(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStagingGuardResultPropagatesActionGuard(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "derive_status",
+		Kind:       dataquery.DataActionDeriveFields,
+		InputPaths: []string{"records"},
+	}
+	guard := dataTaskWorkflowStagingGuardResult(nil, dataquery.TaskPlan{
+		Status:  "ready",
+		Actions: []dataquery.DataAction{action},
+	})
+	if guard.Empty() {
+		t.Fatal("guard should reject derive_fields without specs")
+	}
+	if guard.Code != "missing_action_spec" {
+		t.Fatalf("guard.Code=%q, want child action code missing_action_spec", guard.Code)
+	}
+	if !strings.Contains(guard.ErrorText(), "field specification") {
+		t.Fatalf("guard text=%q, want field specification guidance", guard.ErrorText())
+	}
+}
+
 func TestNormalizeDataTaskEvaluationUsesTypedGraphWhenCustomDisabled(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

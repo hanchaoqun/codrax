@@ -10230,5 +10230,36 @@ Remaining architecture items:
 - [ ] Convert relation-specific field sub-guards (`join_records`,
       `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
       produce typed field-contract violations instead of wrapped messages.
-- [ ] Propagate child action guard results through staging guard results so
+- [x] Propagate child action guard results through staging guard results so
       checkpoint guard payloads include the deepest typed violation.
+
+### Batch 232: Propagated Typed Action Guards
+
+The action dependency and field-contract entrypoints now emit typed
+`GuardResult` values, but parent staging guards could still wrap those messages
+under broad `action_staging_guard` / `workflow_action_staging_guard` codes.
+That lost useful typed payloads before checkpoint journaling and repair
+planning.
+
+This batch keeps the existing deterministic guard ordering, but when a parent
+staging guard delegates to an action-level guard, it now returns the matching
+child `GuardResult`. The matching is only used to preserve a guard object that
+was already produced by deterministic action validation; no business decision
+or hard gate is driven by parsed prose.
+
+Changes:
+
+- [x] Added typed `dataTaskActionStagingGuardResult`.
+- [x] Added typed `dataTaskWorkflowActionStagingGuardResult`.
+- [x] Parent staging guards now preserve child action guard codes and violation
+      payloads when the child guard caused the block.
+- [x] Added regression coverage that a missing `derive_fields` specification
+      surfaces as `missing_action_spec` at the workflow staging boundary.
+
+Remaining architecture items:
+
+- [ ] Convert relation-specific field sub-guards (`join_records`,
+      `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
+      produce typed field-contract violations instead of wrapped messages.
+- [ ] Persist deeper action guard payloads in per-action process summaries once
+      the UX event layer consumes the propagated guard results.

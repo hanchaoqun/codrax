@@ -93,7 +93,7 @@ func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardR
 		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskGuardResultFromMessage("action_staging_guard", dataTaskActionStagingGuardError(plan))
+		return dataTaskActionStagingGuardResult(plan)
 	}
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
@@ -138,7 +138,7 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskGuardResultFromMessage("workflow_action_staging_guard", dataTaskWorkflowActionStagingGuardError(records, plan))
+		return dataTaskWorkflowActionStagingGuardResult(records, plan)
 	}
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
@@ -155,6 +155,45 @@ func dataTaskGuardResultFromMessage(code, message string) dataworkflow.GuardResu
 		return dataworkflow.GuardResult{}
 	}
 	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message)
+}
+
+func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	msg := dataTaskActionStagingGuardError(plan)
+	if strings.TrimSpace(msg) == "" {
+		return dataworkflow.GuardResult{}
+	}
+	if guard := dataTaskMatchingActionDependencyGuardResult(nil, plan, msg); !guard.Empty() {
+		return guard
+	}
+	return dataTaskGuardResultFromMessage("action_staging_guard", msg)
+}
+
+func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	msg := dataTaskWorkflowActionStagingGuardError(records, plan)
+	if strings.TrimSpace(msg) == "" {
+		return dataworkflow.GuardResult{}
+	}
+	if guard := dataTaskMatchingActionDependencyGuardResult(records, plan, msg); !guard.Empty() {
+		return guard
+	}
+	return dataTaskGuardResultFromMessage("workflow_action_staging_guard", msg)
+}
+
+func dataTaskMatchingActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, renderedMessage string) dataworkflow.GuardResult {
+	renderedMessage = strings.TrimSpace(renderedMessage)
+	if renderedMessage == "" {
+		return dataworkflow.GuardResult{}
+	}
+	for i, action := range plan.Actions {
+		guard := dataTaskActionDependencyGuardResult(records, plan, action, i)
+		if guard.Empty() {
+			continue
+		}
+		if strings.TrimSpace(guard.ErrorText()) == renderedMessage {
+			return guard
+		}
+	}
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
