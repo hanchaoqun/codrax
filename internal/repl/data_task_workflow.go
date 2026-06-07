@@ -1327,45 +1327,54 @@ func dataTaskNarrowSingleRecordSetActionInputsForExecution(records []dataTaskWor
 	if len(records) == 0 || len(plan.Actions) == 0 {
 		return plan
 	}
-	access, _, _ := dataTaskWorkflowArtifactAvailability(records, 512)
-	if len(access) == 0 {
-		return plan
-	}
 	out := plan
 	for i, action := range out.Actions {
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		switch kind {
-		case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
-		default:
-			continue
+		if narrowed, ok := dataTaskNarrowSingleRecordSetActionForExecution(records, action); ok {
+			out.Actions[i] = narrowed
 		}
-		inputs := cleanDataTaskStrings(action.InputPaths)
-		if len(inputs) <= 1 {
-			continue
-		}
-		fieldRefs := dataTaskSingleRecordSetActionFieldRefs(kind, action)
-		if len(fieldRefs) == 0 {
-			continue
-		}
-		var matches []string
-		for _, input := range inputs {
-			if _, ok := dataTaskArtifactAccessByAlias(access, input); !ok {
-				continue
-			}
-			if len(dataTaskMissingFieldsOnArtifact(access, input, fieldRefs)) == 0 {
-				matches = append(matches, input)
-			}
-		}
-		if len(matches) != 1 {
-			continue
-		}
-		action.InputPaths = []string{matches[0]}
-		if strings.TrimSpace(action.Purpose) != "" {
-			action.Purpose = strings.TrimSpace(action.Purpose) + " (input narrowed by field contract)"
-		}
-		out.Actions[i] = action
 	}
 	return out
+}
+
+func dataTaskNarrowSingleRecordSetActionForExecution(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
+	if len(records) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	access, _, _ := dataTaskWorkflowArtifactAvailability(records, 512)
+	if len(access) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	switch kind {
+	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
+	default:
+		return dataquery.DataAction{}, false
+	}
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if len(inputs) <= 1 {
+		return dataquery.DataAction{}, false
+	}
+	fieldRefs := dataTaskSingleRecordSetActionFieldRefs(kind, action)
+	if len(fieldRefs) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	var matches []string
+	for _, input := range inputs {
+		if _, ok := dataTaskArtifactAccessByAlias(access, input); !ok {
+			continue
+		}
+		if len(dataTaskMissingFieldsOnArtifact(access, input, fieldRefs)) == 0 {
+			matches = append(matches, input)
+		}
+	}
+	if len(matches) != 1 {
+		return dataquery.DataAction{}, false
+	}
+	action.InputPaths = []string{matches[0]}
+	if strings.TrimSpace(action.Purpose) != "" && !strings.Contains(action.Purpose, "input narrowed by field contract") {
+		action.Purpose = strings.TrimSpace(action.Purpose) + " (input narrowed by field contract)"
+	}
+	return action, true
 }
 
 func dataTaskSingleRecordSetActionFieldRefs(kind dataquery.DataActionKind, action dataquery.DataAction) []string {
@@ -2441,6 +2450,9 @@ func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred d
 }
 
 func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
+	if narrowed, ok := dataTaskNarrowSingleRecordSetActionForExecution(records, action); ok {
+		action = narrowed
+	}
 	if dataTaskDeferredActionInputsReady(records, action) {
 		return action, true
 	}
@@ -4022,11 +4034,33 @@ func dataTaskJoinActionFieldContractGuardResult(access []dataTaskArtifactAccessP
 		rightPath = inputs[1]
 	}
 	leftFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["left_fields"], action.Params["left_fields_json"], action.Params["base_fields"], action.Params["base_fields_json"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(
+			action.Params["left_fields"],
+			action.Params["left_fields_json"],
+			action.Params["left_key_fields"],
+			action.Params["left_key_fields_json"],
+			action.Params["base_fields"],
+			action.Params["base_fields_json"],
+			action.Params["base_key_fields"],
+			action.Params["base_key_fields_json"],
+		)),
 		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["left_field"], action.Params["base_field"]))...,
 	))
 	rightFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_fields"], action.Params["right_fields_json"], action.Params["lookup_fields"], action.Params["lookup_fields_json"], action.Params["reference_fields"], action.Params["reference_fields_json"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(
+			action.Params["right_fields"],
+			action.Params["right_fields_json"],
+			action.Params["right_key_fields"],
+			action.Params["right_key_fields_json"],
+			action.Params["lookup_fields"],
+			action.Params["lookup_fields_json"],
+			action.Params["lookup_key_fields"],
+			action.Params["lookup_key_fields_json"],
+			action.Params["reference_fields"],
+			action.Params["reference_fields_json"],
+			action.Params["reference_key_fields"],
+			action.Params["reference_key_fields_json"],
+		)),
 		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_field"], action.Params["lookup_field"], action.Params["reference_field"]))...,
 	))
 	if leftPath != "" {

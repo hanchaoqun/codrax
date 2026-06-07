@@ -12526,3 +12526,61 @@ Current backlog before real-scenario testing:
       proves a typed graph/state contract is missing; otherwise classify it as
       action semantics, multimodal material extraction, or scenario-data
       limitation before changing architecture.
+
+### Batch 280: Typed Action Contract Alignment And Deferred Readiness
+
+The next real-scenario audit progressed past transitive lineage and into
+field extraction, filtering, normalization, enrichment, and deferred typed
+actions. Two generic IR gaps remained before another full scenario gate is
+useful:
+
+- the planner could emit structurally clear join keys as
+  `left_key_fields`/`right_key_fields`, but the runner and REPL field-contract
+  guard only treated `left_fields`/`right_fields` as the canonical executable
+  contract;
+- deferred DAG readiness checked input availability before applying the same
+  single-record-set field-contract narrowing used by execution preparation,
+  so a deferred action with a unique compatible record artifact could be
+  blocked or sent through a multi-input guard even though the executable
+  artifact was objectively identifiable.
+
+These are not domain issues. They are cross-layer typed action contract
+issues. A workflow should not depend on whether the model used one accepted
+field-name alias or another, and the ready/deferred state machine must use the
+same structural input-contract logic as the executor.
+
+Generic invariants:
+
+- action parameter aliases that represent the same typed contract must be
+  normalized consistently in the planner schema, staging guard, and runner;
+- deferred dispatch must operate on the executable action IR, including
+  deterministic input narrowing by artifact field coverage;
+- ambiguous multi-input single-record actions remain blocked. Narrowing is
+  allowed only when exactly one available artifact satisfies all referenced
+  fields;
+- the hard signal is artifact schema/field coverage, not planner prose,
+  material names, or business-domain labels.
+
+Changes:
+
+- [x] Taught `join_records` runner and REPL field-contract guards to accept
+      key-field alias families such as `left_key_fields`, `right_key_fields`,
+      `base_key_fields`, `lookup_key_fields`, and `reference_key_fields`.
+- [x] Factored single-record-set input narrowing into a shared helper that
+      consumes current `ArtifactGraph`/artifact availability and action field
+      refs.
+- [x] Applied the same narrowing before deferred action readiness checks, so a
+      deferred typed action can dispatch the executable narrowed action instead
+      of being judged on its broader candidate input list.
+- [x] Kept ambiguous multi-input single-record actions blocked when no unique
+      schema-compatible artifact exists.
+- [x] Added regression coverage for join key alias execution and deferred
+      field-contract narrowing.
+
+Current backlog before real-scenario testing:
+
+- [ ] Re-run the latest binary through the real-scenario gate after this batch
+      passes full tests. If it still fails, classify the next terminal journal
+      gap by typed IR family first: action contract, artifact graph/schema,
+      ledger graph/reconcile, multimodal extraction, or scenario-data
+      limitation.

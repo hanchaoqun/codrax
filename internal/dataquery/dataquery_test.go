@@ -918,6 +918,36 @@ func TestActionRunnerTypedActionConsumesSourceRecordAliasAcrossBatches(t *testin
 	}
 }
 
+func TestActionRunnerJoinRecordsAcceptsKeyFieldAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,value\nA,3\nB,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,label\nA,alpha\nB,beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "join_key_aliases",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"left.csv", "right.csv"},
+			OutputArtifact: "joined",
+			Params: map[string]string{
+				"left_key_fields":  `["id"]`,
+				"right_key_fields": `["id"]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[len(res.Artifacts)-1].RowCount != 2 {
+		t.Fatalf("Artifacts=%+v, want joined two rows", res.Artifacts)
+	}
+}
+
 func TestActionRunnerTypedActionConsumesPriorActionArtifact(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nB,5,pending\nA,7,paid\n"), 0o644); err != nil {

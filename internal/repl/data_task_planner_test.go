@@ -4692,8 +4692,8 @@ func TestDataTaskDeferredActionRechecksFullWorkflowGuard(t *testing.T) {
 				{
 					ID:      "queries.csv",
 					Kind:    string(dataquery.DataActionExtractRecords),
-					Headers: []string{"query_id", "vendor_id", "category_code"},
-					Fields:  map[string]string{"artifact_aliases": "queries.csv", "json_shape": "array(len=1,item=object(keys=query_id,vendor_id,category_code))"},
+					Headers: []string{"query_id", "vendor_id", "category_code", "po_id", "year", "amount_num"},
+					Fields:  map[string]string{"artifact_aliases": "queries.csv", "json_shape": "array(len=1,item=object(keys=query_id,vendor_id,category_code,po_id,year,amount_num))"},
 				},
 			},
 		},
@@ -4723,6 +4723,78 @@ func TestDataTaskDeferredActionRechecksFullWorkflowGuard(t *testing.T) {
 		!strings.Contains(status.Reason, "single-record-set") ||
 		!strings.Contains(status.Reason, "2 input_paths") {
 		t.Fatalf("reason=%q, want full staging guard reason", status.Reason)
+	}
+}
+
+func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+				DecisionRecordsRequired:    true,
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				EntityResolutionRequired:   true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "queries.csv"},
+			RuleCoverage: []dataquery.RuleCoverageRecord{{
+				RuleID:   dataquery.LooseText("R1"),
+				RuleText: dataquery.LooseText("eligible rows must be qualified before contribution"),
+				Status:   dataquery.LooseText("applied"),
+			}},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				ItemID:      dataquery.LooseText("orders.csv#1:entity"),
+				CanonicalID: dataquery.LooseText("E1"),
+				Status:      dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "po_for_qualification.json",
+					Kind:    string(dataquery.DataActionJoinRecords),
+					Headers: []string{"po_id", "status", "vendor_id_resolved_status", "category_code_resolved_status"},
+					Fields:  map[string]string{"artifact_aliases": "po_for_qualification.json", "json_shape": "array(len=2,item=object(keys=po_id,status,vendor_id_resolved_status,category_code_resolved_status))"},
+				},
+				{
+					ID:      "rules_artifacts.json",
+					Kind:    string(dataquery.DataActionDeriveRules),
+					Headers: []string{"rule_id", "rule_text"},
+					Fields:  map[string]string{"artifact_aliases": "rules_artifacts.json", "json_shape": "array(len=1,item=object(keys=rule_id,rule_text))"},
+				},
+			},
+		},
+	}}
+	deferred := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:             "qualify_eligible",
+			Kind:           dataquery.DataActionQualifyRecords,
+			InputPaths:     []string{"po_for_qualification.json", "rules_artifacts.json"},
+			OutputArtifact: "eligible_pos",
+			Params: map[string]string{
+				"filters_json":    `[{"field":"vendor_id_resolved_status","op":"eq","value":"resolved"},{"field":"category_code_resolved_status","op":"eq","value":"resolved"}]`,
+				"required_fields": `["po_id","status","vendor_id_resolved_status","category_code_resolved_status"]`,
+				"status_fields":   `["status"]`,
+			},
+		}},
+	}
+	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	if !ok {
+		t.Fatalf("deferred action was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+	}
+	if len(next.Actions) != 1 {
+		t.Fatalf("next actions=%+v, want one action", next.Actions)
+	}
+	if got := strings.Join(next.Actions[0].InputPaths, ","); got != "po_for_qualification.json" {
+		t.Fatalf("InputPaths=%q, want narrowed executable artifact", got)
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, next); errText != "" {
+		t.Fatalf("staging guard after narrowing: %s", errText)
 	}
 }
 
