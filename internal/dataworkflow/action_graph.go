@@ -88,6 +88,11 @@ func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	if len(deferredPlan.Actions) > 0 {
 		graph.DeferredPlan = cloneTaskPlan(deferredPlan)
 	}
+	if queuePlan := DeferredQueuePlan(input.DeferredQueue); len(queuePlan.Actions) > 0 {
+		graph.DeferredQueue = DeferredQueueSnapshotForPlan(queuePlan)
+	} else if len(deferredPlan.Actions) > 0 {
+		graph.DeferredQueue = DeferredQueueSnapshotForPlan(deferredPlan)
+	}
 	graph.DeferredEvents = cloneDeferredQueueEvents(input.DeferredQueue.Events)
 	if input.EventLimit > 0 && len(graph.Executed) > input.EventLimit {
 		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-input.EventLimit:]...)

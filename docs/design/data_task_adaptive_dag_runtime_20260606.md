@@ -13900,7 +13900,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move graph construction for `ActionGraph`, `LedgerGraph`,
+- [x] Move graph construction for `ActionGraph`, `LedgerGraph`,
       `ArtifactGraph`, `ProgressWindow`, and typed violations behind the same
       reducer boundary.
 - [ ] Add a reducer-level input object that collects material coverage,
@@ -13910,3 +13910,53 @@ Remaining architecture items:
       snapshot plus bounded record views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
       REPL-local stage summaries.
+
+### Batch 308: Unified Workflow State Snapshot Builder
+
+After stage facts moved into `dataworkflow`, the REPL adapter still assembled
+the major workflow graphs by calling individual reducers and then stitching
+their outputs together. That was better than owning the graph semantics, but
+still left the entrypoint as the place where action, ledger, artifact, output,
+progress, violations, and decision graphs became one state.
+
+This batch adds `BuildWorkflowStateSnapshot` as the package-level aggregation
+entrypoint. The REPL still collects objective input facts and UI/prompt helper
+data, but graph reduction and decision assembly now meet inside
+`internal/dataworkflow`. The change does not introduce new business semantics;
+it centralizes existing typed reducers into one IR boundary.
+
+Generic invariants:
+
+- `ActionGraph`, `LedgerGraph`, `OutputProjectionGraph`, `ArtifactGraph`,
+  `ProgressWindow`, `WorkflowViolations`, and `WorkflowDecision` are assembled
+  through one package-level snapshot builder;
+- deferred queue snapshots are produced by the `ActionGraph` reducer, not
+  patched in by a REPL caller;
+- entrypoints may still collect typed inputs from local records, but they do
+  not decide how the graphs compose;
+- no prompt prose, business labels, user-domain field names, or case-specific
+  units participate in hard workflow decisions.
+
+Changes:
+
+- [x] Added `WorkflowStateSnapshotInput` and `BuildWorkflowStateSnapshot`.
+- [x] Rewired REPL data workflow state assembly to use the shared snapshot
+      builder for action, ledger, output, artifact, progress, and decision
+      graphs.
+- [x] Moved deferred-queue snapshot projection into `ReduceActionGraphState`.
+- [x] Added regression coverage for snapshot graph/decision aggregation.
+- [x] Added regression coverage that deferred-queue summaries come from the
+      action graph reducer.
+
+Remaining architecture items:
+
+- [ ] Add a reducer-level input object that collects material coverage,
+      coverage contract, plan records, deferred queue, and current plan without
+      exposing REPL-local state.
+- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+      snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+- [ ] Move typed violation discovery itself behind package-level reducer
+      inputs; the current builder consumes typed violations but does not yet
+      discover all of them.

@@ -5552,16 +5552,17 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	state.ContributionRecords = len(dataquery.DedupeContributionRecords(contributionRecords))
 	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
 	facts := dataTaskWorkflowStageFacts(state)
-	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
-	state.LedgerGraph = dataworkflow.BuildLedgerGraph(facts)
-	state.OutputProjectionGraph = dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
+	outputGraphInput := dataworkflow.OutputProjectionGraphInput{
 		Output:                 outputContract,
 		Coverage:               contract,
 		AnswerPresent:          state.HasAnswer,
 		ReconcilePresent:       state.HasReconcile,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
-	})
-	state.NextStage = dataTaskWorkflowNextStage(state)
+	}
+	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
+	state.LedgerGraph = dataworkflow.BuildLedgerGraph(facts)
+	state.OutputProjectionGraph = dataworkflow.BuildOutputProjectionGraph(outputGraphInput)
+	state.NextStage = dataworkflow.NextStage(facts)
 	state.CustomTransformDisabled = dataTaskCustomTransformCooldownForState(records, state)
 	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
 	if state.CustomTransformDisabled {
@@ -5578,15 +5579,15 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
 	state.WorkflowViolations = dataTaskWorkflowTypedViolations(records, state)
-	state.Decision = dataworkflow.BuildWorkflowDecision(dataworkflow.WorkflowDecisionInput{
+	decisionInput := dataworkflow.WorkflowDecisionInput{
 		NextStage:          state.NextStage,
 		AllowedNextActions: state.AllowedNextActions,
 		Violations:         state.WorkflowViolations,
 		LedgerGraph:        state.LedgerGraph,
 		OutputGraph:        state.OutputProjectionGraph,
-	})
+	}
 	if eval, ok := latestDataTaskEvaluation(records); ok {
-		state.Decision = dataworkflow.BuildWorkflowDecision(dataworkflow.WorkflowDecisionInput{
+		decisionInput = dataworkflow.WorkflowDecisionInput{
 			Status:             string(eval.Status),
 			ReasonCode:         string(eval.Status),
 			Reason:             eval.Reason,
@@ -5595,9 +5596,26 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 			Violations:         state.WorkflowViolations,
 			LedgerGraph:        state.LedgerGraph,
 			OutputGraph:        state.OutputProjectionGraph,
-		})
+		}
 	}
-	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records, current, deferredQueue, state.WorkflowViolations, 48)
+	snapshot := dataworkflow.BuildWorkflowStateSnapshot(dataworkflow.WorkflowStateSnapshotInput{
+		StageFacts:                 facts,
+		ActionGraph:                dataTaskWorkflowActionGraphReducerInput(records, current, deferredQueue, state.WorkflowViolations, 48),
+		OutputGraph:                outputGraphInput,
+		Artifacts:                  dataTaskWorkflowArtifactsNewestFirst(records),
+		ArtifactLimit:              48,
+		ProgressEvents:             dataTaskWorkflowProgressEvents(records),
+		ProgressLimit:              6,
+		WorkflowViolations:         state.WorkflowViolations,
+		Decision:                   decisionInput,
+		DecisionFallbackReasonCode: state.NextStage,
+	})
+	state.ActionGraph = snapshot.ActionGraph
+	state.LedgerGraph = snapshot.LedgerGraph
+	state.OutputProjectionGraph = snapshot.OutputGraph
+	state.ArtifactGraph = snapshot.ArtifactGraph
+	state.ProgressSignatures = snapshot.Progress
+	state.Decision = snapshot.Decision
 	return state
 }
 
@@ -5832,6 +5850,10 @@ func dataTaskWorkflowActionGraphWithDeferredQueue(records []dataTaskWorkflowReco
 }
 
 func dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraph {
+	return dataworkflow.ReduceActionGraphState(dataTaskWorkflowActionGraphReducerInput(records, current, deferredQueue, violations, limit))
+}
+
+func dataTaskWorkflowActionGraphReducerInput(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraphInput {
 	var ready []dataquery.DataAction
 	if dataTaskPlanHasExecutableBatch(current) {
 		ready = current.Actions
@@ -5841,7 +5863,7 @@ func dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records []dataTas
 	if dataTaskPlanHasExecutableBatch(deferred) {
 		deferredActions = deferred.Actions
 	}
-	graph := dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
+	return dataworkflow.ActionGraphInput{
 		Events:        dataTaskWorkflowActionEvents(records),
 		Ready:         ready,
 		Deferred:      deferredActions,
@@ -5849,11 +5871,7 @@ func dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records []dataTas
 		DeferredQueue: deferredQueue,
 		Blocked:       violations,
 		EventLimit:    limit,
-	})
-	if len(deferred.Actions) > 0 {
-		graph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForPlan(deferred)
 	}
-	return graph
 }
 
 func dataTaskWorkflowActionEvents(records []dataTaskWorkflowRecord) []dataworkflow.ActionEvent {

@@ -15,6 +15,60 @@ type WorkflowStateSnapshot struct {
 	DecisionFallbackReasonCode string                `json:"decision_fallback_reason_code,omitempty"`
 }
 
+type WorkflowStateSnapshotInput struct {
+	StageFacts                 StageFacts
+	ActionGraph                ActionGraphInput
+	OutputGraph                OutputProjectionGraphInput
+	Artifacts                  []ArtifactProjectionSource
+	ArtifactLimit              int
+	ProgressEvents             []ProgressEvent
+	ProgressLimit              int
+	WorkflowViolations         []WorkflowViolation
+	Decision                   WorkflowDecisionInput
+	DecisionFallbackReasonCode string
+}
+
+func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateSnapshot {
+	facts := input.StageFacts
+	actionInput := input.ActionGraph
+	if len(actionInput.Blocked) == 0 {
+		actionInput.Blocked = append([]WorkflowViolation(nil), input.WorkflowViolations...)
+	}
+	ledgerGraph := BuildLedgerGraph(facts)
+	outputGraph := BuildOutputProjectionGraph(input.OutputGraph)
+	progressLimit := input.ProgressLimit
+	if progressLimit == 0 {
+		progressLimit = 6
+	}
+	decisionInput := input.Decision
+	if decisionInput.NextStage == "" {
+		decisionInput.NextStage = NextStage(facts)
+	}
+	if len(decisionInput.AllowedNextActions) == 0 {
+		decisionInput.AllowedNextActions = ActionKindsFromContracts(AllowedNextActionContractsForFacts(facts))
+	}
+	if len(decisionInput.Violations) == 0 {
+		decisionInput.Violations = append([]WorkflowViolation(nil), input.WorkflowViolations...)
+	}
+	if decisionInput.LedgerGraph.FirstMissing == "" && decisionInput.LedgerGraph.NextStage == "" {
+		decisionInput.LedgerGraph = ledgerGraph
+	}
+	if decisionInput.OutputGraph.Status == "" && decisionInput.OutputGraph.ReasonCode == "" {
+		decisionInput.OutputGraph = outputGraph
+	}
+	return WorkflowStateSnapshot{
+		StageFacts:                 facts,
+		ActionGraph:                ReduceActionGraphState(actionInput),
+		LedgerGraph:                ledgerGraph,
+		OutputGraph:                outputGraph,
+		ArtifactGraph:              BuildArtifactGraphState(input.Artifacts, input.ArtifactLimit),
+		Progress:                   BuildProgressWindow(input.ProgressEvents, progressLimit),
+		WorkflowViolations:         append([]WorkflowViolation(nil), input.WorkflowViolations...),
+		Decision:                   BuildWorkflowDecision(decisionInput),
+		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
+	}
+}
+
 func (s WorkflowStateSnapshot) IsZero() bool {
 	return stageFactsIsZero(s.StageFacts) &&
 		len(s.ActionGraph.Executed) == 0 &&

@@ -136,6 +136,9 @@ func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
 	if graph.DeferredPlan == nil || len(graph.DeferredPlan.Actions) != 1 || graph.DeferredPlan.Actions[0].ID != "join_later" {
 		t.Fatalf("DeferredPlan=%+v, want live executable deferred plan", graph.DeferredPlan)
 	}
+	if graph.DeferredQueue.Actions != 1 || graph.DeferredQueue.FirstActionID != "join_later" {
+		t.Fatalf("DeferredQueue=%+v, want queue snapshot from reducer", graph.DeferredQueue)
+	}
 	if len(graph.DeferredEvents) != 1 || graph.DeferredEvents[0].Action != DeferredQueueTransitionEnqueue {
 		t.Fatalf("DeferredEvents=%+v, want enqueue transition", graph.DeferredEvents)
 	}
