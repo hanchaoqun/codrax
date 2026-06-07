@@ -12,6 +12,7 @@ func TestActionCapabilitiesExposeDependencyRanks(t *testing.T) {
 		dataquery.DataActionDeriveFields:      2,
 		dataquery.DataActionExtractFields:     2,
 		dataquery.DataActionGroupRecords:      2,
+		dataquery.DataActionMappingCandidate:  2,
 		dataquery.DataActionNormalizeEntities: 2,
 		dataquery.DataActionJoinRecords:       3,
 		dataquery.DataActionComputeContribs:   4,
@@ -83,6 +84,13 @@ func TestActionCapabilitiesExposeInputPathContracts(t *testing.T) {
 	}
 	if contract.Min != 2 || contract.Max != 2 || contract.SingleRecordSet {
 		t.Fatalf("join_records input contract=%+v, want exactly two record inputs", contract)
+	}
+	contract, ok = InputPathContract(dataquery.DataActionMappingCandidate)
+	if !ok {
+		t.Fatal("mapping_candidate should expose an input path contract")
+	}
+	if contract.Min != 2 || contract.Max != 2 || contract.SingleRecordSet {
+		t.Fatalf("mapping_candidate input contract=%+v, want exactly two record inputs", contract)
 	}
 	if !RequiresInputPaths(dataquery.DataActionComputeContribs) {
 		t.Fatal("compute_contributions should require an input path")

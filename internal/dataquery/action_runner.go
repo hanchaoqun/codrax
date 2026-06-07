@@ -258,6 +258,18 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			rows = DedupeRowDecisionRecords(append(rows, decisions...))
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
+		case DataActionMappingCandidate:
+			artifact, records, paths, err := r.runMappingCandidate(action)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, records)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifacts = append(artifacts, artifact)
+			consumed = append(consumed, paths...)
+			summaries = append(summaries, artifact.Summary)
 		case DataActionNormalizeEntities:
 			requireNonEmpty := plan.CoverageContract.EntityResolutionRequired && len(entityResolutions) == 0
 			artifact, records, err := r.runNormalizeEntities(action, requireNonEmpty)
@@ -560,6 +572,8 @@ func normalizeDataActionKind(kind DataActionKind) DataActionKind {
 		return DataActionValueDistribution
 	case DataActionQualifyRecords:
 		return DataActionQualifyRecords
+	case DataActionMappingCandidate:
+		return DataActionMappingCandidate
 	case DataActionNormalizeEntities:
 		return DataActionNormalizeEntities
 	case DataActionApplyResolutions:
@@ -1196,6 +1210,204 @@ func applyEntityResolutionDefaults(records []EntityResolutionRecord, action Data
 	}
 }
 
+func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []map[string]any, []string, error) {
+	paths := cleanStringListPreserveOrder(action.InputPaths)
+	if len(paths) < 2 {
+		return DataArtifact{}, nil, nil, errors.New("mapping_candidate requires source and reference input paths")
+	}
+	explicitSourcePath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["source_path"]),
+		strings.TrimSpace(action.Params["base_path"]),
+		strings.TrimSpace(action.Params["record_path"]),
+	)
+	sourcePath := firstNonEmptyString(explicitSourcePath, paths[0])
+	explicitReferencePath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["reference_path"]),
+		strings.TrimSpace(action.Params["mapping_path"]),
+		strings.TrimSpace(action.Params["lookup_path"]),
+	)
+	referencePath := explicitReferencePath
+	if referencePath == "" && explicitSourcePath != "" {
+		referencePath = firstNonBaseActionPath(paths, explicitSourcePath)
+	}
+	if referencePath == "" {
+		referencePath = paths[1]
+	}
+	if normalizeMaterialPath(sourcePath) == "" || normalizeMaterialPath(referencePath) == "" || normalizeMaterialPath(sourcePath) == normalizeMaterialPath(referencePath) {
+		return DataArtifact{}, nil, nil, errors.New("mapping_candidate requires distinct source_path and reference_path")
+	}
+
+	sourceFields := normalizeEntitySourceFields(action)
+	referenceFields := normalizeEntityReferenceFields(action)
+	canonicalIDField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_id_field"]),
+		strings.TrimSpace(action.Params["id_field"]),
+		strings.TrimSpace(action.Params["reference_value_field"]),
+		strings.TrimSpace(action.Params["lookup_value_field"]),
+	)
+	canonicalLabelField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_label_field"]),
+		strings.TrimSpace(action.Params["label_field"]),
+	)
+	matchMode := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["match_mode"], action.Params["mode"], "exact")))
+	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
+	maxOutput := actionIntParam(action, "max_output_records", 200000, 1, 2000000)
+	maxCandidates := actionIntParam(action, "max_candidates_per_source", 5, 1, 50)
+
+	sourceRecords, sourceHeaders, sourceTotal, sourceRel, err := r.readActionRecords(sourcePath, maxRecords)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	referenceRecords, referenceHeaders, referenceTotal, referenceRel, err := r.readActionRecords(referencePath, maxRecords)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	sourceFieldNames := actionRecordFieldNames(sourceHeaders, sourceRecords)
+	referenceFieldNames := actionRecordFieldNames(referenceHeaders, referenceRecords)
+	if len(sourceFields) == 0 {
+		sourceFields = inferEntitySourceFields(sourceHeaders, sourceRecords, canonicalIDField)
+	}
+	if canonicalIDField == "" {
+		canonicalIDField = inferEntityCanonicalIDField(referenceHeaders)
+	}
+	if canonicalLabelField == "" {
+		canonicalLabelField = inferEntityCanonicalLabelField(referenceHeaders, canonicalIDField)
+	}
+	if len(referenceFields) == 0 {
+		referenceFields = inferEnrichMappingSourceFields(referenceHeaders, canonicalIDField, canonicalLabelField)
+	}
+	if len(sourceFields) == 0 {
+		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate could not infer source fields for %s; provide source_field or source_fields", sourceRel)
+	}
+	if len(referenceFields) == 0 {
+		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate could not infer reference fields for %s; provide reference_fields or reference_name_fields", referenceRel)
+	}
+	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {
+		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", "))
+	}
+	if !actionRecordFieldExists(referenceFieldNames, canonicalIDField) {
+		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
+	}
+	if !actionRecordAnyFieldExists(referenceFieldNames, referenceFields) {
+		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate reference field(s) [%s] were not found in reference input %s fields [%s]", strings.Join(referenceFields, ", "), referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
+	}
+	referenceLookup := buildEntityReferenceLookup(referenceRecords, referenceRel, referenceFields, canonicalIDField, canonicalLabelField)
+	rows := make([]map[string]any, 0, minInt(maxOutput, len(sourceRecords)))
+	matchedSources := 0
+	ambiguousSources := 0
+	unresolvedSources := 0
+	missingSources := 0
+	for _, record := range sourceRecords {
+		for _, field := range sourceFields {
+			sourceValue := recordField(record.Fields, field)
+			candidates, status := entityReferenceCandidatesForSource(sourceValue, referenceLookup, matchMode, maxCandidates)
+			switch status {
+			case "missing_source":
+				missingSources++
+			case "unresolved":
+				unresolvedSources++
+			case "matched_ambiguous":
+				ambiguousSources++
+			default:
+				matchedSources++
+			}
+			if len(candidates) == 0 {
+				if len(rows) >= maxOutput {
+					return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+				}
+				rows = append(rows, map[string]any{
+					"source_path":     sourceRel,
+					"source_field":    field,
+					"source_value":    sourceValue,
+					"source_line":     record.Line,
+					"source_index":    record.Index,
+					"candidate_count": 0,
+					"match_status":    status,
+				})
+				continue
+			}
+			for rank, candidate := range candidates {
+				if len(rows) >= maxOutput {
+					return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+				}
+				rows = append(rows, map[string]any{
+					"source_path":        sourceRel,
+					"source_field":       field,
+					"source_value":       sourceValue,
+					"source_line":        record.Line,
+					"source_index":       record.Index,
+					"reference_path":     referenceRel,
+					"candidate_id":       candidate.ID,
+					"candidate_label":    candidate.Label,
+					"candidate_source":   candidate.Source,
+					"candidate_evidence": candidate.Evidence,
+					"candidate_rank":     rank + 1,
+					"candidate_count":    len(candidates),
+					"match_status":       status,
+					"match_mode":         matchMode,
+				})
+			}
+		}
+	}
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "mapping_candidates")
+	fields := map[string]string{
+		"source_path":        sourceRel,
+		"reference_path":     referenceRel,
+		"source_fields":      strings.Join(sourceFields, ","),
+		"reference_fields":   strings.Join(referenceFields, ","),
+		"canonical_id_field": canonicalIDField,
+		"match_mode":         matchMode,
+		"source_rows":        fmt.Sprintf("%d", sourceTotal),
+		"reference_rows":     fmt.Sprintf("%d", referenceTotal),
+		"candidate_rows":     fmt.Sprintf("%d", len(rows)),
+		"matched_sources":    fmt.Sprintf("%d", matchedSources),
+		"ambiguous_sources":  fmt.Sprintf("%d", ambiguousSources),
+		"unresolved_sources": fmt.Sprintf("%d", unresolvedSources),
+		"missing_sources":    fmt.Sprintf("%d", missingSources),
+	}
+	if strings.TrimSpace(canonicalLabelField) != "" {
+		fields["canonical_label_field"] = canonicalLabelField
+	}
+	return DataArtifact{
+		ID:                id,
+		Kind:              string(DataActionMappingCandidate),
+		SourcePaths:       normalizeMaterialPaths([]string{sourceRel, referenceRel}),
+		SourceRecordPaths: []string{sourceRel},
+		ReferencePaths:    []string{referenceRel},
+		Headers:           collectJoinedRecordHeaders(rows),
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("generated %d mapping candidate row(s) from %s to %s", len(rows), sourceRel, referenceRel),
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
+		Children: []DataArtifact{
+			{
+				ID:                sourceRel + "#mapping_candidate_source",
+				Kind:              "mapping_candidate/source",
+				SourcePaths:       []string{sourceRel},
+				SourceRecordPaths: []string{sourceRel},
+				Headers:           sourceHeaders,
+				RowCount:          sourceTotal,
+				Summary:           fmt.Sprintf("%s supplied %d source record(s) for mapping candidates", sourceRel, sourceTotal),
+				Fields:            map[string]string{"source_fields": strings.Join(sourceFields, ",")},
+			},
+			{
+				ID:             referenceRel + "#mapping_candidate_reference",
+				Kind:           "mapping_candidate/reference",
+				SourcePaths:    []string{referenceRel},
+				ReferencePaths: []string{referenceRel},
+				Headers:        referenceHeaders,
+				RowCount:       referenceTotal,
+				Summary:        fmt.Sprintf("%s supplied %d reference record(s) for mapping candidates", referenceRel, referenceTotal),
+				Fields: map[string]string{
+					"reference_fields":      strings.Join(referenceFields, ","),
+					"canonical_id_field":    canonicalIDField,
+					"canonical_label_field": canonicalLabelField,
+				},
+			},
+		},
+	}, rows, normalizeMaterialPaths([]string{sourceRel, referenceRel}), nil
+}
+
 func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]EntityResolutionRecord, []string, []DataArtifact, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) == 0 {
@@ -1696,9 +1908,18 @@ func buildEntityReferenceLookup(records []actionRecord, rel string, referenceFie
 }
 
 func selectEntityReferenceCandidate(sourceValue string, lookup map[string][]entityReferenceCandidate, matchMode string) (entityReferenceCandidate, string, string) {
+	candidates, status := entityReferenceCandidatesForSource(sourceValue, lookup, matchMode, 0)
+	if len(candidates) == 0 {
+		return entityReferenceCandidate{}, status, ""
+	}
+	best := candidates[0]
+	return best, status, best.Evidence
+}
+
+func entityReferenceCandidatesForSource(sourceValue string, lookup map[string][]entityReferenceCandidate, matchMode string, limit int) ([]entityReferenceCandidate, string) {
 	sourceValue = strings.TrimSpace(sourceValue)
 	if sourceValue == "" {
-		return entityReferenceCandidate{}, "missing_source", ""
+		return nil, "missing_source"
 	}
 	key := strings.ToLower(strings.TrimSpace(sourceValue))
 	var candidates []entityReferenceCandidate
@@ -1729,7 +1950,7 @@ func selectEntityReferenceCandidate(sourceValue string, lookup map[string][]enti
 		candidates = append(candidates, lookup[key]...)
 	}
 	if len(candidates) == 0 {
-		return entityReferenceCandidate{}, "unresolved", ""
+		return nil, "unresolved"
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return candidates[i].Weight > candidates[j].Weight
@@ -1746,7 +1967,10 @@ func selectEntityReferenceCandidate(sourceValue string, lookup map[string][]enti
 	if ambiguous {
 		status = "matched_ambiguous"
 	}
-	return best, status, best.Evidence
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, status
 }
 
 func normalizeEntitySourceFields(action DataAction) []string {

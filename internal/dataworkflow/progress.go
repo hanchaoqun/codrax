@@ -31,7 +31,7 @@ type ProgressEvent struct {
 
 func IsRelationMaterialization(kind dataquery.DataActionKind) bool {
 	switch NormalizeActionKind(kind) {
-	case dataquery.DataActionApplyResolutions, dataquery.DataActionEnrichRecords, dataquery.DataActionJoinRecords:
+	case dataquery.DataActionMappingCandidate, dataquery.DataActionApplyResolutions, dataquery.DataActionEnrichRecords, dataquery.DataActionJoinRecords:
 		return true
 	default:
 		return false

@@ -48,6 +48,7 @@ func RelationActionScaffolds(projections []ArtifactSchemaProjection, allowedActi
 		}
 	}
 	appendAllowed(dataquery.DataActionNormalizeEntities, NormalizeEntityScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionMappingCandidate, MappingCandidateScaffolds(records, limit-len(out)))
 	appendAllowed(dataquery.DataActionApplyResolutions, ApplyResolutionScaffolds(projections, limit-len(out)))
 	appendAllowed(dataquery.DataActionEnrichRecords, EnrichRecordScaffolds(records, limit-len(out)))
 	appendAllowed(dataquery.DataActionJoinRecords, JoinRecordScaffolds(records, limit-len(out)))
@@ -65,12 +66,13 @@ func PrioritizeConcreteScaffolds(scaffolds []ActionScaffold, facts StageFacts) [
 	}
 	priority := map[dataquery.DataActionKind]int{
 		dataquery.DataActionApplyResolutions:  1,
-		dataquery.DataActionEnrichRecords:     2,
-		dataquery.DataActionJoinRecords:       3,
-		dataquery.DataActionValueDistribution: 4,
-		dataquery.DataActionFilterRecords:     5,
-		dataquery.DataActionQualifyRecords:    6,
-		dataquery.DataActionComputeContribs:   7,
+		dataquery.DataActionMappingCandidate:  2,
+		dataquery.DataActionEnrichRecords:     3,
+		dataquery.DataActionJoinRecords:       4,
+		dataquery.DataActionValueDistribution: 5,
+		dataquery.DataActionFilterRecords:     6,
+		dataquery.DataActionQualifyRecords:    7,
+		dataquery.DataActionComputeContribs:   8,
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		left := priority[NormalizeActionKind(dataquery.DataActionKind(out[i].Kind))]
@@ -112,6 +114,23 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 	kind := NormalizeActionKind(dataquery.DataActionKind(scaffold.Kind))
 	params := concreteScaffoldParams(scaffold.ParamsTemplate)
 	switch kind {
+	case dataquery.DataActionMappingCandidate:
+		hasSingleSource := scaffoldParamsConcrete(params, "source_field", "reference_name_fields", "canonical_id_field")
+		hasSourceList := scaffoldParamsConcrete(params, "source_fields", "reference_name_fields", "canonical_id_field")
+		if len(scaffold.InputPaths) < 2 || (!hasSingleSource && !hasSourceList) {
+			return dataquery.DataAction{}, false
+		}
+		if strings.TrimSpace(params["match_mode"]) == "" || strings.Contains(params["match_mode"], "|") {
+			params["match_mode"] = "exact"
+		}
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_mapping_candidate", scaffold.InputPaths),
+			Kind:           dataquery.DataActionMappingCandidate,
+			Purpose:        "inspect source-to-reference mapping candidates from concrete artifact fields",
+			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
+			OutputArtifact: concreteScaffoldArtifactID("mapping_candidates", scaffold.InputPaths),
+			Params:         params,
+		}, true
 	case dataquery.DataActionNormalizeEntities:
 		hasSingleSource := scaffoldParamsConcrete(params, "source_field", "reference_name_fields", "canonical_id_field")
 		hasSourceList := scaffoldParamsConcrete(params, "source_fields", "reference_name_fields", "canonical_id_field")
@@ -451,6 +470,21 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 		if len(out) >= limit {
 			break
 		}
+	}
+	return out
+}
+
+func MappingCandidateScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	base := NormalizeEntityScaffolds(records, limit)
+	out := make([]ActionScaffold, 0, len(base))
+	for _, scaffold := range base {
+		scaffold.Kind = string(dataquery.DataActionMappingCandidate)
+		scaffold.UseWhen = "inspect candidate source/reference matches, ambiguity, and evidence before deciding or applying canonical mappings"
+		scaffold.Note = "Use this when mapping direction or match coverage is uncertain. It produces candidate rows only; normalize_entities or apply_entity_resolutions performs the later typed decision/application step."
+		out = append(out, scaffold)
 	}
 	return out
 }

@@ -89,6 +89,7 @@ const (
 	DataActionFilterRecords     DataActionKind = "filter_records"
 	DataActionValueDistribution DataActionKind = "value_distribution"
 	DataActionQualifyRecords    DataActionKind = "qualify_records"
+	DataActionMappingCandidate  DataActionKind = "mapping_candidate"
 	DataActionNormalizeEntities DataActionKind = "normalize_entities"
 	DataActionApplyResolutions  DataActionKind = "apply_entity_resolutions"
 	DataActionEnrichRecords     DataActionKind = "enrich_records"

@@ -271,12 +271,12 @@ func artifactKindHasPrefix(kind string, wants ...dataquery.DataActionKind) bool 
 func IsDiagnosticChildArtifact(id, kind string) bool {
 	id = strings.ToLower(strings.TrimSpace(id))
 	kind = strings.ToLower(strings.TrimSpace(kind))
-	for _, suffix := range []string{"#base", "#mapping", "#entity_source", "#entity_reference", "#entity_resolutions", "#entity_resolution_source", "#entity_resolution_reference"} {
+	for _, suffix := range []string{"#base", "#mapping", "#mapping_candidate_source", "#mapping_candidate_reference", "#entity_source", "#entity_reference", "#entity_resolutions", "#entity_resolution_source", "#entity_resolution_reference"} {
 		if strings.HasSuffix(id, suffix) {
 			return true
 		}
 	}
-	for _, suffix := range []string{"/base", "/mapping", "/entity_source", "/entity_reference", "/entity_resolution_source", "/entity_resolution_reference"} {
+	for _, suffix := range []string{"/base", "/mapping", "/mapping_candidate_source", "/mapping_candidate_reference", "/entity_source", "/entity_reference", "/entity_resolution_source", "/entity_resolution_reference"} {
 		if strings.HasSuffix(kind, suffix) {
 			return true
 		}

@@ -50,6 +50,15 @@ func ActionRoleInputPaths(action dataquery.DataAction) []string {
 			params["lookup_path"],
 			params["mapping_path"],
 		})
+	case dataquery.DataActionMappingCandidate:
+		return cleanStrings([]string{
+			params["source_path"],
+			params["base_path"],
+			params["record_path"],
+			params["reference_path"],
+			params["lookup_path"],
+			params["mapping_path"],
+		})
 	case dataquery.DataActionEnrichRecords:
 		return cleanStrings([]string{
 			params["base_path"],

@@ -101,6 +101,44 @@ func TestJoinRecordScaffoldsIgnoreInternalLineageFields(t *testing.T) {
 	}
 }
 
+func TestMappingCandidateScaffoldsBuildConcreteAction(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:        "source",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"source.json"},
+			JSONShape: "array(len=2,item=object(keys=raw_label))",
+			Fields:    []string{"raw_label"},
+		},
+		{
+			ID:        "reference",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"reference.json"},
+			JSONShape: "array(len=2,item=object(keys=code,label))",
+			Fields:    []string{"code", "label"},
+		},
+	}
+	scaffolds := MappingCandidateScaffolds(projections, 4)
+	if len(scaffolds) == 0 {
+		t.Fatal("MappingCandidateScaffolds empty, want candidate scaffold")
+	}
+	if scaffolds[0].Kind != string(dataquery.DataActionMappingCandidate) || !scaffolds[0].Executable {
+		t.Fatalf("scaffold=%+v, want executable mapping_candidate scaffold", scaffolds[0])
+	}
+	action, ok := ConcreteActionFromScaffold(scaffolds[0])
+	if !ok {
+		t.Fatalf("ConcreteActionFromScaffold(%+v) ok=false", scaffolds[0])
+	}
+	if action.Kind != dataquery.DataActionMappingCandidate || len(action.InputPaths) != 2 {
+		t.Fatalf("action=%+v, want mapping_candidate over two inputs", action)
+	}
+	if action.Params["match_mode"] != "exact" {
+		t.Fatalf("params=%+v, want default concrete match_mode exact", action.Params)
+	}
+}
+
 func TestApplyResolutionScaffoldsIgnoreDiagnosticResolutionChildren(t *testing.T) {
 	projections := []ArtifactSchemaProjection{
 		{

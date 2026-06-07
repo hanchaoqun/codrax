@@ -99,6 +99,52 @@ func TestActionRunnerValueDistribution(t *testing.T) {
 	}
 }
 
+func TestActionRunnerMappingCandidateProducesCandidateArtifactOnly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label\n1,Alpha\n2,Beta\n3,Gamma\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label\nA,Alpha\nB,Beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:             "candidates",
+			Kind:           DataActionMappingCandidate,
+			InputPaths:     []string{"items.csv", "reference.csv"},
+			OutputArtifact: "candidate_rows",
+			Params: map[string]string{
+				"source_field":          "raw_label",
+				"reference_name_fields": `["label"]`,
+				"canonical_id_field":    "code",
+				"canonical_label_field": "label",
+				"match_mode":            "exact",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run mapping_candidate: %v", err)
+	}
+	if len(res.EntityResolutions) != 0 {
+		t.Fatalf("EntityResolutions=%+v, want candidate action not to satisfy entity ledger", res.EntityResolutions)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%d, want 1", len(res.Artifacts))
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Kind != string(DataActionMappingCandidate) || artifact.RowCount != 3 {
+		t.Fatalf("artifact=%+v, want mapping_candidate artifact with 3 rows", artifact)
+	}
+	if artifact.Fields["matched_sources"] != "2" || artifact.Fields["unresolved_sources"] != "1" {
+		t.Fatalf("fields=%+v, want matched/unresolved source counts", artifact.Fields)
+	}
+	if strings.Join(res.ConsumedPaths, ",") != "items.csv,reference.csv" {
+		t.Fatalf("ConsumedPaths=%v, want source and reference paths", res.ConsumedPaths)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

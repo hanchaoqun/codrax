@@ -2194,6 +2194,7 @@ func dataTaskArtifactUsableForGeneratedSchemaDiagnostic(artifact dataTaskArtifac
 		dataquery.DataActionExpandRecords,
 		dataquery.DataActionFilterRecords,
 		dataquery.DataActionQualifyRecords,
+		dataquery.DataActionMappingCandidate,
 		dataquery.DataActionApplyResolutions,
 		dataquery.DataActionEnrichRecords,
 		dataquery.DataActionJoinRecords,
@@ -3642,6 +3643,8 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionJoinRecords:
 		return dataTaskJoinActionFieldContractGuardResult(access, action, actionIndex)
+	case dataquery.DataActionMappingCandidate:
+		return dataTaskMappingCandidateActionFieldContractGuardResult(access, action, actionIndex)
 	case dataquery.DataActionNormalizeEntities:
 		return dataTaskNormalizeActionFieldContractGuardResult(access, action, actionIndex)
 	case dataquery.DataActionEnrichRecords:
@@ -4087,6 +4090,10 @@ func dataTaskJoinActionFieldContractGuardResult(access []dataTaskArtifactAccessP
 
 func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
 	return dataTaskNormalizeActionFieldContractGuardResult(access, action, actionIndex).ErrorText()
+}
+
+func dataTaskMappingCandidateActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+	return dataTaskNormalizeActionFieldContractGuardResult(access, action, actionIndex)
 }
 
 func dataTaskNormalizeActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
@@ -6721,6 +6728,14 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 			out = append(out, scaffold)
 		}
 	}
+	if allowed[string(dataquery.DataActionMappingCandidate)] {
+		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.MappingCandidateScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
 	if allowed[string(dataquery.DataActionJoinRecords)] {
 		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.JoinRecordScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
 			if len(out) >= 8 {
@@ -7715,6 +7730,7 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 			dataquery.DataActionExpandRecords,
 			dataquery.DataActionFilterRecords,
 			dataquery.DataActionQualifyRecords,
+			dataquery.DataActionMappingCandidate,
 			dataquery.DataActionNormalizeEntities,
 			dataquery.DataActionApplyResolutions,
 			dataquery.DataActionEnrichRecords,

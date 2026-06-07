@@ -11940,10 +11940,67 @@ Current backlog before real-scenario testing:
 - [ ] Move remaining relation-specific hard guard entrypoints behind
       reducer-owned transition inputs where they still produce scheduling
       decisions from local wrappers.
-- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
-      source/reference matching. Existing normalization/enrichment can proceed
-      without it, but complex multi-file relation tasks still spend extra model
-      turns when candidate matching is not explicit.
+- [ ] Finish migrating relation-specific scaffold builders out of REPL-only
+      helpers once `mapping_candidate`, normalize, apply, enrich, and join
+      scaffolds are all reducer/projection owned.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
+
+### Batch 269: Domain-Neutral Mapping Candidate Action
+
+The next architecture pass split a relation-stage responsibility that was still
+too overloaded. `normalize_entities` previously had to discover candidate
+source/reference matches, decide a reusable mapping ledger, and sometimes
+repair source/reference direction. `enrich_records` then had to apply lookup
+values and also emit mapping evidence. That kept the workflow reliant on
+guards around bad behavior instead of giving the DAG a small typed node for the
+uncertain part.
+
+The generic invariant is:
+
+- candidate discovery is not the same as mapping decision;
+- candidate rows are ordinary generated artifacts, not final entity-resolution
+  ledger records;
+- the model chooses the task semantics and fields, while the system reads the
+  declared source/reference record sets, validates field contracts, and emits
+  objective candidate/evidence/ambiguity rows;
+- downstream normalization/application remains a later typed action.
+
+This is not tied to any business domain. It applies to names, ids, labels,
+categories, accounts, devices, locations, text terms, lookup values, or any
+other source/reference relation where a model needs objective candidate
+coverage before choosing the next step.
+
+Changes:
+
+- [x] Added first-class `mapping_candidate` as a `DataActionKind`.
+- [x] Added a deterministic action runner that consumes a source record set and
+      a reference record set, validates declared source/reference/canonical
+      fields, and materializes candidate rows with match status, candidate
+      counts, evidence, and source/reference lineage.
+- [x] Kept candidate rows out of `result.entity_resolutions` so this diagnostic
+      action cannot accidentally satisfy `entity_resolution_required`.
+- [x] Registered the action in workflow capabilities, dependency rank,
+      role-path normalization, stage contracts, relation progress checks, and
+      generated-artifact schema handling.
+- [x] Added reducer-owned mapping-candidate scaffolds from artifact schema
+      projections and exposed them through the REPL adapter.
+- [x] Updated planner schema and prompt guidance to teach the action as a
+      candidate/evidence step, not as a business mapping decision.
+- [x] Added regression coverage for runner behavior, input-path contracts, and
+      concrete scaffold conversion.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move remaining relation-specific hard guard entrypoints behind
+      reducer-owned transition inputs where they still produce scheduling
+      decisions from local wrappers.
+- [ ] Finish migrating relation-specific scaffold builders out of REPL-only
+      helpers; `mapping_candidate` scaffolds are now reducer-owned, but older
+      local helper functions for normalize/enrich/join/apply still need
+      removal or replacement.
 - [ ] Add multi-run real-scenario gates and CI/status checks after the single
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
