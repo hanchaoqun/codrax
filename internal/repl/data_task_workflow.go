@@ -3879,21 +3879,14 @@ func dataTaskActionMissingFieldContractGuardResult(action dataquery.DataAction, 
 }
 
 func dataTaskActionInputContractGuardResult(code string, action dataquery.DataAction, inputAlias string, missingFields []string, message string, hints []string) dataworkflow.GuardResult {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return dataworkflow.GuardResult{}
-	}
-	violation := dataworkflow.NewActionInputViolation(
-		code,
-		"error",
-		dataworkflow.RepairNeedsTypedAction,
-		action,
-		inputAlias,
-		missingFields,
-		message,
-		hints,
-	)
-	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+	return dataworkflow.ActionInputContractGuardResult(dataworkflow.ActionInputContractGuardInput{
+		Code:              code,
+		Action:            action,
+		InputAlias:        inputAlias,
+		MissingFields:     missingFields,
+		Message:           message,
+		RepairActionHints: hints,
+	})
 }
 
 func dataTaskActionMissingFieldContractViolation(action dataquery.DataAction, input string, missing []string, access []dataTaskArtifactAccessPrompt) (dataworkflow.WorkflowViolation, bool) {
@@ -4341,28 +4334,22 @@ func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArti
 			continue
 		}
 		if resolutionArtifact, ok := dataTaskArtifactAccessByAlias(access, resolutionPath); ok && dataTaskArtifactIsDiagnosticChild(resolutionArtifact) {
-			message := fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions uses diagnostic artifact %s as a resolution input. Diagnostic/source child artifacts can be inspected for schema evidence, but executable resolution application must use a mapping/entity-resolution ledger or an already materialized canonical field on the base record artifact.",
-				actionIndex+1,
-				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-				resolutionPath)
-			return dataTaskActionInputContractGuardResult("apply_resolution_diagnostic_input", action, resolutionPath, nil, message, []string{
-				string(dataquery.DataActionInspectMaterial),
-				string(dataquery.DataActionDeriveFields),
-				string(dataquery.DataActionFilterRecords),
-				string(dataquery.DataActionQualifyRecords),
-				string(dataquery.DataActionComputeContribs),
+			return dataworkflow.ApplyResolutionDiagnosticInputGuardResult(dataworkflow.ApplyResolutionDiagnosticInputGuardInput{
+				Action:         action,
+				ActionIndex:    actionIndex,
+				ResolutionPath: resolutionPath,
 			})
 		}
 		baseArtifact, baseOK := dataTaskArtifactAccessByAlias(access, basePath)
 		if mapping, ok := dataTaskArtifactAccessByAlias(access, resolutionPath); ok && baseOK && !dataTaskApplyResolutionBaseCompatibleWithMapping(baseArtifact, mapping) {
-			message := fmt.Sprintf("data planning incomplete: action %d (%s) applies resolution input %s to base artifact %s, but the resolution source lineage [%s] is not compatible with the base lineage [%s]. Apply entity resolutions only to the source record lineage they were produced from, or first materialize a compatible joined/enriched artifact.",
-				actionIndex+1,
-				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-				resolutionPath,
-				basePath,
-				strings.Join(mapping.SourcePaths, ", "),
-				dataTaskArtifactLineageSummary(basePath, baseArtifact))
-			return dataTaskActionInputContractGuardResult("apply_resolution_lineage_contract", action, resolutionPath, nil, message, nil)
+			return dataworkflow.ApplyResolutionLineageGuardResult(dataworkflow.ApplyResolutionLineageGuardInput{
+				Action:                  action,
+				ActionIndex:             actionIndex,
+				ResolutionPath:          resolutionPath,
+				BasePath:                basePath,
+				ResolutionSourceLineage: dataTaskArtifactSourceLineageSummary(mapping),
+				BaseLineage:             dataTaskArtifactLineageSummary(basePath, baseArtifact),
+			})
 		}
 		resolutionFields := cleanDataTaskStrings(append(
 			dataTaskFieldRefsFromSpec(spec, "resolution_key_fields", "mapping_key_fields"),
@@ -4393,34 +4380,35 @@ func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArti
 				canonicalLabelField,
 				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", ")), action)
 		}
-		if msg := dataTaskApplyResolutionNoProgressGuardError(access, action, actionIndex, specBasePath, resolutionPath, spec, len(specs)); msg != "" {
-			return dataTaskActionInputContractGuardResult("apply_resolution_no_progress", action, resolutionPath, nil, msg, nil)
+		if guard := dataTaskApplyResolutionNoProgressGuardResult(access, action, actionIndex, specBasePath, resolutionPath, spec, len(specs)); !guard.Empty() {
+			return guard
 		}
 	}
 	return dataworkflow.GuardResult{}
 }
 
-func dataTaskApplyResolutionNoProgressGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int, basePath, resolutionPath string, spec map[string]any, specCount int) string {
+func dataTaskApplyResolutionNoProgressGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int, basePath, resolutionPath string, spec map[string]any, specCount int) dataworkflow.GuardResult {
 	base, ok := dataTaskArtifactAccessByAlias(access, basePath)
 	if !ok || len(base.Fields) == 0 || strings.TrimSpace(resolutionPath) == "" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	targetFields := dataTaskApplyResolutionTargetFields(action, spec, specCount)
 	if len(targetFields) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if !dataTaskArtifactHasAnyNamedField(base, targetFields...) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if !dataTaskArtifactLineageContains(base, resolutionPath) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return fmt.Sprintf("data planning incomplete: action %d (%s) repeats apply_entity_resolutions for resolution input %s on base artifact %s; base already carries target field(s) [%s] from that resolution lineage. This graph edge is idempotent and would not create contribution/reconcile progress. Use the existing resolved artifact for derive_fields, filter_records, qualify_records, join_records, compute_contributions, or inspect a concrete field gap instead.",
-		actionIndex+1,
-		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-		resolutionPath,
-		basePath,
-		strings.Join(targetFields, ", "))
+	return dataworkflow.ApplyResolutionNoProgressGuardResult(dataworkflow.ApplyResolutionNoProgressGuardInput{
+		Action:         action,
+		ActionIndex:    actionIndex,
+		ResolutionPath: resolutionPath,
+		BasePath:       basePath,
+		TargetFields:   targetFields,
+	})
 }
 
 func dataTaskApplyResolutionTargetFields(action dataquery.DataAction, spec map[string]any, specCount int) []string {
@@ -4517,6 +4505,14 @@ func dataTaskApplyResolutionBaseCompatibleWithMapping(base dataTaskArtifactAcces
 
 func dataTaskArtifactLineageSummary(alias string, artifact dataTaskArtifactAccessPrompt) string {
 	values := cleanDataTaskStrings(append(append(append(append(append([]string{alias, artifact.ID}, artifact.Aliases...), artifact.SourceRecordPaths...), artifact.ReferencePaths...), artifact.EvidencePaths...), artifact.SourcePaths...))
+	return strings.Join(clampDataTaskStringSlice(values, 8), ", ")
+}
+
+func dataTaskArtifactSourceLineageSummary(artifact dataTaskArtifactAccessPrompt) string {
+	values := cleanDataTaskStrings(artifact.SourceRecordPaths)
+	if len(values) == 0 {
+		values = cleanDataTaskStrings(artifact.SourcePaths)
+	}
 	return strings.Join(clampDataTaskStringSlice(values, 8), ", ")
 }
 

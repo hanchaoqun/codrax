@@ -11948,6 +11948,57 @@ Current backlog before real-scenario testing:
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
 
+### Batch 271: Reducer-Owned Relation Guard Results
+
+After moving relation scaffold generation into `dataworkflow`, the next split
+was execution-time guard result construction. The REPL adapter still needs to
+project local artifact facts, parse action params, and decide whether a guard
+condition is present. But once it has a precise condition, the typed violation,
+message, repairability, action metadata, and idempotency metadata should be
+owned by the workflow reducer package instead of being assembled as adapter
+prose.
+
+This batch keeps the hard decision signals structural:
+
+- whether an input is a diagnostic child remains an artifact-class check;
+- whether source lineage is incompatible remains a role-lineage check over
+  artifact projections;
+- whether an apply-resolution edge is idempotent remains a target-field plus
+  lineage check;
+- the model's free-form text is not parsed for any hard decision.
+
+Changes:
+
+- [x] Added reducer-owned `ActionInputContractGuardResult` for generic
+      action/input contract violations.
+- [x] Added reducer-owned apply-resolution guard builders for diagnostic
+      resolution inputs, incompatible source lineage, and idempotent
+      no-progress edges.
+- [x] Updated the REPL adapter to pass structured facts into these builders
+      instead of formatting those guard results inline.
+- [x] Changed apply-resolution lineage messaging to prefer role-specific
+      `source_record_paths` before broader `source_paths` when reporting the
+      mapping source lineage.
+- [x] Added reducer regression coverage for generic action-input guards and
+      the apply-resolution relation guard builders.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining action dependency/scheduling guard result builders
+      into `dataworkflow`, especially input availability, intra-batch
+      dependency, missing action spec, and upstream ledger requirements.
+- [ ] Promote action-level field/lineage diagnostics into ArtifactGraph state
+      so the evaluator can select latest compatible artifacts by producer,
+      role, fields, row count, and status without asking the planner to infer
+      them from prompt samples.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
+
 ### Batch 269: Domain-Neutral Mapping Candidate Action
 
 The next architecture pass split a relation-stage responsibility that was still

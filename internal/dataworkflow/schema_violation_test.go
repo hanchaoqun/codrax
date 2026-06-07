@@ -66,3 +66,62 @@ func TestFieldContractGuardResultUsesTypedViolation(t *testing.T) {
 		}
 	}
 }
+
+func TestActionInputContractGuardResultUsesTypedAction(t *testing.T) {
+	guard := ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:          "apply_resolution_contract",
+		Action:        dataquery.DataAction{ID: "apply_vendor", Kind: dataquery.DataActionApplyResolutions, InputPaths: []string{"rows", "mapping"}},
+		InputAlias:    "mapping",
+		MissingFields: []string{"canonical_id"},
+		Message:       "mapping is missing canonical_id",
+	})
+	if guard.Code != "apply_resolution_contract" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed action input contract guard", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "apply_vendor" || v.ActionKind != string(dataquery.DataActionApplyResolutions) || v.InputAlias != "mapping" {
+		t.Fatalf("violation=%+v, want action/input metadata", v)
+	}
+	if !strings.Contains(guard.ErrorText(), "canonical_id") {
+		t.Fatalf("message=%q, want canonical_id", guard.ErrorText())
+	}
+}
+
+func TestApplyResolutionGuardResultsAreReducerOwned(t *testing.T) {
+	action := dataquery.DataAction{ID: "apply_vendor", Kind: dataquery.DataActionApplyResolutions, InputPaths: []string{"rows", "mapping"}}
+
+	diagnostic := ApplyResolutionDiagnosticInputGuardResult(ApplyResolutionDiagnosticInputGuardInput{
+		Action:         action,
+		ActionIndex:    0,
+		ResolutionPath: "mapping#source",
+	})
+	if diagnostic.Code != "apply_resolution_diagnostic_input" || len(diagnostic.Violations) != 1 {
+		t.Fatalf("diagnostic=%+v, want diagnostic guard", diagnostic)
+	}
+	if !strings.Contains(diagnostic.ErrorText(), "diagnostic artifact mapping#source") {
+		t.Fatalf("diagnostic message=%q", diagnostic.ErrorText())
+	}
+
+	lineage := ApplyResolutionLineageGuardResult(ApplyResolutionLineageGuardInput{
+		Action:                  action,
+		ActionIndex:             1,
+		ResolutionPath:          "mapping",
+		BasePath:                "other_rows",
+		ResolutionSourceLineage: "rows",
+		BaseLineage:             "other_rows, source.csv",
+	})
+	if lineage.Code != "apply_resolution_lineage_contract" || !strings.Contains(lineage.ErrorText(), "not compatible") {
+		t.Fatalf("lineage=%+v, want lineage guard", lineage)
+	}
+
+	noProgress := ApplyResolutionNoProgressGuardResult(ApplyResolutionNoProgressGuardInput{
+		Action:         action,
+		ActionIndex:    2,
+		ResolutionPath: "mapping",
+		BasePath:       "rows_with_vendor",
+		TargetFields:   []string{"vendor_id", "vendor_status"},
+	})
+	if noProgress.Code != "apply_resolution_no_progress" || !strings.Contains(noProgress.ErrorText(), "idempotent") {
+		t.Fatalf("noProgress=%+v, want no-progress guard", noProgress)
+	}
+}

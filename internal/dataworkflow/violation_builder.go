@@ -22,6 +22,38 @@ type FieldContractGuardInput struct {
 	Violation   WorkflowViolation
 }
 
+type ActionInputContractGuardInput struct {
+	Code              string
+	Action            dataquery.DataAction
+	InputAlias        string
+	MissingFields     []string
+	Message           string
+	RepairActionHints []string
+}
+
+type ApplyResolutionDiagnosticInputGuardInput struct {
+	Action         dataquery.DataAction
+	ActionIndex    int
+	ResolutionPath string
+}
+
+type ApplyResolutionLineageGuardInput struct {
+	Action                  dataquery.DataAction
+	ActionIndex             int
+	ResolutionPath          string
+	BasePath                string
+	ResolutionSourceLineage string
+	BaseLineage             string
+}
+
+type ApplyResolutionNoProgressGuardInput struct {
+	Action         dataquery.DataAction
+	ActionIndex    int
+	ResolutionPath string
+	BasePath       string
+	TargetFields   []string
+}
+
 type GenericViolationInput struct {
 	Code               string
 	Severity           string
@@ -67,6 +99,107 @@ func FieldContractGuardResult(input FieldContractGuardInput) GuardResult {
 		strings.Join(clampStrings(violation.AvailableFieldSample, 32), ", "),
 		candidateHint)
 	return NewGuardResult("field_contract_violation", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func ActionInputContractGuardResult(input ActionInputContractGuardInput) GuardResult {
+	message := strings.TrimSpace(input.Message)
+	code := strings.TrimSpace(input.Code)
+	if message == "" || code == "" {
+		return GuardResult{}
+	}
+	violation := NewActionInputViolation(
+		code,
+		"error",
+		RepairNeedsTypedAction,
+		input.Action,
+		input.InputAlias,
+		input.MissingFields,
+		message,
+		input.RepairActionHints,
+	)
+	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func ApplyResolutionDiagnosticInputGuardResult(input ApplyResolutionDiagnosticInputGuardInput) GuardResult {
+	resolutionPath := strings.TrimSpace(input.ResolutionPath)
+	if resolutionPath == "" {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions uses diagnostic artifact %s as a resolution input. Diagnostic/source child artifacts can be inspected for schema evidence, but executable resolution application must use a mapping/entity-resolution ledger or an already materialized canonical field on the base record artifact.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		resolutionPath)
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "apply_resolution_diagnostic_input",
+		Action:     input.Action,
+		InputAlias: resolutionPath,
+		Message:    message,
+		RepairActionHints: []string{
+			string(dataquery.DataActionInspectMaterial),
+			string(dataquery.DataActionDeriveFields),
+			string(dataquery.DataActionFilterRecords),
+			string(dataquery.DataActionQualifyRecords),
+			string(dataquery.DataActionComputeContribs),
+		},
+	})
+}
+
+func ApplyResolutionLineageGuardResult(input ApplyResolutionLineageGuardInput) GuardResult {
+	resolutionPath := strings.TrimSpace(input.ResolutionPath)
+	basePath := strings.TrimSpace(input.BasePath)
+	if resolutionPath == "" || basePath == "" {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) applies resolution input %s to base artifact %s, but the resolution source lineage [%s] is not compatible with the base lineage [%s]. Apply entity resolutions only to the source record lineage they were produced from, or first materialize a compatible joined/enriched artifact.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		resolutionPath,
+		basePath,
+		strings.TrimSpace(input.ResolutionSourceLineage),
+		strings.TrimSpace(input.BaseLineage))
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "apply_resolution_lineage_contract",
+		Action:     input.Action,
+		InputAlias: resolutionPath,
+		Message:    message,
+	})
+}
+
+func ApplyResolutionNoProgressGuardResult(input ApplyResolutionNoProgressGuardInput) GuardResult {
+	resolutionPath := strings.TrimSpace(input.ResolutionPath)
+	basePath := strings.TrimSpace(input.BasePath)
+	targetFields := cleanStrings(input.TargetFields)
+	if resolutionPath == "" || basePath == "" || len(targetFields) == 0 {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) repeats apply_entity_resolutions for resolution input %s on base artifact %s; base already carries target field(s) [%s] from that resolution lineage. This graph edge is idempotent and would not create contribution/reconcile progress. Use the existing resolved artifact for derive_fields, filter_records, qualify_records, join_records, compute_contributions, or inspect a concrete field gap instead.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		resolutionPath,
+		basePath,
+		strings.Join(targetFields, ", "))
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "apply_resolution_no_progress",
+		Action:     input.Action,
+		InputAlias: resolutionPath,
+		Message:    message,
+	})
+}
+
+func guardActionNumber(actionIndex int) int {
+	actionNumber := actionIndex + 1
+	if actionNumber <= 0 {
+		return 1
+	}
+	return actionNumber
+}
+
+func guardActionLabel(action dataquery.DataAction) string {
+	return firstNonEmptyGuardText(
+		strings.TrimSpace(action.ID),
+		strings.TrimSpace(string(NormalizeActionKind(action.Kind))),
+		strings.TrimSpace(string(action.Kind)),
+	)
 }
 
 func NewFieldContractViolation(input FieldContractViolationInput) WorkflowViolation {
