@@ -107,6 +107,77 @@ func TestBuildWorkflowDecisionFromTypedState(t *testing.T) {
 	if blocked.Status != "blocked" || blocked.ReasonCode != "field_contract_violation" || blocked.Reason != "missing amount field" || !strings.Contains(strings.Join(blocked.NextActions, ","), string(dataquery.DataActionDeriveFields)) {
 		t.Fatalf("blocked decision=%+v, want typed violation decision", blocked)
 	}
+
+	blockedWithAllowed := BuildWorkflowDecision(WorkflowDecisionInput{
+		AllowedNextActions: []string{string(dataquery.DataActionInspectMaterial)},
+		Violations: []WorkflowViolation{{
+			Code:              "field_contract_violation",
+			Reason:            "missing normalized field",
+			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+		}},
+	})
+	if strings.Join(blockedWithAllowed.NextActions, ",") != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("blockedWithAllowed.NextActions=%v, want violation repair hints to override broad allowed actions", blockedWithAllowed.NextActions)
+	}
+}
+
+func TestBuildWorkflowDecisionUsesLedgerGraphBlocker(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+	})
+	decision := BuildWorkflowDecision(WorkflowDecisionInput{
+		NextStage:          StageComputeContributions,
+		AllowedNextActions: []string{string(dataquery.DataActionDeriveFields), string(dataquery.DataActionComputeContribs)},
+		LedgerGraph:        graph,
+	})
+	if decision.Status != "continue" || decision.ReasonCode != "ledger_missing_contributions" {
+		t.Fatalf("decision=%+v, want missing contribution ledger reason", decision)
+	}
+	if !strings.Contains(decision.Reason, "required ledger contributions") {
+		t.Fatalf("decision.Reason=%q, want ledger graph reason", decision.Reason)
+	}
+	if strings.Join(decision.NextActions, ",") != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("decision.NextActions=%v, want graph producer action", decision.NextActions)
+	}
+}
+
+func TestBuildWorkflowDecisionKeepsAllowedActionsWhenLedgerBlocked(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: false,
+		ContributionLedgerRequired: true,
+	})
+	decision := BuildWorkflowDecision(WorkflowDecisionInput{
+		NextStage:          StageCoverRequiredMaterials,
+		AllowedNextActions: []string{string(dataquery.DataActionInspectMaterial)},
+		LedgerGraph:        graph,
+	})
+	if decision.Status != "continue" || decision.ReasonCode != "ledger_blocked_contributions" {
+		t.Fatalf("decision=%+v, want blocked contribution ledger reason", decision)
+	}
+	if !strings.Contains(decision.Reason, LedgerPrerequisiteMaterials) {
+		t.Fatalf("decision.Reason=%q, want material prerequisite", decision.Reason)
+	}
+	if strings.Join(decision.NextActions, ",") != string(dataquery.DataActionInspectMaterial) {
+		t.Fatalf("decision.NextActions=%v, want allowed prerequisite action preserved", decision.NextActions)
+	}
+}
+
+func TestBuildWorkflowDecisionUsesOutputProjectionGraph(t *testing.T) {
+	outputGraph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		Output:          dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		ReconcileGroups: 2,
+	})
+	decision := BuildWorkflowDecision(WorkflowDecisionInput{
+		AllowedNextActions: []string{string(dataquery.DataActionComputeContribs), string(dataquery.DataActionAssembleAnswer)},
+		OutputGraph:        outputGraph,
+	})
+	if decision.Status != "continue" || decision.ReasonCode != "output_missing_projection" {
+		t.Fatalf("decision=%+v, want output projection graph reason", decision)
+	}
+	if strings.Join(decision.NextActions, ",") != string(dataquery.DataActionAssembleAnswer) {
+		t.Fatalf("decision.NextActions=%v, want assemble_answer producer", decision.NextActions)
+	}
 }
 
 func TestBuildWorkflowProcessEventUsesTypedPlanIntent(t *testing.T) {

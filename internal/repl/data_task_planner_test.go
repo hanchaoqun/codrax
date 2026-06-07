@@ -2530,6 +2530,12 @@ func TestDataTaskWorkflowStateExposesLedgerGraphContract(t *testing.T) {
 	if !testContainsDataTaskString(state.LedgerGraph.Contributions.ProducesActions, string(dataquery.DataActionComputeContribs)) {
 		t.Fatalf("Contributions=%+v, want compute_contributions producer", state.LedgerGraph.Contributions)
 	}
+	if state.Decision.ReasonCode != "ledger_blocked_contributions" {
+		t.Fatalf("Decision=%+v, want ledger graph blocker projected into workflow decision", state.Decision)
+	}
+	if !strings.Contains(state.Decision.Reason, dataworkflow.LedgerPrerequisiteMaterials) {
+		t.Fatalf("Decision.Reason=%q, want material prerequisite summary", state.Decision.Reason)
+	}
 }
 
 func TestDataTaskWorkflowStateExposesOutputProjectionGraph(t *testing.T) {

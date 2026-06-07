@@ -13000,7 +13000,7 @@ Remaining P0 LedgerGraph work:
 - [x] Move terminal missing-ledger completion gates to consume LedgerGraph
       dependencies directly instead of running separate REPL-local ledger
       checks for required validation ledgers.
-- [ ] Feed first-missing-ledger and missing-prerequisite summaries into
+- [x] Feed first-missing-ledger and missing-prerequisite summaries into
       `WorkflowDecision` so CLI/REPL UX can show user-relevant blockers without
       repeating internal stage jargon.
 - [x] Make deterministic completion/fallback builders consume LedgerGraph for
@@ -13188,3 +13188,56 @@ Remaining P0 output/UX work:
       events/UX summaries.
 - [ ] Remove legacy output-projection recomputation once all internal callers
       pass typed output graph state.
+
+### Batch 293: Graph-Derived Workflow Decisions
+
+After LedgerGraph and OutputProjectionGraph started driving completion gates
+and deterministic repair plans, `WorkflowDecision` still mostly projected the
+latest evaluator status or the broad `allowed_next_actions` set. That left
+CLI/REPL renderers with too much responsibility: they could see a graph blocker
+in `workflow_state_json`, but had to decide for themselves whether the current
+user-visible next step was a missing ledger, a blocked prerequisite, a strict
+output projection, or a generic stage.
+
+This batch moves that interpretation into the reducer-owned decision IR. It is
+domain-neutral: the decision reads only typed graph status, missing
+prerequisites, and producer action kinds. It does not inspect business file
+names, target fields, row values, model prose, or customer-specific semantics.
+
+Generic invariants:
+
+- typed violations remain the highest-priority decision source and their repair
+  hints override broad allowed actions;
+- OutputProjectionGraph `missing_projection` and `incomplete_reference` states
+  expose `assemble_answer` as the focused next action;
+- LedgerGraph missing ledgers expose a typed reason code such as
+  `ledger_missing_contributions` and producer action hints when the ledger is
+  ready to produce;
+- LedgerGraph blocked ledgers expose a typed reason code such as
+  `ledger_blocked_contributions`, but do not pretend the blocked producer is
+  executable; the decision keeps prerequisite-stage allowed actions instead;
+- evaluator status/reason can still explain the current loop state, while
+  graph hints fill missing reason/action fields without relying on prose.
+
+Changes:
+
+- [x] Extended `WorkflowDecisionInput` with LedgerGraph and
+      OutputProjectionGraph.
+- [x] Added graph-derived reason codes/reasons for missing ledgers, blocked
+      ledgers, missing output projection, incomplete reference projection, and
+      missing answer states.
+- [x] Rewired REPL/CLI workflow state assembly to pass live graph state into
+      `BuildWorkflowDecision`.
+- [x] Narrowed `WorkflowDecision.NextActions` from broad allowed actions to
+      typed violation repair hints or graph producer actions when safe.
+- [x] Preserved prerequisite-stage allowed actions when a ledger is blocked by
+      another graph node, avoiding non-ready action suggestions.
+- [x] Added reducer and REPL workflow-state regression coverage.
+
+Remaining P0 decision/UX work:
+
+- [ ] Feed `WorkflowDecision` graph reason codes into low-noise process events
+      so users see the current business goal, batch purpose, blocker, and next
+      action without reading raw ledger/stage terminology.
+- [ ] Remove legacy error/output recomputation fallbacks after direct callers
+      are migrated to typed graph inputs.

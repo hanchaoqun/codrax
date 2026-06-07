@@ -141,6 +141,8 @@ type WorkflowDecisionInput struct {
 	NextStage          string
 	AllowedNextActions []string
 	Violations         []WorkflowViolation
+	LedgerGraph        LedgerGraph
+	OutputGraph        OutputProjectionGraph
 }
 
 func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
@@ -149,6 +151,7 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 	reason := trimStateText(input.Reason)
 	nextActions := cleanStrings(input.AllowedNextActions)
 	var violationCodes []string
+	var violationNextActions []string
 	for _, violation := range input.Violations {
 		if code := trimStateText(violation.Code); code != "" {
 			violationCodes = append(violationCodes, code)
@@ -159,9 +162,24 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 		if reason == "" {
 			reason = trimStateText(violation.Reason)
 		}
-		if len(nextActions) == 0 {
-			nextActions = cleanStrings(violation.RepairActionHints)
+		if len(violationNextActions) == 0 {
+			violationNextActions = cleanStrings(violation.RepairActionHints)
 		}
+	}
+	graphReasonCode, graphReason, graphNextActions := workflowGraphDecisionDetails(input.LedgerGraph, input.OutputGraph)
+	if reasonCode == "" {
+		reasonCode = graphReasonCode
+	}
+	if reason == "" {
+		reason = graphReason
+	}
+	switch {
+	case len(violationNextActions) > 0:
+		nextActions = violationNextActions
+	case len(graphNextActions) > 0 && len(violationCodes) == 0:
+		nextActions = graphNextActions
+	case len(nextActions) == 0:
+		nextActions = cleanStrings(input.AllowedNextActions)
 	}
 	if status == "" {
 		switch {
@@ -192,6 +210,65 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 		Reason:      reason,
 		Violations:  cleanStrings(violationCodes),
 		NextActions: nextActions,
+	}
+}
+
+func workflowGraphDecisionDetails(ledgerGraph LedgerGraph, outputGraph OutputProjectionGraph) (string, string, []string) {
+	switch outputGraph.Status {
+	case OutputProjectionStatusIncompleteReference, OutputProjectionStatusMissingProjection:
+		return "output_" + outputGraph.Status,
+			outputProjectionDecisionReason(outputGraph),
+			cleanStrings(outputGraph.ProducesActions)
+	}
+	if dep, ok := FirstIncompleteRequiredLedger(ledgerGraph); ok {
+		code := workflowLedgerDecisionCode(dep)
+		reason := ledgerCompletionMessage(dep)
+		return code, reason, workflowLedgerDecisionNextActions(dep)
+	}
+	switch outputGraph.Status {
+	case OutputProjectionStatusMissingAnswer:
+		return "output_" + outputGraph.Status,
+			outputProjectionDecisionReason(outputGraph),
+			nil
+	default:
+		return "", "", nil
+	}
+}
+
+func workflowLedgerDecisionNextActions(dep LedgerDependency) []string {
+	if dep.Status == LedgerStatusBlockedByPrerequisite || len(dep.MissingPrerequisites) > 0 {
+		return nil
+	}
+	return cleanStrings(dep.ProducesActions)
+}
+
+func workflowLedgerDecisionCode(dep LedgerDependency) string {
+	status := strings.TrimSpace(dep.Status)
+	switch status {
+	case LedgerStatusMissing:
+		status = "missing"
+	case LedgerStatusBlockedByPrerequisite:
+		status = "blocked"
+	case "":
+		status = "incomplete"
+	}
+	ledger := strings.TrimSpace(dep.Ledger)
+	if ledger == "" {
+		ledger = "unknown"
+	}
+	return "ledger_" + status + "_" + strings.ReplaceAll(ledger, "/", "_")
+}
+
+func outputProjectionDecisionReason(graph OutputProjectionGraph) string {
+	switch graph.Status {
+	case OutputProjectionStatusIncompleteReference:
+		return "output projection is incomplete for the declared reference key universe"
+	case OutputProjectionStatusMissingProjection:
+		return "strict output contract requires final answer projection"
+	case OutputProjectionStatusMissingAnswer:
+		return "workflow has not produced a final answer yet"
+	default:
+		return ""
 	}
 }
 

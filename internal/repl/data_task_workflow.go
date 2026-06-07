@@ -5663,6 +5663,8 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 		NextStage:          state.NextStage,
 		AllowedNextActions: state.AllowedNextActions,
 		Violations:         state.WorkflowViolations,
+		LedgerGraph:        state.LedgerGraph,
+		OutputGraph:        state.OutputProjectionGraph,
 	})
 	if eval, ok := latestDataTaskEvaluation(records); ok {
 		state.Decision = dataworkflow.BuildWorkflowDecision(dataworkflow.WorkflowDecisionInput{
@@ -5672,6 +5674,8 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 			NextStage:          state.NextStage,
 			AllowedNextActions: state.AllowedNextActions,
 			Violations:         state.WorkflowViolations,
+			LedgerGraph:        state.LedgerGraph,
+			OutputGraph:        state.OutputProjectionGraph,
 		})
 	}
 	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, state.WorkflowViolations, 48)
