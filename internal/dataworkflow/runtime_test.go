@@ -116,3 +116,114 @@ func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 		t.Fatalf("runtime transitions leaked returned slice: %#v", rt.PlanTransitions())
 	}
 }
+
+func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	record := WorkflowRecord{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:     "filter",
+			Kind:   dataquery.DataActionFilterRecords,
+			Params: map[string]string{"filter_field": "status"},
+		}}},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID:     "records",
+				Fields: map[string]string{"status": "valid"},
+				Children: []dataquery.DataArtifact{{
+					ID:      "child",
+					Headers: []string{"status"},
+				}},
+			}},
+			Rows: []dataquery.RowDecision{{
+				RowID:            "r1",
+				NormalizedFields: map[string]string{"status": "valid"},
+				EvidenceRef:      []string{"records.csv:2"},
+			}},
+			Contributions: []dataquery.ContributionRecord{{
+				ItemID:       "r1",
+				EvidenceRefs: []string{"records.csv:2"},
+			}},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				ItemID: "r1",
+				Candidates: []dataquery.EntityCandidate{{
+					ID: "candidate",
+				}},
+			}},
+			Reconcile: &dataquery.ReconcileReport{
+				Differences: []string{"none"},
+				Groups:      []dataquery.ReconcileGroup{{GroupKey: "g1"}},
+			},
+			ResultPatches: []dataquery.DataResultPatch{{
+				Target: "result",
+				Value:  []byte(`"patched"`),
+			}},
+		},
+		Evaluation: &dataquery.Evaluation{MissingInputs: []string{"amount"}},
+		Admission: &ActionDAGAdmissionDecision{
+			Guard: NewGuardResult("field_contract", "error", RepairNeedsTypedAction, "missing field", WorkflowViolation{
+				MissingFields: []string{"amount"},
+			}),
+		},
+	}
+	records := rt.AppendRecord(record)
+	record.Plan.Actions[0].Params["filter_field"] = "mutated"
+	record.Result.Artifacts[0].Fields["status"] = "mutated"
+	record.Result.Artifacts[0].Children[0].Headers[0] = "mutated"
+	record.Result.Rows[0].NormalizedFields["status"] = "mutated"
+	record.Result.Rows[0].EvidenceRef[0] = "mutated"
+	record.Result.Contributions[0].EvidenceRefs[0] = "mutated"
+	record.Result.EntityResolutions[0].Candidates[0].ID = "mutated"
+	record.Result.Reconcile.Differences[0] = "mutated"
+	record.Result.Reconcile.Groups[0].GroupKey = "mutated"
+	record.Result.ResultPatches[0].Value[0] = 'x'
+	record.Evaluation.MissingInputs[0] = "mutated"
+	record.Admission.Guard.Violations[0].MissingFields[0] = "mutated"
+	records[0].Result.Rows[0].NormalizedFields["status"] = "mutated again"
+
+	got := rt.Records()
+	if got[0].Plan.Actions[0].Params["filter_field"] != "status" {
+		t.Fatalf("plan leaked: %#v", got[0].Plan.Actions[0].Params)
+	}
+	if got[0].Result.Artifacts[0].Fields["status"] != "valid" || got[0].Result.Artifacts[0].Children[0].Headers[0] != "status" {
+		t.Fatalf("artifact leaked: %#v", got[0].Result.Artifacts[0])
+	}
+	if got[0].Result.Rows[0].NormalizedFields["status"] != "valid" || got[0].Result.Rows[0].EvidenceRef[0] != "records.csv:2" {
+		t.Fatalf("row leaked: %#v", got[0].Result.Rows[0])
+	}
+	if got[0].Result.Contributions[0].EvidenceRefs[0] != "records.csv:2" {
+		t.Fatalf("contribution leaked: %#v", got[0].Result.Contributions[0])
+	}
+	if got[0].Result.EntityResolutions[0].Candidates[0].ID.String() != "candidate" {
+		t.Fatalf("entity resolution leaked: %#v", got[0].Result.EntityResolutions[0])
+	}
+	if got[0].Result.Reconcile.Differences[0] != "none" || got[0].Result.Reconcile.Groups[0].GroupKey.String() != "g1" {
+		t.Fatalf("reconcile leaked: %#v", got[0].Result.Reconcile)
+	}
+	if string(got[0].Result.ResultPatches[0].Value) != `"patched"` {
+		t.Fatalf("patch leaked: %s", got[0].Result.ResultPatches[0].Value)
+	}
+	if got[0].Evaluation.MissingInputs[0] != "amount" {
+		t.Fatalf("evaluation leaked: %#v", got[0].Evaluation)
+	}
+	if got[0].Admission.Guard.Violations[0].MissingFields[0] != "amount" {
+		t.Fatalf("admission leaked: %#v", got[0].Admission)
+	}
+
+	eval := dataquery.Evaluation{Status: dataquery.EvalContinueData, MissingInputs: []string{"next"}}
+	records = rt.AttachLastEvaluation(eval)
+	eval.MissingInputs[0] = "mutated"
+	records[0].Evaluation.MissingInputs[0] = "mutated again"
+	if rt.Records()[0].Evaluation.MissingInputs[0] != "next" {
+		t.Fatalf("attached evaluation leaked: %#v", rt.Records()[0].Evaluation)
+	}
+	records = rt.AttachLastError("failed")
+	records[0].Err = "mutated"
+	if rt.Records()[0].Err != "failed" {
+		t.Fatalf("attached error leaked: %#v", rt.Records()[0])
+	}
+	with := rt.RecordsWith(WorkflowRecord{Err: "preview"})
+	with[1].Err = "mutated"
+	if len(rt.Records()) != 1 {
+		t.Fatalf("RecordsWith mutated runtime length: %#v", rt.Records())
+	}
+}

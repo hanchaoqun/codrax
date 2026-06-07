@@ -3,10 +3,11 @@ package dataworkflow
 import "github.com/hanchaoqun/codrax/internal/dataquery"
 
 // WorkflowRuntime is the storage-neutral handle for live data workflow state.
-// It deliberately stores only workflow/dataquery IR, not REPL or CLI records.
+// It deliberately stores only workflow/dataquery IR, not REPL or CLI types.
 type WorkflowRuntime struct {
 	currentPlan     dataquery.TaskPlan
 	planTransitions []PlanTransitionEvent
+	records         []WorkflowRecord
 	deferredQueue   DeferredQueueState
 	admission       ActionDAGAdmissionDecision
 	dataRounds      int
@@ -56,6 +57,61 @@ func (rt *WorkflowRuntime) PlanTransitions() []PlanTransitionEvent {
 		return nil
 	}
 	return append([]PlanTransitionEvent(nil), rt.planTransitions...)
+}
+
+func (rt *WorkflowRuntime) SetRecords(records []WorkflowRecord) {
+	if rt == nil {
+		return
+	}
+	rt.records = cloneWorkflowRecords(records)
+}
+
+func (rt *WorkflowRuntime) Records() []WorkflowRecord {
+	if rt == nil {
+		return nil
+	}
+	return cloneWorkflowRecords(rt.records)
+}
+
+func (rt *WorkflowRuntime) AppendRecord(record WorkflowRecord) []WorkflowRecord {
+	if rt == nil {
+		return []WorkflowRecord{cloneWorkflowRecord(record)}
+	}
+	rt.records = append(rt.records, cloneWorkflowRecord(record))
+	return rt.Records()
+}
+
+func (rt *WorkflowRuntime) RecordsWith(record WorkflowRecord) []WorkflowRecord {
+	if rt == nil {
+		return []WorkflowRecord{cloneWorkflowRecord(record)}
+	}
+	out := rt.Records()
+	out = append(out, cloneWorkflowRecord(record))
+	return out
+}
+
+func (rt *WorkflowRuntime) AttachLastEvaluation(eval dataquery.Evaluation) []WorkflowRecord {
+	if rt == nil {
+		return nil
+	}
+	if len(rt.records) == 0 {
+		return rt.Records()
+	}
+	copied := eval
+	copied.MissingInputs = append([]string(nil), eval.MissingInputs...)
+	rt.records[len(rt.records)-1].Evaluation = &copied
+	return rt.Records()
+}
+
+func (rt *WorkflowRuntime) AttachLastError(errText string) []WorkflowRecord {
+	if rt == nil {
+		return nil
+	}
+	if len(rt.records) == 0 {
+		return rt.Records()
+	}
+	rt.records[len(rt.records)-1].Err = errText
+	return rt.Records()
 }
 
 func (rt *WorkflowRuntime) SetDeferredQueue(queue DeferredQueueState) {
@@ -157,6 +213,140 @@ func cloneAdmissionDecision(in ActionDAGAdmissionDecision) ActionDAGAdmissionDec
 	out.Remainder = cloneTaskPlanValue(in.Remainder)
 	out.Guard = cloneGuardResult(in.Guard)
 	out.FinalGuard = cloneGuardResult(in.FinalGuard)
+	return out
+}
+
+func cloneWorkflowRecords(in []WorkflowRecord) []WorkflowRecord {
+	out := make([]WorkflowRecord, 0, len(in))
+	for _, record := range in {
+		out = append(out, cloneWorkflowRecord(record))
+	}
+	return out
+}
+
+func cloneWorkflowRecord(in WorkflowRecord) WorkflowRecord {
+	out := in
+	out.Plan = cloneTaskPlanValue(in.Plan)
+	if in.Result != nil {
+		copied := cloneResultValue(*in.Result)
+		out.Result = &copied
+	}
+	if in.Evaluation != nil {
+		copied := *in.Evaluation
+		copied.MissingInputs = append([]string(nil), in.Evaluation.MissingInputs...)
+		out.Evaluation = &copied
+	}
+	if in.Admission != nil {
+		copied := cloneAdmissionDecision(*in.Admission)
+		out.Admission = &copied
+	}
+	return out
+}
+
+func cloneResultValue(in dataquery.Result) dataquery.Result {
+	out := in
+	out.Artifacts = cloneDataArtifacts(in.Artifacts)
+	out.Rows = cloneRowDecisions(in.Rows)
+	out.RuleCoverage = cloneRuleCoverage(in.RuleCoverage)
+	out.Contributions = cloneContributions(in.Contributions)
+	out.EntityResolutions = cloneEntityResolutions(in.EntityResolutions)
+	if in.Reconcile != nil {
+		copied := cloneReconcileReport(*in.Reconcile)
+		out.Reconcile = &copied
+	}
+	out.Metrics = append([]dataquery.Metric(nil), in.Metrics...)
+	out.ConsumedPaths = append([]string(nil), in.ConsumedPaths...)
+	out.ContractWarnings = append([]string(nil), in.ContractWarnings...)
+	out.ResultPatches = cloneResultPatches(in.ResultPatches)
+	return out
+}
+
+func cloneDataArtifacts(in []dataquery.DataArtifact) []dataquery.DataArtifact {
+	out := make([]dataquery.DataArtifact, 0, len(in))
+	for _, artifact := range in {
+		copied := artifact
+		copied.SourcePaths = append([]string(nil), artifact.SourcePaths...)
+		copied.SourceRecordPaths = append([]string(nil), artifact.SourceRecordPaths...)
+		copied.ReferencePaths = append([]string(nil), artifact.ReferencePaths...)
+		copied.EvidencePaths = append([]string(nil), artifact.EvidencePaths...)
+		if artifact.Fields != nil {
+			copied.Fields = make(map[string]string, len(artifact.Fields))
+			for key, value := range artifact.Fields {
+				copied.Fields[key] = value
+			}
+		}
+		copied.Headers = append([]string(nil), artifact.Headers...)
+		copied.Sample = append([]string(nil), artifact.Sample...)
+		copied.Children = cloneDataArtifacts(artifact.Children)
+		out = append(out, copied)
+	}
+	return out
+}
+
+func cloneRowDecisions(in []dataquery.RowDecision) []dataquery.RowDecision {
+	out := make([]dataquery.RowDecision, 0, len(in))
+	for _, row := range in {
+		copied := row
+		if row.NormalizedFields != nil {
+			copied.NormalizedFields = make(map[string]string, len(row.NormalizedFields))
+			for key, value := range row.NormalizedFields {
+				copied.NormalizedFields[key] = value
+			}
+		}
+		copied.EvidenceRef = append([]string(nil), row.EvidenceRef...)
+		copied.RuleRefs = append([]string(nil), row.RuleRefs...)
+		out = append(out, copied)
+	}
+	return out
+}
+
+func cloneRuleCoverage(in []dataquery.RuleCoverageRecord) []dataquery.RuleCoverageRecord {
+	out := make([]dataquery.RuleCoverageRecord, 0, len(in))
+	for _, rule := range in {
+		copied := rule
+		copied.EvidenceRefs = append([]string(nil), rule.EvidenceRefs...)
+		out = append(out, copied)
+	}
+	return out
+}
+
+func cloneContributions(in []dataquery.ContributionRecord) []dataquery.ContributionRecord {
+	out := make([]dataquery.ContributionRecord, 0, len(in))
+	for _, contribution := range in {
+		copied := contribution
+		copied.EvidenceRefs = append([]string(nil), contribution.EvidenceRefs...)
+		copied.RuleRefs = append([]string(nil), contribution.RuleRefs...)
+		out = append(out, copied)
+	}
+	return out
+}
+
+func cloneEntityResolutions(in []dataquery.EntityResolutionRecord) []dataquery.EntityResolutionRecord {
+	out := make([]dataquery.EntityResolutionRecord, 0, len(in))
+	for _, resolution := range in {
+		copied := resolution
+		copied.Candidates = append([]dataquery.EntityCandidate(nil), resolution.Candidates...)
+		copied.EvidenceRefs = append([]string(nil), resolution.EvidenceRefs...)
+		copied.RuleRefs = append([]string(nil), resolution.RuleRefs...)
+		out = append(out, copied)
+	}
+	return out
+}
+
+func cloneReconcileReport(in dataquery.ReconcileReport) dataquery.ReconcileReport {
+	out := in
+	out.Differences = append([]string(nil), in.Differences...)
+	out.Groups = append([]dataquery.ReconcileGroup(nil), in.Groups...)
+	return out
+}
+
+func cloneResultPatches(in []dataquery.DataResultPatch) []dataquery.DataResultPatch {
+	out := make([]dataquery.DataResultPatch, 0, len(in))
+	for _, patch := range in {
+		copied := patch
+		copied.Value = append([]byte(nil), patch.Value...)
+		out = append(out, copied)
+	}
 	return out
 }
 

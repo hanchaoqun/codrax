@@ -1309,6 +1309,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	var records []dataTaskWorkflowRecord
 	workflowRuntime := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
+	appendRecord := func(record dataTaskWorkflowRecord) {
+		records = workflowRuntime.AppendRecord(record)
+	}
+	recordsWith := func(record dataTaskWorkflowRecord) []dataTaskWorkflowRecord {
+		return workflowRuntime.RecordsWith(record)
+	}
+	attachLastEvaluation := func(eval dataquery.Evaluation) {
+		records = workflowRuntime.AttachLastEvaluation(eval)
+	}
+	attachLastError := func(errText string) {
+		records = workflowRuntime.AttachLastError(errText)
+	}
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
@@ -1340,7 +1352,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
 		workflowRuntime.SetAdmission(preflight)
 		if preflight.Rewritten {
-			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
+			appendRecord(dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			r.emitDataTaskWorkflowAudit("continue", round, preflight.Reason)
 			scope = "continue"
 		}
@@ -1430,7 +1442,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if fallback, reason, ok := dataTaskTerminalWorkflowFallback(records, currentPlan); ok {
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
@@ -1440,11 +1452,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
@@ -1516,7 +1528,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, "missing material coverage before execution"); ok {
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch"})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch"})
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
@@ -1525,7 +1537,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			continue
 		}
 		if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, "broad material custom action requires objective material discovery before execution"); ok {
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "broad material custom action converted to material discovery"})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "broad material custom action converted to material discovery"})
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "broad material custom action converted to material discovery")
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
@@ -1535,10 +1547,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1548,7 +1560,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, errText); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1557,7 +1569,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "broad material plan converted to material discovery")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1566,7 +1578,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1576,7 +1588,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, errText); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "converted invalid record action to bounded record extraction")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1585,7 +1597,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
-				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1593,7 +1605,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
 				continue
 			}
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
@@ -1635,7 +1647,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if errText := r.prepareDataTaskNonTextMaterials(context.Background(), &candidates, currentPlan); errText != "" {
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
@@ -1710,8 +1722,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			r.auditDataTaskError(dataRounds, errText)
 			executionRecord := dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText)
-			if fallback, ok := dataTaskMissingJoinFieldFallback(append(records, executionRecord), currentPlan, errText); ok {
-				records = append(records, executionRecord)
+			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, errText); ok {
+				appendRecord(executionRecord)
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "materialized missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1719,8 +1731,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized missing join field from existing artifacts")
 				continue
 			}
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(append(records, executionRecord), currentPlan); ok {
-				records = append(records, executionRecord)
+			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan); ok {
+				appendRecord(executionRecord)
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1729,8 +1741,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			recordedErr := false
-			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(append(records, executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
-				records = append(records, executionRecord)
+			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(recordsWith(executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
+				appendRecord(executionRecord)
 				recordedErr = true
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
@@ -1741,7 +1753,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
 				if continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner); ok {
-					records = append(records, executionRecord)
+					appendRecord(executionRecord)
 					recordedErr = true
 					detail := fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount)
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, detail)
@@ -1761,7 +1773,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 			}
 			if !recordedErr {
-				records = append(records, executionRecord)
+				appendRecord(executionRecord)
 			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
@@ -1807,7 +1819,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				r.auditDataTaskError(dataRounds, errText)
-				records = append(records, dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
+				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 					repairRounds++
 					r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
@@ -1849,7 +1861,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				return
 			}
 		}
-		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
+		appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
@@ -1880,7 +1892,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
 			case dataworkflow.DeferredQueueLifecycleDiscard:
 				if strings.TrimSpace(status.Reason) != "" {
-					records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+					appendRecord(dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
 				}
 				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
 			default:
@@ -1890,7 +1902,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			workflowRuntime.ClearDeferred(dataRounds, "")
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
@@ -1942,14 +1954,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if len(records) > 0 {
-			records[len(records)-1].Evaluation = &eval
+			attachLastEvaluation(eval)
 		}
 		switch eval.Status {
 		case dataquery.EvalComplete:
 			if errText := dataTaskWorkflowCompletionGateErrorWithRepo(r.repoRoot, records, currentPlan, result); errText != "" {
 				r.auditDataTaskError(dataRounds, errText)
 				if len(records) > 0 {
-					records[len(records)-1].Err = errText
+					attachLastError(errText)
 				}
 				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
 				if transition.HasPlan() {

@@ -13575,7 +13575,7 @@ Remaining architecture items:
 - [x] Move data workflow records into a package-neutral record IR so later
       runtime/journal code can consume records without depending on REPL
       internals.
-- [ ] Replace direct `currentPlan = ...` assignments in CLI/REPL loops with a
+- [x] Replace direct `currentPlan = ...` assignments in CLI/REPL loops with a
       reducer/runtime transition helper that records the reason, source, and
       admission decision for every plan switch.
 - [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`, so
@@ -13619,7 +13619,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move record append/update operations into `WorkflowRuntime`, including
+- [x] Move record append/update operations into `WorkflowRuntime`, including
       result, error, evaluation, and admission attachment transitions.
 - [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
 - [ ] Convert CLI/REPL progress rendering to consume runtime events directly
@@ -13663,6 +13663,57 @@ Changes:
 Remaining architecture items:
 
 - [ ] Include plan-transition events in checkpoint/journal snapshots.
-- [ ] Move record append/update operations into runtime transitions.
+- [x] Move record append/update operations into runtime transitions.
 - [ ] Convert direct plan-transition event rendering into low-noise business
       process events once the journal owns them.
+
+### Batch 303: Runtime-Owned Workflow Records
+
+After plan switches became runtime transitions, the remaining live history
+state was still a CLI/REPL-owned `records` slice. Even though
+`WorkflowRecord` had already moved into `internal/dataworkflow`, both
+entrypoints were still appending result/error records and mutating the latest
+evaluation directly. That kept workflow history ownership split across the
+runtime and the UI loops.
+
+This batch makes `WorkflowRuntime` the owner of workflow records. CLI and REPL
+still pass snapshots to existing planner/evaluator helpers, but those snapshots
+now come from runtime methods instead of local append/mutation. This is an IR
+ownership change only; scheduling, prompts, guard semantics, execution, and
+terminal answer behavior are unchanged.
+
+Generic invariants:
+
+- runtime records contain only `WorkflowRecord`, `TaskPlan`, `Result`,
+  `Evaluation`, and admission IR;
+- record accessors return deep copies, including nested result artifacts,
+  row decisions, ledgers, reconcile reports, patches, and evaluation slices;
+- checkpoint preview records use `RecordsWith` so guard snapshots do not mutate
+  live state;
+- REPL/CLI remain adapters over runtime-owned state;
+- operation, source-code read mode, trace/log analysis, and write mode are not
+  touched.
+
+Changes:
+
+- [x] Added `SetRecords`, `Records`, `AppendRecord`, `RecordsWith`,
+      `AttachLastEvaluation`, and `AttachLastError` to `WorkflowRuntime`.
+- [x] Added structural deep-copy helpers for workflow records and dataquery
+      results.
+- [x] Rewired CLI data workflow resume, guard, execution failure, validation,
+      result, deferred-discard, and evaluator update paths through runtime
+      record methods.
+- [x] Rewired REPL data workflow guard, non-text material, execution failure,
+      validation, result, deferred-discard, and evaluator update paths through
+      the same runtime record methods.
+- [x] Added regression coverage proving record snapshots cannot mutate live
+      runtime state.
+
+Remaining architecture items:
+
+- [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
+- [ ] Include plan-transition events in checkpoint/journal snapshots.
+- [ ] Replace entrypoint-local `records` variables with narrower snapshot
+      helpers after planner/evaluator prompt inputs are runtime-aware.
+- [ ] Convert CLI/REPL progress rendering to consume runtime events directly
+      instead of re-deriving details from records.
