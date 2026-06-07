@@ -10537,11 +10537,14 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Add a typed stage-progress signature to workflow state that records
-      per-batch ledger deltas, field-set deltas, row-count deltas, and stage
-      movement. This should turn repeated relation actions with no downstream
-      progress into a first-class `stage_no_progress` violation before another
-      planner/fallback turn.
+- [x] Add the first typed stage-progress signature to workflow state for
+      repeated relation actions with no downstream contribution/reconcile
+      progress. The live workflow now emits a `stage_no_progress` violation and
+      deterministic fallback stops auto-selecting another `join_records` batch
+      after repeated no-progress joins.
+- [ ] Extend stage-progress signatures beyond repeated joins to include
+      field-set deltas, row-count deltas, ledger deltas, and stage movement for
+      every typed action kind.
 - [ ] Move the remaining REPL-local scaffold sorting and concrete fallback
       builders into `internal/dataworkflow` so ActionDAG, ArtifactGraph, and
       LedgerGraph own the complete scheduling policy.

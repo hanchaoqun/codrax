@@ -6089,13 +6089,14 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 	state.ZeroMatchFilterViolations = dataTaskWorkflowZeroMatchFilterIssues(records, state, 4)
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
-	state.WorkflowViolations = dataTaskWorkflowTypedViolations(state)
+	state.WorkflowViolations = dataTaskWorkflowTypedViolations(records, state)
 	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, state.WorkflowViolations, 48)
 	return state
 }
 
-func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
+func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
 	var out []dataworkflow.WorkflowViolation
+	out = append(out, dataTaskWorkflowStageNoProgressViolations(records, state)...)
 	for _, issue := range state.FieldContractViolations {
 		out = append(out, dataworkflow.WorkflowViolation{
 			Code:                 "field_contract_violation",
@@ -6182,6 +6183,64 @@ func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []datawork
 		))
 	}
 	return out
+}
+
+func dataTaskWorkflowStageNoProgressViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
+	if state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions" {
+		return nil
+	}
+	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 || state.HasReconcile {
+		return nil
+	}
+	count := dataTaskRecentJoinNoProgressCount(records)
+	if count < DefaultDataTaskMaxNodeFailures {
+		return nil
+	}
+	return []dataworkflow.WorkflowViolation{{
+		Code:          "stage_no_progress",
+		Severity:      "warning",
+		Repairability: dataworkflow.RepairNeedsTypedAction,
+		ActionKind:    string(dataquery.DataActionJoinRecords),
+		RepairActionHints: cleanDataTaskStrings([]string{
+			string(dataquery.DataActionDeriveFields),
+			string(dataquery.DataActionExtractFields),
+			string(dataquery.DataActionFilterRecords),
+			string(dataquery.DataActionQualifyRecords),
+			string(dataquery.DataActionComputeContribs),
+			string(dataquery.DataActionReconcile),
+		}),
+		Reason: fmt.Sprintf("the workflow is still at %s after %d recent join_records result(s) without contribution or reconcile progress; stop automatic relation joins and repair from artifact fields, eligibility filters, contribution calculation, or reconciliation", state.NextStage, count),
+	}}
+}
+
+func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {
+	count := 0
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil || strings.TrimSpace(rec.Err) != "" {
+			break
+		}
+		if len(rec.Result.Contributions) > 0 || rec.Result.Reconcile != nil {
+			break
+		}
+		if !dataTaskPlanHasOnlyActionKind(rec.Plan, dataquery.DataActionJoinRecords) {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+func dataTaskPlanHasOnlyActionKind(plan dataquery.TaskPlan, kind dataquery.DataActionKind) bool {
+	if len(plan.Actions) == 0 {
+		return false
+	}
+	for _, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) != kind {
+			return false
+		}
+	}
+	return true
 }
 
 func dataTaskWorkflowActionGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, limit int) dataworkflow.ActionGraph {
@@ -9905,6 +9964,9 @@ func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord
 		if !ok {
 			continue
 		}
+		if dataTaskConcreteActionWouldRepeatNoProgress(records, state, action) {
+			continue
+		}
 		out := base
 		out.Actions = []dataquery.DataAction{action}
 		out.InputPaths = mergeDataTaskInputPaths(out.InputPaths, action.InputPaths)
@@ -9922,6 +9984,19 @@ func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord
 		return out, reasonPrefix + "; advanced " + state.NextStage + " with a concrete typed action scaffold", true
 	}
 	return dataquery.TaskPlan{}, "", false
+}
+
+func dataTaskConcreteActionWouldRepeatNoProgress(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, action dataquery.DataAction) bool {
+	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionJoinRecords {
+		return false
+	}
+	if state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions" {
+		return false
+	}
+	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 || state.HasReconcile {
+		return false
+	}
+	return dataTaskRecentJoinNoProgressCount(records) >= DefaultDataTaskMaxNodeFailures
 }
 
 func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {

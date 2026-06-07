@@ -342,6 +342,77 @@ func TestDataTaskWorkflowNextStageFallbackDoesNotJoinOnInternalLineageOnly(t *te
 	}
 }
 
+func TestDataTaskWorkflowNextStageFallbackStopsRepeatedJoinNoProgress(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "items.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	joinPlan := func(id, left, right, out string) dataquery.TaskPlan {
+		return dataquery.TaskPlan{
+			Status:        "ready",
+			ContinueAfter: true,
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          current.CoverageContract.RequiredMaterials,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:             id,
+				Kind:           dataquery.DataActionJoinRecords,
+				InputPaths:     []string{left, right},
+				OutputArtifact: out,
+				Params: map[string]string{
+					"left_fields":  `["shared_key"]`,
+					"right_fields": `["shared_key"]`,
+					"join_type":    "inner",
+				},
+			}},
+		}
+	}
+	joinResult := func(id string) *dataquery.Result {
+		return &dataquery.Result{
+			ConsumedPaths: []string{"items.csv", "lookup.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      id,
+				Kind:    string(dataquery.DataActionJoinRecords),
+				Headers: []string{"shared_key", "value", "label"},
+				Fields: map[string]string{
+					"artifact_aliases": id,
+					"json_shape":       "array(len=2,item=object(keys=shared_key,value,label))",
+					"output_headers":   "shared_key,value,label",
+				},
+			}},
+		}
+	}
+	records := []dataTaskWorkflowRecord{
+		{Plan: joinPlan("join_1", "items.csv", "lookup.csv", "joined_1.json"), Result: joinResult("joined_1.json")},
+		{Plan: joinPlan("join_2", "joined_1.json", "lookup.csv", "joined_2.json"), Result: joinResult("joined_2.json")},
+	}
+
+	state := dataTaskWorkflowState(records, current)
+	found := false
+	for _, violation := range state.WorkflowViolations {
+		if violation.Code == "stage_no_progress" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("WorkflowViolations=%+v, want stage_no_progress", state.WorkflowViolations)
+	}
+	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); ok {
+		t.Fatalf("fallback=%+v reason=%q, want no automatic join after repeated no-progress joins", plan, reason)
+	}
+}
+
 func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",
