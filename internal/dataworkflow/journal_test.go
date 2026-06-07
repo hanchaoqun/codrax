@@ -58,15 +58,82 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			Admission:     &ActionDAGAdmissionSummary{Status: "rewritten", RemainderActions: 1},
 			Decision:      &WorkflowDecision{Status: "continue", ReasonCode: "ledger_missing_contributions", Reason: "contributions are missing", NextActions: []string{"compute_contributions"}},
 		}},
+		PlanTransitions: []PlanTransitionEvent{{
+			Source:          "continue",
+			Round:           2,
+			Actions:         1,
+			FirstActionKind: string(dataquery.DataActionComputeContribs),
+		}},
 	})
 	if err != nil {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "deferred_plan", "deferred_events", "ledger_graph", "dependencies", "output_projection_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions", "ledger_missing_contributions"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "deferred_plan", "deferred_events", "ledger_graph", "dependencies", "output_projection_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "plan_transitions", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions", "ledger_missing_contributions"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}
+	}
+}
+
+func TestWorkflowRuntimeBuildJournalSnapshotUsesRuntimeState(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	current := rt.SwitchCurrentPlan(2, "continue", dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}, "next")
+	rt.SetDeferredQueue(NewDeferredQueue(dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "assemble",
+		Kind: dataquery.DataActionAssembleAnswer,
+	}}}))
+	rt.AppendRecord(WorkflowRecord{
+		Plan: current,
+		Result: &dataquery.Result{
+			Answer: "42",
+			Artifacts: []dataquery.DataArtifact{{
+				ID: "result",
+			}},
+		},
+	})
+	previewRecords := rt.RecordsWith(WorkflowRecord{Plan: current, Err: "blocked"})
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status:                     "checkpoint",
+		Reason:                     "blocked",
+		DataRounds:                 2,
+		RepairRounds:               1,
+		Records:                    previewRecords,
+		CurrentPlan:                current,
+		Decision:                   WorkflowDecision{ReasonCode: "existing"},
+		DecisionFallbackReasonCode: "fallback",
+		Guards: []GuardResult{NewGuardResult("field_contract", "error", RepairNeedsTypedAction, "missing field", WorkflowViolation{
+			Code:          "field_contract",
+			MissingFields: []string{"amount"},
+		})},
+		GuardRound: 2,
+	})
+	if snapshot.RecordCount != 2 || snapshot.Status != "checkpoint" || snapshot.Reason != "blocked" {
+		t.Fatalf("snapshot header=%+v", snapshot)
+	}
+	if len(snapshot.PlanTransitions) != 1 || snapshot.PlanTransitions[0].Source != "continue" {
+		t.Fatalf("PlanTransitions=%+v", snapshot.PlanTransitions)
+	}
+	if len(snapshot.ActionEvents) != 2 || snapshot.ActionEvents[1].Status != ActionStatusFailed {
+		t.Fatalf("ActionEvents=%+v", snapshot.ActionEvents)
+	}
+	if len(snapshot.ProcessEvents) < 3 || snapshot.ProcessEvents[len(snapshot.ProcessEvents)-1].Kind != "guard" {
+		t.Fatalf("ProcessEvents=%+v", snapshot.ProcessEvents)
+	}
+	if len(snapshot.WorkflowViolations) != 1 || snapshot.WorkflowViolations[0].Code != "field_contract" {
+		t.Fatalf("WorkflowViolations=%+v", snapshot.WorkflowViolations)
+	}
+	if snapshot.Decision.Status != "checkpoint" || snapshot.Decision.ReasonCode != "existing" || snapshot.Decision.Reason != "blocked" {
+		t.Fatalf("Decision=%+v", snapshot.Decision)
+	}
+	if snapshot.Resume == nil || len(snapshot.Resume.Records) == 0 || len(snapshot.Resume.CurrentPlan) == 0 || len(snapshot.Resume.DeferredPlan) == 0 {
+		t.Fatalf("Resume=%+v", snapshot.Resume)
+	}
+	if len(rt.Records()) != 1 {
+		t.Fatalf("preview records mutated runtime records: %+v", rt.Records())
 	}
 }
 

@@ -1453,7 +1453,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -1548,7 +1548,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
@@ -1863,7 +1863,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
-		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "repl")
+		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
 		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
 		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
@@ -2969,25 +2969,24 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		return ""
 	}
 	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
-	snapshot := dataworkflow.WorkflowJournal{
-		Status:             status,
-		Reason:             reason,
-		DataRounds:         a.DataRounds,
-		RepairRounds:       a.RepairRounds,
-		RecordCount:        len(a.Records),
-		ResultSummary:      resultSummary,
-		LastError:          lastErr,
-		ActionEvents:       dataTaskWorkflowActionEvents(a.Records),
-		ActionGraph:        state.ActionGraph,
-		LedgerGraph:        state.LedgerGraph,
-		OutputGraph:        state.OutputProjectionGraph,
-		ArtifactGraph:      state.ArtifactGraph,
-		Progress:           state.ProgressSignatures,
-		WorkflowViolations: state.WorkflowViolations,
-		Decision:           dataTaskWorkflowJournalDecision(state, status, reason, lastErr),
-		ProcessEvents:      dataTaskWorkflowJournalEvents(a.Records),
-		Resume:             dataTaskWorkflowResumePayload(a.Records, dataquery.TaskPlan{}, dataquery.TaskPlan{}),
-	}
+	var runtime *dataworkflow.WorkflowRuntime
+	snapshot := runtime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
+		Status:                     status,
+		Reason:                     reason,
+		DataRounds:                 a.DataRounds,
+		RepairRounds:               a.RepairRounds,
+		ResultSummary:              resultSummary,
+		LastError:                  lastErr,
+		Records:                    a.Records,
+		ActionGraph:                state.ActionGraph,
+		LedgerGraph:                state.LedgerGraph,
+		OutputGraph:                state.OutputProjectionGraph,
+		ArtifactGraph:              state.ArtifactGraph,
+		Progress:                   state.ProgressSignatures,
+		WorkflowViolations:         state.WorkflowViolations,
+		Decision:                   state.Decision,
+		DecisionFallbackReasonCode: state.NextStage,
+	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logging.Warning("[%s/data] marshal data task terminal audit failed: %v", firstNonEmptyString(logScope, "data"), err)
@@ -3004,10 +3003,10 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 }
 
 func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
-	return writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot, records, current, dataworkflow.NewDeferredQueue(deferred), dataRounds, repairRounds, reason, logScope, guards...)
+	return writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot, nil, records, current, dataworkflow.NewDeferredQueue(deferred), dataRounds, repairRounds, reason, logScope, guards...)
 }
 
-func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
+func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoot string, workflowRuntime *dataworkflow.WorkflowRuntime, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
 	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
@@ -3019,44 +3018,27 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		status := dataTaskDeferredQueueStatus(records, deferred)
 		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))
 	}
-	violations := append([]dataworkflow.WorkflowViolation(nil), state.WorkflowViolations...)
-	processEvents := dataTaskWorkflowJournalEvents(records)
-	for _, guard := range guards {
-		if guard.Empty() {
-			continue
-		}
-		violations = append(violations, guard.Violations...)
-		copied := guard
-		processEvents = append(processEvents, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
-			Kind:         "guard",
-			Round:        dataRounds,
-			Status:       firstNonEmptyString(guard.Severity, "blocked"),
-			Reason:       guard.ErrorText(),
-			Plan:         current,
-			AuditDetails: cleanDataTaskStrings([]string{guard.Code}),
-			Guard:        &copied,
-			Decision:     state.Decision,
-		}))
-	}
-	snapshot := dataworkflow.WorkflowJournal{
-		Status:             "checkpoint",
-		Reason:             strings.TrimSpace(reason),
-		DataRounds:         dataRounds,
-		RepairRounds:       repairRounds,
-		RecordCount:        len(records),
-		ResultSummary:      dataTaskTerminalResultSummary(nil, records),
-		LastError:          dataTaskLatestError(records),
-		ActionEvents:       dataTaskWorkflowActionEvents(records),
-		ActionGraph:        state.ActionGraph,
-		LedgerGraph:        state.LedgerGraph,
-		OutputGraph:        state.OutputProjectionGraph,
-		ArtifactGraph:      state.ArtifactGraph,
-		Progress:           state.ProgressSignatures,
-		WorkflowViolations: violations,
-		Decision:           state.Decision,
-		ProcessEvents:      processEvents,
-		Resume:             dataTaskWorkflowResumePayload(records, current, deferred),
-	}
+	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
+		Status:                     "checkpoint",
+		Reason:                     reason,
+		DataRounds:                 dataRounds,
+		RepairRounds:               repairRounds,
+		ResultSummary:              dataTaskTerminalResultSummary(nil, records),
+		LastError:                  dataTaskLatestError(records),
+		Records:                    records,
+		CurrentPlan:                current,
+		DeferredPlan:               deferred,
+		ActionGraph:                state.ActionGraph,
+		LedgerGraph:                state.LedgerGraph,
+		OutputGraph:                state.OutputProjectionGraph,
+		ArtifactGraph:              state.ArtifactGraph,
+		Progress:                   state.ProgressSignatures,
+		WorkflowViolations:         state.WorkflowViolations,
+		Decision:                   state.Decision,
+		DecisionFallbackReasonCode: state.NextStage,
+		Guards:                     guards,
+		GuardRound:                 dataRounds,
+	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logging.Warning("[%s/data] marshal data task checkpoint failed: %v", firstNonEmptyString(logScope, "data"), err)
@@ -3070,34 +3052,6 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 	}
 	logging.Info("[%s/data] checkpoint full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
 	return path
-}
-
-func dataTaskWorkflowJournalDecision(state dataTaskWorkflowStateView, status, reason, lastErr string) dataworkflow.WorkflowDecision {
-	decision := state.Decision
-	if text := strings.TrimSpace(status); text != "" {
-		decision.Status = text
-	}
-	if decision.ReasonCode == "" {
-		decision.ReasonCode = firstNonEmptyString(strings.TrimSpace(status), strings.TrimSpace(state.NextStage))
-	}
-	if text := firstNonEmptyString(strings.TrimSpace(reason), strings.TrimSpace(lastErr)); text != "" {
-		decision.Reason = text
-	}
-	return decision
-}
-
-func dataTaskWorkflowResumePayload(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) *dataworkflow.WorkflowResumePayload {
-	recordsRaw, recordsErr := json.Marshal(records)
-	currentRaw, currentErr := json.Marshal(current)
-	deferredRaw, deferredErr := json.Marshal(deferred)
-	if recordsErr != nil || currentErr != nil || deferredErr != nil {
-		return nil
-	}
-	return &dataworkflow.WorkflowResumePayload{
-		Records:      recordsRaw,
-		CurrentPlan:  currentRaw,
-		DeferredPlan: deferredRaw,
-	}
 }
 
 func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowJournalEvent {

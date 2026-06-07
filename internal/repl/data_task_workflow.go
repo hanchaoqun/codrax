@@ -5842,18 +5842,7 @@ func dataTaskWorkflowActionGraphWithDeferredQueueAndViolations(records []dataTas
 }
 
 func dataTaskWorkflowActionEvents(records []dataTaskWorkflowRecord) []dataworkflow.ActionEvent {
-	events := make([]dataworkflow.ActionEvent, 0, len(records))
-	for _, rec := range records {
-		status := dataworkflow.ActionStatusExecuted
-		if strings.TrimSpace(rec.Err) != "" {
-			status = dataworkflow.ActionStatusFailed
-		}
-		events = append(events, dataworkflow.ActionEvent{
-			Actions: rec.Plan.Actions,
-			Status:  status,
-		})
-	}
-	return events
+	return dataworkflow.BuildWorkflowActionEvents(records)
 }
 
 func dataTaskWorkflowCurrentBatchContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, workflow dataquery.CoverageContract) (dataquery.CoverageContract, dataworkflow.CoverageLayer) {

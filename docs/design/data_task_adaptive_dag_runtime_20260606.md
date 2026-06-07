@@ -13662,7 +13662,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Include plan-transition events in checkpoint/journal snapshots.
+- [x] Include plan-transition events in checkpoint/journal snapshots.
 - [x] Move record append/update operations into runtime transitions.
 - [ ] Convert direct plan-transition event rendering into low-noise business
       process events once the journal owns them.
@@ -13711,9 +13711,59 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
-- [ ] Include plan-transition events in checkpoint/journal snapshots.
+- [x] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
+- [x] Include plan-transition events in checkpoint/journal snapshots.
 - [ ] Replace entrypoint-local `records` variables with narrower snapshot
       helpers after planner/evaluator prompt inputs are runtime-aware.
 - [ ] Convert CLI/REPL progress rendering to consume runtime events directly
       instead of re-deriving details from records.
+
+### Batch 304: Runtime-Built Workflow Journal Snapshots
+
+Once runtime owned plans, transitions, deferred queues, and records, checkpoint
+and terminal audit files were still assembled by REPL helper functions. That
+kept the durable journal shape dependent on entrypoint-local glue and made it
+easy to omit runtime-only facts such as plan transitions.
+
+This batch moves the journal assembly boundary into `internal/dataworkflow`.
+The REPL/CLI adapters still write files and still compute the existing state
+graphs for now, but the final `WorkflowJournal` object is built through
+`WorkflowRuntime.BuildJournalSnapshot`. Runtime-owned records and plan
+transitions now flow into checkpoint snapshots without parsing UI text or
+business-specific fields.
+
+Generic invariants:
+
+- journal assembly consumes typed workflow inputs: records, plans, action
+  graph, ledger graph, artifact graph, output graph, progress, decision, and
+  guard results;
+- resume payloads and action events are generated in `internal/dataworkflow`;
+- guard checkpoint previews can pass explicit preview records without mutating
+  live runtime records;
+- plan transitions are audit facts in the journal, not hard scheduling inputs;
+- file I/O remains in REPL/CLI adapters; source/trace/log/write flows are
+  unchanged.
+
+Changes:
+
+- [x] Added `plan_transitions` to `WorkflowJournal`.
+- [x] Added `WorkflowJournalBuildInput` and
+      `WorkflowRuntime.BuildJournalSnapshot`.
+- [x] Moved workflow resume payload construction into `dataworkflow`.
+- [x] Moved workflow action-event construction into `dataworkflow`.
+- [x] Rewired terminal audit and checkpoint writers to use the runtime journal
+      builder.
+- [x] Rewired CLI/REPL checkpoint call sites to pass the live runtime so
+      transition events are preserved.
+- [x] Added journal regression coverage for runtime records, guard preview
+      records, resume payloads, and plan transitions.
+
+Remaining architecture items:
+
+- [ ] Move state-graph construction (`ActionGraph`, `LedgerGraph`,
+      `ArtifactGraph`, `ProgressWindow`) behind a runtime reducer input instead
+      of REPL-owned `dataTaskWorkflowStateView`.
+- [ ] Replace entrypoint-local `records` variables with runtime snapshot
+      helpers after planner/evaluator prompts accept runtime state directly.
+- [ ] Convert CLI/REPL progress rendering to consume runtime journal/process
+      events directly.
