@@ -1308,13 +1308,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		plan = normalized
 	}
 	var records []dataTaskWorkflowRecord
-	var deferredQueue dataworkflow.DeferredQueueState
-	var currentAdmission dataworkflow.ActionDAGAdmissionDecision
+	workflowRuntime := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
 	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		deferredQueue = dataworkflow.EnqueueDeferredQueue(deferredQueue, round, remainder, reason)
+		workflowRuntime.EnqueueDeferred(round, remainder, reason)
 		if len(remainder.Actions) == 0 {
 			return
 		}
@@ -1322,24 +1321,24 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.emitDataTaskWorkflowAudit("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, remainder, reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
-		deferredPlan := dataworkflow.DeferredQueuePlan(deferredQueue)
+		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
-			deferredQueue = dataworkflow.DiscardDeferredQueue(deferredQueue, round, status, reason)
+			workflowRuntime.DiscardDeferred(round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(r.language, deferredPlan, reason)
 			r.emitDataTaskWorkflowAudit("deferred", round, detail)
 			first := deferredPlan.Actions[0]
 			logging.Info("[repl/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
 			return
 		}
-		deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, round, reason)
+		workflowRuntime.ClearDeferred(round, reason)
 	}
 	currentDeferredPlan := func() dataquery.TaskPlan {
-		return dataworkflow.DeferredQueuePlan(deferredQueue)
+		return workflowRuntime.DeferredPlan()
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
-		currentAdmission = preflight
+		workflowRuntime.SetAdmission(preflight)
 		if preflight.Rewritten {
 			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			r.emitDataTaskWorkflowAudit("continue", round, preflight.Reason)
@@ -1353,11 +1352,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
+		workflowRuntime.SetCurrentPlan(preflight.Plan)
 		r.emitDataTaskPlanAudit(preflight.Plan)
 		r.auditDataTaskPlan(scope, round, preflight.Plan)
 		return preflight.Plan
 	}
 	plan = acceptCandidatePlan("initial", 0, plan)
+	workflowRuntime.SetCurrentPlan(plan)
 	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line, 0, 0); handled {
 		return
 	}
@@ -1437,7 +1438,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -1532,7 +1533,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
@@ -1845,18 +1846,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				return
 			}
 		}
-		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(currentAdmission, currentPlan)})
+		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
-		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredQueue, dataRounds, repairRounds, "batch result completed", "repl")
+		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
 		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
-		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, deferredQueue, dataRounds+1); ok {
+		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
 			currentPlan = nextDeferred
-			deferredQueue = updatedQueue
+			workflowRuntime.SetDeferredQueue(updatedQueue)
 			remainingDeferred := currentDeferredPlan()
 			if len(remainingDeferred.Actions) > 0 {
 				r.auditDataTaskPlan("deferred", dataRounds+1, remainingDeferred)
@@ -1870,7 +1871,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
 			switch decision.Action {
 			case dataworkflow.DeferredQueueLifecycleRetain:
-				deferredQueue = dataworkflow.RetainDeferredQueue(deferredQueue, dataRounds, status)
+				workflowRuntime.RetainDeferred(dataRounds, status)
 				r.emitDataTaskWorkflowAudit("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(r.language, status))
 				logging.Info("[repl/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
 					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
@@ -1880,10 +1881,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
 			default:
-				deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, decision.Reason)
+				workflowRuntime.ClearDeferred(dataRounds, decision.Reason)
 			}
 		} else {
-			deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, "")
+			workflowRuntime.ClearDeferred(dataRounds, "")
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
@@ -1922,7 +1923,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, deferredQueue, r.language)...)
+		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, workflowRuntime.DeferredQueue(), r.language)...)
 		ctx := r.startTurn()
 		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, currentDeferredPlan(), r.language)
 		r.endTurn()

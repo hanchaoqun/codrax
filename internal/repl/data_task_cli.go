@@ -88,9 +88,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if err != nil {
 		return "", fmt.Errorf("data task discover files: %w", err)
 	}
-	var deferredQueue dataworkflow.DeferredQueueState
+	workflowRuntime := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
 	var plan dataquery.TaskPlan
-	var currentAdmission dataworkflow.ActionDAGAdmissionDecision
 	var resumed bool
 	var resumeCurrentPlan dataquery.TaskPlan
 	if resumePath := strings.TrimSpace(cfg.ResumePath); resumePath != "" {
@@ -100,7 +99,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		records = resume.Records
 		resumeCurrentPlan = resume.CurrentPlan
-		deferredQueue = dataworkflow.NewDeferredQueue(resume.DeferredPlan)
+		workflowRuntime.SetDeferredQueue(dataworkflow.NewDeferredQueue(resume.DeferredPlan))
 		dataRounds = resume.DataRounds
 		repairRounds = resume.RepairRounds
 		resumed = true
@@ -120,7 +119,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
 	}
 	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		deferredQueue = dataworkflow.EnqueueDeferredQueue(deferredQueue, round, remainder, reason)
+		workflowRuntime.EnqueueDeferred(round, remainder, reason)
 		if len(remainder.Actions) == 0 {
 			return
 		}
@@ -128,24 +127,24 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, remainder, reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
-		deferredPlan := dataworkflow.DeferredQueuePlan(deferredQueue)
+		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
-			deferredQueue = dataworkflow.DiscardDeferredQueue(deferredQueue, round, status, reason)
+			workflowRuntime.DiscardDeferred(round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(cfg.Language, deferredPlan, reason)
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", round, detail)
 			first := deferredPlan.Actions[0]
 			logging.Info("[cli/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
 			return
 		}
-		deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, round, reason)
+		workflowRuntime.ClearDeferred(round, reason)
 	}
 	currentDeferredPlan := func() dataquery.TaskPlan {
-		return dataworkflow.DeferredQueuePlan(deferredQueue)
+		return workflowRuntime.DeferredPlan()
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
-		currentAdmission = preflight
+		workflowRuntime.SetAdmission(preflight)
 		if preflight.Rewritten {
 			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", round, preflight.Reason)
@@ -159,6 +158,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
+		workflowRuntime.SetCurrentPlan(preflight.Plan)
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
 		return preflight.Plan
@@ -174,6 +174,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 	}
 	plan = acceptCandidatePlan("initial", 0, plan)
+	workflowRuntime.SetCurrentPlan(plan)
 
 	repairRoundsMax := normalizeDataTaskMaxRepairRounds(cfg.MaxRepairRounds)
 	dataRoundsMax := normalizeDataTaskMaxDataRounds(cfg.MaxDataRounds)
@@ -227,7 +228,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
 			if repairErr != nil {
@@ -278,7 +279,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, deferredQueue, dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
+			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
@@ -462,18 +463,18 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				return "", fmt.Errorf("%s", errText)
 			}
 		}
-		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(currentAdmission, currentPlan)})
+		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
-		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, records, currentPlan, deferredQueue, dataRounds, repairRounds, "batch result completed", "cli")
+		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "cli")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, cfg.Language)...)
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, resultDetails...)
-		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, deferredQueue, dataRounds+1); ok {
+		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, nextDeferred)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextDeferred)
 			currentPlan = nextDeferred
-			deferredQueue = updatedQueue
+			workflowRuntime.SetDeferredQueue(updatedQueue)
 			remainingDeferred := currentDeferredPlan()
 			if len(remainingDeferred.Actions) > 0 {
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, remainingDeferred)
@@ -487,7 +488,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
 			switch decision.Action {
 			case dataworkflow.DeferredQueueLifecycleRetain:
-				deferredQueue = dataworkflow.RetainDeferredQueue(deferredQueue, dataRounds, status)
+				workflowRuntime.RetainDeferred(dataRounds, status)
 				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
 				logging.Info("[cli/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
 					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
@@ -497,10 +498,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
 			default:
-				deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, decision.Reason)
+				workflowRuntime.ClearDeferred(dataRounds, decision.Reason)
 			}
 		} else {
-			deferredQueue = dataworkflow.ClearDeferredQueue(deferredQueue, dataRounds, "")
+			workflowRuntime.ClearDeferred(dataRounds, "")
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
@@ -524,7 +525,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, deferredQueue, cfg.Language)...)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, workflowRuntime.DeferredQueue(), cfg.Language)...)
 		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, currentDeferredPlan(), cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)

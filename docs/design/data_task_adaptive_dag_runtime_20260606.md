@@ -13529,3 +13529,56 @@ Remaining architecture items:
 - [ ] Add workflow-state snapshots that expose relation requirements alongside
       artifact schema projection, so repair prompts can reference typed
       requirements without rendering REPL-specific text.
+
+### Batch 300: Storage-Neutral Workflow Runtime Handle
+
+The next architectural gap was state ownership rather than another planning
+rule. Even after deferred queue transitions moved into dataworkflow, the CLI
+and REPL entrypoints still held local variables for deferred queue state and the
+latest admission decision. That made the adaptive data workflow look like two
+parallel runtimes with shared helper functions.
+
+This batch introduces a small storage-neutral `WorkflowRuntime` handle in
+`internal/dataworkflow`. It stores dataquery/dataworkflow IR only: current plan
+snapshot, deferred queue state, latest admission decision, and round counters.
+It does not import or know about REPL records, UI rendering, files, prompts, or
+business semantics.
+
+Generic invariants:
+
+- live runtime state is deep-copied at the workflow IR boundary;
+- deferred queue mutations go through runtime methods in both CLI and REPL;
+- admission decisions are stored as workflow IR, not entrypoint-local variables;
+- runtime state contains no user-domain fields, file-name rules, prompt prose,
+  or eval-case-specific logic;
+- this is an ownership migration only: existing admission, staging, runner, and
+  completion semantics are unchanged.
+
+Changes:
+
+- [x] Added `WorkflowRuntime` with current-plan, deferred-queue, admission, and
+      round accessors.
+- [x] Added deep-copy support for task plans, coverage materials, admission
+      decisions, and guard violations at the runtime boundary.
+- [x] Rewired CLI data workflow deferred queue enqueue, dispatch update,
+      retain, discard, clear, checkpoint, and decision-progress calls through
+      `WorkflowRuntime`.
+- [x] Rewired REPL data workflow deferred queue and admission access through
+      the same runtime API.
+- [x] Stored accepted candidate plans in runtime snapshots without changing the
+      existing local loop variable behavior.
+- [x] Added runtime unit coverage for current-plan isolation, deferred queue
+      ownership, transition events, and admission isolation.
+
+Remaining architecture items:
+
+- [ ] Move data workflow records into a package-neutral record IR so
+      `WorkflowRuntime` can own records instead of REPL-specific slices.
+- [ ] Replace direct `currentPlan = ...` assignments in CLI/REPL loops with a
+      reducer/runtime transition helper that records the reason, source, and
+      admission decision for every plan switch.
+- [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`, so
+      CLI/REPL pass records/results into one journal builder instead of
+      assembling workflow state themselves.
+- [ ] Convert live process-event rendering to consume runtime journal events
+      directly.
