@@ -280,3 +280,88 @@ func TestBuildRequiredLedgerCompletionPlanCompletesReconcileFromContributions(t 
 		t.Fatalf("ContinueAfter=true, want terminal ledger repair batch")
 	}
 }
+
+func TestBuildWorkflowNextStageFallbackPlanCompletesReconcileStage(t *testing.T) {
+	result := dataquery.Result{Contributions: []dataquery.ContributionRecord{{
+		ItemID:    dataquery.LooseText("row-1"),
+		GroupKey:  dataquery.LooseText("A"),
+		Metric:    dataquery.LooseText("value"),
+		Value:     dataquery.LooseText("10"),
+		Operation: dataquery.LooseText("add"),
+	}}}
+	plan, reason, ok := BuildWorkflowNextStageFallbackPlan(WorkflowNextStageFallbackPlanInput{
+		Current: dataquery.TaskPlan{Status: "complete", Goal: "finish validation"},
+		Coverage: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Output: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionRecords:        1,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Result:       &result,
+		ReasonPrefix: "terminal plan ended",
+	})
+	if !ok {
+		t.Fatal("BuildWorkflowNextStageFallbackPlan ok=false, want reconcile continuation")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile_artifacts", plan.Actions)
+	}
+	if !strings.Contains(reason, "required reconcile stage") {
+		t.Fatalf("reason=%q, want reconcile stage reason", reason)
+	}
+}
+
+func TestBuildWorkflowNextStageFallbackPlanProjectsFinalAnswer(t *testing.T) {
+	result := dataquery.Result{
+		Contributions: []dataquery.ContributionRecord{{
+			ItemID:    dataquery.LooseText("row-1"),
+			GroupKey:  dataquery.LooseText("A"),
+			Metric:    dataquery.LooseText("value"),
+			Value:     dataquery.LooseText("10"),
+			Operation: dataquery.LooseText("add"),
+		}},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{{
+				GroupKey: dataquery.LooseText("A"),
+				Metric:   dataquery.LooseText("value"),
+				Actual:   dataquery.LooseText("10"),
+			}},
+		},
+	}
+	plan, reason, ok := BuildWorkflowNextStageFallbackPlan(WorkflowNextStageFallbackPlanInput{
+		Current: dataquery.TaskPlan{Status: "complete", Goal: "format final values"},
+		Coverage: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Output: dataquery.OutputContract{Format: dataquery.OutputCSVLine, ExplanationAllowed: false},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionRecords:        1,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+			HasReconcile:               true,
+			HasAnswer:                  false,
+		},
+		Result:       &result,
+		ReasonPrefix: "terminal plan ended",
+	})
+	if !ok {
+		t.Fatal("BuildWorkflowNextStageFallbackPlan ok=false, want final projection continuation")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("actions=%+v, want assemble_answer", plan.Actions)
+	}
+	if plan.ContinueAfter {
+		t.Fatalf("ContinueAfter=true, want terminal projection plan")
+	}
+	if !strings.Contains(reason, "answer projection") {
+		t.Fatalf("reason=%q, want answer projection reason", reason)
+	}
+}

@@ -9290,111 +9290,41 @@ func dataTaskWorkflowNextStageFallback(records []dataTaskWorkflowRecord, current
 }
 
 func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	if len(current.Actions) == 0 && current.ContinueAfter {
-		return dataquery.TaskPlan{}, "", false
-	}
 	state := dataTaskWorkflowState(records, current)
-	if len(dataTaskWorkflowMissingValidationStages(state)) == 0 {
-		return dataquery.TaskPlan{}, "", false
-	}
 	contract := dataTaskWorkflowCoverageContract(records, current)
-	base := dataquery.TaskPlan{
-		Status:           "ready",
-		OutputContract:   dataTaskWorkflowOutputContract(records, current),
-		CoverageContract: contract,
-		Goal:             strings.TrimSpace(current.Goal),
-		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
-		ContinueAfter:    true,
-	}
-	if strings.TrimSpace(base.Goal) == "" {
-		base.Goal = "continue the typed data workflow toward the user's requested output"
-	}
-	switch state.NextStage {
-	case "derive_rules":
-		action := dataworkflow.RuleCoverageCompletionAction(contract)
-		if strings.TrimSpace(action.ID) == "" {
-			return dataquery.TaskPlan{}, "", false
-		}
-		base.Actions = []dataquery.DataAction{action}
-		base.InputPaths = mergeDataTaskInputPaths(base.InputPaths, action.InputPaths)
-		base.NextBatch = "continue with later typed data stages after deriving rule coverage"
-		base.WhyThisBatch = reasonPrefix + " before required rule coverage was materialized"
-		return base, reasonPrefix + "; converted to required derive_rules stage", true
-	case "normalize_or_enrich_entities":
-		if plan, reason, ok := dataTaskWorkflowRecordMaterializationFallback(records, base, state, reasonPrefix); ok {
-			return plan, reason, true
-		}
-		if plan, reason, ok := dataTaskWorkflowConcreteNextActionFallback(records, base, state, reasonPrefix); ok {
-			return plan, reason, true
-		}
-		return dataquery.TaskPlan{}, "", false
-	case "prepare_contribution_inputs", "compute_contributions":
-		if plan, reason, ok := dataTaskWorkflowRecordMaterializationFallback(records, base, state, reasonPrefix); ok {
-			return plan, reason, true
-		}
-		if plan, reason, ok := dataTaskWorkflowConcreteNextActionFallback(records, base, state, reasonPrefix); ok {
-			return plan, reason, true
-		}
-		return dataquery.TaskPlan{}, "", false
-	case "reconcile_artifacts":
-		latest, ok := latestDataTaskResult(records)
-		if !ok || len(latest.Contributions) == 0 {
-			return dataquery.TaskPlan{}, "", false
-		}
-		base.Actions = []dataquery.DataAction{{
-			ID:             "continue_reconcile",
-			Kind:           dataquery.DataActionReconcile,
-			Purpose:        "reconcile existing contribution records before final answer projection",
-			OutputArtifact: "reconcile_result.json",
-		}}
-		base.NextBatch = "continue with assemble_answer after reconcile materializes"
-		base.WhyThisBatch = reasonPrefix + " before required reconcile stage"
-		return base, reasonPrefix + "; converted to required reconcile stage", true
-	case "emit_output_contract_answer":
-		latest, ok := latestDataTaskResult(records)
-		if !ok {
-			return dataquery.TaskPlan{}, "", false
-		}
-		if plan, ok := dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot, records, current, latest); ok {
-			plan.ContinueAfter = false
-			return plan, reasonPrefix + "; converted to required answer projection stage", true
-		}
-	}
-	return dataquery.TaskPlan{}, "", false
-}
-
-func dataTaskWorkflowRecordMaterializationFallback(records []dataTaskWorkflowRecord, base dataquery.TaskPlan, state dataTaskWorkflowStateView, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	access := dataTaskWorkflowArtifactContractAccess(records)
-	return dataworkflow.BuildRecordMaterializationFallbackPlan(dataworkflow.RecordMaterializationFallbackInput{
-		Current:            base,
-		Coverage:           base.CoverageContract,
-		Output:             base.OutputContract,
-		Facts:              dataTaskWorkflowStageFacts(state),
-		AllowedNextActions: state.AllowedNextActions,
-		Artifacts:          dataTaskArtifactAccessSchemaProjection(access),
-		ReasonPrefix:       reasonPrefix,
-		SeenActionKeys:     dataTaskWorkflowSeenActionKeys(records),
-		ExtractLimit:       dataTaskExactExtractRecordLimit,
-	})
-}
-
-func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord, base dataquery.TaskPlan, state dataTaskWorkflowStateView, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
+	output := dataTaskWorkflowOutputContract(records, current)
 	access := dataTaskWorkflowArtifactContractAccess(records)
 	if len(access) == 0 {
 		access = dataTaskWorkflowArtifactAccess(records, 20)
 	}
-	return dataworkflow.BuildNextStageConcreteFallbackPlan(dataworkflow.NextStageFallbackPlanInput{
-		Current:            base,
-		Coverage:           base.CoverageContract,
-		Output:             base.OutputContract,
-		Facts:              dataTaskWorkflowStageFacts(state),
-		AllowedNextActions: state.AllowedNextActions,
-		Artifacts:          dataTaskArtifactAccessSchemaProjection(access),
-		ExtraScaffolds:     state.ActionScaffold,
-		ReasonPrefix:       reasonPrefix + "; advanced " + state.NextStage,
-		SeenActionKeys:     dataTaskWorkflowSeenActionKeys(records),
-		ProgressEvents:     dataTaskWorkflowProgressEvents(records),
-		NoProgressStop:     DefaultDataTaskMaxNodeFailures,
+	var latest *dataquery.Result
+	if result, ok := latestDataTaskResult(records); ok {
+		copyResult := result
+		latest = &copyResult
+	}
+	var gap dataworkflow.ReferenceProjectionGap
+	if latest != nil {
+		candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, *latest)
+		if hasReferenceGap {
+			gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		}
+	}
+	return dataworkflow.BuildWorkflowNextStageFallbackPlan(dataworkflow.WorkflowNextStageFallbackPlanInput{
+		Current:                current,
+		Coverage:               contract,
+		Output:                 output,
+		Facts:                  dataTaskWorkflowStageFacts(state),
+		AllowedNextActions:     state.AllowedNextActions,
+		Artifacts:              dataTaskArtifactAccessSchemaProjection(access),
+		ExtraScaffolds:         state.ActionScaffold,
+		Result:                 latest,
+		ReferenceGap:           gap,
+		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
+		ReasonPrefix:           reasonPrefix,
+		SeenActionKeys:         dataTaskWorkflowSeenActionKeys(records),
+		ProgressEvents:         dataTaskWorkflowProgressEvents(records),
+		NoProgressStop:         DefaultDataTaskMaxNodeFailures,
+		ExtractLimit:           dataTaskExactExtractRecordLimit,
 	})
 }
 

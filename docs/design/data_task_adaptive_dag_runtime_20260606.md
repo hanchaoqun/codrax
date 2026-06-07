@@ -11460,9 +11460,60 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move terminal-repair fallback signatures behind reducer-owned transition
-      objects so terminal guards, completion repair, and output projection share
-      one state-machine result.
+- [ ] Move terminal-completion repair signatures behind reducer-owned
+      transition objects. Terminal next-stage fallback and output projection
+      moved in Batch 259.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 259: Reducer-Owned Terminal Next-Stage Fallback
+
+The next IR pass moved terminal next-stage fallback assembly into
+`internal/dataworkflow`. Before this batch, terminal plans that ended early
+were detected by shared stage facts, but the REPL adapter still owned the
+stage-specific switch for `derive_rules`, record materialization, concrete
+relation/action scaffolds, reconciliation, and answer projection.
+
+This is a workflow-state transition, not a UI concern. A terminal model status
+is only a candidate; if typed facts show unfinished validation stages, the
+shared reducer should decide the next safe atomic stage from facts and
+contracts. The adapter may still supply environment-bound inputs such as
+artifact schema projections, latest result, and reference-key projection gaps,
+but it no longer assembles the fallback plan itself.
+
+The generalized invariant is:
+
+- terminal fallback decisions are driven by `StageFacts`, missing validation
+  stages, coverage/output contracts, artifact projections, latest result, and
+  executable scaffolds;
+- the reducer may emit rule coverage, record materialization, concrete next
+  action, reconcile, or answer projection plans when the required typed inputs
+  exist;
+- reference completion remains structural: the adapter computes a typed
+  `ReferenceProjectionGap`; the reducer does not read files or assign business
+  meaning;
+- no terminal status or repair text is parsed for business intent.
+
+Changes:
+
+- [x] Added `WorkflowNextStageFallbackPlanInput` and
+      `BuildWorkflowNextStageFallbackPlan`.
+- [x] Moved terminal next-stage switch and plan assembly from REPL helpers into
+      `internal/dataworkflow`.
+- [x] Reused existing reducer-owned record materialization, concrete scaffold,
+      required reconcile, and required output projection builders under one
+      transition.
+- [x] Changed REPL terminal/deterministic continuation fallback to pass typed
+      state into the reducer instead of assembling plans locally.
+- [x] Added reducer regression coverage for terminal reconcile continuation
+      and final answer projection.
+
+Remaining architecture items:
+
+- [ ] Move terminal-completion repair signatures behind reducer-owned
+      transition objects so completion repair, repair failure fallback, and
+      terminal audit failure state share one state-machine result.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.

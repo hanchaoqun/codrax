@@ -31,6 +31,119 @@ type CoverageExpansionPlanInput struct {
 	ValidationRule     string
 }
 
+type WorkflowNextStageFallbackPlanInput struct {
+	Current                dataquery.TaskPlan
+	Coverage               dataquery.CoverageContract
+	Output                 dataquery.OutputContract
+	Facts                  StageFacts
+	AllowedNextActions     []string
+	Artifacts              []ArtifactSchemaProjection
+	ExtraScaffolds         []ActionScaffold
+	Result                 *dataquery.Result
+	ReferenceGap           ReferenceProjectionGap
+	PlanHasCustomTransform bool
+	ReasonPrefix           string
+	SeenActionKeys         map[string]bool
+	ProgressEvents         []ProgressEvent
+	NoProgressStop         int
+	ExtractLimit           int
+}
+
+func BuildWorkflowNextStageFallbackPlan(input WorkflowNextStageFallbackPlanInput) (dataquery.TaskPlan, string, bool) {
+	if len(input.Current.Actions) == 0 && input.Current.ContinueAfter {
+		return dataquery.TaskPlan{}, "", false
+	}
+	if len(MissingValidationStages(input.Facts)) == 0 {
+		return dataquery.TaskPlan{}, "", false
+	}
+	reasonPrefix := strings.TrimSpace(input.ReasonPrefix)
+	if reasonPrefix == "" {
+		reasonPrefix = "workflow state requires the next typed data stage"
+	}
+	base := dataquery.TaskPlan{
+		Status:           "ready",
+		OutputContract:   input.Output,
+		CoverageContract: input.Coverage,
+		Goal:             strings.TrimSpace(input.Current.Goal),
+		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
+		ContinueAfter:    true,
+	}
+	if strings.TrimSpace(base.Goal) == "" {
+		base.Goal = "continue the typed data workflow toward the user's requested output"
+	}
+	switch input.Facts.NextStage() {
+	case StageDeriveRules:
+		action := RuleCoverageCompletionAction(input.Coverage)
+		if strings.TrimSpace(action.ID) == "" {
+			return dataquery.TaskPlan{}, "", false
+		}
+		base.Actions = []dataquery.DataAction{action}
+		base.InputPaths = mergeActionInputPaths(base.InputPaths, action.InputPaths)
+		base.NextBatch = "continue with later typed data stages after deriving rule coverage"
+		base.WhyThisBatch = reasonPrefix + " before required rule coverage was materialized"
+		return base, reasonPrefix + "; converted to required derive_rules stage", true
+	case StageNormalizeOrEnrichEntities, StagePrepareContributionInputs, StageComputeContributions:
+		if plan, reason, ok := BuildRecordMaterializationFallbackPlan(RecordMaterializationFallbackInput{
+			Current:            base,
+			Coverage:           input.Coverage,
+			Output:             input.Output,
+			Facts:              input.Facts,
+			AllowedNextActions: input.AllowedNextActions,
+			Artifacts:          input.Artifacts,
+			ReasonPrefix:       reasonPrefix,
+			SeenActionKeys:     input.SeenActionKeys,
+			ExtractLimit:       input.ExtractLimit,
+		}); ok {
+			return plan, reason, true
+		}
+		if plan, reason, ok := BuildNextStageConcreteFallbackPlan(NextStageFallbackPlanInput{
+			Current:            base,
+			Coverage:           input.Coverage,
+			Output:             input.Output,
+			Facts:              input.Facts,
+			AllowedNextActions: input.AllowedNextActions,
+			Artifacts:          input.Artifacts,
+			ExtraScaffolds:     input.ExtraScaffolds,
+			ReasonPrefix:       reasonPrefix + "; advanced " + input.Facts.NextStage(),
+			SeenActionKeys:     input.SeenActionKeys,
+			ProgressEvents:     input.ProgressEvents,
+			NoProgressStop:     input.NoProgressStop,
+		}); ok {
+			return plan, reason, true
+		}
+		return dataquery.TaskPlan{}, "", false
+	case StageReconcileArtifacts:
+		if input.Result == nil || len(input.Result.Contributions) == 0 {
+			return dataquery.TaskPlan{}, "", false
+		}
+		base.Actions = []dataquery.DataAction{{
+			ID:             "continue_reconcile",
+			Kind:           dataquery.DataActionReconcile,
+			Purpose:        "reconcile existing contribution records before final answer projection",
+			OutputArtifact: "reconcile_result.json",
+		}}
+		base.NextBatch = "continue with assemble_answer after reconcile materializes"
+		base.WhyThisBatch = reasonPrefix + " before required reconcile stage"
+		return base, reasonPrefix + "; converted to required reconcile stage", true
+	case StageEmitOutputContractAnswer:
+		if input.Result == nil {
+			return dataquery.TaskPlan{}, "", false
+		}
+		if plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+			Current:                input.Current,
+			Coverage:               input.Coverage,
+			Output:                 input.Output,
+			Result:                 *input.Result,
+			ReferenceGap:           input.ReferenceGap,
+			PlanHasCustomTransform: input.PlanHasCustomTransform,
+		}); ok {
+			plan.ContinueAfter = false
+			return plan, reasonPrefix + "; converted to required answer projection stage", true
+		}
+	}
+	return dataquery.TaskPlan{}, "", false
+}
+
 func BuildCoverageExpansionPlan(input CoverageExpansionPlanInput) (dataquery.TaskPlan, bool) {
 	missing := cleanStrings(input.MissingPaths)
 	if len(missing) == 0 {
