@@ -5828,6 +5828,45 @@ func TestDataTaskWorkflowJournalEventsIncludeAdmissionDecision(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateProjectsRejectedAdmissionGuard(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "filter_missing",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "filtered.json",
+	}
+	guard := dataworkflow.ActionInputContractGuardResult(dataworkflow.ActionInputContractGuardInput{
+		Code:       "missing_action_inputs",
+		Action:     action,
+		InputAlias: "records.json",
+		Message:    "filter needs an executable record input",
+	})
+	decision := dataworkflow.ActionDAGAdmissionDecision{
+		Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+		FinalGuard:    guard,
+		FinalGuardErr: guard.ErrorText(),
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan:      decision.Plan,
+		Err:       guard.ErrorText(),
+		Admission: &decision,
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	found := false
+	for _, violation := range state.WorkflowViolations {
+		if violation.Code == "missing_action_inputs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("WorkflowViolations=%+v, want rejected admission guard code", state.WorkflowViolations)
+	}
+	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].Status != dataworkflow.ActionStatusBlocked {
+		t.Fatalf("ActionGraph.Blocked=%+v, want rejected admission blocked node", state.ActionGraph.Blocked)
+	}
+}
+
 func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},

@@ -5669,6 +5669,12 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 
 func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
 	var out []dataworkflow.WorkflowViolation
+	for _, rec := range records {
+		if rec.Admission == nil || rec.Admission.FinalGuard.Empty() {
+			continue
+		}
+		out = append(out, rec.Admission.FinalGuard.Violations...)
+	}
 	out = append(out, dataTaskWorkflowStageNoProgressViolations(records, state)...)
 	for _, issue := range state.FieldContractViolations {
 		out = append(out, dataworkflow.WorkflowViolation{

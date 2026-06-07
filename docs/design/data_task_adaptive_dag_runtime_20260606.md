@@ -12892,13 +12892,16 @@ Changes:
       when the admitted plan is the plan that later executes.
 - [x] Emitted admission events before the corresponding batch event in
       workflow journal construction.
+- [x] Projected rejected admission `FinalGuard` violations into workflow
+      violations and ActionGraph blocked nodes.
 - [x] Added regression coverage for journal JSON shape, admission event
-      summary, and REPL journal event ordering.
+      summary, REPL journal event ordering, and rejected-admission blocked
+      graph projection.
 
 Remaining P0 journal/action-graph work:
 
 - [ ] Move deferred queue storage from the REPL/CLI outer variable into the
       workflow journal / live ActionGraph state, with the outer variable only
       as a temporary adapter.
-- [ ] Feed admission guard codes into ActionGraph blocked nodes directly, so a
+- [x] Feed admission guard codes into ActionGraph blocked nodes directly, so a
       rejected admission appears as a blocked graph node even before execution.
