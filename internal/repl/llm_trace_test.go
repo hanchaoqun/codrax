@@ -329,12 +329,18 @@ func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) 
 		renderer: render.New(&out, true),
 		language: "zh",
 	}
-	r.emitDataTaskWorkflowAudit("repair", 1, "上次失败 execute data task")
+	r.emitDataTaskWorkflowAudit("repair", 1, "目标：计算业务指标", "上次失败 execute data task")
 
 	got := stripANSIOnly(out.String())
 	want := "数据工作流 · 修复第 1 次 · 未读源码"
 	if !strings.Contains(got, want) {
 		t.Fatalf("workflow audit should keep fixed lane status before dynamic details; want %q in:\n%s", want, got)
+	}
+	if strings.Contains(got, "数据工作流 · 修复第 1 次 · 目标：") {
+		t.Fatalf("business detail should not be promoted into the permanent title line:\n%s", got)
+	}
+	if !strings.Contains(got, "目标：计算业务指标") {
+		t.Fatalf("workflow audit should render business-facing detail below the summary line:\n%s", got)
 	}
 	if !strings.Contains(got, "细节：上次失败 execute data task") {
 		t.Fatalf("workflow audit should render dynamic detail below the summary line:\n%s", got)

@@ -1660,7 +1660,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		dataRounds++
 		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
-		r.emitDataTaskWorkflowAudit("execute", dataRounds)
+		r.emitDataTaskWorkflowAudit("execute", dataRounds, dataTaskPlanAuditDetails(currentPlan, r.language)...)
 		var result dataquery.Result
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
@@ -1823,7 +1823,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		r.auditDataTaskResult(dataRounds, result)
-		r.emitDataTaskWorkflowAudit("result", dataRounds, dataTaskWorkflowResultSegment(r.language, result))
+		r.emitDataTaskWorkflowAudit("result", dataRounds, append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskPlanAuditDetails(currentPlan, r.language)...)...)
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -1879,7 +1879,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
+		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskPlanAuditDetails(currentPlan, r.language)...)
 		ctx := r.startTurn()
 		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, deferredPlan, r.language)
 		r.endTurn()
@@ -3481,6 +3481,9 @@ func dataTaskWorkflowInlineSegments(kind, lang string, details ...string) []stri
 		if detail == "" {
 			continue
 		}
+		if dataTaskWorkflowDetailLooksBusinessFacing(detail, lang) {
+			continue
+		}
 		for _, part := range strings.Split(detail, " · ") {
 			part = strings.TrimSpace(part)
 			if part != "" {
@@ -3544,6 +3547,10 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 		if detail == "" {
 			continue
 		}
+		if dataTaskWorkflowDetailLooksBusinessFacing(detail, lang) {
+			lines = append(lines, detail)
+			continue
+		}
 		if zh {
 			add("细节：", detail)
 		} else {
@@ -3551,6 +3558,23 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 		}
 	}
 	return lines
+}
+
+func dataTaskWorkflowDetailLooksBusinessFacing(detail, lang string) bool {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return false
+	}
+	prefixes := []string{"Goal:", "Batch:", "Next:", "Actions:"}
+	if isZh(lang) {
+		prefixes = []string{"目标：", "本批：", "下一步：", "步骤 "}
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(detail, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string, dataRounds, repairRounds int) bool {

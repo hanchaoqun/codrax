@@ -9955,3 +9955,36 @@ Remaining architecture items:
       `WorkflowViolation` values, with prose rendered only at the UI/planner
       boundary.
 - [ ] Persist violation objects in the workflow journal as first-class events.
+
+### Batch 222: Business-Facing Data Process Details
+
+The data process UI still showed too much internal workflow vocabulary in
+permanent lines. This batch keeps deterministic lane/status counters in the
+title line, but surfaces model-authored task intent from structured plan fields
+inside the low-noise detail block:
+
+- goal;
+- current batch purpose;
+- next step;
+- compact action summary.
+
+Result counters remain in the title line for scanning. Business-facing details
+are rendered below the title, so long task intent does not make permanent lines
+wide and noisy. CLI uses the same renderer path through stderr/progress; stdout
+remains reserved for final answers.
+
+Changes:
+
+- [x] Added current-plan details to REPL data workflow execute/result/evaluate
+      events.
+- [x] Added the same current-plan details to CLI data workflow progress.
+- [x] Kept business-facing details out of title-line inline segments.
+- [x] Added regression coverage for deterministic title ordering plus
+      business detail rendering below the summary line.
+
+Remaining architecture items:
+
+- [ ] Thread structured evaluation reasons and continuation reasons as typed
+      process-event fields instead of only free-form detail strings.
+- [ ] Add audit metrics that distinguish user-facing process summaries from
+      internal graph counters.
