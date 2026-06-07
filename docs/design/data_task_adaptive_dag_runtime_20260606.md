@@ -11412,9 +11412,57 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
-      action graph replay checks, including deferred-plan and terminal-repair
-      paths.
+- [ ] Finish replacing REPL-local fallback signatures with reducer-owned action
+      graph replay checks for terminal-repair paths. Deferred-plan replay moved
+      in Batch 258.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 258: Reducer-Owned Deferred Dispatch
+
+The next IR pass moved deferred queue rank selection and next/remainder plan
+assembly into `internal/dataworkflow`. Before this batch, the adapter owned the
+logic that scanned deferred actions, skipped stale nodes, grouped ready actions
+by dependency rank, and rebuilt the current plus remaining deferred plans. The
+adapter still needs to evaluate environment-bound readiness, such as artifact
+aliases and field-contract availability, but the graph replay decision itself
+is workflow IR behavior.
+
+This is a generic DAG scheduling issue. Deferred actions are accepted typed
+graph nodes, not planner prose. Once the current workflow state says an action
+is ready and allowed, rank selection should happen through a shared reducer so
+CLI and REPL cannot drift.
+
+The generalized invariant is:
+
+- adapters produce `DeferredActionCandidate` objects with objective readiness,
+  optional rewritten actions, and blocked reasons;
+- the reducer chooses the first ready allowed dependency rank and preserves all
+  unselected actions as the remaining deferred plan;
+- custom scripts are not dispatched from deferred replay;
+- no business meaning is inferred from action ids, prose, or material names.
+  The reducer only consumes typed action kind, dependency rank, allowed action
+  set, and readiness flags.
+
+Changes:
+
+- [x] Added `DeferredActionCandidate`, `DeferredDispatchInput`,
+      `DeferredDispatchStatus`, and `BuildDeferredDispatchPlan`.
+- [x] Moved deferred rank selection and next/remainder plan assembly from
+      REPL helpers into `internal/dataworkflow`.
+- [x] Kept artifact/material/field readiness in the adapter as a typed
+      candidate-generation layer.
+- [x] Reused the reducer dispatch in both actual deferred popping and queue
+      status reporting.
+- [x] Added reducer regression coverage for ready-rank selection and blocked
+      deferred queue status.
+
+Remaining architecture items:
+
+- [ ] Move terminal-repair fallback signatures behind reducer-owned transition
+      objects so terminal guards, completion repair, and output projection share
+      one state-machine result.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.

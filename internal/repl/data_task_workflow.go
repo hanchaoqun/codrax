@@ -2441,64 +2441,18 @@ func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred d
 	if len(state.AllowedNextActions) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
-	keep, rest := dataTaskSelectDeferredReadyRankForState(records, deferred.Actions, state)
-	if len(keep) == 0 {
+	out, remainder, _, ok := dataworkflow.BuildDeferredDispatchPlan(dataworkflow.DeferredDispatchInput{
+		Plan:               deferred,
+		Candidates:         dataTaskDeferredActionCandidates(records, deferred.Actions),
+		AllowedNextActions: state.AllowedNextActions,
+	})
+	if !ok {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
-	if errText := dataTaskDeferredDispatchGuardError(records, deferred, keep); errText != "" {
+	if errText := dataTaskDeferredDispatchGuardError(records, deferred, out.Actions); errText != "" {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
-	out := deferred
-	out.Actions = keep
-	out.Script = ""
-	out.ContinueAfter = len(rest) > 0 || deferred.ContinueAfter
-	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = "continue the deferred typed data action rank from the accepted plan graph"
-	}
-	if strings.TrimSpace(out.NextBatch) == "" && len(rest) > 0 {
-		out.NextBatch = "continue with the remaining deferred typed data action ranks after this batch materializes artifacts"
-	}
-	remainder := deferred
-	remainder.Actions = rest
-	remainder.Script = ""
-	remainder.ContinueAfter = len(rest) > 0 || deferred.ContinueAfter
 	return out, remainder, true
-}
-
-func dataTaskSelectDeferredReadyRankForState(records []dataTaskWorkflowRecord, actions []dataquery.DataAction, state dataTaskWorkflowStateView) ([]dataquery.DataAction, []dataquery.DataAction) {
-	if len(actions) == 0 {
-		return nil, nil
-	}
-	for i := range actions {
-		first, ok := dataTaskDeferredReadyAction(records, actions[i])
-		if !ok || !dataTaskDeferredActionAllowedInState(first, state) {
-			continue
-		}
-		firstRank := dataTaskActionDependencyRank(normalizeDataActionKindForWorkflow(first.Kind))
-		selected := map[int]dataquery.DataAction{i: first}
-		keep := []dataquery.DataAction{first}
-		for j := i + 1; j < len(actions); j++ {
-			next, ok := dataTaskDeferredReadyAction(records, actions[j])
-			if !ok || !dataTaskDeferredActionAllowedInState(next, state) {
-				break
-			}
-			nextRank := dataTaskActionDependencyRank(normalizeDataActionKindForWorkflow(next.Kind))
-			if firstRank > 0 && nextRank > 0 && nextRank != firstRank {
-				break
-			}
-			selected[j] = next
-			keep = append(keep, next)
-		}
-		rest := make([]dataquery.DataAction, 0, len(actions)-len(keep))
-		for j, action := range actions {
-			if _, ok := selected[j]; ok {
-				continue
-			}
-			rest = append(rest, action)
-		}
-		return keep, rest
-	}
-	return nil, append([]dataquery.DataAction(nil), actions...)
 }
 
 func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
@@ -2509,17 +2463,6 @@ func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataqu
 		return rewritten, true
 	}
 	return dataquery.DataAction{}, false
-}
-
-func dataTaskDeferredActionAllowedInState(action dataquery.DataAction, state dataTaskWorkflowStateView) bool {
-	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	if !dataTaskWorkflowActionKindAllowed(kind, state) {
-		return false
-	}
-	if kind == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
-		return false
-	}
-	return true
 }
 
 func dataTaskDeferredDispatchGuardError(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) string {
@@ -2534,46 +2477,44 @@ func dataTaskDeferredDispatchGuardError(records []dataTaskWorkflowRecord, deferr
 	return dataTaskWorkflowStagingGuardError(records, candidate)
 }
 
-type dataTaskDeferredQueueState struct {
-	Actions         int
-	ReadyActions    int
-	BlockedActions  int
-	FirstActionID   string
-	FirstActionKind string
-	Ready           bool
-	Reason          string
-}
+type dataTaskDeferredQueueState = dataworkflow.DeferredDispatchStatus
 
 func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) dataTaskDeferredQueueState {
-	state := dataTaskDeferredQueueState{Actions: len(deferred.Actions)}
-	if len(deferred.Actions) == 0 {
-		state.Reason = "deferred queue is empty"
-		return state
-	}
-	first := deferred.Actions[0]
-	state.FirstActionID = strings.TrimSpace(first.ID)
-	state.FirstActionKind = strings.TrimSpace(string(normalizeDataActionKindForWorkflow(first.Kind)))
 	workflow := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if len(workflow.AllowedNextActions) == 0 {
-		state.Reason = "workflow has no allowed next typed actions"
+	next, _, state, ok := dataworkflow.BuildDeferredDispatchPlan(dataworkflow.DeferredDispatchInput{
+		Plan:               deferred,
+		Candidates:         dataTaskDeferredActionCandidates(records, deferred.Actions),
+		AllowedNextActions: workflow.AllowedNextActions,
+	})
+	if !ok {
 		return state
 	}
-	keep, rest := dataTaskSelectDeferredReadyRankForState(records, deferred.Actions, workflow)
-	state.ReadyActions = len(keep)
-	state.BlockedActions = len(rest)
-	if len(keep) == 0 {
-		state.Reason = dataTaskDeferredActionBlockedReason(records, first)
-		if strings.TrimSpace(state.Reason) == "" {
-			state.Reason = "no deferred action is executable from current artifact aliases and field contracts"
-		}
-		return state
-	}
-	if errText := dataTaskDeferredDispatchGuardError(records, deferred, keep); errText != "" {
+	if errText := dataTaskDeferredDispatchGuardError(records, deferred, next.Actions); errText != "" {
 		state.Reason = errText
+		state.Ready = false
 		return state
 	}
 	state.Ready = true
 	return state
+}
+
+func dataTaskDeferredActionCandidates(records []dataTaskWorkflowRecord, actions []dataquery.DataAction) []dataworkflow.DeferredActionCandidate {
+	out := make([]dataworkflow.DeferredActionCandidate, 0, len(actions))
+	for i, action := range actions {
+		readyAction, ok := dataTaskDeferredReadyAction(records, action)
+		candidate := dataworkflow.DeferredActionCandidate{
+			Index:  i,
+			Action: action,
+			Ready:  ok,
+		}
+		if ok {
+			candidate.Action = readyAction
+		} else {
+			candidate.BlockedReason = dataTaskDeferredActionBlockedReason(records, action)
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func dataTaskDeferredActionBlockedReason(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
