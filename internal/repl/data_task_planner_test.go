@@ -1893,6 +1893,45 @@ func TestShouldValidateDataTaskWorkflowResultSkipsIntermediateBatch(t *testing.T
 	}
 }
 
+func TestNormalizeDataTaskPlanShapeFillsRolePathActionInputs(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "normalize",
+			Kind: dataquery.DataActionNormalizeEntities,
+			Params: map[string]string{
+				"source_path":    "records.json",
+				"reference_path": "lookup.json",
+				"source_field":   "raw_name",
+			},
+		}},
+	}
+	got, notes := normalizeDataTaskPlanShape(plan)
+	if strings.Join(got.Actions[0].InputPaths, ",") != "records.json,lookup.json" {
+		t.Fatalf("InputPaths=%v, want role paths normalized into action inputs", got.Actions[0].InputPaths)
+	}
+	if !strings.Contains(strings.Join(notes, "; "), "role path") {
+		t.Fatalf("notes=%v, want role path normalization note", notes)
+	}
+
+	plan = dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "join",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"left.json"},
+			Params: map[string]string{
+				"left_path":  "left.json",
+				"right_path": "right.json",
+			},
+		}},
+	}
+	got, _ = normalizeDataTaskPlanShape(plan)
+	if strings.Join(got.Actions[0].InputPaths, ",") != "left.json,right.json" {
+		t.Fatalf("InputPaths=%v, want missing right role path appended", got.Actions[0].InputPaths)
+	}
+}
+
 func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T) {
 	contract := dataquery.CoverageContract{
 		RequiredMaterials: []dataquery.CoverageMaterial{
@@ -4654,6 +4693,36 @@ func TestDataTaskApplyResolutionScaffoldsSkipAlreadyAppliedLedger(t *testing.T) 
 			normalizeDataTaskCoveragePath(scaffold.InputPaths[1]) == "vendor_resolution" {
 			t.Fatalf("scaffold re-applies already applied ledger: %+v", scaffold)
 		}
+	}
+}
+
+func TestDataTaskApplyResolutionScaffoldsSkipWorkflowLedgerHandleAndDiagnosticChildren(t *testing.T) {
+	access := []dataTaskArtifactAccessPrompt{
+		{
+			ID:      "records.json#base",
+			Kind:    "apply_entity_resolutions/base",
+			Aliases: []string{"records.json#base"},
+			Fields:  []string{"_source_index", "raw_name"},
+		},
+		{
+			ID:      "workflow_entity_resolutions",
+			Kind:    "workflow_ledger/entity_resolutions",
+			Aliases: []string{"workflow_entity_resolutions"},
+			Fields:  []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+		},
+		{
+			ID:      "records",
+			Kind:    string(dataquery.DataActionExtractRecords),
+			Aliases: []string{"records"},
+			Fields:  []string{"_source_index", "raw_name"},
+		},
+	}
+	if dataTaskArtifactUsableForRecordAction(access[0]) {
+		t.Fatalf("diagnostic base child should not be a record-action scaffold base")
+	}
+	scaffolds := dataTaskApplyResolutionActionScaffolds(access, 8)
+	if len(scaffolds) != 0 {
+		t.Fatalf("scaffolds=%+v, want no auto apply scaffold from workflow-wide ledger handle or diagnostic child", scaffolds)
 	}
 }
 

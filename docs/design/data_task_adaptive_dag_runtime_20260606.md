@@ -9202,3 +9202,52 @@ Remaining architecture items:
       deferred queued nodes as `ActionNode{status=deferred}`.
 - [ ] Add typed `WorkflowViolation` records that point to action-node
       idempotency keys, dependency ranks, and blocked input aliases.
+
+### Batch 202: Typed Role Path Normalization And Scaffold Hygiene
+
+A stopped real-scenario run exposed two generic IR boundary gaps before final
+correctness could be evaluated:
+
+- the planner emitted typed role paths such as `source_path` and
+  `reference_path` for `normalize_entities`, but the executor required those
+  paths to also appear in `input_paths`;
+- after repair, the workflow generated repeated
+  `apply_entity_resolutions` scaffolds over diagnostic child artifacts such as
+  `...#base` and over the cumulative `workflow_entity_resolutions` ledger
+  handle, causing long `resolved_records_...` chains instead of progressing to
+  contribution readiness.
+
+Neither problem is domain-specific. Typed actions often have role paths:
+source/reference, left/right, base/mapping, resolution/reference. The system
+should normalize those structured role fields into executable action inputs.
+Likewise, runner diagnostic children and aggregate workflow ledger handles are
+valid audit artifacts, but they are not automatically reusable primary
+record-action bases or single-dimension mapping ledgers.
+
+Changes:
+
+- [x] Added role-path normalization that fills action `input_paths` from typed
+      params for `normalize_entities`, `enrich_records`, `join_records`, and
+      `apply_entity_resolutions`.
+- [x] Reused the normalization in both plan-shape repair and execution
+      preparation so initial, continuation, repair, fallback, and deferred
+      plans share the same boundary.
+- [x] Excluded diagnostic child artifacts (`#base`, `#mapping`,
+      `#entity_source`, `#entity_reference`, and matching kind suffixes) from
+      automatic record-action scaffolds.
+- [x] Excluded aggregate workflow ledger handles from automatic
+      `apply_entity_resolutions` scaffolds. Explicit model plans may still use
+      those handles with concrete `resolution_specs`; the system simply no
+      longer invents a generic `workflow_canonical_id` application loop.
+- [x] Added regression coverage for role-path input normalization and for
+      scaffold filtering of diagnostic children / aggregate workflow ledgers.
+
+Remaining architecture items:
+
+- [ ] Promote role-path normalization into `internal/dataworkflow` as an
+      ActionDAG normalization pass shared by REPL, CLI, and future batch
+      schedulers.
+- [ ] Represent diagnostic child artifacts and aggregate ledger handles as
+      typed `ArtifactGraph` node classes instead of local REPL predicates.
+- [ ] Add typed scaffold eligibility diagnostics so skipped scaffolds are
+      visible in audit without becoming user-facing noise.

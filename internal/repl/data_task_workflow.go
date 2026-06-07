@@ -364,6 +364,9 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 	if normalizeDataTaskPlanPathLists(&plan) {
 		reasons = append(reasons, "normalized comma-separated path lists in data plan fields")
 	}
+	if normalizeDataTaskRolePathActionInputs(&plan) {
+		reasons = append(reasons, "filled typed action input_paths from role path params")
+	}
 	if normalizeDataTaskMaterializationActionInputs(&plan) {
 		reasons = append(reasons, "copied batch input_paths into materialization actions with empty input_paths")
 	}
@@ -504,6 +507,84 @@ func normalizeDataTaskMaterializationActionInputs(plan *dataquery.TaskPlan) bool
 		changed = true
 	}
 	return changed
+}
+
+func normalizeDataTaskRolePathActionInputs(plan *dataquery.TaskPlan) bool {
+	if plan == nil || len(plan.Actions) == 0 {
+		return false
+	}
+	changed := false
+	for i := range plan.Actions {
+		roleInputs := dataTaskActionRoleInputPaths(plan.Actions[i])
+		if len(roleInputs) == 0 {
+			continue
+		}
+		next := mergeDataTaskInputPaths(plan.Actions[i].InputPaths, roleInputs)
+		if strings.Join(next, "\x00") == strings.Join(cleanDataTaskStrings(plan.Actions[i].InputPaths), "\x00") {
+			continue
+		}
+		plan.Actions[i].InputPaths = next
+		changed = true
+	}
+	return changed
+}
+
+func dataTaskActionRoleInputPaths(action dataquery.DataAction) []string {
+	params := action.Params
+	if len(params) == 0 {
+		return nil
+	}
+	switch normalizeDataActionKindForWorkflow(action.Kind) {
+	case dataquery.DataActionNormalizeEntities:
+		return cleanDataTaskStrings([]string{
+			params["source_path"],
+			params["base_path"],
+			params["record_path"],
+			params["reference_path"],
+			params["lookup_path"],
+			params["mapping_path"],
+		})
+	case dataquery.DataActionEnrichRecords:
+		return cleanDataTaskStrings([]string{
+			params["base_path"],
+			params["source_path"],
+			params["record_path"],
+			params["reference_path"],
+			params["lookup_path"],
+			params["mapping_path"],
+		})
+	case dataquery.DataActionJoinRecords:
+		return cleanDataTaskStrings([]string{
+			params["left_path"],
+			params["right_path"],
+			params["base_path"],
+			params["reference_path"],
+		})
+	case dataquery.DataActionApplyResolutions:
+		paths := []string{
+			params["base_path"],
+			params["record_path"],
+			params["source_path"],
+			params["resolution_path"],
+			params["mapping_path"],
+			params["lookup_path"],
+			params["reference_path"],
+		}
+		for _, spec := range dataTaskActionObjectListParam(params, "resolution_specs_json", "resolution_specs") {
+			paths = append(paths,
+				dataTaskMapStringValue(spec, "base_path"),
+				dataTaskMapStringValue(spec, "record_path"),
+				dataTaskMapStringValue(spec, "source_path"),
+				dataTaskMapStringValue(spec, "resolution_path"),
+				dataTaskMapStringValue(spec, "mapping_path"),
+				dataTaskMapStringValue(spec, "lookup_path"),
+				dataTaskMapStringValue(spec, "reference_path"),
+			)
+		}
+		return cleanDataTaskStrings(paths)
+	default:
+		return nil
+	}
 }
 
 func dataTaskActionCanInheritBatchInputs(action dataquery.DataAction) bool {
@@ -1156,6 +1237,7 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 func prepareDataTaskWorkflowPlanForExecution(userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
 	plan = applyDataTaskUserMaterialFloor(userLine, candidates, plan)
 	normalizeDataTaskPlanPathLists(&plan)
+	normalizeDataTaskRolePathActionInputs(&plan)
 	if bootstrap, ok := dataTaskCandidateInventoryBootstrapPlan(candidates, records, plan); ok {
 		return bootstrap
 	}
@@ -6767,6 +6849,9 @@ func dataTaskArtifactUsableForRecordAction(artifact dataTaskArtifactAccessPrompt
 	if len(artifact.Fields) == 0 {
 		return false
 	}
+	if dataTaskArtifactIsDiagnosticChild(artifact) {
+		return false
+	}
 	if dataTaskArtifactKindHasPrefix(artifact.Kind,
 		dataquery.DataActionMaterialInventory,
 		dataquery.DataActionInspectMaterial,
@@ -6814,12 +6899,44 @@ func dataTaskArtifactHasTextExtractionField(fields []string) bool {
 	return false
 }
 
+func dataTaskArtifactIsDiagnosticChild(artifact dataTaskArtifactAccessPrompt) bool {
+	id := strings.ToLower(strings.TrimSpace(artifact.ID))
+	kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
+	for _, suffix := range []string{"#base", "#mapping", "#entity_source", "#entity_reference"} {
+		if strings.HasSuffix(id, suffix) {
+			return true
+		}
+	}
+	for _, suffix := range []string{"/base", "/mapping", "/entity_source", "/entity_reference"} {
+		if strings.HasSuffix(kind, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskArtifactIsWorkflowLedgerHandle(artifact dataTaskArtifactAccessPrompt) bool {
+	if strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_entity_resolutions") ||
+		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_contributions") ||
+		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_rule_coverage") ||
+		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_decision_records") {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(artifact.Kind)), "workflow_ledger/") {
+		return true
+	}
+	return false
+}
+
 func dataTaskApplyResolutionActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
 	if limit <= 0 {
 		return nil
 	}
 	var mappings []dataTaskArtifactAccessPrompt
 	for _, artifact := range access {
+		if dataTaskArtifactIsWorkflowLedgerHandle(artifact) || dataTaskArtifactIsDiagnosticChild(artifact) {
+			continue
+		}
 		if dataTaskArtifactLooksLikeApplyResolutionLedger(artifact) && firstDataTaskExistingField(artifact.Fields, "item_id", "source_line", "source_index", "canonical_id", "canonical_label") != "" {
 			mappings = append(mappings, artifact)
 		}
@@ -6830,7 +6947,7 @@ func dataTaskApplyResolutionActionScaffolds(access []dataTaskArtifactAccessPromp
 	var out []dataTaskActionScaffold
 	for _, base := range access {
 		baseAlias := firstDataTaskArtifactAlias(base)
-		if baseAlias == "" || len(base.Fields) == 0 || dataTaskArtifactLooksLikeApplyResolutionLedger(base) {
+		if baseAlias == "" || len(base.Fields) == 0 || dataTaskArtifactIsDiagnosticChild(base) || dataTaskArtifactLooksLikeApplyResolutionLedger(base) {
 			continue
 		}
 		for _, mapping := range mappings {
