@@ -4861,6 +4861,13 @@ func TestDataTaskWorkflowStagingRejectsRepeatedApplyResolutionEdge(t *testing.T)
 	if errText == "" || !strings.Contains(errText, "repeats apply_entity_resolutions") || !strings.Contains(errText, "idempotent") {
 		t.Fatalf("errText=%q, want repeated apply-resolution edge rejection", errText)
 	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "apply_resolution_no_progress" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed no-progress apply-resolution guard", guard)
+	}
+	if guard.Violations[0].ActionID != "repeat_category_resolution" || guard.Violations[0].InputAlias != "category_resolution" {
+		t.Fatalf("violation=%+v, want repeated resolution input handle", guard.Violations[0])
+	}
 }
 
 func TestDataTaskApplyResolutionScaffoldsSkipAlreadyAppliedLedger(t *testing.T) {

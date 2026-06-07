@@ -10387,7 +10387,39 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert remaining non-field relation contract errors into typed
+- [x] Convert remaining non-field relation contract errors into typed
       violations where they have precise action/input/artifact handles.
 - [ ] Add opt-in resume support that can consume journal checkpoints without
       silently resuming interrupted user work.
+
+### Batch 237: Typed Relation Non-Field Contract Guards
+
+Some relation failures are not missing fields, but they still have precise
+action/input handles: conflicting base paths, missing reference path/key for
+existing-id verification, incompatible resolution lineage, missing canonical
+value fields, and repeated apply-resolution graph edges. These conditions used
+stable guard codes but did not always carry a `WorkflowViolation`.
+
+This batch adds a shared action-input guard builder and applies it only where
+the system has an objective action/input/artifact handle. Ambiguous role
+inference failures remain rendered guard messages unless they can be grounded
+to a specific handle without guessing.
+
+Changes:
+
+- [x] Added a shared typed action-input contract guard builder.
+- [x] Converted precise apply-resolution non-field contract errors to
+      `GuardResult` values with embedded `WorkflowViolation` payloads.
+- [x] Converted repeated apply-resolution edges to typed no-progress
+      violations.
+- [x] Kept string wrappers and rendered messages compatible for existing
+      planner repair prompts.
+- [x] Added regression coverage for typed repeated apply-resolution edge
+      guards.
+
+Remaining architecture items:
+
+- [ ] Add opt-in resume support that can consume journal checkpoints without
+      silently resuming interrupted user work.
+- [ ] Add targeted tests for each non-field relation guard code as they become
+      user-visible in evaluator policy.
