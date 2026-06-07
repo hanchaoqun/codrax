@@ -1325,6 +1325,47 @@ func TestActionRunnerExtractFieldsAllowsAnchoredNumericRegex(t *testing.T) {
 	}
 }
 
+func TestActionRunnerExtractFieldsCanUseVirtualFileNameForTextInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "text"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "text", "ATT-00006.txt"), []byte("invoice total: CNY 24577\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "extract_invoice",
+			Kind:           DataActionExtractFields,
+			InputPaths:     []string{"text/ATT-00006.txt"},
+			OutputArtifact: "invoice_fields",
+			Params: map[string]string{
+				"record_scope": "document",
+				"field_specs_json": `[
+					{"source_field":"file_name","target_field":"attachment_id","operation":"regex_extract","pattern":"ATT-[0-9]+","group":0},
+					{"source_field":"text","target_field":"amount","operation":"regex_extract","pattern":"CNY\\s+([0-9]+)","group":1}
+				]`,
+				"required_fields": `["attachment_id","amount"]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run extract_fields with virtual file_name: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 {
+		t.Fatalf("Artifacts=%+v, want one extracted row", res.Artifacts)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample: %v", err)
+	}
+	if row["attachment_id"] != "ATT-00006" || row["amount"] != "24577" {
+		t.Fatalf("row=%+v, want file-name provenance and amount extraction", row)
+	}
+}
+
 func TestActionRunnerExtractFieldsZeroMatchDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,text\n1,total: 123\n"), 0o644); err != nil {

@@ -12585,6 +12585,50 @@ Current backlog before real-scenario testing:
       ledger graph/reconcile, multimodal extraction, or scenario-data
       limitation.
 
+### Batch 282: File Provenance Fields For Text Record Actions
+
+The next real-scenario run advanced through enrichment, filtering, query join,
+and invoice-text extraction planning. The failure moved to a lower-level
+record contract: `extract_fields` on concrete text files could read `text`, but
+single-file text records did not expose stable file provenance fields such as
+`file_name` and `file_path`. Directory text reads already exposed those fields,
+so the contract depended on whether the planner supplied a directory or a list
+of concrete files. The model then tried to repair by falling back to a broad
+script, which the typed workflow correctly disabled.
+
+This is a generic data-runner contract gap. Any data task may need to extract
+identifiers, timestamps, source labels, or grouping keys from file names or
+paths while extracting fields from file content. That should be available as a
+typed provenance field across CSV, JSON, JSONL, text, generated artifacts, and
+directory children.
+
+Generic invariants:
+
+- every action record has source provenance virtual fields independent of its
+  storage format;
+- `file_name` and `file_path` are structural provenance, not business fields;
+- `extract_fields` may use those fields the same way it uses `_source_path` or
+  `source_locator`;
+- this does not parse file names for business meaning in system code. The
+  model supplies the extraction pattern, and the runner only exposes objective
+  provenance.
+
+Changes:
+
+- [x] Added `file_path` and `file_name` to `actionRecordVirtualFields`.
+- [x] Added both fields to `markKnownActionVirtualFields` so schema validation
+      accepts model-declared extraction specs over file provenance.
+- [x] Added regression coverage proving `extract_fields` can extract a field
+      from `file_name` while extracting another field from text content.
+
+Current backlog before real-scenario testing:
+
+- [ ] Re-run the latest binary through the real-scenario gate after this batch
+      passes full tests. If it still fails, classify the next terminal journal
+      gap by typed IR family first: action contract, artifact graph/schema,
+      ledger graph/reconcile, multimodal extraction, or scenario-data
+      limitation.
+
 ### Batch 281: Non-Regressive Ledger Side-Gaps
 
 The next real-scenario run showed that the workflow could now pass lineage and

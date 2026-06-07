@@ -8964,6 +8964,14 @@ func recordField(fields map[string]string, name string) string {
 
 func actionRecordVirtualFields(record actionRecord, rel string) map[string]string {
 	sourcePath := firstNonEmptyString(strings.TrimSpace(record.Path), strings.TrimSpace(rel))
+	filePath := sourcePath
+	fileName := ""
+	if trimmed := strings.TrimSpace(filePath); trimmed != "" {
+		fileName = path.Base(strings.TrimSuffix(filepath.ToSlash(trimmed), "/"))
+		if fileName == "." || fileName == "/" {
+			fileName = ""
+		}
+	}
 	index := record.Index
 	if index <= 0 {
 		index = record.Line
@@ -8990,6 +8998,8 @@ func actionRecordVirtualFields(record actionRecord, rel string) map[string]strin
 		"source_locator":  sourceLocator,
 		"row_index":       sourceIndex,
 		"line":            sourceLine,
+		"file_path":       filePath,
+		"file_name":       fileName,
 	}
 	return out
 }
@@ -8998,7 +9008,7 @@ func markKnownActionVirtualFields(out map[string]bool) {
 	for _, field := range []string{
 		"_source", "_source_path", "_source_index", "_source_line", "_source_locator",
 		"source_path", "source_index", "source_line", "source_locator",
-		"row_index", "line",
+		"row_index", "line", "file_path", "file_name",
 	} {
 		out[strings.ToLower(field)] = true
 	}
