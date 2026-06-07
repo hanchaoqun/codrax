@@ -8,6 +8,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
+type ActionFieldRequirement struct {
+	Role     string   `json:"role,omitempty"`
+	Path     string   `json:"path,omitempty"`
+	Fields   []string `json:"fields,omitempty"`
+	Explicit bool     `json:"explicit,omitempty"`
+}
+
 // SingleRecordSetActionFieldRefs returns the input-field contract for typed
 // actions that consume exactly one record-shaped artifact. It is intentionally
 // domain-neutral: it reads only action kind and structured params.
@@ -114,6 +121,144 @@ func ComputeContributionActionFieldRefs(action dataquery.DataAction) []string {
 	return cleanStrings(fields)
 }
 
+func JoinActionFieldRequirements(action dataquery.DataAction) []ActionFieldRequirement {
+	inputs := cleanStrings(action.InputPaths)
+	leftPath := firstNonEmpty(strings.TrimSpace(action.Params["left_path"]), strings.TrimSpace(action.Params["base_path"]))
+	rightPath := firstNonEmpty(strings.TrimSpace(action.Params["right_path"]), strings.TrimSpace(action.Params["lookup_path"]), strings.TrimSpace(action.Params["reference_path"]))
+	if leftPath == "" && len(inputs) >= 1 {
+		leftPath = inputs[0]
+	}
+	if rightPath == "" && len(inputs) >= 2 {
+		rightPath = inputs[1]
+	}
+	leftFields := cleanStrings(append(
+		parseActionStringList(firstNonEmpty(
+			action.Params["left_fields"],
+			action.Params["left_fields_json"],
+			action.Params["left_key_fields"],
+			action.Params["left_key_fields_json"],
+			action.Params["base_fields"],
+			action.Params["base_fields_json"],
+			action.Params["base_key_fields"],
+			action.Params["base_key_fields_json"],
+			action.Params["join_fields"],
+			action.Params["join_fields_json"],
+		)),
+		parseActionStringList(firstNonEmpty(action.Params["left_field"], action.Params["base_field"], action.Params["join_field"]))...,
+	))
+	rightFields := cleanStrings(append(
+		parseActionStringList(firstNonEmpty(
+			action.Params["right_fields"],
+			action.Params["right_fields_json"],
+			action.Params["right_key_fields"],
+			action.Params["right_key_fields_json"],
+			action.Params["lookup_fields"],
+			action.Params["lookup_fields_json"],
+			action.Params["lookup_key_fields"],
+			action.Params["lookup_key_fields_json"],
+			action.Params["reference_fields"],
+			action.Params["reference_fields_json"],
+			action.Params["reference_key_fields"],
+			action.Params["reference_key_fields_json"],
+			action.Params["join_fields"],
+			action.Params["join_fields_json"],
+		)),
+		parseActionStringList(firstNonEmpty(action.Params["right_field"], action.Params["lookup_field"], action.Params["reference_field"], action.Params["join_field"]))...,
+	))
+	if len(rightFields) == 0 && len(leftFields) > 0 {
+		rightFields = append([]string(nil), leftFields...)
+	}
+	return cleanFieldRequirements([]ActionFieldRequirement{
+		{Role: "left", Path: leftPath, Fields: leftFields, Explicit: strings.TrimSpace(action.Params["left_path"]) != "" || strings.TrimSpace(action.Params["base_path"]) != ""},
+		{Role: "right", Path: rightPath, Fields: rightFields, Explicit: strings.TrimSpace(action.Params["right_path"]) != "" || strings.TrimSpace(action.Params["lookup_path"]) != "" || strings.TrimSpace(action.Params["reference_path"]) != ""},
+	})
+}
+
+func NormalizeEntityActionFieldRequirements(action dataquery.DataAction) (requirements []ActionFieldRequirement, skip bool) {
+	if len(actionObjectListParam(action.Params, "resolutions_json", "mappings_json", "entity_resolutions_json", "resolutions", "mappings", "entity_resolutions")) > 0 {
+		return nil, true
+	}
+	sourceFields := cleanStrings(append(
+		parseActionStringList(firstNonEmpty(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["name_fields"], action.Params["name_fields_json"], action.Params["value_fields"], action.Params["value_fields_json"])),
+		parseActionStringList(firstNonEmpty(action.Params["source_field"], action.Params["name_field"], action.Params["value_field"], action.Params["field"]))...,
+	))
+	referenceFields := cleanStrings(append(
+		parseActionStringList(firstNonEmpty(action.Params["reference_fields"], action.Params["reference_fields_json"], action.Params["reference_name_fields"], action.Params["reference_name_fields_json"], action.Params["mapping_source_fields"], action.Params["mapping_source_fields_json"], action.Params["lookup_fields"], action.Params["lookup_fields_json"])),
+		parseActionStringList(firstNonEmpty(action.Params["reference_field"], action.Params["reference_name_field"], action.Params["mapping_source_field"], action.Params["lookup_field"], action.Params["lookup_source_field"]))...,
+	))
+	filterFields := FilterActionFieldRefs(action)
+	canonicalIDField := firstNonEmpty(
+		strings.TrimSpace(action.Params["canonical_id_field"]),
+		strings.TrimSpace(action.Params["id_field"]),
+		strings.TrimSpace(action.Params["reference_value_field"]),
+		strings.TrimSpace(action.Params["lookup_value_field"]),
+	)
+	canonicalLabelField := firstNonEmpty(
+		strings.TrimSpace(action.Params["canonical_label_field"]),
+		strings.TrimSpace(action.Params["label_field"]),
+	)
+	explicitSourcePath := firstNonEmpty(
+		strings.TrimSpace(action.Params["source_path"]),
+		strings.TrimSpace(action.Params["base_path"]),
+		strings.TrimSpace(action.Params["record_path"]),
+	)
+	explicitReferencePath := firstNonEmpty(
+		strings.TrimSpace(action.Params["reference_path"]),
+		strings.TrimSpace(action.Params["mapping_path"]),
+		strings.TrimSpace(action.Params["lookup_path"]),
+	)
+	inputs := cleanStrings(action.InputPaths)
+	sourcePath := explicitSourcePath
+	if sourcePath == "" && len(inputs) > 0 {
+		sourcePath = inputs[0]
+	}
+	referencePath := explicitReferencePath
+	if referencePath == "" && len(inputs) > 1 {
+		referencePath = inputs[1]
+	}
+	sourceRequired := cleanStrings(append(sourceFields, filterFields...))
+	referenceRequired := append([]string{}, referenceFields...)
+	if canonicalIDField != "" {
+		referenceRequired = append(referenceRequired, canonicalIDField)
+	}
+	if canonicalLabelField != "" {
+		referenceRequired = append(referenceRequired, canonicalLabelField)
+	}
+	return cleanFieldRequirements([]ActionFieldRequirement{
+		{Role: "source", Path: sourcePath, Fields: sourceRequired, Explicit: explicitSourcePath != ""},
+		{Role: "reference", Path: referencePath, Fields: referenceRequired, Explicit: explicitReferencePath != ""},
+	}), false
+}
+
+func EnrichActionFieldRequirements(action dataquery.DataAction) []ActionFieldRequirement {
+	inputs := cleanStrings(action.InputPaths)
+	basePath := firstNonEmpty(strings.TrimSpace(action.Params["base_path"]), firstActionInput(inputs, 0))
+	if basePath == "" {
+		return nil
+	}
+	var requirements []ActionFieldRequirement
+	for _, spec := range actionObjectListParam(action.Params, "lookup_specs_json", "enrich_specs_json", "mapping_specs_json", "map_specs_json", "lookup_specs", "enrich_specs", "mapping_specs", "map_specs") {
+		specBase := firstNonEmpty(mapStringValue(spec, "base_path"), basePath)
+		baseFields := cleanStrings(append(
+			fieldRefsFromSpec(spec, "base_fields", "source_fields", "left_fields"),
+			fieldRefsFromSpec(spec, "base_field", "source_field", "left_field")...,
+		))
+		requirements = append(requirements, ActionFieldRequirement{Role: "base", Path: specBase, Fields: baseFields})
+		lookupPath := firstNonEmpty(
+			mapStringValue(spec, "lookup_path"),
+			mapStringValue(spec, "mapping_path"),
+			mapStringValue(spec, "reference_path"),
+			firstActionInput(inputs, 1),
+		)
+		lookupFields := cleanStrings(append(
+			fieldRefsFromSpec(spec, "lookup_fields", "mapping_fields", "reference_fields"),
+			fieldRefsFromSpec(spec, "lookup_field", "mapping_field", "reference_field", "lookup_value_field", "mapping_value_field", "reference_value_field")...,
+		))
+		requirements = append(requirements, ActionFieldRequirement{Role: "lookup", Path: lookupPath, Fields: lookupFields})
+	}
+	return cleanFieldRequirements(requirements)
+}
+
 func fieldRefsFromSpec(spec map[string]any, keys ...string) []string {
 	var out []string
 	for _, key := range keys {
@@ -124,6 +269,27 @@ func fieldRefsFromSpec(spec map[string]any, keys ...string) []string {
 		out = append(out, anyStringList(value)...)
 	}
 	return cleanStrings(out)
+}
+
+func cleanFieldRequirements(in []ActionFieldRequirement) []ActionFieldRequirement {
+	out := make([]ActionFieldRequirement, 0, len(in))
+	for _, req := range in {
+		req.Role = strings.TrimSpace(req.Role)
+		req.Path = strings.TrimSpace(req.Path)
+		req.Fields = cleanStrings(req.Fields)
+		if req.Path == "" || len(req.Fields) == 0 {
+			continue
+		}
+		out = append(out, req)
+	}
+	return out
+}
+
+func firstActionInput(inputs []string, index int) string {
+	if index < 0 || index >= len(inputs) {
+		return ""
+	}
+	return strings.TrimSpace(inputs[index])
 }
 
 func anyStringList(value any) []string {

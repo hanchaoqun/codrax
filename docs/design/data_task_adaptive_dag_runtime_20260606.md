@@ -13464,12 +13464,68 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move relation-specific field-contract sub-guards for joins, enrichment,
-      mapping candidates, normalization, and resolution application into
-      `internal/dataworkflow` as typed admission utilities.
+- [x] Move relation-specific field-requirement projection for joins,
+      enrichment, mapping candidates, and normalization into
+      `internal/dataworkflow`, so REPL adapters no longer interpret those action
+      params themselves.
+- [ ] Move the remaining resolution-application field-contract guard behind
+      the same workflow-IR boundary. It still has role inference and diagnostic
+      artifact handling that should be split out carefully rather than moved in
+      one broad patch.
 - [ ] Replace the remaining REPL-local live workflow loop variables with a
       durable `WorkflowRuntime` handle that owns records, current plan, deferred
       queue state, admission decision, and journal snapshots.
 - [ ] Upgrade live CLI/REPL workflow progress calls to consume
       `WorkflowJournalEvent` directly, rather than passing pre-rendered detail
       strings through `emitDataTaskWorkflowAudit`.
+
+### Batch 299: Relation Field Requirements In Workflow IR
+
+Batch 298 moved simple single-record-set field extraction into
+`internal/dataworkflow`, but relation-shaped actions still had duplicated
+parameter interpretation in the REPL layer. That kept one of the most important
+admission inputs outside the workflow IR: which role-path and fields a join,
+normalization, mapping-candidate, or enrichment action structurally requires.
+
+This batch moves that requirement projection into dataworkflow helpers. The
+helpers only read typed action params and input paths. They do not inspect file
+names, row values, business words, prompt prose, or customer-specific concepts.
+REPL remains a thin adapter that checks those requirements against the current
+artifact access/projection view and emits the existing typed guard result.
+
+Generic invariants:
+
+- relation actions expose role-tagged requirements such as left/right,
+  source/reference, and base/lookup;
+- explicit paths are marked in the IR so admission can distinguish model-stated
+  roles from input-order fallbacks;
+- shared join keys are represented as requirements on both sides of a join;
+- normalization with explicit mapping/resolution payloads skips
+  source/reference field requirements, matching the executor's structured
+  mapping path;
+- no new hard gate depends on noisy ranking, business labels, or model prose.
+
+Changes:
+
+- [x] Added `ActionFieldRequirement` to `internal/dataworkflow`.
+- [x] Added `JoinActionFieldRequirements` with role paths, explicit-path flags,
+      and shared-key fallback.
+- [x] Added `NormalizeEntityActionFieldRequirements`, reused by mapping
+      candidates, including source/reference roles and explicit-mapping skip.
+- [x] Added `EnrichActionFieldRequirements` for lookup/enrichment role
+      requirements.
+- [x] Rewired REPL relation field-contract adapters to consume these workflow
+      IR requirements instead of duplicating parameter parsing.
+- [x] Added unit coverage for join, normalization, explicit mapping skip, and
+      enrichment lookup specs.
+
+Remaining architecture items:
+
+- [ ] Move resolution-application role/path/field requirement projection into
+      `internal/dataworkflow` after separating pure requirements from
+      diagnostic-artifact role inference.
+- [ ] Move relation field-contract guard result construction itself behind an
+      admission facade once artifact access/projection is no longer REPL-owned.
+- [ ] Add workflow-state snapshots that expose relation requirements alongside
+      artifact schema projection, so repair prompts can reference typed
+      requirements without rendering REPL-specific text.

@@ -4081,52 +4081,8 @@ func dataTaskJoinActionFieldContractGuardError(access []dataTaskArtifactAccessPr
 }
 
 func dataTaskJoinActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
-	inputs := cleanDataTaskStrings(action.InputPaths)
-	leftPath := firstNonEmptyString(strings.TrimSpace(action.Params["left_path"]), strings.TrimSpace(action.Params["base_path"]))
-	rightPath := firstNonEmptyString(strings.TrimSpace(action.Params["right_path"]), strings.TrimSpace(action.Params["lookup_path"]), strings.TrimSpace(action.Params["reference_path"]))
-	if leftPath == "" && len(inputs) >= 1 {
-		leftPath = inputs[0]
-	}
-	if rightPath == "" && len(inputs) >= 2 {
-		rightPath = inputs[1]
-	}
-	leftFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(
-			action.Params["left_fields"],
-			action.Params["left_fields_json"],
-			action.Params["left_key_fields"],
-			action.Params["left_key_fields_json"],
-			action.Params["base_fields"],
-			action.Params["base_fields_json"],
-			action.Params["base_key_fields"],
-			action.Params["base_key_fields_json"],
-		)),
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["left_field"], action.Params["base_field"]))...,
-	))
-	rightFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(
-			action.Params["right_fields"],
-			action.Params["right_fields_json"],
-			action.Params["right_key_fields"],
-			action.Params["right_key_fields_json"],
-			action.Params["lookup_fields"],
-			action.Params["lookup_fields_json"],
-			action.Params["lookup_key_fields"],
-			action.Params["lookup_key_fields_json"],
-			action.Params["reference_fields"],
-			action.Params["reference_fields_json"],
-			action.Params["reference_key_fields"],
-			action.Params["reference_key_fields_json"],
-		)),
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_field"], action.Params["lookup_field"], action.Params["reference_field"]))...,
-	))
-	if leftPath != "" {
-		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, leftPath, dataTaskMissingFieldsOnArtifact(access, leftPath, leftFields), access); !guard.Empty() {
-			return guard
-		}
-	}
-	if rightPath != "" {
-		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, rightPath, dataTaskMissingFieldsOnArtifact(access, rightPath, rightFields), access); !guard.Empty() {
+	for _, req := range dataworkflow.JoinActionFieldRequirements(action) {
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, req.Path, dataTaskMissingFieldsOnArtifact(access, req.Path, req.Fields), access); !guard.Empty() {
 			return guard
 		}
 	}
@@ -4142,74 +4098,41 @@ func dataTaskMappingCandidateActionFieldContractGuardResult(access []dataTaskArt
 }
 
 func dataTaskNormalizeActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
-	if len(dataTaskActionObjectListParam(action.Params, "resolutions_json", "mappings_json", "entity_resolutions_json", "resolutions", "mappings", "entity_resolutions")) > 0 {
+	requirements, skip := dataworkflow.NormalizeEntityActionFieldRequirements(action)
+	if skip {
 		return dataworkflow.GuardResult{}
 	}
-	sourceFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["name_fields"], action.Params["name_fields_json"], action.Params["value_fields"], action.Params["value_fields_json"])),
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_field"], action.Params["name_field"], action.Params["value_field"], action.Params["field"]))...,
-	))
-	referenceFields := cleanDataTaskStrings(append(
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["reference_fields"], action.Params["reference_fields_json"], action.Params["reference_name_fields"], action.Params["reference_name_fields_json"], action.Params["mapping_source_fields"], action.Params["mapping_source_fields_json"], action.Params["lookup_fields"], action.Params["lookup_fields_json"])),
-		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["reference_field"], action.Params["reference_name_field"], action.Params["mapping_source_field"], action.Params["lookup_field"], action.Params["lookup_source_field"]))...,
-	))
-	filterFields := dataTaskFilterActionFieldRefs(action)
-	canonicalIDField := firstNonEmptyString(
-		strings.TrimSpace(action.Params["canonical_id_field"]),
-		strings.TrimSpace(action.Params["id_field"]),
-		strings.TrimSpace(action.Params["reference_value_field"]),
-		strings.TrimSpace(action.Params["lookup_value_field"]),
-	)
-	canonicalLabelField := firstNonEmptyString(
-		strings.TrimSpace(action.Params["canonical_label_field"]),
-		strings.TrimSpace(action.Params["label_field"]),
-	)
-	explicitSourcePath := firstNonEmptyString(
-		strings.TrimSpace(action.Params["source_path"]),
-		strings.TrimSpace(action.Params["base_path"]),
-		strings.TrimSpace(action.Params["record_path"]),
-	)
-	explicitReferencePath := firstNonEmptyString(
-		strings.TrimSpace(action.Params["reference_path"]),
-		strings.TrimSpace(action.Params["mapping_path"]),
-		strings.TrimSpace(action.Params["lookup_path"]),
-	)
-	sourcePath := explicitSourcePath
-	if sourcePath == "" {
-		sourcePath = firstDataTaskActionInput(action, 0)
-	}
-	referencePath := explicitReferencePath
-	if referencePath == "" {
-		referencePath = firstDataTaskActionInput(action, 1)
-	}
-	if sourcePath == "" {
+	sourceReq, sourceOK := dataTaskActionFieldRequirementByRole(requirements, "source")
+	referenceReq, referenceOK := dataTaskActionFieldRequirementByRole(requirements, "reference")
+	if !sourceOK {
 		return dataworkflow.GuardResult{}
 	}
-	if referencePath != "" && explicitSourcePath == "" && explicitReferencePath == "" && len(sourceFields) > 0 {
-		sourceMissing := dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceFields)
-		referenceCanBeSource := len(dataTaskMissingFieldsOnArtifact(access, referencePath, sourceFields)) == 0
+	if referenceOK && !sourceReq.Explicit && !referenceReq.Explicit && len(sourceReq.Fields) > 0 {
+		sourceMissing := dataTaskMissingFieldsOnArtifact(access, sourceReq.Path, sourceReq.Fields)
+		referenceCanBeSource := len(dataTaskMissingFieldsOnArtifact(access, referenceReq.Path, sourceReq.Fields)) == 0
 		if len(sourceMissing) > 0 && referenceCanBeSource {
-			sourcePath, referencePath = referencePath, sourcePath
+			sourceReq.Path, referenceReq.Path = referenceReq.Path, sourceReq.Path
 		}
 	}
-	sourceRequired := cleanDataTaskStrings(append(sourceFields, filterFields...))
-	if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, sourcePath, dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceRequired), access); !guard.Empty() {
+	if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, sourceReq.Path, dataTaskMissingFieldsOnArtifact(access, sourceReq.Path, sourceReq.Fields), access); !guard.Empty() {
 		return guard
 	}
-	if referencePath == "" {
-		return dataworkflow.GuardResult{}
-	}
-	referenceRequired := append([]string{}, referenceFields...)
-	if strings.TrimSpace(canonicalIDField) != "" {
-		referenceRequired = append(referenceRequired, canonicalIDField)
-	}
-	if strings.TrimSpace(canonicalLabelField) != "" {
-		referenceRequired = append(referenceRequired, canonicalLabelField)
-	}
-	if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceRequired), access); !guard.Empty() {
-		return guard
+	if referenceOK {
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, referenceReq.Path, dataTaskMissingFieldsOnArtifact(access, referenceReq.Path, referenceReq.Fields), access); !guard.Empty() {
+			return guard
+		}
 	}
 	return dataworkflow.GuardResult{}
+}
+
+func dataTaskActionFieldRequirementByRole(requirements []dataworkflow.ActionFieldRequirement, role string) (dataworkflow.ActionFieldRequirement, bool) {
+	role = strings.TrimSpace(role)
+	for _, req := range requirements {
+		if strings.TrimSpace(req.Role) == role {
+			return req, true
+		}
+	}
+	return dataworkflow.ActionFieldRequirement{}, false
 }
 
 func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
@@ -4217,33 +4140,9 @@ func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccess
 }
 
 func dataTaskEnrichActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
-	basePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), firstDataTaskActionInput(action, 0))
-	if basePath == "" {
-		return dataworkflow.GuardResult{}
-	}
-	for _, spec := range dataTaskActionObjectListParam(action.Params, "lookup_specs_json", "enrich_specs_json", "mapping_specs_json", "map_specs_json", "lookup_specs", "enrich_specs", "mapping_specs", "map_specs") {
-		specBase := firstNonEmptyString(dataTaskMapStringValue(spec, "base_path"), basePath)
-		baseFields := cleanDataTaskStrings(append(
-			dataTaskFieldRefsFromSpec(spec, "base_fields", "source_fields", "left_fields"),
-			dataTaskFieldRefsFromSpec(spec, "base_field", "source_field", "left_field")...,
-		))
-		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, specBase, dataTaskMissingFieldsOnArtifact(access, specBase, baseFields), access); !guard.Empty() {
+	for _, req := range dataworkflow.EnrichActionFieldRequirements(action) {
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, req.Path, dataTaskMissingFieldsOnArtifact(access, req.Path, req.Fields), access); !guard.Empty() {
 			return guard
-		}
-		lookupPath := firstNonEmptyString(
-			dataTaskMapStringValue(spec, "lookup_path"),
-			dataTaskMapStringValue(spec, "mapping_path"),
-			dataTaskMapStringValue(spec, "reference_path"),
-			firstDataTaskActionInput(action, 1),
-		)
-		lookupFields := cleanDataTaskStrings(append(
-			dataTaskFieldRefsFromSpec(spec, "lookup_fields", "mapping_fields", "reference_fields"),
-			dataTaskFieldRefsFromSpec(spec, "lookup_field", "mapping_field", "reference_field", "lookup_value_field", "mapping_value_field", "reference_value_field")...,
-		))
-		if lookupPath != "" {
-			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, lookupPath, dataTaskMissingFieldsOnArtifact(access, lookupPath, lookupFields), access); !guard.Empty() {
-				return guard
-			}
 		}
 	}
 	return dataworkflow.GuardResult{}
