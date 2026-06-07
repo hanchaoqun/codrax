@@ -654,7 +654,7 @@ func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
 		t.Fatalf("read terminal audit: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"action_events"`, `"action_graph"`, `"artifact_graph"`, `"workflow_violations"`, `"process_events"`, `"action_batch"`, `"blocked"`, `"records"`} {
+	for _, want := range []string{`"action_events"`, `"action_graph"`, `"artifact_graph"`, `"progress"`, `"workflow_violations"`, `"process_events"`, `"action_batch"`, `"blocked"`, `"records"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("terminal audit missing %q:\n%s", want, text)
 		}
@@ -696,7 +696,7 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 		t.Fatalf("read checkpoint: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"compute requested total"`, `"batch_purpose"`, `"next_step"`, `"action_summary"`, `"audit_details"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
+	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"progress"`, `"process_events"`, `"resume"`, `"records"`, `"current_plan"`, `"deferred_plan"`, `"compute requested total"`, `"batch_purpose"`, `"next_step"`, `"action_summary"`, `"audit_details"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("checkpoint missing %q:\n%s", want, text)
 		}

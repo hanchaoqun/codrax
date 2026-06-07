@@ -12365,9 +12365,59 @@ Changes:
 
 Current backlog before real-scenario testing:
 
-- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+- [x] Add storage-neutral workflow journal/checkpoint persistence only after
       the in-memory IR settles; do not run real-scenario testing before the
-      deterministic in-memory graph contracts above are complete.
+      deterministic in-memory graph contracts above are complete. Closed by
+      Batch 277.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
+
+### Batch 277: Storage-Neutral Journal And Explicit Resume Boundary
+
+The checkpoint backlog was audited after ActionGraph, ArtifactGraph,
+reducer-owned diagnostics, and ProgressWindow all became live workflow-state
+IR. The storage boundary was already mostly present: data terminal and
+checkpoint files were written under `.codrax/data-audit/`, and CLI resume was
+explicit through `--data-resume`. The remaining gap was status clarity and
+regression coverage: the design still listed journal/checkpoint persistence as
+unfinished even though the code path had become a storage-neutral
+`WorkflowJournal`.
+
+This is a generic runtime contract, not a data-domain rule:
+
+- persisted workflow state must be typed IR, not reconstructed from logs,
+  prompts, model prose, or UI text;
+- terminal and checkpoint audit files must carry the same durable graph
+  families: action graph, artifact graph, progress window, typed violations,
+  decision, process events, and resume payload;
+- resume must remain opt-in and data-mode scoped, so a later CLI run cannot
+  accidentally continue an old task;
+- logs and UI may reference audit paths, but hard resume state comes only from
+  the journal `resume` payload.
+
+Changes:
+
+- [x] Confirmed the storage-neutral `WorkflowJournal` includes action events,
+      `ActionGraph`, `ArtifactGraphState`, `ProgressWindow`, typed workflow
+      violations, workflow decision, process events, and a raw typed resume
+      payload.
+- [x] Confirmed terminal audit and checkpoint writers use the same journal
+      schema and write full JSON artifacts under `.codrax/data-audit/`.
+- [x] Confirmed CLI resume is explicit (`--data-resume`) and rejected outside
+      `--mode=data`.
+- [x] Confirmed resume loads only `journal.resume.records/current_plan/
+      deferred_plan`, then selects the next typed batch from deferred actions,
+      terminal fallback, next-stage fallback, or the continuation planner.
+- [x] Extended regression coverage so terminal and checkpoint journal tests
+      assert graph state, progress state, process events, and resume payload
+      presence.
+- [x] Kept the design domain-neutral: no material-role names, business-field
+      heuristics, or prompt/prose parsing were added.
+
+Current backlog before real-scenario testing:
+
 - [ ] Add multi-run real-scenario gates and CI/status checks after the single
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
