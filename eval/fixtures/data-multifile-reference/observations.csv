@@ -1,0 +1,7 @@
+record_id,raw_label,value,active
+r1,A-one,10,true
+r2,A-two,7,true
+r3,A-one,3,false
+r4,Beta,4,true
+r5,Gamma alt,5,true
+r6,unmapped,11,true

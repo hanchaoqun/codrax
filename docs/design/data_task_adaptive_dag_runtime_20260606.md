@@ -10039,3 +10039,36 @@ Remaining architecture items:
       stage guards to the same typed-return shape.
 - [ ] Change top-level staging/terminal guard APIs to return typed guard
       results, with prose generated only at UI/planner boundaries.
+
+### Batch 225: Realistic Multi-File Data Eval Gate
+
+The existing data-lane eval set covered scalar table summation, JSON/JSONL/text
+filters, and a small join/reconcile case. That is useful but not enough to
+guard the IR transition. This batch adds a larger domain-neutral fixture that
+requires the workflow to combine multiple independent capabilities:
+
+- material instructions plus three structured record sets;
+- reference/mapping application without hard-coded business roles;
+- record filtering;
+- contribution ledger and reconciliation;
+- reference-complete final projection with explicit zero output;
+- strict comma-separated final output;
+- CLI terminal audit link emission.
+
+The fixture deliberately uses generic observation/label/target terminology so
+it validates graph mechanics rather than a specific customer business domain.
+
+Changes:
+
+- [x] Added `data_multifile_reference_projection` eval case.
+- [x] Added the `data-multifile-reference` fixture with instructions, source
+      records, label mapping, and target reference rows.
+- [x] Added hidden log assertions for data routing, non-empty contribution
+      ledger, passing reconciliation, and terminal journal audit path.
+
+Remaining architecture items:
+
+- [ ] Add a deterministic preflight for all data eval fixtures that validates
+      fixture arithmetic independently of the model runner.
+- [ ] Add multi-run volatility gates for the complex data cases once provider
+      capacity is stable enough for repeated CI sampling.
