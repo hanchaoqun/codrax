@@ -9403,10 +9403,11 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Persist normalized action nodes and original planner params together in
+- [x] Persist normalized action nodes and original planner params together in
       data-audit snapshots. Completed in Batch 207.
-- [ ] Move scheduler readiness decisions from REPL record slices into a
-      durable ActionDAG reducer that stores node status transitions.
+- [x] Move scheduler readiness decisions from REPL record slices into a
+      durable ActionDAG reducer that stores node status transitions. Completed
+      for current graph projection in Batch 208.
 
 ### Batch 207: ActionGraph Audit Snapshots
 
@@ -9439,5 +9440,41 @@ Remaining architecture items:
 
 - [ ] Persist action graph snapshots across terminal workflow summaries, not
       only per-plan artifacts.
-- [ ] Move scheduler readiness and status transitions from REPL record slices
-      into the durable ActionDAG reducer.
+- [x] Move scheduler readiness and status transitions from REPL record slices
+      into the durable ActionDAG reducer. Completed for current graph
+      projection in Batch 208.
+
+### Batch 208: Shared ActionGraph Reducer
+
+The REPL previously built `workflow_state_json.action_graph` by iterating its
+private workflow record slice and directly appending executed/failed/ready
+nodes. That kept graph status transitions coupled to REPL storage. It also
+made future CLI or standalone workflow runtimes likely to reimplement a subtly
+different reducer.
+
+This batch introduces a shared, domain-neutral reducer in `internal/dataworkflow`:
+
+- callers provide typed action events with a status and an optional current
+  executable action list;
+- the reducer projects executed/failed and ready nodes through the same
+  normalization and idempotency path;
+- recent executed nodes can be limited without changing graph semantics;
+- REPL now adapts its records into `ActionEvent` and delegates the reduction.
+
+The reducer still does not decide business correctness or infer user intent.
+It only turns typed action batches into graph state.
+
+Changes:
+
+- [x] Added `dataworkflow.ActionEvent`.
+- [x] Added `dataworkflow.ReduceActionGraph`.
+- [x] Rewired REPL `dataTaskWorkflowActionGraph` to use the shared reducer.
+- [x] Added regression coverage for executed/failed status projection, ready
+      projection, limit trimming, and role-path normalization during reduction.
+
+Remaining architecture items:
+
+- [ ] Persist reducer event streams, not only projected snapshots, so
+      interrupted workflows can replay state transitions exactly.
+- [ ] Move deferred queues and blocked-node reasons into the shared reducer
+      instead of REPL-specific slices and guard errors.

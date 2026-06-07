@@ -5996,21 +5996,22 @@ func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []datawork
 }
 
 func dataTaskWorkflowActionGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, limit int) dataworkflow.ActionGraph {
-	graph := dataworkflow.ActionGraph{}
+	events := make([]dataworkflow.ActionEvent, 0, len(records))
 	for _, rec := range records {
 		status := dataworkflow.ActionStatusExecuted
 		if strings.TrimSpace(rec.Err) != "" {
 			status = dataworkflow.ActionStatusFailed
 		}
-		graph.Executed = append(graph.Executed, dataworkflow.ActionNodesFor(rec.Plan.Actions, status)...)
+		events = append(events, dataworkflow.ActionEvent{
+			Actions: rec.Plan.Actions,
+			Status:  status,
+		})
 	}
+	var ready []dataquery.DataAction
 	if dataTaskPlanHasExecutableBatch(current) {
-		graph.Ready = dataworkflow.ActionNodesFor(current.Actions, dataworkflow.ActionStatusReady)
+		ready = current.Actions
 	}
-	if limit > 0 && len(graph.Executed) > limit {
-		graph.Executed = append([]dataworkflow.ActionNode(nil), graph.Executed[len(graph.Executed)-limit:]...)
-	}
-	return graph
+	return dataworkflow.ReduceActionGraph(events, ready, limit)
 }
 
 func dataTaskWorkflowCurrentBatchContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, workflow dataquery.CoverageContract) (dataquery.CoverageContract, dataworkflow.CoverageLayer) {

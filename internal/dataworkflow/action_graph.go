@@ -18,6 +18,26 @@ const (
 	ActionStatusBlocked  = "blocked"
 )
 
+type ActionEvent struct {
+	Actions []dataquery.DataAction
+	Status  string
+}
+
+func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, limit int) ActionGraph {
+	graph := ActionGraph{}
+	for _, event := range events {
+		status := cleanActionStatus(event.Status, ActionStatusExecuted)
+		graph.Executed = append(graph.Executed, ActionNodesFor(event.Actions, status)...)
+	}
+	if len(current) > 0 {
+		graph.Ready = ActionNodesFor(current, ActionStatusReady)
+	}
+	if limit > 0 && len(graph.Executed) > limit {
+		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-limit:]...)
+	}
+	return graph
+}
+
 func ActionNodeFor(action dataquery.DataAction, status string) ActionNode {
 	action, _ = NormalizeRolePathAction(action)
 	kind := NormalizeActionKind(action.Kind)
@@ -25,13 +45,21 @@ func ActionNodeFor(action dataquery.DataAction, status string) ActionNode {
 	return ActionNode{
 		ID:               strings.TrimSpace(action.ID),
 		Kind:             string(kind),
-		Status:           strings.TrimSpace(status),
+		Status:           cleanActionStatus(status, ActionStatusReady),
 		DependencyRank:   capability.DependencyRank,
 		IdempotencyKey:   ActionIdempotencyKey(action),
 		InputAliases:     cleanActionAliases(action.InputPaths),
 		OutputAlias:      strings.TrimSpace(action.OutputArtifact),
 		CanProduceLedger: ledgerKindStrings(capability.ProducesLedgers),
 	}
+}
+
+func cleanActionStatus(status, fallback string) string {
+	status = strings.TrimSpace(status)
+	if status != "" {
+		return status
+	}
+	return fallback
 }
 
 func ActionNodesFor(actions []dataquery.DataAction, status string) []ActionNode {

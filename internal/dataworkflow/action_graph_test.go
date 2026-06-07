@@ -73,3 +73,29 @@ func TestActionGraphNormalizesRolePathsBeforeProjection(t *testing.T) {
 		t.Fatalf("idempotency key should be stable between raw role params and normalized input_paths")
 	}
 }
+
+func TestReduceActionGraphProjectsEventsReadyAndLimit(t *testing.T) {
+	events := []ActionEvent{
+		{Actions: []dataquery.DataAction{{ID: "old", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"old.csv"}}}, Status: ActionStatusExecuted},
+		{Actions: []dataquery.DataAction{{ID: "failed", Kind: dataquery.DataActionFilterRecords, InputPaths: []string{"records.json"}}}, Status: ActionStatusFailed},
+	}
+	current := []dataquery.DataAction{{
+		ID:   "normalize",
+		Kind: dataquery.DataActionNormalizeEntities,
+		Params: map[string]string{
+			"source_path":    "records.json",
+			"reference_path": "reference.json",
+		},
+	}}
+
+	graph := ReduceActionGraph(events, current, 1)
+	if len(graph.Executed) != 1 || graph.Executed[0].ID != "failed" || graph.Executed[0].Status != ActionStatusFailed {
+		t.Fatalf("Executed=%+v, want only latest failed event after limit", graph.Executed)
+	}
+	if len(graph.Ready) != 1 || graph.Ready[0].Status != ActionStatusReady {
+		t.Fatalf("Ready=%+v, want one ready node", graph.Ready)
+	}
+	if len(graph.Ready[0].InputAliases) != 2 || graph.Ready[0].InputAliases[0] != "records.json" || graph.Ready[0].InputAliases[1] != "reference.json" {
+		t.Fatalf("Ready input aliases=%v, want normalized role paths", graph.Ready[0].InputAliases)
+	}
+}
