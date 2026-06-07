@@ -1811,6 +1811,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		r.auditDataTaskResult(dataRounds, result)
+		writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "repl")
 		r.emitDataTaskWorkflowAudit("result", dataRounds, append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskPlanAuditDetails(currentPlan, r.language)...)...)
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
@@ -2927,6 +2928,46 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		return ""
 	}
 	logging.Info("[%s/data] terminal full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
+	return path
+}
+
+func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string) string {
+	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
+		return ""
+	}
+	state := dataTaskWorkflowStateWithDeferred(records, current, deferred)
+	artifactGraph := dataTaskArtifactAccessSchemaProjection(state.ArtifactAvailability)
+	if latest, ok := latestDataTaskResult(records); ok && len(latest.Artifacts) > 0 {
+		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(latest.Artifacts)...)
+	}
+	snapshot := dataworkflow.WorkflowJournal{
+		Status:             "checkpoint",
+		Reason:             strings.TrimSpace(reason),
+		DataRounds:         dataRounds,
+		RepairRounds:       repairRounds,
+		RecordCount:        len(records),
+		ResultSummary:      dataTaskTerminalResultSummary(nil, records),
+		LastError:          dataTaskLatestError(records),
+		ActionEvents:       dataTaskWorkflowActionEvents(records),
+		ActionGraph:        state.ActionGraph,
+		ArtifactGraph:      artifactGraph,
+		WorkflowViolations: state.WorkflowViolations,
+		ProcessEvents:      dataTaskWorkflowJournalEvents(records),
+	}
+	raw, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		logging.Warning("[%s/data] marshal data task checkpoint failed: %v", firstNonEmptyString(logScope, "data"), err)
+		return ""
+	}
+	stamp := dataTaskAuditStamp()
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d-checkpoint-r%d.json", stamp, os.Getpid(), dataRounds))
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		logging.Warning("[%s/data] write data task checkpoint failed path=%s: %v", firstNonEmptyString(logScope, "data"), path, err)
+		return ""
+	}
+	logging.Info("[%s/data] checkpoint full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
 	return path
 }
 

@@ -389,6 +389,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
+		writeDataTaskWorkflowCheckpointFile(cfg.RuntimeAnchor, repoRoot, records, currentPlan, deferredPlan, dataRounds, repairRounds, "batch result completed", "cli")
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskPlanAuditDetails(currentPlan, cfg.Language)...)...)
 		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")

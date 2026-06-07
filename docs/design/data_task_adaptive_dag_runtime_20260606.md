@@ -10124,3 +10124,28 @@ Remaining architecture items:
       objects directly instead of wrapping rendered messages.
 - [ ] Attach staging guard results to workflow journal process events before
       repair/continuation planning.
+
+### Batch 228: Workflow Journal Checkpoints
+
+Terminal journals are useful after a run ends, but long data workflows need
+mid-run auditability too. This batch writes checkpoint journals after
+successful data batches using the same storage-neutral `WorkflowJournal`
+schema as terminal snapshots.
+
+Changes:
+
+- [x] Added `writeDataTaskWorkflowCheckpointFile`.
+- [x] CLI data workflows write a checkpoint after each successful data batch.
+- [x] REPL data workflows write the same checkpoint after each successful data
+      batch.
+- [x] Checkpoints include action events, action graph, artifact graph,
+      workflow violations, result summary, and process events.
+- [x] Added regression coverage that checkpoint files use the shared journal
+      schema.
+
+Remaining architecture items:
+
+- [ ] Add checkpoint writes for guard/repair records before the next planner
+      call, once staging/action guard results carry full typed payloads.
+- [ ] Add resume-from-checkpoint support as a separate opt-in feature; do not
+      silently resume interrupted data tasks yet.

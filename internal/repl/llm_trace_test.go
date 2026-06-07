@@ -588,6 +588,45 @@ func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
+	anchor := t.TempDir()
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			WhyThisBatch: "materialize source rows",
+			Actions: []dataquery.DataAction{{
+				ID:             "extract",
+				Kind:           dataquery.DataActionExtractRecords,
+				InputPaths:     []string{"records.csv"},
+				OutputArtifact: "records.json",
+			}},
+		},
+		Result: &dataquery.Result{
+			Answer:        "3",
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"id", "value"},
+				Fields:  map[string]string{"artifact_aliases": "records"},
+			}},
+		},
+	}}
+	path := writeDataTaskWorkflowCheckpointFile(anchor, t.TempDir(), records, dataquery.TaskPlan{}, dataquery.TaskPlan{}, 1, 0, "batch result completed", "test")
+	if path == "" {
+		t.Fatal("checkpoint path empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read checkpoint: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"materialize source rows"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("checkpoint missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestDataTaskTerminalAuditPathRendersLowNoiseSummary(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{
