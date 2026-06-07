@@ -2971,21 +2971,14 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
 	var runtime *dataworkflow.WorkflowRuntime
 	snapshot := runtime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
-		Status:                     status,
-		Reason:                     reason,
-		DataRounds:                 a.DataRounds,
-		RepairRounds:               a.RepairRounds,
-		ResultSummary:              resultSummary,
-		LastError:                  lastErr,
-		Records:                    a.Records,
-		ActionGraph:                state.ActionGraph,
-		LedgerGraph:                state.LedgerGraph,
-		OutputGraph:                state.OutputProjectionGraph,
-		ArtifactGraph:              state.ArtifactGraph,
-		Progress:                   state.ProgressSignatures,
-		WorkflowViolations:         state.WorkflowViolations,
-		Decision:                   state.Decision,
-		DecisionFallbackReasonCode: state.NextStage,
+		Status:        status,
+		Reason:        reason,
+		DataRounds:    a.DataRounds,
+		RepairRounds:  a.RepairRounds,
+		ResultSummary: resultSummary,
+		LastError:     lastErr,
+		Records:       a.Records,
+		State:         dataTaskWorkflowStateSnapshot(state),
 	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -3019,25 +3012,18 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))
 	}
 	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
-		Status:                     "checkpoint",
-		Reason:                     reason,
-		DataRounds:                 dataRounds,
-		RepairRounds:               repairRounds,
-		ResultSummary:              dataTaskTerminalResultSummary(nil, records),
-		LastError:                  dataTaskLatestError(records),
-		Records:                    records,
-		CurrentPlan:                current,
-		DeferredPlan:               deferred,
-		ActionGraph:                state.ActionGraph,
-		LedgerGraph:                state.LedgerGraph,
-		OutputGraph:                state.OutputProjectionGraph,
-		ArtifactGraph:              state.ArtifactGraph,
-		Progress:                   state.ProgressSignatures,
-		WorkflowViolations:         state.WorkflowViolations,
-		Decision:                   state.Decision,
-		DecisionFallbackReasonCode: state.NextStage,
-		Guards:                     guards,
-		GuardRound:                 dataRounds,
+		Status:        "checkpoint",
+		Reason:        reason,
+		DataRounds:    dataRounds,
+		RepairRounds:  repairRounds,
+		ResultSummary: dataTaskTerminalResultSummary(nil, records),
+		LastError:     dataTaskLatestError(records),
+		Records:       records,
+		CurrentPlan:   current,
+		DeferredPlan:  deferred,
+		State:         dataTaskWorkflowStateSnapshot(state),
+		Guards:        guards,
+		GuardRound:    dataRounds,
 	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

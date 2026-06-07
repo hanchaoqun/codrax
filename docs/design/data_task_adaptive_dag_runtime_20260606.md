@@ -13760,10 +13760,56 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move state-graph construction (`ActionGraph`, `LedgerGraph`,
+- [x] Add a package-neutral state snapshot facade for journal/reducer inputs.
+- [ ] Move full state-graph construction (`ActionGraph`, `LedgerGraph`,
       `ArtifactGraph`, `ProgressWindow`) behind a runtime reducer input instead
       of REPL-owned `dataTaskWorkflowStateView`.
 - [ ] Replace entrypoint-local `records` variables with runtime snapshot
       helpers after planner/evaluator prompts accept runtime state directly.
 - [ ] Convert CLI/REPL progress rendering to consume runtime journal/process
       events directly.
+
+### Batch 305: Package-Neutral Workflow State Snapshot Facade
+
+The next reducer boundary is the large REPL-local `dataTaskWorkflowStateView`.
+It still owns many prompt-facing samples and repair diagnostics, so moving it
+wholesale would be a risky rewrite. However, the durable journal and future
+runtime reducer only need a smaller structural subset: action graph, ledger
+graph, output graph, artifact graph, progress, typed violations, and workflow
+decision.
+
+This batch adds a package-neutral `WorkflowStateSnapshot` facade in
+`internal/dataworkflow` and makes journal construction consume that snapshot.
+The existing REPL state computation remains in place, but its journal-facing
+surface is now one typed IR object instead of a long list of entrypoint fields.
+
+Generic invariants:
+
+- `WorkflowStateSnapshot` contains only structural workflow graphs and typed
+  decision/violation facts;
+- prompt-only samples, business labels, and UI details stay outside the
+  snapshot;
+- journal construction prefers the snapshot over legacy individual fields;
+- this is a facade for reducer migration, not a semantic scheduling change;
+- source/trace/log/write/operation flows are untouched.
+
+Changes:
+
+- [x] Added `WorkflowStateSnapshot` and zero detection in `dataworkflow`.
+- [x] Updated `WorkflowJournalBuildInput` to accept a state snapshot.
+- [x] Made `WorkflowRuntime.BuildJournalSnapshot` prefer the state snapshot and
+      fall back to legacy fields only for older call paths/tests.
+- [x] Added a REPL adapter that converts `dataTaskWorkflowStateView` into
+      `WorkflowStateSnapshot`.
+- [x] Rewired checkpoint and terminal journal builders to pass the snapshot.
+- [x] Added regression coverage proving snapshot fields override legacy
+      journal inputs.
+
+Remaining architecture items:
+
+- [ ] Move the actual state reducer computations out of REPL into
+      dataworkflow inputs/builders.
+- [ ] Replace prompt/evaluator record slices with runtime state snapshots plus
+      bounded record views.
+- [ ] Convert CLI/REPL progress rendering to consume runtime process events
+      directly.

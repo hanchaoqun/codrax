@@ -137,6 +137,48 @@ func TestWorkflowRuntimeBuildJournalSnapshotUsesRuntimeState(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeBuildJournalSnapshotPrefersStateSnapshot(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status: "checkpoint",
+		State: WorkflowStateSnapshot{
+			ActionGraph:   ActionGraph{Ready: []ActionNode{{ID: "snapshot-ready"}}},
+			LedgerGraph:   LedgerGraph{NextStage: StageComputeContributions},
+			OutputGraph:   OutputProjectionGraph{Status: "needs_projection"},
+			ArtifactGraph: ArtifactGraphState{NodeCount: 7},
+			Progress:      ProgressWindow{LatestSignature: "snapshot-progress"},
+			WorkflowViolations: []WorkflowViolation{{
+				Code: "snapshot_violation",
+			}},
+			Decision: WorkflowDecision{ReasonCode: "snapshot_decision"},
+		},
+		ActionGraph:   ActionGraph{Ready: []ActionNode{{ID: "legacy-ready"}}},
+		LedgerGraph:   LedgerGraph{NextStage: StageEmitOutputContractAnswer},
+		OutputGraph:   OutputProjectionGraph{Status: "legacy"},
+		ArtifactGraph: ArtifactGraphState{NodeCount: 1},
+		Progress:      ProgressWindow{LatestSignature: "legacy-progress"},
+		WorkflowViolations: []WorkflowViolation{{
+			Code: "legacy_violation",
+		}},
+		Decision: WorkflowDecision{ReasonCode: "legacy_decision"},
+	})
+	if snapshot.ActionGraph.Ready[0].ID != "snapshot-ready" {
+		t.Fatalf("ActionGraph=%+v, want state snapshot", snapshot.ActionGraph)
+	}
+	if snapshot.LedgerGraph.NextStage != StageComputeContributions || snapshot.OutputGraph.Status != "needs_projection" || snapshot.ArtifactGraph.NodeCount != 7 {
+		t.Fatalf("state graphs not preferred: %+v / %+v / %+v", snapshot.LedgerGraph, snapshot.OutputGraph, snapshot.ArtifactGraph)
+	}
+	if snapshot.Progress.LatestSignature != "snapshot-progress" {
+		t.Fatalf("Progress=%+v, want snapshot progress", snapshot.Progress)
+	}
+	if len(snapshot.WorkflowViolations) != 1 || snapshot.WorkflowViolations[0].Code != "snapshot_violation" {
+		t.Fatalf("WorkflowViolations=%+v, want snapshot violations", snapshot.WorkflowViolations)
+	}
+	if snapshot.Decision.ReasonCode != "snapshot_decision" {
+		t.Fatalf("Decision=%+v, want snapshot decision", snapshot.Decision)
+	}
+}
+
 func TestBuildAdmissionProcessEventSummarizesDecision(t *testing.T) {
 	decision := ActionDAGAdmissionDecision{
 		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{

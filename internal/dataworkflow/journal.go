@@ -69,6 +69,7 @@ type WorkflowJournalBuildInput struct {
 	Records                    []WorkflowRecord
 	CurrentPlan                dataquery.TaskPlan
 	DeferredPlan               dataquery.TaskPlan
+	State                      WorkflowStateSnapshot
 	ActionEvents               []ActionEvent
 	ActionGraph                ActionGraph
 	LedgerGraph                LedgerGraph
@@ -104,7 +105,24 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	if input.ProcessEvents == nil {
 		processEvents = BuildWorkflowJournalEvents(records)
 	}
+	state := input.State
+	stateProvided := !state.IsZero()
+	if !stateProvided {
+		state = WorkflowStateSnapshot{
+			ActionGraph:                input.ActionGraph,
+			LedgerGraph:                input.LedgerGraph,
+			OutputGraph:                input.OutputGraph,
+			ArtifactGraph:              input.ArtifactGraph,
+			Progress:                   input.Progress,
+			WorkflowViolations:         input.WorkflowViolations,
+			Decision:                   input.Decision,
+			DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
+		}
+	}
 	violations := cloneWorkflowViolations(input.WorkflowViolations)
+	if stateProvided || input.WorkflowViolations == nil {
+		violations = cloneWorkflowViolations(state.WorkflowViolations)
+	}
 	for _, guard := range input.Guards {
 		if guard.Empty() {
 			continue
@@ -119,10 +137,10 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 			Plan:         current,
 			AuditDetails: cleanJournalStrings([]string{guard.Code}),
 			Guard:        &copied,
-			Decision:     input.Decision,
+			Decision:     state.Decision,
 		}))
 	}
-	decision := BuildWorkflowJournalDecision(input.Decision, input.Status, input.Reason, input.LastError, input.DecisionFallbackReasonCode)
+	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, input.LastError, state.DecisionFallbackReasonCode)
 	return WorkflowJournal{
 		Status:             strings.TrimSpace(input.Status),
 		Reason:             strings.TrimSpace(input.Reason),
@@ -132,11 +150,11 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		ResultSummary:      input.ResultSummary,
 		LastError:          input.LastError,
 		ActionEvents:       actionEvents,
-		ActionGraph:        input.ActionGraph,
-		LedgerGraph:        input.LedgerGraph,
-		OutputGraph:        input.OutputGraph,
-		ArtifactGraph:      input.ArtifactGraph,
-		Progress:           input.Progress,
+		ActionGraph:        state.ActionGraph,
+		LedgerGraph:        state.LedgerGraph,
+		OutputGraph:        state.OutputGraph,
+		ArtifactGraph:      state.ArtifactGraph,
+		Progress:           state.Progress,
 		WorkflowViolations: violations,
 		Decision:           decision,
 		ProcessEvents:      processEvents,

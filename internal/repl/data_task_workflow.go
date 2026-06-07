@@ -5600,6 +5600,19 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	return state
 }
 
+func dataTaskWorkflowStateSnapshot(state dataTaskWorkflowStateView) dataworkflow.WorkflowStateSnapshot {
+	return dataworkflow.WorkflowStateSnapshot{
+		ActionGraph:                state.ActionGraph,
+		LedgerGraph:                state.LedgerGraph,
+		OutputGraph:                state.OutputProjectionGraph,
+		ArtifactGraph:              state.ArtifactGraph,
+		Progress:                   state.ProgressSignatures,
+		WorkflowViolations:         state.WorkflowViolations,
+		Decision:                   state.Decision,
+		DecisionFallbackReasonCode: state.NextStage,
+	}
+}
+
 func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
 	var out []dataworkflow.WorkflowViolation
 	for _, rec := range records {
