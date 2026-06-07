@@ -11999,6 +11999,56 @@ Current backlog before real-scenario testing:
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
 
+### Batch 272: Reducer-Owned Action Dependency Guards
+
+The next IR pass moved the remaining common action dependency and scheduling
+guard result builders into `internal/dataworkflow`. Before this batch, the
+REPL adapter still formatted hard errors for intra-batch dependency, unavailable
+input aliases, input-path cardinality, missing action specs, missing
+apply-resolution inputs, and upstream ledger prerequisites. Those are all
+workflow-graph contracts, not REPL UI concerns.
+
+The adapter still computes local facts that belong to its layer:
+
+- which previous artifacts are currently available;
+- whether an action references a future output in the same batch;
+- whether a model-authored action supplied a required param family;
+- whether contribution or reconcile producers already exist.
+
+But the reducer now owns the resulting `GuardResult`, typed violation metadata,
+repairability, and user/audit message for these generic graph failures.
+
+Changes:
+
+- [x] Added reducer-owned guard builders for intra-batch dependency and
+      unavailable action inputs.
+- [x] Added reducer-owned input-path cardinality guard builder using
+      `ActionInputPathContract`.
+- [x] Added reducer-owned missing action spec guard builders for generic typed
+      actions such as derive/extract/group/expand/filter.
+- [x] Added reducer-owned missing apply-resolution input and upstream ledger
+      prerequisite guard builders.
+- [x] Updated the REPL adapter to keep fact projection local while delegating
+      hard guard result/message construction to `dataworkflow`.
+- [x] Added reducer regression coverage for these guard builders.
+
+Current backlog before real-scenario testing:
+
+- [ ] Promote action-level field, lineage, row-count, and status diagnostics
+      into ArtifactGraph state so evaluator/continuation decisions can consume
+      durable graph facts instead of compact prompt samples.
+- [ ] Add a reducer-owned workflow decision input for zero-match filters,
+      zero-eligible qualification, and unmatched resolution diagnostics; the
+      adapter may still project result rows, but the evaluator should receive
+      typed violation objects rather than text-only summaries.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
+
 ### Batch 269: Domain-Neutral Mapping Candidate Action
 
 The next architecture pass split a relation-stage responsibility that was still

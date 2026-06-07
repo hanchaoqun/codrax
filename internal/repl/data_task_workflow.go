@@ -3440,90 +3440,82 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 
 func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	if errText := dataTaskActionIntraBatchDependencyGuardError(plan, actionIndex); errText != "" {
-		return dataTaskActionGuardResultFromMessage("intra_batch_dependency", errText, action)
+	if guard := dataTaskActionIntraBatchDependencyGuardResult(plan, actionIndex); !guard.Empty() {
+		return guard
 	}
-	if errText := dataTaskActionInputAvailabilityGuardError(records, plan, action, actionIndex); errText != "" {
-		return dataTaskActionGuardResultFromMessage("unavailable_action_input", errText, action)
+	if guard := dataTaskActionInputAvailabilityGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if contract, ok := dataworkflow.InputPathContract(kind); ok {
-		if len(inputs) < contract.Min {
-			if kind == dataquery.DataActionComputeContribs {
-				return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
-					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
-			}
-			return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind))), action)
-		}
-		if contract.Max > 0 && len(inputs) > contract.Max {
-			if contract.SingleRecordSet {
-				return dataTaskActionGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
-					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), kind), action)
-			}
-			return dataTaskActionGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths, but this action accepts at most %d. Split the graph into atomic DAG ranks; for joins, combine exactly two record sets first, let the output artifact materialize, then join that artifact with the next record set.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), contract.Max), action)
+		if guard := dataworkflow.InputPathContractGuardResult(dataworkflow.InputPathContractGuardInput{
+			Action:      action,
+			ActionIndex: actionIndex,
+			Contract:    contract,
+		}); !guard.Empty() {
+			return guard
 		}
 	}
 	switch kind {
 	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
 		if kind == dataquery.DataActionDeriveFields && !dataTaskDeriveFieldsActionHasSpec(action) {
-			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingActionSpecGuardResult(dataworkflow.MissingActionSpecGuardInput{Action: action, ActionIndex: actionIndex})
 		}
 		if kind == dataquery.DataActionExtractFields && !dataTaskDeriveFieldsActionHasSpec(action) {
-			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is extract_fields but has no field specification. Add params.field_specs or params.extract_specs as an array of source_field/target_field/operation/pattern specs; use it to materialize structured fields from one or more same-schema record/text artifacts.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingActionSpecGuardResult(dataworkflow.MissingActionSpecGuardInput{Action: action, ActionIndex: actionIndex})
 		}
 		if kind == dataquery.DataActionGroupRecords && !dataTaskGroupRecordsActionHasSpec(action) {
-			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is group_records but has no grouping/text specification. Add params.group_field or params.group_fields, params.text_fields/source_fields, and params.target_field; use group_records to combine multiple rows/spans from one artifact into one grouped record before extract_fields, join_records, filtering, or contribution calculation.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingActionSpecGuardResult(dataworkflow.MissingActionSpecGuardInput{Action: action, ActionIndex: actionIndex})
 		}
 		if kind == dataquery.DataActionExpandRecords && !dataTaskExpandRecordsActionHasSpec(action) {
-			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is expand_records but has no source_field. Add params.source_field and optionally params.target_field plus delimiter/separator or split_pattern; use expand_records only to turn one multi-value field into multiple records.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingActionSpecGuardResult(dataworkflow.MissingActionSpecGuardInput{Action: action, ActionIndex: actionIndex})
 		}
 		if kind == dataquery.DataActionFilterRecords && !dataTaskFilterRecordsActionHasSpec(action) {
-			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is filter_records but has no filters. Add params.filters_json (array of field/op/value filters) or filter_field/filter_op/filter_value; use filter_records only when the filter fields already exist on the input artifact.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingActionSpecGuardResult(dataworkflow.MissingActionSpecGuardInput{Action: action, ActionIndex: actionIndex})
 		}
 	case dataquery.DataActionApplyResolutions:
 		if len(inputs) < 2 && strings.TrimSpace(action.Params["resolution_path"]) == "" && strings.TrimSpace(action.Params["resolution_specs_json"]) == "" {
-			return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingApplyResolutionInputGuardResult(action, actionIndex)
 		}
 	case dataquery.DataActionReconcile:
 		if !dataTaskWorkflowHasContributionProducer(records, plan, actionIndex) {
-			return dataTaskActionGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingUpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerContributions})
 		}
 	case dataquery.DataActionAssembleAnswer:
 		if !dataTaskWorkflowHasReconcileProducer(records, plan, actionIndex) {
-			return dataTaskActionGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
+			return dataworkflow.MissingUpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerReconcile})
 		}
 	}
 	return dataworkflow.GuardResult{}
 }
 
 func dataTaskActionIntraBatchDependencyGuardError(plan dataquery.TaskPlan, actionIndex int) string {
+	return dataTaskActionIntraBatchDependencyGuardResult(plan, actionIndex).ErrorText()
+}
+
+func dataTaskActionIntraBatchDependencyGuardResult(plan dataquery.TaskPlan, actionIndex int) dataworkflow.GuardResult {
 	dependencyIndex, input, producer, ok := dataTaskFirstIntraBatchDependency(plan.Actions)
 	if !ok || dependencyIndex != actionIndex {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return fmt.Sprintf("data planning incomplete: action %d (%s) consumes prior action output %s from action %s in the same batch. Execute the producer action rank first, let it materialize a real artifact and field contract, then continue with dependent actions from the deferred queue.",
-		actionIndex+1,
-		firstNonEmptyString(strings.TrimSpace(plan.Actions[actionIndex].ID), strings.TrimSpace(string(plan.Actions[actionIndex].Kind))),
-		input,
-		firstNonEmptyString(strings.TrimSpace(producer.ID), strings.TrimSpace(producer.OutputArtifact), strings.TrimSpace(string(producer.Kind))))
+	return dataworkflow.IntraBatchDependencyGuardResult(dataworkflow.IntraBatchDependencyGuardInput{
+		Action:        plan.Actions[actionIndex],
+		ActionIndex:   actionIndex,
+		ConsumedInput: input,
+		Producer:      producer,
+	})
 }
 
 func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionInputAvailabilityGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionInputAvailabilityGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
@@ -3531,11 +3523,11 @@ func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord,
 		dataquery.DataActionInspectMaterial,
 		dataquery.DataActionExtractRecords,
 		dataquery.DataActionDeriveRules:
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if len(inputs) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	available := dataTaskWorkflowAvailableActionInputPaths(records, plan, actionIndex)
 	var missing []string
@@ -3546,13 +3538,14 @@ func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord,
 		missing = append(missing, input)
 	}
 	if len(missing) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	sort.Strings(missing)
-	return fmt.Sprintf("data planning incomplete: action %d (%s) references unavailable input_path(s) [%s]. Use covered source materials, prior generated artifact aliases from workflow_state_json.artifact_availability, or add earlier typed actions in this batch that output these aliases before consuming them; do not assume deferred or future action outputs already exist.",
-		actionIndex+1,
-		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-		strings.Join(missing, ", "))
+	return dataworkflow.UnavailableActionInputGuardResult(dataworkflow.UnavailableActionInputGuardInput{
+		Action:      action,
+		ActionIndex: actionIndex,
+		Missing:     missing,
+	})
 }
 
 func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {

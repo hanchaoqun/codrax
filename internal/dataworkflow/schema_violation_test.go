@@ -125,3 +125,76 @@ func TestApplyResolutionGuardResultsAreReducerOwned(t *testing.T) {
 		t.Fatalf("noProgress=%+v, want no-progress guard", noProgress)
 	}
 }
+
+func TestActionDependencyGuardResultsAreReducerOwned(t *testing.T) {
+	consumer := dataquery.DataAction{ID: "join", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"left", "future"}}
+	producer := dataquery.DataAction{ID: "derive", Kind: dataquery.DataActionDeriveFields, OutputArtifact: "future"}
+
+	intra := IntraBatchDependencyGuardResult(IntraBatchDependencyGuardInput{
+		Action:        consumer,
+		ActionIndex:   1,
+		ConsumedInput: "future",
+		Producer:      producer,
+	})
+	if intra.Code != "intra_batch_dependency" || !strings.Contains(intra.ErrorText(), "deferred queue") {
+		t.Fatalf("intra=%+v, want intra-batch dependency guard", intra)
+	}
+
+	unavailable := UnavailableActionInputGuardResult(UnavailableActionInputGuardInput{
+		Action:      consumer,
+		ActionIndex: 0,
+		Missing:     []string{"missing_alias"},
+	})
+	if unavailable.Code != "unavailable_action_input" || !strings.Contains(unavailable.ErrorText(), "missing_alias") {
+		t.Fatalf("unavailable=%+v, want unavailable input guard", unavailable)
+	}
+}
+
+func TestInputPathAndSpecGuardResultsAreReducerOwned(t *testing.T) {
+	compute := dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs}
+	missingInput := InputPathContractGuardResult(InputPathContractGuardInput{
+		Action:      compute,
+		ActionIndex: 0,
+		Contract:    ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
+	})
+	if missingInput.Code != "missing_action_inputs" || !strings.Contains(missingInput.ErrorText(), "contribution computation") {
+		t.Fatalf("missingInput=%+v", missingInput)
+	}
+
+	tooMany := InputPathContractGuardResult(InputPathContractGuardInput{
+		Action:      dataquery.DataAction{ID: "filter", Kind: dataquery.DataActionFilterRecords, InputPaths: []string{"a", "b"}},
+		ActionIndex: 0,
+		Contract:    ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
+	})
+	if tooMany.Code != "too_many_action_inputs" || !strings.Contains(tooMany.ErrorText(), "single-record-set action") {
+		t.Fatalf("tooMany=%+v", tooMany)
+	}
+
+	missingSpec := MissingActionSpecGuardResult(MissingActionSpecGuardInput{
+		Action:      dataquery.DataAction{ID: "derive", Kind: dataquery.DataActionDeriveFields},
+		ActionIndex: 0,
+	})
+	if missingSpec.Code != "missing_action_spec" || !strings.Contains(missingSpec.ErrorText(), "field specification") {
+		t.Fatalf("missingSpec=%+v", missingSpec)
+	}
+}
+
+func TestMissingUpstreamLedgerGuardResult(t *testing.T) {
+	reconcile := MissingUpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
+		Action:      dataquery.DataAction{ID: "reconcile", Kind: dataquery.DataActionReconcile},
+		ActionIndex: 0,
+		Ledger:      LedgerContributions,
+	})
+	if reconcile.Code != "missing_upstream_ledger" || !strings.Contains(reconcile.ErrorText(), "compute_contributions") {
+		t.Fatalf("reconcile=%+v", reconcile)
+	}
+
+	assemble := MissingUpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
+		Action:      dataquery.DataAction{ID: "assemble", Kind: dataquery.DataActionAssembleAnswer},
+		ActionIndex: 1,
+		Ledger:      LedgerReconcile,
+	})
+	if assemble.Code != "missing_upstream_ledger" || !strings.Contains(assemble.ErrorText(), "reconcile_artifacts") {
+		t.Fatalf("assemble=%+v", assemble)
+	}
+}

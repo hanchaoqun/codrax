@@ -31,6 +31,36 @@ type ActionInputContractGuardInput struct {
 	RepairActionHints []string
 }
 
+type IntraBatchDependencyGuardInput struct {
+	Action        dataquery.DataAction
+	ActionIndex   int
+	ConsumedInput string
+	Producer      dataquery.DataAction
+}
+
+type UnavailableActionInputGuardInput struct {
+	Action      dataquery.DataAction
+	ActionIndex int
+	Missing     []string
+}
+
+type InputPathContractGuardInput struct {
+	Action      dataquery.DataAction
+	ActionIndex int
+	Contract    ActionInputPathContract
+}
+
+type MissingActionSpecGuardInput struct {
+	Action      dataquery.DataAction
+	ActionIndex int
+}
+
+type MissingUpstreamLedgerGuardInput struct {
+	Action      dataquery.DataAction
+	ActionIndex int
+	Ledger      LedgerKind
+}
+
 type ApplyResolutionDiagnosticInputGuardInput struct {
 	Action         dataquery.DataAction
 	ActionIndex    int
@@ -118,6 +148,144 @@ func ActionInputContractGuardResult(input ActionInputContractGuardInput) GuardRe
 		input.RepairActionHints,
 	)
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func IntraBatchDependencyGuardResult(input IntraBatchDependencyGuardInput) GuardResult {
+	consumedInput := strings.TrimSpace(input.ConsumedInput)
+	if consumedInput == "" {
+		return GuardResult{}
+	}
+	producerLabel := firstNonEmptyGuardText(
+		strings.TrimSpace(input.Producer.ID),
+		strings.TrimSpace(input.Producer.OutputArtifact),
+		strings.TrimSpace(string(NormalizeActionKind(input.Producer.Kind))),
+		strings.TrimSpace(string(input.Producer.Kind)),
+	)
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes prior action output %s from action %s in the same batch. Execute the producer action rank first, let it materialize a real artifact and field contract, then continue with dependent actions from the deferred queue.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		consumedInput,
+		producerLabel)
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "intra_batch_dependency",
+		Action:     input.Action,
+		InputAlias: consumedInput,
+		Message:    message,
+	})
+}
+
+func UnavailableActionInputGuardResult(input UnavailableActionInputGuardInput) GuardResult {
+	missing := cleanStrings(input.Missing)
+	if len(missing) == 0 {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) references unavailable input_path(s) [%s]. Use covered source materials, prior generated artifact aliases from workflow_state_json.artifact_availability, or add earlier typed actions in this batch that output these aliases before consuming them; do not assume deferred or future action outputs already exist.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		strings.Join(missing, ", "))
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:          "unavailable_action_input",
+		Action:        input.Action,
+		InputAlias:    missing[0],
+		MissingFields: nil,
+		Message:       message,
+	})
+}
+
+func InputPathContractGuardResult(input InputPathContractGuardInput) GuardResult {
+	action := input.Action
+	kind := NormalizeActionKind(action.Kind)
+	inputs := cleanActionAliases(action.InputPaths)
+	if len(inputs) < input.Contract.Min {
+		var message string
+		if kind == dataquery.DataActionComputeContribs {
+			message = fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
+				guardActionNumber(input.ActionIndex), guardActionLabel(action))
+		} else {
+			message = fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
+				guardActionNumber(input.ActionIndex), guardActionLabel(action), strings.TrimSpace(string(kind)))
+		}
+		return ActionInputContractGuardResult(ActionInputContractGuardInput{
+			Code:    "missing_action_inputs",
+			Action:  action,
+			Message: message,
+		})
+	}
+	if input.Contract.Max > 0 && len(inputs) > input.Contract.Max {
+		var message string
+		if input.Contract.SingleRecordSet {
+			message = fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
+				guardActionNumber(input.ActionIndex), guardActionLabel(action), kind, len(inputs), kind)
+		} else {
+			message = fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths, but this action accepts at most %d. Split the graph into atomic DAG ranks; for joins, combine exactly two record sets first, let the output artifact materialize, then join that artifact with the next record set.",
+				guardActionNumber(input.ActionIndex), guardActionLabel(action), kind, len(inputs), input.Contract.Max)
+		}
+		return ActionInputContractGuardResult(ActionInputContractGuardInput{
+			Code:    "too_many_action_inputs",
+			Action:  action,
+			Message: message,
+		})
+	}
+	return GuardResult{}
+}
+
+func MissingActionSpecGuardResult(input MissingActionSpecGuardInput) GuardResult {
+	action := input.Action
+	kind := NormalizeActionKind(action.Kind)
+	var message string
+	switch kind {
+	case dataquery.DataActionDeriveFields:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(action))
+	case dataquery.DataActionExtractFields:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) is extract_fields but has no field specification. Add params.field_specs or params.extract_specs as an array of source_field/target_field/operation/pattern specs; use it to materialize structured fields from one or more same-schema record/text artifacts.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(action))
+	case dataquery.DataActionGroupRecords:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) is group_records but has no grouping/text specification. Add params.group_field or params.group_fields, params.text_fields/source_fields, and params.target_field; use group_records to combine multiple rows/spans from one artifact into one grouped record before extract_fields, join_records, filtering, or contribution calculation.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(action))
+	case dataquery.DataActionExpandRecords:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) is expand_records but has no source_field. Add params.source_field and optionally params.target_field plus delimiter/separator or split_pattern; use expand_records only to turn one multi-value field into multiple records.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(action))
+	case dataquery.DataActionFilterRecords:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) is filter_records but has no filters. Add params.filters_json (array of field/op/value filters) or filter_field/filter_op/filter_value; use filter_records only when the filter fields already exist on the input artifact.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(action))
+	default:
+		return GuardResult{}
+	}
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:    "missing_action_spec",
+		Action:  action,
+		Message: message,
+	})
+}
+
+func MissingApplyResolutionInputGuardResult(action dataquery.DataAction, actionIndex int) GuardResult {
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
+		guardActionNumber(actionIndex), guardActionLabel(action))
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:    "missing_action_inputs",
+		Action:  action,
+		Message: message,
+	})
+}
+
+func MissingUpstreamLedgerGuardResult(input MissingUpstreamLedgerGuardInput) GuardResult {
+	var message string
+	switch input.Ledger {
+	case LedgerContributions:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(input.Action))
+	case LedgerReconcile:
+		message = fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
+			guardActionNumber(input.ActionIndex), guardActionLabel(input.Action))
+	default:
+		return GuardResult{}
+	}
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:    "missing_upstream_ledger",
+		Action:  input.Action,
+		Message: message,
+	})
 }
 
 func ApplyResolutionDiagnosticInputGuardResult(input ApplyResolutionDiagnosticInputGuardInput) GuardResult {
