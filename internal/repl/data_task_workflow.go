@@ -7853,7 +7853,7 @@ func dataTaskCommonFields(left map[string]string, right []string, limit int) []s
 	seen := map[string]bool{}
 	for _, field := range right {
 		key := strings.ToLower(strings.TrimSpace(field))
-		if key == "" || seen[key] || left[key] == "" {
+		if key == "" || seen[key] || left[key] == "" || !dataworkflow.FieldUsableForRecordJoin(field) || !dataworkflow.FieldUsableForRecordJoin(left[key]) {
 			continue
 		}
 		seen[key] = true

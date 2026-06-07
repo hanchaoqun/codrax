@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -51,5 +52,39 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	}
 	if !slices.Contains(kinds, string(dataquery.DataActionJoinRecords)) {
 		t.Fatalf("scaffolds=%+v, want join_records scaffold", scaffolds)
+	}
+}
+
+func TestJoinRecordScaffoldsIgnoreInternalLineageFields(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:        "left",
+			Kind:      string(dataquery.DataActionJoinRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"left.json"},
+			JSONShape: "array(len=2,item=object(keys=_source,_left_index,value))",
+			Fields:    []string{"_source", "_left_index", "value"},
+		},
+		{
+			ID:        "right",
+			Kind:      string(dataquery.DataActionJoinRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"right.json"},
+			JSONShape: "array(len=2,item=object(keys=_source,_left_index,other))",
+			Fields:    []string{"_source", "_left_index", "other"},
+		},
+	}
+
+	if got := JoinRecordScaffolds(projections, 4); len(got) != 0 {
+		t.Fatalf("JoinRecordScaffolds=%+v, want no join on internal lineage fields", got)
+	}
+
+	projections[1].Fields = []string{"_source", "_left_index", "value", "other"}
+	got := JoinRecordScaffolds(projections, 4)
+	if len(got) != 1 {
+		t.Fatalf("JoinRecordScaffolds=%+v, want one join on ordinary field", got)
+	}
+	if strings.Join(got[0].CommonFields, ",") != "value" {
+		t.Fatalf("CommonFields=%v, want only ordinary field value", got[0].CommonFields)
 	}
 }

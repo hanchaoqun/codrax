@@ -10502,3 +10502,49 @@ Decision: run unit gates and build first. If they pass, proceed to the requested
 real scenario with the latest binary. If the real scenario still fails, the next
 fix must again be a typed, domain-neutral IR/runtime improvement, not a
 business-specific patch.
+
+### Batch 239: Relation Scaffold Internal-Lineage Guard
+
+The next real-scenario gate was intentionally interrupted after the workflow
+showed a deterministic convergence loop. The model was not the only source of
+the loop: after material coverage and entity-resolution work, the runtime
+fallback repeatedly selected a concrete `join_records` scaffold during
+`prepare_contribution_inputs`. Each batch joined previously joined artifacts on
+runtime lineage columns such as `_source` or `_left_index`, emitted another
+record artifact, and kept the stage looking productive even though contribution
+and reconcile ledgers stayed empty.
+
+This is a generic graph-contract issue. Runtime lineage columns are valuable
+for diagnostics, provenance, and resolution replay, but they are not relation
+keys that should drive automatic join scaffolds. If a workflow needs to replay
+row-level lineage, it should use a typed resolution/enrichment action with
+explicit source/target semantics. A default relation join must be grounded on
+ordinary materialized fields chosen by the model from artifact schemas.
+
+Changes:
+
+- [x] Added a shared `FieldUsableForRecordJoin` helper in
+      `internal/dataworkflow`.
+- [x] `JoinRecordScaffolds` now excludes `_`-prefixed runtime lineage fields
+      from common join-key candidates.
+- [x] REPL/CLI deterministic fallback join scaffolds use the same join-field
+      rule, so the runtime cannot bypass the shared scaffold contract.
+- [x] Added regression coverage that internal-lineage-only artifacts do not
+      produce join scaffolds, while ordinary shared fields still do.
+- [x] Added regression coverage that `dataTaskWorkflowNextStageFallback` does
+      not keep a contribution workflow alive by auto-joining artifacts whose
+      only common fields are internal lineage columns.
+
+Remaining architecture items:
+
+- [ ] Add a typed stage-progress signature to workflow state that records
+      per-batch ledger deltas, field-set deltas, row-count deltas, and stage
+      movement. This should turn repeated relation actions with no downstream
+      progress into a first-class `stage_no_progress` violation before another
+      planner/fallback turn.
+- [ ] Move the remaining REPL-local scaffold sorting and concrete fallback
+      builders into `internal/dataworkflow` so ActionDAG, ArtifactGraph, and
+      LedgerGraph own the complete scheduling policy.
+- [ ] Add a domain-neutral value-distribution preview action so the planner can
+      inspect actual field values before filtering/grouping/contribution work
+      without inventing scripts or repeating relation joins.

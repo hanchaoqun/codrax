@@ -295,6 +295,53 @@ func TestDataTaskWorkflowNextStageFallbackNormalizesFromRecordArtifacts(t *testi
 	}
 }
 
+func TestDataTaskWorkflowNextStageFallbackDoesNotJoinOnInternalLineageOnly(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "left.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "right.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: current,
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"left.csv", "right.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "left_joined.json",
+					Kind:    string(dataquery.DataActionJoinRecords),
+					Headers: []string{"_source", "_left_index", "left_value"},
+					Fields: map[string]string{
+						"artifact_aliases": "left_joined.json,left_joined",
+						"json_shape":       "array(len=2,item=object(keys=_source,_left_index,left_value))",
+						"output_headers":   "_source,_left_index,left_value",
+					},
+				},
+				{
+					ID:      "right_joined.json",
+					Kind:    string(dataquery.DataActionJoinRecords),
+					Headers: []string{"_source", "_left_index", "right_value"},
+					Fields: map[string]string{
+						"artifact_aliases": "right_joined.json,right_joined",
+						"json_shape":       "array(len=2,item=object(keys=_source,_left_index,right_value))",
+						"output_headers":   "_source,_left_index,right_value",
+					},
+				},
+			},
+		},
+	}}
+
+	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); ok {
+		t.Fatalf("fallback=%+v reason=%q, want no deterministic join fallback on internal lineage fields", plan, reason)
+	}
+}
+
 func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",

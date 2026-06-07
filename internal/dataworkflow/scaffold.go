@@ -326,10 +326,16 @@ func commonProjectionFields(left, right []string, limit int) []string {
 	}
 	rightSet := map[string]string{}
 	for _, field := range cleanStrings(right) {
+		if !FieldUsableForRecordJoin(field) {
+			continue
+		}
 		rightSet[strings.ToLower(field)] = field
 	}
 	var out []string
 	for _, field := range cleanStrings(left) {
+		if !FieldUsableForRecordJoin(field) {
+			continue
+		}
 		if _, ok := rightSet[strings.ToLower(field)]; ok {
 			out = append(out, field)
 			if len(out) >= limit {
@@ -338,6 +344,17 @@ func commonProjectionFields(left, right []string, limit int) []string {
 		}
 	}
 	return out
+}
+
+func FieldUsableForRecordJoin(field string) bool {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return false
+	}
+	// Fields beginning with "_" are system lineage/locator columns produced by
+	// the data runtime. They are useful for diagnostics and resolution replay,
+	// but relation joins should use explicit materialized record fields.
+	return !strings.HasPrefix(field, "_")
 }
 
 func hasAnyField(fields []string, wants ...string) bool {
