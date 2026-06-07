@@ -5334,6 +5334,7 @@ type dataTaskWorkflowStateView struct {
 	ReconcileRequired             bool                               `json:"reconcile_required,omitempty"`
 	HasReconcile                  bool                               `json:"has_reconcile,omitempty"`
 	HasAnswer                     bool                               `json:"has_answer,omitempty"`
+	LedgerGraph                   dataworkflow.LedgerGraph           `json:"ledger_graph,omitempty"`
 	NextStage                     string                             `json:"next_stage,omitempty"`
 	CustomTransformFailures       int                                `json:"custom_transform_failures,omitempty"`
 	CustomTransformDisabled       bool                               `json:"custom_transform_disabled,omitempty"`
@@ -5631,6 +5632,7 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 	state.ContributionRecords = len(dataquery.DedupeContributionRecords(contributionRecords))
 	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
 	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
+	state.LedgerGraph = dataworkflow.BuildLedgerGraph(dataTaskWorkflowStageFacts(state))
 	state.NextStage = dataTaskWorkflowNextStage(state)
 	state.CustomTransformDisabled = dataTaskCustomTransformCooldownForState(records, state)
 	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)

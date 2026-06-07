@@ -12740,10 +12740,12 @@ P0 IR closure backlog before the next real-scenario gate:
 - [ ] Front-load `ArtifactSchemaProjection` into admission so missing fields,
       incompatible shapes, stale aliases, and metadata-vs-record confusion are
       typed `WorkflowViolation` objects before execution or model repair.
-- [ ] Promote LedgerGraph from count projection to contract graph: rule,
+- [x] Promote LedgerGraph from count projection to contract graph: rule,
       decision, entity resolution, contribution, reconcile, and final
-      projection dependencies should derive the next legal stage and
-      completion gates.
+      projection dependencies now expose required/present/status,
+      prerequisites, producer actions, first missing ledger, and next stage.
+- [ ] Move terminal completion gates to consume LedgerGraph dependencies
+      directly instead of re-deriving missing ledgers in REPL helper code.
 
 P1 follow-up after P0 closure:
 
@@ -12947,3 +12949,59 @@ Remaining P0 deferred-storage work:
       state and let REPL/CLI read it back through a reducer-owned queue API.
 - [ ] Make enqueue/pop/retain/discard transitions produce typed ActionGraph
       events instead of mutating an outer variable directly.
+
+### Batch 288: LedgerGraph Dependency Contract
+
+The next P0 gap was the ledger side of the workflow IR. ActionGraph and
+ArtifactGraph had already moved toward typed reducer state, but LedgerGraph was
+still mostly a count projection. REPL helpers, completion gates, continuation
+prompts, and evaluators each inferred missing rule, decision, entity,
+contribution, reconcile, or final-answer stages from nearby counters. That is
+exactly the kind of duplicated interpretation that makes a system feel like it
+is collecting guards instead of converging through one state machine.
+
+This batch promotes LedgerGraph into a domain-neutral dependency contract. It
+does not encode business roles such as invoices, contracts, vendors, dates, or
+amounts. It only models generic validation ledgers and final projection as
+typed nodes with structural status and prerequisites.
+
+Generic invariants:
+
+- ledger nodes expose `required`, `present`, `count`, `status`, `stage`,
+  `produces_actions`, `depends_on`, and `missing_prerequisites`;
+- statuses are typed: `optional`, `satisfied`, `missing`, or
+  `blocked_by_prerequisite`;
+- missing material coverage is represented as a structural prerequisite named
+  `materials`, not as a business-specific file role;
+- downstream ledgers that are already satisfied remain satisfied even when a
+  missing upstream audit ledger must be caught up before final projection;
+- final projection depends on the required ledger set and exposes the same
+  blockage contract as other ledgers;
+- prompts may use LedgerGraph as structural guidance, but hard gates still read
+  typed reducer fields and not model prose.
+
+Changes:
+
+- [x] Added `LedgerDependency` and extended `LedgerStatus` with structural
+      status, stage, producer action kinds, dependencies, and missing
+      prerequisites.
+- [x] Added `BuildLedgerGraph(StageFacts)` in `internal/dataworkflow`.
+- [x] Added first-missing-ledger and next-stage projection to LedgerGraph.
+- [x] Exposed `ledger_graph` in `workflow_state_json`.
+- [x] Persisted `ledger_graph` in terminal and checkpoint workflow journals.
+- [x] Taught continuation/evaluator prompts to use `workflow_state_json.
+      ledger_graph` as structural state, without making prompt prose a hard
+      gate.
+- [x] Added unit coverage for missing prerequisites, satisfied downstream
+      ledgers, material-floor blockage, journal JSON, and REPL workflow state.
+
+Remaining P0 LedgerGraph work:
+
+- [ ] Move terminal completion gates to consume LedgerGraph dependencies
+      directly instead of running separate REPL-local ledger checks.
+- [ ] Feed first-missing-ledger and missing-prerequisite summaries into
+      `WorkflowDecision` so CLI/REPL UX can show user-relevant blockers without
+      repeating internal stage jargon.
+- [ ] Make deterministic completion/fallback builders consume LedgerGraph
+      rather than raw `StageFacts` where the decision is specifically about
+      ledger dependencies.

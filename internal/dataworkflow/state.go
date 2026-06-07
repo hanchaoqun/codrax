@@ -67,19 +67,39 @@ type ActionNode struct {
 }
 
 type LedgerGraph struct {
-	RuleCoverage      LedgerStatus `json:"rule_coverage,omitempty"`
-	Decisions         LedgerStatus `json:"decisions,omitempty"`
-	EntityResolutions LedgerStatus `json:"entity_resolutions,omitempty"`
-	Contributions     LedgerStatus `json:"contributions,omitempty"`
-	Reconcile         LedgerStatus `json:"reconcile,omitempty"`
-	FinalProjection   LedgerStatus `json:"final_projection,omitempty"`
+	RuleCoverage      LedgerStatus       `json:"rule_coverage,omitempty"`
+	Decisions         LedgerStatus       `json:"decisions,omitempty"`
+	EntityResolutions LedgerStatus       `json:"entity_resolutions,omitempty"`
+	Contributions     LedgerStatus       `json:"contributions,omitempty"`
+	Reconcile         LedgerStatus       `json:"reconcile,omitempty"`
+	FinalProjection   LedgerStatus       `json:"final_projection,omitempty"`
+	Dependencies      []LedgerDependency `json:"dependencies,omitempty"`
+	NextStage         string             `json:"next_stage,omitempty"`
+	FirstMissing      string             `json:"first_missing,omitempty"`
 }
 
 type LedgerStatus struct {
-	Required bool     `json:"required,omitempty"`
-	Present  bool     `json:"present,omitempty"`
-	Count    int      `json:"count,omitempty"`
-	Aliases  []string `json:"aliases,omitempty"`
+	Required             bool     `json:"required,omitempty"`
+	Present              bool     `json:"present,omitempty"`
+	Count                int      `json:"count,omitempty"`
+	Status               string   `json:"status,omitempty"`
+	Stage                string   `json:"stage,omitempty"`
+	ProducesActions      []string `json:"produces_actions,omitempty"`
+	DependsOn            []string `json:"depends_on,omitempty"`
+	MissingPrerequisites []string `json:"missing_prerequisites,omitempty"`
+	Aliases              []string `json:"aliases,omitempty"`
+}
+
+type LedgerDependency struct {
+	Ledger               string   `json:"ledger,omitempty"`
+	Required             bool     `json:"required,omitempty"`
+	Present              bool     `json:"present,omitempty"`
+	Count                int      `json:"count,omitempty"`
+	Status               string   `json:"status,omitempty"`
+	Stage                string   `json:"stage,omitempty"`
+	ProducesActions      []string `json:"produces_actions,omitempty"`
+	DependsOn            []string `json:"depends_on,omitempty"`
+	MissingPrerequisites []string `json:"missing_prerequisites,omitempty"`
 }
 
 type WorkflowProgress struct {

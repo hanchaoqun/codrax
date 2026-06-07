@@ -2498,6 +2498,24 @@ func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateExposesLedgerGraphContract(t *testing.T) {
+	state := dataTaskWorkflowState(nil, dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	})
+	if state.LedgerGraph.NextStage != dataworkflow.StageCoverRequiredMaterials {
+		t.Fatalf("LedgerGraph.NextStage=%q, want material coverage", state.LedgerGraph.NextStage)
+	}
+	if state.LedgerGraph.Contributions.Status != dataworkflow.LedgerStatusBlockedByPrerequisite {
+		t.Fatalf("Contributions=%+v, want blocked by material prerequisite", state.LedgerGraph.Contributions)
+	}
+	if !testContainsDataTaskString(state.LedgerGraph.Contributions.ProducesActions, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("Contributions=%+v, want compute_contributions producer", state.LedgerGraph.Contributions)
+	}
+}
+
 func TestDataTaskWorkflowStatePromotesLatestEvaluationIntoDecision(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Evaluation: &dataquery.Evaluation{
@@ -9145,4 +9163,13 @@ func dataTaskPatchResp(raw string) llm.Response {
 		}},
 		StopReason: "tool_use",
 	}
+}
+
+func testContainsDataTaskString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
