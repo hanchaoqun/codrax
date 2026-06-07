@@ -4102,16 +4102,7 @@ func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alia
 func dataTaskArtifactAccessSchemaProjection(access []dataTaskArtifactAccessPrompt) []dataworkflow.ArtifactSchemaProjection {
 	out := make([]dataworkflow.ArtifactSchemaProjection, 0, len(access))
 	for _, artifact := range access {
-		out = append(out, dataworkflow.ArtifactSchemaProjection{
-			ID:          strings.TrimSpace(artifact.ID),
-			Kind:        strings.TrimSpace(artifact.Kind),
-			NodeClass:   strings.TrimSpace(artifact.NodeClass),
-			Aliases:     cleanDataTaskStrings(artifact.Aliases),
-			JSONShape:   strings.TrimSpace(artifact.JSONShape),
-			Fields:      cleanDataTaskStrings(artifact.Fields),
-			AccessHint:  strings.TrimSpace(artifact.AccessHint),
-			SourcePaths: cleanDataTaskStrings(artifact.SourcePaths),
-		})
+		out = append(out, dataTaskArtifactAccessToSchemaProjection(artifact))
 	}
 	return out
 }
@@ -6773,39 +6764,20 @@ func dataTaskWorkflowRecordActionArtifacts(access []dataTaskArtifactAccessPrompt
 }
 
 func dataTaskArtifactUsableForRecordAction(artifact dataTaskArtifactAccessPrompt) bool {
-	if len(artifact.Fields) == 0 {
-		return false
+	return dataworkflow.ArtifactUsableForRecordAction(dataTaskArtifactAccessToSchemaProjection(artifact))
+}
+
+func dataTaskArtifactAccessToSchemaProjection(artifact dataTaskArtifactAccessPrompt) dataworkflow.ArtifactSchemaProjection {
+	return dataworkflow.ArtifactSchemaProjection{
+		ID:          strings.TrimSpace(artifact.ID),
+		Kind:        strings.TrimSpace(artifact.Kind),
+		NodeClass:   strings.TrimSpace(artifact.NodeClass),
+		Aliases:     cleanDataTaskStrings(artifact.Aliases),
+		JSONShape:   strings.TrimSpace(artifact.JSONShape),
+		Fields:      cleanDataTaskStrings(artifact.Fields),
+		AccessHint:  strings.TrimSpace(artifact.AccessHint),
+		SourcePaths: cleanDataTaskStrings(artifact.SourcePaths),
 	}
-	if dataTaskArtifactIsDiagnosticChild(artifact) {
-		return false
-	}
-	if dataTaskArtifactKindHasPrefix(artifact.Kind,
-		dataquery.DataActionMaterialInventory,
-		dataquery.DataActionInspectMaterial,
-		dataquery.DataActionDeriveRules,
-		dataquery.DataActionNormalizeEntities,
-		dataquery.DataActionReconcile,
-		dataquery.DataActionAssembleAnswer,
-	) {
-		return false
-	}
-	if dataTaskArtifactShapeLooksRecordLike(artifact) {
-		return true
-	}
-	return dataTaskArtifactKindHasPrefix(artifact.Kind,
-		dataquery.DataActionExtractRecords,
-		dataquery.DataActionDeriveFields,
-		dataquery.DataActionExtractFields,
-		dataquery.DataActionGroupRecords,
-		dataquery.DataActionExpandRecords,
-		dataquery.DataActionFilterRecords,
-		dataquery.DataActionQualifyRecords,
-		dataquery.DataActionApplyResolutions,
-		dataquery.DataActionEnrichRecords,
-		dataquery.DataActionJoinRecords,
-		dataquery.DataActionComputeContribs,
-		dataquery.DataActionCustomTransform,
-	)
 }
 
 func dataTaskArtifactHasTextExtractionField(fields []string) bool {

@@ -132,6 +132,44 @@ func TestMissingFieldsOnArtifactSchemaUsesAliasContract(t *testing.T) {
 	}
 }
 
+func TestArtifactUsableForRecordActionUsesNodeClassAndKind(t *testing.T) {
+	if !ArtifactUsableForRecordAction(ArtifactSchemaProjection{
+		ID:        "records",
+		Kind:      string(dataquery.DataActionExtractRecords),
+		NodeClass: ArtifactNodeClassRecord,
+		Fields:    []string{"id"},
+		JSONShape: "array(len=1)",
+	}) {
+		t.Fatalf("record artifact should be usable for record actions")
+	}
+	if ArtifactUsableForRecordAction(ArtifactSchemaProjection{
+		ID:        "records#base",
+		Kind:      string(dataquery.DataActionApplyResolutions) + "/base",
+		NodeClass: ArtifactNodeClassDiagnosticChild,
+		Fields:    []string{"id"},
+		JSONShape: "array(len=1)",
+	}) {
+		t.Fatalf("diagnostic child should not be usable for record actions")
+	}
+	if ArtifactUsableForRecordAction(ArtifactSchemaProjection{
+		ID:        "workflow_contributions",
+		Kind:      "workflow_ledger/contributions",
+		NodeClass: ArtifactNodeClassWorkflowLedger,
+		Fields:    []string{"group_key"},
+		JSONShape: "array(len=1)",
+	}) {
+		t.Fatalf("workflow ledger should not be used as an ordinary record action base")
+	}
+	if ArtifactUsableForRecordAction(ArtifactSchemaProjection{
+		ID:        "rules",
+		Kind:      string(dataquery.DataActionDeriveRules),
+		NodeClass: ArtifactNodeClassArtifact,
+		Fields:    []string{"rule_id"},
+	}) {
+		t.Fatalf("derive_rules artifact should not be treated as record-action input")
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

@@ -3,6 +3,8 @@ package dataworkflow
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
 func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []ArtifactSchemaProjection {
@@ -206,6 +208,61 @@ func ArtifactNodeClass(artifact ArtifactProjectionSource) string {
 		return ArtifactNodeClassRecord
 	}
 	return ArtifactNodeClassArtifact
+}
+
+func ArtifactUsableForRecordAction(projection ArtifactSchemaProjection) bool {
+	if len(projection.Fields) == 0 {
+		return false
+	}
+	if projection.NodeClass == ArtifactNodeClassDiagnosticChild || projection.NodeClass == ArtifactNodeClassWorkflowLedger {
+		return false
+	}
+	if artifactKindHasPrefix(projection.Kind,
+		dataquery.DataActionMaterialInventory,
+		dataquery.DataActionInspectMaterial,
+		dataquery.DataActionDeriveRules,
+		dataquery.DataActionNormalizeEntities,
+		dataquery.DataActionReconcile,
+		dataquery.DataActionAssembleAnswer,
+	) {
+		return false
+	}
+	if projection.NodeClass == ArtifactNodeClassRecord || artifactSchemaShapeLooksRecordLike(projection) {
+		return true
+	}
+	return artifactKindHasPrefix(projection.Kind,
+		dataquery.DataActionExtractRecords,
+		dataquery.DataActionDeriveFields,
+		dataquery.DataActionExtractFields,
+		dataquery.DataActionGroupRecords,
+		dataquery.DataActionExpandRecords,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionQualifyRecords,
+		dataquery.DataActionApplyResolutions,
+		dataquery.DataActionEnrichRecords,
+		dataquery.DataActionJoinRecords,
+		dataquery.DataActionComputeContribs,
+		dataquery.DataActionCustomTransform,
+	)
+}
+
+func artifactSchemaShapeLooksRecordLike(projection ArtifactSchemaProjection) bool {
+	shape := strings.ToLower(strings.TrimSpace(projection.JSONShape))
+	return strings.Contains(shape, "array") || strings.Contains(shape, "records")
+}
+
+func artifactKindHasPrefix(kind string, wants ...dataquery.DataActionKind) bool {
+	got := strings.ToLower(strings.TrimSpace(kind))
+	for _, want := range wants {
+		prefix := strings.ToLower(strings.TrimSpace(string(want)))
+		if prefix == "" {
+			continue
+		}
+		if got == prefix || strings.HasPrefix(got, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func IsDiagnosticChildArtifact(id, kind string) bool {

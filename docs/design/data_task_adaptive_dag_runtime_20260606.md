@@ -9614,3 +9614,40 @@ Remaining architecture items:
 - [ ] Persist cumulative ArtifactGraph snapshots across workflow-terminal
       summaries, not only per-result snapshots.
 - [ ] Move scaffold eligibility fully into an ArtifactGraph-aware reducer.
+
+### Batch 213: ArtifactGraph Record-Action Eligibility
+
+The first scaffold-safety fixes taught REPL helpers to ignore diagnostic child
+artifacts and workflow ledger handles. Batch 204 moved node classes into
+ArtifactGraph, but the record-action eligibility predicate still lived in
+REPL. That kept a hard structural rule in the UI/runtime layer.
+
+This batch moves the record-action eligibility predicate into
+`internal/dataworkflow`:
+
+- an artifact must have a known field contract;
+- diagnostic children and workflow ledger handles are not ordinary record
+  action bases;
+- rule/material/terminal artifacts are not ordinary record action bases;
+- record-shaped artifacts and record-producing action outputs are eligible.
+
+The predicate is based only on node class, JSON shape, action kind, and fields.
+It does not classify business roles or inspect user/model prose.
+
+Changes:
+
+- [x] Added `dataworkflow.ArtifactUsableForRecordAction`.
+- [x] Rewired REPL record-action scaffold filtering to use the shared
+      ArtifactGraph helper.
+- [x] Reused one REPL adapter from `dataTaskArtifactAccessPrompt` to
+      `ArtifactSchemaProjection`.
+- [x] Added regression coverage for record, diagnostic child, workflow ledger,
+      and rule-artifact eligibility.
+
+Remaining architecture items:
+
+- [ ] Move relation-specific scaffold construction
+      (`normalize_entities`, `apply_entity_resolutions`, `enrich_records`,
+      `join_records`) into ArtifactGraph-aware typed builders.
+- [ ] Emit scaffold skipped/eligible diagnostics into audit snapshots without
+      increasing user-facing noise.
