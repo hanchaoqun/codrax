@@ -5390,45 +5390,11 @@ type dataTaskFieldContractViolation struct {
 	Reason               string   `json:"reason,omitempty"`
 }
 
-type dataTaskZeroMatchFilterIssue struct {
-	Round             int      `json:"round,omitempty"`
-	ArtifactID        string   `json:"artifact_id,omitempty"`
-	Aliases           []string `json:"aliases,omitempty"`
-	InputPath         string   `json:"input_path,omitempty"`
-	InputRows         int      `json:"input_rows,omitempty"`
-	OutputRows        int      `json:"output_rows,omitempty"`
-	FilterFields      []string `json:"filter_fields,omitempty"`
-	FilterDiagnostics string   `json:"filter_diagnostics,omitempty"`
-	RepairActionHints []string `json:"repair_action_hints,omitempty"`
-	Reason            string   `json:"reason,omitempty"`
-}
+type dataTaskZeroMatchFilterIssue = dataworkflow.ZeroMatchFilterIssue
 
-type dataTaskUnmatchedResolutionIssue struct {
-	Round             int      `json:"round,omitempty"`
-	ArtifactID        string   `json:"artifact_id,omitempty"`
-	Aliases           []string `json:"aliases,omitempty"`
-	BasePath          string   `json:"base_path,omitempty"`
-	BaseRows          int      `json:"base_rows,omitempty"`
-	OutputRows        int      `json:"output_rows,omitempty"`
-	TargetFields      []string `json:"target_fields,omitempty"`
-	MatchedCounts     []string `json:"matched_counts,omitempty"`
-	UnmatchedCounts   []string `json:"unmatched_counts,omitempty"`
-	RepairActionHints []string `json:"repair_action_hints,omitempty"`
-	Reason            string   `json:"reason,omitempty"`
-}
+type dataTaskUnmatchedResolutionIssue = dataworkflow.UnmatchedResolutionIssue
 
-type dataTaskZeroEligibleIssue struct {
-	Round                    int      `json:"round,omitempty"`
-	ArtifactID               string   `json:"artifact_id,omitempty"`
-	Aliases                  []string `json:"aliases,omitempty"`
-	InputPath                string   `json:"input_path,omitempty"`
-	InputRows                int      `json:"input_rows,omitempty"`
-	EligibleRows             int      `json:"eligible_rows,omitempty"`
-	IncludeFilterDiagnostics string   `json:"include_filter_diagnostics,omitempty"`
-	QualificationReasons     string   `json:"qualification_reasons,omitempty"`
-	RepairActionHints        []string `json:"repair_action_hints,omitempty"`
-	Reason                   string   `json:"reason,omitempty"`
-}
+type dataTaskZeroEligibleIssue = dataworkflow.ZeroEligibleIssue
 
 type dataTaskResultPromptView struct {
 	Answer                   string                             `json:"answer,omitempty"`
@@ -6046,103 +6012,7 @@ func dataTaskWorkflowZeroMatchFilterIssues(records []dataTaskWorkflowRecord, sta
 	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 {
 		return nil
 	}
-	var out []dataTaskZeroMatchFilterIssue
-	clearedAliases := map[string]bool{}
-	for i := len(records) - 1; i >= 0 && len(out) < limit; i-- {
-		rec := records[i]
-		if rec.Result == nil {
-			continue
-		}
-		for j := len(rec.Result.Artifacts) - 1; j >= 0 && len(out) < limit; j-- {
-			dataTaskMarkPositiveFilterArtifactAliases(rec.Result.Artifacts[j], clearedAliases)
-			for _, issue := range dataTaskZeroMatchFilterIssuesFromArtifact(i+1, rec.Result.Artifacts[j]) {
-				if dataTaskZeroMatchFilterIssueCleared(issue, clearedAliases) {
-					continue
-				}
-				out = append(out, issue)
-				if len(out) >= limit {
-					break
-				}
-			}
-		}
-	}
-	return out
-}
-
-func dataTaskMarkPositiveFilterArtifactAliases(artifact dataquery.DataArtifact, cleared map[string]bool) {
-	if cleared == nil {
-		return
-	}
-	var walk func(dataquery.DataArtifact)
-	walk = func(current dataquery.DataArtifact) {
-		if dataTaskArtifactKindHasPrefix(current.Kind, dataquery.DataActionFilterRecords) {
-			outputRows := dataTaskArtifactIntField(current, "output_rows", "filter_matched")
-			if outputRows == 0 {
-				outputRows = current.RowCount
-			}
-			if outputRows > 0 {
-				for _, alias := range dataTaskArtifactAliasPaths(current) {
-					if key := normalizeDataTaskCoveragePath(alias); key != "" {
-						cleared[key] = true
-					}
-				}
-				if key := normalizeDataTaskCoveragePath(current.ID); key != "" {
-					cleared[key] = true
-				}
-			}
-		}
-		for _, child := range current.Children {
-			walk(child)
-		}
-	}
-	walk(artifact)
-}
-
-func dataTaskZeroMatchFilterIssueCleared(issue dataTaskZeroMatchFilterIssue, cleared map[string]bool) bool {
-	if len(cleared) == 0 {
-		return false
-	}
-	for _, alias := range dataTaskZeroMatchFilterIssueAliases(issue) {
-		if cleared[normalizeDataTaskCoveragePath(alias)] {
-			return true
-		}
-	}
-	return false
-}
-
-func dataTaskZeroMatchFilterIssuesFromArtifact(round int, artifact dataquery.DataArtifact) []dataTaskZeroMatchFilterIssue {
-	var out []dataTaskZeroMatchFilterIssue
-	var walk func(dataquery.DataArtifact)
-	walk = func(current dataquery.DataArtifact) {
-		if dataTaskArtifactKindHasPrefix(current.Kind, dataquery.DataActionFilterRecords) {
-			inputRows, _ := strconv.Atoi(strings.TrimSpace(current.Fields["input_rows"]))
-			outputRows, _ := strconv.Atoi(strings.TrimSpace(firstNonEmptyString(current.Fields["output_rows"], current.Fields["filter_matched"])))
-			if inputRows > 0 && outputRows == 0 {
-				aliases := dataTaskArtifactAliasPaths(current)
-				out = append(out, dataTaskZeroMatchFilterIssue{
-					Round:             round,
-					ArtifactID:        strings.TrimSpace(current.ID),
-					Aliases:           clampDataTaskStringSlice(aliases, 8),
-					InputPath:         strings.TrimSpace(current.Fields["input_path"]),
-					InputRows:         inputRows,
-					OutputRows:        outputRows,
-					FilterFields:      cleanDataTaskStrings(strings.Split(current.Fields["filter_fields"], ",")),
-					FilterDiagnostics: clampDataTaskWorkflowText(current.Fields["filter_diagnostics"], 1200),
-					RepairActionHints: []string{
-						"inspect the original input artifact or current filter artifact to compare actual field values against every filter",
-						"rerun filter_records against the non-empty input artifact with corrected filters before join_records or compute_contributions",
-						"do not join or compute contributions from this zero-row artifact while contribution/reconcile is still required",
-					},
-					Reason: "filter_records produced zero rows from a non-empty input while contribution/reconcile remains required",
-				})
-			}
-		}
-		for _, child := range current.Children {
-			walk(child)
-		}
-	}
-	walk(artifact)
-	return out
+	return dataworkflow.ZeroMatchFilterIssuesFromBatches(dataTaskArtifactDiagnosticBatches(records), limit)
 }
 
 func dataTaskWorkflowUnmatchedResolutionIssues(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, limit int) []dataTaskUnmatchedResolutionIssue {
@@ -6152,76 +6022,7 @@ func dataTaskWorkflowUnmatchedResolutionIssues(records []dataTaskWorkflowRecord,
 	if !state.EntityResolutionRequired || (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 {
 		return nil
 	}
-	var out []dataTaskUnmatchedResolutionIssue
-	for i := len(records) - 1; i >= 0 && len(out) < limit; i-- {
-		rec := records[i]
-		if rec.Result == nil {
-			continue
-		}
-		for j := len(rec.Result.Artifacts) - 1; j >= 0 && len(out) < limit; j-- {
-			for _, issue := range dataTaskUnmatchedResolutionIssuesFromArtifact(i+1, rec.Result.Artifacts[j]) {
-				out = append(out, issue)
-				if len(out) >= limit {
-					break
-				}
-			}
-		}
-	}
-	return out
-}
-
-func dataTaskUnmatchedResolutionIssuesFromArtifact(round int, artifact dataquery.DataArtifact) []dataTaskUnmatchedResolutionIssue {
-	var out []dataTaskUnmatchedResolutionIssue
-	var walk func(dataquery.DataArtifact)
-	walk = func(current dataquery.DataArtifact) {
-		if dataTaskArtifactKindHasPrefix(current.Kind, dataquery.DataActionApplyResolutions) {
-			baseRows := dataTaskArtifactIntField(current, "base_rows", "input_rows")
-			outputRows := dataTaskArtifactIntField(current, "output_rows", "row_count")
-			if outputRows == 0 {
-				outputRows = current.RowCount
-			}
-			targets := cleanDataTaskStrings(strings.Split(current.Fields["target_fields"], ","))
-			if len(targets) > 0 && baseRows > 0 {
-				var unmatchedTargets []string
-				var matchedCounts []string
-				var unmatchedCounts []string
-				for _, target := range targets {
-					matched := dataTaskArtifactIntField(current, "matched_"+target)
-					unmatched := dataTaskArtifactIntField(current, "unmatched_"+target)
-					if matched == 0 && unmatched > 0 {
-						unmatchedTargets = append(unmatchedTargets, target)
-						matchedCounts = append(matchedCounts, target+"=0")
-						unmatchedCounts = append(unmatchedCounts, fmt.Sprintf("%s=%d", target, unmatched))
-					}
-				}
-				if len(unmatchedTargets) == len(targets) {
-					aliases := dataTaskArtifactAliasPaths(current)
-					out = append(out, dataTaskUnmatchedResolutionIssue{
-						Round:           round,
-						ArtifactID:      strings.TrimSpace(current.ID),
-						Aliases:         clampDataTaskStringSlice(aliases, 8),
-						BasePath:        strings.TrimSpace(current.Fields["base_path"]),
-						BaseRows:        baseRows,
-						OutputRows:      outputRows,
-						TargetFields:    unmatchedTargets,
-						MatchedCounts:   matchedCounts,
-						UnmatchedCounts: unmatchedCounts,
-						RepairActionHints: []string{
-							"repair apply_entity_resolutions before filtering, qualification, join, or contribution calculation",
-							"use locator-compatible key fields: when one side uses item_id/source_locator and the other side uses _source_locator/_source_index, match them through the row locator/index contract",
-							"do not consume this all-unmatched resolution artifact for downstream contribution work",
-						},
-						Reason: "apply_entity_resolutions produced no matched canonical target values for a non-empty base record set",
-					})
-				}
-			}
-		}
-		for _, child := range current.Children {
-			walk(child)
-		}
-	}
-	walk(artifact)
-	return out
+	return dataworkflow.UnmatchedResolutionIssuesFromBatches(dataTaskArtifactDiagnosticBatches(records), limit)
 }
 
 func dataTaskWorkflowZeroEligibleIssues(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, limit int) []dataTaskZeroEligibleIssue {
@@ -6231,56 +6032,21 @@ func dataTaskWorkflowZeroEligibleIssues(records []dataTaskWorkflowRecord, state 
 	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 {
 		return nil
 	}
-	var out []dataTaskZeroEligibleIssue
-	for i := len(records) - 1; i >= 0 && len(out) < limit; i-- {
-		rec := records[i]
-		if rec.Result == nil {
-			continue
-		}
-		for j := len(rec.Result.Artifacts) - 1; j >= 0 && len(out) < limit; j-- {
-			for _, issue := range dataTaskZeroEligibleIssuesFromArtifact(i+1, rec.Result.Artifacts[j]) {
-				out = append(out, issue)
-				if len(out) >= limit {
-					break
-				}
-			}
-		}
-	}
-	return out
+	return dataworkflow.ZeroEligibleIssuesFromBatches(dataTaskArtifactDiagnosticBatches(records), limit)
 }
 
-func dataTaskZeroEligibleIssuesFromArtifact(round int, artifact dataquery.DataArtifact) []dataTaskZeroEligibleIssue {
-	var out []dataTaskZeroEligibleIssue
-	var walk func(dataquery.DataArtifact)
-	walk = func(current dataquery.DataArtifact) {
-		if dataTaskArtifactKindHasPrefix(current.Kind, dataquery.DataActionQualifyRecords) {
-			inputRows := dataTaskArtifactIntField(current, "input_rows")
-			eligibleRows := dataTaskArtifactIntField(current, "eligible_rows", "output_rows")
-			if inputRows > 0 && eligibleRows == 0 {
-				aliases := dataTaskArtifactAliasPaths(current)
-				out = append(out, dataTaskZeroEligibleIssue{
-					Round:                    round,
-					ArtifactID:               strings.TrimSpace(current.ID),
-					Aliases:                  clampDataTaskStringSlice(aliases, 8),
-					InputPath:                strings.TrimSpace(current.Fields["input_path"]),
-					InputRows:                inputRows,
-					EligibleRows:             eligibleRows,
-					IncludeFilterDiagnostics: clampDataTaskWorkflowText(current.Fields["include_filters"], 1200),
-					QualificationReasons:     clampDataTaskWorkflowText(current.Fields["qualification_reasons"], 800),
-					RepairActionHints: []string{
-						"repair the upstream field materialization, resolution application, or qualification filters before joining or computing contributions",
-						"inspect actual field values when every row failed an include/status/evidence condition",
-						"do not join or compute contributions from this zero-eligible artifact while contribution/reconcile remains required",
-					},
-					Reason: "qualify_records produced zero eligible rows from a non-empty input while contribution/reconcile remains required",
-				})
-			}
+func dataTaskArtifactDiagnosticBatches(records []dataTaskWorkflowRecord) []dataworkflow.ArtifactDiagnosticBatch {
+	var out []dataworkflow.ArtifactDiagnosticBatch
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil || len(rec.Result.Artifacts) == 0 {
+			continue
 		}
-		for _, child := range current.Children {
-			walk(child)
-		}
+		out = append(out, dataworkflow.ArtifactDiagnosticBatch{
+			Round:     i + 1,
+			Artifacts: rec.Result.Artifacts,
+		})
 	}
-	walk(artifact)
 	return out
 }
 

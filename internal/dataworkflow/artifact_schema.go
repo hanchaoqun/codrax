@@ -497,10 +497,11 @@ func clampArtifactDiagnostic(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	if limit <= 1 {
+	const suffix = "..."
+	if limit <= len(suffix) {
 		return value[:limit]
 	}
-	return value[:limit-1] + "…"
+	return value[:limit-len(suffix)] + suffix
 }
 
 func normalizeAccessPath(value string) string {

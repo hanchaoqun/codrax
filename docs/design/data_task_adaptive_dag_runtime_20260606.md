@@ -12277,3 +12277,49 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 275: Reducer-Owned Empty-Set Artifact Diagnostics
+
+The next IR pass moved the remaining artifact scanning for empty-set
+diagnostics out of the REPL adapter. Before this batch, the guard result itself
+was reducer-owned, but REPL still walked generated artifacts to detect:
+
+- zero-row `filter_records` outputs after non-empty inputs;
+- all-unmatched `apply_entity_resolutions` outputs;
+- zero-eligible `qualify_records` outputs.
+
+Those facts are not UI concerns. They are objective artifact diagnostics that
+belong beside artifact schema projection and ArtifactGraph state. The REPL may
+still decide whether downstream contribution/reconcile stages make the issue
+currently relevant, but the extraction of issue shape, aliases, row counts,
+lineage fields, diagnostic snippets, and repair hints now lives in
+`internal/dataworkflow`.
+
+Changes:
+
+- [x] Added reducer-owned artifact diagnostic issue types for zero-match
+      filters, unmatched resolutions, and zero-eligible qualification outputs.
+- [x] Added reducer-owned artifact/batch scanners that preserve newest-first
+      ordering and suppress stale zero-match aliases when a newer positive
+      filter artifact exists.
+- [x] Changed REPL workflow state assembly to pass only round+artifact batches
+      into `dataworkflow`, while retaining the stage-gating condition in the
+      adapter.
+- [x] Kept emitted `workflow_state_json` field shapes stable while moving the
+      type ownership to `dataworkflow`.
+- [x] Added reducer regression coverage for projection, truncation, stale
+      suppression, unmatched target counts, and zero-eligible diagnostics.
+- [x] Re-ran REPL workflow-state and staging-guard regression coverage.
+
+Current backlog before real-scenario testing:
+
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
