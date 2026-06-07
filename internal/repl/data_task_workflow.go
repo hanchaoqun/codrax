@@ -5551,8 +5551,9 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	state.EntityResolutionRecords = len(dataquery.DedupeEntityResolutionRecords(entityResolutionRecords))
 	state.ContributionRecords = len(dataquery.DedupeContributionRecords(contributionRecords))
 	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
+	facts := dataTaskWorkflowStageFacts(state)
 	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
-	state.LedgerGraph = dataworkflow.BuildLedgerGraph(dataTaskWorkflowStageFacts(state))
+	state.LedgerGraph = dataworkflow.BuildLedgerGraph(facts)
 	state.OutputProjectionGraph = dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
 		Output:                 outputContract,
 		Coverage:               contract,
@@ -6988,21 +6989,17 @@ func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
 }
 
 func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.StageFacts {
-	return dataworkflow.StageFacts{
+	return dataworkflow.BuildStageFacts(dataworkflow.StageFactsInput{
 		MaterialCoverageSufficient: state.MaterialCoverageSufficient,
-		RuleCoverageRequired:       state.RuleCoverageRequired,
+		Coverage:                   state.WorkflowContract,
 		RuleCoverageRecords:        state.RuleCoverageRecords,
-		DecisionRecordsRequired:    state.DecisionRecordsRequired,
 		DecisionRecords:            state.DecisionRecords,
-		EntityResolutionRequired:   state.EntityResolutionRequired,
 		EntityResolutionRecords:    state.EntityResolutionRecords,
 		EntityStageMaterialized:    state.EntityStageMaterialized,
-		ContributionLedgerRequired: state.ContributionLedgerRequired,
 		ContributionRecords:        state.ContributionRecords,
-		ReconcileRequired:          state.ReconcileRequired,
 		HasReconcile:               state.HasReconcile,
 		HasAnswer:                  state.HasAnswer,
-	}
+	})
 }
 
 func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []string {

@@ -32,6 +32,42 @@ func TestNextStageFollowsLedgerProgression(t *testing.T) {
 	}
 }
 
+func TestBuildStageFactsUsesCoverageContractViewAndCounts(t *testing.T) {
+	facts := BuildStageFacts(StageFactsInput{
+		MaterialCoverageSufficient: true,
+		Coverage: CoverageContractView{
+			RuleCoverageRequired:       true,
+			DecisionRecordsRequired:    true,
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		RuleCoverageRecords:     2,
+		DecisionRecords:         3,
+		EntityResolutionRecords: 4,
+		EntityStageMaterialized: true,
+		ContributionRecords:     5,
+		HasReconcile:            true,
+		HasAnswer:               true,
+	})
+	if !facts.MaterialCoverageSufficient ||
+		!facts.RuleCoverageRequired ||
+		!facts.DecisionRecordsRequired ||
+		!facts.EntityResolutionRequired ||
+		!facts.ContributionLedgerRequired ||
+		!facts.ReconcileRequired ||
+		!facts.HasReconcile ||
+		!facts.HasAnswer {
+		t.Fatalf("facts=%+v, want coverage and terminal booleans preserved", facts)
+	}
+	if facts.RuleCoverageRecords != 2 ||
+		facts.DecisionRecords != 3 ||
+		facts.EntityResolutionRecords != 4 ||
+		facts.ContributionRecords != 5 {
+		t.Fatalf("facts=%+v, want ledger counts preserved", facts)
+	}
+}
+
 func TestAllowedNextActionContractsLiveInWorkflowIR(t *testing.T) {
 	contracts := AllowedNextActionContracts(StagePrepareContributionInputs)
 	kinds := strings.Join(ActionKindsFromContracts(contracts), ",")

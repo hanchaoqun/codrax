@@ -36,6 +36,36 @@ type StageFacts struct {
 	HasAnswer                  bool `json:"has_answer,omitempty"`
 }
 
+type StageFactsInput struct {
+	MaterialCoverageSufficient bool
+	Coverage                   CoverageContractView
+	RuleCoverageRecords        int
+	DecisionRecords            int
+	EntityResolutionRecords    int
+	EntityStageMaterialized    bool
+	ContributionRecords        int
+	HasReconcile               bool
+	HasAnswer                  bool
+}
+
+func BuildStageFacts(input StageFactsInput) StageFacts {
+	return StageFacts{
+		MaterialCoverageSufficient: input.MaterialCoverageSufficient,
+		RuleCoverageRequired:       input.Coverage.RuleCoverageRequired,
+		RuleCoverageRecords:        input.RuleCoverageRecords,
+		DecisionRecordsRequired:    input.Coverage.DecisionRecordsRequired,
+		DecisionRecords:            input.DecisionRecords,
+		EntityResolutionRequired:   input.Coverage.EntityResolutionRequired,
+		EntityResolutionRecords:    input.EntityResolutionRecords,
+		EntityStageMaterialized:    input.EntityStageMaterialized,
+		ContributionLedgerRequired: input.Coverage.ContributionLedgerRequired,
+		ContributionRecords:        input.ContributionRecords,
+		ReconcileRequired:          input.Coverage.ReconcileRequired,
+		HasReconcile:               input.HasReconcile,
+		HasAnswer:                  input.HasAnswer,
+	}
+}
+
 type ActionContract struct {
 	Kind          string `json:"kind"`
 	InputBoundary string `json:"input_boundary,omitempty"`

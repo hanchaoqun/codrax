@@ -13852,12 +13852,60 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move calculation of `StageFacts` itself out of the REPL
+- [x] Move calculation of `StageFacts` itself out of the REPL
       `dataTaskWorkflowStateView` adapter and into `dataworkflow` reducer
       inputs.
 - [ ] Move graph construction for `ActionGraph`, `LedgerGraph`,
       `ArtifactGraph`, `ProgressWindow`, and typed violations behind the same
       reducer boundary.
+- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+      snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 307: Stage Facts Reducer Input Builder
+
+Batch 306 made stage decisions read through `WorkflowStateSnapshot`, but the
+mapping from workflow coverage/counts into `StageFacts` still lived in a REPL
+helper. That left a small but important fork risk: a future CLI, repair,
+resume, or deferred path could accidentally rebuild the same facts with a
+different contract/count mapping.
+
+This batch moves the mapping into `internal/dataworkflow` as
+`StageFactsInput` plus `BuildStageFacts`. The REPL adapter now supplies only
+objective inputs: material coverage sufficiency, the workflow coverage
+contract view, ledger counts, entity materialization, reconcile presence, and
+answer presence. The package owns the fact projection used for next-stage and
+allowed-action decisions.
+
+Generic invariants:
+
+- coverage requirements come from the typed workflow contract view;
+- ledger progress comes from typed ledger counts and terminal flags;
+- no business-specific material roles, field names, numeric units, or prompt
+  prose participate in the hard stage facts;
+- this is a reducer boundary migration only and does not change source, trace,
+  log, operation, or write-mode behavior.
+
+Changes:
+
+- [x] Added `StageFactsInput` in `dataworkflow`.
+- [x] Added `BuildStageFacts` to centralize projection from coverage/counts to
+      reducer facts.
+- [x] Rewired the REPL data workflow stage-facts adapter to call the shared
+      builder.
+- [x] Reused the shared facts object when building the ledger graph.
+- [x] Added regression coverage for coverage booleans, ledger counts, and
+      terminal flags flowing into `StageFacts`.
+
+Remaining architecture items:
+
+- [ ] Move graph construction for `ActionGraph`, `LedgerGraph`,
+      `ArtifactGraph`, `ProgressWindow`, and typed violations behind the same
+      reducer boundary.
+- [ ] Add a reducer-level input object that collects material coverage,
+      coverage contract, plan records, deferred queue, and current plan without
+      exposing REPL-local state.
 - [ ] Replace planner/evaluator prompts that consume raw record slices with a
       snapshot plus bounded record views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
