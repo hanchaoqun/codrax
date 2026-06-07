@@ -3772,8 +3772,8 @@ func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan 
 	if errText := dataTaskActionInputAvailabilityGuardError(records, plan, action, actionIndex); errText != "" {
 		return dataTaskGuardResultFromMessage("unavailable_action_input", errText)
 	}
-	if errText := dataTaskActionFieldContractGuardError(records, plan, action, actionIndex); errText != "" {
-		return dataTaskGuardResultFromMessage("action_field_contract_guard", errText)
+	if guard := dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+		return guard
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if contract, ok := dataworkflow.InputPathContract(kind); ok {
@@ -3894,14 +3894,14 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 		return dataworkflow.GuardResult{}
 	}
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	if msg := dataTaskActionZeroMatchFilterInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return dataTaskGuardResultFromMessage("zero_match_filter", msg)
+	if guard := dataTaskActionZeroMatchFilterInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+		return guard
 	}
-	if msg := dataTaskActionUnmatchedResolutionInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return dataTaskGuardResultFromMessage("unmatched_resolution", msg)
+	if guard := dataTaskActionUnmatchedResolutionInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+		return guard
 	}
-	if msg := dataTaskActionZeroEligibleInputGuardError(records, plan, action, actionIndex); msg != "" {
-		return dataTaskGuardResultFromMessage("zero_eligible_records", msg)
+	if guard := dataTaskActionZeroEligibleInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+		return guard
 	}
 	switch kind {
 	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields:
@@ -3980,19 +3980,23 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 }
 
 func dataTaskActionZeroMatchFilterInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionZeroMatchFilterInputGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionZeroMatchFilterInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionJoinRecords, dataquery.DataActionComputeContribs, dataquery.DataActionReconcile, dataquery.DataActionAssembleAnswer:
 	default:
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if len(inputs) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	contract := dataTaskWorkflowCoverageContract(records, plan)
 	if !contract.ContributionLedgerRequired && !contract.ReconcileRequired {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	state := dataTaskWorkflowStateView{
 		ContributionLedgerRequired: contract.ContributionLedgerRequired,
@@ -4005,25 +4009,40 @@ func dataTaskActionZeroMatchFilterInputGuardError(records []dataTaskWorkflowReco
 	}
 	issues := dataTaskWorkflowZeroMatchFilterIssues(records, state, 16)
 	if len(issues) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for _, input := range inputs {
 		inputKey := normalizeDataTaskCoveragePath(input)
 		for _, issue := range issues {
 			for _, alias := range dataTaskZeroMatchFilterIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					return fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-match filter artifact %s (%d/%d rows) while contribution/reconcile is still required. Inspect actual filter field values or rerun filter_records against %s with corrected filters before join_records or compute_contributions; do not continue from an empty candidate set.",
+					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-match filter artifact %s (%d/%d rows) while contribution/reconcile is still required. Inspect actual filter field values or rerun filter_records against %s with corrected filters before join_records or compute_contributions; do not continue from an empty candidate set.",
 						actionIndex+1,
 						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 						firstNonEmptyString(issue.ArtifactID, input),
 						issue.OutputRows,
 						issue.InputRows,
 						firstNonEmptyString(issue.InputPath, "the non-empty source artifact"))
+					reason := firstNonEmptyString(
+						strings.TrimSpace(issue.Reason),
+						fmt.Sprintf("zero-match filter artifact %s produced %d rows from %d input rows", firstNonEmptyString(issue.ArtifactID, input), issue.OutputRows, issue.InputRows),
+					)
+					violation := dataworkflow.NewActionInputViolation(
+						"zero_match_filter",
+						"error",
+						dataworkflow.RepairNeedsTypedAction,
+						action,
+						input,
+						issue.FilterFields,
+						reason,
+						issue.RepairActionHints,
+					)
+					return dataworkflow.NewGuardResult("zero_match_filter", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 				}
 			}
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskZeroMatchFilterIssueAliases(issue dataTaskZeroMatchFilterIssue) []string {
@@ -4035,6 +4054,10 @@ func dataTaskZeroMatchFilterIssueAliases(issue dataTaskZeroMatchFilterIssue) []s
 }
 
 func dataTaskActionUnmatchedResolutionInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionUnmatchedResolutionInputGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionUnmatchedResolutionInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionDeriveFields,
@@ -4049,34 +4072,49 @@ func dataTaskActionUnmatchedResolutionInputGuardError(records []dataTaskWorkflow
 		dataquery.DataActionReconcile,
 		dataquery.DataActionAssembleAnswer:
 	default:
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if len(inputs) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	state := dataTaskWorkflowState(records, plan)
 	issues := dataTaskWorkflowUnmatchedResolutionIssues(records, state, 16)
 	if len(issues) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for _, input := range inputs {
 		inputKey := normalizeDataTaskCoveragePath(input)
 		for _, issue := range issues {
 			for _, alias := range dataTaskUnmatchedResolutionIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					return fmt.Sprintf("data planning incomplete: action %d (%s) consumes all-unmatched resolution artifact %s (base_rows=%d target_fields=[%s]) while contribution/reconcile is still required. Repair apply_entity_resolutions key/role matching against %s before filtering, qualification, join, or contribution calculation.",
+					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes all-unmatched resolution artifact %s (base_rows=%d target_fields=[%s]) while contribution/reconcile is still required. Repair apply_entity_resolutions key/role matching against %s before filtering, qualification, join, or contribution calculation.",
 						actionIndex+1,
 						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 						firstNonEmptyString(issue.ArtifactID, input),
 						issue.BaseRows,
 						strings.Join(issue.TargetFields, ", "),
 						firstNonEmptyString(issue.BasePath, "the base record artifact"))
+					reason := firstNonEmptyString(
+						strings.TrimSpace(issue.Reason),
+						fmt.Sprintf("all-unmatched resolution artifact %s has %d base rows and target fields [%s]", firstNonEmptyString(issue.ArtifactID, input), issue.BaseRows, strings.Join(issue.TargetFields, ", ")),
+					)
+					violation := dataworkflow.NewActionInputViolation(
+						"unmatched_resolution",
+						"error",
+						dataworkflow.RepairNeedsTypedAction,
+						action,
+						input,
+						issue.TargetFields,
+						reason,
+						issue.RepairActionHints,
+					)
+					return dataworkflow.NewGuardResult("unmatched_resolution", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 				}
 			}
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskUnmatchedResolutionIssueAliases(issue dataTaskUnmatchedResolutionIssue) []string {
@@ -4088,37 +4126,56 @@ func dataTaskUnmatchedResolutionIssueAliases(issue dataTaskUnmatchedResolutionIs
 }
 
 func dataTaskActionZeroEligibleInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionZeroEligibleInputGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionZeroEligibleInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionJoinRecords, dataquery.DataActionComputeContribs, dataquery.DataActionReconcile, dataquery.DataActionAssembleAnswer:
 	default:
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if len(inputs) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	state := dataTaskWorkflowState(records, plan)
 	issues := dataTaskWorkflowZeroEligibleIssues(records, state, 16)
 	if len(issues) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for _, input := range inputs {
 		inputKey := normalizeDataTaskCoveragePath(input)
 		for _, issue := range issues {
 			for _, alias := range dataTaskZeroEligibleIssueAliases(issue) {
 				if inputKey != "" && inputKey == normalizeDataTaskCoveragePath(alias) {
-					return fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-eligible qualification artifact %s (%d/%d eligible rows) while contribution/reconcile is still required. Repair the upstream field materialization, resolution application, or qualify_records filters before join_records or compute_contributions.",
+					message := fmt.Sprintf("data planning incomplete: action %d (%s) consumes zero-eligible qualification artifact %s (%d/%d eligible rows) while contribution/reconcile is still required. Repair the upstream field materialization, resolution application, or qualify_records filters before join_records or compute_contributions.",
 						actionIndex+1,
 						firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 						firstNonEmptyString(issue.ArtifactID, input),
 						issue.EligibleRows,
 						issue.InputRows)
+					reason := firstNonEmptyString(
+						strings.TrimSpace(issue.Reason),
+						fmt.Sprintf("zero-eligible qualification artifact %s has %d eligible rows from %d input rows", firstNonEmptyString(issue.ArtifactID, input), issue.EligibleRows, issue.InputRows),
+					)
+					violation := dataworkflow.NewActionInputViolation(
+						"zero_eligible_records",
+						"error",
+						dataworkflow.RepairNeedsTypedAction,
+						action,
+						input,
+						nil,
+						reason,
+						issue.RepairActionHints,
+					)
+					return dataworkflow.NewGuardResult("zero_eligible_records", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 				}
 			}
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskZeroEligibleIssueAliases(issue dataTaskZeroEligibleIssue) []string {

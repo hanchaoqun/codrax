@@ -3440,6 +3440,13 @@ func TestDataTaskWorkflowStagingGuardBlocksZeroMatchFilterInputs(t *testing.T) {
 	if !strings.Contains(errText, "zero-match filter artifact") || !strings.Contains(errText, "po_qualified_base") {
 		t.Fatalf("errText=%q, want zero-match input guard", errText)
 	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "zero_match_filter" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed zero-match guard with violation payload", guard)
+	}
+	if guard.Violations[0].ActionID != "join_empty" || guard.Violations[0].InputAlias != "po_filtered" {
+		t.Fatalf("violation=%+v, want consuming action and blocked input alias", guard.Violations[0])
+	}
 }
 
 func TestDataTaskWorkflowStateProjectsUnmatchedResolutionViolations(t *testing.T) {
@@ -3515,6 +3522,13 @@ func TestDataTaskWorkflowStagingGuardBlocksUnmatchedResolutionInputs(t *testing.
 	if !strings.Contains(errText, "all-unmatched resolution artifact") || !strings.Contains(errText, "apply_entity_resolutions") {
 		t.Fatalf("errText=%q, want all-unmatched resolution guard", errText)
 	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "unmatched_resolution" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed unmatched-resolution guard with violation payload", guard)
+	}
+	if guard.Violations[0].ActionID != "qualify_bad_resolution" || guard.Violations[0].InputAlias != "records_resolved" {
+		t.Fatalf("violation=%+v, want consuming action and blocked input alias", guard.Violations[0])
+	}
 }
 
 func TestDataTaskWorkflowStateProjectsZeroEligibleQualificationViolations(t *testing.T) {
@@ -3583,6 +3597,13 @@ func TestDataTaskWorkflowStagingGuardBlocksZeroEligibleInputs(t *testing.T) {
 	errText := dataTaskWorkflowStagingGuardError(records, plan)
 	if !strings.Contains(errText, "zero-eligible qualification artifact") || !strings.Contains(errText, "compute_contributions") {
 		t.Fatalf("errText=%q, want zero-eligible guard", errText)
+	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "zero_eligible_records" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed zero-eligible guard with violation payload", guard)
+	}
+	if guard.Violations[0].ActionID != "compute_empty" || guard.Violations[0].InputAlias != "qualified" {
+		t.Fatalf("violation=%+v, want consuming action and blocked input alias", guard.Violations[0])
 	}
 }
 

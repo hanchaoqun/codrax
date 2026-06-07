@@ -10261,5 +10261,41 @@ Remaining architecture items:
 - [ ] Convert relation-specific field sub-guards (`join_records`,
       `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
       produce typed field-contract violations instead of wrapped messages.
-- [ ] Persist deeper action guard payloads in per-action process summaries once
+- [x] Persist deeper action guard payloads in per-action process summaries once
       the UX event layer consumes the propagated guard results.
+
+### Batch 233: Typed Zero-Progress Guard Payloads
+
+The workflow state already projected zero-match filters, all-unmatched
+resolution outputs, and zero-eligible qualification outputs as typed graph
+violations. The staging guard path, however, still turned those conditions into
+plain text before repair and checkpoint journaling.
+
+This batch makes those zero-progress blockers return `GuardResult` with an
+embedded `WorkflowViolation` that points to the consuming action and blocked
+input alias. The rendered message remains user-readable, but repair/evaluator
+logic can now consume typed action id, action kind, input alias, idempotency
+key, reason, and repair hints. The mechanism is domain-neutral: it applies to
+any data task whose prior typed action produced an empty/blocked intermediate
+artifact while downstream contribution, reconciliation, or final projection is
+still required.
+
+Changes:
+
+- [x] Added typed guard results for zero-match filter artifacts.
+- [x] Added typed guard results for all-unmatched resolution artifacts.
+- [x] Added typed guard results for zero-eligible qualification artifacts.
+- [x] Parent field-contract guard now returns those typed payloads directly
+      instead of wrapping their rendered messages.
+- [x] Action-dependency staging now propagates field-contract child guard
+      results instead of re-wrapping them under a broad guard code.
+- [x] Added regression coverage that workflow staging exposes guard code and
+      violation payload for all three zero-progress classes.
+
+Remaining architecture items:
+
+- [ ] Convert relation-specific field sub-guards (`join_records`,
+      `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
+      produce typed field-contract violations instead of wrapped messages.
+- [ ] Feed propagated guard payloads into business-facing process summaries
+      without leaking internal graph jargon into normal user output.
