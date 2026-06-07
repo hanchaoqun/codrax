@@ -11,6 +11,7 @@ type DeferredActionCandidate struct {
 	Index         int                  `json:"index"`
 	Action        dataquery.DataAction `json:"action"`
 	Ready         bool                 `json:"ready"`
+	BlockedCode   string               `json:"blocked_code,omitempty"`
 	BlockedReason string               `json:"blocked_reason,omitempty"`
 }
 
@@ -27,12 +28,33 @@ type DeferredDispatchStatus struct {
 	FirstActionID   string `json:"first_action_id,omitempty"`
 	FirstActionKind string `json:"first_action_kind,omitempty"`
 	Ready           bool   `json:"ready,omitempty"`
+	ReasonCode      string `json:"reason_code,omitempty"`
 	Reason          string `json:"reason,omitempty"`
+}
+
+const (
+	DeferredBlockEmpty             = "deferred_empty"
+	DeferredBlockNoAllowedActions  = "no_allowed_next_actions"
+	DeferredBlockInputUnavailable  = "input_unavailable"
+	DeferredBlockFieldContract     = "field_contract_violation"
+	DeferredBlockStageNotAllowed   = "stage_not_allowed"
+	DeferredBlockAdmissionRejected = "admission_rejected"
+	DeferredBlockNotReady          = "not_ready"
+	DeferredQueueLifecycleNone     = "none"
+	DeferredQueueLifecycleRetain   = "retain"
+	DeferredQueueLifecycleDiscard  = "discard"
+)
+
+type DeferredQueueLifecycleDecision struct {
+	Action     string `json:"action"`
+	ReasonCode string `json:"reason_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 func BuildDeferredDispatchPlan(input DeferredDispatchInput) (dataquery.TaskPlan, dataquery.TaskPlan, DeferredDispatchStatus, bool) {
 	status := DeferredDispatchStatus{Actions: len(input.Plan.Actions)}
 	if len(input.Plan.Actions) == 0 {
+		status.ReasonCode = DeferredBlockEmpty
 		status.Reason = "deferred queue is empty"
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
@@ -41,14 +63,16 @@ func BuildDeferredDispatchPlan(input DeferredDispatchInput) (dataquery.TaskPlan,
 	status.FirstActionKind = string(NormalizeActionKind(first.Kind))
 	allowed := allowedActionSet(input.AllowedNextActions)
 	if len(allowed) == 0 {
+		status.ReasonCode = DeferredBlockNoAllowedActions
 		status.Reason = "workflow has no allowed next typed actions"
 		status.BlockedActions = len(input.Plan.Actions)
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
-	keep, rest, reason := selectDeferredReadyRank(input.Plan.Actions, input.Candidates, allowed)
+	keep, rest, reasonCode, reason := selectDeferredReadyRank(input.Plan.Actions, input.Candidates, allowed)
 	status.ReadyActions = len(keep)
 	status.BlockedActions = len(rest)
 	if len(keep) == 0 {
+		status.ReasonCode = firstNonEmpty(reasonCode, DeferredBlockNotReady)
 		status.Reason = firstNonEmpty(reason, "no deferred action is executable from current artifact aliases and field contracts")
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
@@ -70,9 +94,22 @@ func BuildDeferredDispatchPlan(input DeferredDispatchInput) (dataquery.TaskPlan,
 	return next, remainder, status, true
 }
 
-func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []DeferredActionCandidate, allowed map[string]bool) ([]dataquery.DataAction, []dataquery.DataAction, string) {
+func DecideDeferredQueueLifecycle(status DeferredDispatchStatus) DeferredQueueLifecycleDecision {
+	if status.Actions == 0 || status.Ready {
+		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleNone, ReasonCode: status.ReasonCode, Reason: status.Reason}
+	}
+	code := firstNonEmpty(status.ReasonCode, DeferredBlockNotReady)
+	switch code {
+	case DeferredBlockNoAllowedActions, DeferredBlockInputUnavailable, DeferredBlockFieldContract, DeferredBlockStageNotAllowed, DeferredBlockNotReady:
+		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleRetain, ReasonCode: code, Reason: status.Reason}
+	default:
+		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleDiscard, ReasonCode: code, Reason: status.Reason}
+	}
+}
+
+func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []DeferredActionCandidate, allowed map[string]bool) ([]dataquery.DataAction, []dataquery.DataAction, string, string) {
 	if len(actions) == 0 {
-		return nil, nil, "deferred queue is empty"
+		return nil, nil, DeferredBlockEmpty, "deferred queue is empty"
 	}
 	candidateByIndex := map[int]DeferredActionCandidate{}
 	for _, candidate := range candidates {
@@ -81,6 +118,7 @@ func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []Deferr
 		}
 		candidateByIndex[candidate.Index] = candidate
 	}
+	firstBlockedCode := ""
 	firstBlockedReason := ""
 	for i := range actions {
 		candidate, ok := candidateByIndex[i]
@@ -93,12 +131,14 @@ func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []Deferr
 		}
 		if !candidate.Ready {
 			if firstBlockedReason == "" {
+				firstBlockedCode = firstNonEmpty(candidate.BlockedCode, DeferredBlockNotReady)
 				firstBlockedReason = firstNonEmpty(candidate.BlockedReason, deferredBlockedReason(actions[i], "not ready"))
 			}
 			continue
 		}
 		if !deferredActionAllowed(action, allowed) {
 			if firstBlockedReason == "" {
+				firstBlockedCode = DeferredBlockStageNotAllowed
 				firstBlockedReason = deferredBlockedReason(action, "not allowed in current workflow stage")
 			}
 			continue
@@ -132,9 +172,9 @@ func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []Deferr
 			}
 			rest = append(rest, action)
 		}
-		return keep, rest, ""
+		return keep, rest, "", ""
 	}
-	return nil, append([]dataquery.DataAction(nil), actions...), firstBlockedReason
+	return nil, append([]dataquery.DataAction(nil), actions...), firstNonEmpty(firstBlockedCode, DeferredBlockNotReady), firstBlockedReason
 }
 
 func deferredActionAllowed(action dataquery.DataAction, allowed map[string]bool) bool {

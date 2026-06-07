@@ -4726,6 +4726,27 @@ func TestDataTaskDeferredActionRechecksFullWorkflowGuard(t *testing.T) {
 	}
 }
 
+func TestDataTaskDeferredActionCandidateCarriesTypedBlockedCode(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "join_later",
+		Kind:       dataquery.DataActionJoinRecords,
+		InputPaths: []string{"left_records", "missing_right_records"},
+	}
+	candidates := dataTaskDeferredActionCandidates(nil, []dataquery.DataAction{action})
+	if len(candidates) != 1 {
+		t.Fatalf("candidates=%+v, want one candidate", candidates)
+	}
+	if candidates[0].Ready {
+		t.Fatalf("candidate=%+v, want blocked candidate", candidates[0])
+	}
+	if candidates[0].BlockedCode != dataworkflow.DeferredBlockInputUnavailable {
+		t.Fatalf("BlockedCode=%q, want %q", candidates[0].BlockedCode, dataworkflow.DeferredBlockInputUnavailable)
+	}
+	if !strings.Contains(candidates[0].BlockedReason, "missing_right_records") {
+		t.Fatalf("BlockedReason=%q, want missing input detail", candidates[0].BlockedReason)
+	}
+}
+
 func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

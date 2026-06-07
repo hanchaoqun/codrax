@@ -12683,3 +12683,76 @@ Current backlog before real-scenario testing:
       gap by typed IR family first: action contract, artifact graph/schema,
       ledger graph/reconcile, multimodal extraction, or scenario-data
       limitation.
+
+### Batch 283: Deferred Queue Lifecycle As Typed IR
+
+Architecture audit found that the adaptive data lane was drifting back toward
+"test, observe, patch a guard" because some graph lifecycle choices were still
+owned by REPL/CLI loops instead of the workflow IR. The clearest example was
+the deferred action queue: after each successful batch both CLI and REPL tried
+to pop a ready deferred rank, but if the first deferred action was blocked they
+immediately discarded the whole queue. That is a control-flow decision, not a
+UI decision. It should be made by typed ActionDAG lifecycle state.
+
+This is domain-neutral. Any multi-step data workflow can emit useful future
+typed actions before all dependencies are materialized: table joins, extracted
+text fields, reference enrichment, row filtering, contributions, reconcile,
+and final projection. A blocked future node should remain in the graph when it
+is waiting for a future artifact, allowed-stage transition, or field
+materialization. It should be discarded only when typed admission says the
+node itself is structurally invalid.
+
+Generic invariants:
+
+- deferred queue status carries typed reason codes, not only prose;
+- REPL/CLI render and persist lifecycle decisions, but do not decide them;
+- `retain` means "keep the typed graph suffix for later readiness checks"; it
+  does not bypass admission, staging guards, field-contract checks, or runner
+  validation;
+- `discard` is reserved for typed admission rejection or unrecoverable queue
+  shape, not for ordinary dependency wait states;
+- hard branching reads typed enum fields such as `reason_code`, never model
+  prose or localized UI text.
+
+Changes:
+
+- [x] Added deferred blocked reason codes for unavailable inputs, field
+      contract waits, stage-not-allowed waits, admission rejection, empty
+      queues, and missing allowed actions.
+- [x] Added `DecideDeferredQueueLifecycle` in `internal/dataworkflow` so queue
+      retain/discard behavior is centralized in the IR package.
+- [x] Rewired CLI and REPL post-batch loops to consume the typed lifecycle
+      decision instead of always discarding blocked deferred queues.
+- [x] Kept retained queues visible through low-noise workflow progress and log
+      records without appending a synthetic failure record.
+- [x] Added unit coverage proving queue retention is keyed by typed reason code
+      and that REPL candidate construction emits typed blocked codes.
+
+P0 IR closure backlog before the next real-scenario gate:
+
+- [ ] Extract plan admission into a single `ActionDAGAdmission` entrypoint
+      used by initial, continuation, repair, completion-repair, and deferred
+      dispatch paths. REPL/CLI should consume accepted/rejected/deferred IR
+      decisions rather than run local preflight closures.
+- [ ] Move deferred queue storage into live `ActionGraph`/workflow journal
+      instead of an outer REPL/CLI variable. The variable can remain as a
+      compatibility adapter only until the reducer owns enqueue/pop/retain.
+- [ ] Front-load `ArtifactSchemaProjection` into admission so missing fields,
+      incompatible shapes, stale aliases, and metadata-vs-record confusion are
+      typed `WorkflowViolation` objects before execution or model repair.
+- [ ] Promote LedgerGraph from count projection to contract graph: rule,
+      decision, entity resolution, contribution, reconcile, and final
+      projection dependencies should derive the next legal stage and
+      completion gates.
+
+P1 follow-up after P0 closure:
+
+- [ ] Add domain-neutral typed actions for evidence attachment, coverage/value
+      diff, mapping candidates, and projection validation where existing
+      typed actions cannot express the atomic step cleanly.
+- [ ] Feed reducer/process events into CLI/REPL UX so users see business goal,
+      current action purpose, blockage reason, and next step from structured
+      plan fields, with internal counts relegated to audit detail.
+- [ ] Upgrade real-scenario gates from exploratory probes to verification:
+      multi-run stability, terminal journal assertions, stdout strictness,
+      stderr audit visibility, and expected-answer checks.

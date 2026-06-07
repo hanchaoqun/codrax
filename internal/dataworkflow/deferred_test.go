@@ -56,6 +56,7 @@ func TestBuildDeferredDispatchPlanReportsBlockedQueue(t *testing.T) {
 			Index:         0,
 			Action:        deferred.Actions[0],
 			Ready:         false,
+			BlockedCode:   DeferredBlockInputUnavailable,
 			BlockedReason: "right.json is missing",
 		}},
 	})
@@ -64,5 +65,24 @@ func TestBuildDeferredDispatchPlanReportsBlockedQueue(t *testing.T) {
 	}
 	if status.ReadyActions != 0 || status.BlockedActions != 1 || status.Reason != "right.json is missing" {
 		t.Fatalf("status=%+v, want blocked reason from candidate", status)
+	}
+	if status.ReasonCode != DeferredBlockInputUnavailable {
+		t.Fatalf("ReasonCode=%q, want %q", status.ReasonCode, DeferredBlockInputUnavailable)
+	}
+	decision := DecideDeferredQueueLifecycle(status)
+	if decision.Action != DeferredQueueLifecycleRetain || decision.ReasonCode != DeferredBlockInputUnavailable {
+		t.Fatalf("decision=%+v, want retain input-unavailable queue", decision)
+	}
+}
+
+func TestDecideDeferredQueueLifecycleDiscardsAdmissionRejectedQueue(t *testing.T) {
+	status := DeferredDispatchStatus{
+		Actions:    1,
+		ReasonCode: DeferredBlockAdmissionRejected,
+		Reason:     "typed admission rejected the deferred action",
+	}
+	decision := DecideDeferredQueueLifecycle(status)
+	if decision.Action != DeferredQueueLifecycleDiscard {
+		t.Fatalf("decision=%+v, want discard admission-rejected queue", decision)
 	}
 }

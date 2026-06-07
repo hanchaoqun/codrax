@@ -2488,6 +2488,7 @@ func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred data
 	}
 	if errText := dataTaskDeferredDispatchGuardError(records, deferred, next.Actions); errText != "" {
 		state.Reason = errText
+		state.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
 		state.Ready = false
 		return state
 	}
@@ -2507,7 +2508,7 @@ func dataTaskDeferredActionCandidates(records []dataTaskWorkflowRecord, actions 
 		if ok {
 			candidate.Action = readyAction
 		} else {
-			candidate.BlockedReason = dataTaskDeferredActionBlockedReason(records, action)
+			candidate.BlockedCode, candidate.BlockedReason = dataTaskDeferredActionBlockedStatus(records, action)
 		}
 		out = append(out, candidate)
 	}
@@ -2515,6 +2516,11 @@ func dataTaskDeferredActionCandidates(records []dataTaskWorkflowRecord, actions 
 }
 
 func dataTaskDeferredActionBlockedReason(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
+	_, reason := dataTaskDeferredActionBlockedStatus(records, action)
+	return reason
+}
+
+func dataTaskDeferredActionBlockedStatus(records []dataTaskWorkflowRecord, action dataquery.DataAction) (string, string) {
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	if len(inputs) > 0 {
 		covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
@@ -2530,16 +2536,16 @@ func dataTaskDeferredActionBlockedReason(records []dataTaskWorkflowRecord, actio
 			missing = append(missing, input)
 		}
 		if len(missing) > 0 {
-			return fmt.Sprintf("deferred action %s:%s waits for unavailable input alias/material [%s]",
+			return dataworkflow.DeferredBlockInputUnavailable, fmt.Sprintf("deferred action %s:%s waits for unavailable input alias/material [%s]",
 				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 				normalizeDataActionKindForWorkflow(action.Kind),
 				strings.Join(missing, ", "))
 		}
 	}
 	if errText := dataTaskActionFieldContractGuardError(records, dataquery.TaskPlan{}, action, 0); errText != "" {
-		return errText
+		return dataworkflow.DeferredBlockFieldContract, errText
 	}
-	return ""
+	return dataworkflow.DeferredBlockNotReady, ""
 }
 
 func dataTaskDeferredQueueSavedSegment(lang string, deferred dataquery.TaskPlan, reason string) string {
@@ -2589,6 +2595,35 @@ func dataTaskDeferredQueueDiscardedSegment(lang string, deferred dataquery.TaskP
 	parts := []string{fmt.Sprintf("discarded deferred typed queue with %d action(s)", len(deferred.Actions))}
 	if first != "" {
 		parts = append(parts, "first "+first)
+	}
+	if reason != "" {
+		parts = append(parts, reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func dataTaskDeferredQueueRetainedSegment(lang string, state dataTaskDeferredQueueState) string {
+	reason := oneLineClamp(state.Reason, 180)
+	action := firstNonEmptyString(state.FirstActionID, state.FirstActionKind, "deferred action")
+	if isZh(lang) {
+		parts := []string{fmt.Sprintf("延后队列已保留：首个 %s 尚未就绪", action)}
+		if state.ReadyActions > 0 || state.BlockedActions > 0 {
+			parts = append(parts, fmt.Sprintf("ready=%d blocked=%d", state.ReadyActions, state.BlockedActions))
+		}
+		if strings.TrimSpace(state.ReasonCode) != "" {
+			parts = append(parts, "原因码 "+state.ReasonCode)
+		}
+		if reason != "" {
+			parts = append(parts, reason)
+		}
+		return strings.Join(parts, "；")
+	}
+	parts := []string{fmt.Sprintf("retained deferred queue: first %s is not ready", action)}
+	if state.ReadyActions > 0 || state.BlockedActions > 0 {
+		parts = append(parts, fmt.Sprintf("ready=%d blocked=%d", state.ReadyActions, state.BlockedActions))
+	}
+	if strings.TrimSpace(state.ReasonCode) != "" {
+		parts = append(parts, "reason_code "+state.ReasonCode)
 	}
 	if reason != "" {
 		parts = append(parts, reason)

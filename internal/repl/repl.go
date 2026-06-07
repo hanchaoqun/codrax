@@ -1852,10 +1852,20 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
-			if strings.TrimSpace(status.Reason) != "" {
-				records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
+			switch decision.Action {
+			case dataworkflow.DeferredQueueLifecycleRetain:
+				r.emitDataTaskWorkflowAudit("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(r.language, status))
+				logging.Info("[repl/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
+					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
+			case dataworkflow.DeferredQueueLifecycleDiscard:
+				if strings.TrimSpace(status.Reason) != "" {
+					records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+				}
+				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
+			default:
+				deferredPlan = dataquery.TaskPlan{}
 			}
-			discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
 		} else {
 			deferredPlan = dataquery.TaskPlan{}
 		}

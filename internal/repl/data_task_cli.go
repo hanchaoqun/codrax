@@ -469,10 +469,20 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
-			if strings.TrimSpace(status.Reason) != "" {
-				records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
+			switch decision.Action {
+			case dataworkflow.DeferredQueueLifecycleRetain:
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
+				logging.Info("[cli/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
+					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
+			case dataworkflow.DeferredQueueLifecycleDiscard:
+				if strings.TrimSpace(status.Reason) != "" {
+					records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+				}
+				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
+			default:
+				deferredPlan = dataquery.TaskPlan{}
 			}
-			discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
 		} else {
 			deferredPlan = dataquery.TaskPlan{}
 		}
