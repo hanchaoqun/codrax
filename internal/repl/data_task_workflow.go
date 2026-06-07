@@ -364,7 +364,7 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 	if normalizeDataTaskPlanPathLists(&plan) {
 		reasons = append(reasons, "normalized comma-separated path lists in data plan fields")
 	}
-	if normalizeDataTaskRolePathActionInputs(&plan) {
+	if dataworkflow.NormalizeRolePathActionInputs(&plan) {
 		reasons = append(reasons, "filled typed action input_paths from role path params")
 	}
 	if normalizeDataTaskMaterializationActionInputs(&plan) {
@@ -507,84 +507,6 @@ func normalizeDataTaskMaterializationActionInputs(plan *dataquery.TaskPlan) bool
 		changed = true
 	}
 	return changed
-}
-
-func normalizeDataTaskRolePathActionInputs(plan *dataquery.TaskPlan) bool {
-	if plan == nil || len(plan.Actions) == 0 {
-		return false
-	}
-	changed := false
-	for i := range plan.Actions {
-		roleInputs := dataTaskActionRoleInputPaths(plan.Actions[i])
-		if len(roleInputs) == 0 {
-			continue
-		}
-		next := mergeDataTaskInputPaths(plan.Actions[i].InputPaths, roleInputs)
-		if strings.Join(next, "\x00") == strings.Join(cleanDataTaskStrings(plan.Actions[i].InputPaths), "\x00") {
-			continue
-		}
-		plan.Actions[i].InputPaths = next
-		changed = true
-	}
-	return changed
-}
-
-func dataTaskActionRoleInputPaths(action dataquery.DataAction) []string {
-	params := action.Params
-	if len(params) == 0 {
-		return nil
-	}
-	switch normalizeDataActionKindForWorkflow(action.Kind) {
-	case dataquery.DataActionNormalizeEntities:
-		return cleanDataTaskStrings([]string{
-			params["source_path"],
-			params["base_path"],
-			params["record_path"],
-			params["reference_path"],
-			params["lookup_path"],
-			params["mapping_path"],
-		})
-	case dataquery.DataActionEnrichRecords:
-		return cleanDataTaskStrings([]string{
-			params["base_path"],
-			params["source_path"],
-			params["record_path"],
-			params["reference_path"],
-			params["lookup_path"],
-			params["mapping_path"],
-		})
-	case dataquery.DataActionJoinRecords:
-		return cleanDataTaskStrings([]string{
-			params["left_path"],
-			params["right_path"],
-			params["base_path"],
-			params["reference_path"],
-		})
-	case dataquery.DataActionApplyResolutions:
-		paths := []string{
-			params["base_path"],
-			params["record_path"],
-			params["source_path"],
-			params["resolution_path"],
-			params["mapping_path"],
-			params["lookup_path"],
-			params["reference_path"],
-		}
-		for _, spec := range dataTaskActionObjectListParam(params, "resolution_specs_json", "resolution_specs") {
-			paths = append(paths,
-				dataTaskMapStringValue(spec, "base_path"),
-				dataTaskMapStringValue(spec, "record_path"),
-				dataTaskMapStringValue(spec, "source_path"),
-				dataTaskMapStringValue(spec, "resolution_path"),
-				dataTaskMapStringValue(spec, "mapping_path"),
-				dataTaskMapStringValue(spec, "lookup_path"),
-				dataTaskMapStringValue(spec, "reference_path"),
-			)
-		}
-		return cleanDataTaskStrings(paths)
-	default:
-		return nil
-	}
 }
 
 func dataTaskActionCanInheritBatchInputs(action dataquery.DataAction) bool {
@@ -1237,7 +1159,7 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 func prepareDataTaskWorkflowPlanForExecution(userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
 	plan = applyDataTaskUserMaterialFloor(userLine, candidates, plan)
 	normalizeDataTaskPlanPathLists(&plan)
-	normalizeDataTaskRolePathActionInputs(&plan)
+	dataworkflow.NormalizeRolePathActionInputs(&plan)
 	if bootstrap, ok := dataTaskCandidateInventoryBootstrapPlan(candidates, records, plan); ok {
 		return bootstrap
 	}

@@ -9244,9 +9244,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Promote role-path normalization into `internal/dataworkflow` as an
+- [x] Promote role-path normalization into `internal/dataworkflow` as an
       ActionDAG normalization pass shared by REPL, CLI, and future batch
-      schedulers.
+      schedulers. Completed in Batch 205.
 - [ ] Represent diagnostic child artifacts and aggregate ledger handles as
       typed `ArtifactGraph` node classes instead of local REPL predicates.
 - [ ] Add typed scaffold eligibility diagnostics so skipped scaffolds are
@@ -9335,3 +9335,46 @@ Remaining architecture items:
 - [ ] Add `artifact_schema_projection` validation to action guards so typed
       actions consume exact executable schema contracts instead of prompt
       samples.
+
+### Batch 205: Shared ActionDAG Role-Path Normalization
+
+Batch 202 fixed role-path drift at the REPL boundary. That was useful but still
+left a copy of ActionDAG edge normalization in the wrong layer. If role paths
+are structural action parameters, then converting them into executable
+`input_paths` is part of the graph normalization pass, not a UI/runtime-local
+helper.
+
+This batch moves the pass into `internal/dataworkflow` without changing
+business semantics:
+
+- `normalize_entities`, `enrich_records`, `join_records`, and
+  `apply_entity_resolutions` can declare role-specific paths such as
+  source/reference, left/right, base/record, resolution/reference;
+- the shared normalizer appends those role paths to action `input_paths` in
+  stable order and deduplicates exact aliases;
+- nested resolution specs are parsed only as typed JSON objects/arrays, not as
+  prose;
+- the normalizer does not infer field mappings, business meaning, filter
+  values, or which records should contribute to an answer.
+
+Changes:
+
+- [x] Added `dataworkflow.NormalizeRolePathActionInputs` and
+      `ActionRoleInputPaths`.
+- [x] Replaced the REPL-local implementation with calls into the shared
+      dataworkflow pass.
+- [x] Kept both plan-shape normalization and execution preparation on the same
+      pass, so initial, continuation, repair, fallback, and deferred plans
+      share one boundary.
+- [x] Added regression coverage for normalize/enrich/join/apply-resolution
+      role paths, nested resolution specs, input ordering, and no-op behavior
+      when a plan is already normalized.
+
+Remaining architecture items:
+
+- [ ] Make the full ActionDAG reducer call normalization before every graph
+      readiness and idempotency calculation, rather than relying on each caller
+      to remember the pass.
+- [ ] Persist normalized action nodes and pre-normalization params in
+      data-audit snapshots so execution edges can be audited without replaying
+      planner prompts.
