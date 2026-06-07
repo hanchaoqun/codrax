@@ -11248,7 +11248,55 @@ Remaining architecture items:
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
 - [ ] Move repeated-node typed repair plans into reducer transitions where
-      they depend only on typed violations and contracts.
+      they depend only on typed violations and contracts. Repeated-failure
+      detection and custom-transform guard construction moved in Batch 255;
+      deterministic replacement plan generation remains open.
+- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 255: Typed Repeated-Failure Guards
+
+The next reducer pass moved repeated-failure detection and repeated
+custom-transform guard construction out of REPL-local helpers. These checks are
+not display behavior: they decide when the workflow should stop retrying the
+same failed node or the same broad custom-transform failure class and force the
+graph to expand through typed actions.
+
+The generalized invariant is:
+
+- repeated-node detection uses typed `DataTaskViolation` fields such as
+  `action_id` and `action_kind`, not model prose;
+- custom-transform cooldown guards are typed `WorkflowViolation` /
+  `GuardResult` values produced by `internal/dataworkflow`;
+- adapters still collect local history and decide whether an action is broad or
+  whole-workflow shaped, but the failure counting and guard text no longer live
+  in UI code;
+- these guards only block unsafe repetition and guide repair; they do not infer
+  business semantics or choose domain-specific fixes.
+
+Changes:
+
+- [x] Added `ViolationNodeKey` and `RepeatedNodeFailureFromErrors`.
+- [x] Added `RepeatedCustomTransformGuardResult`.
+- [x] Added `CustomTransformFailureClassStats`.
+- [x] Added `RepeatedCustomTransformClassGuardResult`.
+- [x] Changed REPL repeated-node and custom-transform failure helpers to
+      delegate typed counting and guard construction to `internal/dataworkflow`.
+- [x] Added reducer regression coverage for repeated node detection, repeated
+      custom-transform node guard, and repeated custom-transform failure class
+      guard.
+
+Remaining architecture items:
+
+- [ ] Generate deterministic replacement plans for repeated typed failures
+      when the violation carries enough structural context; otherwise continue
+      to planner expansion with typed guard state.
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
 - [ ] Separate prompt-only scaffolds from executable scaffolds where a template
       cannot be made concrete from `ArtifactSchemaProjection`.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event

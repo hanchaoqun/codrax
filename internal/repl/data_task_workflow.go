@@ -54,33 +54,7 @@ func normalizeDataTaskMaxDataRounds(value int) int {
 }
 
 func dataTaskRepeatedNodeFailure(records []dataTaskWorkflowRecord, currentErr string, limit int) (key string, count int, repeated bool) {
-	if limit <= 0 {
-		limit = DefaultDataTaskMaxNodeFailures
-	}
-	current := dataquery.ClassifyExecutionError(currentErr)
-	key = dataTaskViolationNodeKey(current)
-	if key == "" {
-		return "", 0, false
-	}
-	count = 1
-	for _, rec := range records {
-		if strings.TrimSpace(rec.Err) == "" {
-			continue
-		}
-		if dataTaskViolationNodeKey(dataquery.ClassifyExecutionError(rec.Err)) == key {
-			count++
-		}
-	}
-	return key, count, count >= limit
-}
-
-func dataTaskViolationNodeKey(v dataquery.DataTaskViolation) string {
-	id := strings.TrimSpace(v.ActionID)
-	if id == "" {
-		return ""
-	}
-	kind := strings.TrimSpace(v.ActionKind)
-	return id + "|" + kind
+	return dataworkflow.RepeatedNodeFailureFromErrors(dataTaskWorkflowErrorTexts(records), currentErr, limit)
 }
 
 func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
@@ -4926,68 +4900,44 @@ func dataTaskPlanIsGeneratedArtifactDiagnostic(records []dataTaskWorkflowRecord,
 }
 
 func dataTaskRepeatedCustomTransformGuardError(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
-	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform {
-		return ""
-	}
-	actionID := strings.TrimSpace(action.ID)
-	if actionID == "" {
-		return ""
-	}
-	key := actionID + "|" + string(dataquery.DataActionCustomTransform)
-	count := 0
+	return dataworkflow.RepeatedCustomTransformGuardResult(action, dataTaskWorkflowErrorTexts(records), DefaultDataTaskMaxNodeFailures).ErrorText()
+}
+
+func dataTaskRepeatedCustomTransformClassGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	broad := dataTaskActionHasBroadPrerequisiteSurface(plan, action) || dataTaskActionLooksLikeWholeWorkflow(plan, action, actionIndex)
+	return dataworkflow.RepeatedCustomTransformClassGuardResult(
+		action,
+		broad,
+		dataTaskCustomTransformFailureErrors(records),
+		DefaultDataTaskMaxCustomTransformClassFailures,
+		DefaultDataTaskMaxNodeFailures,
+	).ErrorText()
+}
+
+func dataTaskCustomTransformFailureClassStats(records []dataTaskWorkflowRecord) (total int, topCode string, topCodeCount int) {
+	return dataworkflow.CustomTransformFailureClassStats(dataTaskCustomTransformFailureErrors(records))
+}
+
+func dataTaskWorkflowErrorTexts(records []dataTaskWorkflowRecord) []string {
+	var out []string
 	for _, rec := range records {
 		if strings.TrimSpace(rec.Err) == "" {
 			continue
 		}
-		if dataTaskViolationNodeKey(dataquery.ClassifyExecutionError(rec.Err)) == key {
-			count++
-		}
+		out = append(out, rec.Err)
 	}
-	if count < DefaultDataTaskMaxNodeFailures {
-		return ""
-	}
-	return fmt.Sprintf("data planning incomplete: custom_transform node %q already failed %d time(s). Do not retry the same free-form script node; replace it with smaller typed atomic actions such as extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts, or emit a new narrow custom_transform over one known artifact.",
-		actionID, count)
+	return out
 }
 
-func dataTaskRepeatedCustomTransformClassGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
-		return ""
-	}
-	if !dataTaskActionHasBroadPrerequisiteSurface(plan, action) && !dataTaskActionLooksLikeWholeWorkflow(plan, action, actionIndex) {
-		return ""
-	}
-	total, topCode, topCodeCount := dataTaskCustomTransformFailureClassStats(records)
-	if total < DefaultDataTaskMaxCustomTransformClassFailures && topCodeCount < DefaultDataTaskMaxNodeFailures {
-		return ""
-	}
-	codeHint := ""
-	if topCode != "" {
-		codeHint = fmt.Sprintf(" most_common_failure=%s count=%d.", topCode, topCodeCount)
-	}
-	return fmt.Sprintf("data planning incomplete: workflow already has %d custom_transform failure(s).%s Do not bypass this by changing action_id; avoid another broad free-form script. Continue with typed atomic actions that produce reusable artifacts and consume fields from artifact_access.",
-		total, codeHint)
-}
-
-func dataTaskCustomTransformFailureClassStats(records []dataTaskWorkflowRecord) (total int, topCode string, topCodeCount int) {
-	counts := map[string]int{}
+func dataTaskCustomTransformFailureErrors(records []dataTaskWorkflowRecord) []string {
+	var out []string
 	for _, rec := range records {
 		if strings.TrimSpace(rec.Err) == "" || !dataTaskRecordHasCustomTransformScript(rec) {
 			continue
 		}
-		total++
-		v := dataquery.ClassifyExecutionError(rec.Err)
-		code := strings.TrimSpace(v.Code)
-		if code == "" {
-			code = "unknown_custom_transform_failure"
-		}
-		counts[code]++
-		if counts[code] > topCodeCount {
-			topCode = code
-			topCodeCount = counts[code]
-		}
+		out = append(out, rec.Err)
 	}
-	return total, topCode, topCodeCount
+	return out
 }
 
 func dataTaskRecordHasCustomTransformScript(rec dataTaskWorkflowRecord) bool {
