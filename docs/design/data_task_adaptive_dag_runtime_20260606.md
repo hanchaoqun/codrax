@@ -12584,3 +12584,58 @@ Current backlog before real-scenario testing:
       gap by typed IR family first: action contract, artifact graph/schema,
       ledger graph/reconcile, multimodal extraction, or scenario-data
       limitation.
+
+### Batch 281: Non-Regressive Ledger Side-Gaps
+
+The next real-scenario run showed that the workflow could now pass lineage and
+deferred input narrowing, but it exposed a deeper state-machine problem. The
+graph had already materialized normalized/enriched record artifacts and a
+deferred `qualify_records` node. Because no `rule_coverage` records had been
+emitted yet, the linear `NextStage` reducer reset to `derive_rules`; the
+deferred queue then discarded the ready qualification node as "not allowed in
+current workflow stage". The planner repaired by deriving rules, but then
+started redoing entity-resolution work that had already succeeded.
+
+This is a generic workflow-IR issue. Rule coverage, decision records,
+contribution ledgers, and reconcile reports are validation ledgers; missing
+one should remain visible, but it must not erase already materialized ActionDAG
+progress. A late ledger side-gap should be repairable without making ready
+downstream graph nodes illegal.
+
+Generic invariants:
+
+- material coverage remains the hard first gate;
+- missing rule coverage is the next stage only before downstream graph
+  progress exists, or after contribution/reconcile work is complete and the
+  workflow is about to answer;
+- once entity/contribution preparation has materialized, missing rule coverage
+  becomes a side ledger gap: `derive_rules` stays allowed, but it no longer
+  monopolizes `allowed_next_actions`;
+- deferred dispatch filters on the facts-aware allowed action contract, so a
+  ready typed node is not discarded merely because an audit ledger also needs
+  catch-up;
+- final completion still requires all requested ledgers. This change affects
+  scheduling, not validation strictness.
+
+Changes:
+
+- [x] Added `StageFacts.HasPostRuleProgress()` and made `NextStage` avoid
+      regressing to `derive_rules` after post-rule graph progress exists.
+- [x] Kept a catch-up `derive_rules` stage before final answer projection when
+      rule coverage is still missing after downstream ledgers are complete.
+- [x] Added facts-aware `AllowedNextActionContractsForFacts`, which prepends a
+      `derive_rules` side action while preserving the current graph-stage
+      actions.
+- [x] Updated data workflow state to consume the facts-aware contract instead
+      of stage-only contracts.
+- [x] Added reducer and REPL regression coverage proving a deferred
+      `qualify_records` node remains dispatchable while rule coverage is still
+      a missing side ledger.
+
+Current backlog before real-scenario testing:
+
+- [ ] Re-run the latest binary through the real-scenario gate after this batch
+      passes full tests. If it still fails, classify the next terminal journal
+      gap by typed IR family first: action contract, artifact graph/schema,
+      ledger graph/reconcile, multimodal extraction, or scenario-data
+      limitation.

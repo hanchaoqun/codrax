@@ -4798,6 +4798,66 @@ func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.
 	}
 }
 
+func TestDataTaskDeferredActionDoesNotDropOnSideRuleCoverageGap(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+				DecisionRecordsRequired:    true,
+				RuleCoverageRequired:       true,
+				EntityResolutionRequired:   true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				ItemID:      dataquery.LooseText("orders.csv#1:entity"),
+				CanonicalID: dataquery.LooseText("E1"),
+				Status:      dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_ready",
+				Kind:    string(dataquery.DataActionJoinRecords),
+				Headers: []string{"id", "year", "currency", "status", "amount"},
+				Fields:  map[string]string{"artifact_aliases": "orders_ready", "json_shape": "array(len=2,item=object(keys=id,year,currency,status,amount))"},
+			}},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.NextStage != dataworkflow.StagePrepareContributionInputs {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
+	}
+	kinds := strings.Join(state.AllowedNextActions, ",")
+	if !strings.Contains(kinds, string(dataquery.DataActionDeriveRules)) || !strings.Contains(kinds, string(dataquery.DataActionQualifyRecords)) {
+		t.Fatalf("AllowedNextActions=%v, want side derive_rules plus qualify_records", state.AllowedNextActions)
+	}
+	deferred := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:             "qualify_orders",
+			Kind:           dataquery.DataActionQualifyRecords,
+			InputPaths:     []string{"orders_ready"},
+			OutputArtifact: "eligible_orders",
+			Params: map[string]string{
+				"filters_json":    `[{"field":"year","op":"eq","value":"2026"},{"field":"currency","op":"eq","value":"CNY"}]`,
+				"required_fields": `["id","status","amount"]`,
+			},
+		}},
+	}
+	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	if !ok {
+		t.Fatalf("deferred qualify_records was not dispatched with side rule gap: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+	}
+	if len(next.Actions) != 1 || next.Actions[0].ID != "qualify_orders" {
+		t.Fatalf("next actions=%+v, want qualify_orders", next.Actions)
+	}
+}
+
 func TestDataTaskDeferredActionResumesApplyResolutionsAfterNormalizeRank(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Result: &dataquery.Result{

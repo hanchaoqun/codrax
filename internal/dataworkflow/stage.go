@@ -47,7 +47,8 @@ func NextStage(facts StageFacts) string {
 	if !facts.MaterialCoverageSufficient {
 		return StageCoverRequiredMaterials
 	}
-	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 {
+	ruleCoverageMissing := facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0
+	if ruleCoverageMissing && !facts.HasPostRuleProgress() {
 		return StageDeriveRules
 	}
 	if facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized {
@@ -59,6 +60,9 @@ func NextStage(facts StageFacts) string {
 	if facts.ReconcileRequired && !facts.HasReconcile {
 		return StageReconcileArtifacts
 	}
+	if ruleCoverageMissing {
+		return StageDeriveRules
+	}
 	if !facts.HasAnswer {
 		if !facts.RuleCoverageRequired && !facts.EntityResolutionRequired && !facts.ContributionLedgerRequired && !facts.ReconcileRequired {
 			return StageComputeContributions
@@ -66,6 +70,15 @@ func NextStage(facts StageFacts) string {
 		return StageEmitOutputContractAnswer
 	}
 	return StageComplete
+}
+
+func (facts StageFacts) HasPostRuleProgress() bool {
+	return facts.EntityStageMaterialized ||
+		facts.EntityResolutionRecords > 0 ||
+		facts.DecisionRecords > 0 ||
+		facts.ContributionRecords > 0 ||
+		facts.HasReconcile ||
+		facts.HasAnswer
 }
 
 func MissingValidationStages(facts StageFacts) []string {
@@ -128,15 +141,21 @@ func TerminalWorkflowGuardResult(status string, facts StageFacts, allowedNextAct
 	return NewGuardResult("unfinished_validation_stage", "error", RepairNeedsTypedAction, msg, violation)
 }
 
-func AllowedNextActionContracts(stage string) []ActionContract {
-	contract := func(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
-		return ActionContract{
-			Kind:          string(kind),
-			InputBoundary: boundary,
-			UseWhen:       useWhen,
-			Output:        output,
-		}
+func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
+	return ActionContract{
+		Kind:          string(kind),
+		InputBoundary: boundary,
+		UseWhen:       useWhen,
+		Output:        output,
 	}
+}
+
+func deriveRulesActionContract() ActionContract {
+	return actionContract(dataquery.DataActionDeriveRules, "rule/constraint/instruction materials or explicit rules_json only", "emit missing rule_coverage records as an audit ledger without resetting already materialized graph progress", "rule coverage artifact and records")
+}
+
+func AllowedNextActionContracts(stage string) []ActionContract {
+	contract := actionContract
 	switch stage {
 	case StageCoverRequiredMaterials:
 		return []ActionContract{
@@ -212,6 +231,30 @@ func AllowedNextActionContracts(stage string) []ActionContract {
 	default:
 		return nil
 	}
+}
+
+func AllowedNextActionContractsForFacts(facts StageFacts) []ActionContract {
+	stage := NextStage(facts)
+	contracts := AllowedNextActionContracts(stage)
+	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && stage != StageCoverRequiredMaterials && stage != StageDeriveRules {
+		contracts = prependUniqueActionContract(contracts, deriveRulesActionContract())
+	}
+	return contracts
+}
+
+func prependUniqueActionContract(contracts []ActionContract, extra ActionContract) []ActionContract {
+	if strings.TrimSpace(extra.Kind) == "" {
+		return contracts
+	}
+	for _, contract := range contracts {
+		if strings.TrimSpace(contract.Kind) == strings.TrimSpace(extra.Kind) {
+			return contracts
+		}
+	}
+	out := make([]ActionContract, 0, len(contracts)+1)
+	out = append(out, extra)
+	out = append(out, contracts...)
+	return out
 }
 
 func ActionKindsFromContracts(contracts []ActionContract) []string {

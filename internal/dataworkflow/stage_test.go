@@ -16,8 +16,10 @@ func TestNextStageFollowsLedgerProgression(t *testing.T) {
 		{name: "needs material coverage", facts: StageFacts{}, want: StageCoverRequiredMaterials},
 		{name: "needs rules", facts: StageFacts{MaterialCoverageSufficient: true, RuleCoverageRequired: true}, want: StageDeriveRules},
 		{name: "needs entity resolution", facts: StageFacts{MaterialCoverageSufficient: true, EntityResolutionRequired: true}, want: StageNormalizeOrEnrichEntities},
+		{name: "missing rules do not reset materialized downstream graph", facts: StageFacts{MaterialCoverageSufficient: true, RuleCoverageRequired: true, EntityResolutionRequired: true, EntityResolutionRecords: 3, EntityStageMaterialized: true, ContributionLedgerRequired: true}, want: StagePrepareContributionInputs},
 		{name: "needs contributions", facts: StageFacts{MaterialCoverageSufficient: true, EntityResolutionRequired: true, EntityStageMaterialized: true, ContributionLedgerRequired: true}, want: StagePrepareContributionInputs},
 		{name: "needs reconcile", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true}, want: StageReconcileArtifacts},
+		{name: "missing rules catch up before answer projection", facts: StageFacts{MaterialCoverageSufficient: true, RuleCoverageRequired: true, EntityResolutionRequired: true, EntityResolutionRecords: 3, EntityStageMaterialized: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true}, want: StageDeriveRules},
 		{name: "needs answer projection", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true}, want: StageEmitOutputContractAnswer},
 		{name: "complete", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true, HasAnswer: true}, want: StageComplete},
 	}
@@ -47,6 +49,27 @@ func TestAllowedNextActionContractsLiveInWorkflowIR(t *testing.T) {
 	filtered := strings.Join(ActionKindsFromContracts(FilterCustomTransformContracts(AllowedNextActionContracts(StageNormalizeOrEnrichEntities))), ",")
 	if strings.Contains(filtered, string(dataquery.DataActionCustomTransform)) {
 		t.Fatalf("filtered contracts still include custom_transform: %s", filtered)
+	}
+}
+
+func TestAllowedNextActionContractsForFactsIncludesSideRuleCoverage(t *testing.T) {
+	contracts := AllowedNextActionContractsForFacts(StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		EntityResolutionRequired:   true,
+		EntityResolutionRecords:    2,
+		EntityStageMaterialized:    true,
+		ContributionLedgerRequired: true,
+	})
+	kinds := strings.Join(ActionKindsFromContracts(contracts), ",")
+	for _, want := range []string{
+		string(dataquery.DataActionDeriveRules),
+		string(dataquery.DataActionQualifyRecords),
+		string(dataquery.DataActionComputeContribs),
+	} {
+		if !strings.Contains(kinds, want) {
+			t.Fatalf("allowed kinds=%s, want %s", kinds, want)
+		}
 	}
 }
 

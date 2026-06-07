@@ -7059,7 +7059,7 @@ func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []strin
 }
 
 func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView) []dataTaskActionContract {
-	return dataworkflow.AllowedNextActionContracts(state.NextStage)
+	return dataworkflow.AllowedNextActionContractsForFacts(dataTaskWorkflowStageFacts(state))
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
