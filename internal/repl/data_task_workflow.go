@@ -1764,9 +1764,8 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 		}
 		if kind == dataquery.DataActionCustomTransform &&
 			dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
-			if missing := dataTaskMissingCustomTransformPrerequisites(records, plan, action, i); len(missing) > 0 {
-				return fmt.Sprintf("data planning incomplete: broad custom_transform action %d (%s) reads or depends on %d material(s) that were not covered by prior typed actions/results: %s. First add smaller atomic actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records for the missing inputs, then use custom_transform only as a bounded transform over known materials.",
-					i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(missing), strings.Join(missing, ", "))
+			if guard := dataTaskBroadCustomPrerequisiteGuardResult(records, plan, action, i); !guard.Empty() {
+				return guard.ErrorText()
 			}
 			if lines >= dataTaskComplexCustomScriptLineLimit && dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
 				return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Prior coverage of materials does not make one script a valid substitute for the remaining data DAG. Continue with typed actions such as derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform over known artifacts.",
@@ -4997,27 +4996,35 @@ func dataTaskCustomTransformRawMaterialInputs(records []dataTaskWorkflowRecord, 
 }
 
 func dataTaskBroadCustomPrerequisiteGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskBroadCustomPrerequisiteGuardResult(records, plan, dataquery.DataAction{}, -1).ErrorText()
+}
+
+func dataTaskBroadCustomPrerequisiteGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, target dataquery.DataAction, targetIndex int) dataworkflow.GuardResult {
 	if len(plan.Actions) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for i, action := range plan.Actions {
+		if targetIndex >= 0 && i != targetIndex {
+			continue
+		}
+		if targetIndex < 0 && strings.TrimSpace(target.ID) != "" && strings.TrimSpace(action.ID) != strings.TrimSpace(target.ID) {
+			continue
+		}
 		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform {
 			continue
 		}
-		if strings.TrimSpace(action.Script) == "" {
-			continue
-		}
-		if !dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
-			continue
-		}
 		missing := dataTaskMissingCustomTransformPrerequisites(records, plan, action, i)
-		if len(missing) == 0 {
-			continue
+		guard := dataworkflow.BroadCustomPrerequisiteGuardResult(dataworkflow.BroadCustomPrerequisiteGuardInput{
+			Action:      action,
+			ActionIndex: i,
+			IsBroad:     dataTaskActionHasBroadPrerequisiteSurface(plan, action),
+			Missing:     missing,
+		})
+		if !guard.Empty() {
+			return guard
 		}
-		return fmt.Sprintf("data planning incomplete: broad custom_transform action %d (%s) reads or depends on %d material(s) that were not covered by prior typed actions/results: %s. First add smaller atomic actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records for the missing inputs, then use custom_transform only as a bounded transform over known materials.",
-			i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(missing), strings.Join(missing, ", "))
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskMissingCustomTransformPrerequisites(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) []string {

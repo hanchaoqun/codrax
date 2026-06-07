@@ -11813,3 +11813,50 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 266: Reducer-Owned Broad Custom Prerequisite Guard
+
+The next IR pass moved the broad `custom_transform` prerequisite guard into
+`internal/dataworkflow`. Before this batch, the REPL adapter computed missing
+prerequisite paths and also built the hard guard prose when a broad transform
+tried to consume materials that had not been covered by prior typed actions or
+results.
+
+This is a generic graph-readiness invariant. A broad leaf fallback may only run
+when its declared inputs are already covered by the workflow graph. The reducer
+does not compute coverage from files or infer business meaning; it consumes the
+typed action shape, a boolean broadness signal, and the missing prerequisite
+path set projected by the adapter. The result is a typed guard/violation with
+action identity and missing input aliases.
+
+Changes:
+
+- [x] Added `BroadCustomPrerequisiteGuardInput` and
+      `BroadCustomPrerequisiteGuardResult` in `internal/dataworkflow`.
+- [x] Changed REPL workflow action staging to call the reducer guard instead
+      of formatting the broad-prerequisite error inline.
+- [x] Changed the existing broad-prerequisite string helper into a compatibility
+      adapter over the reducer guard.
+- [x] Preserved the existing coverage-set calculation in the REPL adapter until
+      the broader ArtifactGraph/MaterialGraph reducers own that projection.
+- [x] Added reducer regression coverage for missing prerequisites, non-broad
+      actions, covered actions, typed actions, and empty-script transforms.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining REPL adapter-owned scheduling predicates behind
+      reducer-owned transition inputs. Top-level plan shape, terminal
+      required-material scheduling, material-discovery transition, and broad
+      custom prerequisite guard are done; field/relation guard entrypoints still
+      need the same treatment where they produce hard scheduling decisions.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.
