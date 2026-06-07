@@ -5153,13 +5153,7 @@ func dataTaskValidationLedgerCount(contract dataquery.CoverageContract) int {
 	return n
 }
 
-type dataTaskWorkflowRecord struct {
-	Plan       dataquery.TaskPlan
-	Result     *dataquery.Result
-	Err        string
-	Evaluation *dataquery.Evaluation
-	Admission  *dataworkflow.ActionDAGAdmissionDecision
-}
+type dataTaskWorkflowRecord = dataworkflow.WorkflowRecord
 
 type dataTaskWorkflowPlanPreflight = dataworkflow.ActionDAGAdmissionDecision
 

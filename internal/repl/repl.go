@@ -3086,37 +3086,7 @@ func dataTaskWorkflowResumePayload(records []dataTaskWorkflowRecord, current, de
 }
 
 func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowJournalEvent {
-	events := make([]dataworkflow.WorkflowJournalEvent, 0, len(records))
-	for i, rec := range records {
-		if rec.Admission != nil {
-			events = append(events, dataworkflow.BuildAdmissionProcessEvent(i+1, *rec.Admission))
-		}
-		kind := "data_batch"
-		if len(rec.Plan.Actions) > 0 {
-			kind = "action_batch"
-		} else if strings.TrimSpace(rec.Plan.Script) != "" {
-			kind = "script_batch"
-		}
-		status := "completed"
-		reason := firstNonEmptyString(
-			strings.TrimSpace(rec.Plan.WhyThisBatch),
-			strings.TrimSpace(rec.Plan.NextBatch),
-			strings.TrimSpace(rec.Plan.Goal),
-		)
-		if strings.TrimSpace(rec.Err) != "" {
-			status = "failed"
-			reason = firstNonEmptyString(oneLineClamp(rec.Err, 240), reason)
-		}
-		events = append(events, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
-			Kind:   kind,
-			Round:  i + 1,
-			Status: status,
-			Reason: reason,
-			Plan:   rec.Plan,
-			Result: rec.Result,
-		}))
-	}
-	return events
+	return dataworkflow.BuildWorkflowJournalEvents(records)
 }
 
 func appendArtifactSchemaProjections(base []dataworkflow.ArtifactSchemaProjection, extra ...dataworkflow.ArtifactSchemaProjection) []dataworkflow.ArtifactSchemaProjection {

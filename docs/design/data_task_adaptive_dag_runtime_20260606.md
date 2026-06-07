@@ -13572,8 +13572,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move data workflow records into a package-neutral record IR so
-      `WorkflowRuntime` can own records instead of REPL-specific slices.
+- [x] Move data workflow records into a package-neutral record IR so later
+      runtime/journal code can consume records without depending on REPL
+      internals.
 - [ ] Replace direct `currentPlan = ...` assignments in CLI/REPL loops with a
       reducer/runtime transition helper that records the reason, source, and
       admission decision for every plan switch.
@@ -13582,3 +13583,44 @@ Remaining architecture items:
       assembling workflow state themselves.
 - [ ] Convert live process-event rendering to consume runtime journal events
       directly.
+
+### Batch 301: Package-Neutral Workflow Records And Event Builder
+
+After introducing `WorkflowRuntime`, the next REPL-specific state was the data
+workflow record type itself. The record fields were already pure IR:
+`TaskPlan`, `Result`, `Evaluation`, admission decision, and error text. Keeping
+that struct in the REPL package forced dataworkflow journal/event code to stay
+as entrypoint glue.
+
+This batch moves the record type and process-event derivation into
+`internal/dataworkflow` without changing the existing checkpoint JSON field
+shape. REPL keeps a type alias as a compatibility adapter, so call sites and
+resume files continue to work while later batches move record storage into the
+runtime.
+
+Generic invariants:
+
+- workflow records contain dataquery/dataworkflow IR only;
+- checkpoint field names are preserved during this migration;
+- process-event generation is derived from typed plan/result/admission fields,
+  not business labels, file names, or model prose hard gates;
+- REPL/CLI rendering remains an adapter over workflow events.
+
+Changes:
+
+- [x] Added `WorkflowRecord` to `internal/dataworkflow`.
+- [x] Replaced the REPL-local record struct with an alias to the workflow IR
+      type.
+- [x] Added `BuildWorkflowJournalEvents(records []WorkflowRecord)` in
+      dataworkflow.
+- [x] Rewired REPL checkpoint/journal event generation to call the workflow
+      event builder.
+- [x] Added JSON-shape and event-builder regression coverage.
+
+Remaining architecture items:
+
+- [ ] Move record append/update operations into `WorkflowRuntime`, including
+      result, error, evaluation, and admission attachment transitions.
+- [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
+- [ ] Convert CLI/REPL progress rendering to consume runtime events directly
+      instead of re-deriving details from records.
