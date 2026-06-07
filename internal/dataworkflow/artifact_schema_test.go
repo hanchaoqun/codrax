@@ -48,6 +48,68 @@ func TestProjectArtifactSchemasPreservesLineageRoles(t *testing.T) {
 	}
 }
 
+func TestProjectArtifactSchemasPropagatesTransitiveLineage(t *testing.T) {
+	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{
+		{
+			ID:                "entity_mappings.json",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			SourcePaths:       []string{"orders.csv", "lookup.csv"},
+			SourceRecordPaths: []string{"orders.csv"},
+			ReferencePaths:    []string{"lookup.csv"},
+			Headers:           []string{"item_id", "canonical_id"},
+			Fields: map[string]string{
+				"artifact_aliases": "entity_mappings.json",
+				"json_shape":       "array(len=2)",
+			},
+		},
+		{
+			ID:          "entity_mapping_records.json",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			SourcePaths: []string{"entity_mappings.json"},
+			Headers:     []string{"item_id", "canonical_id"},
+			Fields: map[string]string{
+				"artifact_aliases": "entity_mapping_records.json",
+				"json_shape":       "array(len=2)",
+			},
+		},
+	})
+	if len(projections) != 2 {
+		t.Fatalf("projection count=%d, want 2", len(projections))
+	}
+	extracted := projections[1]
+	if !containsString(extracted.SourceRecordPaths, "orders.csv") {
+		t.Fatalf("SourceRecordPaths=%v, want transitive source record orders.csv", extracted.SourceRecordPaths)
+	}
+	if !containsString(extracted.ReferencePaths, "lookup.csv") {
+		t.Fatalf("ReferencePaths=%v, want transitive reference lookup.csv", extracted.ReferencePaths)
+	}
+}
+
+func TestArtifactResolutionLineageCompatibilityUsesNonReferenceSource(t *testing.T) {
+	base := ArtifactSchemaProjection{
+		ID:          "orders_records.json",
+		Aliases:     []string{"orders_records.json"},
+		SourcePaths: []string{"orders.csv"},
+		Fields:      []string{"item_id", "raw_category"},
+	}
+	ledger := ArtifactSchemaProjection{
+		ID:                "category_resolutions.json",
+		Kind:              string(dataquery.DataActionNormalizeEntities),
+		Aliases:           []string{"category_resolutions.json"},
+		SourcePaths:       []string{"taxonomy.csv", "orders.csv:2", "orders.csv:3"},
+		SourceRecordPaths: []string{"taxonomy.csv"},
+		ReferencePaths:    []string{"taxonomy.csv"},
+		Fields:            []string{"item_id", "source_value", "canonical_id", "status"},
+	}
+	if !ArtifactResolutionLineageCompatible(base, ledger) {
+		t.Fatalf("ledger=%+v should be compatible with base through non-reference source line roots", ledger)
+	}
+	sources, precise := ResolutionSourceCandidates(ledger)
+	if !precise || !containsString(sources, "orders.csv") {
+		t.Fatalf("sources=%v precise=%v, want orders.csv as precise source candidate", sources, precise)
+	}
+}
+
 func TestProjectArtifactSchemasNewestFirstDedupesByAlias(t *testing.T) {
 	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{
 		{

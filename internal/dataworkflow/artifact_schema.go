@@ -55,7 +55,116 @@ func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []A
 	if len(out) == 0 {
 		return nil
 	}
+	return ArtifactSchemaProjectionsWithTransitiveLineage(out)
+}
+
+func ArtifactSchemaProjectionsWithTransitiveLineage(projections []ArtifactSchemaProjection) []ArtifactSchemaProjection {
+	if len(projections) == 0 {
+		return nil
+	}
+	out := append([]ArtifactSchemaProjection(nil), projections...)
+	aliasIndex := map[string]int{}
+	for i, projection := range out {
+		for _, alias := range artifactSchemaAliases(projection) {
+			for _, key := range artifactLineageKeys(alias) {
+				if key != "" {
+					aliasIndex[key] = i
+				}
+			}
+		}
+	}
+	for pass := 0; pass < len(out); pass++ {
+		changed := false
+		for i := range out {
+			refs := cleanStrings(append(append([]string{}, out[i].SourcePaths...), out[i].SourceRecordPaths...))
+			refs = append(refs, out[i].ReferencePaths...)
+			for _, ref := range refs {
+				refIdx, ok := artifactProjectionIndexByAlias(aliasIndex, ref)
+				if !ok || refIdx == i {
+					continue
+				}
+				before := lineageSize(out[i])
+				refProjection := out[refIdx]
+				out[i].SourcePaths = mergeLineageRoots(out[i].SourcePaths, refProjection.SourcePaths, refProjection.SourceRecordPaths)
+				out[i].SourceRecordPaths = mergeLineageRoots(out[i].SourceRecordPaths, refProjection.SourceRecordPaths)
+				out[i].ReferencePaths = mergeLineageRoots(out[i].ReferencePaths, refProjection.ReferencePaths)
+				if lineageSize(out[i]) != before {
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			break
+		}
+	}
 	return out
+}
+
+func ArtifactResolutionLineageCompatible(base, ledger ArtifactSchemaProjection) bool {
+	sources, precise := ResolutionSourceCandidates(ledger)
+	if len(sources) == 0 || !precise {
+		return true
+	}
+	for _, source := range sources {
+		if ArtifactLineageContains(base, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func ResolutionSourceCandidates(ledger ArtifactSchemaProjection) ([]string, bool) {
+	references := normalizedLineageSet(ledger.ReferencePaths)
+	sourceRecords := nonReferenceLineageRoots(ledger.SourceRecordPaths, references)
+	if len(sourceRecords) > 0 {
+		return sourceRecords, true
+	}
+	sourcePaths := nonReferenceLineageRoots(ledger.SourcePaths, references)
+	if len(sourcePaths) == 0 {
+		return nil, true
+	}
+	return sourcePaths, true
+}
+
+func ArtifactLineageContains(projection ArtifactSchemaProjection, alias string) bool {
+	wants := artifactLineageKeys(alias)
+	if len(wants) == 0 {
+		return false
+	}
+	candidates := append([]string{projection.ID}, projection.Aliases...)
+	candidates = append(candidates, projection.SourceRecordPaths...)
+	candidates = append(candidates, projection.ReferencePaths...)
+	candidates = append(candidates, projection.EvidencePaths...)
+	candidates = append(candidates, projection.SourcePaths...)
+	for _, candidate := range candidates {
+		for _, got := range artifactLineageKeys(candidate) {
+			if got == "" {
+				continue
+			}
+			for _, want := range wants {
+				if got == want {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func ArtifactLineageSummary(alias string, projection ArtifactSchemaProjection) string {
+	values := cleanStrings(append(append(append(append(append([]string{alias, projection.ID}, projection.Aliases...), projection.SourceRecordPaths...), projection.ReferencePaths...), projection.EvidencePaths...), projection.SourcePaths...))
+	return strings.Join(clampStrings(values, 8), ", ")
+}
+
+func ArtifactSourceLineageSummary(projection ArtifactSchemaProjection) string {
+	values, _ := ResolutionSourceCandidates(projection)
+	if len(values) == 0 {
+		values = cleanStrings(projection.SourceRecordPaths)
+	}
+	if len(values) == 0 {
+		values = cleanStrings(projection.SourcePaths)
+	}
+	return strings.Join(clampStrings(values, 8), ", ")
 }
 
 func BuildArtifactGraphState(artifacts []ArtifactProjectionSource, limit int) ArtifactGraphState {
@@ -250,6 +359,18 @@ func ArtifactSchemaByAlias(projections []ArtifactSchemaProjection, alias string)
 	return ArtifactSchemaProjection{}, false
 }
 
+func artifactProjectionIndexByAlias(index map[string]int, alias string) (int, bool) {
+	for _, key := range artifactLineageKeys(alias) {
+		if key == "" {
+			continue
+		}
+		if idx, ok := index[key]; ok {
+			return idx, true
+		}
+	}
+	return 0, false
+}
+
 func MissingFieldsOnArtifactSchema(projections []ArtifactSchemaProjection, alias string, fields []string) []string {
 	projection, ok := ArtifactSchemaByAlias(projections, alias)
 	if !ok || len(projection.Fields) == 0 {
@@ -440,6 +561,75 @@ func cleanStrings(in []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func mergeLineageRoots(base []string, groups ...[]string) []string {
+	out := append([]string(nil), base...)
+	seen := normalizedLineageSet(out)
+	for _, group := range groups {
+		for _, value := range group {
+			root := normalizeLineageRoot(value)
+			if root == "" || seen[root] {
+				continue
+			}
+			seen[root] = true
+			out = append(out, root)
+		}
+	}
+	return cleanStrings(out)
+}
+
+func nonReferenceLineageRoots(values []string, references map[string]bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		root := normalizeLineageRoot(value)
+		if root == "" || references[root] || seen[root] {
+			continue
+		}
+		seen[root] = true
+		out = append(out, root)
+	}
+	return out
+}
+
+func normalizedLineageSet(values []string) map[string]bool {
+	out := map[string]bool{}
+	for _, value := range values {
+		for _, key := range artifactLineageKeys(value) {
+			if key != "" {
+				out[key] = true
+			}
+		}
+	}
+	return out
+}
+
+func artifactLineageKeys(value string) []string {
+	exact := normalizeAccessPath(value)
+	root := normalizeLineageRoot(value)
+	return cleanStrings([]string{exact, root})
+}
+
+func normalizeLineageRoot(value string) string {
+	value = normalizeAccessPath(value)
+	if value == "" {
+		return ""
+	}
+	idx := strings.LastIndex(value, ":")
+	if idx <= 0 || idx == len(value)-1 {
+		return value
+	}
+	for _, r := range value[idx+1:] {
+		if r < '0' || r > '9' {
+			return value
+		}
+	}
+	return value[:idx]
+}
+
+func lineageSize(projection ArtifactSchemaProjection) int {
+	return len(projection.SourcePaths) + len(projection.SourceRecordPaths) + len(projection.ReferencePaths)
 }
 
 func firstArtifactAlias(projection ArtifactSchemaProjection) string {

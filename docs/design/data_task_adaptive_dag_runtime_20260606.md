@@ -12467,3 +12467,62 @@ Current backlog before real-scenario testing:
       chronological audit entries; their current-state closure is reflected in
       the later batches. Real-scenario testing can now be used to validate
       behavior, not to discover known unimplemented IR contracts.
+
+### Batch 279: Transitive Artifact Lineage And Failed Edge Lifecycle
+
+The first real-scenario gate after Batch 278 exposed a remaining IR gap before
+the workflow reached contribution calculation. The graph had correctly
+materialized entity-resolution ledgers and extracted those ledgers into
+record-shaped artifacts. The next typed action,
+`apply_entity_resolutions`, was rejected by the hard lineage guard because the
+extracted record artifact reported its immediate source as the intermediate
+ledger alias, not the original record-set lineage behind that ledger.
+
+This is not specific to any material type, business domain, or field name. Any
+adaptive data workflow can produce a mapping/reference ledger, extract it into
+a record artifact, and then apply it to a compatible base record set. A hard
+gate must reason over the ArtifactGraph lineage closure, not over only the
+nearest artifact alias. The same run also showed an ActionDAG lifecycle issue:
+an idempotent action edge that had already failed could still appear as ready
+or deferred in the live graph projection, which makes the workflow look like it
+can simply retry the same edge.
+
+Generic invariants:
+
+- ArtifactGraph lineage is transitive. If artifact B is extracted from artifact
+  A, B inherits A's source-record and reference lineage for compatibility
+  checks.
+- Resolution-source selection must distinguish source and reference roles even
+  when raw `source_paths` ordering is unstable or `source_record_paths` is
+  polluted by reference lineage. Reference paths are removed first; line
+  locators such as `file:12` compare through their material root.
+- Hard lineage rejection is allowed only when the source candidates are precise
+  and none intersect the base record lineage. Incomplete lineage should not be
+  promoted to a hard reject.
+- ActionGraph ready/deferred projections must suppress an exact idempotency
+  edge that is already failed or blocked. Repair must change the edge, unblock
+  it through typed evidence, or move to a different ready node.
+
+Changes:
+
+- [x] Added transitive lineage closure to `ProjectArtifactSchemasNewestFirst`.
+- [x] Added shared ArtifactGraph helpers for resolution source candidates,
+      lineage-root comparison, resolution/base compatibility, and compact
+      lineage summaries.
+- [x] Rewired `apply_entity_resolutions` scaffold and REPL staging guards to
+      use the shared ArtifactGraph lineage helpers instead of local duplicate
+      logic.
+- [x] Added line-locator root comparison for structured provenance such as
+      `source.csv:42`.
+- [x] Updated ActionGraph reduction so failed/blocked idempotent edges do not
+      reappear as ready/deferred nodes in workflow state.
+- [x] Added regression coverage for transitive ledger extraction lineage,
+      non-reference resolution-source selection, and failed-edge suppression.
+
+Current backlog before real-scenario testing:
+
+- [ ] Run the latest binary through the real-scenario gate again. If it still
+      fails, treat the next failure as an IR gap only when the terminal journal
+      proves a typed graph/state contract is missing; otherwise classify it as
+      action semantics, multimodal material extraction, or scenario-data
+      limitation before changing architecture.

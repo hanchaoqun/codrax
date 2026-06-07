@@ -4413,68 +4413,22 @@ func dataTaskArtifactHasAnyNamedField(artifact dataTaskArtifactAccessPrompt, fie
 }
 
 func dataTaskArtifactLineageContains(artifact dataTaskArtifactAccessPrompt, alias string) bool {
-	want := normalizeDataTaskCoveragePath(alias)
-	if want == "" {
-		return false
-	}
-	if normalizeDataTaskCoveragePath(artifact.ID) == want {
-		return true
-	}
-	for _, source := range artifact.SourcePaths {
-		if normalizeDataTaskCoveragePath(source) == want {
-			return true
-		}
-	}
-	for _, source := range artifact.SourceRecordPaths {
-		if normalizeDataTaskCoveragePath(source) == want {
-			return true
-		}
-	}
-	for _, source := range artifact.ReferencePaths {
-		if normalizeDataTaskCoveragePath(source) == want {
-			return true
-		}
-	}
-	for _, source := range artifact.EvidencePaths {
-		if normalizeDataTaskCoveragePath(source) == want {
-			return true
-		}
-	}
-	for _, candidate := range artifact.Aliases {
-		if normalizeDataTaskCoveragePath(candidate) == want {
-			return true
-		}
-	}
-	return false
+	return dataworkflow.ArtifactLineageContains(dataTaskArtifactAccessToSchemaProjection(artifact), alias)
 }
 
 func dataTaskApplyResolutionBaseCompatibleWithMapping(base dataTaskArtifactAccessPrompt, mapping dataTaskArtifactAccessPrompt) bool {
-	sourcePaths := cleanDataTaskStrings(mapping.SourceRecordPaths)
-	if len(sourcePaths) == 0 {
-		sourcePaths = cleanDataTaskStrings(mapping.SourcePaths)
-	}
-	if len(sourcePaths) == 0 {
-		return true
-	}
-	for _, source := range sourcePaths {
-		if dataTaskArtifactLineageContains(base, source) {
-			return true
-		}
-	}
-	return false
+	return dataworkflow.ArtifactResolutionLineageCompatible(
+		dataTaskArtifactAccessToSchemaProjection(base),
+		dataTaskArtifactAccessToSchemaProjection(mapping),
+	)
 }
 
 func dataTaskArtifactLineageSummary(alias string, artifact dataTaskArtifactAccessPrompt) string {
-	values := cleanDataTaskStrings(append(append(append(append(append([]string{alias, artifact.ID}, artifact.Aliases...), artifact.SourceRecordPaths...), artifact.ReferencePaths...), artifact.EvidencePaths...), artifact.SourcePaths...))
-	return strings.Join(clampDataTaskStringSlice(values, 8), ", ")
+	return dataworkflow.ArtifactLineageSummary(alias, dataTaskArtifactAccessToSchemaProjection(artifact))
 }
 
 func dataTaskArtifactSourceLineageSummary(artifact dataTaskArtifactAccessPrompt) string {
-	values := cleanDataTaskStrings(artifact.SourceRecordPaths)
-	if len(values) == 0 {
-		values = cleanDataTaskStrings(artifact.SourcePaths)
-	}
-	return strings.Join(clampDataTaskStringSlice(values, 8), ", ")
+	return dataworkflow.ArtifactSourceLineageSummary(dataTaskArtifactAccessToSchemaProjection(artifact))
 }
 
 func dataTaskInferApplyResolutionRolePaths(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int, inputs []string, basePath string) (string, string, string) {

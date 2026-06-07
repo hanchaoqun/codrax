@@ -570,70 +570,15 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 }
 
 func applyResolutionBaseCompatibleWithLedger(base, ledger ArtifactSchemaProjection) bool {
-	sources, precise := applyResolutionSourceCandidates(ledger)
-	if len(sources) == 0 {
-		return true
-	}
-	if !precise {
-		return false
-	}
-	for _, source := range sources {
-		if projectionLineageContains(base, source) {
-			return true
-		}
-	}
-	return false
+	return ArtifactResolutionLineageCompatible(base, ledger)
 }
 
 func applyResolutionSourceCandidates(ledger ArtifactSchemaProjection) ([]string, bool) {
-	if sources := cleanStrings(ledger.SourceRecordPaths); len(sources) > 0 {
-		return sources, true
-	}
-	sourcePaths := cleanStrings(ledger.SourcePaths)
-	if len(sourcePaths) == 0 {
-		return nil, true
-	}
-	referenceSet := map[string]bool{}
-	for _, reference := range cleanStrings(ledger.ReferencePaths) {
-		if key := normalizeAccessPath(reference); key != "" {
-			referenceSet[key] = true
-		}
-	}
-	var nonReference []string
-	for _, source := range sourcePaths {
-		if key := normalizeAccessPath(source); key != "" && referenceSet[key] {
-			continue
-		}
-		nonReference = append(nonReference, source)
-	}
-	if len(nonReference) == 1 {
-		return nonReference, true
-	}
-	if len(nonReference) > 1 {
-		return nonReference, false
-	}
-	if len(sourcePaths) == 1 {
-		return sourcePaths, true
-	}
-	return sourcePaths, false
+	return ResolutionSourceCandidates(ledger)
 }
 
 func projectionLineageContains(projection ArtifactSchemaProjection, alias string) bool {
-	want := normalizeAccessPath(alias)
-	if want == "" {
-		return false
-	}
-	candidates := append([]string{projection.ID}, projection.Aliases...)
-	candidates = append(candidates, projection.SourceRecordPaths...)
-	candidates = append(candidates, projection.ReferencePaths...)
-	candidates = append(candidates, projection.EvidencePaths...)
-	candidates = append(candidates, projection.SourcePaths...)
-	for _, candidate := range candidates {
-		if normalizeAccessPath(candidate) == want {
-			return true
-		}
-	}
-	return false
+	return ArtifactLineageContains(projection, alias)
 }
 
 func projectionHasAnyNamedField(projection ArtifactSchemaProjection, fields ...string) bool {

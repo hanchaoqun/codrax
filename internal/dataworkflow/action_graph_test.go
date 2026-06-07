@@ -136,6 +136,51 @@ func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
 	}
 }
 
+func TestReduceActionGraphStateSuppressesBlockedReadyByIdempotency(t *testing.T) {
+	badAction := dataquery.DataAction{
+		ID:             "apply_resolution",
+		Kind:           dataquery.DataActionApplyResolutions,
+		InputPaths:     []string{"records.json", "mapping.json"},
+		OutputArtifact: "resolved.json",
+		Params: map[string]string{
+			"base_path":       "records.json",
+			"resolution_path": "mapping.json",
+		},
+	}
+	violation := NewActionInputViolation(
+		"apply_resolution_lineage_contract",
+		"error",
+		RepairNeedsTypedAction,
+		badAction,
+		"mapping.json",
+		nil,
+		"lineage mismatch",
+		nil,
+	)
+
+	graph := ReduceActionGraphState(ActionGraphInput{
+		Events: []ActionEvent{{
+			Actions: []dataquery.DataAction{badAction},
+			Status:  ActionStatusFailed,
+		}},
+		Ready:    []dataquery.DataAction{badAction},
+		Deferred: []dataquery.DataAction{badAction},
+		Blocked:  []WorkflowViolation{violation},
+	})
+	if len(graph.Ready) != 0 {
+		t.Fatalf("Ready=%+v, want failed/blocked idempotent action suppressed", graph.Ready)
+	}
+	if len(graph.Deferred) != 0 {
+		t.Fatalf("Deferred=%+v, want failed/blocked idempotent action suppressed", graph.Deferred)
+	}
+	if len(graph.Executed) != 1 || graph.Executed[0].Status != ActionStatusFailed {
+		t.Fatalf("Executed=%+v, want failed action retained", graph.Executed)
+	}
+	if len(graph.Blocked) != 1 {
+		t.Fatalf("Blocked=%+v, want typed blocked node retained", graph.Blocked)
+	}
+}
+
 func TestBlockedActionNodesFromViolationsProjectsTypedRepairState(t *testing.T) {
 	nodes := BlockedActionNodesFromViolations([]WorkflowViolation{{
 		Code:          "field_contract_violation",

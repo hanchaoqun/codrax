@@ -41,23 +41,51 @@ func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, lim
 
 func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	graph := ActionGraph{}
+	suppressed := map[string]bool{}
 	for _, event := range input.Events {
 		status := cleanActionStatus(event.Status, ActionStatusExecuted)
-		graph.Executed = append(graph.Executed, ActionNodesFor(event.Actions, status)...)
-	}
-	if len(input.Ready) > 0 {
-		graph.Ready = ActionNodesFor(input.Ready, ActionStatusReady)
-	}
-	if len(input.Deferred) > 0 {
-		graph.Deferred = ActionNodesFor(input.Deferred, ActionStatusDeferred)
+		nodes := ActionNodesFor(event.Actions, status)
+		graph.Executed = append(graph.Executed, nodes...)
+		if status == ActionStatusFailed || status == ActionStatusBlocked {
+			for _, node := range nodes {
+				if node.IdempotencyKey != "" {
+					suppressed[node.IdempotencyKey] = true
+				}
+			}
+		}
 	}
 	if len(input.Blocked) > 0 {
 		graph.Blocked = BlockedActionNodesFromViolations(input.Blocked)
+		for _, node := range graph.Blocked {
+			if node.IdempotencyKey != "" {
+				suppressed[node.IdempotencyKey] = true
+			}
+		}
+	}
+	if len(input.Ready) > 0 {
+		graph.Ready = filterSuppressedActionNodes(ActionNodesFor(input.Ready, ActionStatusReady), suppressed)
+	}
+	if len(input.Deferred) > 0 {
+		graph.Deferred = filterSuppressedActionNodes(ActionNodesFor(input.Deferred, ActionStatusDeferred), suppressed)
 	}
 	if input.EventLimit > 0 && len(graph.Executed) > input.EventLimit {
 		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-input.EventLimit:]...)
 	}
 	return graph
+}
+
+func filterSuppressedActionNodes(nodes []ActionNode, suppressed map[string]bool) []ActionNode {
+	if len(nodes) == 0 || len(suppressed) == 0 {
+		return nodes
+	}
+	out := nodes[:0]
+	for _, node := range nodes {
+		if node.IdempotencyKey != "" && suppressed[node.IdempotencyKey] {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out
 }
 
 func BlockedActionNodesFromViolations(violations []WorkflowViolation) []ActionNode {
