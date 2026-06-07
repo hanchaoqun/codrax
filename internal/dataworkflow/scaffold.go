@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -49,6 +50,37 @@ func RelationActionScaffolds(projections []ArtifactSchemaProjection, allowedActi
 	appendAllowed(dataquery.DataActionApplyResolutions, ApplyResolutionScaffolds(projections, limit-len(out)))
 	appendAllowed(dataquery.DataActionEnrichRecords, EnrichRecordScaffolds(records, limit-len(out)))
 	appendAllowed(dataquery.DataActionJoinRecords, JoinRecordScaffolds(records, limit-len(out)))
+	return out
+}
+
+func PrioritizeConcreteScaffolds(scaffolds []ActionScaffold, facts StageFacts) []ActionScaffold {
+	if len(scaffolds) == 0 {
+		return nil
+	}
+	out := append([]ActionScaffold(nil), scaffolds...)
+	stage := facts.NextStage()
+	if !facts.EntityStageMaterialized || (stage != StagePrepareContributionInputs && stage != StageComputeContributions) {
+		return out
+	}
+	priority := map[dataquery.DataActionKind]int{
+		dataquery.DataActionApplyResolutions: 1,
+		dataquery.DataActionEnrichRecords:    2,
+		dataquery.DataActionJoinRecords:      3,
+		dataquery.DataActionFilterRecords:    4,
+		dataquery.DataActionQualifyRecords:   5,
+		dataquery.DataActionComputeContribs:  6,
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left := priority[NormalizeActionKind(dataquery.DataActionKind(out[i].Kind))]
+		right := priority[NormalizeActionKind(dataquery.DataActionKind(out[j].Kind))]
+		if left == 0 {
+			left = 100
+		}
+		if right == 0 {
+			right = 100
+		}
+		return left < right
+	})
 	return out
 }
 

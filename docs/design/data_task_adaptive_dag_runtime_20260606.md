@@ -10780,3 +10780,40 @@ Remaining architecture items:
       ArtifactGraph-aware workflow helpers.
 - [ ] Feed relation progress signatures into the shared CLI/REPL event sink so
       users see business-facing progress and compact audit details consistently.
+
+### Batch 245: Scaffold Priority Policy In Workflow IR
+
+The next architecture pass reduced another REPL-local workflow decision:
+concrete scaffold prioritization. The data lane uses scaffold candidates to
+guide bounded typed recovery when the planner stalls or emits an invalid
+terminal plan. Candidate ordering is not UI behavior; it affects which graph
+edge the runtime tries next. Keeping that priority map in REPL code made the
+workflow harder to share with CLI and harder to audit.
+
+The generalized invariant is:
+
+- scaffold priority must depend on typed stage facts and action kinds;
+- when entity/materialization has already happened and contribution/reconcile
+  ledgers are still needed, relation materialization scaffolds should be
+  considered before later field/filter/contribution scaffolds only through one
+  shared policy;
+- the priority decision must not read action ids, business words, or model
+  prose.
+
+Changes:
+
+- [x] Added `dataworkflow.PrioritizeConcreteScaffolds`.
+- [x] Reused `dataworkflow.ActionScaffold` directly in the REPL adapter instead
+      of maintaining a parallel scaffold struct.
+- [x] Changed REPL fallback candidate selection to delegate scaffold ordering
+      to workflow IR.
+- [x] Added regression coverage for stage-fact-driven scaffold prioritization.
+
+Remaining architecture items:
+
+- [ ] Move concrete scaffold-to-action materialization into
+      `internal/dataworkflow` so action ids, output aliases, and params are
+      generated from one typed policy.
+- [ ] Move fallback plan assembly behind a shared CLI/REPL workflow reducer.
+- [ ] Replace remaining REPL-local stage/fallback prose with typed events that
+      render business-facing summaries through the shared event sink.

@@ -126,3 +126,40 @@ func TestApplyResolutionScaffoldsIgnoreDiagnosticResolutionChildren(t *testing.T
 		t.Fatalf("InputPaths=%v, want diagnostic child excluded", scaffolds[0].InputPaths)
 	}
 }
+
+func TestPrioritizeConcreteScaffoldsUsesWorkflowStageFacts(t *testing.T) {
+	scaffolds := []ActionScaffold{
+		{Kind: string(dataquery.DataActionComputeContribs)},
+		{Kind: string(dataquery.DataActionJoinRecords)},
+		{Kind: string(dataquery.DataActionFilterRecords)},
+		{Kind: string(dataquery.DataActionApplyResolutions)},
+	}
+	facts := StageFacts{
+		MaterialCoverageSufficient: true,
+		EntityStageMaterialized:    true,
+		ContributionLedgerRequired: true,
+	}
+	got := PrioritizeConcreteScaffolds(scaffolds, facts)
+	kinds := []string{got[0].Kind, got[1].Kind, got[2].Kind, got[3].Kind}
+	want := []string{
+		string(dataquery.DataActionApplyResolutions),
+		string(dataquery.DataActionJoinRecords),
+		string(dataquery.DataActionFilterRecords),
+		string(dataquery.DataActionComputeContribs),
+	}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("kinds=%v, want %v", kinds, want)
+	}
+
+	facts.EntityStageMaterialized = false
+	got = PrioritizeConcreteScaffolds(scaffolds, facts)
+	kinds = []string{got[0].Kind, got[1].Kind, got[2].Kind, got[3].Kind}
+	if !slices.Equal(kinds, []string{
+		string(dataquery.DataActionComputeContribs),
+		string(dataquery.DataActionJoinRecords),
+		string(dataquery.DataActionFilterRecords),
+		string(dataquery.DataActionApplyResolutions),
+	}) {
+		t.Fatalf("kinds=%v, want original order before entity stage materializes", kinds)
+	}
+}

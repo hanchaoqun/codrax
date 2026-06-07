@@ -2163,30 +2163,7 @@ func dataTaskConcreteScaffoldCandidatesForState(state dataTaskWorkflowStateView)
 	if len(state.ActionScaffold) == 0 {
 		return nil
 	}
-	if !state.EntityStageMaterialized || (state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions") {
-		return append([]dataTaskActionScaffold(nil), state.ActionScaffold...)
-	}
-	priority := map[string]int{
-		string(dataquery.DataActionApplyResolutions): 1,
-		string(dataquery.DataActionEnrichRecords):    2,
-		string(dataquery.DataActionJoinRecords):      3,
-		string(dataquery.DataActionFilterRecords):    4,
-		string(dataquery.DataActionQualifyRecords):   5,
-		string(dataquery.DataActionComputeContribs):  6,
-	}
-	out := append([]dataTaskActionScaffold(nil), state.ActionScaffold...)
-	sort.SliceStable(out, func(i, j int) bool {
-		left := priority[normalizeDataTaskActionKindString(out[i].Kind)]
-		right := priority[normalizeDataTaskActionKindString(out[j].Kind)]
-		if left == 0 {
-			left = 100
-		}
-		if right == 0 {
-			right = 100
-		}
-		return left < right
-	})
-	return out
+	return dataworkflow.PrioritizeConcreteScaffolds(state.ActionScaffold, dataTaskWorkflowStageFacts(state))
 }
 
 func normalizeDataTaskActionKindString(kind string) string {
@@ -5769,16 +5746,7 @@ type dataTaskWorkflowStateView struct {
 
 type dataTaskActionContract = dataworkflow.ActionContract
 
-type dataTaskActionScaffold struct {
-	Kind           string            `json:"kind"`
-	UseWhen        string            `json:"use_when,omitempty"`
-	InputPath      string            `json:"input_path,omitempty"`
-	InputPaths     []string          `json:"input_paths,omitempty"`
-	Fields         []string          `json:"fields,omitempty"`
-	CommonFields   []string          `json:"common_fields,omitempty"`
-	ParamsTemplate map[string]string `json:"params_template,omitempty"`
-	Note           string            `json:"note,omitempty"`
-}
+type dataTaskActionScaffold = dataworkflow.ActionScaffold
 
 type dataTaskFieldContractViolation struct {
 	Round                int      `json:"round,omitempty"`
@@ -7141,20 +7109,7 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 }
 
 func dataTaskWorkflowActionScaffoldViews(scaffolds []dataworkflow.ActionScaffold) []dataTaskActionScaffold {
-	out := make([]dataTaskActionScaffold, 0, len(scaffolds))
-	for _, scaffold := range scaffolds {
-		out = append(out, dataTaskActionScaffold{
-			Kind:           strings.TrimSpace(scaffold.Kind),
-			UseWhen:        strings.TrimSpace(scaffold.UseWhen),
-			InputPath:      strings.TrimSpace(scaffold.InputPath),
-			InputPaths:     cleanDataTaskStrings(scaffold.InputPaths),
-			Fields:         cleanDataTaskStrings(scaffold.Fields),
-			CommonFields:   cleanDataTaskStrings(scaffold.CommonFields),
-			ParamsTemplate: scaffold.ParamsTemplate,
-			Note:           strings.TrimSpace(scaffold.Note),
-		})
-	}
-	return out
+	return append([]dataTaskActionScaffold(nil), scaffolds...)
 }
 
 func dataTaskWorkflowRecordActionArtifacts(access []dataTaskArtifactAccessPrompt) []dataTaskArtifactAccessPrompt {
