@@ -1332,6 +1332,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 			scope = "continue"
 		}
+		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
+			r.auditDataTaskPlan("rejected", round, preflight.Plan)
+			logging.Info("[repl/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
+			return preflight.Plan
+		}
 		r.emitDataTaskPlanAudit(preflight.Plan)
 		r.auditDataTaskPlan(scope, round, preflight.Plan)
 		return preflight.Plan

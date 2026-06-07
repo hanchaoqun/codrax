@@ -155,6 +155,9 @@ func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, pla
 			return out, dataquery.TaskPlan{}, "converted missing rule coverage to a typed derive_rules batch", true
 		}
 	}
+	if fb, rem, hit := dataTaskInitialRankPrefixFallback(records, plan); hit {
+		return fb, rem, "split initial data plan at typed dependency rank", true
+	}
 	if fb, rem, hit := dataTaskIntraBatchDependencyPrefixFallback(plan); hit {
 		return fb, rem, "split data plan at intra-batch artifact dependency", true
 	}
@@ -180,6 +183,31 @@ func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, pla
 		return fb, dataquery.TaskPlan{}, "materialized historical missing join field from existing artifacts", true
 	}
 	return dataquery.TaskPlan{}, dataquery.TaskPlan{}, "", false
+}
+
+func dataTaskInitialRankPrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	if len(plan.Actions) < 2 || dataTaskWorkflowHasSuccessfulResult(records) {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	prefix, rest, split := dataworkflow.SplitInitialDiscoveryDependencyRank(plan.Actions)
+	if !split || len(prefix) == 0 || len(rest) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	out := plan
+	out.Actions = prefix
+	out.Script = ""
+	out.ContinueAfter = true
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = "execute the first typed data action rank before downstream graph stages"
+	}
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = "continue with the deferred typed data action ranks after this batch materializes artifacts"
+	}
+	remainder := plan
+	remainder.Actions = rest
+	remainder.Script = ""
+	remainder.ContinueAfter = true
+	return out, remainder, true
 }
 
 func dataTaskIntraBatchDependencyPrefixFallback(plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
@@ -1888,6 +1916,12 @@ func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred d
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
 	readyActions, blockedActions := dataTaskSplitDeferredActionsByReadyInputs(records, deferred.Actions)
+	if len(readyActions) == 0 && len(blockedActions) > 0 {
+		if rewritten, ok := dataTaskRewriteDeferredActionFirstInputToCompatibleArtifact(records, blockedActions[0]); ok {
+			candidate := append([]dataquery.DataAction{rewritten}, blockedActions[1:]...)
+			readyActions, blockedActions = dataTaskSplitDeferredActionsByReadyInputs(records, candidate)
+		}
+	}
 	if len(readyActions) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
@@ -1955,6 +1989,15 @@ func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred data
 		return state
 	}
 	readyActions, blockedActions := dataTaskSplitDeferredActionsByReadyInputs(records, deferred.Actions)
+	if len(readyActions) == 0 && len(blockedActions) > 0 {
+		if rewritten, ok := dataTaskRewriteDeferredActionFirstInputToCompatibleArtifact(records, blockedActions[0]); ok {
+			candidate := append([]dataquery.DataAction{rewritten}, blockedActions[1:]...)
+			readyActions, blockedActions = dataTaskSplitDeferredActionsByReadyInputs(records, candidate)
+			if len(readyActions) > 0 {
+				state.Reason = "first deferred action input was structurally redirected to a compatible artifact schema"
+			}
+		}
+	}
 	state.ReadyActions = len(readyActions)
 	state.BlockedActions = len(blockedActions)
 	if len(readyActions) == 0 {
@@ -2055,6 +2098,87 @@ func dataTaskSplitDeferredActionsByReadyInputs(records []dataTaskWorkflowRecord,
 		ready = append(ready, action)
 	}
 	return ready, nil
+}
+
+func dataTaskRewriteDeferredActionFirstInputToCompatibleArtifact(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
+	input, fields, explicitSource := dataTaskActionFirstInputFieldContract(action)
+	if input == "" || len(fields) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	access := dataTaskWorkflowArtifactContractAccess(records)
+	if len(access) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	missing := dataTaskMissingFieldsOnArtifact(access, input, fields)
+	if len(missing) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	candidate, ok := dataTaskBestArtifactAliasWithFields(access, input, missing)
+	if !ok {
+		return dataquery.DataAction{}, false
+	}
+	rewritten := action
+	if explicitSource {
+		if rewritten.Params == nil {
+			rewritten.Params = map[string]string{}
+		} else {
+			next := make(map[string]string, len(rewritten.Params)+1)
+			for k, v := range rewritten.Params {
+				next[k] = v
+			}
+			rewritten.Params = next
+		}
+		rewritten.Params["source_path"] = candidate
+		return rewritten, true
+	}
+	inputs := append([]string(nil), rewritten.InputPaths...)
+	if len(inputs) == 0 {
+		return dataquery.DataAction{}, false
+	}
+	inputs[0] = candidate
+	rewritten.InputPaths = inputs
+	return rewritten, true
+}
+
+func dataTaskActionFirstInputFieldContract(action dataquery.DataAction) (input string, fields []string, explicitSource bool) {
+	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	switch kind {
+	case dataquery.DataActionNormalizeEntities:
+		input = firstNonEmptyString(
+			strings.TrimSpace(action.Params["source_path"]),
+			strings.TrimSpace(action.Params["base_path"]),
+			strings.TrimSpace(action.Params["record_path"]),
+		)
+		explicitSource = input != ""
+		if input == "" {
+			input = firstDataTaskActionInput(action, 0)
+		}
+		fields = cleanDataTaskStrings(append(
+			parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["source_names"], action.Params["source_names_json"])),
+			parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_field"], action.Params["source_name"]))...,
+		))
+		fields = cleanDataTaskStrings(append(fields, dataTaskFilterActionFieldRefs(action)...))
+	default:
+		return "", nil, false
+	}
+	return strings.TrimSpace(input), cleanDataTaskStrings(fields), explicitSource
+}
+
+func dataTaskBestArtifactAliasWithFields(access []dataTaskArtifactAccessPrompt, current string, fields []string) (string, bool) {
+	currentKey := strings.ToLower(strings.TrimSpace(current))
+	for _, artifact := range access {
+		alias := firstDataTaskArtifactAlias(artifact)
+		if alias == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(alias), currentKey) || strings.EqualFold(strings.TrimSpace(artifact.ID), currentKey) {
+			continue
+		}
+		if len(dataTaskMissingFieldsOnArtifact(access, alias, fields)) == 0 {
+			return alias, true
+		}
+	}
+	return "", false
 }
 
 func dataTaskDeferredActionInputsReady(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
@@ -2844,17 +2968,23 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 	if errText := dataTaskActionFieldContractGuardError(records, action, actionIndex); errText != "" {
 		return errText
 	}
-	switch kind {
-	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
-		inputs := cleanDataTaskStrings(action.InputPaths)
-		if len(inputs) == 0 {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if contract, ok := dataworkflow.InputPathContract(kind); ok {
+		if len(inputs) < contract.Min {
+			if kind == dataquery.DataActionComputeContribs {
+				return fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
+					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+			}
 			return fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind)))
 		}
-		if (kind == dataquery.DataActionDeriveFields || kind == dataquery.DataActionExpandRecords || kind == dataquery.DataActionFilterRecords || kind == dataquery.DataActionQualifyRecords) && len(inputs) > 1 {
+		if contract.Max > 0 && len(inputs) > contract.Max {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), kind)
 		}
+	}
+	switch kind {
+	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
 		if kind == dataquery.DataActionDeriveFields && !dataTaskDeriveFieldsActionHasSpec(action) {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
@@ -2868,14 +2998,8 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
 		}
 	case dataquery.DataActionApplyResolutions:
-		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) < 2 && strings.TrimSpace(action.Params["resolution_path"]) == "" && strings.TrimSpace(action.Params["resolution_specs_json"]) == "" {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
-		}
-	case dataquery.DataActionComputeContribs:
-		if len(cleanDataTaskStrings(action.InputPaths)) == 0 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
 		}
 	case dataquery.DataActionReconcile:
@@ -4133,13 +4257,16 @@ type dataTaskWorkflowRecord struct {
 }
 
 type dataTaskWorkflowPlanPreflight struct {
-	Plan      dataquery.TaskPlan
-	Original  dataquery.TaskPlan
-	Remainder dataquery.TaskPlan
-	GuardErr  string
-	Reason    string
-	Rewritten bool
+	Plan          dataquery.TaskPlan
+	Original      dataquery.TaskPlan
+	Remainder     dataquery.TaskPlan
+	GuardErr      string
+	FinalGuardErr string
+	Reason        string
+	Rewritten     bool
 }
+
+const dataTaskPreflightMaxRewrites = 3
 
 func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
 	if protect == nil {
@@ -4147,20 +4274,75 @@ func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataqu
 	}
 	protected := protect(plan)
 	out := dataTaskWorkflowPlanPreflight{Plan: protected, Original: protected}
-	errText := dataTaskWorkflowStagingGuardError(records, protected)
-	if strings.TrimSpace(errText) == "" {
-		return out
-	}
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, protected, errText)
-	if !ok {
+	current := protected
+	for i := 0; i < dataTaskPreflightMaxRewrites; i++ {
+		if fallback, remainder, ok := dataTaskInitialRankPrefixFallback(records, current); ok {
+			out.Remainder = dataTaskPreflightMergeRemainder(remainder, out.Remainder)
+			out.Reason = appendDataTaskPreflightReason(out.Reason, "split initial data plan at typed dependency rank")
+			out.Rewritten = true
+			current = protect(fallback)
+			out.Plan = current
+			continue
+		}
+		errText := dataTaskWorkflowStagingGuardError(records, current)
+		if strings.TrimSpace(errText) == "" {
+			out.Plan = current
+			return out
+		}
+		fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, current, errText)
+		if !ok {
+			out.Plan = current
+			out.GuardErr = errText
+			out.FinalGuardErr = errText
+			return out
+		}
+		out.Remainder = dataTaskPreflightMergeRemainder(remainder, out.Remainder)
 		out.GuardErr = errText
+		out.Reason = appendDataTaskPreflightReason(out.Reason, reason)
+		out.Rewritten = true
+		current = protect(fallback)
+		out.Plan = current
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, current); strings.TrimSpace(errText) != "" {
+		out.Plan = current
+		out.GuardErr = errText
+		out.FinalGuardErr = errText
 		return out
 	}
-	out.Plan = protect(fallback)
-	out.Remainder = remainder
-	out.GuardErr = errText
-	out.Reason = reason
-	out.Rewritten = true
+	out.Plan = current
+	return out
+}
+
+func appendDataTaskPreflightReason(current, next string) string {
+	current = strings.TrimSpace(current)
+	next = strings.TrimSpace(next)
+	if current == "" {
+		return next
+	}
+	if next == "" || strings.Contains(current, next) {
+		return current
+	}
+	return current + "; " + next
+}
+
+func dataTaskPreflightMergeRemainder(first, second dataquery.TaskPlan) dataquery.TaskPlan {
+	if len(first.Actions) == 0 {
+		return second
+	}
+	if len(second.Actions) == 0 {
+		return first
+	}
+	out := first
+	out.Actions = append(append([]dataquery.DataAction(nil), first.Actions...), second.Actions...)
+	out.Script = ""
+	out.ContinueAfter = true
+	out.InputPaths = mergeDataTaskInputPaths(first.InputPaths, second.InputPaths)
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = strings.TrimSpace(second.NextBatch)
+	}
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = strings.TrimSpace(second.WhyThisBatch)
+	}
 	return out
 }
 

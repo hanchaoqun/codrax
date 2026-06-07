@@ -6920,3 +6920,239 @@ Remaining architecture items:
 - [ ] Build real-scenario eval gates that run representative data tasks
       multiple times, compare final answer correctness, inspect required
       ledgers/reconcile state, and report volatility before merge/release.
+
+### Batch 160: Initial Action DAG Rank Preflight
+
+The next freshly built real-scenario run showed a different convergence leak.
+The first model plan no longer started as one large top-level Python script,
+but it still emitted a multi-rank typed action batch:
+
+- material discovery / record extraction;
+- rule derivation;
+- entity normalization.
+
+Because there was no accepted workflow record yet, the existing stage-prefix
+fallback did not run. The batch reached execution, and the later
+`normalize_entities` node failed because its structured inputs were not yet
+represented as materialized artifact aliases. The system recovered on the next
+round, but this is still "model first collides with the wall, system repairs
+afterward".
+
+This is not a procurement-specific issue. Any data task can begin with an
+over-eager graph: inspect + extract + normalize, extract + filter + join,
+derive + compute + reconcile, or material discovery plus a downstream
+projection. The initial preflight must treat the candidate as an Action DAG,
+not as a flat list of actions.
+
+The invariant is now:
+
+- action dependency rank belongs in `internal/dataworkflow`, not REPL-only
+  prompt code;
+- before the first successful workflow record exists, a candidate batch that
+  crosses typed dependency ranks is split before audit display/execution;
+- rank-0 discovery/materialization actions may remain with the first non-zero
+  rank, but later ranks become a deferred suffix;
+- this split is structural only: it does not inspect business prose, field
+  names, file names, or customer-specific semantics.
+
+Changes:
+
+- [x] Add a dataworkflow helper that splits the first executable action-rank
+      prefix from a candidate Action DAG using the shared capability table.
+- [x] Wire initial no-history preflight through that helper before execution
+      and before permanent "ready plan" display.
+- [x] Keep existing deferred-queue handling so the suffix can resume only after
+      the prefix materializes real artifacts and field contracts.
+- [x] Add regression coverage for an initial multi-rank typed plan being split
+      before execution.
+
+Remaining architecture items:
+
+- [ ] Promote the deferred suffix itself into persisted Action DAG state rather
+      than carrying it as REPL-local plan remainder.
+- [ ] Add typed action parameter contracts so a node such as
+      `normalize_entities` can be rejected with a structured contract violation
+      before execution even when it is the first rank in a future batch.
+- [ ] Move the full `dataTaskWorkflowStateView` reducer into
+      `internal/dataworkflow` so initial, continuation, repair, deferred, and
+      completion paths all consume the same state machine.
+
+### Batch 161: Closed Deterministic Preflight Rewrites
+
+The Batch 160 real-scenario smoke confirmed that initial rank splitting works,
+but it exposed a second orchestration gap: a deterministic fallback can produce
+a candidate prefix that is still not executable. In the observed run, an
+intra-batch dependency split isolated a broad `custom_transform`; that prefix
+then failed the broad-script guard during execution and only later converted to
+material discovery.
+
+This is a workflow-closure problem, not a business-domain issue. Any fallback
+may create a new candidate plan: rank-prefix trimming, intra-batch dependency
+splitting, material discovery conversion, coverage expansion, disabled-script
+fallback, or no-tool deterministic continuation. A fallback result must be
+validated before it is rendered as ready or executed.
+
+The invariant is now:
+
+- preflight is a bounded deterministic rewrite loop;
+- every fallback-produced candidate is re-run through staging/preflight;
+- deferred suffixes are preserved when a prefix needs another deterministic
+  rewrite;
+- precise prerequisite and intra-batch dependency diagnostics still win over
+  broad rank splitting when the direct guard is more informative;
+- no fallback uses model prose, file names, column names, or business-domain
+  keywords as hard signals.
+
+Changes:
+
+- [x] Changed data workflow preflight into a bounded rewrite loop with a small
+      maximum rewrite budget.
+- [x] Revalidated fallback-produced plans before permanent display/execution.
+- [x] Preserved deferred action suffixes across chained rewrites.
+- [x] Kept initial rank splitting as a preflight rewrite rather than a direct
+      staging-guard error, preserving existing precise prerequisite diagnostics.
+- [x] Added regression coverage for a broad custom-transform prefix being
+      rewritten again into material discovery while preserving the original
+      dependent suffix.
+
+Remaining architecture items:
+
+- [ ] Promote the preflight rewrite chain into typed evaluator/audit state so
+      users can inspect which rewrite rules fired, in what order, and which
+      suffixes were preserved.
+- [ ] Persist deferred suffixes and rewrite reasons in the Action DAG snapshot.
+- [ ] Add typed action parameter contracts so invalid node shapes can be
+      rejected before execution even when no fallback rewrite is needed.
+
+### Batch 162: Deferred Normalize Source Artifact Compatibility
+
+The next smoke run advanced past initial discovery and extraction. It then hit
+a deferred-queue block: a `normalize_entities` node had been deferred after a
+previous normalization/enrichment node, but its source-side input pointed at an
+intermediate artifact that did not contain the source field required by the
+normalization contract. A compatible source record artifact with that field was
+already present in the workflow artifact schema catalog.
+
+This is a generic Action DAG lineage issue. Independent normalization nodes can
+be accidentally serialized through the wrong intermediate artifact. The system
+should not infer business semantics, but it can use structural field contracts
+to select a compatible source record artifact when all required source fields
+are present.
+
+The invariant is now:
+
+- this rewrite is source-side only for `normalize_entities`;
+- it consumes artifact schema projections and required source field names;
+- it does not change fields, values, mappings, filters, reference inputs, or
+  business rules;
+- it does not apply to contribution/join/final projection actions, because
+  those often intentionally wait for a specific generated artifact;
+- if no structurally compatible artifact exists, the deferred node remains
+  blocked and the evaluator/planner must expand the graph.
+
+Changes:
+
+- [x] Added a deferred-queue rewrite that redirects a blocked
+      `normalize_entities` source input to an existing artifact containing all
+      required source fields.
+- [x] Kept contribution and other downstream compute actions strict: they do
+      not substitute a different artifact when the declared generated input is
+      missing required fields.
+- [x] Added regression coverage for the normalize source-side rewrite.
+- [x] Preserved existing regression coverage that compute contributions wait
+      for the exact generated artifact and required fields.
+
+Remaining architecture items:
+
+- [ ] Generalize this into a typed Action DAG lineage engine with explicit
+      producer/consumer roles and safe substitution policies per action kind.
+- [ ] Persist compatibility rewrites and rejected substitutions in audit state.
+- [ ] Add value-coverage/mapping-candidate actions so normalization can inspect
+      source/reference overlap without hand-authored mappings or broad scripts.
+
+### Batch 163: Action Input Path Contracts In Workflow IR
+
+The latest smoke also showed that some structural action requirements still
+lived only in REPL staging code. For example, `derive_fields`, `filter_records`,
+`qualify_records`, and `compute_contributions` are single-record-set actions:
+they need one existing source material or generated artifact before they can
+run. Keeping those constraints as ad hoc REPL switches makes it harder to share
+the same truth across CLI, REPL, planner hints, deterministic fallbacks, and
+future action-schema projection.
+
+This is not a data-domain rule. It is an Action DAG contract: every typed node
+has objective input-shape requirements independent of what the records mean.
+Business meaning remains with the model; structural execution requirements
+belong in workflow IR.
+
+Changes:
+
+- [x] Added `ActionInputPathContract` to `dataworkflow.ActionCapability`.
+- [x] Declared domain-neutral input path requirements for typed actions whose
+      shape is already structurally clear: material inspection/extraction,
+      single-record-set transforms, joins, and contribution computation.
+- [x] Updated REPL workflow staging to consume the shared capability table
+      instead of duplicating the input-path hard gate in a local switch.
+- [x] Preserved action-specific repair guidance where it carries structural
+      value, such as contribution inputs needing existing record artifacts.
+- [x] Added regression coverage for the capability-level input contracts and
+      re-ran focused workflow tests.
+
+Remaining architecture items:
+
+- [ ] Extend action contracts from input-path counts to full typed parameter
+      schemas: required params, alternative params, field refs, output alias
+      requirements, and safe structured defaults.
+- [ ] Move contract validation into `internal/dataworkflow` so CLI, REPL,
+      continuation, repair, deferred execution, and completion repair all call
+      one validator before any plan is displayed as executable.
+- [ ] Emit typed contract violations with JSON paths and repairability labels
+      instead of only prose guard strings.
+- [ ] Expose the action contract table to planner prompts as compact schema
+      facts, not as business examples or keyword instructions.
+
+### Batch 164: Validated-Only Data Plan Display
+
+The next compiled real-scenario smoke confirmed that input-path contracts are
+being enforced: a candidate continuation batch emitted `derive_fields` without
+`input_paths`, and preflight produced the correct structural failure. However,
+the REPL/CLI display path still rendered that candidate as `数据计划 · 就绪`
+before the loop repaired it. That is misleading: a model-authored candidate
+plan is not an executable plan until it passes deterministic preflight.
+
+This is a workflow-state boundary issue, not a data-domain issue. The UI and
+CLI should distinguish:
+
+- candidate plans emitted by the model;
+- rejected plans that are retained for audit and repair context;
+- validated executable plans that may be shown as ready and then executed.
+
+The invariant is now:
+
+- preflight keeps historical guard reasons for audit/rewrite state;
+- preflight separately marks `FinalGuardErr` when the final candidate is still
+  not executable;
+- plans with `FinalGuardErr` are written to audit logs with a rejected scope
+  but are not rendered as ready plans in REPL or CLI progress;
+- successful deterministic rewrites remain displayable and executable.
+
+Changes:
+
+- [x] Split preflight guard state into historical `GuardErr` and final
+      `FinalGuardErr`.
+- [x] Updated REPL data plan acceptance so non-displayable candidates are
+      audited as rejected instead of shown as ready.
+- [x] Updated CLI data plan progress the same way; stderr progress now only
+      shows validated executable plans.
+- [x] Added regression coverage for both successful fallback displayability and
+      rejected candidate marking.
+
+Remaining architecture items:
+
+- [ ] Replace ad hoc REPL/CLI acceptance closures with a shared
+      `ValidatedPlanEnvelope` returned by `internal/dataworkflow`.
+- [ ] Persist rejected candidate summaries, rewrite chains, and deferred suffix
+      snapshots in one Action DAG audit record.
+- [ ] Move direct fallback branches in the execution loop behind the same
+      validated-plan acceptance path so every generated plan goes through the
+      same final display gate.

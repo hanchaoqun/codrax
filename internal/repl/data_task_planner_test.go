@@ -3824,6 +3824,170 @@ func TestDataTaskPreflightWorkflowPlanRewritesBeforeAudit(t *testing.T) {
 	}
 }
 
+func TestDataTaskPreflightInitialPlanSplitsDependencyRanks(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{
+			{ID: "inventory", Kind: dataquery.DataActionMaterialInventory},
+			{ID: "extract", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"orders.csv"}, OutputArtifact: "orders"},
+			{ID: "rules", Kind: dataquery.DataActionDeriveRules, InputPaths: []string{"rules.md"}},
+			{ID: "normalize", Kind: dataquery.DataActionNormalizeEntities},
+		},
+		ContinueAfter: true,
+	}
+	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	if !preflight.Rewritten {
+		t.Fatalf("preflight=%+v, want initial rank split before audit/display", preflight)
+	}
+	if !strings.Contains(preflight.Reason, "typed dependency rank") {
+		t.Fatalf("reason=%q, want rank split", preflight.Reason)
+	}
+	if len(preflight.Plan.Actions) != 3 || preflight.Plan.Actions[2].ID != "rules" {
+		t.Fatalf("prefix actions=%+v, want discovery plus first rank", preflight.Plan.Actions)
+	}
+	if len(preflight.Remainder.Actions) != 1 || preflight.Remainder.Actions[0].ID != "normalize" {
+		t.Fatalf("remainder=%+v, want downstream rank", preflight.Remainder.Actions)
+	}
+}
+
+func TestDataTaskPreflightRevalidatesFallbackPlan(t *testing.T) {
+	inputs := []string{
+		"a.csv", "b.csv", "c.csv", "d.csv", "e.csv", "f.csv",
+		"g.csv", "h.csv", "i.csv", "j.csv", "k.csv", "l.csv",
+	}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: inputs,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv", Required: true},
+				{Path: "b.csv", Required: true},
+				{Path: "c.csv", Required: true},
+				{Path: "d.csv", Required: true},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{
+			{
+				ID:             "load_everything",
+				Kind:           dataquery.DataActionCustomTransform,
+				InputPaths:     inputs,
+				OutputArtifact: "records",
+				Script:         `emit_result({"records": []})`,
+			},
+			{
+				ID:             "filter_records",
+				Kind:           dataquery.DataActionFilterRecords,
+				InputPaths:     []string{"records"},
+				OutputArtifact: "filtered",
+				Params: map[string]string{
+					"filters_json": `[{"field":"status","op":"eq","value":"ok"}]`,
+				},
+			},
+		},
+		ContinueAfter: true,
+	}
+	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	if !preflight.Rewritten {
+		t.Fatalf("preflight=%+v, want deterministic rewrite", preflight)
+	}
+	if !strings.Contains(preflight.Reason, "intra-batch artifact dependency") || !strings.Contains(preflight.Reason, "material discovery") {
+		t.Fatalf("reason=%q, want chained fallback reasons", preflight.Reason)
+	}
+	if len(preflight.Plan.Actions) != 1 || preflight.Plan.Actions[0].Kind != dataquery.DataActionMaterialInventory {
+		t.Fatalf("plan actions=%+v, want revalidated material_inventory fallback", preflight.Plan.Actions)
+	}
+	if len(preflight.Remainder.Actions) != 1 || preflight.Remainder.Actions[0].ID != "filter_records" {
+		t.Fatalf("remainder=%+v, want original dependent suffix preserved", preflight.Remainder.Actions)
+	}
+	if preflight.FinalGuardErr != "" {
+		t.Fatalf("FinalGuardErr=%q, want successful fallback plan to be displayable", preflight.FinalGuardErr)
+	}
+}
+
+func TestDataTaskPreflightMarksRejectedCandidate(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "derive_without_input",
+			Kind: dataquery.DataActionDeriveFields,
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"value","target_field":"value_number","operation":"parse_number"}]`,
+			},
+		}},
+		ContinueAfter: true,
+	}
+	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	if preflight.FinalGuardErr == "" {
+		t.Fatalf("preflight=%+v, want final guard error for non-displayable candidate", preflight)
+	}
+	if !strings.Contains(preflight.FinalGuardErr, "requires input_paths") {
+		t.Fatalf("FinalGuardErr=%q, want input path contract failure", preflight.FinalGuardErr)
+	}
+}
+
+func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"purchase_orders_raw.csv", "category_taxonomy.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "po_vendor",
+					Kind:    string(dataquery.DataActionEnrichRecords),
+					Headers: []string{"po_id", "vendor_id_canonical"},
+					Fields: map[string]string{
+						"artifact_aliases": "po_vendor",
+						"json_shape":       "array(len=50)",
+					},
+				},
+				{
+					ID:      "category_reference",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"category_code", "common_raw_terms"},
+					Fields: map[string]string{
+						"artifact_aliases": "category_reference",
+						"json_shape":       "array(len=12)",
+					},
+				},
+				{
+					ID:      "po_records",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"po_id", "category_raw"},
+					Fields: map[string]string{
+						"artifact_aliases": "po_records",
+						"json_shape":       "array(len=50)",
+					},
+				},
+			},
+		},
+	}}
+	deferred := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:             "category_resolution",
+			Kind:           dataquery.DataActionNormalizeEntities,
+			InputPaths:     []string{"po_vendor", "category_reference"},
+			OutputArtifact: "category_resolutions",
+			Params: map[string]string{
+				"source_field":          "category_raw",
+				"reference_fields_json": `["category_code","common_raw_terms"]`,
+				"canonical_id_field":    "category_code",
+			},
+		}},
+		ContinueAfter: true,
+	}
+	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	if !ok {
+		t.Fatalf("deferred action was not dispatched")
+	}
+	if got := next.Actions[0].InputPaths[0]; got != "po_records" {
+		t.Fatalf("first input = %q, want compatible artifact po_records", got)
+	}
+}
+
 func TestDataTaskWorkflowStagingAllowsSequentialDeriveFieldSpecs(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Result: &dataquery.Result{

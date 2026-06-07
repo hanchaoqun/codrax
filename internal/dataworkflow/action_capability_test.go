@@ -52,3 +52,63 @@ func TestActionCapabilitiesMarkCustomTransformAsLeafFallback(t *testing.T) {
 		t.Fatal("empty action kind should normalize to custom_transform for legacy planner safety")
 	}
 }
+
+func TestActionCapabilitiesExposeInputPathContracts(t *testing.T) {
+	contract, ok := InputPathContract(dataquery.DataActionDeriveFields)
+	if !ok {
+		t.Fatal("derive_fields should expose an input path contract")
+	}
+	if contract.Min != 1 || contract.Max != 1 || !contract.SingleRecordSet {
+		t.Fatalf("derive_fields input contract=%+v, want one single-record-set input", contract)
+	}
+	if !RequiresInputPaths(dataquery.DataActionComputeContribs) {
+		t.Fatal("compute_contributions should require an input path")
+	}
+	if !SingleRecordSetInput(dataquery.DataActionFilterRecords) {
+		t.Fatal("filter_records should be a single-record-set action")
+	}
+	if _, ok := InputPathContract(dataquery.DataActionReconcile); ok {
+		t.Fatal("reconcile_artifacts should not require direct input paths")
+	}
+}
+
+func TestSplitFirstDependencyRankKeepsDiscoveryWithFirstRank(t *testing.T) {
+	actions := []dataquery.DataAction{
+		{ID: "inventory", Kind: dataquery.DataActionMaterialInventory},
+		{ID: "extract", Kind: dataquery.DataActionExtractRecords},
+		{ID: "rules", Kind: dataquery.DataActionDeriveRules},
+		{ID: "normalize", Kind: dataquery.DataActionNormalizeEntities},
+	}
+	prefix, remainder, split := SplitFirstDependencyRank(actions)
+	if !split {
+		t.Fatal("split=false, want initial multi-rank DAG split")
+	}
+	if len(prefix) != 3 || prefix[2].ID != "rules" {
+		t.Fatalf("prefix=%+v, want discovery plus first non-zero rank", prefix)
+	}
+	if len(remainder) != 1 || remainder[0].ID != "normalize" {
+		t.Fatalf("remainder=%+v, want later rank", remainder)
+	}
+}
+
+func TestSplitFirstDependencyRankDoesNotSplitSameRank(t *testing.T) {
+	actions := []dataquery.DataAction{
+		{ID: "derive_a", Kind: dataquery.DataActionDeriveFields},
+		{ID: "derive_b", Kind: dataquery.DataActionDeriveFields},
+	}
+	_, _, split := SplitFirstDependencyRank(actions)
+	if split {
+		t.Fatal("same dependency rank should not split")
+	}
+}
+
+func TestSplitInitialDiscoveryDependencyRankRequiresDiscoveryPrefix(t *testing.T) {
+	actions := []dataquery.DataAction{
+		{ID: "rules", Kind: dataquery.DataActionDeriveRules},
+		{ID: "reconcile", Kind: dataquery.DataActionReconcile},
+	}
+	_, _, split := SplitInitialDiscoveryDependencyRank(actions)
+	if split {
+		t.Fatal("initial discovery rank split should not hide more precise prerequisite checks")
+	}
+}

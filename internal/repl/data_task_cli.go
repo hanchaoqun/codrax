@@ -80,6 +80,11 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 			scope = "continue"
 		}
+		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
+			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "rejected", round, preflight.Plan)
+			logging.Info("[cli/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
+			return preflight.Plan
+		}
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
 		return preflight.Plan
