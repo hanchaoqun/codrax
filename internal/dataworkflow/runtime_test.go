@@ -88,3 +88,31 @@ func TestWorkflowRuntimeOwnsDeferredQueueAndAdmission(t *testing.T) {
 		t.Fatalf("runtime admission violation mutated: %#v", gotAdmission.Guard.Violations)
 	}
 }
+
+func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:     "compute",
+		Kind:   dataquery.DataActionComputeContribs,
+		Params: map[string]string{"value_field": "duration"},
+	}}}
+	current := rt.SwitchCurrentPlan(3, "continue", plan, "next typed stage")
+	plan.Actions[0].Params["value_field"] = "mutated"
+	current.Actions[0].Params["value_field"] = "mutated again"
+
+	got := rt.CurrentPlan()
+	if got.Actions[0].Params["value_field"] != "duration" {
+		t.Fatalf("runtime current plan mutated through transition: %#v", got.Actions[0].Params)
+	}
+	transitions := rt.PlanTransitions()
+	if len(transitions) != 1 {
+		t.Fatalf("transitions len=%d, want 1: %#v", len(transitions), transitions)
+	}
+	if transitions[0].Source != "continue" || transitions[0].Round != 3 || transitions[0].FirstActionID != "compute" || transitions[0].FirstActionKind != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("transition=%#v", transitions[0])
+	}
+	transitions[0].Source = "mutated"
+	if rt.PlanTransitions()[0].Source != "continue" {
+		t.Fatalf("runtime transitions leaked returned slice: %#v", rt.PlanTransitions())
+	}
+}

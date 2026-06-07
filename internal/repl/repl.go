@@ -1352,7 +1352,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
-		workflowRuntime.SetCurrentPlan(preflight.Plan)
+		workflowRuntime.SwitchCurrentPlan(round, scope, preflight.Plan, preflight.Reason)
 		r.emitDataTaskPlanAudit(preflight.Plan)
 		r.auditDataTaskPlan(scope, round, preflight.Plan)
 		return preflight.Plan
@@ -1371,6 +1371,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
 	}
 	currentPlan := plan
+	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {
+		return workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
+	}
 	repairRounds := 0
 	dataRounds := 0
 	for {
@@ -1382,7 +1385,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, dataTaskWorkflowErrorSegment(r.language, errText))
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-					currentPlan = completionPlan
+					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
 				}
 			}
@@ -1398,7 +1401,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = fallback
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 						continue
 					}
 					reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
@@ -1432,7 +1435,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = fallback
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
 		}
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
@@ -1452,7 +1455,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = fallback
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 						continue
 					}
 					reason := fmt.Sprintf("%s\nrepair data task terminal workflow: %v", errText, repairErr)
@@ -1518,7 +1521,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = fallback
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch")
 			continue
 		}
 		if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, "broad material custom action requires objective material discovery before execution"); ok {
@@ -1527,7 +1530,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = fallback
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "broad material custom action converted to material discovery")
 			continue
 		}
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
@@ -1540,7 +1543,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 				saveDeferredPlan(dataRounds+1, remainder, reason)
 				continue
 			}
@@ -1550,7 +1553,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch")
 				continue
 			}
 			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
@@ -1559,7 +1562,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "broad material plan converted to material discovery")
 				continue
 			}
 			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
@@ -1568,7 +1571,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "trimmed multi-stage data plan to current DAG stage")
 				saveDeferredPlan(dataRounds+1, remainder, "trimmed multi-stage data plan to current DAG stage")
 				continue
 			}
@@ -1578,7 +1581,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "converted invalid record action to bounded record extraction")
 				continue
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
@@ -1587,7 +1590,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
 				continue
 			}
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -1603,7 +1606,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = fallback
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 						continue
 					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
@@ -1645,7 +1648,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = fallback
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 						continue
 					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
@@ -1713,7 +1716,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized missing join field from existing artifacts")
 				continue
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(append(records, executionRecord), currentPlan); ok {
@@ -1722,7 +1725,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
 				continue
 			}
 			recordedErr := false
@@ -1733,7 +1736,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 				continue
 			}
 			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
@@ -1772,7 +1775,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = fallback
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 						continue
 					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
@@ -1817,7 +1820,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 							r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 							r.emitDataTaskPlanAudit(fallback)
 							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-							currentPlan = fallback
+							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 							continue
 						}
 						reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
@@ -1856,7 +1859,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			nextDeferred = protectPlan(nextDeferred)
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
-			currentPlan = nextDeferred
+			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, "continuing deferred typed data action rank")
 			workflowRuntime.SetDeferredQueue(updatedQueue)
 			remainingDeferred := currentDeferredPlan()
 			if len(remainingDeferred.Actions) > 0 {
@@ -1892,7 +1895,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = fallback
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch after result")
 			continue
 		}
 		if fallback, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(r.repoRoot, records, currentPlan, "batch result completed"); ok {
@@ -1900,7 +1903,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			fallback = protectPlan(fallback)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = fallback
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
 		}
 		evaluator, evalOK := r.dataTaskPlanner.(DataTaskEvaluator)
@@ -1954,7 +1957,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					completionPlan := protectPlan(transition.Plan)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-					currentPlan = completionPlan
+					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
 				}
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
@@ -1969,7 +1972,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 							r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 							r.emitDataTaskPlanAudit(fallback)
 							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-							currentPlan = fallback
+							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 							continue
 						}
 						reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
@@ -2025,7 +2028,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					fallback = protectPlan(fallback)
 					r.emitDataTaskPlanAudit(fallback)
 					r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-					currentPlan = fallback
+					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 					continue
 				}
 				reason := fmt.Sprintf("continue data task: %v", contErr)
@@ -2050,7 +2053,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = fallback
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
 				continue
 			}
 			repairer, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
@@ -2076,7 +2079,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
 					r.emitDataTaskPlanAudit(fallback)
 					r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-					currentPlan = fallback
+					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 					continue
 				}
 				reason := fmt.Sprintf("%s\nrepair data task node: %v", repairReason, repairErr)

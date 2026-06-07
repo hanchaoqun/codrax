@@ -13624,3 +13624,45 @@ Remaining architecture items:
 - [ ] Move checkpoint/journal snapshot construction onto `WorkflowRuntime`.
 - [ ] Convert CLI/REPL progress rendering to consume runtime events directly
       instead of re-deriving details from records.
+
+### Batch 302: Plan Transition Events In Workflow Runtime
+
+The data workflow still had an important state leak: CLI and REPL switched
+`currentPlan` through plain assignments in many fallback, repair, completion,
+and deferred-dispatch paths. Even after the runtime owned deferred state, those
+plan changes had no typed transition record. That made later journal/reducer
+work reconstruct intent from surrounding UI/audit calls.
+
+This batch adds plan transition events to `WorkflowRuntime` and wraps the
+data-lane plan switches in CLI and REPL. The transition records capture only
+structural workflow facts: source, round, action count, first action identity,
+and reason. They do not inspect business labels, row values, file names, or
+model prose for hard decisions.
+
+Generic invariants:
+
+- every accepted candidate plan records a runtime transition;
+- deterministic fallback and deferred-dispatch plan switches record their
+  source and reason;
+- transition recording deep-copies the plan snapshot;
+- transition events are audit/state facts only and do not change scheduling
+  semantics;
+- operation/source/trace/log/write flows are untouched.
+
+Changes:
+
+- [x] Added `PlanTransitionEvent` and `SwitchCurrentPlan` to
+      `WorkflowRuntime`.
+- [x] Added bounded plan-transition retention and immutable accessor.
+- [x] Rewired CLI accepted-plan, fallback, ledger-completion, and
+      deferred-dispatch switches through runtime transitions.
+- [x] Rewired REPL data accepted-plan, fallback, ledger-completion, and
+      deferred-dispatch switches through runtime transitions.
+- [x] Added runtime transition regression coverage.
+
+Remaining architecture items:
+
+- [ ] Include plan-transition events in checkpoint/journal snapshots.
+- [ ] Move record append/update operations into runtime transitions.
+- [ ] Convert direct plan-transition event rendering into low-noise business
+      process events once the journal owns them.

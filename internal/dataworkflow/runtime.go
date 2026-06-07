@@ -5,11 +5,21 @@ import "github.com/hanchaoqun/codrax/internal/dataquery"
 // WorkflowRuntime is the storage-neutral handle for live data workflow state.
 // It deliberately stores only workflow/dataquery IR, not REPL or CLI records.
 type WorkflowRuntime struct {
-	currentPlan   dataquery.TaskPlan
-	deferredQueue DeferredQueueState
-	admission     ActionDAGAdmissionDecision
-	dataRounds    int
-	repairRounds  int
+	currentPlan     dataquery.TaskPlan
+	planTransitions []PlanTransitionEvent
+	deferredQueue   DeferredQueueState
+	admission       ActionDAGAdmissionDecision
+	dataRounds      int
+	repairRounds    int
+}
+
+type PlanTransitionEvent struct {
+	Source          string `json:"source,omitempty"`
+	Round           int    `json:"round,omitempty"`
+	Actions         int    `json:"actions,omitempty"`
+	FirstActionID   string `json:"first_action_id,omitempty"`
+	FirstActionKind string `json:"first_action_kind,omitempty"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 func NewWorkflowRuntime(current dataquery.TaskPlan) *WorkflowRuntime {
@@ -25,11 +35,27 @@ func (rt *WorkflowRuntime) SetCurrentPlan(plan dataquery.TaskPlan) {
 	rt.currentPlan = cloneTaskPlanValue(plan)
 }
 
+func (rt *WorkflowRuntime) SwitchCurrentPlan(round int, source string, plan dataquery.TaskPlan, reason string) dataquery.TaskPlan {
+	if rt == nil {
+		return cloneTaskPlanValue(plan)
+	}
+	rt.currentPlan = cloneTaskPlanValue(plan)
+	rt.planTransitions = appendPlanTransitionEvent(rt.planTransitions, buildPlanTransitionEvent(round, source, rt.currentPlan, reason))
+	return rt.CurrentPlan()
+}
+
 func (rt *WorkflowRuntime) CurrentPlan() dataquery.TaskPlan {
 	if rt == nil {
 		return dataquery.TaskPlan{}
 	}
 	return cloneTaskPlanValue(rt.currentPlan)
+}
+
+func (rt *WorkflowRuntime) PlanTransitions() []PlanTransitionEvent {
+	if rt == nil {
+		return nil
+	}
+	return append([]PlanTransitionEvent(nil), rt.planTransitions...)
 }
 
 func (rt *WorkflowRuntime) SetDeferredQueue(queue DeferredQueueState) {
@@ -132,6 +158,58 @@ func cloneAdmissionDecision(in ActionDAGAdmissionDecision) ActionDAGAdmissionDec
 	out.Guard = cloneGuardResult(in.Guard)
 	out.FinalGuard = cloneGuardResult(in.FinalGuard)
 	return out
+}
+
+func appendPlanTransitionEvent(events []PlanTransitionEvent, event PlanTransitionEvent) []PlanTransitionEvent {
+	if event.Source == "" && event.Actions == 0 && event.Reason == "" {
+		return events
+	}
+	const maxPlanTransitionEvents = 64
+	out := append(append([]PlanTransitionEvent(nil), events...), event)
+	if len(out) > maxPlanTransitionEvents {
+		out = out[len(out)-maxPlanTransitionEvents:]
+	}
+	return out
+}
+
+func buildPlanTransitionEvent(round int, source string, plan dataquery.TaskPlan, reason string) PlanTransitionEvent {
+	event := PlanTransitionEvent{
+		Source:  trimRuntimeText(source),
+		Round:   round,
+		Actions: len(plan.Actions),
+		Reason:  trimRuntimeText(reason),
+	}
+	if len(plan.Actions) > 0 {
+		first := plan.Actions[0]
+		event.FirstActionID = trimRuntimeText(first.ID)
+		event.FirstActionKind = string(NormalizeActionKind(first.Kind))
+	}
+	return event
+}
+
+func trimRuntimeText(text string) string {
+	return cleanRuntimeText(text)
+}
+
+func cleanRuntimeText(text string) string {
+	for len(text) > 0 {
+		switch text[0] {
+		case ' ', '\t', '\n', '\r':
+			text = text[1:]
+		default:
+			goto trimRight
+		}
+	}
+trimRight:
+	for len(text) > 0 {
+		switch text[len(text)-1] {
+		case ' ', '\t', '\n', '\r':
+			text = text[:len(text)-1]
+		default:
+			return text
+		}
+	}
+	return text
 }
 
 func cloneTaskPlanValue(plan dataquery.TaskPlan) dataquery.TaskPlan {
