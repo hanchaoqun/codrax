@@ -9293,3 +9293,45 @@ Remaining architecture items:
       the full ActionDAG reducer owns scheduling.
 - [ ] Persist violations in data-audit snapshots and surface concise
       business-facing repair summaries in CLI/REPL process events.
+
+### Batch 204: ArtifactGraph Node Classes
+
+The scaffold hygiene fix first used REPL-local predicates to distinguish
+diagnostic child artifacts and aggregate workflow ledger handles. That was a
+useful safety patch, but keeping node-class truth in REPL would repeat the
+same architectural split we are trying to remove. Artifact classification
+belongs in the ArtifactGraph projection.
+
+This batch moves the classification into `internal/dataworkflow`:
+
+- ordinary generated/data artifacts;
+- record-shaped artifacts;
+- diagnostic child artifacts such as base/mapping/source/reference children;
+- aggregate workflow ledger handles.
+
+The classes are structural. They are derived from system artifact id/kind
+shape and typed workflow-ledger fields, not from business names or user prose.
+REPL scaffolds can now consume `node_class` rather than hard-owning the
+classification.
+
+Changes:
+
+- [x] Added `node_class` to `ArtifactSchemaProjection`.
+- [x] Added `ArtifactNodeClass`, `IsDiagnosticChildArtifact`, and
+      `IsWorkflowLedgerArtifact` helpers in `internal/dataworkflow`.
+- [x] Populated `node_class` in both full artifact contract access and compact
+      prompt artifact access.
+- [x] Rewired REPL scaffold filtering to consume dataworkflow node classes,
+      with helper fallback only for older prompt views.
+- [x] Added regression coverage for workflow ledger and diagnostic child
+      classification.
+
+Remaining architecture items:
+
+- [ ] Move scaffold eligibility fully into an ArtifactGraph-aware reducer
+      rather than REPL helper functions.
+- [ ] Persist artifact node classes and lineage snapshots into data-audit
+      records.
+- [ ] Add `artifact_schema_projection` validation to action guards so typed
+      actions consume exact executable schema contracts instead of prompt
+      samples.

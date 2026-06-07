@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/llm"
 )
 
@@ -4725,16 +4726,18 @@ func TestDataTaskApplyResolutionScaffoldsSkipAlreadyAppliedLedger(t *testing.T) 
 func TestDataTaskApplyResolutionScaffoldsSkipWorkflowLedgerHandleAndDiagnosticChildren(t *testing.T) {
 	access := []dataTaskArtifactAccessPrompt{
 		{
-			ID:      "records.json#base",
-			Kind:    "apply_entity_resolutions/base",
-			Aliases: []string{"records.json#base"},
-			Fields:  []string{"_source_index", "raw_name"},
+			ID:        "records.json#base",
+			Kind:      "apply_entity_resolutions/base",
+			NodeClass: dataworkflow.ArtifactNodeClassDiagnosticChild,
+			Aliases:   []string{"records.json#base"},
+			Fields:    []string{"_source_index", "raw_name"},
 		},
 		{
-			ID:      "workflow_entity_resolutions",
-			Kind:    "workflow_ledger/entity_resolutions",
-			Aliases: []string{"workflow_entity_resolutions"},
-			Fields:  []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+			ID:        "workflow_entity_resolutions",
+			Kind:      "workflow_ledger/entity_resolutions",
+			NodeClass: dataworkflow.ArtifactNodeClassWorkflowLedger,
+			Aliases:   []string{"workflow_entity_resolutions"},
+			Fields:    []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
 		},
 		{
 			ID:      "records",

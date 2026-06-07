@@ -82,6 +82,7 @@ type WorkflowDecision struct {
 type ArtifactSchemaProjection struct {
 	ID          string   `json:"id,omitempty"`
 	Kind        string   `json:"kind,omitempty"`
+	NodeClass   string   `json:"node_class,omitempty"`
 	Aliases     []string `json:"aliases,omitempty"`
 	JSONShape   string   `json:"json_shape,omitempty"`
 	Fields      []string `json:"fields,omitempty"`

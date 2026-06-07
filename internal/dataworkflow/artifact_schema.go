@@ -29,6 +29,7 @@ func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []A
 			out = append(out, ArtifactSchemaProjection{
 				ID:          strings.TrimSpace(artifact.ID),
 				Kind:        strings.TrimSpace(artifact.Kind),
+				NodeClass:   ArtifactNodeClass(artifact),
 				Aliases:     aliases,
 				JSONShape:   strings.TrimSpace(shape),
 				Fields:      ArtifactFields(artifact),
@@ -128,6 +129,56 @@ func ArtifactAccessHint(shape string) string {
 	default:
 		return "use json_records(alias) for record-oriented access; inspect artifact json_shape before assuming dict/list shape"
 	}
+}
+
+const (
+	ArtifactNodeClassArtifact        = "artifact"
+	ArtifactNodeClassRecord          = "record"
+	ArtifactNodeClassDiagnosticChild = "diagnostic_child"
+	ArtifactNodeClassWorkflowLedger  = "workflow_ledger"
+)
+
+func ArtifactNodeClass(artifact ArtifactProjectionSource) string {
+	if IsWorkflowLedgerArtifact(artifact.ID, artifact.Kind, artifact.Fields) {
+		return ArtifactNodeClassWorkflowLedger
+	}
+	if IsDiagnosticChildArtifact(artifact.ID, artifact.Kind) {
+		return ArtifactNodeClassDiagnosticChild
+	}
+	shape := strings.ToLower(strings.TrimSpace(artifactField(artifact, "json_shape")))
+	if strings.HasPrefix(shape, "array") || (strings.HasPrefix(shape, "object") && strings.Contains(shape, "records")) || len(artifact.Headers) > 0 {
+		return ArtifactNodeClassRecord
+	}
+	return ArtifactNodeClassArtifact
+}
+
+func IsDiagnosticChildArtifact(id, kind string) bool {
+	id = strings.ToLower(strings.TrimSpace(id))
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	for _, suffix := range []string{"#base", "#mapping", "#entity_source", "#entity_reference"} {
+		if strings.HasSuffix(id, suffix) {
+			return true
+		}
+	}
+	for _, suffix := range []string{"/base", "/mapping", "/entity_source", "/entity_reference"} {
+		if strings.HasSuffix(kind, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsWorkflowLedgerArtifact(id, kind string, fields map[string]string) bool {
+	id = strings.ToLower(strings.TrimSpace(id))
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if strings.HasPrefix(kind, "workflow_ledger/") {
+		return true
+	}
+	switch id {
+	case "workflow_entity_resolutions", "workflow_contributions", "workflow_rule_coverage", "workflow_decision_records":
+		return true
+	}
+	return fields != nil && strings.EqualFold(strings.TrimSpace(fields["workflow_ledger"]), "true")
 }
 
 func ArtifactAccessKey(artifact ArtifactProjectionSource) string {

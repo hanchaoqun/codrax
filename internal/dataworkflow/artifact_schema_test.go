@@ -87,6 +87,32 @@ func TestProjectArtifactSchemasIncludesChildren(t *testing.T) {
 	}
 }
 
+func TestProjectArtifactSchemasClassifiesWorkflowLedgerAndDiagnosticChildren(t *testing.T) {
+	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{{
+		ID:   "workflow_entity_resolutions",
+		Kind: "workflow_ledger/entity_resolutions",
+		Fields: map[string]string{
+			"workflow_ledger": "true",
+			"json_shape":      "array(len=2)",
+		},
+		Children: []dataquery.DataArtifact{{
+			ID:      "records.json#base",
+			Kind:    "apply_entity_resolutions/base",
+			Headers: []string{"id"},
+			Fields:  map[string]string{"json_shape": "array(len=2)"},
+		}},
+	}})
+	if len(projections) != 2 {
+		t.Fatalf("projection count=%d, want workflow ledger plus child", len(projections))
+	}
+	if projections[0].NodeClass != ArtifactNodeClassWorkflowLedger {
+		t.Fatalf("workflow ledger node_class=%q", projections[0].NodeClass)
+	}
+	if projections[1].NodeClass != ArtifactNodeClassDiagnosticChild {
+		t.Fatalf("diagnostic child node_class=%q", projections[1].NodeClass)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

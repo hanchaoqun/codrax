@@ -5791,6 +5791,7 @@ type dataTaskLedgerProjection struct {
 type dataTaskArtifactAccessPrompt struct {
 	ID           string              `json:"id,omitempty"`
 	Kind         string              `json:"kind,omitempty"`
+	NodeClass    string              `json:"node_class,omitempty"`
 	Aliases      []string            `json:"aliases,omitempty"`
 	JSONShape    string              `json:"json_shape,omitempty"`
 	Fields       []string            `json:"fields,omitempty"`
@@ -6963,32 +6964,13 @@ func dataTaskArtifactHasTextExtractionField(fields []string) bool {
 }
 
 func dataTaskArtifactIsDiagnosticChild(artifact dataTaskArtifactAccessPrompt) bool {
-	id := strings.ToLower(strings.TrimSpace(artifact.ID))
-	kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
-	for _, suffix := range []string{"#base", "#mapping", "#entity_source", "#entity_reference"} {
-		if strings.HasSuffix(id, suffix) {
-			return true
-		}
-	}
-	for _, suffix := range []string{"/base", "/mapping", "/entity_source", "/entity_reference"} {
-		if strings.HasSuffix(kind, suffix) {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(artifact.NodeClass) == dataworkflow.ArtifactNodeClassDiagnosticChild ||
+		dataworkflow.IsDiagnosticChildArtifact(artifact.ID, artifact.Kind)
 }
 
 func dataTaskArtifactIsWorkflowLedgerHandle(artifact dataTaskArtifactAccessPrompt) bool {
-	if strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_entity_resolutions") ||
-		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_contributions") ||
-		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_rule_coverage") ||
-		strings.EqualFold(strings.TrimSpace(artifact.ID), "workflow_decision_records") {
-		return true
-	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(artifact.Kind)), "workflow_ledger/") {
-		return true
-	}
-	return false
+	return strings.TrimSpace(artifact.NodeClass) == dataworkflow.ArtifactNodeClassWorkflowLedger ||
+		dataworkflow.IsWorkflowLedgerArtifact(artifact.ID, artifact.Kind, nil)
 }
 
 func dataTaskApplyResolutionActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
@@ -7589,6 +7571,7 @@ func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []
 		out = append(out, dataTaskArtifactAccessPrompt{
 			ID:          projection.ID,
 			Kind:        projection.Kind,
+			NodeClass:   projection.NodeClass,
 			Aliases:     projection.Aliases,
 			JSONShape:   projection.JSONShape,
 			Fields:      projection.Fields,
@@ -8191,6 +8174,7 @@ func sampleDataTaskArtifactAccessWithFieldSamples(artifacts []dataquery.DataArti
 			out = append(out, dataTaskArtifactAccessPrompt{
 				ID:           strings.TrimSpace(artifact.ID),
 				Kind:         strings.TrimSpace(artifact.Kind),
+				NodeClass:    dataworkflow.ArtifactNodeClass(artifact),
 				Aliases:      clampDataTaskStringSlice(aliases, 8),
 				JSONShape:    clampDataTaskWorkflowText(shape, 240),
 				Fields:       fields,
