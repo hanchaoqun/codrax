@@ -12812,3 +12812,46 @@ Remaining P0 admission work:
 - [ ] Feed accepted/deferred/rejected admission decisions into the live
       `ActionGraph` journal so deferred storage can move out of REPL/CLI outer
       variables.
+
+### Batch 285: Typed Guard Results Through Admission
+
+The admission reducer added in Batch 284 can carry typed `GuardResult`, but
+the first adapter still fed it a string-only staging error and wrapped that as
+`action_dag_admission`. That preserved behavior, but it hid precise failure
+classes from the reducer. The codebase already had typed guard producers for
+many precise structural checks: missing action inputs, unavailable input
+aliases, field-contract violations, intra-batch dependencies, missing specs,
+and upstream ledger gaps. The admission adapter should consume those existing
+typed results directly.
+
+This is a cross-cutting IR fix, not a task-specific guard. It means future
+admission/reducer logic can branch on typed guard codes without parsing
+localized UI text or model-facing prose.
+
+Generic invariants:
+
+- admission must preserve the most precise guard code available at the
+  boundary;
+- legacy `GuardErr` strings remain for existing retry hints and UI messages,
+  but hard control flow should read `GuardResult.Code` and violations;
+- typed guard propagation must not alter existing staging-guard behavior or
+  execution permission;
+- generic wrappers are acceptable only when no precise guard result exists.
+
+Changes:
+
+- [x] Rewired `dataTaskPreflightWorkflowPlan` to pass
+      `dataTaskWorkflowStagingGuardResult` directly into
+      `AdmitActionDAGPlan`.
+- [x] Preserved fallback compatibility by continuing to pass
+      `guard.ErrorText()` into existing deterministic fallback functions.
+- [x] Added regression coverage that a rejected preflight candidate preserves
+      the precise `missing_action_inputs` final guard code.
+
+Remaining typed-guard work:
+
+- [ ] Convert the top-level string-only staging checks, such as batch-size,
+      script-placement, custom-transform shape, and numeric-constant reuse,
+      into typed `GuardResult` producers.
+- [ ] Feed admission guard codes into ActionGraph blocked nodes and workflow
+      journal entries instead of only storing textual `Err`.

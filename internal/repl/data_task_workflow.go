@@ -5256,11 +5256,7 @@ func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataqu
 			return fallback, remainder, "split initial data plan at typed dependency rank", true
 		},
 		Guard: func(current dataquery.TaskPlan) dataworkflow.GuardResult {
-			errText := dataTaskWorkflowStagingGuardError(records, current)
-			if strings.TrimSpace(errText) == "" {
-				return dataworkflow.GuardResult{}
-			}
-			return dataworkflow.NewGuardResult("action_dag_admission", "error", dataworkflow.RepairNeedsTypedAction, errText)
+			return dataTaskWorkflowStagingGuardResult(records, current)
 		},
 		DeterministicFallback: func(current dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
 			return dataTaskWorkflowDeterministicFallback(records, current, guard.ErrorText())

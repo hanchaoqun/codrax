@@ -5790,6 +5790,9 @@ func TestDataTaskPreflightMarksRejectedCandidate(t *testing.T) {
 	if !strings.Contains(preflight.FinalGuardErr, "requires input_paths") {
 		t.Fatalf("FinalGuardErr=%q, want input path contract failure", preflight.FinalGuardErr)
 	}
+	if preflight.FinalGuard.Code != "missing_action_inputs" {
+		t.Fatalf("FinalGuard.Code=%q, want precise typed guard code", preflight.FinalGuard.Code)
+	}
 }
 
 func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T) {
