@@ -6206,15 +6206,19 @@ func dataTaskWorkflowStageNoProgressViolations(records []dataTaskWorkflowRecord,
 	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 || state.HasReconcile {
 		return nil
 	}
-	count := dataTaskRecentJoinNoProgressCount(records)
+	count, kinds := dataTaskRecentRelationNoProgressCount(records)
 	if count < DefaultDataTaskMaxNodeFailures {
 		return nil
+	}
+	actionKind := "relation_materialization"
+	if len(kinds) == 1 {
+		actionKind = kinds[0]
 	}
 	return []dataworkflow.WorkflowViolation{{
 		Code:          "stage_no_progress",
 		Severity:      "warning",
 		Repairability: dataworkflow.RepairNeedsTypedAction,
-		ActionKind:    string(dataquery.DataActionJoinRecords),
+		ActionKind:    actionKind,
 		RepairActionHints: cleanDataTaskStrings([]string{
 			string(dataquery.DataActionDeriveFields),
 			string(dataquery.DataActionExtractFields),
@@ -6223,12 +6227,22 @@ func dataTaskWorkflowStageNoProgressViolations(records []dataTaskWorkflowRecord,
 			string(dataquery.DataActionComputeContribs),
 			string(dataquery.DataActionReconcile),
 		}),
-		Reason: fmt.Sprintf("the workflow is still at %s after %d recent join_records result(s) without contribution or reconcile progress; stop automatic relation joins and repair from artifact fields, eligibility filters, contribution calculation, or reconciliation", state.NextStage, count),
+		Reason: fmt.Sprintf("the workflow is still at %s after %d recent relation materialization result(s) [%s] without contribution or reconcile progress; stop automatic apply/enrich/join scaffolds and repair from artifact fields, eligibility filters, contribution calculation, or reconciliation", state.NextStage, count, strings.Join(kinds, ", ")),
 	}}
 }
 
 func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {
+	count, kinds := dataTaskRecentRelationNoProgressCount(records)
+	if len(kinds) == 1 && kinds[0] == string(dataquery.DataActionJoinRecords) {
+		return count
+	}
+	return 0
+}
+
+func dataTaskRecentRelationNoProgressCount(records []dataTaskWorkflowRecord) (int, []string) {
 	count := 0
+	seen := make(map[string]bool)
+	var kinds []string
 	for i := len(records) - 1; i >= 0; i-- {
 		rec := records[i]
 		if rec.Result == nil || strings.TrimSpace(rec.Err) != "" {
@@ -6237,12 +6251,49 @@ func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {
 		if len(rec.Result.Contributions) > 0 || rec.Result.Reconcile != nil {
 			break
 		}
-		if !dataTaskPlanHasOnlyActionKind(rec.Plan, dataquery.DataActionJoinRecords) {
+		kind, ok := dataTaskPlanSingleRelationMaterializationKind(rec.Plan)
+		if !ok {
 			break
 		}
 		count++
+		if !seen[kind] {
+			seen[kind] = true
+			kinds = append(kinds, kind)
+		}
 	}
-	return count
+	sort.Strings(kinds)
+	return count, kinds
+}
+
+func dataTaskPlanSingleRelationMaterializationKind(plan dataquery.TaskPlan) (string, bool) {
+	if len(plan.Actions) == 0 {
+		return "", false
+	}
+	var found string
+	for _, action := range plan.Actions {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if !dataTaskActionKindIsRelationMaterialization(kind) {
+			return "", false
+		}
+		kindText := string(kind)
+		if found == "" {
+			found = kindText
+			continue
+		}
+		if found != kindText {
+			found = "relation_materialization"
+		}
+	}
+	return found, true
+}
+
+func dataTaskActionKindIsRelationMaterialization(kind dataquery.DataActionKind) bool {
+	switch normalizeDataActionKindForWorkflow(kind) {
+	case dataquery.DataActionApplyResolutions, dataquery.DataActionEnrichRecords, dataquery.DataActionJoinRecords:
+		return true
+	default:
+		return false
+	}
 }
 
 func dataTaskPlanHasOnlyActionKind(plan dataquery.TaskPlan, kind dataquery.DataActionKind) bool {
@@ -10001,7 +10052,7 @@ func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord
 }
 
 func dataTaskConcreteActionWouldRepeatNoProgress(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, action dataquery.DataAction) bool {
-	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionJoinRecords {
+	if !dataTaskActionKindIsRelationMaterialization(action.Kind) {
 		return false
 	}
 	if state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions" {
@@ -10010,7 +10061,8 @@ func dataTaskConcreteActionWouldRepeatNoProgress(records []dataTaskWorkflowRecor
 	if (!state.ContributionLedgerRequired && !state.ReconcileRequired) || state.ContributionRecords > 0 || state.HasReconcile {
 		return false
 	}
-	return dataTaskRecentJoinNoProgressCount(records) >= DefaultDataTaskMaxNodeFailures
+	count, _ := dataTaskRecentRelationNoProgressCount(records)
+	return count >= DefaultDataTaskMaxNodeFailures
 }
 
 func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {

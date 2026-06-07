@@ -534,6 +534,89 @@ func TestDataTaskWorkflowNextStageFallbackStopsRepeatedJoinNoProgress(t *testing
 	}
 }
 
+func TestDataTaskWorkflowNextStageFallbackStopsRepeatedRelationNoProgress(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "items.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	applyPlan := func(id, base, mapping, out string) dataquery.TaskPlan {
+		return dataquery.TaskPlan{
+			Status:        "ready",
+			ContinueAfter: true,
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          current.CoverageContract.RequiredMaterials,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:             id,
+				Kind:           dataquery.DataActionApplyResolutions,
+				InputPaths:     []string{base, mapping},
+				OutputArtifact: out,
+				Params: map[string]string{
+					"base_path": base,
+					"resolution_specs": `[{
+						"resolution_path":"` + mapping + `",
+						"resolution_key_fields":["item_id"],
+						"target_id_field":"canonical_id"
+					}]`,
+				},
+			}},
+		}
+	}
+	applyResult := func(id string) *dataquery.Result {
+		return &dataquery.Result{
+			ConsumedPaths: []string{"items.csv", "lookup.csv"},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				SourceValue:    dataquery.LooseText("a"),
+				CanonicalID:    dataquery.LooseText("A"),
+				CanonicalLabel: dataquery.LooseText("A"),
+				Status:         dataquery.LooseText("matched"),
+			}},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      id,
+				Kind:    string(dataquery.DataActionApplyResolutions),
+				Headers: []string{"item_id", "canonical_id", "value"},
+				Fields: map[string]string{
+					"artifact_aliases": id,
+					"json_shape":       "array(len=2,item=object(keys=item_id,canonical_id,value))",
+					"output_headers":   "item_id,canonical_id,value",
+				},
+			}},
+		}
+	}
+	records := []dataTaskWorkflowRecord{
+		{Plan: applyPlan("apply_1", "items.csv", "mapping.json", "resolved_1.json"), Result: applyResult("resolved_1.json")},
+		{Plan: applyPlan("apply_2", "resolved_1.json", "mapping.json", "resolved_2.json"), Result: applyResult("resolved_2.json")},
+	}
+
+	state := dataTaskWorkflowState(records, current)
+	var found *dataworkflow.WorkflowViolation
+	for i := range state.WorkflowViolations {
+		if state.WorkflowViolations[i].Code == "stage_no_progress" {
+			found = &state.WorkflowViolations[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("WorkflowViolations=%+v, want stage_no_progress", state.WorkflowViolations)
+	}
+	if found.ActionKind != string(dataquery.DataActionApplyResolutions) {
+		t.Fatalf("stage_no_progress ActionKind=%q, want apply_entity_resolutions", found.ActionKind)
+	}
+	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); ok && len(plan.Actions) > 0 && dataTaskActionKindIsRelationMaterialization(plan.Actions[0].Kind) {
+		t.Fatalf("fallback=%+v reason=%q, want no automatic relation materialization after repeated no-progress apply", plan, reason)
+	}
+}
+
 func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",

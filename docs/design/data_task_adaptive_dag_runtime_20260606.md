@@ -10649,3 +10649,51 @@ Remaining architecture items:
       metadata so future guards do not need to infer roles from mixed lineage.
 - [ ] Move the apply-resolution compatibility guard into `internal/dataworkflow`
       once ArtifactGraph owns relation readiness for both CLI and REPL.
+
+### Batch 242: Relation-Family No-Progress Signatures
+
+The same real-scenario run proved that one narrow no-progress signal was not
+enough. After a valid category normalization step, the runtime could still
+cycle through `apply_entity_resolutions`, `join_records`, and similar relation
+materialization actions. Each action produced another intermediate artifact,
+but the required contribution and reconcile ledgers remained empty. The older
+guard only counted repeated `join_records`, so repeated apply/enrich/join
+families could still consume workflow budget without moving toward the user's
+output.
+
+This is a generic DAG-convergence issue. Relation materialization actions are
+useful when they create the next executable record set, but they are not proof
+of user-goal progress once a workflow is in the contribution/reconcile stage.
+The invariant is:
+
+- when contribution or reconcile ledgers are required and still absent,
+  consecutive relation materialization results without ledger progress form a
+  stage no-progress signature;
+- relation materialization currently includes `apply_entity_resolutions`,
+  `enrich_records`, and `join_records`;
+- after the threshold is reached, deterministic scaffold fallback must stop
+  selecting more relation materialization and steer toward field derivation,
+  filtering, qualification, contribution calculation, or reconciliation;
+- the gate is based on typed action kinds and ledger state only, not model
+  prose or business keywords.
+
+Changes:
+
+- [x] Replaced join-only no-progress counting with relation-family
+      no-progress counting.
+- [x] Updated `stage_no_progress` violations to report the recent relation
+      action family and generic repair hints.
+- [x] Prevented deterministic fallback from auto-selecting apply/enrich/join
+      scaffolds after repeated relation materialization without contribution or
+      reconcile progress.
+- [x] Added regression coverage for repeated `apply_entity_resolutions`
+      no-progress alongside the existing repeated-join coverage.
+
+Remaining architecture items:
+
+- [ ] Extend the progress signature with field-set deltas, row-count deltas,
+      ledger deltas, and stage movement so a relation action that truly changes
+      the executable schema is distinguished from a no-op relation loop.
+- [ ] Move relation-family progress signatures into `internal/dataworkflow`
+      with ActionDAG/ArtifactGraph/LedgerGraph state instead of keeping the
+      policy in REPL-local workflow code.
