@@ -71,3 +71,72 @@ func TestBuildConcreteFallbackPlanSkipsSeenActionKeys(t *testing.T) {
 		t.Fatal("BuildConcreteFallbackPlan ok=true, want seen action skipped")
 	}
 }
+
+func TestBuildNextStageConcreteFallbackPlanUsesArtifactSchemaProjection(t *testing.T) {
+	plan, reason, ok := BuildNextStageConcreteFallbackPlan(NextStageFallbackPlanInput{
+		Current: dataquery.TaskPlan{
+			Goal: "finish grouped calculation",
+		},
+		Coverage: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Output: dataquery.OutputContract{Format: dataquery.OutputCSVLine},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			EntityStageMaterialized:    true,
+		},
+		AllowedNextActions: []string{string(dataquery.DataActionJoinRecords)},
+		Artifacts: []ArtifactSchemaProjection{
+			{ID: "left.json", Aliases: []string{"left.json"}, JSONShape: "records", Fields: []string{"id", "amount"}, RowCount: 2},
+			{ID: "right.json", Aliases: []string{"right.json"}, JSONShape: "records", Fields: []string{"id", "label"}, RowCount: 2},
+		},
+		ReasonPrefix: "batch result completed",
+	})
+	if !ok {
+		t.Fatal("BuildNextStageConcreteFallbackPlan ok=false")
+	}
+	if !strings.Contains(reason, "converted to concrete typed action scaffold") {
+		t.Fatalf("reason=%q", reason)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionJoinRecords {
+		t.Fatalf("actions=%+v, want concrete join_records", plan.Actions)
+	}
+	if plan.Actions[0].Params["left_fields"] != `["id"]` || plan.Actions[0].Params["right_fields"] != `["id"]` {
+		t.Fatalf("join params=%+v, want concrete common key fields", plan.Actions[0].Params)
+	}
+	if plan.OutputContract.Format != dataquery.OutputCSVLine || !plan.CoverageContract.ContributionLedgerRequired {
+		t.Fatalf("contracts=%+v/%+v, want preserved output and coverage contracts", plan.OutputContract, plan.CoverageContract)
+	}
+}
+
+func TestBuildNextStageConcreteFallbackPlanBlocksRepeatedRelationNoProgress(t *testing.T) {
+	_, _, ok := BuildNextStageConcreteFallbackPlan(NextStageFallbackPlanInput{
+		Current: dataquery.TaskPlan{
+			Goal: "finish grouped calculation",
+		},
+		Coverage: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			EntityStageMaterialized:    true,
+		},
+		AllowedNextActions: []string{string(dataquery.DataActionJoinRecords)},
+		Artifacts: []ArtifactSchemaProjection{
+			{ID: "left.json", Aliases: []string{"left.json"}, JSONShape: "records", Fields: []string{"id", "amount"}, RowCount: 2},
+			{ID: "right.json", Aliases: []string{"right.json"}, JSONShape: "records", Fields: []string{"id", "label"}, RowCount: 2},
+		},
+		ProgressEvents: []ProgressEvent{{
+			ResultPresent: true,
+			Actions: []dataquery.DataAction{{
+				Kind: dataquery.DataActionJoinRecords,
+			}},
+		}},
+		NoProgressStop: 1,
+	})
+	if ok {
+		t.Fatal("BuildNextStageConcreteFallbackPlan ok=true, want repeated relation no-progress blocked")
+	}
+}

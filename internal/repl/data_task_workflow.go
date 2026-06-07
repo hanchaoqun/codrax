@@ -2138,21 +2138,6 @@ func dataTaskConcreteScaffoldFallback(records []dataTaskWorkflowRecord, current 
 	})
 }
 
-func dataTaskConcreteScaffoldCandidatesForState(state dataTaskWorkflowStateView) []dataTaskActionScaffold {
-	if len(state.ActionScaffold) == 0 {
-		return nil
-	}
-	return dataworkflow.ConcreteFallbackScaffolds(state.ActionScaffold, dataTaskWorkflowStageFacts(state))
-}
-
-func normalizeDataTaskActionKindString(kind string) string {
-	return string(normalizeDataActionKindForWorkflow(dataquery.DataActionKind(kind)))
-}
-
-func dataTaskConcreteActionFromScaffold(scaffold dataTaskActionScaffold) (dataquery.DataAction, bool) {
-	return dataworkflow.ConcreteActionFromScaffold(scaffold)
-}
-
 func dataTaskWorkflowSeenActionKeys(records []dataTaskWorkflowRecord) map[string]bool {
 	var actions []dataquery.DataAction
 	for _, rec := range records {
@@ -9566,6 +9551,9 @@ func dataTaskWorkflowNextStageFallback(records []dataTaskWorkflowRecord, current
 }
 
 func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
+	if len(current.Actions) == 0 && current.ContinueAfter {
+		return dataquery.TaskPlan{}, "", false
+	}
 	state := dataTaskWorkflowState(records, current)
 	if len(dataTaskWorkflowMissingValidationStages(state)) == 0 {
 		return dataquery.TaskPlan{}, "", false
@@ -9695,81 +9683,23 @@ func dataTaskRecordMaterializationPaths(contract dataquery.CoverageContract) []s
 }
 
 func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord, base dataquery.TaskPlan, state dataTaskWorkflowStateView, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	allowed := map[string]bool{}
-	for _, action := range state.AllowedNextActions {
-		if action = strings.TrimSpace(action); action != "" {
-			allowed[action] = true
-		}
-	}
-	if len(allowed) == 0 {
-		return dataquery.TaskPlan{}, "", false
-	}
 	access := dataTaskWorkflowArtifactContractAccess(records)
 	if len(access) == 0 {
 		access = dataTaskWorkflowArtifactAccess(records, 20)
 	}
-	recordAccess := dataTaskWorkflowRecordActionArtifacts(access)
-	var scaffolds []dataTaskActionScaffold
-	appendAllowed := func(kind dataquery.DataActionKind, items []dataTaskActionScaffold) {
-		if !allowed[string(kind)] || len(items) == 0 {
-			return
-		}
-		scaffolds = append(scaffolds, items...)
-	}
-	switch state.NextStage {
-	case "normalize_or_enrich_entities":
-		appendAllowed(dataquery.DataActionNormalizeEntities, dataTaskNormalizeEntityActionScaffolds(recordAccess, 8))
-		appendAllowed(dataquery.DataActionApplyResolutions, dataTaskApplyResolutionActionScaffolds(access, 4))
-		appendAllowed(dataquery.DataActionEnrichRecords, dataTaskEnrichActionScaffolds(access, 4))
-		appendAllowed(dataquery.DataActionJoinRecords, dataTaskJoinActionScaffolds(recordAccess, 4))
-	case "prepare_contribution_inputs", "compute_contributions":
-		if !state.EntityStageMaterialized {
-			appendAllowed(dataquery.DataActionNormalizeEntities, dataTaskNormalizeEntityActionScaffolds(recordAccess, 8))
-		}
-		appendAllowed(dataquery.DataActionApplyResolutions, dataTaskApplyResolutionActionScaffolds(access, 6))
-		appendAllowed(dataquery.DataActionEnrichRecords, dataTaskEnrichActionScaffolds(access, 6))
-		appendAllowed(dataquery.DataActionJoinRecords, dataTaskJoinActionScaffolds(recordAccess, 6))
-		scaffolds = append(scaffolds, dataTaskConcreteScaffoldCandidatesForState(state)...)
-	default:
-		scaffolds = append(scaffolds, dataTaskConcreteScaffoldCandidatesForState(state)...)
-	}
-	for _, scaffold := range scaffolds {
-		if !allowed[normalizeDataTaskActionKindString(scaffold.Kind)] {
-			continue
-		}
-		action, ok := dataTaskConcreteActionFromScaffold(scaffold)
-		if !ok {
-			continue
-		}
-		if dataTaskConcreteActionWouldRepeatNoProgress(records, state, action) {
-			continue
-		}
-		out := base
-		out.Actions = []dataquery.DataAction{action}
-		out.InputPaths = mergeDataTaskInputPaths(out.InputPaths, action.InputPaths)
-		out.Script = ""
-		out.ContinueAfter = true
-		if strings.TrimSpace(action.Purpose) != "" {
-			out.WhyThisBatch = reasonPrefix + "; " + strings.TrimSpace(action.Purpose)
-		} else {
-			out.WhyThisBatch = reasonPrefix + "; execute the next concrete typed action scaffold from current artifact fields"
-		}
-		out.NextBatch = "evaluate this typed artifact, then continue with the next legal DAG stage"
-		if dataTaskFallbackPlanAlreadySeen(records, out) {
-			continue
-		}
-		return out, reasonPrefix + "; advanced " + state.NextStage + " with a concrete typed action scaffold", true
-	}
-	return dataquery.TaskPlan{}, "", false
-}
-
-func dataTaskConcreteActionWouldRepeatNoProgress(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, action dataquery.DataAction) bool {
-	return dataworkflow.WouldRepeatRelationNoProgress(
-		dataTaskWorkflowStageFacts(state),
-		dataTaskWorkflowProgressEvents(records),
-		action.Kind,
-		DefaultDataTaskMaxNodeFailures,
-	)
+	return dataworkflow.BuildNextStageConcreteFallbackPlan(dataworkflow.NextStageFallbackPlanInput{
+		Current:            base,
+		Coverage:           base.CoverageContract,
+		Output:             base.OutputContract,
+		Facts:              dataTaskWorkflowStageFacts(state),
+		AllowedNextActions: state.AllowedNextActions,
+		Artifacts:          dataTaskArtifactAccessSchemaProjection(access),
+		ExtraScaffolds:     state.ActionScaffold,
+		ReasonPrefix:       reasonPrefix + "; advanced " + state.NextStage,
+		SeenActionKeys:     dataTaskWorkflowSeenActionKeys(records),
+		ProgressEvents:     dataTaskWorkflowProgressEvents(records),
+		NoProgressStop:     DefaultDataTaskMaxNodeFailures,
+	})
 }
 
 func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {

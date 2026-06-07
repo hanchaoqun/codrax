@@ -381,7 +381,13 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 	if limit <= 0 {
 		return nil
 	}
-	var out []ActionScaffold
+	type candidate struct {
+		scaffold ActionScaffold
+		score    int
+		order    int
+	}
+	var candidates []candidate
+	order := 0
 	for _, source := range records {
 		sourceAlias := firstProjectionAlias(source)
 		if sourceAlias == "" || len(source.Fields) == 0 {
@@ -402,7 +408,7 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 			if canonicalID == "" {
 				continue
 			}
-			out = append(out, ActionScaffold{
+			scaffold := ActionScaffold{
 				Kind:       string(dataquery.DataActionNormalizeEntities),
 				UseWhen:    "produce a reusable mapping ledger between source records and reference records before applying canonical fields",
 				InputPaths: []string{sourceAlias, referenceAlias},
@@ -417,10 +423,26 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 					"match_mode":            "exact|contains|token_set",
 				},
 				Note: "Use this to create mapping evidence. It does not modify base records; use apply_entity_resolutions or enrich_records afterward when base rows need canonical fields.",
-			})
-			if len(out) >= limit {
-				return out
 			}
+			candidates = append(candidates, candidate{
+				scaffold: scaffold,
+				score:    normalizeScaffoldDirectionScore(source.Fields, reference.Fields, sourceFields, referenceFields, canonicalID, canonicalLabel),
+				order:    order,
+			})
+			order++
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].order < candidates[j].order
+	})
+	out := make([]ActionScaffold, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, candidate.scaffold)
+		if len(out) >= limit {
+			break
 		}
 	}
 	return out
@@ -459,9 +481,9 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 			spec := []map[string]any{{
 				"resolution_path":       ledgerAlias,
 				"resolution_key_fields": []string{"item_id"},
-				"target_id_field":       "<new canonical id field>",
-				"target_label_field":    "<new canonical label field>",
-				"target_status_field":   "<new resolution status field>",
+				"target_id_field":       resolutionTargetFieldPrefix(ledgerAlias) + "_canonical_id",
+				"target_label_field":    resolutionTargetFieldPrefix(ledgerAlias) + "_canonical_label",
+				"target_status_field":   resolutionTargetFieldPrefix(ledgerAlias) + "_resolution_status",
 				"unmatched_status":      "unmatched",
 			}}
 			out = append(out, ActionScaffold{
@@ -483,6 +505,97 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 		}
 	}
 	return out
+}
+
+func normalizeScaffoldDirectionScore(sourceFields, referenceFields, chosenSourceFields, chosenReferenceFields []string, canonicalID, canonicalLabel string) int {
+	score := 0
+	if hasAnyNamedField(sourceFields, canonicalID) {
+		score += 40
+	}
+	if canonicalLabel != "" && hasAnyNamedField(referenceFields, canonicalLabel) {
+		score += 20
+	}
+	for _, field := range chosenSourceFields {
+		if fieldHasTokenCue(field, "raw", "source", "input", "original") {
+			score += 20
+		}
+	}
+	for _, field := range chosenReferenceFields {
+		if fieldHasTokenCue(field, "name", "label", "title", "display", "canonical") {
+			score += 10
+		}
+	}
+	if fieldHasTokenCue(canonicalID, "id", "code", "key") {
+		score += 10
+	}
+	return score
+}
+
+func hasAnyNamedField(fields []string, wants ...string) bool {
+	set := map[string]bool{}
+	for _, field := range cleanStrings(fields) {
+		set[strings.ToLower(strings.TrimSpace(field))] = true
+	}
+	for _, want := range wants {
+		if set[strings.ToLower(strings.TrimSpace(want))] {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldHasTokenCue(field string, cues ...string) bool {
+	field = strings.ToLower(strings.TrimSpace(field))
+	if field == "" {
+		return false
+	}
+	parts := strings.FieldsFunc(field, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == '/' || r == ' '
+	})
+	for _, part := range parts {
+		for _, cue := range cues {
+			if part == cue {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func resolutionTargetFieldPrefix(alias string) string {
+	value := cleanIdentifier(alias)
+	for {
+		next := value
+		for _, suffix := range []string{
+			"_entity_resolutions",
+			"_entity_resolution",
+			"_resolutions",
+			"_resolution",
+			"_entity_mappings",
+			"_entity_mapping",
+			"_normalizations",
+			"_normalization",
+			"_normalized",
+			"_mappings",
+			"_mapping",
+			"_records",
+			"_record",
+		} {
+			if strings.HasSuffix(next, suffix) && len(next) > len(suffix) {
+				next = strings.TrimSuffix(next, suffix)
+				break
+			}
+		}
+		if next == value {
+			break
+		}
+		value = next
+	}
+	value = strings.Trim(value, "_")
+	if value == "" {
+		return "resolved_entity"
+	}
+	return value
 }
 
 func recordActionProjections(projections []ArtifactSchemaProjection) []ArtifactSchemaProjection {

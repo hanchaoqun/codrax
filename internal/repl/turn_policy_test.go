@@ -1868,7 +1868,8 @@ func TestTurnPolicyDispatch_DataRouteContinuesAfterIntermediateBatch(t *testing.
 				Format:             dataquery.OutputMarkdown,
 				ExplanationAllowed: true,
 			},
-			Script: `emit({"answer": "intermediate rows loaded", "output_contract": {"format": "markdown", "explanation_allowed": True}})`,
+			Script: `rows = csv_rows("orders.csv")
+emit({"answer": "intermediate rows loaded", "output_contract": {"format": "markdown", "explanation_allowed": True}})`,
 		},
 		evals: []dataquery.Evaluation{
 			{Status: dataquery.EvalContinueData, Reason: "need final aggregation", Confidence: "high"},

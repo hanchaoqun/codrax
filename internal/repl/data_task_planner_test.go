@@ -451,8 +451,11 @@ func TestDataTaskWorkflowNextStageFallbackNormalizesFromRecordArtifacts(t *testi
 	if len(action.InputPaths) != 2 || action.InputPaths[0] != "order_records.json" || action.InputPaths[1] != "vendor_records.json" {
 		t.Fatalf("input_paths=%v, want order/vendor artifacts", action.InputPaths)
 	}
-	if action.Params["source_field"] == "" || action.Params["canonical_id_field"] != "vendor_id" {
-		t.Fatalf("params=%+v, want concrete source field and vendor_id canonical field", action.Params)
+	if action.Params["canonical_id_field"] != "vendor_id" {
+		t.Fatalf("params=%+v, want vendor_id canonical field", action.Params)
+	}
+	if action.Params["source_field"] == "" && action.Params["source_fields"] == "" {
+		t.Fatalf("params=%+v, want concrete source field contract", action.Params)
 	}
 	if !plan.ContinueAfter {
 		t.Fatalf("ContinueAfter=false, want true")

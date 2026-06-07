@@ -11079,12 +11079,71 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move the larger next-stage fallback assembly into a shared reducer. It
+- [x] Move the larger next-stage fallback assembly into a shared reducer. It
       still builds extra relation/action scaffolds from REPL-local artifact
-      views before calling concrete action materialization.
+      views before calling concrete action materialization. Completed in Batch
+      252 by passing `ArtifactSchemaProjection`, allowed-action contracts, and
+      progress events into `internal/dataworkflow`.
 - [ ] Replace REPL-local fallback signatures with reducer-owned action graph
       replay checks everywhere, including deferred-plan and terminal-repair
       paths.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 252: Next-Stage Concrete Fallback Reducer
+
+The next IR pass moved the bigger next-stage concrete fallback out of the REPL
+package. Before this batch, `internal/repl` still inspected workflow state,
+assembled relation scaffolds, chose allowed actions, materialized concrete
+actions, checked repeated no-progress loops, and returned a continuation plan.
+That made the data lane look like it had an IR, while one of the most important
+ActionDAG transitions was still owned by UI orchestration code.
+
+The generalized invariant is:
+
+- next-stage fallback is a reducer transition over typed state: stage facts,
+  allowed next actions, artifact schema projections, extra scaffolds, seen
+  idempotency keys, and typed progress events;
+- REPL/CLI adapters may project local history into those typed inputs, but they
+  should not own relation scheduling policy;
+- the reducer generates concrete actions from artifact fields and schema
+  projections only; it does not parse model prose or business-specific user
+  words to decide hard behavior;
+- repeated relation materialization without ledger/reconcile progress is
+  blocked through typed progress events before another automatic relation
+  action is emitted.
+
+Changes:
+
+- [x] Added `dataworkflow.NextStageFallbackPlanInput`.
+- [x] Added `dataworkflow.BuildNextStageConcreteFallbackPlan`.
+- [x] Moved allowed-action filtering, relation scaffold expansion, and
+      next-stage fallback plan assembly into `internal/dataworkflow`.
+- [x] Extended `BuildConcreteFallbackPlan` with typed progress events and a
+      no-progress threshold so repeated relation fallback is stopped in the
+      reducer rather than in REPL code.
+- [x] Changed REPL next-stage fallback to pass `StageFacts`,
+      `ArtifactSchemaProjection`, allowed actions, progress events, and seen
+      action keys to the reducer.
+- [x] Improved shared relation scaffold builders so executable normalize and
+      apply-resolution fallbacks prefer concrete role/direction and target
+      field contracts from artifact schemas rather than placeholder templates.
+- [x] Added reducer regression coverage for next-stage artifact-schema fallback
+      and relation no-progress blocking.
+- [x] Kept the fix domain-neutral: no procurement terms, no output-shape
+      special cases, and no hard gates on noisy model prose.
+
+Remaining architecture items:
+
+- [ ] Move record-materialization, rule/reconcile/final-projection fallback
+      assembly into the shared reducer so all continuation transitions share
+      one state-machine boundary.
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
+- [ ] Separate prompt-only scaffolds from executable scaffolds where a template
+      cannot be made concrete from `ArtifactSchemaProjection`.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.
