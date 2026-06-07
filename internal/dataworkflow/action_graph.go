@@ -23,17 +23,39 @@ type ActionEvent struct {
 	Status  string
 }
 
+type ActionGraphInput struct {
+	Events     []ActionEvent
+	Ready      []dataquery.DataAction
+	Deferred   []dataquery.DataAction
+	Blocked    []WorkflowViolation
+	EventLimit int
+}
+
 func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, limit int) ActionGraph {
+	return ReduceActionGraphState(ActionGraphInput{
+		Events:     events,
+		Ready:      current,
+		EventLimit: limit,
+	})
+}
+
+func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	graph := ActionGraph{}
-	for _, event := range events {
+	for _, event := range input.Events {
 		status := cleanActionStatus(event.Status, ActionStatusExecuted)
 		graph.Executed = append(graph.Executed, ActionNodesFor(event.Actions, status)...)
 	}
-	if len(current) > 0 {
-		graph.Ready = ActionNodesFor(current, ActionStatusReady)
+	if len(input.Ready) > 0 {
+		graph.Ready = ActionNodesFor(input.Ready, ActionStatusReady)
 	}
-	if limit > 0 && len(graph.Executed) > limit {
-		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-limit:]...)
+	if len(input.Deferred) > 0 {
+		graph.Deferred = ActionNodesFor(input.Deferred, ActionStatusDeferred)
+	}
+	if len(input.Blocked) > 0 {
+		graph.Blocked = BlockedActionNodesFromViolations(input.Blocked)
+	}
+	if input.EventLimit > 0 && len(graph.Executed) > input.EventLimit {
+		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-input.EventLimit:]...)
 	}
 	return graph
 }

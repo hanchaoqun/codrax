@@ -9770,3 +9770,115 @@ Remaining architecture items:
 - [ ] Surface deferred queued nodes in live `workflow_state_json.action_graph`
       once deferred queues move from REPL-local variables into shared workflow
       state.
+
+### Batch 218: Workflow IR Closure Plan
+
+The current data lane has moved a long way from one-shot scripts toward typed
+actions, but several contracts are still split between REPL/CLI orchestration
+and `internal/dataworkflow`. That split is now the main convergence risk:
+runtime guards can reject unsafe graph moves, but too many of them still return
+prose first and only later get projected into typed state. Deferred plans are
+also still owned by REPL/CLI local variables, so live `workflow_state_json`
+does not fully describe the scheduler queue that the system is about to run.
+
+This batch defines the remaining architecture closure items before another
+real-scenario run. The goal is not to add business-specific behavior. It is to
+make the hard workflow model structural:
+
+- guards produce `WorkflowViolation` directly at the boundary where structural
+  facts are known;
+- the ActionGraph reducer owns ready/deferred/blocked lifecycle and exposes
+  stable idempotency keys, ranks, inputs, and reasons;
+- deferred queues become part of live workflow state, not only audit files;
+- scaffold builders consume ArtifactGraph projections, not REPL prompt structs;
+- terminal workflow evidence is written through a storage-neutral journal that
+  REPL and CLI can both render;
+- user-facing process events prefer model-authored goal/batch/next-step/reason
+  fields when present, while internal counters remain low-noise audit detail;
+- complex eval gates validate graph convergence, ledger/reconcile completion,
+  and strict-output cleanliness across realistic multi-file workflows.
+
+Task list:
+
+- [ ] Add shared violation builders for field/schema, zero-match filter,
+      unmatched-resolution, and zero-eligible states. The builders must not
+      parse model prose; they consume typed action/artifact/ledger facts.
+- [ ] Update guard entrypoints to return typed violations where the violation
+      is structural, keeping prose only as a rendered explanation.
+- [ ] Extend the shared ActionGraph reducer to accept executed events, ready
+      actions, deferred actions, and blocked violations in one call.
+- [ ] Thread deferred queue nodes into live `workflow_state_json.action_graph`
+      for both REPL and non-REPL CLI.
+- [ ] Move relation-specific scaffold candidate construction into
+      ArtifactGraph-aware builders under `internal/dataworkflow`, leaving REPL
+      as an adapter/renderer.
+- [ ] Add a storage-neutral workflow journal type for terminal graph snapshots,
+      event streams, violations, artifact projections, and audit paths.
+- [ ] Emit CLI terminal audit links through stderr/progress only; stdout must
+      remain the final answer for strict-output and pipeline use.
+- [ ] Refresh data process UX so permanent lines show compact business-facing
+      goal, batch purpose, next step, and reason when structured fields exist.
+- [ ] Add realistic eval gates after the architecture items above are complete;
+      do not use another real-scenario run as a substitute for closing known
+      IR gaps.
+
+Rationale: this is a generic workflow-runtime closure, not a procurement-data
+patch. Any data task with intermediate artifacts can benefit: spreadsheets,
+JSONL statistics, text/OCR extraction, web-table cleanup, multi-file joins,
+strict projection, or mixed data-plus-code questions. The system remains
+responsible for graph state, dependencies, schema, ledgers, and auditability;
+the model remains responsible for task semantics and typed action choices.
+
+### Batch 219: Typed Violations, Deferred Graph State, And CLI Journal Link
+
+This batch begins closing Batch 218 by moving more hard workflow state into
+shared typed contracts:
+
+- field-contract violations now use a shared `dataworkflow`
+  `WorkflowViolation` builder when an action is known;
+- the builder fills action kind, output alias, normalized input aliases,
+  dependency rank, idempotency key, candidate artifact labels, and repair
+  hints from typed action/artifact facts;
+- the ActionGraph reducer now accepts executed events, ready actions, deferred
+  actions, and blocked violations in one structural input;
+- `dataTaskWorkflowStateWithDeferred` can expose queued deferred nodes in live
+  `workflow_state_json.action_graph.deferred`;
+- the real LLM planner implements optional continuation/evaluator interfaces
+  that include deferred queue state, while older planner implementations keep
+  the existing interface;
+- terminal data audit writing was extracted into a storage-neutral package
+  helper shared by REPL and CLI;
+- non-REPL CLI data runs now write the same terminal graph snapshot on exit and
+  print only a low-noise audit path to the progress writer/stderr, preserving
+  stdout for final answers.
+
+Changes:
+
+- [x] Added `NewFieldContractViolation` and generic action-input violation
+      builder in `internal/dataworkflow`.
+- [x] Added `ReduceActionGraphState` with ready/deferred/blocked lifecycle in
+      the shared reducer.
+- [x] Routed REPL workflow blocked-node projection through the shared reducer.
+- [x] Added `dataTaskWorkflowStateWithDeferred` and deferred-aware prompt
+      helpers.
+- [x] Added optional deferred-aware planner/evaluator interfaces and wired
+      REPL/CLI data paths to use them when available.
+- [x] Extracted terminal audit writing from REPL methods into a shared helper.
+- [x] Added CLI stderr/progress terminal audit-link emission.
+- [x] Added regression coverage for deferred graph projection, typed violation
+      projection, and prompt-level deferred node visibility.
+
+Remaining architecture items:
+
+- [ ] Extend typed builders to zero-match filter, unmatched-resolution, and
+      zero-eligible qualification guard entrypoints so those guards also stop
+      relying on prose-first errors.
+- [ ] Move relation-specific scaffold construction
+      (`normalize_entities`, `apply_entity_resolutions`, `enrich_records`,
+      `join_records`) into ArtifactGraph-aware builders under
+      `internal/dataworkflow`.
+- [ ] Persist a storage-neutral journal object throughout execution, not only
+      at terminal snapshot time.
+- [ ] Improve business-facing process summaries by rendering model-provided
+      goal/batch/next-step/reason fields before internal counters.
+- [ ] Add realistic multi-file eval gates after these IR closures are complete.

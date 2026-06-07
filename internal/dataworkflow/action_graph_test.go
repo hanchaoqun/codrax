@@ -101,6 +101,41 @@ func TestReduceActionGraphProjectsEventsReadyAndLimit(t *testing.T) {
 	}
 }
 
+func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
+	deferred := []dataquery.DataAction{{
+		ID:         "join_later",
+		Kind:       dataquery.DataActionJoinRecords,
+		InputPaths: []string{"left.json", "right.json"},
+	}}
+	blockedAction := dataquery.DataAction{
+		ID:             "filter_bad",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "filtered.json",
+	}
+	violation := NewActionInputViolation(
+		"field_contract_violation",
+		"error",
+		RepairNeedsTypedAction,
+		blockedAction,
+		"records.json",
+		[]string{"status"},
+		"missing status",
+		nil,
+	)
+
+	graph := ReduceActionGraphState(ActionGraphInput{
+		Deferred: deferred,
+		Blocked:  []WorkflowViolation{violation},
+	})
+	if len(graph.Deferred) != 1 || graph.Deferred[0].Status != ActionStatusDeferred || graph.Deferred[0].ID != "join_later" {
+		t.Fatalf("Deferred=%+v, want deferred join node", graph.Deferred)
+	}
+	if len(graph.Blocked) != 1 || graph.Blocked[0].Status != ActionStatusBlocked || graph.Blocked[0].IdempotencyKey == "" {
+		t.Fatalf("Blocked=%+v, want typed blocked node", graph.Blocked)
+	}
+}
+
 func TestBlockedActionNodesFromViolationsProjectsTypedRepairState(t *testing.T) {
 	nodes := BlockedActionNodesFromViolations([]WorkflowViolation{{
 		Code:          "field_contract_violation",

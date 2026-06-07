@@ -4074,7 +4074,14 @@ func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, acti
 	if !ok || len(artifact.Fields) == 0 {
 		return ""
 	}
-	candidates := dataTaskFieldContractCandidateArtifacts(access, input, missing)
+	violation := dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
+		Action:            action,
+		InputAlias:        input,
+		MissingFields:     missing,
+		AvailableFields:   artifact.Fields,
+		SchemaProjections: dataTaskArtifactAccessSchemaProjection(access),
+	})
+	candidates := violation.CandidateArtifacts
 	candidateHint := ""
 	if len(candidates) > 0 {
 		candidateHint = " Candidate artifact(s) with relevant field(s): " + strings.Join(candidates, "; ") + "."
@@ -5566,6 +5573,10 @@ type dataTaskFieldContractViolation struct {
 	ArtifactID           string   `json:"artifact_id,omitempty"`
 	ActionKind           string   `json:"action_kind,omitempty"`
 	InputAlias           string   `json:"input_alias,omitempty"`
+	InputAliases         []string `json:"input_aliases,omitempty"`
+	OutputAlias          string   `json:"output_alias,omitempty"`
+	IdempotencyKey       string   `json:"idempotency_key,omitempty"`
+	DependencyRank       int      `json:"dependency_rank,omitempty"`
 	MissingFields        []string `json:"missing_fields,omitempty"`
 	AvailableFieldSample []string `json:"available_field_sample,omitempty"`
 	CandidateArtifacts   []string `json:"candidate_artifacts,omitempty"`
@@ -5787,6 +5798,10 @@ func renderDataTaskRecordsForPromptWithBudget(records []dataTaskWorkflowRecord, 
 }
 
 func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferred(records, current, dataquery.TaskPlan{})
+}
+
+func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataTaskWorkflowStateView {
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	currentBatchContract, currentBatchLayer := dataTaskWorkflowCurrentBatchContract(records, current, contract)
 	outputContract := dataTaskWorkflowOutputContract(records, current)
@@ -5815,7 +5830,7 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 		MaterialCoverageAuthoritative: true,
 		WorkflowContract:              dataworkflow.CoverageContractViewFor(dataworkflow.CoverageLayerWorkflow, contract),
 		CurrentBatchContract:          dataworkflow.CoverageContractViewFor(currentBatchLayer, currentBatchContract),
-		ActionGraph:                   dataTaskWorkflowActionGraph(records, current, 48),
+		ActionGraph:                   dataTaskWorkflowActionGraphWithDeferred(records, current, deferred, 48),
 		RequiredMaterialCount:         len(required),
 		RequiredMaterials:             required,
 		CoveredRequiredMaterials:      coveredRequired,
@@ -5870,7 +5885,7 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
 	state.WorkflowViolations = dataTaskWorkflowTypedViolations(state)
-	state.ActionGraph.Blocked = dataworkflow.BlockedActionNodesFromViolations(state.WorkflowViolations)
+	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, state.WorkflowViolations, 48)
 	return state
 }
 
@@ -5884,6 +5899,10 @@ func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []datawork
 			ActionID:             strings.TrimSpace(issue.ActionID),
 			ActionKind:           strings.TrimSpace(issue.ActionKind),
 			InputAlias:           strings.TrimSpace(issue.InputAlias),
+			InputAliases:         cleanDataTaskStrings(issue.InputAliases),
+			OutputAlias:          strings.TrimSpace(issue.OutputAlias),
+			IdempotencyKey:       strings.TrimSpace(issue.IdempotencyKey),
+			DependencyRank:       issue.DependencyRank,
 			MissingFields:        append([]string(nil), issue.MissingFields...),
 			AvailableFieldSample: append([]string(nil), issue.AvailableFieldSample...),
 			CandidateArtifacts:   append([]string(nil), issue.CandidateArtifacts...),
@@ -5936,11 +5955,33 @@ func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []datawork
 }
 
 func dataTaskWorkflowActionGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, limit int) dataworkflow.ActionGraph {
+	return dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, dataquery.TaskPlan{}, nil, limit)
+}
+
+func dataTaskWorkflowActionGraphWithViolations(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraph {
+	return dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, dataquery.TaskPlan{}, violations, limit)
+}
+
+func dataTaskWorkflowActionGraphWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, limit int) dataworkflow.ActionGraph {
+	return dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, nil, limit)
+}
+
+func dataTaskWorkflowActionGraphWithDeferredAndViolations(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, violations []dataworkflow.WorkflowViolation, limit int) dataworkflow.ActionGraph {
 	var ready []dataquery.DataAction
 	if dataTaskPlanHasExecutableBatch(current) {
 		ready = current.Actions
 	}
-	return dataworkflow.ReduceActionGraph(dataTaskWorkflowActionEvents(records), ready, limit)
+	var deferredActions []dataquery.DataAction
+	if dataTaskPlanHasExecutableBatch(deferred) {
+		deferredActions = deferred.Actions
+	}
+	return dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
+		Events:     dataTaskWorkflowActionEvents(records),
+		Ready:      ready,
+		Deferred:   deferredActions,
+		Blocked:    violations,
+		EventLimit: limit,
+	})
 }
 
 func dataTaskWorkflowActionEvents(records []dataTaskWorkflowRecord) []dataworkflow.ActionEvent {
@@ -6323,14 +6364,32 @@ func dataTaskFieldContractViolationsFromRecord(round int, rec dataTaskWorkflowRe
 		fmt.Sscanf(match[1], "%d", &actionIndex)
 		actionID := strings.TrimSpace(match[2])
 		actionKind := ""
+		var action dataquery.DataAction
+		hasAction := false
 		if actionIndex > 0 && actionIndex <= len(rec.Plan.Actions) {
-			action := rec.Plan.Actions[actionIndex-1]
+			action = rec.Plan.Actions[actionIndex-1]
+			hasAction = true
 			actionID = firstNonEmptyString(strings.TrimSpace(action.ID), actionID)
 			actionKind = strings.TrimSpace(string(normalizeDataActionKindForWorkflow(action.Kind)))
 		}
 		missing := cleanDataTaskStrings(parseDataTaskActionStringListParam(match[3]))
 		input := strings.TrimSpace(match[4])
 		available := clampDataTaskStringSlice(cleanDataTaskStrings(parseDataTaskActionStringListParam(match[5])), 24)
+		if hasAction {
+			violation := dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
+				Action:             action,
+				InputAlias:         input,
+				MissingFields:      missing,
+				AvailableFields:    available,
+				SchemaProjections:  dataTaskArtifactAccessSchemaProjection(access),
+				AllowedNextActions: dataTaskAllowedActionNamesFromMap(allowed),
+			})
+			view := dataTaskFieldContractViolationFromWorkflowViolation(round, actionIndex, violation)
+			view.ActionID = firstNonEmptyString(view.ActionID, actionID)
+			view.Reason = clampDataTaskWorkflowText(match[0], 700)
+			out = append(out, view)
+			continue
+		}
 		violation := dataTaskFieldContractViolation{
 			Round:                round,
 			ActionIndex:          actionIndex,
@@ -6368,6 +6427,25 @@ func dataTaskFieldContractViolationsFromRecord(round int, rec dataTaskWorkflowRe
 		})
 	}
 	return out
+}
+
+func dataTaskFieldContractViolationFromWorkflowViolation(round, actionIndex int, violation dataworkflow.WorkflowViolation) dataTaskFieldContractViolation {
+	return dataTaskFieldContractViolation{
+		Round:                round,
+		ActionIndex:          actionIndex,
+		ActionID:             strings.TrimSpace(violation.ActionID),
+		ActionKind:           strings.TrimSpace(violation.ActionKind),
+		InputAlias:           strings.TrimSpace(violation.InputAlias),
+		InputAliases:         cleanDataTaskStrings(violation.InputAliases),
+		OutputAlias:          strings.TrimSpace(violation.OutputAlias),
+		IdempotencyKey:       strings.TrimSpace(violation.IdempotencyKey),
+		DependencyRank:       violation.DependencyRank,
+		MissingFields:        append([]string(nil), violation.MissingFields...),
+		AvailableFieldSample: append([]string(nil), violation.AvailableFieldSample...),
+		CandidateArtifacts:   append([]string(nil), violation.CandidateArtifacts...),
+		RepairActionHints:    append([]string(nil), violation.RepairActionHints...),
+		Reason:               strings.TrimSpace(violation.Reason),
+	}
 }
 
 func dataTaskExtractFieldContractViolationsFromArtifact(round int, artifact dataquery.DataArtifact, access []dataTaskArtifactAccessPrompt) []dataTaskFieldContractViolation {
@@ -6495,6 +6573,10 @@ func dataTaskNumericLookingSampleFields(samples map[string][]string, limit int) 
 }
 
 func dataTaskFieldContractRepairHints(allowed map[string]bool) []string {
+	return dataworkflow.FieldContractRepairHints(dataTaskAllowedActionNamesFromMap(allowed))
+}
+
+func dataTaskAllowedActionNamesFromMap(allowed map[string]bool) []string {
 	allowedActions := make([]string, 0, len(allowed))
 	for action, ok := range allowed {
 		if ok {
@@ -6502,7 +6584,7 @@ func dataTaskFieldContractRepairHints(allowed map[string]bool) []string {
 		}
 	}
 	sort.Strings(allowedActions)
-	return dataworkflow.FieldContractRepairHints(allowedActions)
+	return allowedActions
 }
 
 func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) bool {

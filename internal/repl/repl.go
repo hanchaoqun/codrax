@@ -1718,7 +1718,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					detail := fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount)
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, detail)
 					ctx := r.startTurn()
-					nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if contErr == nil {
@@ -1881,7 +1881,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
 		ctx := r.startTurn()
-		eval, evalErr := evaluator.EvaluateDataTask(ctx, line, records, r.language)
+		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, deferredPlan, r.language)
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
@@ -1971,7 +1971,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			r.emitDataTaskWorkflowAudit("continue", dataRounds)
 			ctx := r.startTurn()
-			nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if contErr != nil {
@@ -2874,7 +2874,7 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 	reason := strings.TrimSpace(a.Reason)
 	lastErr := dataTaskLatestError(a.Records)
 	resultSummary := dataTaskTerminalResultSummary(a.Result, a.Records)
-	terminalPath := r.writeDataTaskTerminalArtifact(a, status, reason, lastErr, resultSummary)
+	terminalPath := writeDataTaskTerminalArtifactFile(r.runtimeAnchor, r.repoRoot, a, status, reason, lastErr, resultSummary, "repl")
 	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 		status, a.DataRounds, a.RepairRounds, len(a.Records), resultSummary,
 		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
@@ -2899,9 +2899,13 @@ func (r *REPL) emitDataTaskTerminalAuditPath(status, terminalPath string) {
 }
 
 func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, reason, lastErr, resultSummary string) string {
-	dir := filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot, "."), "data-audit")
+	return writeDataTaskTerminalArtifactFile(r.runtimeAnchor, r.repoRoot, a, status, reason, lastErr, resultSummary, "repl")
+}
+
+func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) string {
+	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		logging.Warning("[repl/data] create audit dir failed: %v", err)
+		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
 		return ""
 	}
 	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
@@ -2924,16 +2928,16 @@ func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, re
 	}
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		logging.Warning("[repl/data] marshal data task terminal audit failed: %v", err)
+		logging.Warning("[%s/data] marshal data task terminal audit failed: %v", firstNonEmptyString(logScope, "data"), err)
 		return ""
 	}
 	stamp := dataTaskAuditStamp()
 	path := filepath.Join(dir, fmt.Sprintf("%s-%d-terminal.json", stamp, os.Getpid()))
 	if err := os.WriteFile(path, raw, 0600); err != nil {
-		logging.Warning("[repl/data] write data task terminal audit failed path=%s: %v", path, err)
+		logging.Warning("[%s/data] write data task terminal audit failed path=%s: %v", firstNonEmptyString(logScope, "data"), path, err)
 		return ""
 	}
-	logging.Info("[repl/data] terminal full path=%s\n%s", path, string(raw))
+	logging.Info("[%s/data] terminal full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
 	return path
 }
 

@@ -29,7 +29,7 @@ type DataTaskCLIConfig struct {
 	Progress        io.Writer
 }
 
-func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg DataTaskCLIConfig) (string, error) {
+func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg DataTaskCLIConfig) (answer string, retErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -40,6 +40,39 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if repoRoot == "" {
 		repoRoot = "."
 	}
+	var records []dataTaskWorkflowRecord
+	var dataRounds int
+	var repairRounds int
+	defer func() {
+		if len(records) == 0 && dataRounds == 0 && repairRounds == 0 {
+			return
+		}
+		status := "complete"
+		reason := ""
+		if retErr != nil {
+			status = "failed"
+			reason = retErr.Error()
+		}
+		var resultPtr *dataquery.Result
+		if result, ok := latestDataTaskResult(records); ok {
+			resultCopy := result
+			resultPtr = &resultCopy
+		}
+		lastErr := dataTaskLatestError(records)
+		resultSummary := dataTaskTerminalResultSummary(resultPtr, records)
+		terminalPath := writeDataTaskTerminalArtifactFile(cfg.RuntimeAnchor, repoRoot, dataTaskTerminalAudit{
+			Status:       status,
+			Reason:       reason,
+			DataRounds:   dataRounds,
+			RepairRounds: repairRounds,
+			Records:      records,
+			Result:       resultPtr,
+		}, status, reason, lastErr, resultSummary, "cli")
+		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
+			status, dataRounds, repairRounds, len(records), resultSummary,
+			oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
+		emitDataTaskCLITerminalAuditPath(cfg.Progress, cfg.Language, status, terminalPath)
+	}()
 	candidates, err := dataquery.DiscoverCandidateFiles(repoRoot, 240)
 	if err != nil {
 		return "", fmt.Errorf("data task discover files: %w", err)
@@ -52,7 +85,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		logging.Info("[cli/data] normalized initial data task plan: %s", strings.Join(notes, "; "))
 		plan = normalized
 	}
-	var records []dataTaskWorkflowRecord
 	var deferredPlan dataquery.TaskPlan
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
@@ -106,8 +138,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		TempRoot: filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
 	}
 	currentPlan := plan
-	repairRounds := 0
-	dataRounds := 0
 	for {
 		if errText := dataTaskTerminalPlanCompletionGateErrorWithRepo(repoRoot, records, currentPlan); errText != "" {
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
@@ -303,7 +333,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					records = append(records, executionRecord)
 					recordedErr = true
 					dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount))
-					nextPlan, contErr := continuer.ContinueDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
 					if contErr == nil {
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 							logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
@@ -401,7 +431,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds)
-		eval, err := evaluator.EvaluateDataTask(ctx, request, records, cfg.Language)
+		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, deferredPlan, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
 		}
@@ -444,7 +474,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if !contOK {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
-			nextPlan, err := continuer.ContinueDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+			nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferredPlan)
 			if err != nil {
 				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, currentPlan, err); ok {
 					fallback = protectPlan(fallback)
@@ -777,6 +807,19 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 	}
 	cliLightRouteSummary(w, label, segs)
 	cliLightRouteDetails(w, dataTaskWorkflowDetailLines(kind, round, lang, details...))
+}
+
+func emitDataTaskCLITerminalAuditPath(w io.Writer, lang, status, terminalPath string) {
+	if w == nil || strings.TrimSpace(terminalPath) == "" {
+		return
+	}
+	label := "data audit"
+	segs := []string{strings.TrimSpace(status), "terminal " + terminalPath}
+	if isZh(lang) {
+		label = "数据审计"
+		segs = []string{strings.TrimSpace(status), "完整终态 " + terminalPath}
+	}
+	cliLightRouteSummary(w, label, cleanDataTaskStrings(segs))
 }
 
 func cliLightRouteSummary(w io.Writer, label string, segs []string) {

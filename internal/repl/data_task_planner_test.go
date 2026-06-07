@@ -2145,6 +2145,25 @@ func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	}
 }
 
+func TestDataTaskContinuationPromptIncludesDeferredActionGraph(t *testing.T) {
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "join_next",
+		Kind:       dataquery.DataActionJoinRecords,
+		InputPaths: []string{"left.json", "right.json"},
+	}}}
+	prompt := dataTaskContinuationPromptWithDeferred(
+		"继续计算",
+		"/tmp/repo",
+		TurnPolicy{Route: "data"},
+		nil,
+		nil,
+		deferred,
+	)
+	if !strings.Contains(prompt, `"deferred"`) || !strings.Contains(prompt, `"join_next"`) || !strings.Contains(prompt, `"status": "deferred"`) {
+		t.Fatalf("prompt missing deferred action graph:\n%s", prompt)
+	}
+}
+
 func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
