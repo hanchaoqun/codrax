@@ -53,3 +53,23 @@ func TestActionIdempotencyKeyIsStableAcrossParamOrder(t *testing.T) {
 		t.Fatalf("idempotency key should change when structural params change")
 	}
 }
+
+func TestActionGraphNormalizesRolePathsBeforeProjection(t *testing.T) {
+	raw := dataquery.DataAction{
+		Kind: dataquery.DataActionNormalizeEntities,
+		Params: map[string]string{
+			"source_path":    "records.json",
+			"reference_path": "reference.json",
+		},
+	}
+	normalized := raw
+	normalized.InputPaths = []string{"records.json", "reference.json"}
+
+	node := ActionNodeFor(raw, ActionStatusReady)
+	if len(node.InputAliases) != 2 || node.InputAliases[0] != "records.json" || node.InputAliases[1] != "reference.json" {
+		t.Fatalf("InputAliases=%v, want role paths projected as action inputs", node.InputAliases)
+	}
+	if ActionIdempotencyKey(raw) != ActionIdempotencyKey(normalized) {
+		t.Fatalf("idempotency key should be stable between raw role params and normalized input_paths")
+	}
+}

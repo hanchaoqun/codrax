@@ -19,6 +19,7 @@ const (
 )
 
 func ActionNodeFor(action dataquery.DataAction, status string) ActionNode {
+	action, _ = NormalizeRolePathAction(action)
 	kind := NormalizeActionKind(action.Kind)
 	capability, _ := Capability(kind)
 	return ActionNode{
@@ -42,6 +43,7 @@ func ActionNodesFor(actions []dataquery.DataAction, status string) []ActionNode 
 }
 
 func ActionIdempotencyKey(action dataquery.DataAction) string {
+	action, _ = NormalizeRolePathAction(action)
 	kind := string(NormalizeActionKind(action.Kind))
 	inputs := cleanActionAliases(action.InputPaths)
 	output := strings.TrimSpace(action.OutputArtifact)

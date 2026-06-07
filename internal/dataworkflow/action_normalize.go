@@ -13,18 +13,26 @@ func NormalizeRolePathActionInputs(plan *dataquery.TaskPlan) bool {
 	}
 	changed := false
 	for i := range plan.Actions {
-		roleInputs := ActionRoleInputPaths(plan.Actions[i])
-		if len(roleInputs) == 0 {
-			continue
+		action, actionChanged := NormalizeRolePathAction(plan.Actions[i])
+		if actionChanged {
+			plan.Actions[i] = action
+			changed = true
 		}
-		next := mergeActionInputPaths(plan.Actions[i].InputPaths, roleInputs)
-		if strings.Join(next, "\x00") == strings.Join(cleanStrings(plan.Actions[i].InputPaths), "\x00") {
-			continue
-		}
-		plan.Actions[i].InputPaths = next
-		changed = true
 	}
 	return changed
+}
+
+func NormalizeRolePathAction(action dataquery.DataAction) (dataquery.DataAction, bool) {
+	roleInputs := ActionRoleInputPaths(action)
+	if len(roleInputs) == 0 {
+		return action, false
+	}
+	next := mergeActionInputPaths(action.InputPaths, roleInputs)
+	if strings.Join(next, "\x00") == strings.Join(cleanStrings(action.InputPaths), "\x00") {
+		return action, false
+	}
+	action.InputPaths = next
+	return action, true
 }
 
 func ActionRoleInputPaths(action dataquery.DataAction) []string {

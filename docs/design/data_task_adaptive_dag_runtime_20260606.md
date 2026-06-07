@@ -9372,9 +9372,38 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Make the full ActionDAG reducer call normalization before every graph
+- [x] Make the full ActionDAG reducer call normalization before every graph
       readiness and idempotency calculation, rather than relying on each caller
-      to remember the pass.
+      to remember the pass. Completed for current ActionGraph projection and
+      idempotency keys in Batch 206.
 - [ ] Persist normalized action nodes and pre-normalization params in
       data-audit snapshots so execution edges can be audited without replaying
       planner prompts.
+
+### Batch 206: Projection-Native Action Normalization
+
+Batch 205 exposed a shared normalizer, but `ActionNodeFor` and
+`ActionIdempotencyKey` could still be called directly with a raw planner action.
+That left an avoidable footgun: one caller might see role-path params as graph
+inputs while another caller hashes only explicit `input_paths`.
+
+This batch makes ActionGraph projection normalize its own input action before
+deriving graph edges or idempotency keys. The behavior remains structural and
+domain-neutral: it only copies typed role-path params into action inputs. It
+does not inspect filenames for business meaning, parse user prose, or change
+the action's field/filter/value semantics.
+
+Changes:
+
+- [x] Added a per-action `dataworkflow.NormalizeRolePathAction` helper.
+- [x] Made `ActionNodeFor` normalize before projecting input aliases.
+- [x] Made `ActionIdempotencyKey` normalize before hashing structural inputs.
+- [x] Added regression coverage that a raw role-param action and an already
+      normalized action produce the same idempotency key and graph inputs.
+
+Remaining architecture items:
+
+- [ ] Persist normalized action nodes and original planner params together in
+      data-audit snapshots.
+- [ ] Move scheduler readiness decisions from REPL record slices into a
+      durable ActionDAG reducer that stores node status transitions.
