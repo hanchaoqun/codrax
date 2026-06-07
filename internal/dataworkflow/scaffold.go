@@ -84,6 +84,150 @@ func PrioritizeConcreteScaffolds(scaffolds []ActionScaffold, facts StageFacts) [
 	return out
 }
 
+func ConcreteFallbackScaffolds(scaffolds []ActionScaffold, facts StageFacts) []ActionScaffold {
+	out := PrioritizeConcreteScaffolds(scaffolds, facts)
+	if len(out) == 0 {
+		return nil
+	}
+	stage := facts.NextStage()
+	if !facts.EntityStageMaterialized || (stage != StagePrepareContributionInputs && stage != StageComputeContributions) {
+		return out
+	}
+	filtered := out[:0]
+	for _, scaffold := range out {
+		if NormalizeActionKind(dataquery.DataActionKind(scaffold.Kind)) == dataquery.DataActionNormalizeEntities {
+			continue
+		}
+		filtered = append(filtered, scaffold)
+	}
+	return filtered
+}
+
+func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, bool) {
+	kind := NormalizeActionKind(dataquery.DataActionKind(scaffold.Kind))
+	params := concreteScaffoldParams(scaffold.ParamsTemplate)
+	switch kind {
+	case dataquery.DataActionNormalizeEntities:
+		hasSingleSource := scaffoldParamsConcrete(params, "source_field", "reference_name_fields", "canonical_id_field")
+		hasSourceList := scaffoldParamsConcrete(params, "source_fields", "reference_name_fields", "canonical_id_field")
+		if len(scaffold.InputPaths) < 2 || (!hasSingleSource && !hasSourceList) {
+			return dataquery.DataAction{}, false
+		}
+		if strings.TrimSpace(params["match_mode"]) == "" || strings.Contains(params["match_mode"], "|") {
+			params["match_mode"] = "exact"
+		}
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_normalize_entities", scaffold.InputPaths),
+			Kind:           dataquery.DataActionNormalizeEntities,
+			Purpose:        "materialize source-to-reference mappings from concrete artifact fields",
+			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
+			OutputArtifact: concreteScaffoldArtifactID("entity_mappings", scaffold.InputPaths),
+			Params:         params,
+		}, true
+	case dataquery.DataActionJoinRecords:
+		if len(scaffold.InputPaths) < 2 || len(scaffold.CommonFields) == 0 {
+			return dataquery.DataAction{}, false
+		}
+		field := strings.TrimSpace(scaffold.CommonFields[0])
+		if field == "" || strings.Contains(field, "<") {
+			return dataquery.DataAction{}, false
+		}
+		if strings.TrimSpace(params["join_type"]) == "" || strings.Contains(params["join_type"], "|") {
+			params["join_type"] = "inner"
+		}
+		params["left_fields"] = mustJSON([]string{field})
+		params["right_fields"] = mustJSON([]string{field})
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_join_records", scaffold.InputPaths),
+			Kind:           dataquery.DataActionJoinRecords,
+			Purpose:        "join two concrete record artifacts on an existing common field",
+			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
+			OutputArtifact: concreteScaffoldArtifactID("joined_records", scaffold.InputPaths),
+			Params:         params,
+		}, true
+	case dataquery.DataActionApplyResolutions:
+		if len(scaffold.InputPaths) < 2 || !scaffoldParamsConcrete(params, "base_path", "resolution_specs") {
+			return dataquery.DataAction{}, false
+		}
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_apply_resolutions", scaffold.InputPaths),
+			Kind:           dataquery.DataActionApplyResolutions,
+			Purpose:        "apply concrete entity-resolution ledger fields onto base records",
+			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
+			OutputArtifact: concreteScaffoldArtifactID("resolved_records", scaffold.InputPaths),
+			Params:         params,
+		}, true
+	default:
+		return dataquery.DataAction{}, false
+	}
+}
+
+func concreteScaffoldParams(template map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range template {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func scaffoldParamsConcrete(params map[string]string, required ...string) bool {
+	for _, key := range required {
+		value := strings.TrimSpace(params[key])
+		if value == "" || strings.Contains(value, "<") || strings.Contains(value, "|") {
+			return false
+		}
+	}
+	for _, value := range params {
+		if strings.Contains(value, "<") {
+			return false
+		}
+	}
+	return true
+}
+
+func concreteScaffoldActionID(prefix string, inputs []string) string {
+	return cleanIdentifier(prefix + "_" + strings.Join(clampStrings(inputs, 2), "_"))
+}
+
+func concreteScaffoldArtifactID(prefix string, inputs []string) string {
+	id := cleanIdentifier(prefix + "_" + strings.Join(clampStrings(inputs, 2), "_"))
+	if id == "" {
+		return prefix + ".json"
+	}
+	return id + ".json"
+}
+
+func cleanIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if len(out) > 96 {
+		out = strings.TrimRight(out[:96], "_")
+	}
+	return out
+}
+
 func JoinRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
 	if limit <= 0 {
 		return nil

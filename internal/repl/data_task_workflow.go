@@ -2163,7 +2163,7 @@ func dataTaskConcreteScaffoldCandidatesForState(state dataTaskWorkflowStateView)
 	if len(state.ActionScaffold) == 0 {
 		return nil
 	}
-	return dataworkflow.PrioritizeConcreteScaffolds(state.ActionScaffold, dataTaskWorkflowStageFacts(state))
+	return dataworkflow.ConcreteFallbackScaffolds(state.ActionScaffold, dataTaskWorkflowStageFacts(state))
 }
 
 func normalizeDataTaskActionKindString(kind string) string {
@@ -2171,126 +2171,7 @@ func normalizeDataTaskActionKindString(kind string) string {
 }
 
 func dataTaskConcreteActionFromScaffold(scaffold dataTaskActionScaffold) (dataquery.DataAction, bool) {
-	kind := normalizeDataActionKindForWorkflow(dataquery.DataActionKind(scaffold.Kind))
-	params := concreteScaffoldParams(scaffold.ParamsTemplate)
-	switch kind {
-	case dataquery.DataActionNormalizeEntities:
-		if len(scaffold.InputPaths) < 2 || !dataTaskScaffoldParamsConcrete(params, "source_field", "reference_name_fields", "canonical_id_field") {
-			return dataquery.DataAction{}, false
-		}
-		if strings.TrimSpace(params["match_mode"]) == "" || strings.Contains(params["match_mode"], "|") {
-			params["match_mode"] = "exact"
-		}
-		return dataquery.DataAction{
-			ID:             dataTaskConcreteScaffoldActionID("continue_normalize_entities", scaffold.InputPaths),
-			Kind:           dataquery.DataActionNormalizeEntities,
-			Purpose:        "materialize source-to-reference mappings from concrete artifact fields",
-			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
-			OutputArtifact: dataTaskConcreteScaffoldArtifactID("entity_mappings", scaffold.InputPaths),
-			Params:         params,
-		}, true
-	case dataquery.DataActionJoinRecords:
-		if len(scaffold.InputPaths) < 2 || len(scaffold.CommonFields) == 0 {
-			return dataquery.DataAction{}, false
-		}
-		field := strings.TrimSpace(scaffold.CommonFields[0])
-		if field == "" || strings.Contains(field, "<") {
-			return dataquery.DataAction{}, false
-		}
-		if strings.TrimSpace(params["join_type"]) == "" || strings.Contains(params["join_type"], "|") {
-			params["join_type"] = "inner"
-		}
-		params["left_fields"] = mustCompactJSONString([]string{field})
-		params["right_fields"] = mustCompactJSONString([]string{field})
-		return dataquery.DataAction{
-			ID:             dataTaskConcreteScaffoldActionID("continue_join_records", scaffold.InputPaths),
-			Kind:           dataquery.DataActionJoinRecords,
-			Purpose:        "join two concrete record artifacts on an existing common field",
-			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
-			OutputArtifact: dataTaskConcreteScaffoldArtifactID("joined_records", scaffold.InputPaths),
-			Params:         params,
-		}, true
-	case dataquery.DataActionApplyResolutions:
-		if len(scaffold.InputPaths) < 2 || !dataTaskScaffoldParamsConcrete(params, "base_path", "resolution_specs") {
-			return dataquery.DataAction{}, false
-		}
-		return dataquery.DataAction{
-			ID:             dataTaskConcreteScaffoldActionID("continue_apply_resolutions", scaffold.InputPaths),
-			Kind:           dataquery.DataActionApplyResolutions,
-			Purpose:        "apply concrete entity-resolution ledger fields onto base records",
-			InputPaths:     append([]string(nil), scaffold.InputPaths[:2]...),
-			OutputArtifact: dataTaskConcreteScaffoldArtifactID("resolved_records", scaffold.InputPaths),
-			Params:         params,
-		}, true
-	default:
-		return dataquery.DataAction{}, false
-	}
-}
-
-func concreteScaffoldParams(template map[string]string) map[string]string {
-	out := map[string]string{}
-	for key, value := range template {
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" {
-			continue
-		}
-		out[key] = value
-	}
-	return out
-}
-
-func dataTaskScaffoldParamsConcrete(params map[string]string, required ...string) bool {
-	for _, key := range required {
-		value := strings.TrimSpace(params[key])
-		if value == "" || strings.Contains(value, "<") || strings.Contains(value, "|") {
-			return false
-		}
-	}
-	for _, value := range params {
-		if strings.Contains(value, "<") {
-			return false
-		}
-	}
-	return true
-}
-
-func dataTaskConcreteScaffoldActionID(prefix string, inputs []string) string {
-	return cleanDataTaskIdentifier(prefix + "_" + strings.Join(clampDataTaskStringSlice(inputs, 2), "_"))
-}
-
-func dataTaskConcreteScaffoldArtifactID(prefix string, inputs []string) string {
-	id := cleanDataTaskIdentifier(prefix + "_" + strings.Join(clampDataTaskStringSlice(inputs, 2), "_"))
-	if id == "" {
-		return prefix + ".json"
-	}
-	return id + ".json"
-}
-
-func cleanDataTaskIdentifier(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	out := strings.Trim(b.String(), "_")
-	if len(out) > 96 {
-		out = strings.TrimRight(out[:96], "_")
-	}
-	return out
+	return dataworkflow.ConcreteActionFromScaffold(scaffold)
 }
 
 func dataTaskGeneratedDiagnosticInputsForPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, limit int) []string {

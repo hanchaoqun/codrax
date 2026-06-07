@@ -10817,3 +10817,44 @@ Remaining architecture items:
 - [ ] Move fallback plan assembly behind a shared CLI/REPL workflow reducer.
 - [ ] Replace remaining REPL-local stage/fallback prose with typed events that
       render business-facing summaries through the shared event sink.
+
+### Batch 246: Concrete Scaffold Materialization
+
+The scaffold audit found a hidden cross-layer contract drift. Generic
+normalization scaffolds already emitted structured `source_fields`, but the
+old REPL-local concrete-action converter only accepted the older singular
+`source_field` shape. That meant some valid typed scaffolds were not executable
+and the runtime sometimes appeared stable only because a useful but unsupported
+candidate silently failed conversion.
+
+This is a generic data-DAG issue. Scaffold-to-action materialization must
+understand the typed action contract, not UI-local assumptions. It should
+accept structured arrays/objects where the action runner accepts them, and it
+must still reject placeholder fields or ambiguous templates before execution.
+
+Changes:
+
+- [x] Added `dataworkflow.ConcreteActionFromScaffold`.
+- [x] Moved concrete action id, output alias, and params materialization for
+      normalize/join/apply-resolution scaffolds into workflow IR.
+- [x] Accepted both singular `source_field` and structured `source_fields`
+      contracts for normalization scaffolds.
+- [x] Added `dataworkflow.ConcreteFallbackScaffolds` to keep deterministic
+      fallback candidates inside the current workflow stage. In contribution
+      stages with entity materialization already complete, deterministic
+      fallback no longer returns to a fresh normalize step.
+- [x] Changed REPL concrete fallback to delegate scaffold materialization to
+      `internal/dataworkflow`.
+- [x] Added regression coverage for structured source-field scaffolds, join
+      field materialization, and post-entity-stage fallback filtering.
+
+Remaining architecture items:
+
+- [ ] Move full fallback plan assembly into a shared data workflow reducer so
+      CLI and REPL no longer each own plan-status, reason, and terminal-error
+      recovery behavior.
+- [ ] Add graph-edge readiness checks that use explicit ArtifactGraph lineage
+      roles, not mixed `source_paths`, before materializing relation actions.
+- [ ] Expand concrete scaffold materialization beyond relation actions to
+      filter/qualify/contribution projection where the params are fully
+      concrete and validated by artifact schema projection.

@@ -163,3 +163,65 @@ func TestPrioritizeConcreteScaffoldsUsesWorkflowStageFacts(t *testing.T) {
 		t.Fatalf("kinds=%v, want original order before entity stage materializes", kinds)
 	}
 }
+
+func TestConcreteActionFromScaffoldAcceptsStructuredSourceFields(t *testing.T) {
+	action, ok := ConcreteActionFromScaffold(ActionScaffold{
+		Kind:       string(dataquery.DataActionNormalizeEntities),
+		InputPaths: []string{"records.json", "lookup.json"},
+		ParamsTemplate: map[string]string{
+			"source_fields":         `["raw_name","alias"]`,
+			"reference_name_fields": `["name","aliases"]`,
+			"canonical_id_field":    "id",
+			"canonical_label_field": "name",
+			"match_mode":            "exact|contains|token_set",
+		},
+	})
+	if !ok {
+		t.Fatalf("ConcreteActionFromScaffold ok=false, want structured normalize action")
+	}
+	if action.Kind != dataquery.DataActionNormalizeEntities {
+		t.Fatalf("Kind=%q, want normalize_entities", action.Kind)
+	}
+	if action.Params["source_fields"] != `["raw_name","alias"]` {
+		t.Fatalf("source_fields=%q, want structured source field list preserved", action.Params["source_fields"])
+	}
+	if action.Params["match_mode"] != "exact" {
+		t.Fatalf("match_mode=%q, want concrete default", action.Params["match_mode"])
+	}
+}
+
+func TestConcreteActionFromScaffoldMaterializesJoinFields(t *testing.T) {
+	action, ok := ConcreteActionFromScaffold(ActionScaffold{
+		Kind:         string(dataquery.DataActionJoinRecords),
+		InputPaths:   []string{"left.json", "right.json"},
+		CommonFields: []string{"id"},
+		ParamsTemplate: map[string]string{
+			"join_type": "inner|left",
+			"collision": "prefix",
+		},
+	})
+	if !ok {
+		t.Fatalf("ConcreteActionFromScaffold ok=false, want join action")
+	}
+	if action.Params["left_fields"] != `["id"]` || action.Params["right_fields"] != `["id"]` {
+		t.Fatalf("params=%+v, want concrete join field arrays", action.Params)
+	}
+	if action.OutputArtifact == "" || !strings.HasSuffix(action.OutputArtifact, ".json") {
+		t.Fatalf("OutputArtifact=%q, want generated json artifact", action.OutputArtifact)
+	}
+}
+
+func TestConcreteFallbackScaffoldsDoNotReturnToNormalizeAfterEntityStage(t *testing.T) {
+	scaffolds := []ActionScaffold{
+		{Kind: string(dataquery.DataActionNormalizeEntities)},
+		{Kind: string(dataquery.DataActionJoinRecords)},
+	}
+	got := ConcreteFallbackScaffolds(scaffolds, StageFacts{
+		MaterialCoverageSufficient: true,
+		EntityStageMaterialized:    true,
+		ContributionLedgerRequired: true,
+	})
+	if len(got) != 1 || got[0].Kind != string(dataquery.DataActionJoinRecords) {
+		t.Fatalf("fallback scaffolds=%+v, want normalize filtered after entity stage materializes", got)
+	}
+}
