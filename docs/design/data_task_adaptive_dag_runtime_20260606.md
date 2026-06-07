@@ -10423,3 +10423,50 @@ Remaining architecture items:
       silently resuming interrupted user work.
 - [ ] Add targeted tests for each non-field relation guard code as they become
       user-visible in evaluator policy.
+
+### 2026-06-07 Closure Audit Before Real Scenario
+
+This section separates architecture blockers for the next real uninterrupted
+data run from follow-up engineering items. It avoids marking broad historical
+backlog entries complete unless the implementation above actually closed the
+specific gap.
+
+Closed P0/P1 runtime blockers:
+
+- [x] ActionDAG readiness and deferred rank execution no longer rely on
+      repeatedly asking the model to recreate trimmed graph suffixes.
+- [x] Material floors and current-batch inputs are separated so discovered
+      auxiliary material does not become a permanent workflow hard gate.
+- [x] ArtifactGraph visibility prefers latest executable record artifacts and
+      preserves schema-bearing empty record sets.
+- [x] Field-contract and zero-progress blockers now surface as typed
+      `GuardResult` / `WorkflowViolation` payloads through staging, checkpoint,
+      and journal paths.
+- [x] Relation field and precise non-field relation contract guards preserve
+      action/input handles instead of only prose.
+- [x] Data workflow progress and journal process events expose model-authored
+      goal, batch purpose, next step, action summary, and audit details without
+      promoting internal counters into permanent title lines.
+- [x] Complex multi-file eval fixture exists as a mechanism gate for typed
+      actions, contribution records, reconcile status, and terminal journal
+      emission.
+
+Not blockers for the next real uninterrupted run:
+
+- [ ] Opt-in resume from checkpoint. This is an interruption-recovery feature;
+      it must never silently resume user work, so it should be designed behind
+      an explicit CLI/REPL command rather than rushed into the core loop.
+- [ ] Multi-run volatility gates. They are necessary for release confidence but
+      depend on provider budget and should run after the single-run architecture
+      path is stable.
+- [ ] Exhaustive tests for every precise non-field relation guard code. The
+      shared builder and repeated-edge regression cover the path; individual
+      code-specific tests can be added as those codes become policy-facing.
+- [ ] Historical broad checklist cleanup. Earlier unchecked items should be
+      audited in a separate docs pass so status updates do not obscure the
+      implementation history above.
+
+Decision: proceed to the requested real scenario only after the latest binary
+builds and the typed data workflow/unit gates pass. The remaining items above
+are release-hardening and interruption-recovery work, not known blockers for a
+single uninterrupted answer attempt.
