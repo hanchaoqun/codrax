@@ -1705,6 +1705,16 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			recordedErr := false
+			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(append(records, executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
+				records = append(records, executionRecord)
+				recordedErr = true
+				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
+				fallback = protectPlan(fallback)
+				r.emitDataTaskPlanAudit(fallback)
+				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
+				currentPlan = fallback
+				continue
+			}
 			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
 				if continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner); ok {
 					records = append(records, executionRecord)

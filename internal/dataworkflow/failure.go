@@ -37,6 +37,46 @@ func RepeatedNodeFailureFromErrors(previousErrors []string, currentErr string, l
 	return key, count, count >= limit
 }
 
+type RepeatedFailureReplacementPlanInput struct {
+	Current        dataquery.TaskPlan
+	Coverage       dataquery.CoverageContract
+	Output         dataquery.OutputContract
+	Scaffolds      []ActionScaffold
+	Facts          StageFacts
+	PreviousErrors []string
+	CurrentError   string
+	FailureLimit   int
+	SeenActionKeys map[string]bool
+	ProgressEvents []ProgressEvent
+	NoProgressStop int
+}
+
+func BuildRepeatedFailureReplacementPlan(input RepeatedFailureReplacementPlanInput) (dataquery.TaskPlan, string, bool) {
+	nodeKey, nodeCount, repeated := RepeatedNodeFailureFromErrors(input.PreviousErrors, input.CurrentError, input.FailureLimit)
+	if !repeated {
+		return dataquery.TaskPlan{}, "", false
+	}
+	reasonPrefix := fmt.Sprintf("node %s failed %d times", nodeKey, nodeCount)
+	plan, reason, ok := BuildConcreteFallbackPlan(ConcreteFallbackPlanInput{
+		Current:        input.Current,
+		Coverage:       input.Coverage,
+		Output:         input.Output,
+		Scaffolds:      input.Scaffolds,
+		Facts:          input.Facts,
+		ReasonPrefix:   reasonPrefix,
+		SeenActionKeys: input.SeenActionKeys,
+		ProgressEvents: input.ProgressEvents,
+		NoProgressStop: input.NoProgressStop,
+	})
+	if !ok {
+		return dataquery.TaskPlan{}, "", false
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = reasonPrefix + "; replaced repeated node with a concrete typed scaffold"
+	}
+	return plan, reason, true
+}
+
 func RepeatedCustomTransformGuardResult(action dataquery.DataAction, previousErrors []string, limit int) GuardResult {
 	if NormalizeActionKind(action.Kind) != dataquery.DataActionCustomTransform {
 		return GuardResult{}

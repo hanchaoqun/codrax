@@ -57,6 +57,26 @@ func dataTaskRepeatedNodeFailure(records []dataTaskWorkflowRecord, currentErr st
 	return dataworkflow.RepeatedNodeFailureFromErrors(dataTaskWorkflowErrorTexts(records), currentErr, limit)
 }
 
+func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowRecord, previousErrors []string, current dataquery.TaskPlan, errText string) (dataquery.TaskPlan, string, bool) {
+	state := dataTaskWorkflowState(stateRecords, current)
+	if len(state.ActionScaffold) == 0 || len(state.AllowedNextActions) == 0 {
+		return dataquery.TaskPlan{}, "", false
+	}
+	return dataworkflow.BuildRepeatedFailureReplacementPlan(dataworkflow.RepeatedFailureReplacementPlanInput{
+		Current:        current,
+		Coverage:       dataTaskWorkflowCoverageContract(stateRecords, current),
+		Output:         dataTaskWorkflowOutputContract(stateRecords, current),
+		Scaffolds:      state.ActionScaffold,
+		Facts:          dataTaskWorkflowStageFacts(state),
+		PreviousErrors: previousErrors,
+		CurrentError:   errText,
+		FailureLimit:   DefaultDataTaskMaxNodeFailures,
+		SeenActionKeys: dataTaskWorkflowSeenActionKeys(stateRecords),
+		ProgressEvents: dataTaskWorkflowProgressEvents(stateRecords),
+		NoProgressStop: DefaultDataTaskMaxNodeFailures,
+	})
+}
+
 func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	return dataTaskPlanStagingGuardResult(plan).ErrorText()
 }

@@ -18,6 +18,61 @@ func TestRepeatedNodeFailureFromErrorsUsesTypedViolationNode(t *testing.T) {
 	}
 }
 
+func TestBuildRepeatedFailureReplacementPlanUsesConcreteScaffold(t *testing.T) {
+	errText := `execute data task: data action failed action_id="filter_1" action_kind="filter_records": zero rows`
+	plan, reason, ok := BuildRepeatedFailureReplacementPlan(RepeatedFailureReplacementPlanInput{
+		Current: dataquery.TaskPlan{
+			Goal: "finish grouped calculation",
+		},
+		Coverage: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Output: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+		},
+		PreviousErrors: []string{errText},
+		CurrentError:   errText,
+		FailureLimit:   2,
+		Scaffolds: []ActionScaffold{{
+			Kind:       string(dataquery.DataActionValueDistribution),
+			Executable: true,
+			InputPath:  "records.json",
+			Fields:     []string{"status", "amount"},
+		}},
+	})
+	if !ok {
+		t.Fatal("BuildRepeatedFailureReplacementPlan ok=false, want concrete replacement plan")
+	}
+	if !strings.Contains(reason, "filter_1|filter_records failed 2 times") {
+		t.Fatalf("reason=%q, want repeated node context", reason)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionValueDistribution {
+		t.Fatalf("actions=%+v, want value_distribution replacement", plan.Actions)
+	}
+	if !plan.ContinueAfter || plan.CoverageContract.ContributionLedgerRequired == false {
+		t.Fatalf("plan=%+v, want continuation preserving coverage", plan)
+	}
+}
+
+func TestBuildRepeatedFailureReplacementPlanRejectsPromptOnlyScaffold(t *testing.T) {
+	errText := `execute data task: data action failed action_id="filter_1" action_kind="filter_records": zero rows`
+	_, _, ok := BuildRepeatedFailureReplacementPlan(RepeatedFailureReplacementPlanInput{
+		PreviousErrors: []string{errText},
+		CurrentError:   errText,
+		FailureLimit:   2,
+		Scaffolds: []ActionScaffold{{
+			Kind:         string(dataquery.DataActionJoinRecords),
+			InputPaths:   []string{"left.json", "right.json"},
+			CommonFields: []string{"id"},
+		}},
+	})
+	if ok {
+		t.Fatal("BuildRepeatedFailureReplacementPlan ok=true, want prompt-only scaffold rejected")
+	}
+}
+
 func TestRepeatedCustomTransformGuardResultReturnsTypedViolation(t *testing.T) {
 	errText := `execute data task: data action failed action_id="clean" action_kind="custom_transform": custom_transform field contract failed: line 3 references missing field "x"`
 	result := RepeatedCustomTransformGuardResult(

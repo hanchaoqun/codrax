@@ -373,6 +373,16 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			recordedErr := false
+			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(append(records, executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
+				records = append(records, executionRecord)
+				recordedErr = true
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+				fallback = protectPlan(fallback)
+				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+				currentPlan = fallback
+				continue
+			}
 			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
 				if continuer, ok := cfg.Planner.(DataTaskContinuationPlanner); ok {
 					records = append(records, executionRecord)

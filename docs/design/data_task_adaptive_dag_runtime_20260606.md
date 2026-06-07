@@ -11294,9 +11294,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Generate deterministic replacement plans for repeated typed failures
+- [x] Generate deterministic replacement plans for repeated typed failures
       when the violation carries enough structural context; otherwise continue
-      to planner expansion with typed guard state.
+      to planner expansion with typed guard state. Completed in Batch 257.
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
@@ -11359,9 +11359,59 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Generate deterministic replacement plans for repeated typed failures
+- [x] Generate deterministic replacement plans for repeated typed failures
       when the violation carries enough structural context; otherwise continue
-      to planner expansion with typed guard state.
+      to planner expansion with typed guard state. Completed in Batch 257.
+- [ ] Replace remaining REPL-local fallback signatures with reducer-owned
+      action graph replay checks, including deferred-plan and terminal-repair
+      paths.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 257: Repeated Failure Replacement Transition
+
+The next reducer pass moved the first repeated typed-failure replacement path
+out of ad hoc CLI/REPL retry logic. Before this batch, once the same typed node
+failed enough times, both CLI and REPL immediately asked the continuation
+planner to expand the graph. That was safer than retrying the same node
+forever, but it still spent a model turn even when the workflow IR already
+contained a concrete executable scaffold that could advance the graph.
+
+This is a generic convergence issue. Repeated failures should first be handled
+by typed workflow state, not by prose repair. If the reducer can prove a
+replacement action is executable from `ActionScaffold.executable=true`,
+current contracts, stage facts, progress events, and seen action keys, it may
+emit that atomic continuation. If not, the existing planner expansion path
+remains the fallback.
+
+The generalized invariant is:
+
+- repeated-node detection uses typed `DataTaskViolation` action id/kind, not
+  model prose;
+- deterministic replacement can only be produced from executable scaffolds and
+  existing workflow contracts;
+- seen action keys and relation no-progress events are checked before the
+  replacement is emitted, so the reducer does not replay the same graph edge;
+- the replacement plan never chooses business-specific filters, metrics, or
+  entity meanings. Those still require a planner-emitted concrete action.
+
+Changes:
+
+- [x] Added `RepeatedFailureReplacementPlanInput` and
+      `BuildRepeatedFailureReplacementPlan` in `internal/dataworkflow`.
+- [x] The reducer now combines repeated-node detection with
+      `BuildConcreteFallbackPlan` so only executable scaffold transitions can
+      be emitted deterministically.
+- [x] Wired both CLI and REPL data workflows to try the reducer replacement
+      before calling the continuation planner on repeated node failure.
+- [x] Preserved the existing planner expansion path when no executable
+      replacement exists.
+- [x] Added reducer regression coverage for executable repeated-failure
+      replacement and prompt-only scaffold rejection.
+
+Remaining architecture items:
+
 - [ ] Replace remaining REPL-local fallback signatures with reducer-owned
       action graph replay checks, including deferred-plan and terminal-repair
       paths.
