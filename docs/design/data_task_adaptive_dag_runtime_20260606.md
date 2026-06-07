@@ -10697,3 +10697,40 @@ Remaining architecture items:
 - [ ] Move relation-family progress signatures into `internal/dataworkflow`
       with ActionDAG/ArtifactGraph/LedgerGraph state instead of keeping the
       policy in REPL-local workflow code.
+
+### Batch 243: Workflow Stage Policy As IR
+
+The architecture audit found that the data lane was still making one core
+workflow decision from REPL-local code: the current workflow stage and the
+allowed action contracts for that stage. That made the system harder to reason
+about because the model-facing prompt, deterministic guards, CLI path, and REPL
+path could drift while still appearing to share one "data workflow".
+
+This is a generic workflow-engine issue, not a procurement-data issue. Stage
+selection must be derived from typed workflow facts such as material coverage,
+ledger requirements, ledger counts, reconciliation state, and answer
+projection. It must not read model prose, action ids, or business keywords.
+
+Changes:
+
+- [x] Added `internal/dataworkflow.StageFacts` as the typed reducer input for
+      next-stage selection.
+- [x] Added shared stage constants and `NextStage` in `internal/dataworkflow`.
+- [x] Moved stage-specific allowed action contracts into
+      `internal/dataworkflow.ActionContract` and
+      `AllowedNextActionContracts`.
+- [x] Changed the REPL workflow adapter to delegate next-stage and
+      allowed-action decisions to the shared workflow IR.
+- [x] Added regression coverage for stage progression and allowed-action
+      contract filtering.
+
+Remaining architecture items:
+
+- [ ] Move relation-family no-progress signatures into `internal/dataworkflow`
+      so stage progress is decided from typed action/ledger deltas rather than
+      REPL records.
+- [ ] Move relation scaffold sorting and concrete fallback builders behind
+      ArtifactGraph-aware workflow helpers.
+- [ ] Make CLI and REPL consume the same workflow reducer and event sink so
+      progress, violations, and terminal failures render consistently without
+      duplicating orchestration policy.
