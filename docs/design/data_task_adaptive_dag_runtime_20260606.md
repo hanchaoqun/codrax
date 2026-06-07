@@ -9509,7 +9509,41 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move candidate-artifact ranking and repair hints for field-contract
+- [x] Move candidate-artifact ranking and repair hints for field-contract
       violations into a shared typed schema-violation builder.
+      Completed in Batch 210.
 - [ ] Feed schema-contract failures into the shared ActionGraph reducer as
       blocked nodes instead of REPL prose guard errors.
+
+### Batch 210: Shared Field-Contract Repair Builder
+
+After Batch 209, missing-field checks used shared schema projection, but the
+repair surface still lived in REPL helpers: candidate artifact ranking and
+allowed-action repair hints. That is still too close to the UI layer for a
+future typed reducer.
+
+This batch moves the domain-neutral pieces into `internal/dataworkflow`:
+
+- rank candidate artifacts by whether they contain all missing fields, then by
+  match count and alias;
+- format compact candidate labels for existing prompt/UI compatibility;
+- derive repair hints only from typed allowed action kinds.
+
+The builder does not inspect business names, user prose, or model prose. It
+only compares declared artifact fields and declared allowed action kinds.
+
+Changes:
+
+- [x] Added `dataworkflow.ArtifactFieldCandidate`.
+- [x] Added `FieldContractCandidateArtifacts` and
+      `FieldContractCandidateLabels`.
+- [x] Added `FieldContractRepairHints`.
+- [x] Rewired REPL field-contract violations to consume the shared builder.
+- [x] Added regression coverage for candidate ranking and allowed-action hints.
+
+Remaining architecture items:
+
+- [ ] Emit full `WorkflowViolation` objects from this builder at the guard
+      boundary, instead of formatting prose first and parsing it later.
+- [ ] Feed schema-contract failures into the shared ActionGraph reducer as
+      blocked nodes.

@@ -4089,61 +4089,8 @@ func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, acti
 }
 
 func dataTaskFieldContractCandidateArtifacts(access []dataTaskArtifactAccessPrompt, input string, missing []string) []string {
-	missing = cleanDataTaskStrings(missing)
-	if len(missing) == 0 {
-		return nil
-	}
-	inputKey := strings.ToLower(strings.TrimSpace(input))
-	type candidate struct {
-		alias     string
-		matches   []string
-		matchAll  bool
-		matchSize int
-	}
-	var candidates []candidate
-	for _, artifact := range access {
-		alias := firstDataTaskArtifactAlias(artifact)
-		if alias == "" || strings.EqualFold(strings.TrimSpace(alias), inputKey) || strings.EqualFold(strings.TrimSpace(artifact.ID), inputKey) {
-			continue
-		}
-		fields := dataTaskFieldSet(artifact.Fields)
-		var matches []string
-		for _, field := range missing {
-			if fields[strings.ToLower(strings.TrimSpace(field))] != "" {
-				matches = append(matches, field)
-			}
-		}
-		if len(matches) == 0 {
-			continue
-		}
-		candidates = append(candidates, candidate{
-			alias:     alias,
-			matches:   matches,
-			matchAll:  len(matches) == len(missing),
-			matchSize: len(matches),
-		})
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].matchAll != candidates[j].matchAll {
-			return candidates[i].matchAll
-		}
-		if candidates[i].matchSize != candidates[j].matchSize {
-			return candidates[i].matchSize > candidates[j].matchSize
-		}
-		return candidates[i].alias < candidates[j].alias
-	})
-	var out []string
-	for _, c := range candidates {
-		label := c.alias
-		if !c.matchAll {
-			label += " partial"
-		}
-		out = append(out, fmt.Sprintf("%s has [%s]", label, strings.Join(cleanDataTaskStrings(c.matches), ", ")))
-		if len(out) >= 4 {
-			break
-		}
-	}
-	return out
+	candidates := dataworkflow.FieldContractCandidateArtifacts(dataTaskArtifactAccessSchemaProjection(access), input, missing, 4)
+	return dataworkflow.FieldContractCandidateLabels(candidates)
 }
 
 func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alias string, fields []string) []string {
@@ -6552,23 +6499,14 @@ func dataTaskNumericLookingSampleFields(samples map[string][]string, limit int) 
 }
 
 func dataTaskFieldContractRepairHints(allowed map[string]bool) []string {
-	var hints []string
-	if allowed[string(dataquery.DataActionExtractFields)] {
-		hints = append(hints, "use extract_fields when the missing fields are embedded in an existing text/record field")
+	allowedActions := make([]string, 0, len(allowed))
+	for action, ok := range allowed {
+		if ok {
+			allowedActions = append(allowedActions, action)
+		}
 	}
-	if allowed[string(dataquery.DataActionGroupRecords)] {
-		hints = append(hints, "use group_records before extract_fields when one logical record is split across multiple rows/spans sharing a key")
-	}
-	if allowed[string(dataquery.DataActionDeriveFields)] {
-		hints = append(hints, "use derive_fields when the missing fields can be computed from fields already present on the same records")
-	}
-	if allowed[string(dataquery.DataActionEnrichRecords)] || allowed[string(dataquery.DataActionJoinRecords)] {
-		hints = append(hints, "use enrich_records or a two-input join_records when the missing fields exist on another artifact")
-	}
-	if allowed[string(dataquery.DataActionFilterRecords)] || allowed[string(dataquery.DataActionComputeContribs)] {
-		hints = append(hints, "do not repeat filter_records or compute_contributions until every named field exists on the selected input artifact")
-	}
-	return hints
+	sort.Strings(allowedActions)
+	return dataworkflow.FieldContractRepairHints(allowedActions)
 }
 
 func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) bool {
