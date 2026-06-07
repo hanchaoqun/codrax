@@ -11716,3 +11716,50 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 264: Reducer-Owned Required Material Scheduling Guard
+
+The next IR pass moved terminal required-material scheduling from REPL-local
+string construction into `internal/dataworkflow`. Before this batch, the REPL
+collected scheduled material consumption from previous results and the current
+plan, then directly built a prose error when a terminal batch declared required
+runner inputs that were not scheduled for script or typed-action consumption.
+
+This is a generic coverage/scheduling invariant. A terminal data batch may only
+complete when every required runner input is either already consumed by prior
+workflow facts or scheduled by the current executable batch. The reducer does
+not inspect file names, business roles, or task prose. The adapter still
+collects environment-bound facts such as consumed paths and action input paths;
+the reducer owns the missing-path decision and typed violation.
+
+Changes:
+
+- [x] Added `RequiredMaterialSchedulingGuardInput` and
+      `RequiredMaterialSchedulingGuardResult` in `internal/dataworkflow`.
+- [x] Returned a typed `required_material_scheduling` violation carrying the
+      missing required paths as `input_aliases`.
+- [x] Changed REPL plan/workflow staging guards to return the reducer-owned
+      guard instead of wrapping a local prose error.
+- [x] Kept the older string helper as a compatibility adapter for fallback
+      predicates that still only need an error text.
+- [x] Added reducer regression coverage for terminal missing paths,
+      continuation pass-through, and already scheduled paths.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining REPL adapter-owned scheduling predicates behind
+      reducer-owned transition inputs. Top-level plan shape and terminal
+      required-material scheduling are done; broad custom-transform/material-
+      discovery triggers and field/relation guard entrypoints still need the
+      same treatment where they produce hard scheduling decisions.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

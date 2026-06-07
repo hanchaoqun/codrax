@@ -113,8 +113,8 @@ func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardR
 	}); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
+		return guard
 	}
 	return dataworkflow.GuardResult{}
 }
@@ -134,8 +134,8 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
 	}
-	if errText := dataTaskTerminalRequiredMaterialSchedulingError(records, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
+		return guard
 	}
 	return dataTaskPlanStagingGuardResult(plan)
 }
@@ -1661,8 +1661,8 @@ func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return errText
 	}
-	if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); errText != "" {
-		return errText
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
+		return guard.ErrorText()
 	}
 	if count := dataTaskCustomScriptActionCount(plan.Actions); count > 1 {
 		return fmt.Sprintf("data planning incomplete: actions[] batch contains %d custom_transform scripts. A batch may have at most one bounded custom_transform; split independent transforms into separate batches or use typed actions that produce reusable artifacts.",
@@ -1722,8 +1722,8 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return errText
 	}
-	if errText := dataTaskTerminalRequiredMaterialSchedulingError(records, plan); errText != "" {
-		return errText
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
+		return guard.ErrorText()
 	}
 	if errText := dataTaskWorkflowCustomTransformDisabledGuardError(records, plan); errText != "" {
 		return errText
@@ -3402,25 +3402,20 @@ func normalizeCoverageMaterialUseModeForWorkflow(mode dataquery.CoverageMaterial
 }
 
 func dataTaskTerminalRequiredMaterialSchedulingError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	if plan.ContinueAfter {
-		return ""
-	}
-	required := cleanDataTaskStrings(plan.CoverageContract.RequiredRunnerInputPaths())
-	if len(required) == 0 {
-		return ""
-	}
+	return dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskTerminalRequiredMaterialSchedulingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	scheduled := dataTaskScheduledMaterialConsumption(records, plan)
-	var missing []string
-	for _, p := range required {
-		if !scheduled[p] {
-			missing = append(missing, p)
-		}
+	scheduledPaths := make([]string, 0, len(scheduled))
+	for p := range scheduled {
+		scheduledPaths = append(scheduledPaths, p)
 	}
-	if len(missing) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("data planning incomplete: terminal batch declares %d required material(s) that are not scheduled for script/typed-action consumption: %s. Add focused actions that read these materials, change their usage_mode to planner_distilled/text_evidence_consumed when appropriate, or keep continue_after=true until the required materials are covered.",
-		len(missing), strings.Join(missing, ", "))
+	return dataworkflow.RequiredMaterialSchedulingGuardResult(dataworkflow.RequiredMaterialSchedulingGuardInput{
+		ContinueAfter:  plan.ContinueAfter,
+		RequiredPaths:  plan.CoverageContract.RequiredRunnerInputPaths(),
+		ScheduledPaths: scheduledPaths,
+	})
 }
 
 func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) map[string]bool {
