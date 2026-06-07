@@ -1,5 +1,7 @@
 package dataworkflow
 
+import "github.com/hanchaoqun/codrax/internal/dataquery"
+
 // WorkflowStateSnapshot is the package-neutral graph snapshot used by journals
 // and reducers. It carries structural workflow state only; prompt-only samples
 // and UI adapter fields stay outside this IR.
@@ -26,6 +28,58 @@ type WorkflowStateSnapshotInput struct {
 	WorkflowViolations         []WorkflowViolation
 	Decision                   WorkflowDecisionInput
 	DecisionFallbackReasonCode string
+}
+
+type WorkflowReducerInput struct {
+	Records                    []WorkflowRecord
+	Current                    dataquery.TaskPlan
+	DeferredQueue              DeferredQueueState
+	StageFacts                 StageFacts
+	OutputGraph                OutputProjectionGraphInput
+	Artifacts                  []ArtifactProjectionSource
+	ArtifactLimit              int
+	ProgressEvents             []ProgressEvent
+	ProgressLimit              int
+	WorkflowViolations         []WorkflowViolation
+	Decision                   WorkflowDecisionInput
+	DecisionFallbackReasonCode string
+	ActionEventLimit           int
+}
+
+func BuildWorkflowReducerSnapshot(input WorkflowReducerInput) WorkflowStateSnapshot {
+	progressEvents := input.ProgressEvents
+	if len(progressEvents) == 0 {
+		progressEvents = ProgressEventsFromRecords(input.Records)
+	}
+	artifacts := input.Artifacts
+	if len(artifacts) == 0 {
+		artifacts = ArtifactsNewestFirst(input.Records)
+	}
+	deferred := DeferredQueuePlan(input.DeferredQueue)
+	var deferredActions []dataquery.DataAction
+	if len(deferred.Actions) > 0 {
+		deferredActions = deferred.Actions
+	}
+	return BuildWorkflowStateSnapshot(WorkflowStateSnapshotInput{
+		StageFacts: input.StageFacts,
+		ActionGraph: ActionGraphInput{
+			Events:        BuildWorkflowActionEvents(input.Records),
+			Ready:         append([]dataquery.DataAction(nil), input.Current.Actions...),
+			Deferred:      append([]dataquery.DataAction(nil), deferredActions...),
+			DeferredPlan:  deferred,
+			DeferredQueue: input.DeferredQueue,
+			Blocked:       append([]WorkflowViolation(nil), input.WorkflowViolations...),
+			EventLimit:    input.ActionEventLimit,
+		},
+		OutputGraph:                input.OutputGraph,
+		Artifacts:                  artifacts,
+		ArtifactLimit:              input.ArtifactLimit,
+		ProgressEvents:             progressEvents,
+		ProgressLimit:              input.ProgressLimit,
+		WorkflowViolations:         input.WorkflowViolations,
+		Decision:                   input.Decision,
+		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
+	})
 }
 
 func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateSnapshot {

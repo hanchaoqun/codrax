@@ -13950,7 +13950,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Add a reducer-level input object that collects material coverage,
+- [x] Add a reducer-level input object that collects material coverage,
       coverage contract, plan records, deferred queue, and current plan without
       exposing REPL-local state.
 - [ ] Replace planner/evaluator prompts that consume raw record slices with a
@@ -13959,4 +13959,54 @@ Remaining architecture items:
       REPL-local stage summaries.
 - [ ] Move typed violation discovery itself behind package-level reducer
       inputs; the current builder consumes typed violations but does not yet
+      discover all of them.
+
+### Batch 309: Runtime Record Inputs For Reducer Snapshots
+
+Batch 308 centralized graph aggregation, but the REPL adapter still prepared
+several generic inputs itself: action events from records, progress events from
+results, newest-first artifact sources, current ready actions, and deferred
+queue actions. Those are not UI concerns and do not depend on business meaning.
+
+This batch adds `WorkflowReducerInput` and `BuildWorkflowReducerSnapshot`.
+The reducer input accepts package-neutral `WorkflowRecord`, the current plan,
+the live deferred queue, typed stage facts, output graph input, optional
+overrides, and typed violations. When progress events or artifact sources are
+not supplied, `dataworkflow` derives them from records. The REPL keeps its
+prompt/UI projection helpers, but the structural snapshot can now be built
+from runtime-owned state.
+
+Generic invariants:
+
+- action events are derived from `WorkflowRecord` through
+  `BuildWorkflowActionEvents`;
+- progress events and newest-first artifact sources are package-level
+  projections over records/results;
+- current ready actions and deferred queue actions enter the reducer through
+  one input object;
+- REPL wrappers may remain as compatibility adapters, but they delegate the
+  generic projections to `dataworkflow`;
+- no domain-specific material roles, field names, numeric units, or prose
+  summaries participate in reducer decisions.
+
+Changes:
+
+- [x] Added `WorkflowReducerInput`.
+- [x] Added `BuildWorkflowReducerSnapshot`.
+- [x] Added `ProgressEventsFromRecords` and record artifact progress
+      projection in `dataworkflow`.
+- [x] Added `ArtifactsNewestFirst` in `dataworkflow`.
+- [x] Rewired REPL state assembly to use the reducer input instead of hand
+      assembling action/progress/artifact reducer inputs.
+- [x] Added regression coverage proving reducer snapshots derive executed
+      actions, current ready actions, artifacts, and progress from records.
+
+Remaining architecture items:
+
+- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+      snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+- [ ] Move typed violation discovery itself behind package-level reducer
+      inputs; the current reducer consumes typed violations but does not yet
       discover all of them.

@@ -83,3 +83,52 @@ func TestBuildWorkflowStateSnapshotReducesGraphsAndDecision(t *testing.T) {
 		t.Fatalf("decision=%+v, want continue with contribution action", snapshot.Decision)
 	}
 }
+
+func TestBuildWorkflowReducerSnapshotDerivesRecordInputs(t *testing.T) {
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:             "next",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "filtered.json",
+	}}}
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "extract",
+			Kind: dataquery.DataActionExtractRecords,
+		}}},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID:       "records",
+				Kind:     "record_artifact",
+				Headers:  []string{"status", "value"},
+				Fields:   map[string]string{"json_shape": "array"},
+				RowCount: 3,
+			}},
+			Rows: []dataquery.RowDecision{{RowID: "row1"}},
+		},
+	}}
+	snapshot := BuildWorkflowReducerSnapshot(WorkflowReducerInput{
+		Records: records,
+		Current: current,
+		StageFacts: StageFacts{
+			MaterialCoverageSufficient: true,
+			DecisionRecordsRequired:    true,
+			DecisionRecords:            1,
+		},
+		OutputGraph: OutputProjectionGraphInput{
+			Output: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
+		},
+		ActionEventLimit: 8,
+		ArtifactLimit:    8,
+		ProgressLimit:    8,
+	})
+	if len(snapshot.ActionGraph.Executed) != 1 || snapshot.ActionGraph.Executed[0].ID != "extract" {
+		t.Fatalf("executed=%+v, want record-derived extract", snapshot.ActionGraph.Executed)
+	}
+	if len(snapshot.ActionGraph.Ready) != 1 || snapshot.ActionGraph.Ready[0].ID != "next" {
+		t.Fatalf("ready=%+v, want current action", snapshot.ActionGraph.Ready)
+	}
+	if snapshot.ArtifactGraph.NodeCount != 1 || snapshot.Progress.Latest.ArtifactRows != 3 || snapshot.Progress.Latest.DecisionRecords != 1 {
+		t.Fatalf("snapshot artifacts/progress=%+v / %+v, want record-derived state", snapshot.ArtifactGraph, snapshot.Progress)
+	}
+}

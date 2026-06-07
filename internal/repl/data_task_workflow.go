@@ -5598,17 +5598,18 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 			OutputGraph:        state.OutputProjectionGraph,
 		}
 	}
-	snapshot := dataworkflow.BuildWorkflowStateSnapshot(dataworkflow.WorkflowStateSnapshotInput{
+	snapshot := dataworkflow.BuildWorkflowReducerSnapshot(dataworkflow.WorkflowReducerInput{
+		Records:                    records,
+		Current:                    current,
+		DeferredQueue:              deferredQueue,
 		StageFacts:                 facts,
-		ActionGraph:                dataTaskWorkflowActionGraphReducerInput(records, current, deferredQueue, state.WorkflowViolations, 48),
 		OutputGraph:                outputGraphInput,
-		Artifacts:                  dataTaskWorkflowArtifactsNewestFirst(records),
 		ArtifactLimit:              48,
-		ProgressEvents:             dataTaskWorkflowProgressEvents(records),
 		ProgressLimit:              6,
 		WorkflowViolations:         state.WorkflowViolations,
 		Decision:                   decisionInput,
 		DecisionFallbackReasonCode: state.NextStage,
+		ActionEventLimit:           48,
 	})
 	state.ActionGraph = snapshot.ActionGraph
 	state.LedgerGraph = snapshot.LedgerGraph
@@ -5755,58 +5756,7 @@ func dataTaskRecentRelationNoProgressCount(records []dataTaskWorkflowRecord) (in
 }
 
 func dataTaskWorkflowProgressEvents(records []dataTaskWorkflowRecord) []dataworkflow.ProgressEvent {
-	events := make([]dataworkflow.ProgressEvent, 0, len(records))
-	for _, rec := range records {
-		event := dataworkflow.ProgressEvent{
-			Round:         len(events) + 1,
-			Actions:       append([]dataquery.DataAction(nil), rec.Plan.Actions...),
-			ResultPresent: rec.Result != nil,
-			Error:         strings.TrimSpace(rec.Err),
-		}
-		if rec.Result != nil {
-			event.ArtifactCount, event.ArtifactRows, event.ArtifactFields = dataTaskResultArtifactProgressShape(*rec.Result)
-			event.DecisionRecords = len(rec.Result.Rows)
-			event.RuleCoverageRecords = len(rec.Result.RuleCoverage)
-			event.EntityResolutionRecords = len(rec.Result.EntityResolutions)
-			event.ContributionRecords = len(rec.Result.Contributions)
-			event.HasReconcile = rec.Result.Reconcile != nil
-			event.AnswerPresent = strings.TrimSpace(rec.Result.Answer) != ""
-		}
-		events = append(events, event)
-	}
-	return events
-}
-
-func dataTaskResultArtifactProgressShape(result dataquery.Result) (count int, rows int, fields []string) {
-	seenFields := map[string]bool{}
-	for _, artifact := range result.Artifacts {
-		dataTaskAccumulateArtifactProgressShape(artifact, &count, &rows, seenFields)
-	}
-	fields = make([]string, 0, len(seenFields))
-	for field := range seenFields {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	return count, rows, fields
-}
-
-func dataTaskAccumulateArtifactProgressShape(artifact dataquery.DataArtifact, count *int, rows *int, fields map[string]bool) {
-	*count = *count + 1
-	if artifact.RowCount > 0 {
-		*rows += artifact.RowCount
-	}
-	for field := range artifact.Fields {
-		field = strings.TrimSpace(field)
-		if field != "" {
-			fields[field] = true
-		}
-	}
-	for _, header := range cleanDataTaskStrings(artifact.Headers) {
-		fields[header] = true
-	}
-	for _, child := range artifact.Children {
-		dataTaskAccumulateArtifactProgressShape(child, count, rows, fields)
-	}
+	return dataworkflow.ProgressEventsFromRecords(records)
 }
 
 func dataTaskPlanSingleRelationMaterializationKind(plan dataquery.TaskPlan) (string, bool) {
@@ -6796,21 +6746,7 @@ func dataTaskWorkflowArtifactAvailability(records []dataTaskWorkflowRecord, limi
 }
 
 func dataTaskWorkflowArtifactsNewestFirst(records []dataTaskWorkflowRecord) []dataquery.DataArtifact {
-	var artifacts []dataquery.DataArtifact
-	for i := len(records) - 1; i >= 0; i-- {
-		rec := records[i]
-		if rec.Result == nil {
-			continue
-		}
-		// ActionRunner appends seed artifacts first and the freshly
-		// materialized action artifact last. Present newest artifacts first
-		// so compact prompts expose the just-created dependency instead of
-		// burying it behind old seed rows.
-		for j := len(rec.Result.Artifacts) - 1; j >= 0; j-- {
-			artifacts = append(artifacts, rec.Result.Artifacts[j])
-		}
-	}
-	return artifacts
+	return dataworkflow.ArtifactsNewestFirst(records)
 }
 
 func dataTaskFlattenedArtifactCount(artifacts []dataquery.DataArtifact) int {

@@ -172,6 +172,20 @@ func BuildArtifactGraphState(artifacts []ArtifactProjectionSource, limit int) Ar
 	return ArtifactGraphStateFromProjections(projections, limit)
 }
 
+func ArtifactsNewestFirst(records []WorkflowRecord) []ArtifactProjectionSource {
+	var artifacts []ArtifactProjectionSource
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil {
+			continue
+		}
+		for j := len(rec.Result.Artifacts) - 1; j >= 0; j-- {
+			artifacts = append(artifacts, rec.Result.Artifacts[j])
+		}
+	}
+	return artifacts
+}
+
 func ArtifactGraphStateFromProjections(projections []ArtifactSchemaProjection, limit int) ArtifactGraphState {
 	if len(projections) == 0 {
 		return ArtifactGraphState{}
