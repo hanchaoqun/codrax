@@ -7156,3 +7156,2049 @@ Remaining architecture items:
 - [ ] Move direct fallback branches in the execution loop behind the same
       validated-plan acceptance path so every generated plan goes through the
       same final display gate.
+
+### Batch 165: RecordSet Completeness IR For Exact Data Workflows
+
+The next real-scenario smoke moved in the right direction: the workflow
+materialized separate record artifacts for purchase orders, vendors,
+categories, and queries instead of a single mixed-schema record set. It then
+hit a generic record-materialization gap. `extract_records` defaults to a
+bounded sample of 20 records. The artifact already reported the true row count
+and sample count, but the workflow still treated the sampled artifact as a
+usable input for later exact normalization, contribution, reconciliation, and
+final projection. The model noticed the mismatch in reasoning and spent
+additional rounds asking to reload the same files with a larger limit.
+
+This is not specific to purchase data. Any exact data task can fail the same
+way: CSV aggregation, JSONL statistics, spreadsheet-like audit, OCR-derived
+record joins, compliance filtering, or strict output projection. A sample is
+valid for schema discovery, but it is not a complete computation input.
+
+The invariant is now:
+
+- record artifacts carry explicit completeness metadata:
+  `record_completeness`, `sample_count`, `total_rows`, and child-level
+  completeness;
+- `extract_records` remains a bounded action, but exact workflows that require
+  contributions/reconciliation/final projection default to a high bounded
+  record limit before execution;
+- explicit diagnostic sampling remains possible through structural
+  `sample_only`, `schema_only`, or `preview_only` params;
+- no business file names, column names, currencies, dates, or domain keywords
+  drive the hard behavior.
+
+Changes:
+
+- [x] Added record-set completeness fields to extract-record artifacts and
+      child material artifacts.
+- [x] Mark parent extract artifacts as `complete` only when every child record
+      set covers its total rows; otherwise mark them `sampled`.
+- [x] Added workflow execution normalization that raises `extract_records`
+      limits to a bounded full-record limit for exact contribution/reconcile
+      workflows when the action is not explicitly marked sample/preview-only.
+- [x] Added tests for complete vs sampled extract artifacts.
+- [x] Added tests that exact workflows receive full-record extraction limits
+      while sample-only extraction remains untouched.
+
+Remaining architecture items:
+
+- [ ] Promote `record_completeness` into a first-class `ArtifactSchemaProjection`
+      consumed by action validators before `derive_fields`,
+      `normalize_entities`, `filter_records`, `compute_contributions`, and
+      `assemble_answer`.
+- [ ] Add a deterministic guard that blocks contribution/reconcile/final
+      projection when an input artifact is still sampled and no explicit
+      sample-only diagnostic path is active.
+- [ ] Add value-distribution and field-preview typed actions so schema
+      exploration uses small diagnostic artifacts, while exact calculation uses
+      complete record artifacts.
+
+### Batch 166: Prompt-Safe Artifact Schema Projection
+
+After Batch 165, a follow-up real-scenario smoke showed the desired execution
+behavior: exact `extract_records` actions materialized complete record artifacts
+instead of 20-row samples. The next generic bottleneck moved one layer up. The
+prompt-side workflow state still projected child artifact samples recursively,
+so complete record artifacts could inflate continuation prompts even though
+the executor already had durable artifact files and aliases.
+
+This is not a domain issue. Any exact data workflow can produce large
+intermediate artifacts: parsed tables, normalized records, joined record sets,
+extracted text spans, OCR outputs, filtered subsets, contribution ledgers, or
+final projections. The model needs a compact schema/availability projection,
+not the full executable data payload.
+
+The invariant is now:
+
+- executor artifacts remain complete and durable for typed actions;
+- model prompts receive bounded artifact projections only;
+- top-level artifacts, child artifacts, and nested diagnostic artifacts are
+  compacted recursively;
+- large field catalogs and samples are clamped before entering continuation
+  prompts;
+- this is a structural prompt-shaping rule, not a business-specific rule.
+
+Changes:
+
+- [x] Replaced one-level artifact sampling with recursive prompt compaction.
+- [x] Added fixed budgets for top-level samples, child samples, child counts,
+      headers, source paths, summaries, and field values.
+- [x] Kept full artifact files and audit artifacts untouched so deterministic
+      runners can still consume complete data.
+- [x] Added regression coverage that parent, child, and nested diagnostic
+      samples are compacted and too-deep child trees are removed from prompt
+      projection.
+
+Remaining architecture items:
+
+- [ ] Extract this projection into a typed `ArtifactSchemaProjection` IR
+      separate from `dataquery.DataArtifact`, so prompt shape cannot drift with
+      executor payload shape.
+- [ ] Add artifact projection size metrics to data workflow audit records.
+- [ ] Feed projection completeness and row-count metadata directly into action
+      validators instead of relying on prompt samples.
+
+### Batch 167: Ledger Graph Prompt Projection
+
+The next real-scenario run confirmed that artifact prompt compaction helped:
+continuation request size dropped sharply after full-record extraction. The
+workflow then progressed through rule derivation, entity normalization, entity
+application, field derivation, and qualification. A new generic bottleneck
+appeared as the ledger graph grew: decision rows, entity resolutions,
+contribution records, and reconcile groups are useful for audit and runner
+state, but full or overly-rich ledger samples should not be the model's main
+context mechanism.
+
+This is not tied to any one business task. Any data workflow with item-level
+decisions, entity normalization, filtering, joins, contributions, OCR/text
+span extraction, or reconciliation can accumulate large ledgers. The model
+needs count/status/key projections; deterministic runners and audit files need
+the complete ledgers.
+
+The invariant is now:
+
+- complete ledgers stay in `dataquery.Result`, runner seed, and audit artifacts;
+- prompts receive a bounded ledger projection with counts, status/decision
+  distributions, and small group/metric/role samples;
+- entity-resolution prompt samples are capped more aggressively because the
+  projection carries the global status distribution;
+- artifact access field samples are small examples, not a data transport
+  mechanism;
+- no domain names, file names, columns, currencies, dates, or business
+  categories drive these hard limits.
+
+Changes:
+
+- [x] Added `ledger_projection` to the data result prompt view.
+- [x] Summarized decision rows, rule coverage, entity resolutions,
+      contributions, and reconcile groups with generic counts and bounded
+      samples.
+- [x] Reduced entity-resolution prompt samples while preserving complete
+      entity ledgers for deterministic execution and audit.
+- [x] Reduced `artifact_access.field_samples` to a small bounded preview.
+- [x] Added tests for ledger projection and field-sample bounds.
+
+Remaining architecture items:
+
+- [ ] Move ledger projection into a first-class `LedgerGraphProjection` IR in
+      `internal/dataworkflow`, alongside the future `ArtifactSchemaProjection`.
+- [ ] Add projection-size metrics and per-round body-size attribution to data
+      workflow audit records.
+- [ ] Feed ledger status distributions into typed evaluator decisions so
+      repeated unresolved/ambiguous normalization can trigger a precise next
+      action instead of another broad planner turn.
+
+### Batch 168: Source-Field Precedence For Entity Normalization
+
+The next real-scenario run reached the entity-normalization stage and exposed a
+generic action-parameter contract gap. A model plan supplied both
+`source_field=category_raw` and a broader `source_fields` array containing
+additional context fields. The runner treated all of them as source values to
+normalize, producing unrelated unresolved entity records for context fields.
+
+This is not specific to categories, vendors, or purchase data. Any
+normalization task can have a single primary source value plus contextual
+fields: names with ids, labels with descriptions, terms with row keys, accounts
+with owners, devices with locations, extracted spans with source locators, and
+so on. The primary field must be the executable source-value contract; context
+fields must not silently widen the ledger.
+
+The invariant is now:
+
+- singular `source_field` / `name_field` / `value_field` is authoritative when
+  present;
+- plural `source_fields` / `name_fields` / `value_fields` is used only when no
+  singular source field was declared;
+- the existing multi-source-field mode remains available by omitting the
+  singular field;
+- this is a structural action-parameter rule, not a business-domain rule.
+
+Changes:
+
+- [x] Updated `normalize_entities` source-field normalization so explicit
+      singular fields take precedence over plural field lists.
+- [x] Preserved existing plural-field normalization behavior when no singular
+      field is supplied.
+- [x] Added regression coverage proving context-style `source_fields` no
+      longer create extra entity-resolution rows when `source_field` is set.
+
+Remaining architecture items:
+
+- [ ] Represent primary source fields and context fields as separate typed
+      action-param roles in the planner schema instead of relying on alias
+      precedence.
+- [ ] Add action-result diagnostics showing which source-field mode was used:
+      `single_source_field`, `multi_source_fields`, or `inferred_fields`.
+- [ ] Extend the same role-precedence audit to other typed actions where a
+      singular executable field can be confused with plural context fields.
+
+### Batch 169: Action Input Inheritance For Materialization Nodes
+
+The next real-scenario run exposed a workflow IR boundary bug. A continuation
+plan declared the current batch inputs at `TaskPlan.input_paths` and emitted an
+`extract_records` action with an `output_artifact`, but the action-level
+`input_paths` array was empty. The staging guard correctly requires typed
+actions to consume explicit inputs, yet the planner had already supplied those
+inputs one level higher in the same typed plan.
+
+This is not specific to purchase orders, attachments, or any business domain.
+Any data workflow can express the same shape when a batch starts from known
+source materials and the first action materializes them into an artifact:
+spreadsheets, JSONL logs, OCR text evidence, web tables, generated extracts, or
+plain text records. The system needs one structural normalization step between
+batch-level inputs and materialization-node inputs.
+
+The invariant is now:
+
+- `TaskPlan.input_paths` are current-batch inputs;
+- materialization/observation actions with empty `input_paths` may inherit
+  those batch inputs before guard validation;
+- actions with role-sensitive semantics such as joins, normalization,
+  enrichment, filtering, contribution computation, reconciliation, and final
+  projection must still declare their own explicit input roles;
+- the guard remains strict after normalization and does not infer inputs from
+  prose.
+
+Changes:
+
+- [x] Added a shape normalizer that copies batch-level `input_paths` into
+      empty-input materialization actions: `material_inventory`,
+      `inspect_material`, and `extract_records`.
+- [x] Reused the same normalizer in execution preparation so continuation,
+      repair, fallback, and deferred plans share the same IR boundary rule.
+- [x] Left role-sensitive actions unchanged; missing inputs still produce a
+      typed staging error instead of being guessed from batch-level paths.
+- [x] Added regression coverage for both inherited materialization inputs and
+      non-inherited join inputs.
+
+Remaining architecture items:
+
+- [ ] Promote this rule into a first-class `ActionDAG` IR pass in
+      `internal/dataworkflow`, instead of keeping it in REPL workflow
+      normalization.
+- [ ] Expose batch inputs and action inputs as separate objects in planner
+      prompts so the model can see when inheritance will happen.
+- [ ] Add audit metadata when an action input was inherited from the batch
+      contract, including inherited path count and target action id.
+
+### Batch 170: Rule Material Contract For RuleCoverage IR
+
+The follow-up real run reached `derive_rules`, but the candidate plan carried
+ordinary record tables together with rule material. The previous runner
+fallback converted any structured row into `field=value` text and therefore
+created rule coverage records from purchase/order rows. That polluted the
+RuleGraph: material coverage had succeeded, but ordinary data facts were
+misclassified as workflow rules.
+
+This is a generic IR boundary bug. It can happen with any tabular or JSON data
+task: event rows, inventory rows, web-table rows, OCR-extracted records,
+transaction rows, or measurement rows. A data record is not a rule just because
+it is readable. Rule coverage must come from rule/constraint material,
+explicit rule parameters, or the typed validation rule contract.
+
+The invariant is now:
+
+- `derive_rules` may consume rule/constraint materials declared in the coverage
+  contract;
+- if rule material is available, mixed action inputs are narrowed to that
+  material before staging validation;
+- ordinary structured rows are not auto-concatenated into rule text;
+- input-derived rules require an explicit rule text field such as `text` or
+  `rule_text`;
+- if no input-derived rules exist, the runner may fall back to
+  `coverage_contract.validation_rules`, without treating ordinary data inputs
+  as evidence for those rules.
+
+Changes:
+
+- [x] Removed the runner fallback that turned arbitrary record fields into
+      `field=value` rule text.
+- [x] Only records with explicit rule-text fields can produce input-derived
+      rule coverage.
+- [x] Source/evidence paths for `derive_rules` are recorded only when explicit
+      rules reference inputs or when an input actually produced rules.
+- [x] Narrowed `derive_rules` action inputs in REPL workflow normalization to
+      declared rule/constraint materials when such materials exist.
+- [x] Added regression coverage proving ordinary data CSV rows do not become
+      rules and mixed derive-rule inputs are narrowed to declared rule
+      materials.
+
+Remaining architecture items:
+
+- [ ] Promote `RuleGraph` and `MaterialGraph` separation into
+      `internal/dataworkflow` so the planner sees rule materials, data
+      materials, generated artifacts, and ledger requirements as different IR
+      objects.
+- [ ] Add a typed `rule_material_projection` prompt object that exposes
+      rule/constraint sources without including unrelated data artifacts.
+- [ ] Add action-level diagnostics when `derive_rules` skipped ordinary records
+      because they lacked explicit rule-text fields.
+
+### Batch 171: Candidate Material Inventory Bootstrap For Complex Workflows
+
+The next real run no longer polluted rule coverage, but it revealed a
+MaterialGraph problem one stage earlier. The initial plan inspected the
+explicitly named core CSV files and then marked material coverage authoritative,
+while other local candidate materials remained unclassified. For complex
+ledger-driven tasks, that is too optimistic: the system should not decide that
+unclassified candidate files are irrelevant, and it should not require the
+model to rediscover them from prose later.
+
+This is generic. Any data task may have auxiliary materials that are not named
+as exact paths in the user request: rule documents, reference files, extracted
+text evidence, OCR/image/PDF sidecars, manifests, lookup tables, samples,
+diagnostic files, or generated exports. The model should decide their role for
+the current goal, but the system must first provide the full objective material
+inventory.
+
+The invariant is now:
+
+- for complex workflows that require multiple validation ledgers or complete
+  record sets, the first executable batch bootstraps a `material_inventory`
+  action when the plan omits some discovered candidate files;
+- candidate materials are recorded as optional/reference candidates, not
+  silently promoted to required materials;
+- the model still owns business classification: required, reference-only,
+  planner-distilled, irrelevant, or needing extraction;
+- simple one-file or low-risk data tasks are not forced through inventory.
+
+Changes:
+
+- [x] Added a workflow preparation pass that replaces an incomplete initial
+      complex plan with a bounded `material_inventory` action over all
+      discovered candidate paths.
+- [x] Preserved existing user-explicit material floors and validation ledger
+      contracts while representing all candidates as optional reference
+      materials awaiting model classification.
+- [x] Kept simple plans unchanged so ordinary single-table data reads remain
+      fast.
+- [x] Added regression coverage for both inventory bootstrap on complex tasks
+      and no bootstrap on simple tasks.
+
+Remaining architecture items:
+
+- [ ] Move candidate inventory bootstrap into a first-class `MaterialGraph`
+      bootstrap pass in `internal/dataworkflow`.
+- [ ] Add workflow-state counters for discovered, classified, required,
+      reference-only, planner-distilled, and ignored candidate materials.
+- [ ] Teach the evaluator to request material classification when complex
+      workflow progress starts from an incomplete candidate inventory.
+
+### Batch 172: Row-Level Entity Application And Join Parameter IR Alignment
+
+The next real run reached typed normalization, enrichment, joining,
+contribution, reconciliation, and final projection. It no longer stalled on
+large scripts, but the computed answer was still wrong. The workflow had a
+closed internal ledger and `reconcile=pass`, yet the contribution set was too
+small. Independent artifact inspection showed the loss point:
+
+- source record extraction preserved all records;
+- derived contribution-ready records still preserved all records;
+- `join_records` reduced the candidate set sharply because many rows had
+  unresolved canonical fields;
+- those unresolved fields came from an IR mismatch: `normalize_entities`
+  emitted one mapping per unique source value, while
+  `apply_entity_resolutions` applied mappings by row locator / `item_id`.
+  Repeated source values therefore resolved only for the first row and later
+  rows were marked unmatched.
+
+This is not domain-specific. Any dataset with repeated names, categories,
+statuses, identifiers, labels, units, account names, device names, or
+classification values can hit the same failure. The generic invariant is:
+
+- source/reference normalization that is later applied to records must preserve
+  row-level application evidence, even when several rows share the same source
+  value;
+- value-level explicit mappings remain valid, but row-bearing structured
+  normalization should not collapse repeated source rows before application;
+- join/action parameter contracts must use the same aliases in planner,
+  workflow guard, and runner layers.
+
+Changes:
+
+- [x] Changed structured `normalize_entities` derivation to keep row-level
+      resolution records by including the generated `item_id` in its
+      de-duplication key.
+- [x] Preserved explicit mapping expansion semantics; the change applies to
+      source records that carry row locators and evidence.
+- [x] Verified `apply_entity_resolutions` can now apply repeated source values
+      to every base row rather than only the first observed value.
+- [x] Added runner support for `left_fields_json`, `right_fields_json`,
+      `left_keys_json`, `right_keys_json`, and `join_fields_json` so JSON array
+      aliases do not fail after the planner emits structured params.
+- [x] Updated the REPL field-contract guard to parse the same join field aliases
+      as the runner.
+- [x] Added regression coverage for repeated source-value normalization and
+      JSON join field aliases.
+
+Remaining architecture items:
+
+- [ ] Promote row-level versus value-level entity resolution into explicit
+      `EntityGraph` IR metadata so the planner sees whether a mapping can be
+      applied by item locator, source value, or both.
+- [ ] Add candidate coverage gates before contribution calculation: when a
+      required normalization stage leaves unmatched rows, the workflow should
+      require include/exclude decisions or an explicit value-coverage action
+      before an inner join can silently shrink the candidate universe.
+- [ ] Add row-loss diagnostics from `join_records` into evaluator state:
+      left-row count, matched-row count, unmatched key samples, and whether
+      downstream contribution/reconcile requires a complete candidate decision
+      set.
+
+### Batch 173: Typed Field Violations And Text Field Materialization IR
+
+The next real run improved row-level normalization but still did not converge.
+The workflow reached rule coverage and entity application, then repeatedly
+blocked on generated artifacts that lacked fields the next action wanted to
+consume. The failures were structural:
+
+- a candidate plan attempted to join three record sets in one `join_records`
+  action even though the action is binary;
+- later plans referenced fields such as downstream filter or join keys that
+  were not present on the selected artifact;
+- the missing-field fact was available only as a guard error string in recent
+  history, so the next planner turn could overlook it inside a large prompt;
+- text-derived artifacts contained record text and source locators, but there
+  was no first-class typed action for materializing structured fields from a
+  text/record field while preserving provenance and keeping only matched rows.
+
+These are generic data-engine gaps. Any workflow that combines generated
+records, OCR/text evidence, web-table snippets, JSONL messages, log snippets,
+or spreadsheet cells can hit the same class of failure. The invariant is:
+
+- action arity is part of the typed DAG contract; binary actions must not
+  consume three inputs and hope the runner chooses a shape;
+- field-contract failures must become compact typed workflow state, not only
+  prose in prior-round errors;
+- text-to-structured-field materialization is a reusable typed action whose
+  business meaning is supplied by the model through declared specs while the
+  system executes and validates only source fields, patterns, output fields,
+  and provenance.
+
+Changes:
+
+- [x] Added domain-neutral `extract_fields` as a typed data action.
+- [x] Reused the existing `derive_fields` field-spec parser so
+      `field_specs` / `extract_specs` share one structured parameter contract.
+- [x] Implemented `extract_fields` runner execution over one existing
+      record/text artifact: it applies model-declared regex/parse specs,
+      preserves source locator fields, filters matched rows by
+      `required_fields`, and materializes a reusable JSON artifact.
+- [x] Added `extract_fields` to planner schema, prompt guidance, workflow
+      allowed-action contracts, action scaffolds, single-record-set guards,
+      artifact preference lists, and capability ranks.
+- [x] Tightened `join_records` to exactly two input paths in the shared
+      `dataworkflow` action capability table; multi-table joins must now split
+      into DAG ranks.
+- [x] Promoted recent system-generated missing-field guard errors into
+      `workflow_state_json.field_contract_violations`, including action id,
+      kind, input alias, missing fields, available field samples, candidate
+      artifacts, and repair action hints.
+- [x] Added regression coverage for `extract_fields`, join arity contracts, and
+      field-contract violation projection into workflow state.
+
+Remaining architecture items:
+
+- [ ] Promote field-contract violations from prompt projection into a durable
+      `ActionGraph.Blocked` / `WorkflowDecision` IR object in
+      `internal/dataworkflow`.
+- [ ] Add a typed value-distribution / field-preview action so a planner can
+      inspect candidate values before declaring regex/filter specs, without
+      falling back to scripts.
+- [ ] Add row-loss and zero-match diagnostics as typed evaluator inputs so
+      contribution stages cannot silently continue from an underspecified
+      candidate universe.
+
+### Batch 174: Apply-Resolution Role Contract
+
+The next real run reached typed entity application, but a generated artifact
+was shaped like an entity-resolution ledger instead of base records. The action
+had enough typed inputs, but the first input was a mapping ledger and the real
+base record set was listed later. Because `apply_entity_resolutions` still
+treated position one as base when `base_path` was absent or wrong, it produced
+a misleading artifact that looked successful while preserving mapping rows
+instead of source rows. Downstream joins then failed because ordinary base
+fields were absent.
+
+This is a generic role-contract gap, not a data-domain rule. Any task that
+applies a source-to-canonical mapping can hit it: records may describe people,
+devices, accounts, labels, units, locations, services, categories, or arbitrary
+user-defined dimensions. The runtime must distinguish artifact roles from list
+position:
+
+- a base record artifact preserves the row universe for later filtering,
+  joining, contribution, or final projection;
+- an entity-resolution artifact provides mapping evidence with locator/source
+  and canonical fields;
+- when schema evidence clearly identifies one mapping ledger and one base
+  record set, the runner may correct the role assignment and must record that
+  inference for audit;
+- when role evidence is ambiguous, the workflow must fail structurally and ask
+  the planner to split the action or set `base_path` explicitly.
+
+Changes:
+
+- [x] Added runner-side entity-resolution role detection based on typed ledger
+      fields such as locator/source/canonical columns.
+- [x] If the selected base input is an entity-resolution ledger and exactly one
+      distinct non-ledger input is available, infer that input as the base
+      record artifact and treat the old base as the resolution input.
+- [x] Recorded role inference in the output artifact fields so audit logs show
+      why the runtime corrected the model plan.
+- [x] Added REPL pre-execution guard support for the same role contract so
+      field checks validate against the inferred base instead of the mapping
+      ledger.
+- [x] Added regression coverage proving reversed inputs still preserve base
+      rows and that REPL staging does not falsely reject the corrected shape.
+
+Remaining architecture items:
+
+- [ ] Promote artifact roles into durable `ActionGraph` edge metadata instead
+      of keeping role inference local to individual action runners.
+- [ ] Feed role-correction notes into the workflow evaluator so repeated role
+      drift can trigger a compact planner repair instead of repeated action
+      retries.
+- [ ] Add a role-aware artifact selector in `internal/dataworkflow` so all
+      actions with base/reference/mapping roles share one IR contract.
+
+### Batch 175: Zero-Match Filter Violations
+
+The next real run moved past entity application and reached contribution-input
+preparation. It produced a `filter_records` artifact with zero output rows from
+a non-empty input. The model noticed the result was suspicious, but still
+considered continuing with join and contribution calculation over the empty
+candidate set. That would create a structurally "complete" but semantically
+wrong path.
+
+This is not specific to any business rule. Any data workflow can temporarily
+filter to zero rows: log-event selection, spreadsheet cleanup, OCR row
+extraction, JSONL filtering, table joins, anomaly selection, or metric
+aggregation. Zero can be valid for some user goals, so the fix is not "zero is
+always an error". The invariant is narrower:
+
+- when the workflow still requires a contribution ledger or reconciliation,
+  a zero-match filter over non-empty input is a typed violation until it is
+  diagnosed or explicitly accepted by the output contract;
+- downstream joins or contribution calculations must not consume that zero-row
+  candidate artifact as if it were a verified eligible set;
+- the violation must expose objective diagnostics: input rows, output rows,
+  filter fields, filter diagnostics, aliases, and repair hints.
+
+Changes:
+
+- [x] Added `workflow_state_json.zero_match_filter_violations` derived from
+      `filter_records` artifacts whose `input_rows>0` and `output_rows=0`
+      while contribution/reconcile is still required.
+- [x] Added repair hints that point the planner to inspect actual field values
+      or rerun `filter_records` against the non-empty input artifact with
+      corrected filters.
+- [x] Added a staging guard that blocks `join_records`, `compute_contributions`,
+      `reconcile_artifacts`, and `assemble_answer` when they consume a
+      zero-match filter artifact under a still-required contribution/reconcile
+      contract.
+- [x] Kept zero-row filters valid for exploratory or all-zero-output tasks by
+      tying the guard to the workflow coverage contract, not to the action kind
+      alone.
+- [x] Added regression coverage for zero-match state projection and blocked
+      downstream consumption.
+
+Remaining architecture items:
+
+- [ ] Add a domain-neutral value-distribution action so filter repair can
+      inspect per-field value counts without relying on `inspect_material`.
+- [ ] Feed zero-match violations into a durable `WorkflowDecision` IR object
+      rather than prompt projection only.
+- [ ] Let output contracts declare an explicit all-zero result expectation so
+      zero-match filters can be accepted without extra planner turns when that
+      is genuinely the user's goal.
+
+### Batch 176: Locator-Compatible Resolution Keys And Valid Ledger Snapshot
+
+The next real run moved through material extraction, normalization, and entity
+application, but the generated `apply_entity_resolutions` artifact reported
+`matched_<target>=0` and `unmatched_<target>=base_rows` for every canonical
+target. The planner then derived and qualified fields on that all-unmatched
+artifact, producing a zero-eligible candidate set and repeated repairs. The
+direct cause was structural: the base side used `_source_locator` while the
+resolution side used `item_id`; both encoded the same row identity, but the old
+matcher compared one as a full locator string and the other as a parsed row
+index.
+
+This is not specific to procurement data. Any data workflow can carry row
+identity through different equivalent locator forms: `_source_index`,
+`source_index`, `_source_locator`, `source_locator`, `item_id`, `row_id`, or
+record ids created by previous typed actions. The workflow must compare those
+through a typed locator contract, not literal strings.
+
+The same run also showed that repeated repair batches inflated decision and
+resolution counts. Historical audit must retain every run, but workflow state
+and runner seeds should use a valid deduplicated ledger snapshot so the planner
+does not mistake repeated bad attempts for progress.
+
+Changes:
+
+- [x] Normalized explicit base locator keys in `apply_entity_resolutions`.
+      When a single base key field is a locator-style field, the runner now
+      extracts the row index using the same locator parser already used for
+      resolution-side `item_id` / `source_locator` fields.
+- [x] Added regression coverage for base `_source_locator` matched against
+      resolution `item_id`.
+- [x] Added `workflow_state_json.unmatched_resolution_violations` from
+      `apply_entity_resolutions` artifacts where every target field has zero
+      matches over a non-empty base record set.
+- [x] Added a staging guard that blocks downstream record derivation,
+      filtering, qualification, enrichment, joining, contribution, reconcile,
+      and answer assembly from all-unmatched resolution artifacts while
+      contribution/reconcile remains required.
+- [x] Added `workflow_state_json.zero_eligible_qualification_violations` from
+      `qualify_records` artifacts with non-empty input and zero eligible rows
+      while contribution/reconcile remains required.
+- [x] Added a staging guard that blocks join/contribution/reconcile/final
+      projection from zero-eligible qualification artifacts under a
+      still-required contribution/reconcile contract.
+- [x] Added `DedupeRowDecisionRecords` and wired it into action-runner seeds,
+      current-batch accumulation, workflow handoff, and workflow-state counts.
+      Rule, contribution, and entity-resolution ledgers already had analogous
+      dedupe.
+- [x] Added regression coverage for unmatched-resolution state projection,
+      blocked all-unmatched downstream consumption, zero-eligible state
+      projection, and blocked zero-eligible downstream consumption.
+
+Remaining architecture items:
+
+- [ ] Promote locator compatibility into a shared `ActionGraph` edge contract
+      so apply/enrich/join/compute actions all use the same row-identity IR.
+- [ ] Split workflow state into explicit `historical_audit` and
+      `effective_snapshot` sections instead of relying on dedupe at each
+      projection site.
+- [ ] Add a typed value-distribution/field-preview action so zero-eligible
+      qualification repair can inspect actual values without broad scripts.
+- [ ] Feed unmatched-resolution and zero-eligible violations into
+      `WorkflowDecision` as typed reason codes, not only prompt-visible state.
+- [ ] Improve CLI/REPL data workflow process events so business-facing details
+      from structured model output (`goal`, `why_this_batch`, `next_batch`,
+      action `purpose`, repair reason, and planned action list) are shown before
+      internal ledger counters. Keep counters available for audit, but do not
+      make repeated system summaries such as "recorded structured signals" the
+      primary user-visible text.
+
+### Batch 177: Derive-Field Locator No-Ops And Deferred Failure Audit
+
+The next real run moved past entity resolution and reached the
+`prepare_contribution_inputs` stage. The planner emitted a multi-rank typed DAG
+whose first executable rank was `derive_fields`. That rank failed because it
+included two field specs that copied `_source_index` to `_source_index` and
+`_source_locator` to `_source_locator`.
+
+This is a cross-layer contract mismatch, not a business-domain issue. The
+planner prompt correctly treats source locator fields as real generic fields
+that can support row identity. The runner also preserves these locator fields
+automatically on every generated record. Therefore copying a reserved locator
+field to the same reserved field is a structural no-op and should not force a
+repair. Overwriting or inventing locator fields remains unsafe and must still
+be rejected.
+
+The same run showed a data-DAG audit gap: when the first rank failed, the
+deferred typed action suffix was discarded with a generic "execution failure"
+message. That protected correctness, but it did not expose enough objective
+detail for humans or a future workflow IR to decide whether the suffix should
+be replayed, rebuilt, or abandoned.
+
+Changes:
+
+- [x] Treat `derive_fields` specs that copy a reserved source locator field to
+      the exact same reserved target as no-op specs. The original locator fields
+      remain preserved by the runner.
+- [x] Keep rejecting true locator overwrites and constant-created locator/index
+      fields. The no-op relaxation applies only to same-source/same-target
+      `copy` over an existing reserved source field.
+- [x] Record skipped no-op locator copies in the generated artifact field
+      `noop_reserved_copy_fields` for auditability.
+- [x] Teach the data planner prompt that locator fields are already preserved
+      and should only be copied into non-reserved aliases when downstream
+      actions need such aliases.
+- [x] Improve CLI and REPL deferred-queue discard events with the first
+      deferred action id/kind and a bounded failure summary. Logs now include
+      the same first-action information.
+- [x] Add regression coverage for no-op reserved locator copies in
+      `derive_fields`.
+
+Remaining architecture items:
+
+- [ ] Split deferred-queue handling into typed states: `ready`, `blocked`,
+      `invalidated_by_failed_prefix`, and `replay_after_prefix_repair`. A
+      failed prefix should not always discard the suffix; the IR should decide
+      whether the suffix still depends on the same output aliases and action
+      contracts.
+- [ ] Persist deferred-queue invalidation records with typed fields:
+      failed_action, failed_kind, failed_error_code, first_deferred_action,
+      invalidated_aliases, and replayability.
+- [ ] Move locator-field preservation and aliasing into the shared
+      `ActionGraph` edge contract so derive/apply/enrich/join/compute actions
+      all reason about row identity through one IR.
+
+### Batch 178: Multi-Input Text Field Extraction
+
+The next real run restarted from the updated binary. It reached the continuation
+planner after material inventory, and the model emitted a valid data intent:
+extract the same structured fields from several text evidence files before
+later normalization and contribution calculation. The old workflow contract
+rejected the plan because `extract_fields` was treated as a single-record-set
+action.
+
+That contract was too narrow. Many domain-neutral data tasks need to apply one
+declared extraction spec to a set of same-schema materials: OCR text files,
+email snippets, JSONL message payloads, log excerpts, forms, receipts, notes,
+or other semi-structured documents. Rejecting this shape forces the planner to
+choose broad scripts even when the work is a bounded typed extraction.
+
+The generic invariant is:
+
+- `derive_fields`, `filter_records`, `qualify_records`, and
+  `compute_contributions` remain single-record-set actions;
+- `extract_fields` may consume one or more same-schema text/record artifacts
+  with one extraction spec set and emits one merged structured artifact;
+- multiple plain-text inputs default to document/file scope, one output row per
+  input material, while explicit `record_scope=line` keeps line-level
+  extraction available.
+
+Changes:
+
+- [x] Updated `extract_fields` action capability from `max=1` to
+      one-or-more inputs.
+- [x] Updated the action runner so `extract_fields` applies the same spec set
+      across all input paths, merges matched rows into one artifact, and keeps
+      one child source artifact per input.
+- [x] Added document-scope extraction for multiple plain-text inputs. The
+      runner uses one row per input file by default and keeps line-level mode
+      available through `record_scope=line`.
+- [x] Added typed text-source alias normalization for `content` / `body` /
+      `raw_text` to the actual `text` field when a text artifact exposes that
+      field.
+- [x] Updated planner prompt and workflow action contracts to describe
+      multi-input same-schema `extract_fields`.
+- [x] Added regression coverage for multi-input text extraction and updated
+      action-capability tests.
+
+Remaining architecture items:
+
+- [ ] Add an explicit `input_schema_group` / `same_schema_group` field to the
+      ActionGraph IR so the planner and runner can validate multi-input
+      extraction compatibility structurally instead of relying on action kind
+      alone.
+- [ ] Promote text record scope (`document`, `line`, `paragraph`) into the
+      schema for `extract_fields` so the model sees an enum rather than free
+      params.
+- [ ] Add evaluator diagnostics when an extraction spec matches zero rows
+      across multiple inputs, including per-input match counts and sample text
+      windows.
+
+### Batch 179: Resolution Status Contract And Canonical-ID Signals
+
+The latest real run completed end-to-end but produced a wrong answer while the
+internal reconcile report said `pass`. The workflow had become structurally
+self-consistent around an incomplete contribution table. Two generic gaps were
+visible:
+
+- source records already carried a canonical-looking id field that also existed
+  in the reference table, but entity normalization only used the model-declared
+  display/name field. Many records therefore became `unmatched` even though a
+  deterministic id-to-reference match was available.
+- `qualify_records` and `compute_contributions` relied too much on the model's
+  hand-authored bad-status filters. A plan excluded `matched_ambiguous` and
+  `unresolved`, but missed the runner's `unmatched` status, so unresolved
+  entity rows could still be marked eligible and counted.
+
+This is not specific to purchase data. Any data task that normalizes local
+values against a reference set can hit the same failure: account ids, device
+ids, product codes, people ids, labels, tags, categories, location codes, or
+other dimensions. The invariant is now:
+
+- reference-mode normalization treats a source-side field matching the
+  reference `canonical_id_field` as a strong exact structural signal;
+- reference lookup also indexes the canonical id itself, not only display or
+  alias fields;
+- open resolution statuses are not applied as canonical choices by default;
+- generated resolution status fields are auto-detected and open statuses are
+  blocked before qualification/contribution unless the workflow explicitly
+  allows unqualified records.
+
+Changes:
+
+- [x] Added canonical-id source signal expansion in
+      `normalize_entities`: when the source record set contains the same field
+      as `canonical_id_field`, it is added as an exact source signal.
+- [x] Added canonical-id reference lookup indexing so exact source ids can
+      resolve through the same generic reference-mode path.
+- [x] Updated `apply_entity_resolutions` choice filtering so open statuses
+      such as ambiguous/unmatched/unresolved are not applied as canonical
+      resolved choices by default.
+- [x] Added `unmatched`, `not_applicable`, `not_matched`, and `missing` to the
+      default generated-status blocking set and to open resolution status
+      classification where applicable.
+- [x] Updated generated status auto-detection to include
+      `*_resolution_status` fields as typed status fields.
+- [x] Updated contribution preflight so a target contribution row with an open
+      generated status remains blocked even if the model's filters mentioned
+      that status field but failed to exclude every open value.
+- [x] Updated planner guidance to prefer positive accepted-status contracts
+      over enumerating bad statuses, and to mention source-side canonical-id
+      signals for reference normalization.
+- [x] Added regression coverage for canonical-id source matching, open-choice
+      filtering, auto resolution-status qualification, and incomplete
+      status-filter contribution blocking.
+
+Remaining architecture items:
+
+- [ ] Promote generated status fields into a first-class
+      `ActionGraph.status_contract` so later actions receive exact required
+      statuses from IR instead of inferring them from field names.
+- [ ] Feed unresolved/unmatched/ambiguous resolution counts into evaluator
+      state as hard blockers for target contribution/reconcile stages when the
+      coverage contract requires entity resolution.
+- [ ] Add a domain-neutral value-coverage action for reference mappings so the
+      workflow can report which source ids/values were covered, missing, or
+      ambiguous before contribution calculation.
+- [ ] Improve data workflow UX events by surfacing business-facing model
+      summaries from typed plan fields (`goal`, `purpose`, `why_this_batch`,
+      `next_batch`, action purposes, repair reason) before internal counters;
+      keep counters as low-noise audit detail and avoid business-specific
+      wording.
+
+### Batch 180: Grouped Record Projection For Multi-Row Materials
+
+The next real run no longer failed on entity-resolution status. It progressed
+through material inventory, entity resolution, resolution application, rule
+derivation, and text materialization. The new blocker was structural: a text
+material had been converted into line-level records, but the fields needed by
+later joins and contribution validation were split across neighboring lines
+inside the same logical document/group. The planner kept trying `extract_fields`
+against individual rows and repeatedly produced zero matched records.
+
+This is a generic data-engine gap, not a document-type or procurement-specific
+case. OCR output, PDF text extraction, chat transcripts, log blocks, web page
+sections, table footnotes, email bodies, and line-oriented generated artifacts
+often represent one logical item as multiple rows/spans. A typed DAG needs a
+neutral projection step before field extraction:
+
+- source rows/spans are grouped by model-declared structural keys;
+- text/value fields are concatenated in source order into one grouped record;
+- source locators and row counts remain auditable;
+- business meaning is still supplied by later typed actions, not by the
+  grouping action.
+
+Changes:
+
+- [x] Added typed `group_records` action to the data action IR.
+- [x] Implemented deterministic runner support for grouping one record artifact
+      by `group_field` / `group_fields`, concatenating `text_fields` /
+      `source_fields` into `target_field`, and preserving source locators.
+- [x] Added `group_records` to action capability ranks and single-record-set
+      input contracts.
+- [x] Added planner schema, planner guidance, workflow contracts, staging
+      guards, field-contract checks, repair hints, and action scaffolds.
+- [x] Added regression coverage for `group_records -> extract_fields`, proving
+      cross-line fields can be projected without a custom script.
+- [x] Added REPL planner guard coverage so empty `group_records` specs fail
+      before execution.
+
+Remaining architecture items:
+
+- [ ] Add typed grouped-record diagnostics to evaluator state when repeated
+      `extract_fields` attempts produce zero rows on line/span artifacts with
+      an obvious grouping key.
+- [ ] Promote grouped projection metadata into a formal `ActionGraph.projection`
+      IR so future typed actions can declare row-level, grouped, document-level,
+      or block-level record shapes without relying on free params.
+- [ ] Add value-coverage and candidate-mapping actions so grouped extracted
+      records can be compared with base/query/reference artifacts before
+      contribution calculation.
+- [ ] Upgrade data workflow process events to show business-facing plan/next
+      step/action purpose from typed model fields before internal counters.
+
+### Batch 181: Canonical-Enriched Records Are Still Base Records
+
+The next real run reached a multi-dimension normalization stage. It first
+applied one entity-resolution artifact to a base record set, producing a new
+record artifact with fields such as `*_canonical`, `*_resolution_status`, and
+source locators. The deferred next action then tried to apply another
+resolution artifact to that enriched record set. The old role detector treated
+the enriched record artifact as an entity-resolution ledger because it had both
+source locator fields and canonical-looking fields, so the valid deferred edge
+was discarded and the planner spent another turn rediscovering the same step.
+
+This is a generic IR bug. A record set that has already been enriched with one
+canonical dimension is still a base record set for later dimensions. The
+workflow may need to normalize vendor/category, account/region, device/service,
+person/team, product/taxonomy, or any other combination in sequence. The system
+must distinguish:
+
+- resolution ledgers: explicit mapping rows with fields such as
+  `source_value`/`source_field`/`evidence_refs` plus
+  `canonical_id`/`canonical_label`;
+- enriched base records: ordinary rows that preserve source locators and add
+  target-specific fields such as `vendor_id_canonical` or
+  `category_resolution_status`.
+
+Changes:
+
+- [x] Tightened REPL/workflow artifact classification so `_source_locator`
+      plus `*_canonical` no longer makes a record artifact look like an
+      entity-resolution ledger.
+- [x] Tightened the deterministic action runner's
+      `apply_entity_resolutions` role inference with the same distinction.
+- [x] Added runner regression coverage for applying a second resolution to a
+      canonical-enriched base record.
+- [x] Added workflow staging regression coverage so deferred/preflight guards
+      do not discard a valid `apply_entity_resolutions` action over an
+      enriched base record.
+
+Remaining architecture items:
+
+- [ ] Promote artifact roles into a first-class `ActionGraph` IR field
+      (`record_set`, `resolution_ledger`, `mapping_reference`,
+      `diagnostic_summary`, `final_projection`) so future guards do not infer
+      roles from field names.
+- [ ] Store role confidence and role evidence in audit records so humans can
+      see why a deferred action was considered ready or blocked.
+- [ ] Surface business-facing workflow progress in CLI/REPL process events by
+      rendering model-provided `goal`, action `purpose`, `why_this_batch`,
+      `next_batch`, repair reason, and continuation reason ahead of internal
+      counters when those fields are present. Keep counters as low-noise audit
+      detail and do not add business-specific template text.
+
+### Batch 182: Source-Value Resolution Application From Mapping Ledgers
+
+The next real run progressed through typed normalization but then produced
+record artifacts whose canonical target fields were all empty. The model had
+emitted valid `normalize_entities` outputs, and its later
+`apply_entity_resolutions` plans named the resolution artifact plus
+`resolution_key_fields=["source_value"]`. However, the plan omitted
+`base_key_fields`. The old runner therefore keyed base rows by row index while
+keying resolution rows by `source_value`, so every base row became
+`unmatched`. A later left join preserved 50 rows and the evaluator mistook the
+row-preserving artifact for a successful query join.
+
+This is a generic IR contract gap, not a business-domain problem. A mapping
+ledger often contains rows like `item_id=<source-artifact>#N:<source-field>`,
+`source_value=<raw value>`, and `canonical_id=<target value>`. When the model
+uses `source_value` as the resolution key but does not repeat the base field,
+the system still has precise structural evidence: the field suffix inside
+`item_id` names the base field that supplied the source value. The runner can
+use that evidence to apply mappings deterministically, while avoiding broad
+guessing across unrelated fields.
+
+Changes:
+
+- [x] Added a source-value apply index for `apply_entity_resolutions` when
+      `resolution_key_fields` is exactly `source_value` and no
+      `base_key_fields` were declared.
+- [x] The source-value index is enabled only when resolution records expose a
+      base-field signal via `source_field`/`input_field`/`field` or an
+      `item_id`/locator suffix such as `#N:<field>`, and that field exists on
+      the base record artifact.
+- [x] Preserved the existing locator and explicit composite-key paths. The new
+      index is a fallback after explicit/default keys fail, not a replacement.
+- [x] Added audit fields showing which base fields were used for source-value
+      application.
+- [x] Added regression coverage for a domain-neutral mapping ledger whose
+      resolution key is `source_value` and whose base field is inferred from
+      the ledger locator suffix.
+
+Remaining architecture items:
+
+- [ ] Promote apply-resolution key strategy into a first-class
+      `ActionGraph.edge_key` IR with strategy names such as `locator`,
+      `source_value_field`, and `explicit_composite`, so evaluator and UI can
+      reason about successful and failed materialization without inspecting
+      free-form params.
+- [ ] Treat row-preserving joins with `matches=0` as a typed
+      `zero_match_join` contract violation when downstream contribution or
+      reconcile is required, rather than letting the evaluator infer success
+      from output row count alone.
+- [ ] Surface join match rate, unmatched counts, and inferred key strategy in
+      business-facing progress details when available, while keeping raw
+      counters as low-noise audit data.
+
+### Batch 183: Apply-Resolution Field Scope Contract
+
+The next latest-binary real run no longer produced an all-unmatched
+`apply_entity_resolutions` artifact, but it still failed before contribution
+calculation. The generated `workflow_entity_resolutions` ledger contained
+several mappings per source row: one for a vendor-like field, one for a
+category-like field, and sometimes other source values. The model emitted
+structured `resolution_specs` with `source_fields`, but the executor treated
+that field as descriptive metadata. Because both specs used the row locator
+(`item_id` -> `#N`) as the key, each target field saw resolution choices that
+belonged to other fields on the same row. Most base rows were then marked
+ambiguous, a later join saw zero matches, and contribution calculation had no
+rows to aggregate.
+
+This is a generic data-IR issue. Any workflow that applies multiple
+source-to-canonical mappings from one shared ledger can hit it: product tags,
+accounts, people, devices, regions, categories, vendors, event labels, or
+other dimensions. A graph edge from a resolution ledger to a base artifact must
+carry both row identity and field scope. The system should consume typed
+`source_fields` when present instead of relying on broad row-level matching.
+
+Changes:
+
+- [x] Added `SourceFields` to the deterministic
+      `apply_entity_resolutions` spec IR.
+- [x] Parsed structured `source_field` / `source_fields` aliases from
+      `resolution_specs`.
+- [x] Scoped resolution rows by locator/source-field evidence before building
+      row-locator and source-value indexes.
+- [x] Recorded `source_fields` and `source_scope_rows` on child audit
+      artifacts so failures can be inspected without reading model prose.
+- [x] Taught the planner that `source_fields` are executable field-scope
+      constraints for shared multi-field resolution ledgers.
+- [x] Added workflow preflight validation for `source_fields` against the base
+      artifact field contract.
+- [x] Added regression coverage proving two target fields can be materialized
+      from one shared row-locator resolution ledger without cross-field
+      ambiguity.
+
+Remaining architecture items:
+
+- [ ] Promote field scope into first-class `ActionGraph.edge_scope` metadata
+      instead of keeping it inside action params.
+- [ ] Add a typed `zero_match_join` violation when a downstream
+      contribution/reconcile stage consumes a join artifact with `matches=0`.
+- [ ] Add a domain-neutral semi-structured extraction diagnostic action that
+      reports candidate value windows, field/value distributions, and failed
+      pattern diagnostics before retrying `extract_fields`.
+
+### Batch 184: Deferred DAG Readiness And User-Facing Process Events
+
+The latest real run showed that field-scoped resolution application now
+materializes canonical fields without cross-field ambiguity, but the adaptive
+DAG still wastes turns around deferred work. A deferred queue can contain a
+blocked node followed by an independent node that is already executable, or it
+can fail because a consumer references an artifact/field that has not yet been
+materialized. The old runtime treated the queue as a strict list: if the first
+node was blocked, the whole queue was discarded and only a low-level log line
+survived. The next model turn then had to rediscover the graph state from a
+large prompt.
+
+This is a generic IR problem. Any multi-step data task can produce deferred
+nodes: extraction, grouping, enrichment, filtering, contribution calculation,
+reconciliation, or final projection. Deferred nodes are graph work, not prose,
+and blocked reasons are typed workflow facts that should feed the next
+evaluator/planner turn.
+
+Changes:
+
+- [x] Changed deferred dispatch to select the first ready dependency rank from
+      the queued action graph instead of requiring the queue head to be ready.
+- [x] Preserved blocked deferred actions in the remaining queue when an
+      independent later ready rank is dispatched.
+- [x] Reused the existing artifact/field contract checks before dispatching a
+      selected deferred rank, so ready selection does not bypass staging
+      safety.
+- [x] Recorded deferred blocked reasons as workflow records before discarding
+      an unusable queue in both CLI and REPL flows. This lets
+      `field_contract_violations` and later continuation prompts consume the
+      same structured failure instead of relying on a human log line.
+- [x] Added regression coverage proving a blocked deferred prefix no longer
+      prevents an independent ready typed action from running.
+
+Remaining architecture items:
+
+- [ ] Move deferred-ready selection into the `dataworkflow` IR package so CLI
+      and REPL own rendering only, not graph scheduling rules.
+- [ ] Add explicit producer/consumer edges (`ActionGraph.edge_key`,
+      `edge_scope`, and artifact aliases) so a consumer can be gated by its
+      declared producer rather than by path strings alone.
+- [ ] Persist deferred queues and blocked-node diagnostics in workflow audit
+      records so interrupted sessions can resume the graph deterministically.
+- [ ] Replace internal-only process lines with user-facing process events that
+      render model-provided structured content first: workflow `goal`, action
+      `purpose`, `why_this_batch`, `next_batch`, repair reason, continuation
+      reason, and selected action list. Keep deterministic counters such as
+      consumed materials, decisions, contributions, and reconcile status as
+      low-noise audit detail. Do not add business-specific text templates.
+
+### Batch 185: Numeric Field-Use Contracts And Repair State
+
+The next real run moved beyond deferred queue readiness but exposed a lower
+level typed-data contract gap. A derived artifact carried a field later used by
+numeric filtering and contribution calculation, but the field's sampled values
+were flag-like strings such as `true` rather than numbers. The workflow then
+created a zero-row filter artifact, spent multiple repair rounds inspecting the
+same generated artifacts, and eventually surfaced a diagnostic summary instead
+of the user's strict final answer.
+
+This is not tied to amount, dates, procurement, invoices, or any business
+domain. Any data task can misuse a field according to its declared purpose:
+numeric comparisons over status text, aggregation over labels, contribution
+values sourced from booleans, or final projection from diagnostic artifacts.
+The generic invariant is:
+
+- field names alone are not enough; typed actions also declare field purpose;
+- `gt/gte/lt/lte` and non-count contribution values require numeric samples;
+- flags/status/text fields can still be used for equality/inclusion/decision
+  filters, but must not become numeric contribution values;
+- repair prompts should receive typed field-use violations with candidate
+  numeric-looking fields, not only raw error prose;
+- diagnostic/inspect artifacts are workflow evidence, not final answers for
+  strict output contracts while required contribution/reconcile ledgers remain
+  absent.
+
+Changes:
+
+- [x] Added runner-level numeric field-use validation for `filter_records`.
+      Numeric comparison operators now reject fields whose sampled non-empty
+      values are all non-numeric, while still allowing mixed fields that contain
+      valid numeric values.
+- [x] Added runner-level numeric value validation for
+      `compute_contributions`. Non-count contribution actions now reject
+      `value_field` samples that are all non-numeric after current filters.
+- [x] Classified these failures as `numeric_field_contract` in the unified data
+      task violation layer with a repair hint to materialize a numeric field
+      through typed `derive_fields(parse_number)`.
+- [x] Promoted numeric field-use failures into
+      `workflow_state_json.field_contract_violations`, including the input
+      alias, misused field, available fields, numeric-looking candidate fields,
+      and typed repair hints.
+- [x] Added a staging guard for same-batch plans where a non-numeric
+      `derive_fields`/`extract_fields` constant is later consumed as a numeric
+      filter or contribution value through the derived artifact alias.
+- [x] Updated the planner prompt so models know that numeric comparison and
+      contribution value fields must be numeric, while status/flag fields remain
+      valid for non-numeric filtering and decisions.
+- [x] Added regression coverage for non-numeric numeric filters, non-numeric
+      contribution value fields, same-batch non-numeric constant reuse, and
+      numeric contract promotion into workflow state.
+
+Remaining architecture items:
+
+- [ ] Add a typed `field_use_contract` IR separate from generic field
+      availability. It should model required type/purpose such as numeric,
+      boolean-like, categorical, locator, free text, group key, and contribution
+      value without hard-coding business names.
+- [ ] Feed field-use contracts into action scaffolds so the planner sees which
+      existing artifacts already contain numeric-looking candidates before it
+      emits a repair batch.
+- [ ] Add deterministic repair-plan synthesis for unambiguous numeric
+      materialization cases: when one input artifact has exactly one
+      numeric-looking candidate field and a downstream numeric field is
+      invalid, propose a typed `derive_fields(parse_number)` node instead of
+      spending a model repair turn.
+- [ ] Harden terminal completion so diagnostic/inspect-only results cannot be
+      returned as final answers for strict output contracts while required
+      contribution, reconcile, or projection stages are still missing.
+- [ ] Implement the Batch 184 process-event UX item as a shared event renderer:
+      permanent lines should first show model-authored business-facing
+      `goal`/`purpose`/`why`/`next` details when available, with internal
+      counters as secondary audit detail for CLI and REPL.
+
+### Batch 186: Extraction Diagnostics And Resolution-Key Fallbacks
+
+The next real run showed progress through typed DAG planning, but exposed two
+generic convergence gaps below the planner layer:
+
+- Some action params still arrive as JSON strings that contain regular
+  expressions or other escaped text. If a model emits `\s` or similar inside a
+  JSON string, strict JSON parsing fails before the runner can execute an
+  otherwise valid typed action.
+- `extract_fields` could produce zero matched records from a non-empty input
+  without preserving enough typed diagnostics. The next planner turn then had
+  to infer whether the issue was the source field, the pattern, document
+  grouping, required fields, or an upstream artifact choice.
+- `apply_entity_resolutions` treated explicit key fields as absolute even
+  when they produced no choices, and top-level `source_fields` were not
+  normalized into the executable resolution spec. This allowed a noisy key
+  declaration to block safer row-locator or source-value application.
+
+These are not domain-specific failures. Any semi-structured extraction or
+lookup/enrichment workflow can hit the same class of issue: logs, web tables,
+PDF/OCR text, JSONL records, spreadsheet cells, support tickets, telemetry
+events, or customer-provided reference tables.
+
+Changes:
+
+- [x] Added a shared `parseActionMapListJSON` path for structured action param
+      arrays so invalid JSON string escapes and repairable list-shape drift are
+      handled before typed spec parsing.
+- [x] Routed `derive_fields`, `extract_fields`, and
+      `apply_entity_resolutions` structured specs through that shared parser.
+- [x] Added `extract_fields` source-field samples, source-field inventory,
+      required-field missing counts, and compact zero-match diagnostics to the
+      generated artifact.
+- [x] Added source child samples for extraction inputs so prompt artifact
+      access can show actual source values even when extracted rows are empty.
+- [x] Promoted zero-match `extract_fields` artifacts into
+      `workflow_state_json.field_contract_violations`, with typed repair hints
+      to inspect source samples and repair source fields, grouping, pattern, or
+      required-field contracts before contribution/reconcile/projection.
+- [x] Normalized top-level `source_fields` into the executable
+      `apply_entity_resolutions` spec.
+- [x] Let `apply_entity_resolutions` fall back to locator/source-value matches
+      when explicit key fields produce no accepted choices, while preserving
+      existing exact-key behavior when it succeeds.
+- [x] Added regression coverage for invalid regex escapes in JSON-string
+      specs, zero-match extraction diagnostics, workflow-state extraction
+      violations, and explicit-key-miss resolution fallback.
+
+Remaining architecture items:
+
+- [ ] Add a first-class `field_contract_violation` IR emitted by action
+      validators, instead of reconstructing violations from artifact fields or
+      error text in REPL/CLI code.
+- [ ] Move extraction diagnostics into a reusable value-window/projection
+      primitive so `extract_fields`, field filters, contribution values, and
+      joins can share one diagnostic shape.
+- [ ] Feed zero-match extraction violations into deterministic continuation
+      synthesis when the next legal action is an unambiguous diagnostic or
+      field-materialization step.
+- [ ] Continue the Batch 184 UX work as a shared process-event renderer:
+      show model-authored, business-facing `goal`, `purpose`,
+      `why_this_batch`, `next_batch`, repair reason, and action list when
+      structured fields are available; keep internal counters only as
+      secondary audit details. This must stay domain-neutral and must not add
+      business-specific templates.
+
+### Batch 187: Version-Aware Zero-Match Filter State
+
+The next real run reached repair-node convergence: the workflow detected that
+a previous derived status flag made a filter produce zero eligible rows, then
+materialized a repaired artifact where the same output alias had non-zero rows.
+However, the cumulative workflow state still reported the older zero-match
+filter violation for that alias. A deferred consumer was then blocked as if it
+were still reading the stale zero-row artifact, even though a newer compatible
+artifact had already superseded it.
+
+This is a generic artifact lineage problem. A DAG runtime must distinguish
+historical failed artifacts from the current version of the same logical alias.
+The issue can appear in any data workflow: filters, joins, extraction windows,
+record expansion, enrichment, contribution candidates, or final projection
+artifacts.
+
+Changes:
+
+- [x] Made zero-match filter violation projection version-aware. While scanning
+      workflow records newest-first, any newer non-empty `filter_records`
+      artifact clears older zero-match issues that share the same alias/id.
+- [x] Reused the version-aware projection in the staging guard, so deferred
+      joins/contributions are not blocked by stale zero-row artifacts after a
+      newer non-empty candidate set exists.
+- [x] Added regression coverage proving a newer non-empty alias suppresses the
+      older zero-match violation and unblocks the downstream guard.
+
+Remaining architecture items:
+
+- [ ] Move this alias/version logic into a first-class ArtifactGraph IR with
+      `logical_alias`, `producer_action`, `version`, `row_count`, `status`, and
+      `supersedes` edges, rather than embedding it in REPL workflow projection.
+- [ ] Apply the same version-aware suppression to all transient diagnostics:
+      zero-match extraction, all-unmatched resolution, zero-eligible
+      qualification, missing-field diagnostics, and failed join attempts.
+- [ ] Let deferred consumers bind to the latest compatible artifact version by
+      field contract, not only by alias string.
+- [ ] Surface artifact-version changes in low-noise process events so users see
+      that a repair replaced a stale candidate set with a newer usable one.
+
+### Batch 188: Typed Filter Value Contracts
+
+The next real run moved past stale zero-match suppression but exposed a lower
+level action-parameter contract bug. The planner correctly chose a typed
+`filter_records` repair and supplied a multi-value condition for an existing
+status/category-like field. The source sample contained matching values, but
+the executor treated the JSON list value as one scalar string, so `op=in`
+compared records against the literal text `["a","b"]` instead of the list
+items. The workflow then produced another zero-row artifact and spent repair
+budget reasoning around a false negative.
+
+This is not specific to status fields or purchase data. Any typed data workflow
+can need multi-value filters: categories, tags, accounts, log levels, devices,
+labels, owners, regions, enum states, or other discrete dimensions. The generic
+invariant is:
+
+- structured filter values must preserve list semantics through planner
+  conversion, JSON repair, runner parsing, execution, diagnostics, and
+  contribution calculation;
+- `filters`, `filters_json`, and scalar convenience forms such as
+  `filter_field/filter_value` must share one typed filter contract;
+- list parsing may repair structural shape, but must not change business
+  meaning, field names, or candidate values;
+- diagnostics should report typed match counts and sample values so a true
+  zero-match filter is distinguishable from a param-shape bug.
+
+Changes:
+
+- [x] Normalized JSON-list strings in shared filter parsing, including the
+      single-condition `filter_field/filter_value` form.
+- [x] Added execution-time defensive parsing for `in` and `not_in` so old or
+      alternate entrypoints that still pass a JSON-list string keep list
+      semantics.
+- [x] Kept scalar equality and numeric comparison behavior unchanged; the
+      change is scoped to typed filter value interpretation.
+- [x] Added regression coverage for `filter_records` with a JSON-list
+      `filter_value`, alongside the existing contribution-array filter
+      coverage.
+
+Remaining architecture items:
+
+- [ ] Promote action params from `map[string]string` to a typed `ActionParam`
+      IR so arrays, objects, numbers, booleans, and strings do not collapse
+      into ad hoc JSON strings before execution.
+- [ ] Make filter diagnostics carry the normalized typed value shape as
+      structured JSON, not only as a display string.
+- [ ] Feed typed filter-value shape mismatches into the shared
+      `field_contract_violation` / action-param violation IR instead of
+      relying on later zero-match artifacts.
+- [ ] Continue the shared process-event UX work: render model-authored
+      business-facing goal, batch purpose, repair reason, and next-step fields
+      before internal counters in both CLI stderr and REPL permanent lines.
+
+### Batch 189: Executable Scaffold Fallback Boundaries
+
+The next implementation audit found that the custom-transform-disabled fallback
+had the right intent but was still too weak as an IR mechanism. When a model
+tried to repair a typed data workflow by returning another broad script, the
+runtime could block the script, but the fallback could still degrade into
+schema-only inspection even when the workflow state already exposed concrete
+record artifacts and legal typed action scaffolds.
+
+This is not a domain-specific issue. Any data DAG can reach the same boundary:
+spreadsheet cleanup, JSONL aggregation, text extraction, lookup enrichment,
+OCR-derived records, or multi-file joins. Once free-form scripts are disabled
+for a workflow stage, the runtime should continue from objective DAG state,
+not ask the model to rediscover the same graph through another prompt turn.
+
+Changes:
+
+- [x] Added a concrete scaffold fallback path for script-disabled repair. When
+      the workflow has legal typed action scaffolds with fully concrete inputs
+      and fields, the runtime can emit a typed action batch instead of falling
+      back to generated-artifact schema inspection.
+- [x] Normalized scaffold template enum placeholders into executable typed
+      values before dispatch. For example, a model-facing `match_mode` choice
+      list is not passed through as an execution value; the fallback uses the
+      conservative structural default `exact`.
+- [x] Added a generic identifier sanitizer for deterministic scaffold action
+      IDs and output artifact IDs.
+- [x] Split ordinary record artifacts from generated mapping/rule/diagnostic
+      artifacts before building record-action scaffolds. Rule coverage,
+      material inventory, schema inspection, reconcile, answer, and generated
+      mapping artifacts no longer become ordinary derive/filter/join/normalize
+      source candidates.
+- [x] Added regression coverage proving that script-disabled repair with a
+      concrete source/reference record shape produces `normalize_entities`
+      rather than another script or schema-only inspection.
+- [x] Preserved the existing generated-artifact inspection fallback when no
+      concrete scaffold is executable.
+
+Remaining architecture items:
+
+- [ ] Promote this selection into a first-class `ActionGraph` / `ArtifactGraph`
+      IR instead of deriving executable scaffolds inside REPL workflow code.
+- [ ] Persist artifact roles such as source record set, reference record set,
+      generated mapping, rule coverage, diagnostic, contribution, reconcile,
+      and projection as typed graph nodes rather than inferring them from compact
+      artifact summaries.
+- [ ] Let deterministic fallbacks synthesize more next-stage typed actions when
+      the graph state is unambiguous, including `enrich_records`,
+      `apply_entity_resolutions`, `filter_records`, and contribution-prep
+      actions with explicit field contracts.
+- [ ] Continue the shared CLI/REPL process-event UX work: render
+      model-authored business-facing goal, batch purpose, action summary,
+      repair reason, and next step before internal counters, while keeping full
+      raw plan/result artifacts in audit logs.
+
+### Batch 190: Accepted-Graph Deferred Queue And Invalid-Suffix Prefix Salvage
+
+A real long-running data DAG exposed two generic convergence hazards in the
+runtime itself:
+
+- preflight could split a candidate graph, save the deferred suffix, and only
+  then discover that the visible prefix was still rejected by the final guard;
+- a graph batch with a valid first action and an invalid later action was
+  rejected wholesale, forcing the planner to rewrite useful work instead of
+  letting the valid prefix materialize diagnostic or record artifacts.
+
+Both are ActionGraph state bugs, not business-domain bugs. A deferred queue must
+contain only typed work from an accepted graph, and a valid executable prefix
+should be allowed to run even when a later suffix needs replanning. This lets
+the workflow converge from real artifacts and field contracts rather than
+repeatedly asking the model to regenerate the same large batch.
+
+Changes:
+
+- [x] Moved deferred-queue saving in both CLI and REPL data workflows until
+      after the preflight plan has no final guard error. Rejected candidate
+      graphs no longer seed future deferred work.
+- [x] Added a deterministic invalid-suffix fallback. When an action batch fails
+      staging but an earlier typed prefix passes the same structural guard, the
+      runtime executes that prefix with `continue_after=true` and discards the
+      invalid suffix so the next planner/evaluator turn replans from real
+      prefix results.
+- [x] Kept valid multi-rank DAG behavior unchanged: accepted dependency-rank
+      splits still preserve their deferred suffix for later readiness checks.
+- [x] Added regression coverage proving a valid `inspect_material` prefix can
+      run while an invalid `extract_fields` suffix is kept out of the deferred
+      queue.
+
+Remaining architecture items:
+
+- [ ] Promote accepted/rejected/deferred graph transitions into a first-class
+      `ActionGraph` state reducer. CLI and REPL should call the same reducer
+      instead of coordinating deferred queues in local closures.
+- [ ] Persist `accepted_graph_id`, prefix action IDs, discarded suffix action
+      IDs, and guard reasons in structured audit records.
+- [ ] Add typed `ActionValidation` records with `action_index`, `action_id`,
+      `kind`, `repairability`, and dependency/field-contract paths so prefix
+      salvage does not rely on prose guard text.
+- [ ] Implement the shared process-event UX renderer requested in live review:
+      when model-authored structured fields such as `goal`, `why_this_batch`,
+      `next_batch`, action purpose, repair reason, and task steps are present,
+      show those business-facing summaries before internal counters in both
+      CLI stderr and REPL permanent lines. Keep the renderer domain-neutral;
+      do not introduce business-specific copy or templates.
+
+### Batch 191: Conditional Derivation IR And Operation Contract Diagnostics
+
+The next real run moved beyond invalid deferred graph contamination and into
+typed contribution preparation. It exposed a generic compute-expression gap:
+the workflow needed to materialize one or more fields whose value depends on
+conditions over existing record fields. The planner tried to express that
+intent through an unsupported `derive_fields.operation` and then through a
+single-record-set action with multiple inputs. The runtime correctly rejected
+those plans, but the repair loop still spent turns rediscovering a capability
+that the typed IR did not yet provide.
+
+This is not specific to purchase totals or money. Conditional field derivation
+appears in many data tasks: choose a duration source by availability, bucket a
+metric by thresholds, assign labels from enum states, pick a fallback value
+when a primary field is missing, normalize boolean flags, select a timestamp,
+or derive an eligibility reason before grouping and aggregation.
+
+Generic invariants:
+
+- conditional derivation is a field-level operation over one existing record
+  artifact; it must not read additional materials or decide business meaning;
+- the model supplies the conditions and the value/default fields according to
+  the current user task and material evidence;
+- the system executes only the shared typed filter semantics already used by
+  `filter_records`, `qualify_records`, and `compute_contributions`;
+- unsupported operations must fail with an operation-contract error first,
+  before emitting misleading `source_field` guidance.
+
+Changes:
+
+- [x] Added domain-neutral `derive_fields` operation aliases
+      `case_when`/`case`/`conditional`/`if_then`/`select`.
+- [x] Added structured `cases` support. Each case can carry shared typed
+      filters plus either `value_field`/`source_field` or a literal `value`,
+      with optional `default_field` or `default` fallback.
+- [x] Reused the existing contribution/filter predicate implementation so
+      conditional derivation, filtering, qualification, and contribution guards
+      share one comparison contract.
+- [x] Reordered derive-field validation so unsupported operations report the
+      unsupported operation and supported operation list before any
+      source-field-specific error.
+- [x] Updated the data planner prompt and action scaffold to teach
+      `case_when` as a generic typed field operation, not as a business-specific
+      calculation shortcut.
+- [x] Added regression coverage for conditional value selection and
+      unsupported-operation diagnostics.
+
+Remaining architecture items:
+
+- [ ] Promote derive-field specs into typed `ExpressionIR` instead of passing
+      operation/cases through stringly action params. `ExpressionIR` should
+      represent field references, literal values, predicates, numeric parsing,
+      string transforms, and default branches as typed nodes.
+- [ ] Feed expression-contract errors into structured `ActionValidation`
+      records with JSON paths to the offending spec/case, so repair can be
+      local and does not require a full batch rewrite.
+- [ ] Add action-lineage summaries that show which generated artifact version
+      materialized each field. Later `filter_records`, `qualify_records`, and
+      `compute_contributions` should bind by field contract and lineage, not
+      by alias guessing.
+- [ ] Add shared business-facing process events for expression stages: show
+      the model-authored purpose/why/next-step text, then compact structural
+      counters, keeping stdout/final answers clean.
+
+### Batch 192: Text Numeric Extraction Ambiguity Contract
+
+The next real run exposed a lower-level extraction issue. A typed
+`extract_fields` action asked the runner to parse a number from a long text
+field that contained several unrelated numeric tokens. The old behavior reused
+the generic `parse_number` primitive and therefore selected the first decimal
+token. That is structurally unsafe for any text-to-record task where the target
+numeric value is embedded among ids, dates, counts, line numbers, durations,
+percentages, totals, or other measurements.
+
+This is not a business-domain rule. The runtime does not know which number is
+important and does not hardcode file names, labels, currencies, invoice words,
+date formats, or domain keywords. The model remains responsible for reading
+the user goal and material shape, then choosing the right extraction pattern or
+grouping strategy. The system only rejects one precise structural shape:
+unanchored numeric parsing over a long or multi-line text field that contains
+multiple numeric candidates.
+
+Generic invariants:
+
+- `parse_number` remains valid for already-isolated numeric-looking fields;
+- `extract_fields` over long/multi-line text must anchor numeric extraction
+  with a model-declared pattern, capture group, or prior grouping/splitting
+  step when multiple numeric tokens are present;
+- the hard gate is driven by typed action params and token counts, not by
+  business words or model prose;
+- the repair hint tells the model what structural information is missing
+  without deciding the business answer.
+
+Changes:
+
+- [x] Added an ambiguity check for `extract_fields` numeric parsing: if the
+      source text is long or multi-line, has multiple decimal tokens, and the
+      spec uses unanchored `parse_number`, the action returns a repairable
+      structural error.
+- [x] Kept ordinary `derive_fields(parse_number)` and isolated numeric fields
+      unchanged, so existing structured-table and metric-normalization paths
+      are not disturbed.
+- [x] Reused a shared decimal-token helper for both ambiguity detection and
+      numeric parsing so the contract is internally consistent.
+- [x] Updated planner guidance and action scaffolds to prefer
+      `regex_extract` with a context pattern/capture group, or a prior
+      grouping/splitting step, when text contains several numeric candidates.
+- [x] Added regression coverage proving ambiguous text parsing is rejected and
+      anchored regex extraction succeeds.
+
+Remaining architecture items:
+
+- [ ] Promote extraction specs into typed `ExtractionIR` with explicit source
+      scope, anchor pattern, candidate count, source locator, and repairability
+      fields.
+- [ ] Emit structured `ActionValidation` records for ambiguous extraction
+      with JSON paths to the offending action/spec instead of relying on error
+      text.
+- [ ] Add a domain-neutral value-distribution/field-preview action so the
+      planner can cheaply inspect candidate numeric tokens before choosing a
+      pattern.
+- [ ] Feed extraction ambiguity diagnostics into the shared business-facing
+      process-event renderer so users can see the model is refining a field
+      extraction, not blindly retrying.
+
+### Batch 193: Executable Scaffold IR For Script-Disabled Stages
+
+The next real run moved past entity normalization and rule coverage, but the
+continuation planner still fell back to a broad `custom_transform` script when
+the workflow needed to apply existing entity mappings, qualify records, compute
+contributions, reconcile, and assemble the answer. The workflow guard rejected
+that script correctly because `custom_transform_disabled=true`, but rejection
+alone is not a convergence strategy. The runtime needs an executable typed
+scaffold that consumes current graph facts instead of asking the model to
+re-plan the same large script from a heavy prompt.
+
+This is a generic DAG/IR issue. Any data workflow can reach a state where a
+source-to-canonical ledger already exists and the next atomic step is to apply
+that ledger back to base records before filtering, joining, or contribution
+calculation. The system must preserve ordinary record artifacts as base
+candidates even when they have id/name fields, and must treat only actual
+entity-resolution ledgers as resolution inputs.
+
+Generic invariants:
+
+- prompt artifact samples may be bounded, but executable scaffolds should read
+  the full artifact schema projection;
+- when entity-resolution ledgers are already materialized and contribution or
+  reconcile ledgers are still missing, deterministic fallback should prefer
+  applying existing ledgers over regenerating mappings or inspecting schemas;
+- ordinary records with id/name-like fields are not resolution ledgers and
+  must remain eligible as base records;
+- scaffold-generated field names are neutral and derived from artifact aliases,
+  not business columns, currencies, vendors, categories, or task-specific
+  words.
+
+Changes:
+
+- [x] Switched data action scaffold generation to use executable
+      `ArtifactSchemaProjection` contract access instead of the bounded prompt
+      sample access.
+- [x] Added concrete `apply_entity_resolutions` scaffold execution support so
+      `custom_transform_disabled` fallback can emit a typed action rather than
+      schema inspection or another script repair.
+- [x] Prioritized concrete scaffold candidates by workflow state: when entity
+      ledgers exist and compute/reconcile is still missing, prefer
+      `apply_entity_resolutions` / enrichment / join / qualification /
+      contribution scaffolds before fresh normalization.
+- [x] Narrowed apply-resolution mapping detection to real entity-resolution
+      ledgers. Generic reference-looking records are no longer excluded as
+      base inputs just because they contain id/name fields.
+- [x] Added regression coverage proving a rejected broad script becomes a
+      concrete `apply_entity_resolutions` action with executable params and no
+      placeholder fields.
+
+Remaining architecture items:
+
+- [ ] Move scaffold selection into a first-class `ActionGraph` reducer in
+      `internal/dataworkflow`, so CLI/REPL do not coordinate fallback order in
+      local helper functions.
+- [ ] Add typed `GraphTransition` audit records for rejected script plans,
+      selected scaffold action, reason code, candidate inputs, and discarded
+      alternatives.
+- [ ] Add per-action schema lineage so scaffold field names can point to the
+      artifact version that produced them, not only to an alias.
+- [ ] Extend concrete scaffolds for `qualify_records`, `compute_contributions`,
+      and `assemble_answer` where the current workflow state contains enough
+      typed field contracts to proceed without another full planner turn.
+
+### Batch 194: Existing Canonical Signal Verification In Apply Stage
+
+The next real run reached typed normalization, application, contribution, and
+reconciliation, but the final answer was internally consistent and still
+wrong. The root cause was a generic cross-stage contract gap:
+`normalize_entities` can treat an existing canonical key/code/id on the source
+record as a strong structural signal, but `apply_entity_resolutions` only knew
+how to write back accepted mapping-ledger rows. When text matching failed or
+was scoped to a raw text field, the apply stage cleared the target canonical
+field even though the base record already carried a canonical value that could
+be verified against a reference table.
+
+This is not specific to any business domain. Many data workflows have both
+noisy descriptive fields and structured canonical identifiers: accounts,
+devices, people, locations, SKUs, tags, categories, services, departments, or
+other dimensions. A text-normalization miss must not erase an already-valid
+structured canonical signal, but the runtime also must not blindly trust source
+values as canonical facts.
+
+Generic invariants:
+
+- the model decides whether an existing source field is relevant for the
+  current dimension by declaring `existing_id_field`;
+- the system verifies that value structurally through `reference_path` and
+  `reference_id_field` before using it;
+- optional `reference_label_field` and `reference_status_field` /
+  `reference_accepted_statuses` refine evidence and filtering, but the system
+  does not hardcode any status values;
+- duplicate, missing, absent, or status-filtered reference matches remain
+  unmatched instead of being silently accepted;
+- this fallback applies only when the mapping ledger does not produce exactly
+  one accepted choice, so normal resolved mapping rows keep their precedence.
+
+Changes:
+
+- [x] Extended the `apply_entity_resolutions` spec IR with generic
+      `existing_id_field`, `existing_label_field`, `reference_path`,
+      `reference_id_field`, `reference_label_field`,
+      `reference_status_field`, and `reference_accepted_statuses`.
+- [x] Added runner-side reference indexing and verification. Existing source
+      values are materialized only when the reference input contains exactly
+      one structurally valid record under the optional status filter.
+- [x] Added audit fields and child artifacts for existing-ID verification:
+      verified counts, reference path, reference ID field, label/status fields,
+      and candidate counts.
+- [x] Added REPL workflow guard checks for the new spec fields so missing base
+      or reference fields are caught before execution when artifact schemas are
+      visible.
+- [x] Updated planner guidance to teach verified existing canonical signals as
+      a generic apply-stage capability, not a domain-specific shortcut.
+- [x] Updated executable apply-resolution scaffolds to include
+      `existing_id_field` and reference verification params when current
+      artifact schemas expose an obvious structural match.
+- [x] Added regression coverage proving verified existing canonical IDs are
+      preserved while missing or filtered reference values remain unmatched.
+
+Remaining architecture items:
+
+- [ ] Promote `apply_entity_resolutions` specs into typed `ApplyResolutionIR`
+      instead of string params, with separate mapping-ledger sources,
+      existing-signal sources, reference contracts, and target fields.
+- [ ] Feed verified-existing counts, duplicate reference counts, and
+      unmatched-by-reference diagnostics into evaluator state as typed signals.
+- [ ] Add a domain-neutral evidence-fusion action for dimensions where the
+      source record has no canonical key/code/id but several descriptive fields
+      or auxiliary evidence records can support a canonical choice.
+- [ ] Move scaffold selection and verified-reference discovery into the shared
+      `ActionGraph` reducer once that reducer exists, so CLI and REPL use the
+      same transition logic.
+
+### Batch 195: Locator-Compatible Resolution Application
+
+The next real run improved canonical-signal preservation but exposed a
+structural guard mismatch. A valid resolution artifact used `item_id` as its
+locator, while the base record set exposed `_source_index`. Both values can
+refer to the same record identity when the resolution item id contains a
+source-row locator, but the planner guard treated them as unrelated fields and
+rejected the next typed `apply_entity_resolutions` batch.
+
+This is a generic locator-contract issue. Data tasks often carry row identity
+through different layers as `_source_index`, `source_index`, `_source_line`,
+`row_index`, `line`, `item_id`, or `source_locator`. These are not business
+fields. They are structural provenance handles. The system should allow safe
+alignment when both sides are locator-compatible, while still rejecting
+ordinary missing business fields.
+
+Changes:
+
+- [x] Extended REPL workflow guard locator equivalence so base locator fields
+      such as `_source_index`, `source_index`, `row_index`, and source-line
+      aliases can align with resolution `item_id` / `source_locator` fields.
+- [x] Mirrored the same equivalence in the action runner's
+      `apply_entity_resolutions` locator matching path.
+- [x] Preserved strict field validation for non-locator fields: the guard still
+      fails when a model references an ordinary field that is absent from the
+      selected artifact schema.
+- [x] Added regression coverage proving an apply-resolution plan with
+      `resolution_key_fields=["_source_index"]` can consume an `item_id`-based
+      resolution artifact when row-locator evidence is compatible.
+
+Remaining architecture items:
+
+- [ ] Promote locator compatibility into a shared `LocatorContract` IR instead
+      of duplicating equivalence helpers across planner guard and runner code.
+- [ ] Feed locator alignment decisions into graph-transition audit records so
+      later debugging can distinguish safe structural equivalence from
+      ordinary field inference.
+- [ ] Add per-artifact provenance summaries to the `ActionGraph` reducer once
+      that reducer owns scaffold selection.
+
+### Batch 196: Text Collection Materials As Typed Record Sets
+
+The next real run then reached a material/evidence boundary. The workflow had
+objective material-set handles for local text evidence, but typed actions could
+only consume individual files or generated artifacts. When the model needed to
+extract fields from many same-schema text snippets, it drifted toward custom
+directory traversal scripts and large continuation prompts.
+
+This is not a file-name or business-domain problem. Any data workflow can have
+a local collection of same-schema text materials: extracted text evidence,
+OCR/text outputs, web snippets, message exports, log fragments, notes, or other
+bounded local text files. The runtime should expose such a collection through
+the same typed record interface used by CSV/JSON/JSONL/text files, so the model
+only supplies the extraction specs and the system handles deterministic
+material reading and provenance.
+
+Changes:
+
+- [x] Let typed action record readers consume a directory input as one text
+      record per regular child file, sorted by file name.
+- [x] Exposed generic fields for each child record: `text`, `file_name`,
+      `file_path`, optional `text_truncated`, and the normal source-locator
+      virtual fields.
+- [x] Kept reads bounded per file and non-recursive so directory materials stay
+      predictable and auditable.
+- [x] Updated planner guidance to prefer typed `extract_fields` over custom
+      directory scripts when a same-schema local text collection is relevant.
+- [x] Added regression coverage proving `extract_fields` can read a directory
+      material, extract model-declared fields from `text` / `file_name`, and
+      preserve child-file source paths.
+
+Remaining architecture items:
+
+- [ ] Promote material-set handles into a typed `MaterialCollectionIR` with
+      collection kind, member count, readable fields, child locator policy, and
+      bounded-read diagnostics.
+- [ ] Add recursive or manifest-driven collection expansion only through a
+      typed collection policy, not by implicit directory walking.
+- [ ] Surface collection-read summaries in the business-facing process event
+      renderer using model-authored purpose/next-step text plus compact
+      structural counters.
+
+### Batch 197: Pre-Continuation Typed Graph Fallback
+
+The next real run showed that the workflow could reach a precise typed state:
+material coverage was sufficient, full CSV record artifacts existed, entity
+resolution was still missing, and the next legal actions were already listed
+in `workflow_state_json.allowed_next_actions`. However, the runtime still sent
+a large continuation prompt to the model before trying to advance the graph.
+That prompt grew past 150 KB and stalled before returning a tool call.
+
+This is a scheduler/IR issue, not a business-domain issue. When the deterministic
+workflow state already contains a next stage, available artifact schemas, and
+concrete typed action scaffolds, the runtime should try a graph transition
+first. The model should be used to interpret business semantics and generate
+new graph intent when the state is ambiguous, not to rediscover obvious
+structural transitions after every successful batch.
+
+Changes:
+
+- [x] Extended `dataTaskWorkflowNextStageFallbackWithRepo` so
+      `normalize_or_enrich_entities`, `prepare_contribution_inputs`, and
+      `compute_contributions` can emit a concrete typed action scaffold before
+      calling the continuation planner.
+- [x] Reused the existing artifact schema projection and scaffold generation
+      instead of introducing a second execution path.
+- [x] Added generic source/reference role scoring for normalization scaffolds:
+      source artifacts with raw/input/source cues and reference artifacts with
+      canonical id/code/value plus label/name/description evidence are ranked
+      ahead of inverted pairs.
+- [x] Kept the scoring structural and domain-neutral. It does not inspect
+      business words, file names, currencies, vendors, categories, or task
+      output values.
+- [x] Updated the custom-transform-disabled fallback to benefit from the same
+      next-stage scaffold selection, avoiding a join/script detour when a
+      normalization scaffold is structurally available.
+- [x] Added regression coverage proving next-stage fallback can directly emit
+      `normalize_entities` from existing record artifacts and that the older
+      custom-transform-disabled normalize fallback remains stable.
+
+Remaining architecture items:
+
+- [ ] Move this scaffold selection into a first-class `ActionGraph` reducer in
+      `internal/dataworkflow` so CLI and REPL no longer coordinate transition
+      order through REPL-local helper functions.
+- [ ] Persist graph-transition audit records with previous stage, chosen
+      action kind, candidate score, input aliases, and rejected alternatives.
+- [ ] Add capability metadata for `enrich_records`, `qualify_records`, and
+      `compute_contributions` so more post-normalization graph steps can
+      advance without a large continuation prompt when schemas are sufficient.
+- [ ] Replace scaffold display sampling with separate prompt views and
+      executable IR views; prompt scaffolds can stay compact, but reducer
+      decisions must see the full artifact schema projection.
+
+### Batch 198: RecordSet Bootstrap After Continuation No-Tool
+
+The next real run avoided the earlier long stall, but the continuation planner
+returned reasoning text without an `emit_data_task_plan` tool call after rule
+coverage had completed. The deterministic state was still enough to proceed:
+material coverage was sufficient, rules were derived, contribution/reconcile
+ledgers were missing, and no reusable record artifact existed yet.
+
+This is a generic state-machine gap. A workflow should not fail just because a
+planner no-tool response occurred at a stage where the next structural action
+is obvious: turn required local materials into reusable record sets. The
+system still does not decide business fields or filters here. It only performs
+the neutral MaterialGraph -> RecordSetGraph transition.
+
+Changes:
+
+- [x] Added `RecordSetBootstrap` fallback for continuation/no-tool and
+      batch-result continuation paths: when the next stage allows
+      `extract_records`, material coverage is sufficient, and no record action
+      artifact exists, emit a bounded `extract_records` batch over executable
+      required materials.
+- [x] Skipped `planner_distilled` and `reference_only` materials for this
+      bootstrap, and used `text_evidence_path` for `text_evidence_consumed`
+      materials.
+- [x] Preserved terminal-plan safety: terminal fallback does not invent an
+      `extract_records` stage from a blocked/complete plan.
+- [x] Added regression coverage for continuation no-tool -> record
+      materialization, and for the older terminal fallback safety invariant.
+
+Remaining architecture items:
+
+- [ ] Move material-to-record bootstrap into `internal/dataworkflow` as a
+      typed `MaterialGraph -> RecordSetGraph` transition with explicit input
+      material roles and readiness checks.
+- [ ] Use candidate-file metadata in the reducer so non-text originals,
+      related text evidence, directories, and generated artifacts are selected
+      through a first-class material-readability contract rather than only
+      coverage usage mode.
+- [ ] Persist bootstrap decisions in graph-transition audit records, including
+      selected paths, skipped material modes, and whether each selected path
+      was original material or text evidence.
+
+### Batch 199: IR-First Architecture Audit And Backlog Consolidation
+
+The latest end-to-end code audit and real-scenario run showed that the data
+lane is on the right path, but the architecture is still split between two
+models:
+
+- `internal/dataquery` already executes typed atomic actions and emits typed
+  validation/result objects.
+- `internal/dataworkflow` already contains the first IR boundary and shared
+  action-capability table.
+- The actual workflow reducer, graph transition rules, deferred queue,
+  scaffolds, stage guards, material-scope merging, and process-event summaries
+  still live mostly in `internal/repl/data_task_workflow.go` and the CLI/REPL
+  loops.
+
+That split explains the latest failure mode. The workflow reached a state with
+material coverage, record artifacts, rule coverage, and entity-resolution
+records, then repeatedly executed `apply_entity_resolutions` over increasingly
+long `resolved_records_...` artifacts. The loop was not a procurement-specific
+business mistake. It was a missing graph invariant: applying the same ledger to
+the same or equivalent record lineage is an idempotent graph edge, not a new
+productive node that should consume many workflow rounds while contribution
+records remain absent.
+
+The "Remaining architecture items" throughout this document are therefore not
+all equal. Some are already covered by later batches or represent longer-term
+hardening. The execution backlog is now consolidated into three levels:
+
+P0, blocking current convergence:
+
+- [ ] Move the reducer logic for next stage, allowed actions, missing ledgers,
+      artifact readiness, and repeated-node/no-progress detection behind a
+      first-class `DataWorkflowState` projection in `internal/dataworkflow`.
+      REPL/CLI may adapt/render the state, but should not own workflow truth.
+- [ ] Add `ActionDAG` transition records with node id, action kind, input
+      aliases, output alias, dependency rank, producer/consumer edge, and
+      idempotency key. A repeated edge that cannot add fields, rows, or ledgers
+      must be rejected or redirected before execution.
+- [ ] Treat `apply_entity_resolutions` as a row-preserving ledger-application
+      edge. If a base lineage already contains the target canonical/status
+      fields for the same resolution ledger, the next transition must advance
+      toward contribution preparation, compute, reconcile, or typed diagnostics
+      rather than reapplying the same ledger to a derived artifact.
+- [ ] Promote action-level guard failures and zero-progress/repeated-edge
+      findings into typed `WorkflowViolation` objects instead of prose-only
+      error strings, preserving action id/kind, input aliases, output alias,
+      expected graph transition, actual graph transition, and repairability.
+- [ ] Add deterministic graph-transition fallbacks for contribution readiness:
+      when entity ledgers and record artifacts exist but contribution records
+      are absent, choose typed field derivation/filter/qualification/compute
+      scaffolds from artifact schema contracts before asking a large
+      continuation prompt to rediscover the same graph state.
+
+P1, commercial stability and auditability:
+
+- [ ] Persist ActionDAG, MaterialGraph, ArtifactGraph, and LedgerGraph snapshots
+      in data-audit records so a failed customer run can be audited without
+      reconstructing state from panel lines.
+- [ ] Promote artifact schema projections into a first-class `ArtifactGraph`
+      with producer action, aliases, row counts, field origins, lineage,
+      version, and diagnostic confidence. Prompt views can stay compact, but
+      validators and reducers should consume the full graph.
+- [ ] Promote rule/decision/entity/contribution/reconcile/final-projection
+      handles into a first-class `LedgerGraph`, including target-vs-audit roles,
+      status distributions, de-duplication counts, and missing required handles.
+- [ ] Add domain-neutral graph-expansion actions for value coverage,
+      value-distribution/field preview, and mapping candidates. The model
+      decides business meaning; the system only reports objective overlap,
+      missing, ambiguous, and sample evidence.
+- [ ] Upgrade CLI/REPL process events to render model-authored business goal,
+      batch purpose, next step, and reason from structured plan/evaluation data
+      while keeping internal graph counters as low-noise audit details.
+
+P2, hardening and release gates:
+
+- [ ] Add multi-run real-scenario eval gates with correctness checks, ledger
+      checks, reconcile checks, volatility reporting, and combined status
+      reporting before treating data lane as default-on ready.
+- [ ] Add doc lint/status checks so broad backlog items cannot be mistaken for
+      completed delivery, and so already-implemented items are periodically
+      reconciled against tests and code.
+
+Architectural invariant:
+
+- The model owns business interpretation and may propose graph intent.
+- The system owns objective material inventory, typed graph readiness,
+  idempotency, schema contracts, ledger/reconcile validation, and audit.
+- Hard gates consume typed fields only. Model/user prose is soft guidance unless
+  it has been parsed into schema-validated IR.
+- Domain-neutral numeric/text extraction contracts must stay generic. For
+  example, a text field with multiple numeric tokens cannot be consumed by an
+  unanchored `parse_number`; the model must provide a context pattern,
+  grouping/splitting step, or a source field with one numeric candidate. This
+  applies to any numeric unit or measure, not only dates or amounts.
+
+### Batch 200: Contract-Layer IR Exposure
+
+The IR audit found a low-risk but important split: execution had already
+separated workflow-level coverage from current-batch inputs, but the prompt
+state still mostly exposed a single compact coverage picture. That forced the
+planner and evaluator to infer whether a material was a durable task
+requirement, a last-batch executable input, or a temporary helper. The runtime
+could guard some mistakes later, but the model did not receive the clean typed
+boundary early enough.
+
+This batch makes the boundary explicit without changing business semantics or
+runner behavior. The system projects coverage contracts into domain-neutral IR
+views:
+
+- `workflow_contract`: durable task requirements, required runner inputs,
+  validation-rule count, and ledger requirements.
+- `current_batch_contract`: the executable slice for the current plan, or the
+  last executed batch when no current plan exists.
+
+The projection is intentionally objective. It does not classify a file as a
+business role, does not infer domain meaning from filenames, and does not parse
+user prose. It only serializes schema-validated coverage fields that already
+exist in the plan/result contracts.
+
+Changes:
+
+- [x] Added `dataworkflow.CoverageContractView` and
+      `MaterialContractView` as reusable typed contract projections.
+- [x] Exposed `workflow_contract` and `current_batch_contract` in
+      `workflow_state_json`.
+- [x] Reused one helper for execution-batch contract scoping and prompt-state
+      projection so the displayed contract and runner contract do not drift.
+- [x] Updated continuation/evaluator rules to consume the two typed contract
+      layers instead of relying on one merged coverage view.
+- [x] Added regression coverage for required path vs runner-input path
+      projection and for durable workflow requirements being distinct from
+      current-batch executable inputs.
+
+Remaining architecture items:
+
+- [ ] Move more contract/reducer construction from `internal/repl` into
+      `internal/dataworkflow`, starting with material-floor/current-input
+      scoping and graph-transition violations.
+- [ ] Persist the contract-layer projection in data-audit records together
+      with ActionDAG/ArtifactGraph/LedgerGraph snapshots.
+- [ ] Add a typed material-promotion transition so the model can request
+      promotion from helper/current input to workflow-required only through a
+      schema-validated graph action.
+
+### Batch 201: ActionDAG Node Projection And Idempotency Keys
+
+The next IR migration step is to make action graph identity visible as typed
+state before moving the full reducer. Previously, REPL-level guards could
+detect some repeated work, but there was no reusable action-node projection
+that represented the graph edge itself. That makes it too easy for separate
+guards, prompts, and deferred-queue code to disagree about whether a batch is
+new progress or a replay of the same edge.
+
+This batch adds a domain-neutral ActionDAG projection:
+
+- action kind normalized through the shared capability table;
+- dependency rank from `internal/dataworkflow`;
+- input aliases and output alias;
+- ledger capabilities;
+- a stable idempotency key derived from action kind, inputs, output alias,
+  structural params, and script digest.
+
+The key is intentionally structural. It does not inspect business meaning,
+filenames, model prose, or user intent. It can identify graph replay across
+tables, JSONL, text-extraction, OCR evidence, spreadsheet-like transforms,
+joins, contribution calculation, and final projection without fitting any
+single customer task.
+
+Changes:
+
+- [x] Added `dataworkflow.ActionNodeFor`, `ActionNodesFor`, and
+      `ActionIdempotencyKey`.
+- [x] Extended `ActionNode` with status, dependency rank, and idempotency key.
+- [x] Exposed recent executed nodes and current ready nodes in
+      `workflow_state_json.action_graph`.
+- [x] Updated continuation/evaluator rules to treat `action_graph` as
+      structural audit state for avoiding graph replay, not as business
+      evidence.
+- [x] Added regression coverage for action-node projection, stable
+      idempotency keys, and workflow-state action-graph exposure.
+
+Remaining architecture items:
+
+- [ ] Move repeated-edge/no-progress guards to consume `ActionNode`
+      idempotency keys and typed artifact/ledger deltas instead of local
+      REPL-only helper logic.
+- [ ] Persist action graph snapshots in data-audit records and expose
+      deferred queued nodes as `ActionNode{status=deferred}`.
+- [ ] Add typed `WorkflowViolation` records that point to action-node
+      idempotency keys, dependency ranks, and blocked input aliases.

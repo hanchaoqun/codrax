@@ -10,6 +10,8 @@ func TestActionCapabilitiesExposeDependencyRanks(t *testing.T) {
 	cases := map[dataquery.DataActionKind]int{
 		dataquery.DataActionDeriveRules:       1,
 		dataquery.DataActionDeriveFields:      2,
+		dataquery.DataActionExtractFields:     2,
+		dataquery.DataActionGroupRecords:      2,
 		dataquery.DataActionNormalizeEntities: 2,
 		dataquery.DataActionJoinRecords:       3,
 		dataquery.DataActionComputeContribs:   4,
@@ -60,6 +62,27 @@ func TestActionCapabilitiesExposeInputPathContracts(t *testing.T) {
 	}
 	if contract.Min != 1 || contract.Max != 1 || !contract.SingleRecordSet {
 		t.Fatalf("derive_fields input contract=%+v, want one single-record-set input", contract)
+	}
+	contract, ok = InputPathContract(dataquery.DataActionExtractFields)
+	if !ok {
+		t.Fatal("extract_fields should expose an input path contract")
+	}
+	if contract.Min != 1 || contract.Max != 0 || contract.SingleRecordSet {
+		t.Fatalf("extract_fields input contract=%+v, want one-or-more same-schema inputs", contract)
+	}
+	contract, ok = InputPathContract(dataquery.DataActionGroupRecords)
+	if !ok {
+		t.Fatal("group_records should expose an input path contract")
+	}
+	if contract.Min != 1 || contract.Max != 1 || !contract.SingleRecordSet {
+		t.Fatalf("group_records input contract=%+v, want one single-record-set input", contract)
+	}
+	contract, ok = InputPathContract(dataquery.DataActionJoinRecords)
+	if !ok {
+		t.Fatal("join_records should expose an input path contract")
+	}
+	if contract.Min != 2 || contract.Max != 2 || contract.SingleRecordSet {
+		t.Fatalf("join_records input contract=%+v, want exactly two record inputs", contract)
 	}
 	if !RequiresInputPaths(dataquery.DataActionComputeContribs) {
 		t.Fatal("compute_contributions should require an input path")

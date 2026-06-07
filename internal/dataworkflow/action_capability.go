@@ -51,6 +51,16 @@ var actionCapabilities = map[dataquery.DataActionKind]ActionCapability{
 		DependencyRank: 2,
 		InputPaths:     ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
 	},
+	dataquery.DataActionExtractFields: {
+		Kind:           dataquery.DataActionExtractFields,
+		DependencyRank: 2,
+		InputPaths:     ActionInputPathContract{Min: 1},
+	},
+	dataquery.DataActionGroupRecords: {
+		Kind:           dataquery.DataActionGroupRecords,
+		DependencyRank: 2,
+		InputPaths:     ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
+	},
 	dataquery.DataActionExpandRecords: {
 		Kind:           dataquery.DataActionExpandRecords,
 		DependencyRank: 2,
@@ -73,7 +83,7 @@ var actionCapabilities = map[dataquery.DataActionKind]ActionCapability{
 	dataquery.DataActionJoinRecords: {
 		Kind:           dataquery.DataActionJoinRecords,
 		DependencyRank: 3,
-		InputPaths:     ActionInputPathContract{Min: 2},
+		InputPaths:     ActionInputPathContract{Min: 2, Max: 2},
 	},
 	dataquery.DataActionFilterRecords: {
 		Kind:           dataquery.DataActionFilterRecords,

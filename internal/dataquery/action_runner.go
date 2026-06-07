@@ -76,11 +76,11 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	artifacts := append([]DataArtifact(nil), seedArtifacts...)
 	consumed := append([]string(nil), r.Seed.ConsumedPaths...)
 	var summaries []string
-	rows := append([]RowDecision(nil), r.Seed.Rows...)
+	rows := DedupeRowDecisionRecords(append([]RowDecision(nil), r.Seed.Rows...))
 	ruleCoverage := DedupeRuleCoverageRecords(append([]RuleCoverageRecord(nil), r.Seed.RuleCoverage...))
 	contributions := DedupeContributionRecords(append([]ContributionRecord(nil), r.Seed.Contributions...))
 	if len(rows) == 0 && len(contributions) > 0 {
-		rows = append(rows, rowDecisionsFromContributions(contributions)...)
+		rows = DedupeRowDecisionRecords(append(rows, rowDecisionsFromContributions(contributions)...))
 	}
 	entityResolutions := DedupeEntityResolutionRecords(append([]EntityResolutionRecord(nil), r.Seed.EntityResolutions...))
 	if seedLedgerArtifacts, err := r.materializeWorkflowLedgerArtifacts(artifactDir, rows, ruleCoverage, contributions, entityResolutions); err != nil {
@@ -103,7 +103,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		return Result{
 			OutputContract:    outputContract.Normalize(),
 			AuditSummary:      strings.Join(cleanArtifactSummaries(summaries), "; "),
-			Rows:              rows,
+			Rows:              DedupeRowDecisionRecords(rows),
 			Artifacts:         artifacts,
 			RuleCoverage:      DedupeRuleCoverageRecords(ruleCoverage),
 			Contributions:     contributions,
@@ -181,6 +181,30 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			artifacts = append(artifacts, artifact)
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
+		case DataActionExtractFields:
+			artifact, records, paths, err := r.runExtractFields(action)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, records)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifacts = append(artifacts, artifact)
+			consumed = append(consumed, paths...)
+			summaries = append(summaries, artifact.Summary)
+		case DataActionGroupRecords:
+			artifact, records, paths, err := r.runGroupRecords(action)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, records)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifacts = append(artifacts, artifact)
+			consumed = append(consumed, paths...)
+			summaries = append(summaries, artifact.Summary)
 		case DataActionExpandRecords:
 			artifact, records, paths, err := r.runExpandRecords(action)
 			if err != nil {
@@ -219,7 +243,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				return failAction(action, err)
 			}
 			artifacts = append(artifacts, artifact)
-			rows = append(rows, decisions...)
+			rows = DedupeRowDecisionRecords(append(rows, decisions...))
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionNormalizeEntities:
@@ -289,7 +313,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			}
 			artifacts = append(artifacts, artifact)
 			contributions = DedupeContributionRecords(append(contributions, records...))
-			rows = append(rows, rowDecisionsFromContributions(records)...)
+			rows = DedupeRowDecisionRecords(append(rows, rowDecisionsFromContributions(records)...))
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionReconcile:
@@ -349,7 +373,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		out := *lastResult
 		out.Artifacts = append(out.Artifacts, artifacts...)
 		out.ConsumedPaths = normalizeMaterialPaths(append(out.ConsumedPaths, consumed...))
-		out.Rows = append(out.Rows, rows...)
+		out.Rows = DedupeRowDecisionRecords(append(out.Rows, rows...))
 		out.RuleCoverage = DedupeRuleCoverageRecords(append(out.RuleCoverage, ruleCoverage...))
 		out.Contributions = append(out.Contributions, contributions...)
 		out.EntityResolutions = DedupeEntityResolutionRecords(append(out.EntityResolutions, entityResolutions...))
@@ -382,7 +406,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		Answer:            answer,
 		OutputContract:    outputContract.Normalize(),
 		AuditSummary:      strings.Join(cleanArtifactSummaries(summaries), "; "),
-		Rows:              rows,
+		Rows:              DedupeRowDecisionRecords(rows),
 		Artifacts:         artifacts,
 		RuleCoverage:      DedupeRuleCoverageRecords(ruleCoverage),
 		Contributions:     contributions,
@@ -512,6 +536,10 @@ func normalizeDataActionKind(kind DataActionKind) DataActionKind {
 		return DataActionDeriveRules
 	case DataActionDeriveFields:
 		return DataActionDeriveFields
+	case DataActionExtractFields:
+		return DataActionExtractFields
+	case DataActionGroupRecords:
+		return DataActionGroupRecords
 	case DataActionExpandRecords:
 		return DataActionExpandRecords
 	case DataActionFilterRecords:
@@ -612,30 +640,66 @@ func (r ActionRunner) runExtractRecords(action DataAction) (DataArtifact, error)
 	}
 	limit := actionIntParamAny(action, []string{"limit", "max_records"}, 20, 1, 1000000)
 	children := make([]DataArtifact, 0, len(paths))
+	totalRows := 0
+	sampleRows := 0
+	incompleteChildren := 0
 	for _, p := range paths {
 		child, err := r.extractRecordsFromPath(p, limit)
 		if err != nil {
 			return DataArtifact{}, err
 		}
+		totalRows += child.RowCount
+		sampleRows += len(child.Sample)
+		if !dataArtifactRecordSetComplete(child) {
+			incompleteChildren++
+		}
 		children = append(children, child)
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "record_extract")
+	completeness := "complete"
+	summaryKind := "complete records"
+	if incompleteChildren > 0 {
+		completeness = "sampled"
+		summaryKind = "record samples"
+	}
 	return DataArtifact{
 		ID:          id,
 		Kind:        string(DataActionExtractRecords),
 		SourcePaths: normalizeMaterialPaths(paths),
-		Summary:     fmt.Sprintf("extracted record samples from %d material(s)", len(paths)),
+		Summary:     fmt.Sprintf("extracted %s from %d material(s)", summaryKind, len(paths)),
 		Fields: map[string]string{
-			"count": fmt.Sprintf("%d", len(paths)),
-			"limit": fmt.Sprintf("%d", limit),
+			"count":                    fmt.Sprintf("%d", len(paths)),
+			"limit":                    fmt.Sprintf("%d", limit),
+			"record_completeness":      completeness,
+			"sample_count":             fmt.Sprintf("%d", sampleRows),
+			"total_rows":               fmt.Sprintf("%d", totalRows),
+			"incomplete_child_count":   fmt.Sprintf("%d", incompleteChildren),
+			"record_completeness_note": recordCompletenessNote(sampleRows, totalRows, incompleteChildren),
 		},
 		Children: children,
 	}, nil
 }
 
+func dataArtifactRecordSetComplete(artifact DataArtifact) bool {
+	if artifact.RowCount <= 0 {
+		return len(artifact.Sample) == 0
+	}
+	return len(artifact.Sample) >= artifact.RowCount
+}
+
+func recordCompletenessNote(sampleRows, totalRows, incompleteChildren int) string {
+	if incompleteChildren == 0 {
+		return "sample_count covers total_rows"
+	}
+	return fmt.Sprintf("sample_count %d is smaller than total_rows %d across %d child material(s)", sampleRows, totalRows, incompleteChildren)
+}
+
 func (r ActionRunner) runDeriveRules(plan TaskPlan, action DataAction) (DataArtifact, []RuleCoverageRecord, error) {
-	sourcePaths := normalizeMaterialPaths(action.InputPaths)
 	rules := parseActionRuleParamTexts(action)
+	var sourcePaths []string
+	if len(rules) > 0 {
+		sourcePaths = normalizeMaterialPaths(action.InputPaths)
+	}
 	if len(action.InputPaths) > 0 {
 		inputRules, inputSourcePaths, err := r.deriveRuleDraftsFromInputs(action)
 		if err != nil {
@@ -705,7 +769,7 @@ func (r ActionRunner) deriveRuleDraftsFromInputs(action DataAction) ([]actionRul
 		if err != nil {
 			return nil, nil, err
 		}
-		consumed = append(consumed, rel)
+		before := len(out)
 		for _, record := range records {
 			text := actionRecordRuleText(record)
 			if strings.TrimSpace(text) == "" {
@@ -723,6 +787,9 @@ func (r ActionRunner) deriveRuleDraftsFromInputs(action DataAction) ([]actionRul
 				break
 			}
 		}
+		if len(out) > before {
+			consumed = append(consumed, rel)
+		}
 		if len(out) >= limit {
 			break
 		}
@@ -734,22 +801,10 @@ func actionRecordRuleText(record actionRecord) string {
 	if text := strings.TrimSpace(record.Fields["text"]); text != "" {
 		return text
 	}
-	keys := make([]string, 0, len(record.Fields))
-	for key := range record.Fields {
-		if strings.TrimSpace(key) != "" {
-			keys = append(keys, key)
-		}
+	if text := strings.TrimSpace(record.Fields["rule_text"]); text != "" {
+		return text
 	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		value := strings.TrimSpace(record.Fields[key])
-		if value == "" {
-			continue
-		}
-		parts = append(parts, key+"="+value)
-	}
-	return strings.Join(parts, "; ")
+	return ""
 }
 
 type actionRuleDraft struct {
@@ -1176,15 +1231,15 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 					canonicalLabel = sourceValue
 				}
 				status := firstNonEmptyString(recordField(record.Fields, resolutionStatusField), defaultStatus)
-				key := rel + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
 				itemID := recordField(record.Fields, itemIDField)
 				if itemID == "" {
 					itemID = fmt.Sprintf("%s#%d:%s", rel, record.Index, field)
 				}
+				key := rel + "\x00" + itemID + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
 				out = append(out, EntityResolutionRecord{
 					ItemID:         LooseText(itemID),
 					SourceValue:    LooseText(sourceValue),
@@ -1330,12 +1385,14 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 	if len(referenceFields) == 0 {
 		return nil, nil, nil, true, fmt.Errorf("normalize_entities reference mode could not infer reference fields for %s; provide params.reference_fields or reference_name_fields", referenceRel)
 	}
+	referenceFields = addReferenceCanonicalIDField(referenceFields, referenceFieldNames, canonicalIDField)
 	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {
 		return nil, nil, nil, true, fmt.Errorf("normalize_entities source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", "))
 	}
 	if !actionRecordFieldExists(referenceFieldNames, canonicalIDField) {
 		return nil, nil, nil, true, fmt.Errorf("normalize_entities canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
 	}
+	sourceFields = addSourceCanonicalIDField(sourceFields, sourceFieldNames, canonicalIDField)
 
 	matchMode := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["match_mode"], action.Params["mode"], "exact")))
 	genericFilters, err := parseContributionFilters(action)
@@ -1380,7 +1437,7 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 				status = defaultStatus
 			}
 			itemID := fmt.Sprintf("%s#%d:%s", sourceRel, record.Index, field)
-			key := sourceRel + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel + "\x00" + status
+			key := sourceRel + "\x00" + itemID + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel + "\x00" + status
 			if seen[key] {
 				continue
 			}
@@ -1639,11 +1696,48 @@ func selectEntityReferenceCandidate(sourceValue string, lookup map[string][]enti
 }
 
 func normalizeEntitySourceFields(action DataAction) []string {
+	var singular []string
+	for _, key := range []string{"source_field", "name_field", "value_field"} {
+		singular = append(singular, parseActionStringListParam(action.Params[key])...)
+	}
+	if singular = cleanStringSlice(singular); len(singular) > 0 {
+		return singular
+	}
 	var fields []string
-	for _, key := range []string{"source_field", "source_fields", "name_field", "name_fields", "value_field", "value_fields"} {
+	for _, key := range []string{"source_fields", "name_fields", "value_fields"} {
 		fields = append(fields, parseActionStringListParam(action.Params[key])...)
 	}
 	return cleanStringSlice(fields)
+}
+
+func addSourceCanonicalIDField(sourceFields, sourceFieldNames []string, canonicalIDField string) []string {
+	canonicalIDField = strings.TrimSpace(canonicalIDField)
+	if canonicalIDField == "" || !actionRecordFieldExists(sourceFieldNames, canonicalIDField) {
+		return cleanStringSlice(sourceFields)
+	}
+	out := append([]string(nil), sourceFields...)
+	for _, field := range out {
+		if strings.EqualFold(strings.TrimSpace(field), canonicalIDField) {
+			return cleanStringSlice(out)
+		}
+	}
+	out = append(out, canonicalIDField)
+	return cleanStringSlice(out)
+}
+
+func addReferenceCanonicalIDField(referenceFields, referenceFieldNames []string, canonicalIDField string) []string {
+	canonicalIDField = strings.TrimSpace(canonicalIDField)
+	if canonicalIDField == "" || !actionRecordFieldExists(referenceFieldNames, canonicalIDField) {
+		return cleanStringSlice(referenceFields)
+	}
+	out := append([]string(nil), referenceFields...)
+	for _, field := range out {
+		if strings.EqualFold(strings.TrimSpace(field), canonicalIDField) {
+			return cleanStringSlice(out)
+		}
+	}
+	out = append(out, canonicalIDField)
+	return cleanStringSlice(out)
 }
 
 func inferEntityCanonicalIDField(headers []string) string {
@@ -1813,13 +1907,23 @@ type deriveFieldSpec struct {
 	Replacement  string
 	Value        string
 	Default      string
+	DefaultField string
 	Separator    string
 	Mapping      map[string]string
+	Cases        []deriveFieldCase
 	Multiplier   string
 	Divisor      string
 	Group        int
 	Start        int
 	Length       int
+}
+
+type deriveFieldCase struct {
+	Filters     []contributionFilter
+	SourceField string
+	ValueField  string
+	Value       string
+	HasValue    bool
 }
 
 func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[string]any, []string, error) {
@@ -1847,14 +1951,22 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 	knownFields := map[string]bool{}
 	markKnownActionFields(knownFields, headers, records)
 	markKnownActionVirtualFields(knownFields)
+	normalizedSpecs := make([]deriveFieldSpec, 0, len(specs))
+	var noopReservedCopies []string
 	for _, spec := range specs {
+		if deriveFieldSpecNoopReservedCopy(spec, knownFields) {
+			noopReservedCopies = append(noopReservedCopies, spec.TargetField)
+			continue
+		}
 		if err := validateDeriveFieldSpec(spec, knownFields); err != nil {
 			return DataArtifact{}, nil, nil, err
 		}
 		if target := strings.ToLower(strings.TrimSpace(spec.TargetField)); target != "" {
 			knownFields[target] = true
 		}
+		normalizedSpecs = append(normalizedSpecs, spec)
 	}
+	specs = normalizedSpecs
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(records)))
 	derivedFields := make([]string, 0, len(specs))
 	derivedNonEmpty := map[string]int{}
@@ -1899,6 +2011,9 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 		"output_rows":    fmt.Sprintf("%d", len(rows)),
 		"derived_fields": strings.Join(derivedFields, ","),
 	}
+	if len(noopReservedCopies) > 0 {
+		fields["noop_reserved_copy_fields"] = strings.Join(noopReservedCopies, ",")
+	}
 	for _, name := range derivedFields {
 		fields["non_empty_"+name] = fmt.Sprintf("%d", derivedNonEmpty[name])
 	}
@@ -1921,6 +2036,461 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 			Summary:     fmt.Sprintf("%s supplied %d source record(s)", rel, total),
 		}},
 	}, rows, []string{rel}, nil
+}
+
+func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[string]any, []string, error) {
+	paths := cleanStringListPreserveOrder(action.InputPaths)
+	inputPath := firstNonEmptyString(strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["base_path"]))
+	inputPaths := paths
+	if inputPath != "" {
+		inputPaths = []string{inputPath}
+	}
+	inputPaths = cleanStringListPreserveOrder(inputPaths)
+	if len(inputPaths) == 0 {
+		return DataArtifact{}, nil, nil, errors.New("extract_fields requires input_path or one input_path")
+	}
+	specs, err := parseDeriveFieldSpecs(action)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	if len(specs) == 0 {
+		return DataArtifact{}, nil, nil, errors.New("extract_fields requires at least one field spec")
+	}
+	defaultSource := firstNonEmptyString(action.Params["source_field"], action.Params["text_field"], action.Params["input_field"], action.Params["field"])
+	for i := range specs {
+		if specs[i].SourceField == "" && len(specs[i].SourceFields) == 0 {
+			specs[i].SourceField = defaultSource
+		}
+		if specs[i].Pattern != "" && (specs[i].Operation == "" || specs[i].Operation == "copy") {
+			specs[i].Operation = "regex_extract"
+		}
+		specs[i] = normalizeDeriveFieldSpec(specs[i])
+	}
+	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
+	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
+	includeUnmatched := actionBoolParam(action, "include_unmatched", false)
+	type extractFieldSource struct {
+		Rel     string
+		Headers []string
+		Records []actionRecord
+		Total   int
+	}
+	sources := make([]extractFieldSource, 0, len(inputPaths))
+	total := 0
+	for _, path := range inputPaths {
+		records, headers, sourceTotal, rel, err := r.readActionRecords(path, maxRecords)
+		if err != nil {
+			return DataArtifact{}, nil, nil, err
+		}
+		if extractFieldsUseDocumentScope(action, len(inputPaths), headers) {
+			records = extractFieldsDocumentRecords(records, rel)
+		}
+		sources = append(sources, extractFieldSource{
+			Rel:     rel,
+			Headers: headers,
+			Records: records,
+			Total:   sourceTotal,
+		})
+		total += sourceTotal
+	}
+	knownFields := map[string]bool{}
+	markKnownActionVirtualFields(knownFields)
+	for _, source := range sources {
+		markKnownActionFields(knownFields, source.Headers, source.Records)
+	}
+	for i := range specs {
+		specs[i] = normalizeExtractFieldSourceAlias(specs[i], knownFields)
+	}
+	for _, spec := range specs {
+		if err := validateDeriveFieldSpec(spec, knownFields); err != nil {
+			return DataArtifact{}, nil, nil, fmt.Errorf("extract_fields %w", err)
+		}
+		if target := strings.ToLower(strings.TrimSpace(spec.TargetField)); target != "" {
+			knownFields[target] = true
+		}
+	}
+	requiredFields := parseActionStringListParam(firstNonEmptyString(action.Params["required_fields"], action.Params["non_empty_fields"]))
+	if len(requiredFields) == 0 {
+		for _, spec := range specs {
+			if spec.Operation == "constant" {
+				continue
+			}
+			requiredFields = append(requiredFields, spec.TargetField)
+		}
+	}
+	requiredFields = cleanStringSlice(requiredFields)
+	sourceSampleRecords := make([]actionRecord, 0, minInt(total, 32))
+	sourceFieldSampleFields := make([]string, 0, 32)
+	for _, source := range sources {
+		sourceFieldSampleFields = append(sourceFieldSampleFields, source.Headers...)
+		for _, record := range source.Records {
+			if len(sourceSampleRecords) >= 32 {
+				break
+			}
+			sourceSampleRecords = append(sourceSampleRecords, actionRecordWithVirtualFields(record, source.Rel))
+		}
+	}
+	rows := make([]map[string]any, 0, minInt(maxOutput, total))
+	extractedFields := make([]string, 0, len(specs))
+	nonEmpty := map[string]int{}
+	for _, spec := range specs {
+		extractedFields = append(extractedFields, spec.TargetField)
+		sourceFieldSampleFields = append(sourceFieldSampleFields, spec.SourceField)
+		sourceFieldSampleFields = append(sourceFieldSampleFields, spec.SourceFields...)
+		sourceFieldSampleFields = append(sourceFieldSampleFields, spec.TargetField)
+	}
+	sourceFieldSampleFields = append(sourceFieldSampleFields, requiredFields...)
+	requiredMissing := map[string]int{}
+	for _, source := range sources {
+		for _, record := range source.Records {
+			if len(rows) >= maxOutput {
+				break
+			}
+			row := map[string]any{}
+			currentFields := map[string]string{}
+			for key, value := range record.Fields {
+				row[key] = value
+				currentFields[key] = value
+			}
+			sourceFields := actionRecordVirtualFields(record, source.Rel)
+			for key, value := range sourceFields {
+				if strings.TrimSpace(recordField(currentFields, key)) == "" {
+					row[key] = value
+					currentFields[key] = value
+				}
+			}
+			for _, spec := range specs {
+				if err := ambiguousExtractParseNumberError(spec, currentFields, record, source.Rel); err != nil {
+					return DataArtifact{}, nil, nil, err
+				}
+				value := applyDeriveFieldSpec(currentFields, spec)
+				row[spec.TargetField] = value
+				currentFields[spec.TargetField] = value
+				if strings.TrimSpace(value) != "" {
+					nonEmpty[spec.TargetField]++
+				}
+			}
+			for key, value := range sourceFields {
+				if actionReservedSourceField(key) {
+					row[key] = value
+				}
+			}
+			matched := true
+			if len(requiredFields) > 0 {
+				for _, field := range requiredFields {
+					if strings.TrimSpace(recordField(currentFields, field)) == "" {
+						matched = false
+						requiredMissing[field]++
+					}
+				}
+			} else {
+				matched = false
+				for _, field := range extractedFields {
+					if strings.TrimSpace(recordField(currentFields, field)) != "" {
+						matched = true
+						break
+					}
+				}
+			}
+			if matched || includeUnmatched {
+				row["_extract_status"] = map[bool]string{true: "matched", false: "unmatched"}[matched]
+				row["_extract_required_fields"] = strings.Join(requiredFields, ",")
+				rows = append(rows, row)
+			}
+		}
+		if len(rows) >= maxOutput {
+			break
+		}
+	}
+	sourcePaths := make([]string, 0, len(sources))
+	children := make([]DataArtifact, 0, len(sources))
+	for _, source := range sources {
+		sourcePaths = append(sourcePaths, source.Rel)
+		children = append(children, DataArtifact{
+			ID:          source.Rel + "#source",
+			Kind:        "extract_fields/source",
+			SourcePaths: []string{source.Rel},
+			Headers:     source.Headers,
+			RowCount:    source.Total,
+			Summary:     fmt.Sprintf("%s supplied %d source record(s)", source.Rel, source.Total),
+			Sample:      sampleActionRecordsWithVirtualFields(source.Records, source.Rel, 3),
+		})
+	}
+	fields := map[string]string{
+		"input_path":        strings.Join(sourcePaths, ","),
+		"input_paths":       strings.Join(sourcePaths, ","),
+		"input_count":       fmt.Sprintf("%d", len(sourcePaths)),
+		"input_rows":        fmt.Sprintf("%d", total),
+		"output_rows":       fmt.Sprintf("%d", len(rows)),
+		"source_fields":     strings.Join(actionRecordFieldNames(nil, sourceSampleRecords), ","),
+		"extracted_fields":  strings.Join(extractedFields, ","),
+		"required_fields":   strings.Join(requiredFields, ","),
+		"include_unmatched": fmt.Sprintf("%t", includeUnmatched),
+	}
+	if samples := compactFieldSampleJSON(sourceSampleRecords, sourceFieldSampleFields, 16, 3); samples != "{}" {
+		fields["source_field_samples"] = samples
+	}
+	if missingJSON := compactStringIntMapJSON(requiredMissing); missingJSON != "{}" {
+		fields["required_missing_counts"] = missingJSON
+	}
+	if total > 0 && len(rows) == 0 {
+		fields["zero_match_diagnostics"] = extractFieldsZeroMatchDiagnosticsJSON(specs, requiredFields, requiredMissing, nonEmpty, total, len(rows))
+	}
+	for _, name := range extractedFields {
+		fields["non_empty_"+name] = fmt.Sprintf("%d", nonEmpty[name])
+	}
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "extracted_fields")
+	return DataArtifact{
+		ID:          id,
+		Kind:        string(DataActionExtractFields),
+		SourcePaths: sourcePaths,
+		Headers:     collectJoinedRecordHeaders(rows),
+		RowCount:    len(rows),
+		Summary:     fmt.Sprintf("extracted %d field(s) into %d matched record(s) from %d input(s)", len(specs), len(rows), len(sourcePaths)),
+		Sample:      sampleJoinedActionRows(rows, 3),
+		Fields:      fields,
+		Children:    children,
+	}, rows, sourcePaths, nil
+}
+
+func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[string]any, []string, error) {
+	paths := cleanStringListPreserveOrder(action.InputPaths)
+	inputPath := firstNonEmptyString(strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["base_path"]))
+	if inputPath == "" && len(paths) > 0 {
+		inputPath = paths[0]
+	}
+	if inputPath == "" {
+		return DataArtifact{}, nil, nil, errors.New("group_records requires input_path or at least one input_path")
+	}
+	groupFields := parseActionStringListParam(firstNonEmptyString(
+		action.Params["group_fields"],
+		action.Params["group_by_fields"],
+		action.Params["key_fields"],
+		action.Params["group_field"],
+		action.Params["group_by"],
+		action.Params["key_field"],
+	))
+	groupAll := actionBoolParam(action, "group_all", false)
+	if len(groupFields) == 0 && !groupAll {
+		return DataArtifact{}, nil, nil, errors.New("group_records requires group_field/group_fields, or group_all=true for an intentional single output group")
+	}
+	textFields := parseActionStringListParam(firstNonEmptyString(
+		action.Params["text_fields"],
+		action.Params["concat_fields"],
+		action.Params["aggregate_fields"],
+		action.Params["source_fields"],
+		action.Params["text_field"],
+		action.Params["source_field"],
+		action.Params["field"],
+	))
+	targetField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["target_field"]),
+		strings.TrimSpace(action.Params["output_field"]),
+		strings.TrimSpace(action.Params["text_output_field"]),
+		"group_text",
+	)
+	firstFields := parseActionStringListParam(firstNonEmptyString(
+		action.Params["first_fields"],
+		action.Params["copy_fields"],
+		action.Params["preserve_fields"],
+		action.Params["keep_fields"],
+	))
+	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
+	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
+	records, headers, total, rel, err := r.readActionRecords(inputPath, maxRecords)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	knownFields := map[string]bool{}
+	markKnownActionFields(knownFields, headers, records)
+	markKnownActionVirtualFields(knownFields)
+	if len(textFields) == 0 {
+		for _, candidate := range []string{"text_clean", "text", "content", "body", "raw_text"} {
+			if knownFields[strings.ToLower(candidate)] {
+				textFields = []string{candidate}
+				break
+			}
+		}
+	}
+	if len(textFields) == 0 {
+		return DataArtifact{}, nil, nil, errors.New("group_records requires text_fields/source_fields, or an input field named text/text_clean/content/body/raw_text")
+	}
+	for _, field := range append(append([]string{}, groupFields...), append(textFields, firstFields...)...) {
+		if strings.TrimSpace(field) == "" {
+			continue
+		}
+		if !knownFields[strings.ToLower(strings.TrimSpace(field))] {
+			return DataArtifact{}, nil, nil, fmt.Errorf("group_records field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(actionRecordFieldNames(headers, records), 32), ", "))
+		}
+	}
+	separator := decodeActionSeparator(firstNonEmptyString(action.Params["separator"], action.Params["join_separator"], "\n"))
+	type groupState struct {
+		fields      map[string]string
+		textParts   []string
+		locators    []string
+		sourceLines []string
+		count       int
+		order       int
+	}
+	groups := map[string]*groupState{}
+	var order []string
+	for _, record := range records {
+		currentFields := map[string]string{}
+		for key, value := range record.Fields {
+			currentFields[key] = value
+		}
+		for key, value := range actionRecordVirtualFields(record, rel) {
+			if strings.TrimSpace(recordField(currentFields, key)) == "" {
+				currentFields[key] = value
+			}
+		}
+		keyParts := make([]string, 0, len(groupFields))
+		if groupAll {
+			keyParts = append(keyParts, "__all__")
+		}
+		for _, field := range groupFields {
+			keyParts = append(keyParts, recordField(currentFields, field))
+		}
+		key := strings.Join(keyParts, "\x1f")
+		if key == "" {
+			key = "__empty__"
+		}
+		group := groups[key]
+		if group == nil {
+			group = &groupState{fields: map[string]string{}, order: len(order)}
+			groups[key] = group
+			order = append(order, key)
+			for _, field := range groupFields {
+				group.fields[field] = recordField(currentFields, field)
+			}
+		}
+		group.count++
+		for _, field := range firstFields {
+			if strings.TrimSpace(group.fields[field]) == "" {
+				group.fields[field] = recordField(currentFields, field)
+			}
+		}
+		for _, field := range textFields {
+			if value := strings.TrimSpace(recordField(currentFields, field)); value != "" {
+				group.textParts = append(group.textParts, value)
+			}
+		}
+		if locator := strings.TrimSpace(recordField(currentFields, "_source_locator")); locator != "" {
+			group.locators = append(group.locators, locator)
+		}
+		if line := strings.TrimSpace(recordField(currentFields, "_source_line")); line != "" {
+			group.sourceLines = append(group.sourceLines, line)
+		}
+	}
+	rows := make([]map[string]any, 0, minInt(len(order), maxOutput))
+	for _, key := range order {
+		if len(rows) >= maxOutput {
+			return DataArtifact{}, nil, nil, fmt.Errorf("group_records exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+		}
+		group := groups[key]
+		row := map[string]any{}
+		for field, value := range group.fields {
+			row[field] = value
+		}
+		row[targetField] = strings.Join(group.textParts, separator)
+		row["_group_count"] = fmt.Sprintf("%d", group.count)
+		row["_source"] = rel
+		row["_source_locators"] = strings.Join(cleanStringList(group.locators), ",")
+		row["_source_lines"] = strings.Join(cleanStringList(group.sourceLines), ",")
+		rows = append(rows, row)
+	}
+	outputHeaders := collectJoinedRecordHeaders(rows)
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "grouped_records")
+	fields := map[string]string{
+		"input_path":         rel,
+		"input_rows":         fmt.Sprintf("%d", total),
+		"output_rows":        fmt.Sprintf("%d", len(rows)),
+		"group_fields":       strings.Join(groupFields, ","),
+		"text_fields":        strings.Join(textFields, ","),
+		"target_field":       targetField,
+		"first_fields":       strings.Join(firstFields, ","),
+		"separator":          separator,
+		"group_all":          fmt.Sprintf("%t", groupAll),
+		"max_output_records": fmt.Sprintf("%d", maxOutput),
+	}
+	return DataArtifact{
+		ID:          id,
+		Kind:        string(DataActionGroupRecords),
+		SourcePaths: []string{rel},
+		Headers:     outputHeaders,
+		RowCount:    len(rows),
+		Summary:     fmt.Sprintf("grouped %d record(s) into %d group(s) from %s", total, len(rows), rel),
+		Sample:      sampleJoinedActionRows(rows, 3),
+		Fields:      fields,
+		Children: []DataArtifact{{
+			ID:          rel + "#source",
+			Kind:        "group_records/source",
+			SourcePaths: []string{rel},
+			Headers:     headers,
+			RowCount:    total,
+			Summary:     fmt.Sprintf("%s supplied %d source record(s)", rel, total),
+		}},
+	}, rows, []string{rel}, nil
+}
+
+func decodeActionSeparator(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "\n"
+	}
+	value = strings.ReplaceAll(value, `\n`, "\n")
+	value = strings.ReplaceAll(value, `\t`, "\t")
+	return value
+}
+
+func normalizeExtractFieldSourceAlias(spec deriveFieldSpec, knownFields map[string]bool) deriveFieldSpec {
+	if strings.TrimSpace(spec.SourceField) == "" {
+		return spec
+	}
+	if knownFields[strings.ToLower(strings.TrimSpace(spec.SourceField))] {
+		return spec
+	}
+	switch strings.ToLower(strings.TrimSpace(spec.SourceField)) {
+	case "content", "body", "raw_text", "text_content":
+		if knownFields["text"] {
+			spec.SourceField = "text"
+		}
+	}
+	return spec
+}
+
+func extractFieldsUseDocumentScope(action DataAction, inputCount int, headers []string) bool {
+	scope := strings.ToLower(strings.TrimSpace(firstNonEmptyString(
+		action.Params["record_scope"],
+		action.Params["granularity"],
+		action.Params["text_scope"],
+	)))
+	switch scope {
+	case "line", "row", "record":
+		return false
+	case "document", "file", "material":
+		return true
+	}
+	return inputCount > 1 && len(headers) == 1 && strings.EqualFold(headers[0], "text")
+}
+
+func extractFieldsDocumentRecords(records []actionRecord, rel string) []actionRecord {
+	var lines []string
+	for _, record := range records {
+		text := strings.TrimSpace(record.Fields["text"])
+		if text != "" {
+			lines = append(lines, text)
+		}
+	}
+	if len(lines) == 0 {
+		return records
+	}
+	return []actionRecord{{
+		Fields: map[string]string{"text": strings.Join(lines, "\n")},
+		Path:   rel,
+		Line:   1,
+		Index:  1,
+	}}
 }
 
 func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[string]any, []string, error) {
@@ -2054,6 +2624,9 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			compactFieldSampleJSON(records, filterFieldNames(filters), 8, 3),
 			filterDiagnostics,
 		)
+	}
+	if errText := numericFilterContractError(rel, records, effectiveFilters); errText != "" {
+		return DataArtifact{}, nil, nil, errors.New(errText)
 	}
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(records)))
 	for _, record := range records {
@@ -2339,14 +2912,16 @@ func parseDeriveFieldSpecs(action DataAction) ([]deriveFieldSpec, error) {
 	raw := strings.TrimSpace(firstNonEmptyString(
 		structuredActionParam(action.Params, "field_specs"),
 		action.Params["field_specs_json"],
+		structuredActionParam(action.Params, "extract_specs"),
+		action.Params["extract_specs_json"],
 		structuredActionParam(action.Params, "derive_specs"),
 		action.Params["derive_specs_json"],
 		structuredActionParam(action.Params, "transforms"),
 		action.Params["transforms_json"],
 	))
 	if raw != "" {
-		var values []map[string]any
-		if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		values, err := parseActionMapListJSON(raw)
+		if err != nil {
 			return nil, fmt.Errorf("parse derive_fields field_specs_json: %w", err)
 		}
 		specs := make([]deriveFieldSpec, 0, len(values))
@@ -2369,6 +2944,7 @@ func parseDeriveFieldSpecs(action DataAction) ([]deriveFieldSpec, error) {
 		Replacement:  action.Params["replacement"],
 		Value:        action.Params["value"],
 		Default:      action.Params["default"],
+		DefaultField: firstNonEmptyString(action.Params["default_field"], action.Params["else_field"]),
 		Separator:    firstNonEmptyString(action.Params["separator"], action.Params["delimiter"], action.Params["joiner"]),
 		Multiplier:   firstNonEmptyString(action.Params["multiplier"], action.Params["scale"]),
 		Divisor:      action.Params["divisor"],
@@ -2432,6 +3008,7 @@ func deriveFieldSpecFromMap(value map[string]any) (deriveFieldSpec, error) {
 		Replacement:  getString("replacement"),
 		Value:        getString("value"),
 		Default:      getString("default", "default_value"),
+		DefaultField: getString("default_field", "else_field"),
 		Separator:    getString("separator", "delimiter", "joiner"),
 		Multiplier:   getString("multiplier", "scale"),
 		Divisor:      getString("divisor"),
@@ -2453,7 +3030,98 @@ func deriveFieldSpecFromMap(value map[string]any) (deriveFieldSpec, error) {
 		}
 		spec.Mapping = mapping
 	}
+	for _, key := range []string{"cases", "case_when", "when"} {
+		if rawCases, ok := value[key]; ok {
+			cases, err := parseDeriveFieldCasesFromAny(rawCases)
+			if err != nil {
+				return deriveFieldSpec{}, err
+			}
+			spec.Cases = cases
+			break
+		}
+	}
 	return spec, nil
+}
+
+func parseDeriveFieldCasesFromAny(value any) ([]deriveFieldCase, error) {
+	switch typed := value.(type) {
+	case []any:
+		cases := make([]deriveFieldCase, 0, len(typed))
+		for i, item := range typed {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("derive_fields cases[%d] has shape %T; use objects with filters/conditions and value/value_field", i, item)
+			}
+			parsed, err := deriveFieldCaseFromMap(obj)
+			if err != nil {
+				return nil, fmt.Errorf("derive_fields cases[%d]: %w", i, err)
+			}
+			cases = append(cases, parsed)
+		}
+		return cases, nil
+	case []map[string]any:
+		cases := make([]deriveFieldCase, 0, len(typed))
+		for i, item := range typed {
+			parsed, err := deriveFieldCaseFromMap(item)
+			if err != nil {
+				return nil, fmt.Errorf("derive_fields cases[%d]: %w", i, err)
+			}
+			cases = append(cases, parsed)
+		}
+		return cases, nil
+	case string:
+		raw := strings.TrimSpace(typed)
+		if raw == "" {
+			return nil, nil
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+			return nil, fmt.Errorf("parse derive_fields cases as JSON array: %w", err)
+		}
+		return parseDeriveFieldCasesFromAny(decoded)
+	default:
+		return nil, fmt.Errorf("unsupported derive_fields cases shape %T; use an array of objects", value)
+	}
+}
+
+func deriveFieldCaseFromMap(value map[string]any) (deriveFieldCase, error) {
+	getString := func(keys ...string) string {
+		for _, key := range keys {
+			if v, ok := value[key]; ok {
+				return strings.TrimSpace(fmt.Sprint(v))
+			}
+		}
+		return ""
+	}
+	var filters []contributionFilter
+	for _, key := range []string{"filters", "conditions", "when"} {
+		raw, ok := value[key]
+		if !ok {
+			continue
+		}
+		parsed, err := parseContributionFiltersFromAny(raw)
+		if err != nil {
+			return deriveFieldCase{}, err
+		}
+		filters = parsed
+		break
+	}
+	out := deriveFieldCase{
+		Filters:     filters,
+		SourceField: getString("source_field", "input_field", "field"),
+		ValueField:  getString("value_field", "output_value_field", "then_field"),
+	}
+	if rawValue, ok := value["value"]; ok {
+		out.Value = strings.TrimSpace(fmt.Sprint(rawValue))
+		out.HasValue = true
+	} else if rawValue, ok := value["then"]; ok {
+		out.Value = strings.TrimSpace(fmt.Sprint(rawValue))
+		out.HasValue = true
+	}
+	if out.ValueField == "" {
+		out.ValueField = out.SourceField
+	}
+	return out, nil
 }
 
 func parseDeriveFieldMapping(raw string) (map[string]string, error) {
@@ -2518,6 +3186,8 @@ func normalizeDeriveFieldSpec(spec deriveFieldSpec) deriveFieldSpec {
 			spec.TargetField = spec.SourceField + "_upper"
 		case "concat", "join", "join_fields", "coalesce", "first_non_empty":
 			spec.TargetField = "derived_field"
+		case "case_when", "case", "conditional", "if_then", "select":
+			spec.TargetField = "derived_field"
 		default:
 			spec.TargetField = spec.SourceField + "_derived"
 		}
@@ -2535,6 +3205,8 @@ func normalizeDeriveFieldOperation(operation string) string {
 		return "concat"
 	case "coalesce/first_non_empty", "first_non_empty/coalesce":
 		return "coalesce"
+	case "casewhen", "when", "if", "ifthen", "if_then_else", "conditional_select":
+		return "case_when"
 	default:
 		return operation
 	}
@@ -2543,6 +3215,9 @@ func normalizeDeriveFieldOperation(operation string) string {
 func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) error {
 	if actionReservedSourceField(spec.TargetField) {
 		return fmt.Errorf("derive_fields target_field %q is a reserved source locator field; read it as a source_field instead of overwriting it", spec.TargetField)
+	}
+	if !deriveFieldOperationSupported(spec.Operation) {
+		return fmt.Errorf("derive_fields unsupported operation %q; supported operations are %s", spec.Operation, deriveFieldSupportedOperations())
 	}
 	switch spec.Operation {
 	case "constant":
@@ -2573,6 +3248,8 @@ func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) 
 			return fmt.Errorf("derive_fields %s source_fields [%s] were not found in input record fields", spec.Operation, strings.Join(missing, ", "))
 		}
 		return nil
+	case "case_when", "case", "conditional", "if_then", "select":
+		return validateDeriveCaseWhenSpec(spec, knownFields)
 	}
 	if spec.SourceField == "" {
 		return fmt.Errorf("derive_fields %s spec requires source_field", spec.Operation)
@@ -2583,11 +3260,6 @@ func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) 
 	if !knownFields[strings.ToLower(strings.TrimSpace(spec.SourceField))] {
 		return fmt.Errorf("derive_fields source_field %q was not found in input record fields", spec.SourceField)
 	}
-	switch spec.Operation {
-	case "copy", "trim", "lower", "upper", "regex_extract", "regex_replace", "parse_number", "number", "numeric", "map", "lookup", "substring", "prefix", "suffix", "year", "extract_year":
-	default:
-		return fmt.Errorf("derive_fields unsupported operation %q", spec.Operation)
-	}
 	if (spec.Operation == "regex_extract" || spec.Operation == "regex_replace") && spec.Pattern == "" {
 		return fmt.Errorf("derive_fields %s requires pattern", spec.Operation)
 	}
@@ -2595,6 +3267,64 @@ func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) 
 		return fmt.Errorf("derive_fields %s requires mapping/mapping_json", spec.Operation)
 	}
 	return nil
+}
+
+func deriveFieldOperationSupported(operation string) bool {
+	switch operation {
+	case "constant", "copy", "trim", "lower", "upper", "regex_extract", "regex_replace", "parse_number", "number", "numeric", "map", "lookup", "substring", "prefix", "suffix", "year", "extract_year", "concat", "join", "join_fields", "coalesce", "first_non_empty", "case_when", "case", "conditional", "if_then", "select":
+		return true
+	default:
+		return false
+	}
+}
+
+func deriveFieldSupportedOperations() string {
+	return "copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, extract_year, concat, coalesce, constant, case_when"
+}
+
+func validateDeriveCaseWhenSpec(spec deriveFieldSpec, knownFields map[string]bool) error {
+	if spec.TargetField == "" {
+		return fmt.Errorf("derive_fields %s spec requires target_field", spec.Operation)
+	}
+	if len(spec.Cases) == 0 {
+		return fmt.Errorf("derive_fields %s spec requires cases: an array of conditions/filters plus value or value_field", spec.Operation)
+	}
+	for i, c := range spec.Cases {
+		for _, filter := range c.Filters {
+			if filter.Field == "" {
+				return fmt.Errorf("derive_fields %s cases[%d] has empty filter field", spec.Operation, i)
+			}
+			if !knownFields[strings.ToLower(strings.TrimSpace(filter.Field))] {
+				return fmt.Errorf("derive_fields %s cases[%d] filter field %q was not found in input record fields", spec.Operation, i, filter.Field)
+			}
+		}
+		valueField := firstNonEmptyString(c.ValueField, c.SourceField)
+		if strings.TrimSpace(valueField) != "" && !knownFields[strings.ToLower(strings.TrimSpace(valueField))] {
+			return fmt.Errorf("derive_fields %s cases[%d] value_field %q was not found in input record fields", spec.Operation, i, valueField)
+		}
+		if !c.HasValue && strings.TrimSpace(valueField) == "" {
+			return fmt.Errorf("derive_fields %s cases[%d] requires value or value_field", spec.Operation, i)
+		}
+	}
+	if spec.DefaultField != "" && !knownFields[strings.ToLower(strings.TrimSpace(spec.DefaultField))] {
+		return fmt.Errorf("derive_fields %s default_field %q was not found in input record fields", spec.Operation, spec.DefaultField)
+	}
+	return nil
+}
+
+func deriveFieldSpecNoopReservedCopy(spec deriveFieldSpec, knownFields map[string]bool) bool {
+	if spec.Operation != "copy" {
+		return false
+	}
+	source := strings.TrimSpace(spec.SourceField)
+	target := strings.TrimSpace(spec.TargetField)
+	if source == "" || target == "" || !strings.EqualFold(source, target) {
+		return false
+	}
+	if !actionReservedSourceField(target) {
+		return false
+	}
+	return knownFields[strings.ToLower(source)]
 }
 
 func applyDeriveFieldSpec(fields map[string]string, spec deriveFieldSpec) string {
@@ -2631,6 +3361,8 @@ func applyDeriveFieldSpec(fields map[string]string, spec deriveFieldSpec) string
 		out = deriveConcatFields(fields, spec)
 	case "coalesce", "first_non_empty":
 		out = deriveCoalesceFields(fields, spec)
+	case "case_when", "case", "conditional", "if_then", "select":
+		out = deriveCaseWhen(fields, spec)
 	default:
 		out = source
 	}
@@ -2638,6 +3370,24 @@ func applyDeriveFieldSpec(fields map[string]string, spec deriveFieldSpec) string
 		return spec.Default
 	}
 	return strings.TrimSpace(out)
+}
+
+func deriveCaseWhen(fields map[string]string, spec deriveFieldSpec) string {
+	for _, c := range spec.Cases {
+		if len(c.Filters) > 0 && !recordPassesFilters(fields, c.Filters) {
+			continue
+		}
+		if c.HasValue {
+			return strings.TrimSpace(c.Value)
+		}
+		if field := firstNonEmptyString(c.ValueField, c.SourceField); strings.TrimSpace(field) != "" {
+			return strings.TrimSpace(recordField(fields, field))
+		}
+	}
+	if spec.DefaultField != "" {
+		return strings.TrimSpace(recordField(fields, spec.DefaultField))
+	}
+	return strings.TrimSpace(spec.Default)
 }
 
 func deriveConcatFields(fields map[string]string, spec deriveFieldSpec) string {
@@ -2689,15 +3439,46 @@ func deriveRegexReplace(source string, spec deriveFieldSpec) string {
 	return re.ReplaceAllString(source, spec.Replacement)
 }
 
+func ambiguousExtractParseNumberError(spec deriveFieldSpec, fields map[string]string, record actionRecord, rel string) error {
+	if spec.Operation != "parse_number" && spec.Operation != "number" && spec.Operation != "numeric" {
+		return nil
+	}
+	if strings.TrimSpace(spec.Pattern) != "" {
+		return nil
+	}
+	sourceField := strings.TrimSpace(spec.SourceField)
+	if sourceField == "" {
+		return nil
+	}
+	source := recordField(fields, sourceField)
+	if !extractParseNumberSourceNeedsAnchor(source) {
+		return nil
+	}
+	tokens := decimalTokenStrings(source, 6)
+	if len(tokens) <= 1 {
+		return nil
+	}
+	return fmt.Errorf("extract_fields parse_number for target_field %q reads source_field %q from %s:%d with %d numeric tokens %v; unanchored parse_number would choose the first token. Use regex_extract with a context pattern/capture group, or first group/split the source so the numeric field has one candidate",
+		spec.TargetField, sourceField, rel, record.Line, len(decimalTokenStrings(source, -1)), tokens)
+}
+
+func extractParseNumberSourceNeedsAnchor(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	if strings.Contains(source, "\n") {
+		return true
+	}
+	return len([]rune(source)) > 80
+}
+
 func deriveParseNumber(source string, spec deriveFieldSpec) string {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return ""
 	}
-	source = strings.ReplaceAll(source, ",", "")
-	source = strings.ReplaceAll(source, "，", "")
-	re := regexp.MustCompile(`[-+]?\d+(?:\.\d+)?`)
-	raw := re.FindString(source)
+	raw := firstDecimalTokenString(source)
 	if raw == "" {
 		return ""
 	}
@@ -2720,6 +3501,24 @@ func deriveParseNumber(source string, spec deriveFieldSpec) string {
 		rat.Quo(rat, divisor)
 	}
 	return formatRat(rat)
+}
+
+func firstDecimalTokenString(source string) string {
+	tokens := decimalTokenStrings(source, 1)
+	if len(tokens) == 0 {
+		return ""
+	}
+	return tokens[0]
+}
+
+func decimalTokenStrings(source string, limit int) []string {
+	source = strings.ReplaceAll(strings.TrimSpace(source), ",", "")
+	source = strings.ReplaceAll(source, "，", "")
+	if source == "" {
+		return nil
+	}
+	re := regexp.MustCompile(`[-+]?\d+(?:\.\d+)?`)
+	return cleanStringSlice(re.FindAllString(source, limit))
 }
 
 func deriveMapValue(source string, spec deriveFieldSpec) string {
@@ -2771,24 +3570,59 @@ func deriveExtractYear(source string) string {
 type applyResolutionSpec struct {
 	BasePath             string
 	ResolutionPath       string
+	ReferencePath        string
 	BaseKeyFields        []string
 	ResolutionKeyFields  []string
+	SourceFields         []string
 	GenericFilters       []contributionFilter
 	BaseFilters          []contributionFilter
 	ResolutionFilters    []contributionFilter
 	TargetIDField        string
 	TargetLabelField     string
 	TargetStatusField    string
+	ExistingIDField      string
+	ExistingLabelField   string
 	CanonicalIDField     string
 	CanonicalLabelField  string
 	StatusField          string
 	AcceptedStatuses     []string
+	ReferenceIDField     string
+	ReferenceLabelField  string
+	ReferenceStatusField string
+	ReferenceStatuses    []string
 	UnmatchedStatusValue string
 }
 
 type resolutionChoice struct {
 	rec    actionRecord
 	status string
+}
+
+type applyResolutionSourceValueIndex struct {
+	Enabled    bool
+	BaseFields []string
+	Choices    map[string][]resolutionChoice
+}
+
+type applyResolutionExistingIDIndex struct {
+	Enabled              bool
+	ExistingIDField      string
+	ExistingLabelField   string
+	ReferenceRel         string
+	ReferenceIDField     string
+	ReferenceLabelField  string
+	ReferenceStatusField string
+	ReferenceStatuses    []string
+	Records              map[string][]actionRecord
+}
+
+type applyResolutionInputProfile struct {
+	Path    string
+	Rel     string
+	Records []actionRecord
+	Headers []string
+	Total   int
+	Fields  []string
 }
 
 func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact, []map[string]any, []string, error) {
@@ -2824,6 +3658,28 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	}
 	preserveBaseRows := applyResolutionPreserveBaseRows(action)
 	baseFields := actionRecordFieldNames(baseHeaders, baseRecords)
+	var roleNotes []string
+	if applyResolutionRecordsLookLikeResolution(baseFields, baseRecords) {
+		profile, ok, err := r.inferApplyResolutionBaseProfile(paths, baseRel, maxRecords)
+		if err != nil {
+			return DataArtifact{}, nil, nil, err
+		}
+		if !ok {
+			return DataArtifact{}, nil, nil, fmt.Errorf("apply_entity_resolutions base input %s looks like an entity_resolution ledger, but no distinct base record artifact was available; provide input_paths=[base_record_artifact, entity_resolution_artifact...] or set base_path to the base records", baseRel)
+		}
+		oldBaseRel := baseRel
+		baseRecords, baseHeaders, baseTotal, baseRel, baseFields = profile.Records, profile.Headers, profile.Total, profile.Rel, profile.Fields
+		for i := range specs {
+			if specs[i].BasePath == "" || normalizeMaterialPath(specs[i].BasePath) == normalizeMaterialPath(oldBaseRel) {
+				specs[i].BasePath = baseRel
+			}
+			if specs[i].ResolutionPath == "" || normalizeMaterialPath(specs[i].ResolutionPath) == normalizeMaterialPath(baseRel) {
+				specs[i].ResolutionPath = oldBaseRel
+			}
+			specs[i] = normalizeApplyResolutionSpec(specs[i])
+		}
+		roleNotes = append(roleNotes, fmt.Sprintf("base_path inferred as %s; %s treated as entity_resolution input", baseRel, oldBaseRel))
+	}
 	genericFilters, err := parseContributionFilters(action)
 	if err != nil {
 		return DataArtifact{}, nil, nil, err
@@ -2843,6 +3699,8 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	}
 	consumed := []string{baseRel}
 	indexes := make([]map[string][]resolutionChoice, 0, len(specs))
+	sourceValueIndexes := make([]applyResolutionSourceValueIndex, 0, len(specs))
+	existingIDIndexes := make([]applyResolutionExistingIDIndex, 0, len(specs))
 	children := make([]DataArtifact, 0, len(specs)+1)
 	for i, spec := range specs {
 		records, headers, total, rel, err := r.readActionRecords(spec.ResolutionPath, maxRecords)
@@ -2867,9 +3725,18 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 		if len(effectiveResolutionFilters) > 0 {
 			records = filterActionRecords(records, effectiveResolutionFilters)
 		}
+		scopedRecords := records
+		if len(spec.SourceFields) > 0 {
+			scopedRecords = make([]actionRecord, 0, len(records))
+			for _, rec := range records {
+				if applyResolutionRecordMatchesSourceFields(rec, spec) {
+					scopedRecords = append(scopedRecords, rec)
+				}
+			}
+		}
 		consumed = append(consumed, rel)
 		index := map[string][]resolutionChoice{}
-		for _, rec := range records {
+		for _, rec := range scopedRecords {
 			key := resolutionRecordApplyKey(rec, spec)
 			if key == "" {
 				continue
@@ -2878,6 +3745,16 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 			index[key] = append(index[key], resolutionChoice{rec: rec, status: status})
 		}
 		indexes = append(indexes, index)
+		sourceValueIndex := buildApplyResolutionSourceValueIndex(scopedRecords, spec, baseFields)
+		sourceValueIndexes = append(sourceValueIndexes, sourceValueIndex)
+		existingIDIndex, existingReferenceChild, existingReferenceConsumed, err := r.buildApplyResolutionExistingIDIndex(spec, baseFields, maxRecords)
+		if err != nil {
+			return DataArtifact{}, nil, nil, err
+		}
+		existingIDIndexes = append(existingIDIndexes, existingIDIndex)
+		if existingReferenceConsumed != "" {
+			consumed = append(consumed, existingReferenceConsumed)
+		}
 		children = append(children, DataArtifact{
 			ID:          rel + "#entity_resolution_source",
 			Kind:        "apply_entity_resolutions/resolution",
@@ -2890,18 +3767,38 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 				"target_label_field":  spec.TargetLabelField,
 				"target_status_field": spec.TargetStatusField,
 				"base_key_fields":     strings.Join(spec.BaseKeyFields, ","),
+				"source_fields":       strings.Join(spec.SourceFields, ","),
 				"resolution_key_fields": strings.Join(
 					spec.ResolutionKeyFields, ","),
 				"resolution_filters": filterDiagnosticsJSON(records, effectiveResolutionFilters, 8, 8),
 				"base_filters":       filterDiagnosticsJSON(baseRecords, effectiveBaseFilters, 8, 8),
 				"filter_role_notes":  strings.Join(filterNotes, "; "),
+				"source_scope_rows":  fmt.Sprintf("%d", len(scopedRecords)),
 			},
 		})
+		if sourceValueIndex.Enabled {
+			children[len(children)-1].Fields["source_value_base_fields"] = strings.Join(sourceValueIndex.BaseFields, ",")
+		}
+		if existingIDIndex.Enabled {
+			children[len(children)-1].Fields["existing_id_field"] = existingIDIndex.ExistingIDField
+			children[len(children)-1].Fields["reference_path"] = existingIDIndex.ReferenceRel
+			children[len(children)-1].Fields["reference_id_field"] = existingIDIndex.ReferenceIDField
+			if existingIDIndex.ReferenceLabelField != "" {
+				children[len(children)-1].Fields["reference_label_field"] = existingIDIndex.ReferenceLabelField
+			}
+			if existingIDIndex.ReferenceStatusField != "" {
+				children[len(children)-1].Fields["reference_status_field"] = existingIDIndex.ReferenceStatusField
+				children[len(children)-1].Fields["reference_statuses"] = strings.Join(existingIDIndex.ReferenceStatuses, ",")
+			}
+		}
 		if len(ignoredBaseFilters) > 0 {
 			children[len(children)-1].Fields["ignored_base_filter_fields"] = strings.Join(ignoredBaseFilters, ",")
 		}
 		if len(ignoredResolutionFilters) > 0 {
 			children[len(children)-1].Fields["ignored_resolution_filter_fields"] = strings.Join(ignoredResolutionFilters, ",")
+		}
+		if existingReferenceChild.ID != "" {
+			children = append(children, existingReferenceChild)
 		}
 	}
 	children = append([]DataArtifact{{
@@ -2921,6 +3818,7 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	unmatchedByTarget := map[string]int{}
 	ambiguousByTarget := map[string]int{}
 	skippedByTarget := map[string]int{}
+	verifiedExistingByTarget := map[string]int{}
 	for _, base := range baseRecords {
 		if len(rows) >= maxOutput {
 			break
@@ -2948,6 +3846,14 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 			}
 			key := baseRecordApplyResolutionKey(base, spec)
 			choices := filterAcceptedResolutionChoices(indexes[i][key], spec)
+			if len(choices) == 0 {
+				if locatorKey := implicitBaseRecordApplyResolutionLocatorKey(base); locatorKey != "" && locatorKey != key {
+					choices = filterAcceptedResolutionChoices(indexes[i][locatorKey], spec)
+				}
+			}
+			if len(choices) == 0 {
+				choices = filterAcceptedResolutionChoices(sourceValueResolutionChoicesForBase(base, sourceValueIndexes[i]), spec)
+			}
 			status := spec.UnmatchedStatusValue
 			if status == "" {
 				status = "unmatched"
@@ -2960,6 +3866,14 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 				}
 				status = firstNonEmptyString(choices[0].status, "resolved")
 				matchedByTarget[spec.TargetIDField]++
+			} else if verified, ok := verifiedExistingResolutionFromBase(base, existingIDIndexes[i]); ok {
+				row[spec.TargetIDField] = verified.ID
+				if spec.TargetLabelField != "" {
+					row[spec.TargetLabelField] = verified.Label
+				}
+				status = "resolved"
+				matchedByTarget[spec.TargetIDField]++
+				verifiedExistingByTarget[spec.TargetIDField]++
 			} else if len(choices) > 1 {
 				status = "ambiguous"
 				ambiguousByTarget[spec.TargetIDField]++
@@ -2991,12 +3905,22 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 		"output_rows":      fmt.Sprintf("%d", len(rows)),
 		"base_filter_mode": applyResolutionBaseFilterModeLabel(preserveBaseRows),
 	}
+	if len(roleNotes) > 0 {
+		fields["role_inference"] = strings.Join(roleNotes, "; ")
+	}
 	for _, spec := range specs {
 		targetFields = append(targetFields, spec.TargetIDField)
 		fields["matched_"+spec.TargetIDField] = fmt.Sprintf("%d", matchedByTarget[spec.TargetIDField])
 		fields["unmatched_"+spec.TargetIDField] = fmt.Sprintf("%d", unmatchedByTarget[spec.TargetIDField])
 		fields["ambiguous_"+spec.TargetIDField] = fmt.Sprintf("%d", ambiguousByTarget[spec.TargetIDField])
 		fields["not_applicable_"+spec.TargetIDField] = fmt.Sprintf("%d", skippedByTarget[spec.TargetIDField])
+		fields["verified_existing_"+spec.TargetIDField] = fmt.Sprintf("%d", verifiedExistingByTarget[spec.TargetIDField])
+	}
+	for i, sourceValueIndex := range sourceValueIndexes {
+		if !sourceValueIndex.Enabled || i >= len(specs) {
+			continue
+		}
+		fields["source_value_base_fields_"+specs[i].TargetIDField] = strings.Join(sourceValueIndex.BaseFields, ",")
 	}
 	fields["target_fields"] = strings.Join(targetFields, ",")
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "resolved_records")
@@ -3013,8 +3937,66 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	}, rows, normalizeMaterialPaths(consumed), nil
 }
 
+func (r ActionRunner) inferApplyResolutionBaseProfile(paths []string, currentBasePath string, maxRecords int) (applyResolutionInputProfile, bool, error) {
+	currentBase := normalizeMaterialPath(currentBasePath)
+	var candidates []applyResolutionInputProfile
+	for _, path := range cleanStringListPreserveOrder(paths) {
+		if normalizeMaterialPath(path) == "" || normalizeMaterialPath(path) == currentBase {
+			continue
+		}
+		records, headers, total, rel, err := r.readActionRecords(path, maxRecords)
+		if err != nil {
+			return applyResolutionInputProfile{}, false, err
+		}
+		fields := actionRecordFieldNames(headers, records)
+		if applyResolutionRecordsLookLikeResolution(fields, records) {
+			continue
+		}
+		candidates = append(candidates, applyResolutionInputProfile{
+			Path:    path,
+			Rel:     rel,
+			Records: records,
+			Headers: headers,
+			Total:   total,
+			Fields:  fields,
+		})
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true, nil
+	}
+	if len(candidates) > 1 {
+		var names []string
+		for _, candidate := range candidates {
+			names = append(names, candidate.Rel)
+		}
+		return applyResolutionInputProfile{}, false, fmt.Errorf("apply_entity_resolutions base input %s looks like an entity_resolution ledger and multiple possible base record artifacts were found [%s]; set base_path explicitly or split the action", currentBasePath, strings.Join(names, ", "))
+	}
+	return applyResolutionInputProfile{}, false, nil
+}
+
+func applyResolutionRecordsLookLikeResolution(fields []string, records []actionRecord) bool {
+	hasLocator := actionRecordAnyFieldExists(fields, []string{"item_id", "source_locator", "_source_locator", "record_id", "row_id"})
+	if !hasLocator {
+		return false
+	}
+	hasSourceValue := actionRecordAnyFieldExists(fields, []string{"source_value", "source_field", "evidence_refs"})
+	hasCanonical := actionRecordAnyFieldExists(fields, []string{"canonical_id", "canonical_label", "canonical_value"})
+	if !hasSourceValue || !hasCanonical {
+		return false
+	}
+	for _, record := range records {
+		for _, field := range []string{"item_id", "source_locator", "_source_locator", "record_id", "row_id"} {
+			if sourceIndexFromResolutionLocator(recordField(record.Fields, field)) != "" {
+				return true
+			}
+		}
+	}
+	return len(records) == 0
+}
+
 func parseApplyResolutionSpecs(action DataAction, paths []string, basePath string) ([]applyResolutionSpec, error) {
 	topLevelResolutionPath := firstNonEmptyString(action.Params["resolution_path"], action.Params["mapping_path"], action.Params["lookup_path"])
+	topLevelReferencePath := firstNonEmptyString(action.Params["reference_path"], action.Params["verification_path"], action.Params["canonical_reference_path"])
 	raw := strings.TrimSpace(firstNonEmptyString(
 		structuredActionParam(action.Params, "resolution_specs"),
 		action.Params["resolution_specs_json"],
@@ -3023,8 +4005,8 @@ func parseApplyResolutionSpecs(action DataAction, paths []string, basePath strin
 	))
 	var specs []applyResolutionSpec
 	if raw != "" {
-		var values []map[string]any
-		if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		values, err := parseActionMapListJSON(raw)
+		if err != nil {
 			return nil, fmt.Errorf("parse apply_entity_resolutions resolution_specs_json: %w", err)
 		}
 		for _, value := range values {
@@ -3034,6 +4016,27 @@ func parseApplyResolutionSpecs(action DataAction, paths []string, basePath strin
 			}
 			if spec.ResolutionPath == "" {
 				spec.ResolutionPath = topLevelResolutionPath
+			}
+			if spec.ReferencePath == "" {
+				spec.ReferencePath = topLevelReferencePath
+			}
+			if spec.ExistingIDField == "" {
+				spec.ExistingIDField = firstNonEmptyString(action.Params["existing_id_field"], action.Params["base_id_field"], action.Params["current_id_field"], action.Params["source_id_field"], action.Params["existing_canonical_id_field"])
+			}
+			if spec.ExistingLabelField == "" {
+				spec.ExistingLabelField = firstNonEmptyString(action.Params["existing_label_field"], action.Params["base_label_field"], action.Params["current_label_field"], action.Params["source_label_field"], action.Params["existing_canonical_label_field"])
+			}
+			if spec.ReferenceIDField == "" {
+				spec.ReferenceIDField = firstNonEmptyString(action.Params["reference_id_field"], action.Params["reference_key_field"], action.Params["lookup_id_field"], action.Params["canonical_reference_id_field"])
+			}
+			if spec.ReferenceLabelField == "" {
+				spec.ReferenceLabelField = firstNonEmptyString(action.Params["reference_label_field"], action.Params["reference_name_field"], action.Params["lookup_label_field"], action.Params["canonical_reference_label_field"])
+			}
+			if spec.ReferenceStatusField == "" {
+				spec.ReferenceStatusField = firstNonEmptyString(action.Params["reference_status_field"], action.Params["lookup_status_field"], action.Params["canonical_reference_status_field"])
+			}
+			if len(spec.ReferenceStatuses) == 0 {
+				spec.ReferenceStatuses = parseActionStringListParam(firstNonEmptyString(action.Params["reference_accepted_statuses"], action.Params["reference_statuses"], action.Params["reference_status_values"]))
 			}
 			specs = append(specs, spec)
 		}
@@ -3052,9 +4055,21 @@ func parseApplyResolutionSpecs(action DataAction, paths []string, basePath strin
 			ResolutionPath:      resolutionPath,
 			BaseKeyFields:       parseActionStringListParam(firstNonEmptyString(action.Params["base_key_fields"], action.Params["base_key_field"], action.Params["source_key_fields"], action.Params["source_key_field"])),
 			ResolutionKeyFields: parseActionStringListParam(firstNonEmptyString(action.Params["resolution_key_fields"], action.Params["resolution_key_field"], action.Params["mapping_key_fields"], action.Params["mapping_key_field"])),
+			SourceFields:        parseActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_field"], action.Params["base_fields"], action.Params["base_field"], action.Params["record_fields"], action.Params["record_field"])),
 			TargetIDField:       firstNonEmptyString(action.Params["target_id_field"], action.Params["target_field"], action.Params["canonical_target_field"]),
 			TargetLabelField:    firstNonEmptyString(action.Params["target_label_field"], action.Params["label_target_field"]),
 			TargetStatusField:   firstNonEmptyString(action.Params["target_status_field"], action.Params["status_target_field"]),
+			ExistingIDField:     firstNonEmptyString(action.Params["existing_id_field"], action.Params["base_id_field"], action.Params["current_id_field"], action.Params["source_id_field"], action.Params["existing_canonical_id_field"]),
+			ExistingLabelField:  firstNonEmptyString(action.Params["existing_label_field"], action.Params["base_label_field"], action.Params["current_label_field"], action.Params["source_label_field"], action.Params["existing_canonical_label_field"]),
+			ReferencePath:       firstNonEmptyString(action.Params["reference_path"], action.Params["verification_path"], action.Params["canonical_reference_path"]),
+			ReferenceIDField:    firstNonEmptyString(action.Params["reference_id_field"], action.Params["reference_key_field"], action.Params["lookup_id_field"], action.Params["canonical_reference_id_field"]),
+			ReferenceLabelField: firstNonEmptyString(action.Params["reference_label_field"], action.Params["reference_name_field"], action.Params["lookup_label_field"], action.Params["canonical_reference_label_field"]),
+			ReferenceStatusField: firstNonEmptyString(
+				action.Params["reference_status_field"],
+				action.Params["lookup_status_field"],
+				action.Params["canonical_reference_status_field"],
+			),
+			ReferenceStatuses:   parseActionStringListParam(firstNonEmptyString(action.Params["reference_accepted_statuses"], action.Params["reference_statuses"], action.Params["reference_status_values"])),
 			CanonicalIDField:    firstNonEmptyString(action.Params["canonical_id_field"], "canonical_id"),
 			CanonicalLabelField: firstNonEmptyString(action.Params["canonical_label_field"], "canonical_label"),
 			StatusField:         firstNonEmptyString(action.Params["status_field"], "status"),
@@ -3094,12 +4109,20 @@ func applyResolutionSpecFromMap(value map[string]any) (applyResolutionSpec, erro
 		ResolutionPath:       applyResolutionSpecString(value, "resolution_path", "mapping_path", "lookup_path", "path"),
 		BaseKeyFields:        parseActionStringListParamFromAny(firstApplyResolutionSpecAny(value, "base_key_fields", "base_key_field", "source_key_fields", "source_key_field")),
 		ResolutionKeyFields:  parseActionStringListParamFromAny(firstApplyResolutionSpecAny(value, "resolution_key_fields", "resolution_key_field", "mapping_key_fields", "mapping_key_field")),
+		SourceFields:         parseActionStringListParamFromAny(firstApplyResolutionSpecAny(value, "source_fields", "source_field", "base_fields", "base_field", "record_fields", "record_field")),
 		GenericFilters:       genericFilters,
 		BaseFilters:          baseFilters,
 		ResolutionFilters:    resolutionFilters,
 		TargetIDField:        applyResolutionSpecString(value, "target_id_field", "target_field", "canonical_target_field"),
 		TargetLabelField:     applyResolutionSpecString(value, "target_label_field", "label_target_field"),
 		TargetStatusField:    applyResolutionSpecString(value, "target_status_field", "status_target_field"),
+		ExistingIDField:      applyResolutionSpecString(value, "existing_id_field", "base_id_field", "current_id_field", "source_id_field", "existing_canonical_id_field"),
+		ExistingLabelField:   applyResolutionSpecString(value, "existing_label_field", "base_label_field", "current_label_field", "source_label_field", "existing_canonical_label_field"),
+		ReferencePath:        applyResolutionSpecString(value, "reference_path", "verification_path", "canonical_reference_path"),
+		ReferenceIDField:     applyResolutionSpecString(value, "reference_id_field", "reference_key_field", "lookup_id_field", "canonical_reference_id_field"),
+		ReferenceLabelField:  applyResolutionSpecString(value, "reference_label_field", "reference_name_field", "lookup_label_field", "canonical_reference_label_field"),
+		ReferenceStatusField: applyResolutionSpecString(value, "reference_status_field", "lookup_status_field", "canonical_reference_status_field"),
+		ReferenceStatuses:    parseActionStringListParamFromAny(firstApplyResolutionSpecAny(value, "reference_accepted_statuses", "reference_statuses", "reference_status_values")),
 		CanonicalIDField:     applyResolutionSpecString(value, "canonical_id_field"),
 		CanonicalLabelField:  applyResolutionSpecString(value, "canonical_label_field"),
 		StatusField:          applyResolutionSpecString(value, "status_field"),
@@ -3245,11 +4268,14 @@ func firstApplyResolutionSpecAny(value map[string]any, keys ...string) any {
 func normalizeApplyResolutionSpec(spec applyResolutionSpec) applyResolutionSpec {
 	spec.BasePath = normalizeMaterialPath(spec.BasePath)
 	spec.ResolutionPath = normalizeMaterialPath(spec.ResolutionPath)
+	spec.ReferencePath = normalizeMaterialPath(spec.ReferencePath)
 	spec.BaseKeyFields = cleanStringSlice(spec.BaseKeyFields)
 	spec.ResolutionKeyFields = cleanStringSlice(spec.ResolutionKeyFields)
 	spec.TargetIDField = strings.TrimSpace(spec.TargetIDField)
 	spec.TargetLabelField = strings.TrimSpace(spec.TargetLabelField)
 	spec.TargetStatusField = strings.TrimSpace(spec.TargetStatusField)
+	spec.ExistingIDField = strings.TrimSpace(spec.ExistingIDField)
+	spec.ExistingLabelField = strings.TrimSpace(spec.ExistingLabelField)
 	spec.CanonicalIDField = firstNonEmptyString(spec.CanonicalIDField, "canonical_id")
 	spec.CanonicalLabelField = firstNonEmptyString(spec.CanonicalLabelField, "canonical_label")
 	spec.StatusField = firstNonEmptyString(spec.StatusField, "status")
@@ -3257,6 +4283,10 @@ func normalizeApplyResolutionSpec(spec applyResolutionSpec) applyResolutionSpec 
 	if len(spec.AcceptedStatuses) == 0 {
 		spec.AcceptedStatuses = []string{"resolved", "matched"}
 	}
+	spec.ReferenceIDField = strings.TrimSpace(spec.ReferenceIDField)
+	spec.ReferenceLabelField = strings.TrimSpace(spec.ReferenceLabelField)
+	spec.ReferenceStatusField = strings.TrimSpace(spec.ReferenceStatusField)
+	spec.ReferenceStatuses = cleanStringSlice(spec.ReferenceStatuses)
 	spec.UnmatchedStatusValue = firstNonEmptyString(spec.UnmatchedStatusValue, "unmatched")
 	return spec
 }
@@ -3281,7 +4311,8 @@ func normalizeApplyResolutionSpecForAvailableFields(spec applyResolutionSpec, he
 
 func equivalentResolutionLocatorField(fields []string, requested string) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "item_id", "source_locator", "_source_locator", "record_id", "row_id", "id":
+	case "item_id", "source_locator", "_source_locator", "record_id", "row_id", "id",
+		"_source_index", "source_index", "_source_line", "source_line", "line", "row_index", "row":
 	default:
 		return ""
 	}
@@ -3334,7 +4365,131 @@ func applyResolutionBaseFilterModeLabel(preserve bool) string {
 	return "filter_output_rows"
 }
 
+type verifiedExistingResolution struct {
+	ID    string
+	Label string
+}
+
+func (r ActionRunner) buildApplyResolutionExistingIDIndex(spec applyResolutionSpec, baseFields []string, maxRecords int) (applyResolutionExistingIDIndex, DataArtifact, string, error) {
+	if strings.TrimSpace(spec.ExistingIDField) == "" {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", nil
+	}
+	if !actionRecordFieldExists(baseFields, spec.ExistingIDField) {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q was not found in base input fields [%s]", spec.ExistingIDField, strings.Join(clampStringSliceForError(baseFields, 32), ", "))
+	}
+	if strings.TrimSpace(spec.ReferencePath) == "" {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_path so the existing canonical value can be verified structurally", spec.ExistingIDField)
+	}
+	if strings.TrimSpace(spec.ReferenceIDField) == "" {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_id_field on reference_path %s", spec.ExistingIDField, spec.ReferencePath)
+	}
+	records, headers, total, rel, err := r.readActionRecords(spec.ReferencePath, maxRecords)
+	if err != nil {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", err
+	}
+	fields := actionRecordFieldNames(headers, records)
+	if !actionRecordFieldExists(fields, spec.ReferenceIDField) {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_id_field %q was not found in reference input %s fields [%s]", spec.ReferenceIDField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+	}
+	if spec.ReferenceLabelField != "" && !actionRecordFieldExists(fields, spec.ReferenceLabelField) {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_label_field %q was not found in reference input %s fields [%s]", spec.ReferenceLabelField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+	}
+	if spec.ReferenceStatusField != "" && !actionRecordFieldExists(fields, spec.ReferenceStatusField) {
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_status_field %q was not found in reference input %s fields [%s]", spec.ReferenceStatusField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+	}
+	index := applyResolutionExistingIDIndex{
+		Enabled:              true,
+		ExistingIDField:      spec.ExistingIDField,
+		ExistingLabelField:   spec.ExistingLabelField,
+		ReferenceRel:         rel,
+		ReferenceIDField:     spec.ReferenceIDField,
+		ReferenceLabelField:  spec.ReferenceLabelField,
+		ReferenceStatusField: spec.ReferenceStatusField,
+		ReferenceStatuses:    append([]string(nil), spec.ReferenceStatuses...),
+		Records:              map[string][]actionRecord{},
+	}
+	acceptedStatuses := lowerStringSet(spec.ReferenceStatuses)
+	for _, rec := range records {
+		id := recordField(rec.Fields, spec.ReferenceIDField)
+		if id == "" {
+			continue
+		}
+		if spec.ReferenceStatusField != "" && len(acceptedStatuses) > 0 {
+			status := strings.ToLower(strings.TrimSpace(recordField(rec.Fields, spec.ReferenceStatusField)))
+			if !acceptedStatuses[status] {
+				continue
+			}
+		}
+		key := normalizeApplyResolutionExistingIDKey(id)
+		if key == "" {
+			continue
+		}
+		index.Records[key] = append(index.Records[key], rec)
+	}
+	childFields := map[string]string{
+		"existing_id_field":   spec.ExistingIDField,
+		"reference_id_field":  spec.ReferenceIDField,
+		"reference_rows":      fmt.Sprintf("%d", total),
+		"verified_candidates": fmt.Sprintf("%d", countApplyResolutionExistingIDRecords(index.Records)),
+	}
+	if spec.ReferenceLabelField != "" {
+		childFields["reference_label_field"] = spec.ReferenceLabelField
+	}
+	if spec.ReferenceStatusField != "" {
+		childFields["reference_status_field"] = spec.ReferenceStatusField
+		childFields["reference_statuses"] = strings.Join(spec.ReferenceStatuses, ",")
+	}
+	return index, DataArtifact{
+		ID:          rel + "#existing_id_reference",
+		Kind:        "apply_entity_resolutions/existing_id_reference",
+		SourcePaths: []string{rel},
+		Headers:     headers,
+		RowCount:    total,
+		Summary:     fmt.Sprintf("%s supplied %d reference record(s) for existing canonical ID verification", rel, total),
+		Fields:      childFields,
+	}, rel, nil
+}
+
+func countApplyResolutionExistingIDRecords(records map[string][]actionRecord) int {
+	count := 0
+	for _, values := range records {
+		count += len(values)
+	}
+	return count
+}
+
+func verifiedExistingResolutionFromBase(record actionRecord, index applyResolutionExistingIDIndex) (verifiedExistingResolution, bool) {
+	if !index.Enabled {
+		return verifiedExistingResolution{}, false
+	}
+	existingID := recordField(record.Fields, index.ExistingIDField)
+	key := normalizeApplyResolutionExistingIDKey(existingID)
+	if key == "" {
+		return verifiedExistingResolution{}, false
+	}
+	records := index.Records[key]
+	if len(records) != 1 {
+		return verifiedExistingResolution{}, false
+	}
+	reference := records[0]
+	label := recordField(reference.Fields, index.ReferenceLabelField)
+	if label == "" {
+		label = recordField(record.Fields, index.ExistingLabelField)
+	}
+	if label == "" {
+		label = existingID
+	}
+	return verifiedExistingResolution{ID: existingID, Label: label}, true
+}
+
+func normalizeApplyResolutionExistingIDKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
 func baseRecordApplyResolutionKey(record actionRecord, spec applyResolutionSpec) string {
+	if locatorKey := baseLocatorKeyFromExplicitFields(record, spec.BaseKeyFields); locatorKey != "" {
+		return locatorKey
+	}
 	if key := actionRecordCompositeKey(record, spec.BaseKeyFields); key != "" {
 		return key
 	}
@@ -3350,6 +4505,40 @@ func baseRecordApplyResolutionKey(record actionRecord, spec applyResolutionSpec)
 		return strconv.Itoa(record.Line)
 	}
 	return ""
+}
+
+func implicitBaseRecordApplyResolutionLocatorKey(record actionRecord) string {
+	for _, field := range []string{"_source_locator", "source_locator", "item_id", "record_id", "row_id", "id"} {
+		if key := sourceIndexFromResolutionLocator(recordField(record.Fields, field)); key != "" {
+			return key
+		}
+	}
+	for _, field := range []string{"_source_index", "source_index", "_source_line", "source_line", "line", "row_index", "row"} {
+		if value := strings.TrimSpace(recordField(record.Fields, field)); value != "" {
+			return value
+		}
+	}
+	if record.Index > 0 {
+		return strconv.Itoa(record.Index)
+	}
+	if record.Line > 0 {
+		return strconv.Itoa(record.Line)
+	}
+	return ""
+}
+
+func baseLocatorKeyFromExplicitFields(record actionRecord, fields []string) string {
+	fields = cleanStringSlice(fields)
+	if len(fields) != 1 {
+		return ""
+	}
+	field := strings.ToLower(strings.TrimSpace(fields[0]))
+	switch field {
+	case "item_id", "source_locator", "_source_locator", "record_id", "row_id", "id":
+	default:
+		return ""
+	}
+	return sourceIndexFromResolutionLocator(recordField(record.Fields, fields[0]))
 }
 
 func resolutionRecordApplyKey(record actionRecord, spec applyResolutionSpec) string {
@@ -3372,6 +4561,136 @@ func resolutionRecordApplyKey(record actionRecord, spec applyResolutionSpec) str
 		}
 	}
 	return ""
+}
+
+func buildApplyResolutionSourceValueIndex(records []actionRecord, spec applyResolutionSpec, baseFields []string) applyResolutionSourceValueIndex {
+	if !applyResolutionCanUseSourceValueKey(spec) {
+		return applyResolutionSourceValueIndex{}
+	}
+	baseFieldSet := lowerStringSet(baseFields)
+	fieldSet := map[string]bool{}
+	for _, field := range spec.SourceFields {
+		field = strings.TrimSpace(field)
+		if field != "" && baseFieldSet[strings.ToLower(field)] {
+			fieldSet[field] = true
+		}
+	}
+	for _, record := range records {
+		for _, field := range resolutionSourceValueBaseFieldCandidates(record) {
+			if !baseFieldSet[strings.ToLower(strings.TrimSpace(field))] {
+				continue
+			}
+			fieldSet[field] = true
+		}
+	}
+	if len(fieldSet) == 0 {
+		return applyResolutionSourceValueIndex{}
+	}
+	baseFieldCandidates := make([]string, 0, len(fieldSet))
+	for field := range fieldSet {
+		baseFieldCandidates = append(baseFieldCandidates, field)
+	}
+	sort.Strings(baseFieldCandidates)
+	choices := map[string][]resolutionChoice{}
+	for _, record := range records {
+		sourceValue := normalizeApplyResolutionSourceValueKey(recordField(record.Fields, "source_value"))
+		if sourceValue == "" {
+			continue
+		}
+		status := firstNonEmptyString(recordField(record.Fields, spec.StatusField), "resolved")
+		choices[sourceValue] = append(choices[sourceValue], resolutionChoice{rec: record, status: status})
+	}
+	if len(choices) == 0 {
+		return applyResolutionSourceValueIndex{}
+	}
+	return applyResolutionSourceValueIndex{
+		Enabled:    true,
+		BaseFields: baseFieldCandidates,
+		Choices:    choices,
+	}
+}
+
+func applyResolutionUsesOnlySourceValueKey(spec applyResolutionSpec) bool {
+	fields := cleanStringSlice(spec.ResolutionKeyFields)
+	if len(fields) != 1 {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(fields[0]), "source_value")
+}
+
+func applyResolutionCanUseSourceValueKey(spec applyResolutionSpec) bool {
+	fields := cleanStringSlice(spec.ResolutionKeyFields)
+	if len(fields) == 0 {
+		return true
+	}
+	if applyResolutionUsesOnlySourceValueKey(spec) {
+		return true
+	}
+	for _, field := range fields {
+		switch strings.ToLower(strings.TrimSpace(field)) {
+		case "item_id", "source_locator", "_source_locator", "record_id", "row_id", "id":
+			return true
+		}
+	}
+	return false
+}
+
+func applyResolutionRecordMatchesSourceFields(record actionRecord, spec applyResolutionSpec) bool {
+	sourceFields := cleanStringSlice(spec.SourceFields)
+	if len(sourceFields) == 0 {
+		return true
+	}
+	candidates := resolutionSourceValueBaseFieldCandidates(record)
+	if len(candidates) == 0 {
+		return true
+	}
+	allowed := lowerStringSet(sourceFields)
+	for _, field := range candidates {
+		if allowed[strings.ToLower(strings.TrimSpace(field))] {
+			return true
+		}
+	}
+	return false
+}
+
+func resolutionSourceValueBaseFieldCandidates(record actionRecord) []string {
+	var fields []string
+	for _, key := range []string{"source_field", "input_field", "field"} {
+		fields = append(fields, parseActionStringListParam(recordField(record.Fields, key))...)
+	}
+	for _, key := range []string{"item_id", "source_locator", "_source_locator", "record_id", "row_id", "id"} {
+		if field := sourceFieldFromResolutionLocator(recordField(record.Fields, key)); field != "" {
+			fields = append(fields, field)
+		}
+	}
+	return cleanStringSlice(fields)
+}
+
+func sourceValueResolutionChoicesForBase(record actionRecord, index applyResolutionSourceValueIndex) []resolutionChoice {
+	if !index.Enabled {
+		return nil
+	}
+	var out []resolutionChoice
+	seen := map[string]bool{}
+	for _, field := range index.BaseFields {
+		value := normalizeApplyResolutionSourceValueKey(recordField(record.Fields, field))
+		if value == "" {
+			continue
+		}
+		for _, choice := range index.Choices[value] {
+			key := recordField(choice.rec.Fields, "item_id") + "\x00" + recordField(choice.rec.Fields, "source_value") + "\x00" + recordField(choice.rec.Fields, "canonical_id") + "\x00" + recordField(choice.rec.Fields, "canonical_label")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, choice)
+		}
+	}
+	return out
+}
+
+func normalizeApplyResolutionSourceValueKey(value string) string {
+	return strings.TrimSpace(value)
 }
 
 func resolutionLocatorKeyFromExplicitFields(record actionRecord, fields []string) string {
@@ -3404,6 +4723,7 @@ func actionRecordCompositeKey(record actionRecord, fields []string) string {
 }
 
 var sourceIndexLocatorRE = regexp.MustCompile(`#([0-9]+)(?::|$)`)
+var sourceFieldLocatorRE = regexp.MustCompile(`#\d+:([^#\s]+)$`)
 
 func sourceIndexFromResolutionLocator(value string) string {
 	value = strings.TrimSpace(value)
@@ -3413,6 +4733,18 @@ func sourceIndexFromResolutionLocator(value string) string {
 	matches := sourceIndexLocatorRE.FindStringSubmatch(value)
 	if len(matches) >= 2 {
 		return matches[1]
+	}
+	return ""
+}
+
+func sourceFieldFromResolutionLocator(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	matches := sourceFieldLocatorRE.FindStringSubmatch(value)
+	if len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
 	}
 	return ""
 }
@@ -3427,6 +4759,9 @@ func filterAcceptedResolutionChoices(choices []resolutionChoice, spec applyResol
 	for _, choice := range choices {
 		status := strings.ToLower(strings.TrimSpace(choice.status))
 		if len(accepted) > 0 && !accepted[status] {
+			continue
+		}
+		if len(accepted) == 0 && resolutionStatusIsOpen(status) {
 			continue
 		}
 		canonicalID := recordField(choice.rec.Fields, spec.CanonicalIDField)
@@ -4106,14 +5441,19 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 	rightPath := firstNonEmptyString(strings.TrimSpace(action.Params["right_path"]), strings.TrimSpace(action.Params["right"]))
 	leftFields := parseActionStringListParam(firstNonEmptyString(
 		action.Params["left_fields"],
+		action.Params["left_fields_json"],
 		action.Params["left_keys"],
+		action.Params["left_keys_json"],
 		action.Params["left_key"],
 		action.Params["join_fields"],
+		action.Params["join_fields_json"],
 		action.Params["join_key"],
 	))
 	rightFields := parseActionStringListParam(firstNonEmptyString(
 		action.Params["right_fields"],
+		action.Params["right_fields_json"],
 		action.Params["right_keys"],
+		action.Params["right_keys_json"],
 		action.Params["right_key"],
 	))
 	if len(rightFields) == 0 {
@@ -4513,6 +5853,43 @@ func sampleJoinedActionRows(rows []map[string]any, limit int) []string {
 	return out
 }
 
+func sampleActionRecordsWithVirtualFields(records []actionRecord, rel string, limit int) []string {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	out := make([]string, 0, minInt(limit, len(records)))
+	for i, record := range records {
+		if i >= limit {
+			break
+		}
+		withVirtual := actionRecordWithVirtualFields(record, rel)
+		row := make(map[string]any, len(withVirtual.Fields))
+		for key, value := range withVirtual.Fields {
+			row[key] = value
+		}
+		out = append(out, compactJSONLine(row))
+	}
+	return out
+}
+
+func actionRecordWithVirtualFields(record actionRecord, rel string) actionRecord {
+	fields := make(map[string]string, len(record.Fields)+6)
+	for key, value := range record.Fields {
+		fields[key] = value
+	}
+	for key, value := range actionRecordVirtualFields(record, rel) {
+		if strings.TrimSpace(recordField(fields, key)) == "" {
+			fields[key] = value
+		}
+	}
+	return actionRecord{
+		Fields: fields,
+		Path:   record.Path,
+		Line:   record.Line,
+		Index:  record.Index,
+	}
+}
+
 type actionRecord struct {
 	Fields map[string]string
 	Path   string
@@ -4640,6 +6017,9 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		}
 		for _, filter := range effectiveFilters {
 			filterFields = append(filterFields, filter.Field)
+		}
+		if errText := numericContributionValueContractError(rel, records, effectiveFilters, effectiveValueField, operation); errText != "" {
+			return DataArtifact{}, nil, nil, errors.New(errText)
 		}
 		consumed = append(consumed, rel)
 		matched := 0
@@ -5310,6 +6690,10 @@ func (r ActionRunner) readActionRecords(path string, maxRecords int) ([]actionRe
 	if err != nil {
 		return nil, nil, 0, "", err
 	}
+	if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+		records, headers, total, err := readDirectoryTextActionRecords(abs, rel, maxRecords)
+		return records, headers, total, rel, err
+	}
 	kind := dataKindForPath(abs)
 	switch kind {
 	case "csv", "tsv":
@@ -5327,6 +6711,69 @@ func (r ActionRunner) readActionRecords(path string, maxRecords int) ([]actionRe
 		records, total, err := readTextActionRecords(abs, rel, maxRecords)
 		return records, []string{"text"}, total, rel, err
 	}
+}
+
+const maxDirectoryTextRecordBytes = 256 * 1024
+
+func readDirectoryTextActionRecords(abs, rel string, maxRecords int) ([]actionRecord, []string, int, error) {
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+	var records []actionRecord
+	total := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		total++
+		if len(records) >= maxRecords {
+			continue
+		}
+		childAbs := filepath.Join(abs, entry.Name())
+		text, truncated, err := readBoundedTextFile(childAbs, maxDirectoryTextRecordBytes)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		childRel := filepath.ToSlash(path.Join(rel, entry.Name()))
+		fields := map[string]string{
+			"text":      text,
+			"file_name": entry.Name(),
+			"file_path": childRel,
+		}
+		if truncated {
+			fields["text_truncated"] = "true"
+		}
+		records = append(records, actionRecord{Fields: fields, Path: childRel, Line: 1, Index: total})
+	}
+	return records, []string{"text", "file_name", "file_path", "text_truncated"}, total, nil
+}
+
+func readBoundedTextFile(abs string, maxBytes int64) (string, bool, error) {
+	file, err := os.Open(abs)
+	if err != nil {
+		return "", false, err
+	}
+	defer file.Close()
+	if maxBytes <= 0 {
+		maxBytes = maxDirectoryTextRecordBytes
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return "", false, err
+	}
+	truncated := int64(len(raw)) > maxBytes
+	if truncated {
+		raw = raw[:maxBytes]
+	}
+	return strings.TrimSpace(string(raw)), truncated, nil
 }
 
 func (r ActionRunner) prepareArtifactWorkspace() (string, func(), error) {
@@ -6204,16 +7651,16 @@ func parseContributionFilters(action DataAction) ([]contributionFilter, error) {
 		op := firstNonEmptyString(strings.TrimSpace(action.Params["filter_op"]), "eq")
 		value := firstNonEmptyString(strings.TrimSpace(action.Params["filter_value"]), strings.TrimSpace(action.Params["filter_equals"]))
 		if value != "" {
-			filters = append(filters, contributionFilter{Field: field, Op: op, Value: value})
+			filters = append(filters, contributionFilter{Field: field, Op: op, Value: normalizeContributionFilterStringValue(value)})
 		}
 		if ne := strings.TrimSpace(action.Params["filter_not_equals"]); ne != "" {
-			filters = append(filters, contributionFilter{Field: field, Op: "ne", Value: ne})
+			filters = append(filters, contributionFilter{Field: field, Op: "ne", Value: normalizeContributionFilterStringValue(ne)})
 		}
 	}
 	for i := range filters {
 		filters[i].Field = strings.TrimSpace(filters[i].Field)
 		filters[i].Op = strings.ToLower(strings.TrimSpace(filters[i].Op))
-		filters[i].Value = strings.TrimSpace(filters[i].Value)
+		filters[i].Value = normalizeContributionFilterStringValue(filters[i].Value)
 		if filters[i].Field == "" {
 			return nil, fmt.Errorf("filters_json[%d] has empty field", i)
 		}
@@ -6237,7 +7684,7 @@ func parseActionFilterListParams(action DataAction, keys ...string) ([]contribut
 		for i := range filters {
 			filters[i].Field = strings.TrimSpace(filters[i].Field)
 			filters[i].Op = strings.ToLower(strings.TrimSpace(filters[i].Op))
-			filters[i].Value = strings.TrimSpace(filters[i].Value)
+			filters[i].Value = normalizeContributionFilterStringValue(filters[i].Value)
 			if filters[i].Field == "" {
 				return nil, fmt.Errorf("%s[%d] has empty field", key, i)
 			}
@@ -6286,6 +7733,60 @@ func parseContributionFiltersRaw(raw string) ([]contributionFilter, error) {
 	return nil, fmt.Errorf("parse filters_json: %w", firstErr)
 }
 
+func parseContributionFiltersFromAny(value any) ([]contributionFilter, error) {
+	switch typed := value.(type) {
+	case []contributionFilter:
+		return normalizeContributionFilters(typed)
+	case []any:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := parseContributionFiltersRaw(string(raw))
+		if err != nil {
+			return nil, err
+		}
+		return normalizeContributionFilters(parsed)
+	case []map[string]any:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := parseContributionFiltersRaw(string(raw))
+		if err != nil {
+			return nil, err
+		}
+		return normalizeContributionFilters(parsed)
+	case string:
+		raw := strings.TrimSpace(typed)
+		if raw == "" {
+			return nil, nil
+		}
+		parsed, err := parseContributionFiltersRaw(raw)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeContributionFilters(parsed)
+	default:
+		return nil, fmt.Errorf("unsupported filters shape %T; use an array of field/op/value objects", value)
+	}
+}
+
+func normalizeContributionFilters(filters []contributionFilter) ([]contributionFilter, error) {
+	for i := range filters {
+		filters[i].Field = strings.TrimSpace(filters[i].Field)
+		filters[i].Op = strings.ToLower(strings.TrimSpace(filters[i].Op))
+		filters[i].Value = normalizeContributionFilterStringValue(filters[i].Value)
+		if filters[i].Field == "" {
+			return nil, fmt.Errorf("filters[%d] has empty field", i)
+		}
+		if filters[i].Op == "" {
+			filters[i].Op = "eq"
+		}
+	}
+	return filters, nil
+}
+
 func lowerStringSet(values []string) map[string]bool {
 	out := map[string]bool{}
 	for _, value := range values {
@@ -6302,7 +7803,11 @@ func defaultGeneratedBlockingStatusValues() map[string]bool {
 	return map[string]bool{
 		"ambiguous":          true,
 		"matched_ambiguous":  true,
+		"missing":            true,
 		"missing_source":     true,
+		"not_applicable":     true,
+		"not_matched":        true,
+		"unmatched":          true,
 		"unmatched_required": true,
 		"unresolved":         true,
 		"conflict":           true,
@@ -6328,6 +7833,10 @@ func generatedStatusFields(headers []string, records []actionRecord) []string {
 		if key == "status" || !strings.HasSuffix(key, "_status") {
 			continue
 		}
+		if key == "resolution_status" || strings.HasSuffix(key, "_resolution_status") {
+			out = append(out, originalName[key])
+			continue
+		}
 		base := strings.TrimSuffix(key, "_status")
 		if base == "" {
 			continue
@@ -6343,7 +7852,7 @@ func contributionBlockedGeneratedStatusIssues(record actionRecord, statusFields 
 	var issues []string
 	for _, field := range statusFields {
 		field = strings.TrimSpace(field)
-		if field == "" || statusFilterFields[strings.ToLower(field)] {
+		if field == "" {
 			continue
 		}
 		value := strings.ToLower(strings.TrimSpace(recordField(record.Fields, field)))
@@ -6351,7 +7860,11 @@ func contributionBlockedGeneratedStatusIssues(record actionRecord, statusFields 
 			continue
 		}
 		item := firstNonEmptyString(recordField(record.Fields, "id"), recordField(record.Fields, "item_id"), recordField(record.Fields, "row_id"), fmt.Sprintf("line:%d", record.Line))
-		issues = append(issues, fmt.Sprintf("%s=%s@%s", field, value, item))
+		suffix := ""
+		if statusFilterFields[strings.ToLower(field)] {
+			suffix = ":after_filter"
+		}
+		issues = append(issues, fmt.Sprintf("%s=%s@%s%s", field, value, item, suffix))
 	}
 	return issues
 }
@@ -6427,6 +7940,85 @@ func repairJSONListShape(raw string) string {
 	return repaired
 }
 
+func parseActionMapListJSON(raw string) ([]map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	candidates := []string{raw}
+	if repaired := repairJSONListShape(raw); repaired != raw {
+		candidates = append(candidates, repaired)
+	}
+	if repaired := repairJSONInvalidStringEscapes(raw); repaired != raw {
+		candidates = append(candidates, repaired)
+		if listRepaired := repairJSONListShape(repaired); listRepaired != repaired {
+			candidates = append(candidates, listRepaired)
+		}
+	}
+	var firstErr error
+	for _, candidate := range candidates {
+		var values []map[string]any
+		if err := json.Unmarshal([]byte(candidate), &values); err == nil {
+			return values, nil
+		} else if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return nil, firstErr
+}
+
+func repairJSONInvalidStringEscapes(raw string) string {
+	if raw == "" || !strings.Contains(raw, `\`) {
+		return raw
+	}
+	var b strings.Builder
+	b.Grow(len(raw) + 8)
+	inString := false
+	escaped := false
+	changed := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if !inString {
+			if ch == '"' {
+				inString = true
+			}
+			b.WriteByte(ch)
+			continue
+		}
+		if escaped {
+			b.WriteByte('\\')
+			if !isValidJSONEscapeByte(ch) {
+				b.WriteByte('\\')
+				changed = true
+			}
+			b.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = false
+		}
+		b.WriteByte(ch)
+	}
+	if escaped {
+		b.WriteByte('\\')
+	}
+	if !changed {
+		return raw
+	}
+	return b.String()
+}
+
+func isValidJSONEscapeByte(ch byte) bool {
+	switch ch {
+	case '"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u':
+		return true
+	default:
+		return false
+	}
+}
+
 func filterFieldNames(filters []contributionFilter) []string {
 	out := make([]string, 0, len(filters))
 	seen := map[string]bool{}
@@ -6482,6 +8074,73 @@ func compactFieldSampleJSON(records []actionRecord, fields []string, maxFields, 
 		return "{}"
 	}
 	return clampViolationText(string(raw), 1200)
+}
+
+func compactStringIntMapJSON(values map[string]int) string {
+	if len(values) == 0 {
+		return "{}"
+	}
+	cleaned := map[string]int{}
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" || value == 0 {
+			continue
+		}
+		cleaned[key] = value
+	}
+	if len(cleaned) == 0 {
+		return "{}"
+	}
+	raw, err := json.Marshal(cleaned)
+	if err != nil {
+		return "{}"
+	}
+	return clampViolationText(string(raw), 1200)
+}
+
+func extractFieldsZeroMatchDiagnosticsJSON(specs []deriveFieldSpec, requiredFields []string, requiredMissing, nonEmpty map[string]int, inputRows, outputRows int) string {
+	type specDiagnostic struct {
+		TargetField     string   `json:"target_field,omitempty"`
+		Operation       string   `json:"operation,omitempty"`
+		SourceFields    []string `json:"source_fields,omitempty"`
+		NonEmpty        int      `json:"non_empty,omitempty"`
+		RequiredMissing int      `json:"required_missing,omitempty"`
+	}
+	diagnostics := struct {
+		InputRows             int              `json:"input_rows"`
+		OutputRows            int              `json:"output_rows"`
+		RequiredFields        []string         `json:"required_fields,omitempty"`
+		RequiredMissingCounts map[string]int   `json:"required_missing_counts,omitempty"`
+		Specs                 []specDiagnostic `json:"specs,omitempty"`
+	}{
+		InputRows:      inputRows,
+		OutputRows:     outputRows,
+		RequiredFields: cleanStringSlice(requiredFields),
+	}
+	if len(requiredMissing) > 0 {
+		diagnostics.RequiredMissingCounts = map[string]int{}
+		for key, value := range requiredMissing {
+			key = strings.TrimSpace(key)
+			if key != "" && value > 0 {
+				diagnostics.RequiredMissingCounts[key] = value
+			}
+		}
+	}
+	for _, spec := range specs {
+		sourceFields := cleanStringSlice(append(append([]string{}, spec.SourceFields...), spec.SourceField))
+		diagnostics.Specs = append(diagnostics.Specs, specDiagnostic{
+			TargetField:     strings.TrimSpace(spec.TargetField),
+			Operation:       strings.TrimSpace(spec.Operation),
+			SourceFields:    sourceFields,
+			NonEmpty:        nonEmpty[spec.TargetField],
+			RequiredMissing: requiredMissing[spec.TargetField],
+		})
+	}
+	raw, err := json.Marshal(diagnostics)
+	if err != nil {
+		return "{}"
+	}
+	return clampViolationText(string(raw), 2400)
 }
 
 func filterDiagnosticsJSON(records []actionRecord, filters []contributionFilter, maxFilters, maxValues int) string {
@@ -6567,7 +8226,7 @@ func normalizeContributionFilterValue(value any) (string, error) {
 	case nil:
 		return "", nil
 	case string:
-		return strings.TrimSpace(v), nil
+		return normalizeContributionFilterStringValue(v), nil
 	case float64, bool:
 		return fmt.Sprint(v), nil
 	case []any:
@@ -6585,6 +8244,22 @@ func normalizeContributionFilterValue(value any) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported filter value shape %T; use a scalar or array of scalars", value)
 	}
+}
+
+func normalizeContributionFilterStringValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.HasPrefix(value, "[") {
+		return value
+	}
+	var items []any
+	if err := json.Unmarshal([]byte(value), &items); err != nil {
+		return value
+	}
+	normalized, err := normalizeContributionFilterValue(items)
+	if err != nil || strings.TrimSpace(normalized) == "" {
+		return value
+	}
+	return normalized
 }
 
 func recordPassesFilters(fields map[string]string, filters []contributionFilter) bool {
@@ -6641,14 +8316,14 @@ func recordPassesFilter(fields map[string]string, filter contributionFilter) boo
 	case "gt", "gte", "lt", "lte":
 		return compareRecordDecimal(got, want, filter.Op)
 	case "in":
-		for _, item := range strings.Split(want, ",") {
+		for _, item := range contributionFilterValueItems(want) {
 			if recordFilterValueEquals(got, strings.TrimSpace(item)) {
 				return true
 			}
 		}
 		return false
 	case "not_in", "nin":
-		for _, item := range strings.Split(want, ",") {
+		for _, item := range contributionFilterValueItems(want) {
 			if recordFilterValueEquals(got, strings.TrimSpace(item)) {
 				return false
 			}
@@ -6657,6 +8332,19 @@ func recordPassesFilter(fields map[string]string, filter contributionFilter) boo
 	default:
 		return false
 	}
+}
+
+func contributionFilterValueItems(value string) []string {
+	value = normalizeContributionFilterStringValue(value)
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func recordFilterValueEquals(got, want string) bool {
@@ -6706,6 +8394,99 @@ func compareRecordDecimal(got, want, op string) bool {
 	default:
 		return false
 	}
+}
+
+func numericFilterContractError(rel string, records []actionRecord, filters []contributionFilter) string {
+	for _, filter := range filters {
+		if !contributionFilterOpRequiresNumeric(filter.Op) {
+			continue
+		}
+		if _, err := parseDecimalRat(filter.Value); err != nil {
+			return fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q uses non-numeric comparison value %q; use a numeric literal or a non-numeric filter op",
+				rel, strings.TrimSpace(filter.Field), strings.TrimSpace(filter.Op), strings.TrimSpace(filter.Value))
+		}
+		stats := numericFieldSampleStats(records, filter.Field, nil, 8)
+		if stats.NonEmpty == 0 || stats.Numeric > 0 {
+			continue
+		}
+		return fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q requires numeric values but sampled non-empty values are non-numeric (numeric=%d non_numeric=%d bool_like=%d samples=%s). First materialize a numeric field with derive_fields operation=parse_number from an existing numeric source field, or use a non-numeric filter op when the field is a flag/status.",
+			rel,
+			strings.TrimSpace(filter.Field),
+			strings.TrimSpace(filter.Op),
+			stats.Numeric,
+			stats.NonNumeric,
+			stats.BoolLike,
+			strings.Join(stats.Samples, ", "))
+	}
+	return ""
+}
+
+func numericContributionValueContractError(rel string, records []actionRecord, filters []contributionFilter, valueField, operation string) string {
+	valueField = strings.TrimSpace(valueField)
+	if valueField == "" || strings.EqualFold(strings.TrimSpace(operation), "count") {
+		return ""
+	}
+	stats := numericFieldSampleStats(records, valueField, filters, 8)
+	if stats.NonEmpty == 0 || stats.Numeric > 0 {
+		return ""
+	}
+	return fmt.Sprintf("numeric field contract failed: compute_contributions input %s value_field %q operation %q requires numeric contribution values after filters, but sampled non-empty values are non-numeric (numeric=%d non_numeric=%d bool_like=%d samples=%s). First materialize a numeric value field with derive_fields operation=parse_number from an existing numeric source field, then use that field as value_field; keep flags/status fields for filtering or decisions only.",
+		rel,
+		valueField,
+		strings.TrimSpace(operation),
+		stats.Numeric,
+		stats.NonNumeric,
+		stats.BoolLike,
+		strings.Join(stats.Samples, ", "))
+}
+
+func contributionFilterOpRequiresNumeric(op string) bool {
+	switch strings.ToLower(strings.TrimSpace(op)) {
+	case "gt", "gte", "lt", "lte":
+		return true
+	default:
+		return false
+	}
+}
+
+type numericFieldStats struct {
+	NonEmpty   int
+	Numeric    int
+	NonNumeric int
+	BoolLike   int
+	Samples    []string
+}
+
+func numericFieldSampleStats(records []actionRecord, field string, filters []contributionFilter, sampleLimit int) numericFieldStats {
+	field = strings.TrimSpace(field)
+	if sampleLimit <= 0 {
+		sampleLimit = 1
+	}
+	var stats numericFieldStats
+	seen := map[string]bool{}
+	for _, record := range records {
+		if len(filters) > 0 && !recordPassesFilters(record.Fields, filters) {
+			continue
+		}
+		value := strings.TrimSpace(recordField(record.Fields, field))
+		if value == "" {
+			continue
+		}
+		stats.NonEmpty++
+		if _, err := parseDecimalRat(value); err == nil {
+			stats.Numeric++
+		} else {
+			stats.NonNumeric++
+			if _, ok := parseBoolLikeValue(value); ok {
+				stats.BoolLike++
+			}
+		}
+		if !seen[value] && len(stats.Samples) < sampleLimit {
+			seen[value] = true
+			stats.Samples = append(stats.Samples, clampViolationText(value, 80))
+		}
+	}
+	return stats
 }
 
 func recordField(fields map[string]string, name string) string {
@@ -6973,9 +8754,16 @@ func (r ActionRunner) extractRecordsFromPath(path string, limit int) (DataArtifa
 	if artifact.Fields == nil {
 		artifact.Fields = map[string]string{}
 	}
-	artifact.Fields["sample_count"] = fmt.Sprintf("%d", len(artifact.Sample))
+	sampleCount := len(artifact.Sample)
+	completeness := "complete"
+	if sampleCount < artifact.RowCount {
+		completeness = "sampled"
+	}
+	artifact.Fields["sample_count"] = fmt.Sprintf("%d", sampleCount)
+	artifact.Fields["total_rows"] = fmt.Sprintf("%d", artifact.RowCount)
 	artifact.Fields["limit"] = fmt.Sprintf("%d", limit)
-	artifact.Summary = fmt.Sprintf("%s | extracted %d sample record(s) from %d total record(s)", rel, len(artifact.Sample), artifact.RowCount)
+	artifact.Fields["record_completeness"] = completeness
+	artifact.Summary = fmt.Sprintf("%s | extracted %d record sample(s) from %d total record(s) | completeness=%s", rel, sampleCount, artifact.RowCount, completeness)
 	return artifact, nil
 }
 
@@ -7531,6 +9319,21 @@ func actionIntParamAny(action DataAction, keys []string, fallback, minValue, max
 		value = maxValue
 	}
 	return value
+}
+
+func actionBoolParam(action DataAction, key string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(action.Params[key]))
+	if raw == "" {
+		return fallback
+	}
+	switch raw {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func minInt(a, b int) int {

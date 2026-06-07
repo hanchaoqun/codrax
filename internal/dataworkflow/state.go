@@ -39,6 +39,9 @@ type ActionGraph struct {
 type ActionNode struct {
 	ID               string   `json:"id,omitempty"`
 	Kind             string   `json:"kind,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	DependencyRank   int      `json:"dependency_rank,omitempty"`
+	IdempotencyKey   string   `json:"idempotency_key,omitempty"`
 	InputAliases     []string `json:"input_aliases,omitempty"`
 	OutputAlias      string   `json:"output_alias,omitempty"`
 	ProducerStage    string   `json:"producer_stage,omitempty"`

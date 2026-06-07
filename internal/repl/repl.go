@@ -1319,8 +1319,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		if len(deferredPlan.Actions) > 0 {
-			r.emitDataTaskWorkflowAudit("deferred", round, reason)
-			logging.Info("[repl/data] deferred data action queue discarded actions=%d reason=%q", len(deferredPlan.Actions), reason)
+			detail := dataTaskDeferredQueueDiscardedSegment(r.language, deferredPlan, reason)
+			r.emitDataTaskWorkflowAudit("deferred", round, detail)
+			first := deferredPlan.Actions[0]
+			logging.Info("[repl/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
 		}
 		deferredPlan = dataquery.TaskPlan{}
 	}
@@ -1329,13 +1331,15 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if preflight.Rewritten {
 			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr})
 			r.emitDataTaskWorkflowAudit("continue", round, preflight.Reason)
-			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 			scope = "continue"
 		}
 		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
 			r.auditDataTaskPlan("rejected", round, preflight.Plan)
 			logging.Info("[repl/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
 			return preflight.Plan
+		}
+		if preflight.Rewritten {
+			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
 		r.emitDataTaskPlanAudit(preflight.Plan)
 		r.auditDataTaskPlan(scope, round, preflight.Plan)
@@ -1670,7 +1674,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
-			discardDeferredPlan(dataRounds, "discarded deferred queue after execution failure; graph will repair from current structured error")
+			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			r.auditDataTaskError(dataRounds, errText)
 			executionRecord := dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText)
 			if fallback, ok := dataTaskMissingJoinFieldFallback(append(records, executionRecord), currentPlan, errText); ok {
@@ -1816,6 +1820,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+			if strings.TrimSpace(status.Reason) != "" {
+				records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+			}
 			discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(r.language, status))
 		} else {
 			deferredPlan = dataquery.TaskPlan{}

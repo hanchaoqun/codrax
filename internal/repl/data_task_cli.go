@@ -67,8 +67,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		if len(deferredPlan.Actions) > 0 {
-			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", round, reason)
-			logging.Info("[cli/data] deferred data action queue discarded actions=%d reason=%q", len(deferredPlan.Actions), reason)
+			detail := dataTaskDeferredQueueDiscardedSegment(cfg.Language, deferredPlan, reason)
+			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", round, detail)
+			first := deferredPlan.Actions[0]
+			logging.Info("[cli/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
 		}
 		deferredPlan = dataquery.TaskPlan{}
 	}
@@ -77,13 +79,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if preflight.Rewritten {
 			records = append(records, dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr})
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", round, preflight.Reason)
-			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 			scope = "continue"
 		}
 		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "rejected", round, preflight.Plan)
 			logging.Info("[cli/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
 			return preflight.Plan
+		}
+		if preflight.Rewritten {
+			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
@@ -273,7 +277,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
-			discardDeferredPlan(dataRounds, "discarded deferred queue after execution failure; graph will repair from current structured error")
+			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			executionRecord := dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText)
 			if fallback, ok := dataTaskMissingJoinFieldFallback(append(records, executionRecord), currentPlan, errText); ok {
 				records = append(records, executionRecord)
@@ -367,6 +371,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+			if strings.TrimSpace(status.Reason) != "" {
+				records = append(records, dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
+			}
 			discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
 		} else {
 			deferredPlan = dataquery.TaskPlan{}

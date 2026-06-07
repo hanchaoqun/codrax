@@ -83,6 +83,8 @@ const (
 	DataActionExtractRecords    DataActionKind = "extract_records"
 	DataActionDeriveRules       DataActionKind = "derive_rules"
 	DataActionDeriveFields      DataActionKind = "derive_fields"
+	DataActionExtractFields     DataActionKind = "extract_fields"
+	DataActionGroupRecords      DataActionKind = "group_records"
 	DataActionExpandRecords     DataActionKind = "expand_records"
 	DataActionFilterRecords     DataActionKind = "filter_records"
 	DataActionQualifyRecords    DataActionKind = "qualify_records"
@@ -373,6 +375,10 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 			v.Code = "compute_contribution_field_contract"
 			v.RepairHint = "compute_contributions can only use existing record fields. If the value/group/filter is derived, first create a focused extract/custom_transform artifact with that field, or use a bounded custom_transform for the derived computation instead of referencing a nonexistent field."
 		}
+		if strings.Contains(lower, "numeric field contract failed") {
+			v.Code = "numeric_field_contract"
+			v.RepairHint = "A field used by numeric filtering or contribution calculation contains non-numeric samples. Materialize a numeric field first with a typed derive_fields parse_number action from an existing numeric source field, then use that numeric field for gt/gte/lt/lte or value_field."
+		}
 		if strings.Contains(lower, "target result.contributions") && strings.Contains(lower, "no source anchor") {
 			v.Code = "missing_target_contribution_source_anchor"
 			v.RepairHint = "Final target contributions must be atomic sourced items with source, source_locator, or evidence_refs. Do not add aggregate summary rows as target contributions; put aggregate values in reconcile.groups or mark helper diagnostics as role=intermediate/audit."
@@ -420,6 +426,9 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	case strings.Contains(lower, "invalid literal for int()"):
 		v.Code = "numeric_parse_failure"
 		v.RepairHint = "Do not parse identifiers as integers; keep identifiers as strings and parse only fields that are truly numeric."
+	case strings.Contains(lower, "numeric field contract failed"):
+		v.Code = "numeric_field_contract"
+		v.RepairHint = "A field used by numeric filtering or contribution calculation contains non-numeric samples. Materialize a numeric field first with a typed derive_fields parse_number action from an existing numeric source field, then use that numeric field for gt/gte/lt/lte or value_field."
 	case strings.Contains(lower, "uses text_evidence_consumed but text_evidence_path is empty"):
 		v.Code = "text_evidence_path_missing"
 		v.RepairHint = "Set text_evidence_path for the required material or choose a different verifiable usage_mode."
@@ -2056,7 +2065,7 @@ func validateEntityResolutionRecords(records []EntityResolutionRecord) error {
 
 func resolutionStatusIsOpen(status string) bool {
 	status = strings.ToLower(strings.TrimSpace(status))
-	for _, marker := range []string{"unresolved", "unmatched", "ambiguous", "unknown", "not_found", "no_match", "failed", "invalid", "open"} {
+	for _, marker := range []string{"unresolved", "unmatched", "ambiguous", "unknown", "not_found", "no_match", "not_applicable", "missing", "failed", "invalid", "open"} {
 		if strings.Contains(status, marker) {
 			return true
 		}
@@ -2358,6 +2367,67 @@ func ruleCoverageRecordIdentityKey(rec RuleCoverageRecord) string {
 		return ""
 	}
 	return strings.Join(parts, "\x00")
+}
+
+func DedupeRowDecisionRecords(records []RowDecision) []RowDecision {
+	if len(records) <= 1 {
+		return records
+	}
+	out := make([]RowDecision, 0, len(records))
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		key := rowDecisionRecordIdentityKey(rec)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func rowDecisionRecordIdentityKey(rec RowDecision) string {
+	evidenceRefs := cleanStringList(rec.EvidenceRef)
+	sort.Strings(evidenceRefs)
+	ruleRefs := cleanStringList(rec.RuleRefs)
+	sort.Strings(ruleRefs)
+	parts := []string{
+		rec.RowID,
+		rec.Source,
+		rec.SourceLocator,
+		rec.Decision,
+		rec.Reason,
+		rec.Value,
+		rec.Contribution,
+		normalizedFieldIdentity(rec.NormalizedFields),
+		strings.Join(evidenceRefs, "\x1e"),
+		strings.Join(ruleRefs, "\x1e"),
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if strings.Join(parts, "") == "" {
+		return ""
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func normalizedFieldIdentity(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, strings.TrimSpace(key)+"="+strings.TrimSpace(values[key]))
+	}
+	return strings.Join(parts, "\x1e")
 }
 
 func DedupeContributionRecords(records []ContributionRecord) []ContributionRecord {
