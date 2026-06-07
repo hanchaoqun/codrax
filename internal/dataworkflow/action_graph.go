@@ -38,6 +38,39 @@ func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, lim
 	return graph
 }
 
+func BlockedActionNodesFromViolations(violations []WorkflowViolation) []ActionNode {
+	out := make([]ActionNode, 0, len(violations))
+	for _, violation := range violations {
+		kindText := strings.TrimSpace(violation.ActionKind)
+		kind := dataquery.DataActionKind(kindText)
+		var capability ActionCapability
+		if kindText != "" {
+			kind = NormalizeActionKind(kind)
+			capability, _ = Capability(kind)
+		}
+		inputs := cleanActionAliases(violation.InputAliases)
+		if len(inputs) == 0 && strings.TrimSpace(violation.InputAlias) != "" {
+			inputs = cleanActionAliases([]string{violation.InputAlias})
+		}
+		key := strings.TrimSpace(violation.IdempotencyKey)
+		if key == "" {
+			key = blockedViolationKey(violation, inputs)
+		}
+		out = append(out, ActionNode{
+			ID:               strings.TrimSpace(violation.ActionID),
+			Kind:             string(kind),
+			Status:           ActionStatusBlocked,
+			DependencyRank:   capability.DependencyRank,
+			IdempotencyKey:   key,
+			InputAliases:     inputs,
+			OutputAlias:      strings.TrimSpace(violation.OutputAlias),
+			BlockedReason:    blockedViolationReason(violation),
+			CanProduceLedger: ledgerKindStrings(capability.ProducesLedgers),
+		})
+	}
+	return out
+}
+
 func ActionNodeFor(action dataquery.DataAction, status string) ActionNode {
 	action, _ = NormalizeRolePathAction(action)
 	kind := NormalizeActionKind(action.Kind)
@@ -52,6 +85,30 @@ func ActionNodeFor(action dataquery.DataAction, status string) ActionNode {
 		OutputAlias:      strings.TrimSpace(action.OutputArtifact),
 		CanProduceLedger: ledgerKindStrings(capability.ProducesLedgers),
 	}
+}
+
+func blockedViolationKey(violation WorkflowViolation, inputs []string) string {
+	payload, _ := json.Marshal([]any{
+		strings.TrimSpace(violation.Code),
+		strings.TrimSpace(violation.ActionID),
+		strings.TrimSpace(violation.ActionKind),
+		inputs,
+		strings.TrimSpace(violation.OutputAlias),
+		cleanStrings(violation.MissingFields),
+	})
+	return fmt.Sprintf("blocked:%s", hashActionText(string(payload)))
+}
+
+func blockedViolationReason(violation WorkflowViolation) string {
+	code := strings.TrimSpace(violation.Code)
+	reason := strings.TrimSpace(violation.Reason)
+	if code == "" {
+		return reason
+	}
+	if reason == "" {
+		return code
+	}
+	return code + ": " + reason
 }
 
 func cleanActionStatus(status, fallback string) string {

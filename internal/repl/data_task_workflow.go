@@ -5879,6 +5879,7 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
 	state.WorkflowViolations = dataTaskWorkflowTypedViolations(state)
+	state.ActionGraph.Blocked = dataworkflow.BlockedActionNodesFromViolations(state.WorkflowViolations)
 	return state
 }
 

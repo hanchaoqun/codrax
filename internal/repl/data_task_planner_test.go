@@ -2140,6 +2140,9 @@ func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	if got.Repairability != "needs_typed_action" {
 		t.Fatalf("Repairability=%q", got.Repairability)
 	}
+	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].Status != dataworkflow.ActionStatusBlocked {
+		t.Fatalf("blocked action graph=%+v, want typed violation projected as blocked node", state.ActionGraph.Blocked)
+	}
 }
 
 func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *testing.T) {

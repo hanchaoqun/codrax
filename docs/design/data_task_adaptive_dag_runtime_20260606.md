@@ -9545,5 +9545,40 @@ Remaining architecture items:
 
 - [ ] Emit full `WorkflowViolation` objects from this builder at the guard
       boundary, instead of formatting prose first and parsing it later.
-- [ ] Feed schema-contract failures into the shared ActionGraph reducer as
+- [x] Feed schema-contract failures into the shared ActionGraph reducer as
       blocked nodes.
+      Completed in Batch 211.
+
+### Batch 211: WorkflowViolation Blocked Action Nodes
+
+Typed violations were available as `workflow_state_json.workflow_violations`,
+but ActionGraph still showed only executed/failed/ready nodes. That means a
+schema-contract failure could be structurally visible in one part of state but
+not in the graph state the scheduler should eventually own.
+
+This batch projects typed violations into blocked ActionGraph nodes:
+
+- `WorkflowViolation` records become `ActionNode{status=blocked}`;
+- input aliases, output alias, action id/kind, dependency rank, and ledger
+  capability are preserved when known;
+- blocked nodes get stable structural keys derived from violation code,
+  action identity, input aliases, output alias, and missing fields when the
+  original action idempotency key is unavailable.
+
+This remains typed structural state. It does not parse model prose for hard
+gates, and it does not infer business semantics from field or artifact names.
+
+Changes:
+
+- [x] Added `dataworkflow.BlockedActionNodesFromViolations`.
+- [x] Wired workflow state to populate `action_graph.blocked` from typed
+      workflow violations.
+- [x] Added regression coverage for blocked-node projection and REPL workflow
+      state exposure.
+
+Remaining architecture items:
+
+- [ ] Emit `WorkflowViolation` directly from guard functions before prose
+      formatting.
+- [ ] Teach the shared reducer to own blocked-node lifecycle and unblock
+      transitions after successful repair actions.

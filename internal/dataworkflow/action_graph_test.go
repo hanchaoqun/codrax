@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -97,5 +98,30 @@ func TestReduceActionGraphProjectsEventsReadyAndLimit(t *testing.T) {
 	}
 	if len(graph.Ready[0].InputAliases) != 2 || graph.Ready[0].InputAliases[0] != "records.json" || graph.Ready[0].InputAliases[1] != "reference.json" {
 		t.Fatalf("Ready input aliases=%v, want normalized role paths", graph.Ready[0].InputAliases)
+	}
+}
+
+func TestBlockedActionNodesFromViolationsProjectsTypedRepairState(t *testing.T) {
+	nodes := BlockedActionNodesFromViolations([]WorkflowViolation{{
+		Code:          "field_contract_violation",
+		ActionID:      "filter",
+		ActionKind:    string(dataquery.DataActionFilterRecords),
+		InputAlias:    "records.json",
+		MissingFields: []string{"status"},
+		Reason:        "missing status field",
+	}})
+
+	if len(nodes) != 1 {
+		t.Fatalf("nodes=%+v, want one blocked node", nodes)
+	}
+	got := nodes[0]
+	if got.Status != ActionStatusBlocked || got.ID != "filter" || got.Kind != string(dataquery.DataActionFilterRecords) {
+		t.Fatalf("node=%+v, want blocked filter node", got)
+	}
+	if len(got.InputAliases) != 1 || got.InputAliases[0] != "records.json" {
+		t.Fatalf("InputAliases=%v", got.InputAliases)
+	}
+	if got.IdempotencyKey == "" || !strings.Contains(got.BlockedReason, "field_contract_violation") {
+		t.Fatalf("node=%+v, want stable blocked key and reason", got)
 	}
 }
