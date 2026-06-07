@@ -17,6 +17,7 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			Status: ActionStatusExecuted,
 		}},
 		ActionGraph: ActionGraph{Deferred: []ActionNode{{ID: "join_next", Status: ActionStatusDeferred}}},
+		Decision:    WorkflowDecision{Status: "continue", ReasonCode: "compute_contributions", NextActions: []string{"compute_contributions"}},
 		ProcessEvents: []WorkflowJournalEvent{{
 			Kind:          "evaluate",
 			Round:         2,
@@ -31,10 +32,31 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}
+	}
+}
+
+func TestBuildWorkflowDecisionFromTypedState(t *testing.T) {
+	decision := BuildWorkflowDecision(WorkflowDecisionInput{
+		NextStage:          StageComputeContributions,
+		AllowedNextActions: []string{string(dataquery.DataActionComputeContribs)},
+	})
+	if decision.Status != "continue" || decision.ReasonCode != StageComputeContributions || !strings.Contains(strings.Join(decision.NextActions, ","), string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("decision=%+v, want continue compute_contributions", decision)
+	}
+
+	blocked := BuildWorkflowDecision(WorkflowDecisionInput{
+		Violations: []WorkflowViolation{{
+			Code:              "field_contract_violation",
+			Reason:            "missing amount field",
+			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+		}},
+	})
+	if blocked.Status != "blocked" || blocked.ReasonCode != "field_contract_violation" || blocked.Reason != "missing amount field" || !strings.Contains(strings.Join(blocked.NextActions, ","), string(dataquery.DataActionDeriveFields)) {
+		t.Fatalf("blocked decision=%+v, want typed violation decision", blocked)
 	}
 }
 

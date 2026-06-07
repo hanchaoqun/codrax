@@ -2943,6 +2943,7 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		ActionGraph:        state.ActionGraph,
 		ArtifactGraph:      artifactGraph,
 		WorkflowViolations: state.WorkflowViolations,
+		Decision:           dataTaskWorkflowJournalDecision(state, status, reason, lastErr),
 		ProcessEvents:      dataTaskWorkflowJournalEvents(a.Records),
 		Resume:             dataTaskWorkflowResumePayload(a.Records, dataquery.TaskPlan{}, dataquery.TaskPlan{}),
 	}
@@ -3002,6 +3003,7 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		ActionGraph:        state.ActionGraph,
 		ArtifactGraph:      artifactGraph,
 		WorkflowViolations: violations,
+		Decision:           state.Decision,
 		ProcessEvents:      processEvents,
 		Resume:             dataTaskWorkflowResumePayload(records, current, deferred),
 	}
@@ -3018,6 +3020,20 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 	}
 	logging.Info("[%s/data] checkpoint full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
 	return path
+}
+
+func dataTaskWorkflowJournalDecision(state dataTaskWorkflowStateView, status, reason, lastErr string) dataworkflow.WorkflowDecision {
+	decision := state.Decision
+	if text := strings.TrimSpace(status); text != "" {
+		decision.Status = text
+	}
+	if decision.ReasonCode == "" {
+		decision.ReasonCode = firstNonEmptyString(strings.TrimSpace(status), strings.TrimSpace(state.NextStage))
+	}
+	if text := firstNonEmptyString(strings.TrimSpace(reason), strings.TrimSpace(lastErr)); text != "" {
+		decision.Reason = text
+	}
+	return decision
 }
 
 func dataTaskWorkflowResumePayload(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) *dataworkflow.WorkflowResumePayload {

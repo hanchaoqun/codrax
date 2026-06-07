@@ -14,6 +14,7 @@ type WorkflowJournal struct {
 	ActionGraph        ActionGraph                `json:"action_graph,omitempty"`
 	ArtifactGraph      []ArtifactSchemaProjection `json:"artifact_graph,omitempty"`
 	WorkflowViolations []WorkflowViolation        `json:"workflow_violations,omitempty"`
+	Decision           WorkflowDecision           `json:"decision,omitempty"`
 	ProcessEvents      []WorkflowJournalEvent     `json:"process_events,omitempty"`
 	Resume             *WorkflowResumePayload     `json:"resume,omitempty"`
 }

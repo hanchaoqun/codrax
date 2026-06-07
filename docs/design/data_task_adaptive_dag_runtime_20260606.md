@@ -10498,9 +10498,9 @@ Still open, but not blockers for the next single real uninterrupted run:
 - [ ] Add a domain-neutral mapping-candidate action. Current typed relation
       actions can proceed without it, but candidate generation would improve
       convergence for ambiguous reference/entity matching.
-- [ ] Promote every evaluator reason into a durable `WorkflowDecision` object.
-      Current typed violations and journal events are sufficient for the next
-      run; a full decision IR remains the next architecture cleanup.
+- [x] Promote every evaluator reason into a durable `WorkflowDecision` object.
+      Completed in Batch 262 for live `workflow_state_json` and
+      terminal/checkpoint journals.
 - [ ] Multi-run volatility gates and CI status checks. They are required before
       claiming default-on commercial release stability, but provider budget and
       repeated-run variance should be measured after the single-run path is
@@ -11615,6 +11615,54 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Re-audit the full design document for historical `Remaining architecture
+- [x] Re-audit the full design document for historical `Remaining architecture
       items` that are already superseded by later batches, and split any truly
       open items into a short current backlog before running the real scenario.
+      Current backlog refreshed in Batch 262.
+
+### Batch 262: Durable Workflow Decision IR And Current Backlog Audit
+
+The next IR pass promoted workflow decisions from scattered status/reason
+strings into a durable `WorkflowDecision` object. The type already existed, but
+live `workflow_state_json`, terminal audit snapshots, and checkpoint snapshots
+did not consistently carry it. That left evaluator decisions and typed
+violations visible, but not as one compact state-machine result.
+
+This is a generic workflow-state problem. A data workflow should always expose
+whether the next state is `continue`, `blocked`, `complete`, or a typed
+evaluator status; the reason code should come from typed stage/evaluation/
+violation values; the suggested next actions should come from allowed actions
+or violation repair hints. The decision object is audit and planner context; it
+does not parse user intent or model prose to drive hard gates.
+
+Changes:
+
+- [x] Added `WorkflowDecisionInput` and `BuildWorkflowDecision` in
+      `internal/dataworkflow`.
+- [x] Projected current workflow decisions into live `workflow_state_json`.
+- [x] Promoted the latest evaluator typed status/reason into `WorkflowDecision`
+      when available.
+- [x] Persisted `decision` in terminal and checkpoint workflow journals.
+- [x] Added regression coverage for continue decisions, blocked typed-violation
+      decisions, evaluator-decision projection, and journal JSON.
+- [x] Re-audited the recent design-log backlog. Historical `[ ]` items remain
+      in older ledger sections, but the current architecture backlog below is
+      the authoritative list to clear before another real-scenario run.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move remaining REPL adapter-owned trigger predicates behind reducer-owned
+      transition inputs where they make scheduling decisions, especially broad
+      custom-transform/material-discovery triggers and field/relation guard
+      entrypoints that still produce prose wrappers around typed violations.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

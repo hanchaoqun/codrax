@@ -2464,6 +2464,9 @@ func TestDataTaskWorkflowStateExposesWorkflowAndCurrentBatchContracts(t *testing
 	if !state.CurrentBatchContract.ContributionLedgerRequired || !state.CurrentBatchContract.ReconcileRequired {
 		t.Fatalf("current batch ledger flags=%+v, want durable ledger requirements visible", state.CurrentBatchContract)
 	}
+	if state.Decision.Status != "continue" || state.Decision.ReasonCode == "" {
+		t.Fatalf("Decision=%+v, want continue decision projected into workflow state", state.Decision)
+	}
 }
 
 func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
@@ -2495,6 +2498,22 @@ func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStatePromotesLatestEvaluationIntoDecision(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Evaluation: &dataquery.Evaluation{
+			Status: dataquery.EvalRepairNode,
+			Reason: "computed artifact needs another typed field derivation",
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.Decision.Status != string(dataquery.EvalRepairNode) || state.Decision.ReasonCode != string(dataquery.EvalRepairNode) {
+		t.Fatalf("Decision=%+v, want evaluation status projected", state.Decision)
+	}
+	if state.Decision.Reason != "computed artifact needs another typed field derivation" {
+		t.Fatalf("Decision.Reason=%q, want evaluation reason", state.Decision.Reason)
+	}
+}
+
 func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Err: `data planning incomplete: action 1 (filter_eligible) references field(s) [currency, status] that are not present on input records fields [id, amount]. Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.`,
@@ -2518,6 +2537,9 @@ func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	}
 	if got.Repairability != "needs_typed_action" {
 		t.Fatalf("Repairability=%q", got.Repairability)
+	}
+	if state.Decision.Status != "blocked" || state.Decision.ReasonCode != "field_contract_violation" {
+		t.Fatalf("Decision=%+v, want blocked field-contract decision", state.Decision)
 	}
 	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].Status != dataworkflow.ActionStatusBlocked {
 		t.Fatalf("blocked action graph=%+v, want typed violation projected as blocked node", state.ActionGraph.Blocked)

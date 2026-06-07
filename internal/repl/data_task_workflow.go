@@ -5424,6 +5424,7 @@ type dataTaskWorkflowStateView struct {
 	ArtifactAvailability          []dataTaskArtifactAccessPrompt     `json:"artifact_availability,omitempty"`
 	AllowedNextActions            []string                           `json:"allowed_next_actions,omitempty"`
 	AllowedNextActionContracts    []dataTaskActionContract           `json:"allowed_next_action_contracts,omitempty"`
+	Decision                      dataworkflow.WorkflowDecision      `json:"decision,omitempty"`
 	ActionScaffold                []dataTaskActionScaffold           `json:"action_scaffold,omitempty"`
 	FieldContractViolations       []dataTaskFieldContractViolation   `json:"field_contract_violations,omitempty"`
 	ZeroMatchFilterViolations     []dataTaskZeroMatchFilterIssue     `json:"zero_match_filter_violations,omitempty"`
@@ -5758,6 +5759,21 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
 	state.WorkflowViolations = dataTaskWorkflowTypedViolations(records, state)
+	state.Decision = dataworkflow.BuildWorkflowDecision(dataworkflow.WorkflowDecisionInput{
+		NextStage:          state.NextStage,
+		AllowedNextActions: state.AllowedNextActions,
+		Violations:         state.WorkflowViolations,
+	})
+	if eval, ok := latestDataTaskEvaluation(records); ok {
+		state.Decision = dataworkflow.BuildWorkflowDecision(dataworkflow.WorkflowDecisionInput{
+			Status:             string(eval.Status),
+			ReasonCode:         string(eval.Status),
+			Reason:             eval.Reason,
+			NextStage:          state.NextStage,
+			AllowedNextActions: state.AllowedNextActions,
+			Violations:         state.WorkflowViolations,
+		})
+	}
 	state.ActionGraph = dataTaskWorkflowActionGraphWithDeferredAndViolations(records, current, deferred, state.WorkflowViolations, 48)
 	return state
 }
@@ -8677,6 +8693,15 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 		}
 	}
 	return dataquery.Result{}, false
+}
+
+func latestDataTaskEvaluation(records []dataTaskWorkflowRecord) (dataquery.Evaluation, bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Evaluation != nil {
+			return *records[i].Evaluation, true
+		}
+	}
+	return dataquery.Evaluation{}, false
 }
 
 func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result {

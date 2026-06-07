@@ -1,6 +1,10 @@
 package dataworkflow
 
-import "github.com/hanchaoqun/codrax/internal/dataquery"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
 
 // WorkflowState is the durable IR boundary for adaptive data tasks. REPL and
 // CLI code should render or adapt this state instead of owning workflow rules.
@@ -77,6 +81,71 @@ type WorkflowDecision struct {
 	Reason      string   `json:"reason,omitempty"`
 	Violations  []string `json:"violations,omitempty"`
 	NextActions []string `json:"next_actions,omitempty"`
+}
+
+type WorkflowDecisionInput struct {
+	Status             string
+	ReasonCode         string
+	Reason             string
+	NextStage          string
+	AllowedNextActions []string
+	Violations         []WorkflowViolation
+}
+
+func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
+	status := trimStateText(input.Status)
+	reasonCode := trimStateText(input.ReasonCode)
+	reason := trimStateText(input.Reason)
+	nextActions := cleanStrings(input.AllowedNextActions)
+	var violationCodes []string
+	for _, violation := range input.Violations {
+		if code := trimStateText(violation.Code); code != "" {
+			violationCodes = append(violationCodes, code)
+		}
+		if reasonCode == "" {
+			reasonCode = trimStateText(violation.Code)
+		}
+		if reason == "" {
+			reason = trimStateText(violation.Reason)
+		}
+		if len(nextActions) == 0 {
+			nextActions = cleanStrings(violation.RepairActionHints)
+		}
+	}
+	if status == "" {
+		switch {
+		case len(violationCodes) > 0:
+			status = "blocked"
+		case trimStateText(input.NextStage) == StageComplete:
+			status = "complete"
+		default:
+			status = "continue"
+		}
+	}
+	if reasonCode == "" {
+		reasonCode = trimStateText(input.NextStage)
+	}
+	if reason == "" {
+		switch status {
+		case "complete":
+			reason = "workflow validation stages are complete"
+		case "blocked":
+			reason = "workflow has typed violations that need repair"
+		default:
+			reason = "workflow has remaining typed stages"
+		}
+	}
+	return WorkflowDecision{
+		Status:      status,
+		ReasonCode:  reasonCode,
+		Reason:      reason,
+		Violations:  cleanStrings(violationCodes),
+		NextActions: nextActions,
+	}
+}
+
+func trimStateText(value string) string {
+	return strings.TrimSpace(value)
 }
 
 type ArtifactSchemaProjection struct {
