@@ -10177,3 +10177,29 @@ Remaining architecture items:
       then checkpoint those deeper guard events with the same journal path.
 - [ ] Feed guard checkpoint paths into low-noise CLI/REPL process summaries only
       when verbose/audit output is enabled; keep stdout final-answer clean.
+
+### Batch 230: Typed Action Dependency Guard Entrypoint
+
+Action-level dependency checks were another prose-only boundary. This batch
+converts the action dependency guard entrypoint to return `GuardResult` while
+preserving the existing string wrapper for current callers. The guard still
+uses deterministic action kind, input contract, upstream ledger, and action
+spec checks; it does not parse rendered messages.
+
+Changes:
+
+- [x] Added `dataTaskActionDependencyGuardResult`.
+- [x] Kept `dataTaskActionDependencyGuardError` as a thin renderer.
+- [x] Assigned stable typed codes for common structural classes:
+      intra-batch dependency, unavailable input, field-contract guard,
+      missing/too-many inputs, missing action spec, and missing upstream
+      ledger.
+- [x] Added regression coverage for a missing action-spec guard result.
+
+Remaining architecture items:
+
+- [ ] Convert the deeper field-contract, zero-match, unmatched-resolution, and
+      zero-eligible guard helpers to return typed violations/results directly.
+- [ ] Feed action dependency `GuardResult` objects into checkpoints from
+      staging loops once action guard results are propagated through the parent
+      staging guard result.
