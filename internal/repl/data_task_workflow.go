@@ -5677,6 +5677,7 @@ type dataTaskWorkflowStateView struct {
 	ZeroMatchFilterViolations     []dataTaskZeroMatchFilterIssue     `json:"zero_match_filter_violations,omitempty"`
 	UnmatchedResolutionViolations []dataTaskUnmatchedResolutionIssue `json:"unmatched_resolution_violations,omitempty"`
 	ZeroEligibleViolations        []dataTaskZeroEligibleIssue        `json:"zero_eligible_qualification_violations,omitempty"`
+	WorkflowViolations            []dataworkflow.WorkflowViolation   `json:"workflow_violations,omitempty"`
 }
 
 type dataTaskActionContract struct {
@@ -6006,7 +6007,69 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 	state.ZeroMatchFilterViolations = dataTaskWorkflowZeroMatchFilterIssues(records, state, 4)
 	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
 	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
+	state.WorkflowViolations = dataTaskWorkflowTypedViolations(state)
 	return state
+}
+
+func dataTaskWorkflowTypedViolations(state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
+	var out []dataworkflow.WorkflowViolation
+	for _, issue := range state.FieldContractViolations {
+		out = append(out, dataworkflow.WorkflowViolation{
+			Code:                 "field_contract_violation",
+			Severity:             "error",
+			Repairability:        dataworkflow.RepairNeedsTypedAction,
+			ActionID:             strings.TrimSpace(issue.ActionID),
+			ActionKind:           strings.TrimSpace(issue.ActionKind),
+			InputAlias:           strings.TrimSpace(issue.InputAlias),
+			MissingFields:        append([]string(nil), issue.MissingFields...),
+			AvailableFieldSample: append([]string(nil), issue.AvailableFieldSample...),
+			CandidateArtifacts:   append([]string(nil), issue.CandidateArtifacts...),
+			RepairActionHints:    append([]string(nil), issue.RepairActionHints...),
+			Reason:               strings.TrimSpace(issue.Reason),
+		})
+	}
+	for _, issue := range state.ZeroMatchFilterViolations {
+		out = append(out, dataworkflow.WorkflowViolation{
+			Code:              "zero_match_filter",
+			Severity:          "warning",
+			Repairability:     dataworkflow.RepairNeedsTypedAction,
+			ActionKind:        string(dataquery.DataActionFilterRecords),
+			InputAlias:        strings.TrimSpace(issue.InputPath),
+			InputAliases:      cleanDataTaskStrings([]string{issue.InputPath}),
+			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
+			MissingFields:     append([]string(nil), issue.FilterFields...),
+			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
+			Reason:            strings.TrimSpace(issue.Reason),
+		})
+	}
+	for _, issue := range state.UnmatchedResolutionViolations {
+		out = append(out, dataworkflow.WorkflowViolation{
+			Code:              "unmatched_resolution",
+			Severity:          "warning",
+			Repairability:     dataworkflow.RepairNeedsTypedAction,
+			ActionKind:        string(dataquery.DataActionApplyResolutions),
+			InputAlias:        strings.TrimSpace(issue.BasePath),
+			InputAliases:      cleanDataTaskStrings([]string{issue.BasePath}),
+			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
+			MissingFields:     append([]string(nil), issue.TargetFields...),
+			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
+			Reason:            strings.TrimSpace(issue.Reason),
+		})
+	}
+	for _, issue := range state.ZeroEligibleViolations {
+		out = append(out, dataworkflow.WorkflowViolation{
+			Code:              "zero_eligible_records",
+			Severity:          "warning",
+			Repairability:     dataworkflow.RepairNeedsTypedAction,
+			ActionKind:        string(dataquery.DataActionQualifyRecords),
+			InputAlias:        strings.TrimSpace(issue.InputPath),
+			InputAliases:      cleanDataTaskStrings([]string{issue.InputPath}),
+			OutputAlias:       firstNonEmptyString(issue.ArtifactID, strings.Join(issue.Aliases, ",")),
+			RepairActionHints: append([]string(nil), issue.RepairActionHints...),
+			Reason:            strings.TrimSpace(issue.Reason),
+		})
+	}
+	return out
 }
 
 func dataTaskWorkflowActionGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, limit int) dataworkflow.ActionGraph {

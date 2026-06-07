@@ -9251,3 +9251,45 @@ Remaining architecture items:
       typed `ArtifactGraph` node classes instead of local REPL predicates.
 - [ ] Add typed scaffold eligibility diagnostics so skipped scaffolds are
       visible in audit without becoming user-facing noise.
+
+### Batch 203: Unified WorkflowViolation Projection
+
+The remaining reducer gap is not just whether an error can be detected. Many
+errors were already detected, but they were exposed as a mixture of prose
+strings and several specialized arrays: field-contract issues, zero-match
+filters, unmatched entity-resolution applications, and zero-eligible
+qualification outputs. That fragmentation makes the planner and evaluator do
+too much interpretation work.
+
+This batch adds a unified typed violation projection while preserving the older
+specialized fields for compatibility during migration. It does not change
+execution behavior and does not infer business meaning. It only projects
+already-typed structural findings into one schema:
+
+- `code`;
+- `severity`;
+- `repairability`;
+- action id/kind and input/output aliases where known;
+- missing fields, candidate artifacts, available-field samples, and repair
+  action hints.
+
+Changes:
+
+- [x] Added `dataworkflow.WorkflowViolation` and repairability enums.
+- [x] Exposed `workflow_state_json.workflow_violations`.
+- [x] Projected existing field-contract, zero-match-filter,
+      unmatched-resolution, and zero-eligible-record findings into the unified
+      violation list.
+- [x] Updated continuation/evaluator prompt rules to repair from typed
+      violation fields before relying on prose errors.
+- [x] Added regression coverage that a field-contract gap appears in
+      `workflow_violations` with missing fields and typed repairability.
+
+Remaining architecture items:
+
+- [ ] Make staging guards return typed `WorkflowViolation` objects directly
+      instead of formatting prose first and re-parsing some errors later.
+- [ ] Link violations to `ActionNode.idempotency_key` and dependency rank once
+      the full ActionDAG reducer owns scheduling.
+- [ ] Persist violations in data-audit snapshots and surface concise
+      business-facing repair summaries in CLI/REPL process events.

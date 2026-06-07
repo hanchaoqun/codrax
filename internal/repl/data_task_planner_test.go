@@ -2115,6 +2115,32 @@ func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Err: `data planning incomplete: action 1 (filter_eligible) references field(s) [currency, status] that are not present on input records fields [id, amount]. Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.`,
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "records",
+			Kind:    string(dataquery.DataActionExtractRecords),
+			Headers: []string{"id", "amount"},
+			Fields:  map[string]string{"artifact_aliases": "records", "json_shape": "array(len=2,item=object(keys=id,amount))"},
+		}}},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true}})
+	if len(state.WorkflowViolations) == 0 {
+		t.Fatalf("WorkflowViolations empty; field violations=%+v", state.FieldContractViolations)
+	}
+	got := state.WorkflowViolations[0]
+	if got.Code != "field_contract_violation" || got.InputAlias != "records" {
+		t.Fatalf("violation=%+v, want typed field contract violation for records", got)
+	}
+	if !slices.Contains(got.MissingFields, "currency") || !slices.Contains(got.MissingFields, "status") {
+		t.Fatalf("MissingFields=%v", got.MissingFields)
+	}
+	if got.Repairability != "needs_typed_action" {
+		t.Fatalf("Repairability=%q", got.Repairability)
+	}
+}
+
 func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
