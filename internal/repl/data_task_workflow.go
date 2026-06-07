@@ -2429,25 +2429,44 @@ func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dat
 }
 
 func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	next, remainder, _, ok := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
+	return next, remainder, ok
+}
+
+func dataTaskPopDeferredQueueActionBatch(records []dataTaskWorkflowRecord, queue dataworkflow.DeferredQueueState, round int) (dataquery.TaskPlan, dataworkflow.DeferredQueueState, bool) {
+	deferred := dataworkflow.DeferredQueuePlan(queue)
+	next, remainder, status, ok := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
+	if !ok {
+		return dataquery.TaskPlan{}, queue, false
+	}
+	nextQueue := dataworkflow.DispatchDeferredQueue(queue, round, next, remainder, status, "dispatch ready deferred typed data action rank")
+	return next, nextQueue, true
+}
+
+func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, dataworkflow.DeferredDispatchStatus, bool) {
 	if len(deferred.Actions) == 0 {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{ReasonCode: dataworkflow.DeferredBlockEmpty, Reason: "deferred queue is empty"}, false
 	}
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
 	if len(state.AllowedNextActions) == 0 {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{Actions: len(deferred.Actions), ReasonCode: dataworkflow.DeferredBlockNoAllowedActions, Reason: "workflow has no allowed next typed actions"}, false
 	}
-	out, remainder, _, ok := dataworkflow.BuildDeferredDispatchPlan(dataworkflow.DeferredDispatchInput{
+	out, remainder, status, ok := dataworkflow.BuildDeferredDispatchPlan(dataworkflow.DeferredDispatchInput{
 		Plan:               deferred,
 		Candidates:         dataTaskDeferredActionCandidates(records, deferred.Actions),
 		AllowedNextActions: state.AllowedNextActions,
 	})
 	if !ok {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
 	if errText := dataTaskDeferredDispatchGuardError(records, deferred, out.Actions); errText != "" {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+		status.Ready = false
+		status.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
+		status.Reason = errText
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
-	return out, remainder, true
+	status.Ready = true
+	return out, remainder, status, true
 }
 
 func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {

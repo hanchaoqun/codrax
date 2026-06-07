@@ -134,8 +134,14 @@ func TestDeferredQueueStateTransitionsCarryTypedEvents(t *testing.T) {
 	if len(queue.Events) != 2 || queue.Events[1].Action != DeferredQueueTransitionRetain || queue.Events[1].ReasonCode != DeferredBlockInputUnavailable {
 		t.Fatalf("queue events=%+v, want retain event", queue.Events)
 	}
-	queue = DiscardDeferredQueue(queue, 5, status, "stale queue")
-	if len(queue.Plan.Actions) != 0 || len(queue.Events) != 3 || queue.Events[2].Action != DeferredQueueTransitionDiscard {
+	dispatched := dataquery.TaskPlan{Actions: queue.Plan.Actions[:1]}
+	queue = DispatchDeferredQueue(queue, 5, dispatched, dataquery.TaskPlan{}, DeferredDispatchStatus{Ready: true}, "dispatch next rank")
+	if len(queue.Plan.Actions) != 0 || len(queue.Events) != 3 || queue.Events[2].Action != DeferredQueueTransitionDispatch || queue.Events[2].Actions != 1 {
+		t.Fatalf("queue=%+v, want dispatch event and empty remainder", queue)
+	}
+	queue = EnqueueDeferredQueue(queue, 6, plan, "requeue for discard")
+	queue = DiscardDeferredQueue(queue, 7, status, "stale queue")
+	if len(queue.Plan.Actions) != 0 || len(queue.Events) != 5 || queue.Events[4].Action != DeferredQueueTransitionDiscard {
 		t.Fatalf("queue=%+v, want discarded plan and discard event", queue)
 	}
 }

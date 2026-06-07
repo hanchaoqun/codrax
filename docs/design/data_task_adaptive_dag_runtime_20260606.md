@@ -13332,7 +13332,51 @@ Changes:
 
 Remaining P0 deferred dispatch work:
 
-- [ ] Move `dataTaskPopDeferredActionBatch` to return/update
+- [x] Move `dataTaskPopDeferredActionBatch` to return/update
       `DeferredQueueState` through a reducer-owned dispatch transition.
-- [ ] Replace post-pop `saveDeferredPlan` calls with a dispatch event that
+- [x] Replace post-pop `saveDeferredPlan` calls with a dispatch event that
       atomically records the executed rank and remaining queue.
+
+### Batch 296: Deferred Dispatch As Queue Transition
+
+Batch 295 moved enqueue, retain, discard, and clear into the queue state API.
+The last direct mutation remained on the successful pop path: after a ready
+deferred rank was selected, REPL/CLI executed that rank and then called
+`saveDeferredPlan` for the remainder. That made a dispatch look like a fresh
+enqueue and lost the atomic relationship between "this rank ran" and "these
+actions remain deferred."
+
+This batch promotes pop/dispatch into the same queue transition model. The
+selection logic still uses typed readiness, allowed-action, field-contract, and
+admission checks; the change is only ownership of the queue mutation and audit
+event.
+
+Generic invariants:
+
+- dispatch is one typed transition with dispatched action count, remaining
+  action count, first action identity, and readiness status;
+- a successful dispatch updates the queue plan to the remainder in the same
+  reducer-owned state update;
+- REPL/CLI do not call enqueue for a post-dispatch remainder;
+- failed dispatch attempts still return typed deferred status and leave the
+  queue unchanged;
+- no business semantics or prompt prose participate in queue mutation.
+
+Changes:
+
+- [x] Added `DispatchDeferredQueue`.
+- [x] Added a queue-aware `dataTaskPopDeferredQueueActionBatch` helper.
+- [x] Kept the older raw-plan pop helper as an adapter for existing tests and
+      direct callers.
+- [x] Rewired CLI and REPL result loops to update deferred queue state through
+      dispatch rather than save/enqueue.
+- [x] Preserved deferred plan audit/progress for remaining queue payloads
+      without adding duplicate enqueue events.
+- [x] Added reducer transition coverage.
+
+Remaining P0 deferred work:
+
+- [ ] Consider moving the outer `DeferredQueueState` storage itself into a
+      durable workflow runtime object shared by REPL and CLI entrypoints, so
+      loop-local variables become purely adapters around a single workflow IR
+      handle.

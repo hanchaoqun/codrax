@@ -1850,17 +1850,21 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, records, currentPlan, deferredQueue, dataRounds, repairRounds, "batch result completed", "repl")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
 		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
-		deferredPlan := currentDeferredPlan()
-		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
+		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, deferredQueue, dataRounds+1); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
 			currentPlan = nextDeferred
-			saveDeferredPlan(dataRounds+1, remainingDeferred, "remaining deferred typed data action rank(s)")
+			deferredQueue = updatedQueue
+			remainingDeferred := currentDeferredPlan()
+			if len(remainingDeferred.Actions) > 0 {
+				r.auditDataTaskPlan("deferred", dataRounds+1, remainingDeferred)
+				r.emitDataTaskWorkflowAudit("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(r.language, remainingDeferred, "remaining deferred typed data action rank(s)"))
+			}
 			continue
 		}
-		deferredPlan = currentDeferredPlan()
+		deferredPlan := currentDeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
 			decision := dataworkflow.DecideDeferredQueueLifecycle(status)

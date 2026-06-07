@@ -467,17 +467,21 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, records, currentPlan, deferredQueue, dataRounds, repairRounds, "batch result completed", "cli")
 		resultDetails := append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, cfg.Language)...)
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, resultDetails...)
-		deferredPlan := currentDeferredPlan()
-		if nextDeferred, remainingDeferred, ok := dataTaskPopDeferredActionBatch(records, deferredPlan); ok {
+		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, deferredQueue, dataRounds+1); ok {
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, nextDeferred)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextDeferred)
 			currentPlan = nextDeferred
-			saveDeferredPlan(dataRounds+1, remainingDeferred, "remaining deferred typed data action rank(s)")
+			deferredQueue = updatedQueue
+			remainingDeferred := currentDeferredPlan()
+			if len(remainingDeferred.Actions) > 0 {
+				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, remainingDeferred)
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(cfg.Language, remainingDeferred, "remaining deferred typed data action rank(s)"))
+			}
 			continue
 		}
-		deferredPlan = currentDeferredPlan()
+		deferredPlan := currentDeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
 			decision := dataworkflow.DecideDeferredQueueLifecycle(status)

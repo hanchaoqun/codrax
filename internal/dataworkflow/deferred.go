@@ -69,10 +69,11 @@ type DeferredQueueEvent struct {
 }
 
 const (
-	DeferredQueueTransitionEnqueue = "enqueue"
-	DeferredQueueTransitionRetain  = "retain"
-	DeferredQueueTransitionDiscard = "discard"
-	DeferredQueueTransitionClear   = "clear"
+	DeferredQueueTransitionEnqueue  = "enqueue"
+	DeferredQueueTransitionDispatch = "dispatch"
+	DeferredQueueTransitionRetain   = "retain"
+	DeferredQueueTransitionDiscard  = "discard"
+	DeferredQueueTransitionClear    = "clear"
 )
 
 func NewDeferredQueue(plan dataquery.TaskPlan) DeferredQueueState {
@@ -103,6 +104,17 @@ func EnqueueDeferredQueue(queue DeferredQueueState, round int, plan dataquery.Ta
 	}
 	next.Plan = *copied
 	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueEvent(DeferredQueueTransitionEnqueue, round, next.Plan, DeferredDispatchStatus{}, reason))
+	return next
+}
+
+func DispatchDeferredQueue(queue DeferredQueueState, round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, reason string) DeferredQueueState {
+	next := cloneDeferredQueue(queue)
+	if copied := cloneTaskPlan(remainder); copied != nil {
+		next.Plan = *copied
+	} else {
+		next.Plan = dataquery.TaskPlan{}
+	}
+	next.Events = appendDeferredQueueEvent(next.Events, buildDeferredQueueDispatchEvent(round, dispatched, remainder, status, reason))
 	return next
 }
 
@@ -338,6 +350,23 @@ func buildDeferredQueueEvent(action string, round int, plan dataquery.TaskPlan, 
 	}
 	if len(plan.Actions) > 0 {
 		first := plan.Actions[0]
+		if event.FirstActionID == "" {
+			event.FirstActionID = strings.TrimSpace(first.ID)
+		}
+		if event.FirstActionKind == "" {
+			event.FirstActionKind = string(NormalizeActionKind(first.Kind))
+		}
+	}
+	return event
+}
+
+func buildDeferredQueueDispatchEvent(round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, reason string) DeferredQueueEvent {
+	event := buildDeferredQueueEvent(DeferredQueueTransitionDispatch, round, dispatched, status, reason)
+	event.Actions = len(dispatched.Actions)
+	event.RemainingActions = len(remainder.Actions)
+	event.Ready = true
+	if len(dispatched.Actions) > 0 {
+		first := dispatched.Actions[0]
 		if event.FirstActionID == "" {
 			event.FirstActionID = strings.TrimSpace(first.ID)
 		}
