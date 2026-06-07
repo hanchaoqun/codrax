@@ -2957,11 +2957,16 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		violations = append(violations, guard.Violations...)
 		copied := guard
 		processEvents = append(processEvents, dataworkflow.WorkflowJournalEvent{
-			Kind:   "guard",
-			Round:  dataRounds,
-			Status: firstNonEmptyString(guard.Severity, "blocked"),
-			Reason: guard.ErrorText(),
-			Guard:  &copied,
+			Kind:          "guard",
+			Round:         dataRounds,
+			Status:        firstNonEmptyString(guard.Severity, "blocked"),
+			Reason:        guard.ErrorText(),
+			Goal:          strings.TrimSpace(current.Goal),
+			BatchPurpose:  strings.TrimSpace(current.WhyThisBatch),
+			NextStep:      strings.TrimSpace(current.NextBatch),
+			ActionSummary: strings.TrimPrefix(dataTaskActionSummarySegment(current.Actions, "en"), "steps "),
+			AuditDetails:  cleanDataTaskStrings([]string{guard.Code}),
+			Guard:         &copied,
 		})
 	}
 	snapshot := dataworkflow.WorkflowJournal{
@@ -3012,11 +3017,22 @@ func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkf
 			status = "failed"
 			reason = firstNonEmptyString(oneLineClamp(rec.Err, 240), reason)
 		}
+		auditDetails := []string{}
+		if rec.Result != nil {
+			if detail := dataTaskWorkflowResultSegment("en", *rec.Result); strings.TrimSpace(detail) != "" {
+				auditDetails = append(auditDetails, detail)
+			}
+		}
 		events = append(events, dataworkflow.WorkflowJournalEvent{
-			Kind:   kind,
-			Round:  i + 1,
-			Status: status,
-			Reason: reason,
+			Kind:          kind,
+			Round:         i + 1,
+			Status:        status,
+			Reason:        reason,
+			Goal:          strings.TrimSpace(rec.Plan.Goal),
+			BatchPurpose:  strings.TrimSpace(rec.Plan.WhyThisBatch),
+			NextStep:      strings.TrimSpace(rec.Plan.NextBatch),
+			ActionSummary: strings.TrimPrefix(dataTaskActionSummarySegment(rec.Plan.Actions, "en"), "steps "),
+			AuditDetails:  cleanDataTaskStrings(auditDetails),
 		})
 	}
 	return events

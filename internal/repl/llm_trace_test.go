@@ -612,7 +612,9 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 	anchor := t.TempDir()
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
+			Goal:         "compute requested total",
 			WhyThisBatch: "materialize source rows",
+			NextBatch:    "derive fields then aggregate",
 			Actions: []dataquery.DataAction{{
 				ID:             "extract",
 				Kind:           dataquery.DataActionExtractRecords,
@@ -641,7 +643,7 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 		t.Fatalf("read checkpoint: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
+	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"compute requested total"`, `"batch_purpose"`, `"next_step"`, `"action_summary"`, `"audit_details"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("checkpoint missing %q:\n%s", want, text)
 		}

@@ -10362,6 +10362,32 @@ Remaining architecture items:
 
 - [ ] Convert remaining non-field relation contract errors into typed
       violations where they have precise action/input/artifact handles.
-- [ ] Add richer structured process-event payloads to the workflow journal so
+- [x] Add richer structured process-event payloads to the workflow journal so
       external UIs can render the same business-first view without parsing
       terminal text.
+
+### Batch 236: Structured Journal Process Details
+
+Business-first terminal progress is useful, but external UIs and audit tools
+should not have to parse terminal strings to recover the same information.
+This batch extends storage-neutral workflow journal events with structured
+business and audit fields while keeping existing event kind/status/reason
+fields intact.
+
+Changes:
+
+- [x] Added `goal`, `batch_purpose`, `next_step`, `action_summary`, and
+      `audit_details` fields to `WorkflowJournalEvent`.
+- [x] Batch events now persist model-authored goal, batch purpose, next step,
+      action summary, and result audit detail.
+- [x] Guard checkpoint events now persist the current plan's business context
+      and typed guard code.
+- [x] Added JSON contract and checkpoint coverage for the new process-event
+      payload fields.
+
+Remaining architecture items:
+
+- [ ] Convert remaining non-field relation contract errors into typed
+      violations where they have precise action/input/artifact handles.
+- [ ] Add opt-in resume support that can consume journal checkpoints without
+      silently resuming interrupted user work.
