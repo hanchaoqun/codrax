@@ -5900,11 +5900,12 @@ func dataTaskWorkflowActionGraphWithDeferredAndViolations(records []dataTaskWork
 		deferredActions = deferred.Actions
 	}
 	graph := dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
-		Events:     dataTaskWorkflowActionEvents(records),
-		Ready:      ready,
-		Deferred:   deferredActions,
-		Blocked:    violations,
-		EventLimit: limit,
+		Events:       dataTaskWorkflowActionEvents(records),
+		Ready:        ready,
+		Deferred:     deferredActions,
+		DeferredPlan: deferred,
+		Blocked:      violations,
+		EventLimit:   limit,
 	})
 	if len(deferred.Actions) > 0 {
 		graph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForPlan(deferred)

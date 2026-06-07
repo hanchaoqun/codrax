@@ -12945,8 +12945,12 @@ Changes:
 
 Remaining P0 deferred-storage work:
 
-- [ ] Store the executable deferred `TaskPlan` in the workflow journal / live
-      state and let REPL/CLI read it back through a reducer-owned queue API.
+- [x] Store the executable deferred `TaskPlan` in the workflow journal / live
+      ActionGraph state so prompt, audit, and resume share the same typed queue
+      payload.
+- [ ] Let REPL/CLI read and mutate the deferred queue only through a
+      reducer-owned queue API; keep the outer variable only as a temporary
+      adapter.
 - [ ] Make enqueue/pop/retain/discard transitions produce typed ActionGraph
       events instead of mutating an outer variable directly.
 
@@ -13241,3 +13245,46 @@ Remaining P0 decision/UX work:
       action without reading raw ledger/stage terminology.
 - [ ] Remove legacy error/output recomputation fallbacks after direct callers
       are migrated to typed graph inputs.
+
+### Batch 294: Executable Deferred Queue In ActionGraph
+
+The deferred queue had two representations: REPL/CLI held the executable
+`TaskPlan` in an outer variable, while `workflow_state_json.action_graph`
+showed only deferred action nodes and a compact queue snapshot. That split made
+the graph useful for audit, but not sufficient as the live typed state for a
+continuation planner or journal reader.
+
+This batch moves the executable deferred plan payload into ActionGraph itself.
+The outer REPL/CLI variable remains a temporary adapter for loop control, but
+state, prompts, checkpoints, and journals can now inspect one reducer-owned
+graph object: deferred nodes, deferred queue lifecycle/status, and the concrete
+deferred plan.
+
+Generic invariants:
+
+- `ActionGraph.Deferred` remains the node projection used for scheduling and
+  idempotency display;
+- `ActionGraph.DeferredQueue` remains the compact status/lifecycle summary;
+- `ActionGraph.DeferredPlan` carries the executable typed plan payload when a
+  queue exists;
+- the reducer deep-copies action slices and params before exposing the plan, so
+  later adapter mutations cannot silently alter the graph snapshot;
+- no business semantics or file-name-specific rules are introduced.
+
+Changes:
+
+- [x] Added `deferred_plan` to ActionGraph.
+- [x] Taught `ReduceActionGraphState` to clone the deferred TaskPlan into the
+      graph, falling back to the deferred action list when only nodes are
+      provided.
+- [x] Rewired REPL/CLI workflow state assembly to pass the deferred TaskPlan
+      into the reducer.
+- [x] Verified continuation prompts now expose `action_graph.deferred_plan`
+      alongside deferred nodes and queue status.
+- [x] Added reducer, journal JSON, and REPL prompt regression coverage.
+
+Remaining P0 deferred-storage work:
+
+- [ ] Replace direct REPL/CLI deferred-plan mutations with reducer-owned
+      enqueue/pop/retain/discard transition helpers.
+- [ ] Emit those deferred queue transitions as typed ActionGraph events.

@@ -24,11 +24,12 @@ type ActionEvent struct {
 }
 
 type ActionGraphInput struct {
-	Events     []ActionEvent
-	Ready      []dataquery.DataAction
-	Deferred   []dataquery.DataAction
-	Blocked    []WorkflowViolation
-	EventLimit int
+	Events       []ActionEvent
+	Ready        []dataquery.DataAction
+	Deferred     []dataquery.DataAction
+	DeferredPlan dataquery.TaskPlan
+	Blocked      []WorkflowViolation
+	EventLimit   int
 }
 
 func ReduceActionGraph(events []ActionEvent, current []dataquery.DataAction, limit int) ActionGraph {
@@ -65,13 +66,68 @@ func ReduceActionGraphState(input ActionGraphInput) ActionGraph {
 	if len(input.Ready) > 0 {
 		graph.Ready = filterSuppressedActionNodes(ActionNodesFor(input.Ready, ActionStatusReady), suppressed)
 	}
-	if len(input.Deferred) > 0 {
-		graph.Deferred = filterSuppressedActionNodes(ActionNodesFor(input.Deferred, ActionStatusDeferred), suppressed)
+	deferredActions := input.Deferred
+	if len(deferredActions) == 0 && len(input.DeferredPlan.Actions) > 0 {
+		deferredActions = input.DeferredPlan.Actions
+	}
+	deferredActions = filterSuppressedDataActions(deferredActions, suppressed)
+	if len(deferredActions) > 0 {
+		graph.Deferred = ActionNodesFor(deferredActions, ActionStatusDeferred)
+	}
+	deferredPlan := input.DeferredPlan
+	if len(deferredPlan.Actions) == 0 && len(deferredActions) > 0 {
+		deferredPlan.Actions = deferredActions
+	} else if len(deferredPlan.Actions) > 0 {
+		deferredPlan.Actions = filterSuppressedDataActions(deferredPlan.Actions, suppressed)
+	}
+	if len(deferredPlan.Actions) > 0 {
+		graph.DeferredPlan = cloneTaskPlan(deferredPlan)
 	}
 	if input.EventLimit > 0 && len(graph.Executed) > input.EventLimit {
 		graph.Executed = append([]ActionNode(nil), graph.Executed[len(graph.Executed)-input.EventLimit:]...)
 	}
 	return graph
+}
+
+func filterSuppressedDataActions(actions []dataquery.DataAction, suppressed map[string]bool) []dataquery.DataAction {
+	if len(actions) == 0 || len(suppressed) == 0 {
+		return append([]dataquery.DataAction(nil), actions...)
+	}
+	out := make([]dataquery.DataAction, 0, len(actions))
+	for _, action := range actions {
+		key := ActionIdempotencyKey(action)
+		if key != "" && suppressed[key] {
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
+}
+
+func cloneTaskPlan(plan dataquery.TaskPlan) *dataquery.TaskPlan {
+	if len(plan.Actions) == 0 {
+		return nil
+	}
+	out := plan
+	out.InputPaths = append([]string(nil), plan.InputPaths...)
+	out.Questions = append([]dataquery.Question(nil), plan.Questions...)
+	out.KnownConstraints = append([]string(nil), plan.KnownConstraints...)
+	out.MissingObservations = append([]string(nil), plan.MissingObservations...)
+	out.SuccessCriteria = append([]string(nil), plan.SuccessCriteria...)
+	out.Actions = make([]dataquery.DataAction, 0, len(plan.Actions))
+	for _, action := range plan.Actions {
+		copied := action
+		copied.InputPaths = append([]string(nil), action.InputPaths...)
+		copied.SuccessCriteria = append([]string(nil), action.SuccessCriteria...)
+		if action.Params != nil {
+			copied.Params = make(map[string]string, len(action.Params))
+			for key, value := range action.Params {
+				copied.Params[key] = value
+			}
+		}
+		out.Actions = append(out.Actions, copied)
+	}
+	return &out
 }
 
 func filterSuppressedActionNodes(nodes []ActionNode, suppressed map[string]bool) []ActionNode {

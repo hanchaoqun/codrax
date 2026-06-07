@@ -131,6 +131,9 @@ func TestReduceActionGraphStateProjectsDeferredAndBlocked(t *testing.T) {
 	if len(graph.Deferred) != 1 || graph.Deferred[0].Status != ActionStatusDeferred || graph.Deferred[0].ID != "join_later" {
 		t.Fatalf("Deferred=%+v, want deferred join node", graph.Deferred)
 	}
+	if graph.DeferredPlan == nil || len(graph.DeferredPlan.Actions) != 1 || graph.DeferredPlan.Actions[0].ID != "join_later" {
+		t.Fatalf("DeferredPlan=%+v, want live executable deferred plan", graph.DeferredPlan)
+	}
 	if len(graph.Blocked) != 1 || graph.Blocked[0].Status != ActionStatusBlocked || graph.Blocked[0].IdempotencyKey == "" {
 		t.Fatalf("Blocked=%+v, want typed blocked node", graph.Blocked)
 	}
@@ -172,6 +175,9 @@ func TestReduceActionGraphStateSuppressesBlockedReadyByIdempotency(t *testing.T)
 	}
 	if len(graph.Deferred) != 0 {
 		t.Fatalf("Deferred=%+v, want failed/blocked idempotent action suppressed", graph.Deferred)
+	}
+	if graph.DeferredPlan != nil {
+		t.Fatalf("DeferredPlan=%+v, want suppressed deferred action removed from live plan", graph.DeferredPlan)
 	}
 	if len(graph.Executed) != 1 || graph.Executed[0].Status != ActionStatusFailed {
 		t.Fatalf("Executed=%+v, want failed action retained", graph.Executed)

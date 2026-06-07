@@ -2640,7 +2640,7 @@ func TestDataTaskContinuationPromptIncludesDeferredActionGraph(t *testing.T) {
 		nil,
 		deferred,
 	)
-	if !strings.Contains(prompt, `"deferred"`) || !strings.Contains(prompt, `"join_next"`) || !strings.Contains(prompt, `"status": "deferred"`) {
+	if !strings.Contains(prompt, `"deferred"`) || !strings.Contains(prompt, `"deferred_plan"`) || !strings.Contains(prompt, `"join_next"`) || !strings.Contains(prompt, `"status": "deferred"`) {
 		t.Fatalf("prompt missing deferred action graph:\n%s", prompt)
 	}
 }

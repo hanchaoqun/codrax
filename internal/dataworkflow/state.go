@@ -40,6 +40,7 @@ type ActionGraph struct {
 	Deferred      []ActionNode          `json:"deferred,omitempty"`
 	Blocked       []ActionNode          `json:"blocked,omitempty"`
 	DeferredQueue DeferredQueueSnapshot `json:"deferred_queue,omitempty"`
+	DeferredPlan  *dataquery.TaskPlan   `json:"deferred_plan,omitempty"`
 }
 
 type DeferredQueueSnapshot struct {
