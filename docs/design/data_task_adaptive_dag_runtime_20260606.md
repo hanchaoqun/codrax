@@ -10939,3 +10939,34 @@ Remaining architecture items:
       reference-side artifacts.
 - [ ] Persist role lineage in workflow journal snapshots for postmortem audit
       and opt-in resume.
+
+### Batch 249: CLI Terminal Failure Event
+
+The CLI data lane already kept final answers on stdout and progress on stderr,
+but failed terminal runs still relied too much on the caller's raw `error: ...`
+line after the audit path. That was technically correct but poor for user
+orientation: users saw an audit artifact path and then an unstructured error
+string, with no process-event style explanation.
+
+The generalized invariant is:
+
+- stdout remains reserved for the final answer so strict output contracts and
+  shell pipelines are not polluted;
+- stderr/progress should contain a low-noise structured failure event with the
+  terminal audit path and concise reason;
+- the reason is display-only and does not drive workflow logic.
+
+Changes:
+
+- [x] Extended CLI terminal audit rendering to include a compact failure
+      reason line for non-complete statuses.
+- [x] Kept successful terminal audit rendering unchanged.
+- [x] Added regression coverage for the CLI failure-reason event.
+
+Remaining architecture items:
+
+- [ ] Move CLI and REPL process-event rendering behind a shared event sink so
+      request, plan, execute, evaluate, repair, terminal audit, and failure
+      details use one renderer contract.
+- [ ] Add business-facing summaries from typed planner/evaluator fields while
+      keeping internal ledger counts as low-noise audit details.

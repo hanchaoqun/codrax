@@ -82,7 +82,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 			status, dataRounds, repairRounds, len(records), resultSummary,
 			oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
-		emitDataTaskCLITerminalAuditPath(cfg.Progress, cfg.Language, status, terminalPath)
+		emitDataTaskCLITerminalAuditPath(cfg.Progress, cfg.Language, status, terminalPath, reason)
 	}()
 	candidates, err := dataquery.DiscoverCandidateFiles(repoRoot, 240)
 	if err != nil {
@@ -965,7 +965,7 @@ func dataTaskCLIRequestProgress(w io.Writer, lang, request string) {
 	cliLightRouteDetails(w, []string{"Request: " + oneLineClamp(request, 1000)})
 }
 
-func emitDataTaskCLITerminalAuditPath(w io.Writer, lang, status, terminalPath string) {
+func emitDataTaskCLITerminalAuditPath(w io.Writer, lang, status, terminalPath string, reason ...string) {
 	if w == nil || strings.TrimSpace(terminalPath) == "" {
 		return
 	}
@@ -976,6 +976,18 @@ func emitDataTaskCLITerminalAuditPath(w io.Writer, lang, status, terminalPath st
 		segs = []string{strings.TrimSpace(status), "完整终态 " + terminalPath}
 	}
 	cliLightRouteSummary(w, label, cleanDataTaskStrings(segs))
+	reasonText := ""
+	if len(reason) > 0 {
+		reasonText = strings.TrimSpace(reason[0])
+	}
+	if reasonText == "" || strings.EqualFold(strings.TrimSpace(status), "complete") {
+		return
+	}
+	if isZh(lang) {
+		cliLightRouteDetails(w, []string{"原因：" + oneLineClamp(reasonText, 1000)})
+		return
+	}
+	cliLightRouteDetails(w, []string{"Reason: " + oneLineClamp(reasonText, 1000)})
 }
 
 func cliLightRouteSummary(w io.Writer, label string, segs []string) {
