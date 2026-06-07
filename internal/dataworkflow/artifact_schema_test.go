@@ -221,6 +221,87 @@ func TestArtifactUsableForRecordActionUsesNodeClassAndKind(t *testing.T) {
 	}
 }
 
+func TestBuildArtifactGraphStateProjectsAliasesLineageDiagnostics(t *testing.T) {
+	graph := BuildArtifactGraphState([]dataquery.DataArtifact{{
+		ID:                "eligible_records",
+		Kind:              string(dataquery.DataActionFilterRecords),
+		Headers:           []string{"id", "amount", "status"},
+		SourcePaths:       []string{"source.csv"},
+		SourceRecordPaths: []string{"source_records.json"},
+		ReferencePaths:    []string{"reference.json"},
+		EvidencePaths:     []string{"source.csv:2"},
+		RowCount:          7,
+		Fields: map[string]string{
+			"artifact_aliases":   "eligible_records,eligible_records.json",
+			"artifact_path":      "/tmp/work/eligible_records.json",
+			"json_shape":         "array(len=7,item=object(keys=id,amount,status))",
+			"input_rows":         "10",
+			"output_rows":        "7",
+			"filter_diagnostics": `{"total":10,"combined_match":7}`,
+		},
+	}}, 8)
+	if graph.NodeCount != 1 || graph.Truncated {
+		t.Fatalf("graph count/truncated=%d/%v, want 1/false", graph.NodeCount, graph.Truncated)
+	}
+	if len(graph.Nodes) != 1 {
+		t.Fatalf("nodes=%d, want 1", len(graph.Nodes))
+	}
+	node := graph.Nodes[0]
+	if node.ProducerKind != string(dataquery.DataActionFilterRecords) || !node.ExecutableRecordInput {
+		t.Fatalf("node producer/executable=%q/%v", node.ProducerKind, node.ExecutableRecordInput)
+	}
+	if node.RowCount != 7 || !containsString(node.Fields, "amount") {
+		t.Fatalf("node row/fields=%d/%v", node.RowCount, node.Fields)
+	}
+	if !containsString(node.Lineage.SourceRecordPaths, "source_records.json") || !containsString(node.Lineage.ReferencePaths, "reference.json") {
+		t.Fatalf("lineage=%+v, want source record and reference roles", node.Lineage)
+	}
+	if node.Diagnostics["input_rows"] != "10" || node.Diagnostics["output_rows"] != "7" || node.Diagnostics["filter_diagnostics"] == "" {
+		t.Fatalf("diagnostics=%+v, want structural runner diagnostics", node.Diagnostics)
+	}
+	if node.Diagnostics["artifact_path"] != "" || node.Diagnostics["json_shape"] != "" {
+		t.Fatalf("diagnostics leaked access metadata: %+v", node.Diagnostics)
+	}
+	if !containsString(graph.ExecutableRecordAliases, "eligible_records.json") {
+		t.Fatalf("executable aliases=%v, want eligible_records.json", graph.ExecutableRecordAliases)
+	}
+	var found bool
+	for _, binding := range graph.AliasIndex {
+		if binding.Alias == "eligible_records.json" && binding.NodeID == "eligible_records" && binding.ExecutableRecordInput {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("alias index=%+v, want executable binding for eligible_records.json", graph.AliasIndex)
+	}
+}
+
+func TestBuildArtifactGraphStateReportsTruncationWithoutChangingCount(t *testing.T) {
+	graph := BuildArtifactGraphState([]dataquery.DataArtifact{{
+		ID:      "new_records",
+		Kind:    string(dataquery.DataActionExtractRecords),
+		Headers: []string{"id"},
+		Fields:  map[string]string{"artifact_aliases": "new_records", "json_shape": "array(len=1)"},
+	}, {
+		ID:      "old_records",
+		Kind:    string(dataquery.DataActionExtractRecords),
+		Headers: []string{"id"},
+		Fields:  map[string]string{"artifact_aliases": "old_records", "json_shape": "array(len=1)"},
+	}}, 1)
+	if graph.NodeCount != 2 || !graph.Truncated {
+		t.Fatalf("graph count/truncated=%d/%v, want 2/true", graph.NodeCount, graph.Truncated)
+	}
+	if len(graph.Nodes) != 1 || graph.Nodes[0].ID != "new_records" {
+		t.Fatalf("nodes=%+v, want newest node only", graph.Nodes)
+	}
+	for _, binding := range graph.AliasIndex {
+		if binding.Alias == "old_records" {
+			t.Fatalf("alias index included truncated node: %+v", graph.AliasIndex)
+		}
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

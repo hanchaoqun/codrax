@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -35,6 +36,7 @@ func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []A
 				Aliases:           aliases,
 				JSONShape:         strings.TrimSpace(shape),
 				Fields:            ArtifactFields(artifact),
+				Diagnostics:       ArtifactDiagnostics(artifact),
 				AccessHint:        ArtifactAccessHint(shape),
 				SourcePaths:       cleanStrings(artifact.SourcePaths),
 				SourceRecordPaths: cleanStrings(artifact.SourceRecordPaths),
@@ -54,6 +56,75 @@ func ProjectArtifactSchemasNewestFirst(artifacts []ArtifactProjectionSource) []A
 		return nil
 	}
 	return out
+}
+
+func BuildArtifactGraphState(artifacts []ArtifactProjectionSource, limit int) ArtifactGraphState {
+	projections := ProjectArtifactSchemasNewestFirst(artifacts)
+	return ArtifactGraphStateFromProjections(projections, limit)
+}
+
+func ArtifactGraphStateFromProjections(projections []ArtifactSchemaProjection, limit int) ArtifactGraphState {
+	if len(projections) == 0 {
+		return ArtifactGraphState{}
+	}
+	if limit < 0 {
+		limit = 0
+	}
+	nodeLimit := len(projections)
+	if limit > 0 && limit < nodeLimit {
+		nodeLimit = limit
+	}
+	state := ArtifactGraphState{
+		NodeCount: len(projections),
+		Truncated: limit > 0 && len(projections) > limit,
+		Nodes:     make([]ArtifactGraphNode, 0, nodeLimit),
+	}
+	seenAlias := map[string]bool{}
+	seenExecutable := map[string]bool{}
+	for i := 0; i < nodeLimit; i++ {
+		projection := projections[i]
+		executable := ArtifactUsableForRecordAction(projection)
+		primary := firstArtifactAlias(projection)
+		node := ArtifactGraphNode{
+			ID:                    strings.TrimSpace(projection.ID),
+			Kind:                  strings.TrimSpace(projection.Kind),
+			ProducerKind:          artifactProducerKind(projection.Kind),
+			NodeClass:             strings.TrimSpace(projection.NodeClass),
+			PrimaryAlias:          primary,
+			Aliases:               cleanStrings(projection.Aliases),
+			JSONShape:             strings.TrimSpace(projection.JSONShape),
+			Fields:                cleanStrings(projection.Fields),
+			Diagnostics:           copyDiagnostics(projection.Diagnostics),
+			AccessHint:            strings.TrimSpace(projection.AccessHint),
+			RowCount:              projection.RowCount,
+			ExecutableRecordInput: executable,
+			Lineage: ArtifactLineage{
+				SourcePaths:       cleanStrings(projection.SourcePaths),
+				SourceRecordPaths: cleanStrings(projection.SourceRecordPaths),
+				ReferencePaths:    cleanStrings(projection.ReferencePaths),
+				EvidencePaths:     cleanStrings(projection.EvidencePaths),
+			},
+		}
+		state.Nodes = append(state.Nodes, node)
+		for _, alias := range artifactSchemaAliases(projection) {
+			alias = strings.TrimSpace(alias)
+			if alias == "" || seenAlias[alias] {
+				continue
+			}
+			seenAlias[alias] = true
+			state.AliasIndex = append(state.AliasIndex, ArtifactAliasBinding{
+				Alias:                 alias,
+				NodeID:                strings.TrimSpace(projection.ID),
+				NodeClass:             strings.TrimSpace(projection.NodeClass),
+				ExecutableRecordInput: executable,
+			})
+			if executable && !seenExecutable[alias] {
+				seenExecutable[alias] = true
+				state.ExecutableRecordAliases = append(state.ExecutableRecordAliases, alias)
+			}
+		}
+	}
+	return state
 }
 
 func FlattenedArtifactCount(artifacts []ArtifactProjectionSource) int {
@@ -116,6 +187,34 @@ func ArtifactFields(artifact ArtifactProjectionSource) []string {
 		for _, field := range strings.Split(artifactField(artifact, key), ",") {
 			add(field)
 		}
+	}
+	return out
+}
+
+func ArtifactDiagnostics(artifact ArtifactProjectionSource) map[string]string {
+	if len(artifact.Fields) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(artifact.Fields))
+	for key, value := range artifact.Fields {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" || artifactDiagnosticSkipKey(key) {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	const maxDiagnostics = 18
+	if len(keys) > maxDiagnostics {
+		keys = keys[:maxDiagnostics]
+	}
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		out[key] = clampArtifactDiagnostic(artifact.Fields[key], 640)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -341,6 +440,67 @@ func cleanStrings(in []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func firstArtifactAlias(projection ArtifactSchemaProjection) string {
+	for _, alias := range artifactSchemaAliases(projection) {
+		if alias = strings.TrimSpace(alias); alias != "" {
+			return alias
+		}
+	}
+	return ""
+}
+
+func artifactProducerKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return ""
+	}
+	if idx := strings.Index(kind, "/"); idx > 0 {
+		return kind[:idx]
+	}
+	return kind
+}
+
+func copyDiagnostics(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	keys := make([]string, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if value := strings.TrimSpace(in[key]); key != "" && value != "" {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func artifactDiagnosticSkipKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "artifact_aliases", "artifact_path", "json_shape", "headers", "output_headers", "fields":
+		return true
+	default:
+		return false
+	}
+}
+
+func clampArtifactDiagnostic(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	if limit <= 1 {
+		return value[:limit]
+	}
+	return value[:limit-1] + "…"
 }
 
 func normalizeAccessPath(value string) string {

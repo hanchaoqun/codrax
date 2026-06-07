@@ -5353,6 +5353,7 @@ type dataTaskWorkflowStateView struct {
 	CustomTransformFailures       int                                `json:"custom_transform_failures,omitempty"`
 	CustomTransformDisabled       bool                               `json:"custom_transform_disabled,omitempty"`
 	CustomTransformDisabledNote   string                             `json:"custom_transform_disabled_note,omitempty"`
+	ArtifactGraph                 dataworkflow.ArtifactGraphState    `json:"artifact_graph,omitempty"`
 	ArtifactAvailabilityCount     int                                `json:"artifact_availability_count,omitempty"`
 	ArtifactAvailabilityTruncated bool                               `json:"artifact_availability_truncated,omitempty"`
 	ArtifactAvailability          []dataTaskArtifactAccessPrompt     `json:"artifact_availability,omitempty"`
@@ -5685,6 +5686,7 @@ func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current
 		state.CustomTransformDisabledNote = "free-form custom_transform scripts are disabled after workflow/script risk; typed actions remain executable and are the preferred path"
 		state.AllowedNextActionContracts = dataTaskFilterCustomTransformContracts(state.AllowedNextActionContracts)
 	}
+	state.ArtifactGraph = dataworkflow.BuildArtifactGraphState(dataTaskWorkflowArtifactsNewestFirst(records), 48)
 	state.ArtifactAvailability, state.ArtifactAvailabilityCount, state.ArtifactAvailabilityTruncated = dataTaskWorkflowArtifactAvailability(records, 48)
 	state.AllowedNextActions = dataTaskActionKindsFromContracts(state.AllowedNextActionContracts)
 	state.ActionScaffold = dataTaskWorkflowActionScaffold(records, state)

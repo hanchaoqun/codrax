@@ -2927,10 +2927,6 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		return ""
 	}
 	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
-	artifactGraph := dataTaskArtifactAccessSchemaProjection(state.ArtifactAvailability)
-	if a.Result != nil && len(a.Result.Artifacts) > 0 {
-		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(a.Result.Artifacts)...)
-	}
 	snapshot := dataworkflow.WorkflowJournal{
 		Status:             status,
 		Reason:             reason,
@@ -2941,7 +2937,7 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		LastError:          lastErr,
 		ActionEvents:       dataTaskWorkflowActionEvents(a.Records),
 		ActionGraph:        state.ActionGraph,
-		ArtifactGraph:      artifactGraph,
+		ArtifactGraph:      state.ArtifactGraph,
 		WorkflowViolations: state.WorkflowViolations,
 		Decision:           dataTaskWorkflowJournalDecision(state, status, reason, lastErr),
 		ProcessEvents:      dataTaskWorkflowJournalEvents(a.Records),
@@ -2969,10 +2965,6 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		return ""
 	}
 	state := dataTaskWorkflowStateWithDeferred(records, current, deferred)
-	artifactGraph := dataTaskArtifactAccessSchemaProjection(state.ArtifactAvailability)
-	if latest, ok := latestDataTaskResult(records); ok && len(latest.Artifacts) > 0 {
-		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(latest.Artifacts)...)
-	}
 	violations := append([]dataworkflow.WorkflowViolation(nil), state.WorkflowViolations...)
 	processEvents := dataTaskWorkflowJournalEvents(records)
 	for _, guard := range guards {
@@ -3001,7 +2993,7 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		LastError:          dataTaskLatestError(records),
 		ActionEvents:       dataTaskWorkflowActionEvents(records),
 		ActionGraph:        state.ActionGraph,
-		ArtifactGraph:      artifactGraph,
+		ArtifactGraph:      state.ArtifactGraph,
 		WorkflowViolations: violations,
 		Decision:           state.Decision,
 		ProcessEvents:      processEvents,
@@ -3187,8 +3179,8 @@ func (r *REPL) writeDataTaskResultArtifact(round int, result dataquery.Result) d
 	artifact := dataTaskAuditArtifact{ResultPath: resultPath}
 	if len(result.Artifacts) > 0 {
 		graphPath := filepath.Join(dir, fmt.Sprintf("%s-%d-artifacts-r%d.json", stamp, os.Getpid(), round))
-		projection := dataworkflow.ProjectArtifactSchemasNewestFirst(result.Artifacts)
-		graphRaw, err := json.MarshalIndent(projection, "", "  ")
+		graph := dataworkflow.BuildArtifactGraphState(result.Artifacts, 128)
+		graphRaw, err := json.MarshalIndent(graph, "", "  ")
 		if err != nil {
 			logging.Warning("[repl/data] marshal data task artifact graph failed round=%d: %v", round, err)
 		} else if err := os.WriteFile(graphPath, graphRaw, 0600); err != nil {
@@ -3212,8 +3204,8 @@ func (r *REPL) logDataTaskResultArtifact(round int, result dataquery.Result, art
 		logging.Info("[repl/data] data task result full round=%d path=%s\n%s", round, artifact.ResultPath, string(raw))
 	}
 	if len(result.Artifacts) > 0 {
-		projection := dataworkflow.ProjectArtifactSchemasNewestFirst(result.Artifacts)
-		if raw, err := json.MarshalIndent(projection, "", "  "); err == nil {
+		graph := dataworkflow.BuildArtifactGraphState(result.Artifacts, 128)
+		if raw, err := json.MarshalIndent(graph, "", "  "); err == nil {
 			logging.Info("[repl/data] data task artifact graph full round=%d path=%s\n%s", round, artifact.ArtifactGraphPath, string(raw))
 		}
 	}

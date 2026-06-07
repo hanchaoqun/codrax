@@ -12221,3 +12221,59 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 274: Live ArtifactGraph State For Evaluator Context
+
+The next IR pass promoted generated-artifact state from compact prompt samples
+into a live workflow-state graph. Before this batch, terminal/checkpoint audits
+could persist an artifact graph, but continuation and evaluator prompts still
+mostly consumed `artifact_availability`: a flat, bounded access catalog. That
+made later planner/evaluator turns depend on whichever artifacts fit in the
+latest compact sample, even though the runtime already had objective artifact
+facts: aliases, fields, row counts, producer kind, source/reference/evidence
+lineage, executable record usability, and runner diagnostics.
+
+This is a generic data-workflow issue. It is not tied to any domain or material
+type. Any multi-step data task can fail to converge if the next action chooses
+inputs from a lossy recent sample rather than from durable graph state.
+
+Changes:
+
+- [x] Added `ArtifactGraphState` in `internal/dataworkflow` with nodes,
+      node_count, truncation status, alias index, and executable record aliases.
+- [x] Projected each artifact node from existing `ArtifactSchemaProjection`
+      without adding business-role classification: id, kind, producer kind,
+      node class, aliases, shape, fields, row count, role-specific lineage, and
+      structural diagnostics from runner metadata.
+- [x] Added deterministic graph construction from newest-first artifact
+      projections, preserving the existing alias de-duplication and record-input
+      usability contracts.
+- [x] Exposed `workflow_state_json.artifact_graph` in live data workflow state
+      alongside `action_graph`; kept `artifact_availability` as a compact
+      prompt/access view rather than the hard state boundary.
+- [x] Reused the live artifact graph in terminal and checkpoint journal
+      snapshots, removing the separate journal-only projection path.
+- [x] Upgraded per-round artifact graph audit files from a projection array to
+      the same graph state object.
+- [x] Updated planner/evaluator guidance to prefer `artifact_graph` for
+      cross-round generated-artifact selection and to treat
+      `artifact_availability` as a compact view.
+- [x] Added regression coverage for graph aliases, executable record inputs,
+      row counts, lineage roles, diagnostics, truncation, live workflow state,
+      continuation prompt visibility, and journal JSON shape.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move zero-match/unmatched/zero-eligible fact extraction into reducer-owned
+      artifact graph diagnostics where feasible, so the adapter does less
+      artifact scanning before emitting typed violations.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add storage-neutral workflow journal/checkpoint persistence only after
+      the in-memory IR settles; do not run real-scenario testing before the
+      deterministic in-memory graph contracts above are complete.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

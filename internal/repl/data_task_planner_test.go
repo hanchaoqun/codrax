@@ -7895,9 +7895,10 @@ func TestDataTaskContinuationPromptIncludesCumulativeArtifactAvailability(t *tes
 	for _, want := range []string{
 		`"artifact_availability_count": 2`,
 		`"artifact_availability": [`,
+		`"artifact_graph"`,
 		"old_records",
 		"new_records",
-		"cumulative compact catalog",
+		"durable generated-artifact graph",
 		"Do not re-extract a covered material",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -7942,6 +7943,57 @@ func TestDataTaskWorkflowArtifactAvailabilityPrioritizesNewestMaterializedArtifa
 	}
 	if len(availability) == 0 || availability[0].ID != "fresh_joined_records" {
 		t.Fatalf("availability=%+v, want newest materialized artifact first", availability)
+	}
+}
+
+func TestDataTaskWorkflowStateIncludesArtifactGraph(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:                "eligible_records",
+			Kind:              string(dataquery.DataActionFilterRecords),
+			Headers:           []string{"id", "amount", "status"},
+			SourceRecordPaths: []string{"source_records.json"},
+			ReferencePaths:    []string{"reference.json"},
+			RowCount:          3,
+			Fields: map[string]string{
+				"artifact_aliases":   "eligible_records,eligible_records.json",
+				"json_shape":         "array(len=3,item=object(keys=id,amount,status))",
+				"input_rows":         "5",
+				"output_rows":        "3",
+				"filter_diagnostics": `{"total":5,"combined_match":3}`,
+			},
+		}}},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.ArtifactGraph.NodeCount != 1 || len(state.ArtifactGraph.Nodes) != 1 {
+		t.Fatalf("artifact graph=%+v, want one node", state.ArtifactGraph)
+	}
+	node := state.ArtifactGraph.Nodes[0]
+	if node.PrimaryAlias == "" || !node.ExecutableRecordInput || node.RowCount != 3 {
+		t.Fatalf("node=%+v, want executable record node with row count", node)
+	}
+	if !slices.Contains(node.Lineage.SourceRecordPaths, "source_records.json") || !slices.Contains(node.Lineage.ReferencePaths, "reference.json") {
+		t.Fatalf("lineage=%+v, want role-specific lineage", node.Lineage)
+	}
+	if node.Diagnostics["filter_diagnostics"] == "" {
+		t.Fatalf("diagnostics=%+v, want filter diagnostics", node.Diagnostics)
+	}
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	for _, want := range []string{
+		`"artifact_graph"`,
+		`"executable_record_aliases"`,
+		`"filter_diagnostics"`,
+		"durable generated-artifact graph",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, prompt)
+		}
 	}
 }
 

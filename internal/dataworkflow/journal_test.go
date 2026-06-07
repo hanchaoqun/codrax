@@ -17,7 +17,12 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			Status: ActionStatusExecuted,
 		}},
 		ActionGraph: ActionGraph{Deferred: []ActionNode{{ID: "join_next", Status: ActionStatusDeferred}}},
-		Decision:    WorkflowDecision{Status: "continue", ReasonCode: "compute_contributions", NextActions: []string{"compute_contributions"}},
+		ArtifactGraph: ArtifactGraphState{Nodes: []ArtifactGraphNode{{
+			ID:                    "records",
+			PrimaryAlias:          "records.json",
+			ExecutableRecordInput: true,
+		}}, NodeCount: 1, ExecutableRecordAliases: []string{"records.json"}},
+		Decision: WorkflowDecision{Status: "continue", ReasonCode: "compute_contributions", NextActions: []string{"compute_contributions"}},
 		ProcessEvents: []WorkflowJournalEvent{{
 			Kind:          "evaluate",
 			Round:         2,
@@ -32,7 +37,7 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "artifact_graph", "executable_record_aliases", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}

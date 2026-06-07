@@ -9,12 +9,12 @@ import (
 // WorkflowState is the durable IR boundary for adaptive data tasks. REPL and
 // CLI code should render or adapt this state instead of owning workflow rules.
 type WorkflowState struct {
-	Materials MaterialGraph              `json:"materials,omitempty"`
-	Actions   ActionGraph                `json:"actions,omitempty"`
-	Ledgers   LedgerGraph                `json:"ledgers,omitempty"`
-	Artifacts []ArtifactSchemaProjection `json:"artifacts,omitempty"`
-	Progress  WorkflowProgress           `json:"progress,omitempty"`
-	Decision  WorkflowDecision           `json:"decision,omitempty"`
+	Materials MaterialGraph      `json:"materials,omitempty"`
+	Actions   ActionGraph        `json:"actions,omitempty"`
+	Ledgers   LedgerGraph        `json:"ledgers,omitempty"`
+	Artifacts ArtifactGraphState `json:"artifacts,omitempty"`
+	Progress  WorkflowProgress   `json:"progress,omitempty"`
+	Decision  WorkflowDecision   `json:"decision,omitempty"`
 }
 
 type MaterialGraph struct {
@@ -149,18 +149,57 @@ func trimStateText(value string) string {
 }
 
 type ArtifactSchemaProjection struct {
-	ID                string   `json:"id,omitempty"`
-	Kind              string   `json:"kind,omitempty"`
-	NodeClass         string   `json:"node_class,omitempty"`
-	Aliases           []string `json:"aliases,omitempty"`
-	JSONShape         string   `json:"json_shape,omitempty"`
-	Fields            []string `json:"fields,omitempty"`
-	AccessHint        string   `json:"access_hint,omitempty"`
+	ID                string            `json:"id,omitempty"`
+	Kind              string            `json:"kind,omitempty"`
+	NodeClass         string            `json:"node_class,omitempty"`
+	Aliases           []string          `json:"aliases,omitempty"`
+	JSONShape         string            `json:"json_shape,omitempty"`
+	Fields            []string          `json:"fields,omitempty"`
+	Diagnostics       map[string]string `json:"diagnostics,omitempty"`
+	AccessHint        string            `json:"access_hint,omitempty"`
+	SourcePaths       []string          `json:"source_paths,omitempty"`
+	SourceRecordPaths []string          `json:"source_record_paths,omitempty"`
+	ReferencePaths    []string          `json:"reference_paths,omitempty"`
+	EvidencePaths     []string          `json:"evidence_paths,omitempty"`
+	RowCount          int               `json:"row_count,omitempty"`
+}
+
+type ArtifactGraphState struct {
+	Nodes                   []ArtifactGraphNode    `json:"nodes,omitempty"`
+	NodeCount               int                    `json:"node_count,omitempty"`
+	Truncated               bool                   `json:"truncated,omitempty"`
+	AliasIndex              []ArtifactAliasBinding `json:"alias_index,omitempty"`
+	ExecutableRecordAliases []string               `json:"executable_record_aliases,omitempty"`
+}
+
+type ArtifactGraphNode struct {
+	ID                    string            `json:"id,omitempty"`
+	Kind                  string            `json:"kind,omitempty"`
+	ProducerKind          string            `json:"producer_kind,omitempty"`
+	NodeClass             string            `json:"node_class,omitempty"`
+	PrimaryAlias          string            `json:"primary_alias,omitempty"`
+	Aliases               []string          `json:"aliases,omitempty"`
+	JSONShape             string            `json:"json_shape,omitempty"`
+	Fields                []string          `json:"fields,omitempty"`
+	Diagnostics           map[string]string `json:"diagnostics,omitempty"`
+	AccessHint            string            `json:"access_hint,omitempty"`
+	RowCount              int               `json:"row_count,omitempty"`
+	ExecutableRecordInput bool              `json:"executable_record_input,omitempty"`
+	Lineage               ArtifactLineage   `json:"lineage,omitempty"`
+}
+
+type ArtifactLineage struct {
 	SourcePaths       []string `json:"source_paths,omitempty"`
 	SourceRecordPaths []string `json:"source_record_paths,omitempty"`
 	ReferencePaths    []string `json:"reference_paths,omitempty"`
 	EvidencePaths     []string `json:"evidence_paths,omitempty"`
-	RowCount          int      `json:"row_count,omitempty"`
+}
+
+type ArtifactAliasBinding struct {
+	Alias                 string `json:"alias,omitempty"`
+	NodeID                string `json:"node_id,omitempty"`
+	NodeClass             string `json:"node_class,omitempty"`
+	ExecutableRecordInput bool   `json:"executable_record_input,omitempty"`
 }
 
 // ArtifactProjectionSource is intentionally small: dataquery.DataArtifact is
