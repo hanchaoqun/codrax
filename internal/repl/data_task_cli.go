@@ -179,6 +179,17 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	currentPlan := plan
 	for {
 		if errText := dataTaskTerminalPlanCompletionGateErrorWithRepo(repoRoot, records, currentPlan); errText != "" {
+			if result, ok := latestDataTaskResult(records); ok {
+				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
+				if transition.HasPlan() {
+					completionPlan := protectPlan(transition.Plan)
+					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
+					dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
+					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
+					currentPlan = completionPlan
+					continue
+				}
+			}
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
 			if repairErr != nil {
@@ -497,8 +508,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		switch eval.Status {
 		case dataquery.EvalComplete:
 			if errText := dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot, records, currentPlan, result); errText != "" {
-				if completionPlan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot, records, currentPlan, result, errText); ok {
-					completionPlan = protectPlan(completionPlan)
+				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
+				if transition.HasPlan() {
+					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
 					dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)

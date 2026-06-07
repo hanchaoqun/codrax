@@ -49,6 +49,56 @@ type WorkflowNextStageFallbackPlanInput struct {
 	ExtractLimit           int
 }
 
+type CompletionRepairTransitionInput struct {
+	Current                dataquery.TaskPlan
+	Coverage               dataquery.CoverageContract
+	Output                 dataquery.OutputContract
+	Result                 dataquery.Result
+	ErrorText              string
+	ReferenceGap           ReferenceProjectionGap
+	PlanHasCustomTransform bool
+}
+
+type CompletionRepairTransition struct {
+	Plan               dataquery.TaskPlan `json:"plan,omitempty"`
+	Reason             string             `json:"reason,omitempty"`
+	ErrorText          string             `json:"error_text,omitempty"`
+	Deterministic      bool               `json:"deterministic,omitempty"`
+	NeedsPlannerRepair bool               `json:"needs_planner_repair,omitempty"`
+}
+
+func (t CompletionRepairTransition) HasPlan() bool {
+	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) CompletionRepairTransition {
+	errText := strings.TrimSpace(input.ErrorText)
+	if errText == "" {
+		return CompletionRepairTransition{}
+	}
+	if plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
+		Current:                input.Current,
+		Coverage:               input.Coverage,
+		Output:                 input.Output,
+		Result:                 input.Result,
+		ErrorText:              errText,
+		ReferenceGap:           input.ReferenceGap,
+		PlanHasCustomTransform: input.PlanHasCustomTransform,
+	}); ok {
+		return CompletionRepairTransition{
+			Plan:          plan,
+			Reason:        errText,
+			ErrorText:     errText,
+			Deterministic: true,
+		}
+	}
+	return CompletionRepairTransition{
+		Reason:             errText,
+		ErrorText:          errText,
+		NeedsPlannerRepair: true,
+	}
+}
+
 func BuildWorkflowNextStageFallbackPlan(input WorkflowNextStageFallbackPlanInput) (dataquery.TaskPlan, string, bool) {
 	if len(input.Current.Actions) == 0 && input.Current.ContinueAfter {
 		return dataquery.TaskPlan{}, "", false

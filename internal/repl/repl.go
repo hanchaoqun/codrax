@@ -1365,6 +1365,17 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	dataRounds := 0
 	for {
 		if errText := dataTaskTerminalPlanCompletionGateErrorWithRepo(r.repoRoot, records, currentPlan); errText != "" {
+			if result, ok := latestDataTaskResult(records); ok {
+				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
+				if transition.HasPlan() {
+					completionPlan := protectPlan(transition.Plan)
+					r.emitDataTaskWorkflowAudit("continue", dataRounds, dataTaskWorkflowErrorSegment(r.language, errText))
+					r.emitDataTaskPlanAudit(completionPlan)
+					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
+					currentPlan = completionPlan
+					continue
+				}
+			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
@@ -1909,9 +1920,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				if len(records) > 0 {
 					records[len(records)-1].Err = errText
 				}
-				if completionPlan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(r.repoRoot, records, currentPlan, result, errText); ok {
+				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
+				if transition.HasPlan() {
 					r.emitDataTaskWorkflowAudit("continue", dataRounds, dataTaskWorkflowErrorSegment(r.language, errText))
-					completionPlan = protectPlan(completionPlan)
+					completionPlan := protectPlan(transition.Plan)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
 					currentPlan = completionPlan

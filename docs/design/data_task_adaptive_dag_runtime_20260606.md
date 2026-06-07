@@ -11460,9 +11460,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move terminal-completion repair signatures behind reducer-owned
+- [x] Move terminal-completion repair signatures behind reducer-owned
       transition objects. Terminal next-stage fallback and output projection
-      moved in Batch 259.
+      moved in Batch 259; completion repair transition moved in Batch 260.
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.
@@ -11511,9 +11511,57 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move terminal-completion repair signatures behind reducer-owned
+- [x] Move terminal-completion repair signatures behind reducer-owned
       transition objects so completion repair, repair failure fallback, and
-      terminal audit failure state share one state-machine result.
+      terminal audit failure state share one state-machine result. Completed in
+      Batch 260 for completion transition; repair-failure fallback still emits
+      through the shared process-event item below.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
+
+### Batch 260: Completion Repair Transition
+
+The next IR pass wrapped terminal completion repair in a reducer-owned
+transition object. Before this batch, CLI and REPL both checked a completion
+gate, then each tried a deterministic ledger/output repair plan, then each
+fell back to the model repair planner. The deterministic plan builders already
+lived in `internal/dataworkflow`, but the transition result itself was still
+duplicated in adapter code.
+
+This is a generic completion-state problem. Once the workflow has a validation
+failure and a latest structured result, the system should first ask the
+workflow reducer whether the failure is a known structural completion gap. If
+it is, the reducer returns a deterministic continuation plan. If it is not, the
+transition explicitly says `needs_planner_repair=true` and the existing repair
+planner remains responsible.
+
+The generalized invariant is:
+
+- completion repair transition consumes typed contracts, latest result,
+  completion error text, and optional reference projection gap;
+- deterministic repair may only complete structural ledgers/projection from
+  existing facts, such as missing reconcile or assemble-answer projection;
+- unknown or semantic failures do not get patched by the system and are handed
+  to planner repair;
+- CLI and REPL consume the same transition shape.
+
+Changes:
+
+- [x] Added `CompletionRepairTransitionInput`,
+      `CompletionRepairTransition`, and `BuildCompletionRepairTransition`.
+- [x] Reused `BuildRequiredLedgerCompletionPlan` under the transition so
+      missing required reconcile/projection still uses existing reducer
+      builders.
+- [x] Changed CLI and REPL terminal-completion and evaluator-completion paths
+      to consume the same transition before invoking planner repair.
+- [x] Kept adapter-owned reference-gap calculation as typed input; reducer does
+      not read local files or infer business meaning.
+- [x] Added reducer regression coverage for deterministic completion repair
+      and planner-repair fallback.
+
+Remaining architecture items:
+
 - [ ] Feed reducer transition results into a shared CLI/REPL process-event
       sink so users see business-facing action intent while audit counters stay
       low-noise.

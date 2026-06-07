@@ -9248,12 +9248,20 @@ func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, curr
 }
 
 func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
+	transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, current, result, errText)
+	if transition.HasPlan() {
+		return transition.Plan, true
+	}
+	return dataquery.TaskPlan{}, false
+}
+
+func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) dataworkflow.CompletionRepairTransition {
 	var gap dataworkflow.ReferenceProjectionGap
 	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
 		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
 	}
-	return dataworkflow.BuildRequiredLedgerCompletionPlan(dataworkflow.RequiredLedgerCompletionPlanInput{
+	return dataworkflow.BuildCompletionRepairTransition(dataworkflow.CompletionRepairTransitionInput{
 		Current:                current,
 		Coverage:               dataTaskWorkflowCoverageContract(records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),

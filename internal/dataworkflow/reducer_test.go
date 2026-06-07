@@ -365,3 +365,34 @@ func TestBuildWorkflowNextStageFallbackPlanProjectsFinalAnswer(t *testing.T) {
 		t.Fatalf("reason=%q, want answer projection reason", reason)
 	}
 }
+
+func TestBuildCompletionRepairTransitionUsesDeterministicLedgerPlan(t *testing.T) {
+	transition := BuildCompletionRepairTransition(CompletionRepairTransitionInput{
+		Current:  dataquery.TaskPlan{Goal: "finish validation"},
+		Coverage: dataquery.CoverageContract{ReconcileRequired: true},
+		Result: dataquery.Result{Contributions: []dataquery.ContributionRecord{{
+			ItemID:    dataquery.LooseText("row-1"),
+			GroupKey:  dataquery.LooseText("A"),
+			Metric:    dataquery.LooseText("value"),
+			Value:     dataquery.LooseText("10"),
+			Operation: dataquery.LooseText("add"),
+		}}},
+		ErrorText: `validate data workflow completion: data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty`,
+	})
+	if !transition.Deterministic || transition.NeedsPlannerRepair || !transition.HasPlan() {
+		t.Fatalf("transition=%+v, want deterministic plan", transition)
+	}
+	if len(transition.Plan.Actions) != 1 || transition.Plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile action", transition.Plan.Actions)
+	}
+}
+
+func TestBuildCompletionRepairTransitionFallsBackToPlanner(t *testing.T) {
+	transition := BuildCompletionRepairTransition(CompletionRepairTransitionInput{
+		Current:   dataquery.TaskPlan{Goal: "finish validation"},
+		ErrorText: "validate data workflow completion: semantic check failed",
+	})
+	if transition.Deterministic || !transition.NeedsPlannerRepair || transition.HasPlan() {
+		t.Fatalf("transition=%+v, want planner repair fallback", transition)
+	}
+}
