@@ -8,7 +8,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
-const DefaultRecordMaterializationLimit = 100000
+const (
+	DefaultRecordMaterializationLimit  = 100000
+	DefaultBroadMaterialDiscoveryLimit = 12
+)
 
 type RecordMaterializationFallbackInput struct {
 	Current            dataquery.TaskPlan
@@ -270,6 +273,43 @@ type MaterialDiscoveryPlanInput struct {
 	Coverage       dataquery.CoverageContract
 	Paths          []string
 	ValidationRule string
+}
+
+type MaterialDiscoveryTransitionInput struct {
+	Current                    dataquery.TaskPlan
+	Coverage                   dataquery.CoverageContract
+	Paths                      []string
+	ValidationRule             string
+	MaterialCoverageSufficient bool
+	PriorMaterialInventorySeen bool
+	CurrentMaterialInventory   bool
+	NonCustomActionCount       int
+	HasExecutableSurface       bool
+	BroadMaterialLimit         int
+}
+
+func BuildMaterialDiscoveryTransition(input MaterialDiscoveryTransitionInput) (dataquery.TaskPlan, bool) {
+	if input.MaterialCoverageSufficient ||
+		input.PriorMaterialInventorySeen ||
+		input.CurrentMaterialInventory ||
+		input.NonCustomActionCount > 0 ||
+		!input.HasExecutableSurface {
+		return dataquery.TaskPlan{}, false
+	}
+	paths := cleanStrings(input.Paths)
+	limit := input.BroadMaterialLimit
+	if limit <= 0 {
+		limit = DefaultBroadMaterialDiscoveryLimit
+	}
+	if len(paths) < limit {
+		return dataquery.TaskPlan{}, false
+	}
+	return BuildMaterialDiscoveryPlan(MaterialDiscoveryPlanInput{
+		Current:        input.Current,
+		Coverage:       input.Coverage,
+		Paths:          paths,
+		ValidationRule: input.ValidationRule,
+	})
 }
 
 func BuildMaterialDiscoveryPlan(input MaterialDiscoveryPlanInput) (dataquery.TaskPlan, bool) {

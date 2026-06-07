@@ -1042,34 +1042,22 @@ func dataTaskPlanCanWrapTopLevelScriptAsCustomAction(plan dataquery.TaskPlan) bo
 
 func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
 	state := dataTaskWorkflowState(records, plan)
-	if state.MaterialCoverageSufficient {
-		return dataquery.TaskPlan{}, false
-	}
-	if dataTaskWorkflowHasActionKind(records, dataquery.DataActionMaterialInventory) {
-		return dataquery.TaskPlan{}, false
-	}
-	if len(plan.Actions) == 1 && normalizeDataActionKindForWorkflow(plan.Actions[0].Kind) == dataquery.DataActionMaterialInventory {
-		return dataquery.TaskPlan{}, false
-	}
-	if dataTaskPlanNonCustomActionCount(plan.Actions, len(plan.Actions)) > 0 {
-		return dataquery.TaskPlan{}, false
-	}
-	paths := dataTaskDiscoveryPaths(plan)
-	if len(paths) < dataTaskBroadMaterialDiscoveryLimit {
-		return dataquery.TaskPlan{}, false
-	}
-	if strings.TrimSpace(plan.Script) == "" && !dataTaskPlanHasCustomTransform(plan) {
-		return dataquery.TaskPlan{}, false
-	}
 	validationRule := ""
 	if strings.TrimSpace(errText) != "" {
 		validationRule = "previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)
 	}
-	return dataworkflow.BuildMaterialDiscoveryPlan(dataworkflow.MaterialDiscoveryPlanInput{
-		Current:        plan,
-		Coverage:       dataTaskWorkflowCoverageContract(records, plan),
-		Paths:          paths,
-		ValidationRule: validationRule,
+	currentInventory := len(plan.Actions) == 1 && normalizeDataActionKindForWorkflow(plan.Actions[0].Kind) == dataquery.DataActionMaterialInventory
+	return dataworkflow.BuildMaterialDiscoveryTransition(dataworkflow.MaterialDiscoveryTransitionInput{
+		Current:                    plan,
+		Coverage:                   dataTaskWorkflowCoverageContract(records, plan),
+		Paths:                      dataTaskDiscoveryPaths(plan),
+		ValidationRule:             validationRule,
+		MaterialCoverageSufficient: state.MaterialCoverageSufficient,
+		PriorMaterialInventorySeen: dataTaskWorkflowHasActionKind(records, dataquery.DataActionMaterialInventory),
+		CurrentMaterialInventory:   currentInventory,
+		NonCustomActionCount:       dataTaskPlanNonCustomActionCount(plan.Actions, len(plan.Actions)),
+		HasExecutableSurface:       strings.TrimSpace(plan.Script) != "" || dataTaskPlanHasCustomTransform(plan),
+		BroadMaterialLimit:         dataTaskBroadMaterialDiscoveryLimit,
 	})
 }
 

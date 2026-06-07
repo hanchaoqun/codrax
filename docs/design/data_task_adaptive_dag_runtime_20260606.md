@@ -11763,3 +11763,53 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 265: Reducer-Owned Material Discovery Transition
+
+The next IR pass moved the broad-material discovery trigger into
+`internal/dataworkflow`. Before this batch, the REPL adapter owned both the
+facts and the scheduling decision for converting an overly broad script/custom
+plan into an objective `material_inventory` batch. The plan builder already
+lived in the reducer; the missing piece was the transition predicate.
+
+This remains domain-neutral. The reducer consumes typed workflow facts:
+material coverage sufficiency, prior/current material-inventory state,
+non-custom action count, candidate material paths, whether the candidate plan
+has an executable broad surface, and the configured broad-material limit. It
+does not classify materials by business role and does not parse user/model
+prose. The adapter still projects local facts such as candidate paths and
+action shape.
+
+Changes:
+
+- [x] Added `MaterialDiscoveryTransitionInput` and
+      `BuildMaterialDiscoveryTransition` in `internal/dataworkflow`.
+- [x] Added `DefaultBroadMaterialDiscoveryLimit` next to other reducer
+      defaults.
+- [x] Changed REPL `dataTaskMaterialDiscoveryFallback` to pass typed facts into
+      the reducer transition instead of owning the full trigger logic.
+- [x] Kept `BuildMaterialDiscoveryPlan` unchanged so the existing inventory
+      action shape and audit semantics are preserved.
+- [x] Added reducer regression coverage for transition trigger, already-covered
+      workflows, prior inventory, non-custom action plans, narrow path sets, and
+      missing executable surface.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining REPL adapter-owned scheduling predicates behind
+      reducer-owned transition inputs. Top-level plan shape, terminal
+      required-material scheduling, and material-discovery transition are done;
+      broad custom-transform prerequisite guards and field/relation guard
+      entrypoints still need the same treatment where they produce hard
+      scheduling decisions.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

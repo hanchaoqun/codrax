@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -224,6 +225,60 @@ func TestBuildMaterialDiscoveryPlanClearsCoverageFloors(t *testing.T) {
 	}
 	if len(plan.CoverageContract.ValidationRules) != 1 {
 		t.Fatalf("ValidationRules=%v, want audit rule", plan.CoverageContract.ValidationRules)
+	}
+}
+
+func TestBuildMaterialDiscoveryTransitionUsesTypedTriggerFacts(t *testing.T) {
+	paths := make([]string, DefaultBroadMaterialDiscoveryLimit)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("input-%02d.csv", i)
+	}
+	plan, ok := BuildMaterialDiscoveryTransition(MaterialDiscoveryTransitionInput{
+		Current:              dataquery.TaskPlan{Goal: "discover before compute"},
+		Paths:                paths,
+		HasExecutableSurface: true,
+		BroadMaterialLimit:   DefaultBroadMaterialDiscoveryLimit,
+	})
+	if !ok {
+		t.Fatal("BuildMaterialDiscoveryTransition ok=false")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionMaterialInventory {
+		t.Fatalf("actions=%+v, want material_inventory", plan.Actions)
+	}
+}
+
+func TestBuildMaterialDiscoveryTransitionRejectsNonBroadOrAlreadyCovered(t *testing.T) {
+	paths := make([]string, DefaultBroadMaterialDiscoveryLimit)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("input-%02d.csv", i)
+	}
+	for name, input := range map[string]MaterialDiscoveryTransitionInput{
+		"covered": {
+			Paths:                      paths,
+			HasExecutableSurface:       true,
+			MaterialCoverageSufficient: true,
+		},
+		"prior_inventory": {
+			Paths:                      paths,
+			HasExecutableSurface:       true,
+			PriorMaterialInventorySeen: true,
+		},
+		"non_custom_action": {
+			Paths:                paths,
+			HasExecutableSurface: true,
+			NonCustomActionCount: 1,
+		},
+		"narrow_paths": {
+			Paths:                paths[:DefaultBroadMaterialDiscoveryLimit-1],
+			HasExecutableSurface: true,
+		},
+		"no_executable_surface": {
+			Paths: paths,
+		},
+	} {
+		if plan, ok := BuildMaterialDiscoveryTransition(input); ok {
+			t.Fatalf("%s: plan=%+v, want no transition", name, plan)
+		}
 	}
 }
 
