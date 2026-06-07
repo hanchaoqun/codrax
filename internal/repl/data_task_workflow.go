@@ -6935,6 +6935,29 @@ func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state data
 			})
 		}
 	}
+	if allowed[string(dataquery.DataActionValueDistribution)] {
+		for _, artifact := range recordAccess {
+			if len(out) >= 10 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionValueDistribution),
+				UseWhen:   "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
+				ParamsTemplate: map[string]string{
+					"fields":      `["<existing field from fields>"]`,
+					"top_n":       "8",
+					"max_records": "100000",
+				},
+				Note: "Use this when field names exist but compact samples are not enough to choose typed params. It returns top/distinct/empty counts and does not change rows.",
+			})
+		}
+	}
 	if allowed[string(dataquery.DataActionQualifyRecords)] {
 		for _, artifact := range recordAccess {
 			if len(out) >= 10 {

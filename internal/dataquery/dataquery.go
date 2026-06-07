@@ -87,6 +87,7 @@ const (
 	DataActionGroupRecords      DataActionKind = "group_records"
 	DataActionExpandRecords     DataActionKind = "expand_records"
 	DataActionFilterRecords     DataActionKind = "filter_records"
+	DataActionValueDistribution DataActionKind = "value_distribution"
 	DataActionQualifyRecords    DataActionKind = "qualify_records"
 	DataActionNormalizeEntities DataActionKind = "normalize_entities"
 	DataActionApplyResolutions  DataActionKind = "apply_entity_resolutions"

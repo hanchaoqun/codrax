@@ -56,6 +56,49 @@ emit({
 	}
 }
 
+func TestActionRunnerValueDistribution(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("status,group\npaid,A\npaid,B\naccepted,A\n,A\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "dist",
+			Kind:       DataActionValueDistribution,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"fields": `["status","group"]`,
+				"top_n":  "2",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run value_distribution: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%d, want 1", len(res.Artifacts))
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Kind != string(DataActionValueDistribution) || strings.Join(artifact.SourceRecordPaths, ",") != "items.csv" {
+		t.Fatalf("artifact=%+v, want value distribution with source record lineage", artifact)
+	}
+	var statusChild *DataArtifact
+	for i := range artifact.Children {
+		if artifact.Children[i].Fields["field"] == "status" {
+			statusChild = &artifact.Children[i]
+			break
+		}
+	}
+	if statusChild == nil {
+		t.Fatalf("children=%+v, want status distribution child", artifact.Children)
+	}
+	if statusChild.Fields["non_empty"] != "3" || statusChild.Fields["empty"] != "1" || statusChild.Fields["distinct"] != "2" || !strings.Contains(statusChild.Fields["top_values"], `"paid"`) {
+		t.Fatalf("status distribution=%+v, want counts/top values", statusChild.Fields)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

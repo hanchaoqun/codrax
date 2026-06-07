@@ -229,6 +229,18 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			artifacts = append(artifacts, artifact)
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
+		case DataActionValueDistribution:
+			artifact, paths, err := r.runValueDistribution(action)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, artifact)
+			if err != nil {
+				return failAction(action, err)
+			}
+			artifacts = append(artifacts, artifact)
+			consumed = append(consumed, paths...)
+			summaries = append(summaries, artifact.Summary)
 		case DataActionQualifyRecords:
 			defaultRuleRefs := []string(nil)
 			if plan.CoverageContract.RuleCoverageRequired {
@@ -544,6 +556,8 @@ func normalizeDataActionKind(kind DataActionKind) DataActionKind {
 		return DataActionExpandRecords
 	case DataActionFilterRecords:
 		return DataActionFilterRecords
+	case DataActionValueDistribution:
+		return DataActionValueDistribution
 	case DataActionQualifyRecords:
 		return DataActionQualifyRecords
 	case DataActionNormalizeEntities:
@@ -2728,6 +2742,168 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			Summary:     fmt.Sprintf("%s supplied %d source record(s)", rel, total),
 		}},
 	}, rows, []string{rel}, nil
+}
+
+func (r ActionRunner) runValueDistribution(action DataAction) (DataArtifact, []string, error) {
+	paths := cleanStringListPreserveOrder(action.InputPaths)
+	inputPath := firstNonEmptyString(strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["base_path"]))
+	if inputPath == "" && len(paths) > 0 {
+		inputPath = paths[0]
+	}
+	if inputPath == "" {
+		return DataArtifact{}, nil, errors.New("value_distribution requires input_path or at least one input_path")
+	}
+	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
+	topN := actionIntParam(action, "top_n", 8, 1, 100)
+	maxFields := actionIntParam(action, "max_fields", 12, 1, 200)
+	records, headers, total, rel, err := r.readActionRecords(inputPath, maxRecords)
+	if err != nil {
+		return DataArtifact{}, nil, err
+	}
+	fields := parseActionStringListParam(firstNonEmptyString(action.Params["fields"], action.Params["fields_json"], action.Params["field"], action.Params["target_fields"]))
+	if len(fields) == 0 {
+		fields = actionRecordFieldNames(headers, records)
+	}
+	fields = clampStringSliceForError(cleanStringList(fields), maxFields)
+	available := actionRecordFieldNames(headers, records)
+	missing := missingActionFields(available, fields)
+	if len(missing) > 0 {
+		return DataArtifact{}, nil, fmt.Errorf("value_distribution field(s) [%s] were not found in input %s fields [%s]",
+			strings.Join(missing, ", "),
+			rel,
+			strings.Join(clampStringSliceForError(available, 32), ", "),
+		)
+	}
+	children := make([]DataArtifact, 0, len(fields)+1)
+	for _, field := range fields {
+		summary, topJSON := valueDistributionForField(records, field, topN)
+		children = append(children, DataArtifact{
+			ID:                rel + "#value_distribution_" + cleanIdentifierForArtifact(field),
+			Kind:              "value_distribution/field",
+			SourcePaths:       []string{rel},
+			SourceRecordPaths: []string{rel},
+			Summary:           fmt.Sprintf("%s distribution for field %s", rel, field),
+			Fields: map[string]string{
+				"field":      field,
+				"input_rows": fmt.Sprintf("%d", total),
+				"non_empty":  fmt.Sprintf("%d", summary.NonEmpty),
+				"empty":      fmt.Sprintf("%d", summary.Empty),
+				"distinct":   fmt.Sprintf("%d", summary.Distinct),
+				"top_values": topJSON,
+			},
+		})
+	}
+	children = append(children, DataArtifact{
+		ID:                rel + "#source",
+		Kind:              "value_distribution/source",
+		SourcePaths:       []string{rel},
+		SourceRecordPaths: []string{rel},
+		Headers:           headers,
+		RowCount:          total,
+		Summary:           fmt.Sprintf("%s supplied %d source record(s)", rel, total),
+	})
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "value_distribution")
+	return DataArtifact{
+		ID:                id,
+		Kind:              string(DataActionValueDistribution),
+		SourcePaths:       []string{rel},
+		SourceRecordPaths: []string{rel},
+		Headers:           fields,
+		RowCount:          len(fields),
+		Summary:           fmt.Sprintf("computed value distribution for %d field(s) from %s", len(fields), rel),
+		Fields: map[string]string{
+			"input_path":  rel,
+			"input_rows":  fmt.Sprintf("%d", total),
+			"fields":      strings.Join(fields, ","),
+			"field_count": fmt.Sprintf("%d", len(fields)),
+		},
+		Children: children,
+	}, []string{rel}, nil
+}
+
+type valueDistributionSummary struct {
+	NonEmpty int
+	Empty    int
+	Distinct int
+}
+
+func valueDistributionForField(records []actionRecord, field string, topN int) (valueDistributionSummary, string) {
+	counts := map[string]int{}
+	var summary valueDistributionSummary
+	for _, record := range records {
+		value := strings.TrimSpace(recordField(record.Fields, field))
+		if value == "" {
+			summary.Empty++
+			continue
+		}
+		summary.NonEmpty++
+		counts[value]++
+	}
+	summary.Distinct = len(counts)
+	type item struct {
+		Value string `json:"value"`
+		Count int    `json:"count"`
+	}
+	items := make([]item, 0, len(counts))
+	for value, count := range counts {
+		items = append(items, item{Value: value, Count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		return items[i].Value < items[j].Value
+	})
+	if topN > 0 && len(items) > topN {
+		items = items[:topN]
+	}
+	return summary, compactJSONLine(items)
+}
+
+func missingActionFields(available, want []string) []string {
+	seen := map[string]bool{}
+	for _, field := range available {
+		field = strings.ToLower(strings.TrimSpace(field))
+		if field != "" {
+			seen[field] = true
+		}
+	}
+	var missing []string
+	for _, field := range cleanStringList(want) {
+		if !seen[strings.ToLower(strings.TrimSpace(field))] {
+			missing = append(missing, field)
+		}
+	}
+	return missing
+}
+
+func cleanIdentifierForArtifact(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "field"
+	}
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "field"
+	}
+	if len(out) > 80 {
+		out = strings.TrimRight(out[:80], "_")
+	}
+	return out
 }
 
 func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []string) (DataArtifact, []map[string]any, []RowDecision, []string, error) {

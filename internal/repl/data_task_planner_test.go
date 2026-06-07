@@ -502,7 +502,18 @@ func TestDataTaskWorkflowNextStageFallbackDoesNotJoinOnInternalLineageOnly(t *te
 	}}
 
 	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); ok {
-		t.Fatalf("fallback=%+v reason=%q, want no deterministic join fallback on internal lineage fields", plan, reason)
+		if len(plan.Actions) == 0 {
+			t.Fatalf("fallback=%+v reason=%q, want concrete diagnostic action when fallback exists", plan, reason)
+		}
+		action := plan.Actions[0]
+		if action.Kind == dataquery.DataActionJoinRecords {
+			t.Fatalf("fallback=%+v reason=%q, want no deterministic join fallback on internal lineage fields", plan, reason)
+		}
+		if action.Kind == dataquery.DataActionValueDistribution {
+			if strings.Contains(action.Params["fields"], "<") || strings.Contains(action.Params["fields"], "_source") || strings.Contains(action.Params["fields"], "_left_index") {
+				t.Fatalf("value_distribution params=%+v, want concrete non-internal fields", action.Params)
+			}
+		}
 	}
 }
 
@@ -1332,7 +1343,7 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 		t.Fatal("ContinueAfter=false, want true for action workflow")
 	}
 	system := adapter.calls[0].messages[0].Content
-	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "extract_fields", "group_records", "expand_records", "filter_records", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "extract_fields", "group_records", "expand_records", "filter_records", "value_distribution", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}

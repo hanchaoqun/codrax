@@ -4376,7 +4376,7 @@ Remaining architecture items:
 
 - [ ] Add typed `artifact_schema_projection` so action validators can consume
       exact generated artifact schemas without relying on prompt sampling.
-- [ ] Add a compact value-distribution preview action for generic field
+- [x] Add a compact value-distribution preview action for generic field
       exploration before filtering or grouping.
 - [ ] Persist deferred action queues and artifact visibility snapshots across
       interrupted sessions.
@@ -7209,9 +7209,12 @@ Remaining architecture items:
 - [ ] Add a deterministic guard that blocks contribution/reconcile/final
       projection when an input artifact is still sampled and no explicit
       sample-only diagnostic path is active.
-- [ ] Add value-distribution and field-preview typed actions so schema
-      exploration uses small diagnostic artifacts, while exact calculation uses
-      complete record artifacts.
+- [x] Add a value-distribution typed action so schema/value exploration uses
+      small diagnostic artifacts, while exact calculation uses complete record
+      artifacts.
+- [ ] Add any further field-preview actions only when they expose new typed
+      observations that `value_distribution` and artifact schema projection do
+      not already cover.
 
 ### Batch 166: Prompt-Safe Artifact Schema Projection
 
@@ -7622,9 +7625,9 @@ Remaining architecture items:
 - [ ] Promote field-contract violations from prompt projection into a durable
       `ActionGraph.Blocked` / `WorkflowDecision` IR object in
       `internal/dataworkflow`.
-- [ ] Add a typed value-distribution / field-preview action so a planner can
-      inspect candidate values before declaring regex/filter specs, without
-      falling back to scripts.
+- [x] Add a typed value-distribution action so a planner can inspect candidate
+      values before declaring filters or contribution params, without falling
+      back to scripts.
 - [ ] Add row-loss and zero-match diagnostics as typed evaluator inputs so
       contribution stages cannot silently continue from an underspecified
       candidate universe.
@@ -7724,7 +7727,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Add a domain-neutral value-distribution action so filter repair can
+- [x] Add a domain-neutral value-distribution action so filter repair can
       inspect per-field value counts without relying on `inspect_material`.
 - [ ] Feed zero-match violations into a durable `WorkflowDecision` IR object
       rather than prompt projection only.
@@ -7791,8 +7794,10 @@ Remaining architecture items:
 - [ ] Split workflow state into explicit `historical_audit` and
       `effective_snapshot` sections instead of relying on dedupe at each
       projection site.
-- [ ] Add a typed value-distribution/field-preview action so zero-eligible
-      qualification repair can inspect actual values without broad scripts.
+- [x] Add a typed value-distribution action so zero-eligible qualification
+      repair can inspect actual values without broad scripts.
+- [ ] Add further field-preview actions only for observation shapes that are
+      not covered by value distribution or schema projection.
 - [ ] Feed unmatched-resolution and zero-eligible violations into
       `WorkflowDecision` as typed reason codes, not only prompt-visible state.
 - [ ] Improve CLI/REPL data workflow process events so business-facing details
@@ -8695,9 +8700,12 @@ Remaining architecture items:
 - [ ] Emit structured `ActionValidation` records for ambiguous extraction
       with JSON paths to the offending action/spec instead of relying on error
       text.
-- [ ] Add a domain-neutral value-distribution/field-preview action so the
-      planner can cheaply inspect candidate numeric tokens before choosing a
-      pattern.
+- [x] Add a domain-neutral value-distribution action so the planner can cheaply
+      inspect candidate field values before choosing filters or contribution
+      params.
+- [ ] Add a dedicated extraction-preview action only if value distribution plus
+      typed extraction diagnostics are insufficient for candidate token
+      selection.
 - [ ] Feed extraction ambiguity diagnostics into the shared business-facing
       process-event renderer so users can see the model is refining a field
       extraction, not blindly retrying.
@@ -10484,9 +10492,12 @@ Still open, but not blockers for the next single real uninterrupted run:
 - [ ] Persist full resumable ActionDAG edge state for interrupted sessions. The
       current explicit resume payload restores records/current/deferred plans and
       is safe for CLI opt-in recovery; richer edge replay is release-hardening.
-- [ ] Add domain-neutral value-distribution and mapping-candidate actions. Current
-      typed actions can answer the real scenario path, but these actions would
-      reduce repair turns and improve explainability for future tasks.
+- [x] Add a domain-neutral value-distribution action. It reduces repair turns
+      by letting the workflow inspect actual field values before filters,
+      grouping, joins, or contribution params.
+- [ ] Add a domain-neutral mapping-candidate action. Current typed relation
+      actions can proceed without it, but candidate generation would improve
+      convergence for ambiguous reference/entity matching.
 - [ ] Promote every evaluator reason into a durable `WorkflowDecision` object.
       Current typed violations and journal events are sufficient for the next
       run; a full decision IR remains the next architecture cleanup.
@@ -10548,7 +10559,7 @@ Remaining architecture items:
 - [ ] Move the remaining REPL-local scaffold sorting and concrete fallback
       builders into `internal/dataworkflow` so ActionDAG, ArtifactGraph, and
       LedgerGraph own the complete scheduling policy.
-- [ ] Add a domain-neutral value-distribution preview action so the planner can
+- [x] Add a domain-neutral value-distribution preview action so the planner can
       inspect actual field values before filtering/grouping/contribution work
       without inventing scripts or repeating relation joins.
 
@@ -10970,3 +10981,63 @@ Remaining architecture items:
       details use one renderer contract.
 - [ ] Add business-facing summaries from typed planner/evaluator fields while
       keeping internal ledger counts as low-noise audit details.
+
+### Batch 250: Typed Value Distribution Diagnostic Action
+
+The next architecture audit focused on why complex data workflows can still
+spend too many turns in repair. A repeated pattern was not business-specific:
+the workflow had a record artifact and valid field names, but the planner did
+not have objective value distributions before choosing filters, grouping keys,
+mapping parameters, or contribution inputs. Without a typed diagnostic action,
+the planner had to infer values from compact prompt samples, ask for broad
+`inspect_material`, or fall back to scripts. That makes convergence depend on
+sample luck instead of graph state.
+
+The generic invariant is:
+
+- field-value observation is an atomic read-only DAG node;
+- the node consumes exactly one existing record artifact/path and emits a
+  reusable diagnostic artifact with per-field non-empty, empty, distinct, and
+  top-value counts;
+- the system does not assign business meaning to those values and does not
+  choose filters or groups from prose;
+- deterministic fallback may use this diagnostic node when relation joins would
+  otherwise repeat or when values are unknown, but it must not inspect runtime
+  lineage fields such as `_source` / `_left_index` as business data;
+- exact calculation still happens through typed transform/contribution/
+  reconcile/projection actions over complete artifacts.
+
+Changes:
+
+- [x] Added `value_distribution` as a `dataquery.DataActionKind`.
+- [x] Implemented `ActionRunner` support for `value_distribution`, including
+      single-record input handling, field validation, bounded row/field limits,
+      top-value counts, and source-record lineage.
+- [x] Added workflow capability and allowed-action contracts for the stages
+      where value inspection is structurally useful.
+- [x] Taught the data planner schema and prompt to use `value_distribution`
+      when actual field values are unclear before filters, joins, mappings,
+      grouping, or contribution parameters.
+- [x] Added concrete scaffold materialization for `value_distribution`.
+      Placeholder field templates are replaced with concrete non-internal
+      artifact fields before execution.
+- [x] Kept the internal-lineage join guard intact: deterministic fallback still
+      cannot auto-join artifacts whose only shared fields are runtime lineage,
+      but it may choose the read-only value diagnostic action to make progress.
+- [x] Added unit coverage for runner output, workflow contracts, concrete
+      scaffold materialization, planner schema teaching, and the internal
+      lineage fallback boundary.
+
+Remaining architecture items:
+
+- [ ] Add a domain-neutral mapping-candidate action that proposes candidate
+      matches with evidence and ambiguity flags without assigning business
+      meaning.
+- [ ] Promote value-distribution results into evaluator state as typed
+      `field_contract_observation` objects so repair prompts do not need to
+      rediscover the diagnostic artifact by alias.
+- [ ] Move full fallback plan assembly into the shared workflow reducer so CLI
+      and REPL consume the same typed state transition.
+- [ ] Add realistic multi-file eval gates that assert value-distribution
+      diagnostics appear before zero-match filter/contribution repair loops
+      when field values are uncertain.

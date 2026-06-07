@@ -36,6 +36,7 @@ func TestAllowedNextActionContractsLiveInWorkflowIR(t *testing.T) {
 	for _, want := range []string{
 		string(dataquery.DataActionDeriveFields),
 		string(dataquery.DataActionFilterRecords),
+		string(dataquery.DataActionValueDistribution),
 		string(dataquery.DataActionQualifyRecords),
 		string(dataquery.DataActionComputeContribs),
 	} {

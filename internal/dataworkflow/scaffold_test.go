@@ -211,6 +211,26 @@ func TestConcreteActionFromScaffoldMaterializesJoinFields(t *testing.T) {
 	}
 }
 
+func TestConcreteActionFromScaffoldMaterializesValueDistribution(t *testing.T) {
+	action, ok := ConcreteActionFromScaffold(ActionScaffold{
+		Kind:      string(dataquery.DataActionValueDistribution),
+		InputPath: "records.json",
+		Fields:    []string{"_source", "status", "group"},
+		ParamsTemplate: map[string]string{
+			"fields": `["<existing field from fields>"]`,
+		},
+	})
+	if !ok {
+		t.Fatalf("ConcreteActionFromScaffold ok=false, want value_distribution action")
+	}
+	if action.Kind != dataquery.DataActionValueDistribution || strings.Join(action.InputPaths, ",") != "records.json" {
+		t.Fatalf("action=%+v, want value_distribution over records.json", action)
+	}
+	if action.Params["fields"] != `["status","group"]` {
+		t.Fatalf("fields param=%q, want concrete field array", action.Params["fields"])
+	}
+}
+
 func TestConcreteFallbackScaffoldsDoNotReturnToNormalizeAfterEntityStage(t *testing.T) {
 	scaffolds := []ActionScaffold{
 		{Kind: string(dataquery.DataActionNormalizeEntities)},

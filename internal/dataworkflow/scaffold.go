@@ -63,12 +63,13 @@ func PrioritizeConcreteScaffolds(scaffolds []ActionScaffold, facts StageFacts) [
 		return out
 	}
 	priority := map[dataquery.DataActionKind]int{
-		dataquery.DataActionApplyResolutions: 1,
-		dataquery.DataActionEnrichRecords:    2,
-		dataquery.DataActionJoinRecords:      3,
-		dataquery.DataActionFilterRecords:    4,
-		dataquery.DataActionQualifyRecords:   5,
-		dataquery.DataActionComputeContribs:  6,
+		dataquery.DataActionApplyResolutions:  1,
+		dataquery.DataActionEnrichRecords:     2,
+		dataquery.DataActionJoinRecords:       3,
+		dataquery.DataActionValueDistribution: 4,
+		dataquery.DataActionFilterRecords:     5,
+		dataquery.DataActionQualifyRecords:    6,
+		dataquery.DataActionComputeContribs:   7,
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		left := priority[NormalizeActionKind(dataquery.DataActionKind(out[i].Kind))]
@@ -157,9 +158,51 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 			OutputArtifact: concreteScaffoldArtifactID("resolved_records", scaffold.InputPaths),
 			Params:         params,
 		}, true
+	case dataquery.DataActionValueDistribution:
+		inputPath := strings.TrimSpace(scaffold.InputPath)
+		if inputPath == "" && len(scaffold.InputPaths) > 0 {
+			inputPath = strings.TrimSpace(scaffold.InputPaths[0])
+		}
+		fields := nonInternalScaffoldFields(scaffold.Fields)
+		if inputPath == "" || len(fields) == 0 {
+			return dataquery.DataAction{}, false
+		}
+		fieldsParam := strings.TrimSpace(params["fields"])
+		if fieldsParam == "" {
+			fieldsParam = strings.TrimSpace(params["fields_json"])
+		}
+		if fieldsParam == "" {
+			fieldsParam = strings.TrimSpace(params["field"])
+		}
+		if fieldsParam == "" || strings.Contains(fieldsParam, "<") || scaffoldParamLooksTemplate(params["fields"]) || scaffoldParamLooksTemplate(params["fields_json"]) || scaffoldParamLooksTemplate(params["field"]) {
+			params["fields"] = mustJSON(clampStrings(fields, 8))
+			delete(params, "fields_json")
+			delete(params, "field")
+		}
+		params["input_path"] = inputPath
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_value_distribution", []string{inputPath}),
+			Kind:           dataquery.DataActionValueDistribution,
+			Purpose:        "inspect field value distribution before selecting filters or grouping parameters",
+			InputPaths:     []string{inputPath},
+			OutputArtifact: concreteScaffoldArtifactID("value_distribution", []string{inputPath}),
+			Params:         params,
+		}, true
 	default:
 		return dataquery.DataAction{}, false
 	}
+}
+
+func nonInternalScaffoldFields(fields []string) []string {
+	cleaned := cleanStrings(fields)
+	out := make([]string, 0, len(cleaned))
+	for _, field := range cleaned {
+		if strings.HasPrefix(strings.TrimSpace(field), "_") {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
 }
 
 func concreteScaffoldParams(template map[string]string) map[string]string {
@@ -188,6 +231,11 @@ func scaffoldParamsConcrete(params map[string]string, required ...string) bool {
 		}
 	}
 	return true
+}
+
+func scaffoldParamLooksTemplate(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || strings.Contains(value, "<") || strings.Contains(value, "|")
 }
 
 func concreteScaffoldActionID(prefix string, inputs []string) string {

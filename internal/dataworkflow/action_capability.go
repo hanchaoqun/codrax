@@ -90,6 +90,11 @@ var actionCapabilities = map[dataquery.DataActionKind]ActionCapability{
 		DependencyRank: 3,
 		InputPaths:     ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
 	},
+	dataquery.DataActionValueDistribution: {
+		Kind:           dataquery.DataActionValueDistribution,
+		DependencyRank: 3,
+		InputPaths:     ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
+	},
 	dataquery.DataActionQualifyRecords: {
 		Kind:            dataquery.DataActionQualifyRecords,
 		DependencyRank:  3,
