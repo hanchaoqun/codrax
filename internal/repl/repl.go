@@ -167,6 +167,19 @@ type dataTaskTerminalAudit struct {
 	Result       *dataquery.Result
 }
 
+type dataTaskTerminalAuditSnapshot struct {
+	Status             string                                  `json:"status,omitempty"`
+	Reason             string                                  `json:"reason,omitempty"`
+	DataRounds         int                                     `json:"data_rounds,omitempty"`
+	RepairRounds       int                                     `json:"repair_rounds,omitempty"`
+	RecordCount        int                                     `json:"record_count,omitempty"`
+	ResultSummary      string                                  `json:"result_summary,omitempty"`
+	LastError          string                                  `json:"last_error,omitempty"`
+	ActionGraph        dataworkflow.ActionGraph                `json:"action_graph,omitempty"`
+	ArtifactGraph      []dataworkflow.ArtifactSchemaProjection `json:"artifact_graph,omitempty"`
+	WorkflowViolations []dataworkflow.WorkflowViolation        `json:"workflow_violations,omitempty"`
+}
+
 // autoInitRepoSetter is the optional capability `/approve` flips on
 // after the user (or the yaml/CLI pre-authorization) consents to
 // scaffolding a bare/headless target via `git init` + empty initial
@@ -2856,13 +2869,73 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 	reason := strings.TrimSpace(a.Reason)
 	lastErr := dataTaskLatestError(a.Records)
 	resultSummary := dataTaskTerminalResultSummary(a.Result, a.Records)
-	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q",
+	terminalPath := r.writeDataTaskTerminalArtifact(a, status, reason, lastErr, resultSummary)
+	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 		status, a.DataRounds, a.RepairRounds, len(a.Records), resultSummary,
-		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500))
+		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
 	if reason != "" || lastErr != "" {
 		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s",
 			status, reason, lastErr)
 	}
+}
+
+func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, reason, lastErr, resultSummary string) string {
+	dir := filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot, "."), "data-audit")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logging.Warning("[repl/data] create audit dir failed: %v", err)
+		return ""
+	}
+	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
+	artifactGraph := dataTaskArtifactAccessSchemaProjection(state.ArtifactAvailability)
+	if a.Result != nil && len(a.Result.Artifacts) > 0 {
+		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(a.Result.Artifacts)...)
+	}
+	snapshot := dataTaskTerminalAuditSnapshot{
+		Status:             status,
+		Reason:             reason,
+		DataRounds:         a.DataRounds,
+		RepairRounds:       a.RepairRounds,
+		RecordCount:        len(a.Records),
+		ResultSummary:      resultSummary,
+		LastError:          lastErr,
+		ActionGraph:        state.ActionGraph,
+		ArtifactGraph:      artifactGraph,
+		WorkflowViolations: state.WorkflowViolations,
+	}
+	raw, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		logging.Warning("[repl/data] marshal data task terminal audit failed: %v", err)
+		return ""
+	}
+	stamp := dataTaskAuditStamp()
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d-terminal.json", stamp, os.Getpid()))
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		logging.Warning("[repl/data] write data task terminal audit failed path=%s: %v", path, err)
+		return ""
+	}
+	logging.Info("[repl/data] terminal full path=%s\n%s", path, string(raw))
+	return path
+}
+
+func appendArtifactSchemaProjections(base []dataworkflow.ArtifactSchemaProjection, extra ...dataworkflow.ArtifactSchemaProjection) []dataworkflow.ArtifactSchemaProjection {
+	seen := map[string]bool{}
+	var out []dataworkflow.ArtifactSchemaProjection
+	for _, list := range [][]dataworkflow.ArtifactSchemaProjection{base, extra} {
+		for _, artifact := range list {
+			key := strings.Join(append([]string{strings.TrimSpace(artifact.ID)}, artifact.Aliases...), "\x00")
+			if key == "" {
+				key = strings.TrimSpace(artifact.Kind) + "\x00" + strings.Join(artifact.SourcePaths, "\x00")
+			}
+			if key != "" && seen[key] {
+				continue
+			}
+			if key != "" {
+				seen[key] = true
+			}
+			out = append(out, artifact)
+		}
+	}
+	return out
 }
 
 func dataTaskLatestError(records []dataTaskWorkflowRecord) string {

@@ -9439,8 +9439,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Persist action graph snapshots across terminal workflow summaries, not
+- [x] Persist action graph snapshots across terminal workflow summaries, not
       only per-plan artifacts.
+      Completed in Batch 214.
 - [x] Move scheduler readiness and status transitions from REPL record slices
       into the durable ActionDAG reducer. Completed for current graph
       projection in Batch 208.
@@ -9611,8 +9612,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Persist cumulative ArtifactGraph snapshots across workflow-terminal
+- [x] Persist cumulative ArtifactGraph snapshots across workflow-terminal
       summaries, not only per-result snapshots.
+      Completed in Batch 214.
 - [ ] Move scaffold eligibility fully into an ArtifactGraph-aware reducer.
 
 ### Batch 213: ArtifactGraph Record-Action Eligibility
@@ -9651,3 +9653,33 @@ Remaining architecture items:
       `join_records`) into ArtifactGraph-aware typed builders.
 - [ ] Emit scaffold skipped/eligible diagnostics into audit snapshots without
       increasing user-facing noise.
+
+### Batch 214: Terminal Graph Audit Snapshots
+
+Per-plan and per-result audit files are useful, but terminal support still had
+to reconstruct the final workflow state by walking many batch files. A data
+workflow should leave one compact terminal graph snapshot whether it completed,
+blocked, exhausted budget, or failed.
+
+This batch writes a terminal audit artifact containing:
+
+- terminal status, reason, rounds, record count, result summary, and last error;
+- cumulative ActionGraph, including blocked nodes from typed violations;
+- cumulative ArtifactGraph schema projection and lineage;
+- workflow violations.
+
+The snapshot is compact and structural. It avoids dumping full records or large
+materials, and it does not add business-specific interpretation.
+
+Changes:
+
+- [x] Added terminal `.json` audit files for data workflows.
+- [x] Persisted terminal ActionGraph, ArtifactGraph, and WorkflowViolations.
+- [x] Logged terminal audit path and full terminal snapshot.
+- [x] Added regression coverage for terminal graph snapshot persistence.
+
+Remaining architecture items:
+
+- [ ] Persist reducer event streams, not only projected terminal snapshots.
+- [ ] Add low-noise CLI/REPL links to terminal audit snapshots when useful,
+      without polluting strict stdout output.

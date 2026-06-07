@@ -515,6 +515,50 @@ func TestAuditDataTaskResultWritesArtifactGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
+	anchor := t.TempDir()
+	r := &REPL{
+		language:      "zh",
+		runtimeAnchor: anchor,
+		repoRoot:      t.TempDir(),
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:             "extract",
+			Kind:           dataquery.DataActionExtractRecords,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "records.json",
+		}}},
+		Err: `data planning incomplete: action 1 (filter_eligible) references field(s) [status] that are not present on input records fields [id, amount]. Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.`,
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "records",
+			Kind:    string(dataquery.DataActionExtractRecords),
+			Headers: []string{"id", "amount"},
+			Fields:  map[string]string{"artifact_aliases": "records", "json_shape": "array(len=2,item=object(keys=id,amount))"},
+		}}},
+	}}
+	path := r.writeDataTaskTerminalArtifact(
+		dataTaskTerminalAudit{Status: "failed", Reason: "field gap", DataRounds: 1, Records: records},
+		"failed",
+		"field gap",
+		records[0].Err,
+		"answer_len=0",
+	)
+	if path == "" {
+		t.Fatalf("terminal audit path empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read terminal audit: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"action_graph"`, `"artifact_graph"`, `"workflow_violations"`, `"blocked"`, `"records"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("terminal audit missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh", colorMode: render.ColorNever}
