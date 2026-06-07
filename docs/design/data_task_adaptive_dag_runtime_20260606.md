@@ -12756,3 +12756,59 @@ P1 follow-up after P0 closure:
 - [ ] Upgrade real-scenario gates from exploratory probes to verification:
       multi-run stability, terminal journal assertions, stdout strictness,
       stderr audit visibility, and expected-answer checks.
+
+### Batch 284: ActionDAG Admission Reducer Skeleton
+
+The next P0 step extracted the admission loop itself from the REPL helper
+shape. Before this batch, `dataTaskPreflightWorkflowPlan` owned the sequence:
+protect plan, split a multi-rank action batch, run staging guard, try a
+deterministic fallback, merge deferred remainders, and eventually return a
+blocked plan. That state machine was hidden inside the REPL package even
+though CLI and REPL both consume it.
+
+This batch does not move every guard yet. The existing guard and deterministic
+fallback functions remain in place and are passed as callbacks. The important
+architecture change is that the control-flow contract is now owned by
+`internal/dataworkflow`: REPL becomes an adapter that supplies current records
+and existing guards, while the IR package owns admission decision shape and
+rewrite lifecycle.
+
+Generic invariants:
+
+- action admission returns one typed decision shape: accepted plan, original
+  plan, deferred remainder, first guard, final guard, reason, and rewritten
+  flag;
+- admission control flow is deterministic and independent of REPL/CLI UI;
+- guard results are carried as typed `GuardResult` alongside legacy error text
+  so callers can keep compatibility while later batches stop parsing prose;
+- deterministic fallback may rewrite structure, but execution still must pass
+  guard validation after the rewrite;
+- remainder merging is storage-neutral and uses action graph suffix semantics,
+  not REPL-local queue policy.
+
+Changes:
+
+- [x] Added `ActionDAGAdmissionInput` and `ActionDAGAdmissionDecision` in
+      `internal/dataworkflow`.
+- [x] Added `AdmitActionDAGPlan`, covering protect, prefix fallback, guard,
+      deterministic fallback, max-rewrite budget, final blocked guard, reason
+      accumulation, and remainder merge.
+- [x] Converted REPL `dataTaskPreflightWorkflowPlan` into a thin adapter over
+      the shared admission reducer.
+- [x] Removed REPL-local preflight remainder merge/reason accumulation logic.
+- [x] Added reducer-level unit coverage for split admission, deterministic
+      fallback, and typed final guard behavior.
+- [x] Kept existing REPL preflight regression tests passing, proving behavior
+      parity for the current adapter.
+
+Remaining P0 admission work:
+
+- [ ] Wire completion-repair plans and deferred dispatch through the same
+      `ActionDAGAdmissionDecision` shape instead of their current direct
+      protect/audit paths.
+- [ ] Replace the remaining string-only staging guard callbacks with typed
+      `GuardResult` producers so `FinalGuard.Code` preserves precise failure
+      class without wrapping as a generic admission error.
+- [ ] Feed accepted/deferred/rejected admission decisions into the live
+      `ActionGraph` journal so deferred storage can move out of REPL/CLI outer
+      variables.

@@ -5239,94 +5239,33 @@ type dataTaskWorkflowRecord struct {
 	Evaluation *dataquery.Evaluation
 }
 
-type dataTaskWorkflowPlanPreflight struct {
-	Plan          dataquery.TaskPlan
-	Original      dataquery.TaskPlan
-	Remainder     dataquery.TaskPlan
-	GuardErr      string
-	FinalGuardErr string
-	Reason        string
-	Rewritten     bool
-}
+type dataTaskWorkflowPlanPreflight = dataworkflow.ActionDAGAdmissionDecision
 
 const dataTaskPreflightMaxRewrites = 3
 
 func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
-	if protect == nil {
-		protect = func(p dataquery.TaskPlan) dataquery.TaskPlan { return p }
-	}
-	protected := protect(plan)
-	out := dataTaskWorkflowPlanPreflight{Plan: protected, Original: protected}
-	current := protected
-	for i := 0; i < dataTaskPreflightMaxRewrites; i++ {
-		if fallback, remainder, ok := dataTaskInitialRankPrefixFallback(records, current); ok {
-			out.Remainder = dataTaskPreflightMergeRemainder(remainder, out.Remainder)
-			out.Reason = appendDataTaskPreflightReason(out.Reason, "split initial data plan at typed dependency rank")
-			out.Rewritten = true
-			current = protect(fallback)
-			out.Plan = current
-			continue
-		}
-		errText := dataTaskWorkflowStagingGuardError(records, current)
-		if strings.TrimSpace(errText) == "" {
-			out.Plan = current
-			return out
-		}
-		fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, current, errText)
-		if !ok {
-			out.Plan = current
-			out.GuardErr = errText
-			out.FinalGuardErr = errText
-			return out
-		}
-		out.Remainder = dataTaskPreflightMergeRemainder(remainder, out.Remainder)
-		out.GuardErr = errText
-		out.Reason = appendDataTaskPreflightReason(out.Reason, reason)
-		out.Rewritten = true
-		current = protect(fallback)
-		out.Plan = current
-	}
-	if errText := dataTaskWorkflowStagingGuardError(records, current); strings.TrimSpace(errText) != "" {
-		out.Plan = current
-		out.GuardErr = errText
-		out.FinalGuardErr = errText
-		return out
-	}
-	out.Plan = current
-	return out
-}
-
-func appendDataTaskPreflightReason(current, next string) string {
-	current = strings.TrimSpace(current)
-	next = strings.TrimSpace(next)
-	if current == "" {
-		return next
-	}
-	if next == "" || strings.Contains(current, next) {
-		return current
-	}
-	return current + "; " + next
-}
-
-func dataTaskPreflightMergeRemainder(first, second dataquery.TaskPlan) dataquery.TaskPlan {
-	if len(first.Actions) == 0 {
-		return second
-	}
-	if len(second.Actions) == 0 {
-		return first
-	}
-	out := first
-	out.Actions = append(append([]dataquery.DataAction(nil), first.Actions...), second.Actions...)
-	out.Script = ""
-	out.ContinueAfter = true
-	out.InputPaths = mergeDataTaskInputPaths(first.InputPaths, second.InputPaths)
-	if strings.TrimSpace(out.NextBatch) == "" {
-		out.NextBatch = strings.TrimSpace(second.NextBatch)
-	}
-	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = strings.TrimSpace(second.WhyThisBatch)
-	}
-	return out
+	return dataworkflow.AdmitActionDAGPlan(dataworkflow.ActionDAGAdmissionInput{
+		Plan:        plan,
+		Protect:     protect,
+		MaxRewrites: dataTaskPreflightMaxRewrites,
+		PrefixFallback: func(current dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
+			fallback, remainder, ok := dataTaskInitialRankPrefixFallback(records, current)
+			if !ok {
+				return dataquery.TaskPlan{}, dataquery.TaskPlan{}, "", false
+			}
+			return fallback, remainder, "split initial data plan at typed dependency rank", true
+		},
+		Guard: func(current dataquery.TaskPlan) dataworkflow.GuardResult {
+			errText := dataTaskWorkflowStagingGuardError(records, current)
+			if strings.TrimSpace(errText) == "" {
+				return dataworkflow.GuardResult{}
+			}
+			return dataworkflow.NewGuardResult("action_dag_admission", "error", dataworkflow.RepairNeedsTypedAction, errText)
+		},
+		DeterministicFallback: func(current dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
+			return dataTaskWorkflowDeterministicFallback(records, current, guard.ErrorText())
+		},
+	})
 }
 
 type dataTaskWorkflowPromptRecord struct {
