@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
@@ -27,6 +28,15 @@ type DataTaskCLIConfig struct {
 	MaxRepairRounds int
 	MaxDataRounds   int
 	Progress        io.Writer
+	ResumePath      string
+}
+
+type dataTaskWorkflowResumeState struct {
+	Records      []dataTaskWorkflowRecord
+	CurrentPlan  dataquery.TaskPlan
+	DeferredPlan dataquery.TaskPlan
+	DataRounds   int
+	RepairRounds int
 }
 
 func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg DataTaskCLIConfig) (answer string, retErr error) {
@@ -77,15 +87,33 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if err != nil {
 		return "", fmt.Errorf("data task discover files: %w", err)
 	}
-	plan, err := cfg.Planner.PlanDataTask(ctx, request, repoRoot, policy, candidates)
-	if err != nil {
-		return "", fmt.Errorf("data task plan: %w", err)
-	}
-	if normalized, notes := normalizeDataTaskPlanShapeForPolicy(plan, policy); len(notes) > 0 {
-		logging.Info("[cli/data] normalized initial data task plan: %s", strings.Join(notes, "; "))
-		plan = normalized
-	}
 	var deferredPlan dataquery.TaskPlan
+	var plan dataquery.TaskPlan
+	var resumed bool
+	var resumeCurrentPlan dataquery.TaskPlan
+	if resumePath := strings.TrimSpace(cfg.ResumePath); resumePath != "" {
+		resume, loadErr := loadDataTaskWorkflowResumeFile(resumePath)
+		if loadErr != nil {
+			return "", loadErr
+		}
+		records = resume.Records
+		resumeCurrentPlan = resume.CurrentPlan
+		deferredPlan = resume.DeferredPlan
+		dataRounds = resume.DataRounds
+		repairRounds = resume.RepairRounds
+		resumed = true
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "resume", dataRounds, fmt.Sprintf("checkpoint %s", resumePath))
+	}
+	if !resumed {
+		plan, err = cfg.Planner.PlanDataTask(ctx, request, repoRoot, policy, candidates)
+		if err != nil {
+			return "", fmt.Errorf("data task plan: %w", err)
+		}
+		if normalized, notes := normalizeDataTaskPlanShapeForPolicy(plan, policy); len(notes) > 0 {
+			logging.Info("[cli/data] normalized initial data task plan: %s", strings.Join(notes, "; "))
+			plan = normalized
+		}
+	}
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
 	}
@@ -124,6 +152,16 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
 		return preflight.Plan
+	}
+	if resumed {
+		plan, err = nextDataTaskPlanFromResumeForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, records, resumeCurrentPlan, deferredPlan)
+		if err != nil {
+			return "", err
+		}
+		if normalized, notes := normalizeDataTaskPlanShapeForPolicy(plan, policy); len(notes) > 0 {
+			logging.Info("[cli/data] normalized resumed data task plan: %s", strings.Join(notes, "; "))
+			plan = normalized
+		}
 	}
 	plan = acceptCandidatePlan("initial", 0, plan)
 
@@ -556,6 +594,95 @@ func terminalDataTaskPlanForCLI(plan dataquery.TaskPlan, records []dataTaskWorkf
 	}
 }
 
+func loadDataTaskWorkflowResumeFile(path string) (dataTaskWorkflowResumeState, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return dataTaskWorkflowResumeState{}, fmt.Errorf("read data workflow checkpoint: %w", err)
+	}
+	var snapshot struct {
+		DataRounds   int                                 `json:"data_rounds"`
+		RepairRounds int                                 `json:"repair_rounds"`
+		Resume       *dataworkflow.WorkflowResumePayload `json:"resume"`
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return dataTaskWorkflowResumeState{}, fmt.Errorf("parse data workflow checkpoint: %w", err)
+	}
+	if snapshot.Resume == nil || len(snapshot.Resume.Records) == 0 {
+		return dataTaskWorkflowResumeState{}, fmt.Errorf("data workflow checkpoint has no resume payload: %s", path)
+	}
+	var out dataTaskWorkflowResumeState
+	out.DataRounds = snapshot.DataRounds
+	out.RepairRounds = snapshot.RepairRounds
+	if err := json.Unmarshal(snapshot.Resume.Records, &out.Records); err != nil {
+		return dataTaskWorkflowResumeState{}, fmt.Errorf("parse data workflow checkpoint records: %w", err)
+	}
+	if len(snapshot.Resume.CurrentPlan) > 0 {
+		if err := json.Unmarshal(snapshot.Resume.CurrentPlan, &out.CurrentPlan); err != nil {
+			return dataTaskWorkflowResumeState{}, fmt.Errorf("parse data workflow checkpoint current plan: %w", err)
+		}
+	}
+	if len(snapshot.Resume.DeferredPlan) > 0 {
+		if err := json.Unmarshal(snapshot.Resume.DeferredPlan, &out.DeferredPlan); err != nil {
+			return dataTaskWorkflowResumeState{}, fmt.Errorf("parse data workflow checkpoint deferred plan: %w", err)
+		}
+	}
+	if len(out.Records) == 0 {
+		return dataTaskWorkflowResumeState{}, fmt.Errorf("data workflow checkpoint has no recorded data rounds: %s", path)
+	}
+	return out, nil
+}
+
+func nextDataTaskPlanFromResumeForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) (dataquery.TaskPlan, error) {
+	if nextDeferred, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+		return nextDeferred, nil
+	}
+	if fallback, _, ok := dataTaskTerminalWorkflowFallback(records, current); ok {
+		return fallback, nil
+	}
+	if fallback, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "resumed data workflow checkpoint"); ok {
+		logging.Info("[cli/data] resume selected deterministic next-stage plan: %s", reason)
+		return fallback, nil
+	}
+	if continuer, ok := planner.(DataTaskContinuationPlanner); ok {
+		nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferred)
+		if err == nil && dataTaskResumePlanHasShape(nextPlan) {
+			return nextPlan, nil
+		}
+		if err == nil {
+			logging.Info("[cli/data] resume continuation planner returned an empty plan shape; falling back to typed checkpoint state")
+		}
+		if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, current, err); ok {
+			logging.Info("[cli/data] resume continuation planner failed; %s", reason)
+			return fallback, nil
+		}
+		if err != nil {
+			return dataquery.TaskPlan{}, fmt.Errorf("resume data workflow continuation: %w", err)
+		}
+	}
+	if result, ok := latestDataTaskResult(records); ok {
+		out := current
+		out.Status = "complete"
+		out.ContinueAfter = false
+		out.BlockReason = "resumed checkpoint already has a terminal result and no continuation planner"
+		if strings.TrimSpace(out.Goal) == "" {
+			out.Goal = strings.TrimSpace(request)
+		}
+		if out.OutputContract.Format == "" {
+			out.OutputContract = result.OutputContract
+		}
+		return out, nil
+	}
+	return dataquery.TaskPlan{}, fmt.Errorf("resume data workflow checkpoint cannot determine the next data action")
+}
+
+func dataTaskResumePlanHasShape(plan dataquery.TaskPlan) bool {
+	if dataTaskPlanHasExecutableBatch(plan) || len(plan.Questions) > 0 {
+		return true
+	}
+	status := strings.ToLower(strings.TrimSpace(plan.Status))
+	return dataTaskPlanStatusLooksTerminal(status) || status == "needs_clarification" || status == "blocked"
+}
+
 func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, records []dataTaskWorkflowRecord, repairRounds, repairRoundsMax int) (dataquery.TaskPlan, int, bool, error) {
 	repairer, ok := planner.(DataTaskRepairPlanner)
 	if !ok || repairRounds >= repairRoundsMax {
@@ -784,6 +911,8 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
 		case "continue":
 			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
+		case "resume":
+			segs = append(segs, fmt.Sprintf("恢复第 %d 批", maxInt(round, 1)))
 		default:
 			segs = append(segs, strings.TrimSpace(kind))
 		}
@@ -802,6 +931,8 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
 		case "continue":
 			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
+		case "resume":
+			segs = append(segs, fmt.Sprintf("resume batch %d", maxInt(round, 1)))
 		default:
 			segs = append(segs, strings.TrimSpace(kind))
 		}

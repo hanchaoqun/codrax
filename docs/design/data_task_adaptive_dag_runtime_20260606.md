@@ -10424,49 +10424,81 @@ Remaining architecture items:
 - [ ] Add targeted tests for each non-field relation guard code as they become
       user-visible in evaluator policy.
 
-### 2026-06-07 Closure Audit Before Real Scenario
+### Batch 238: Current Closure Audit And Resume Boundary
 
-This section separates architecture blockers for the next real uninterrupted
-data run from follow-up engineering items. It avoids marking broad historical
-backlog entries complete unless the implementation above actually closed the
-specific gap.
+The latest review asked to audit all unfinished items before running another
+real scenario. The document contains many historical `[ ]` items because it is
+both an implementation ledger and an architecture backlog. The closure rule is:
+do not mark a broad item complete unless the exact invariant has code, runtime
+integration, and regression coverage. For the next real uninterrupted data run,
+the current blocker list is narrower than the full release backlog.
 
-Closed P0/P1 runtime blockers:
+Closed P0/P1 blockers for the next real run:
 
-- [x] ActionDAG readiness and deferred rank execution no longer rely on
-      repeatedly asking the model to recreate trimmed graph suffixes.
-- [x] Material floors and current-batch inputs are separated so discovered
-      auxiliary material does not become a permanent workflow hard gate.
-- [x] ArtifactGraph visibility prefers latest executable record artifacts and
-      preserves schema-bearing empty record sets.
-- [x] Field-contract and zero-progress blockers now surface as typed
-      `GuardResult` / `WorkflowViolation` payloads through staging, checkpoint,
-      and journal paths.
-- [x] Relation field and precise non-field relation contract guards preserve
-      action/input handles instead of only prose.
-- [x] Data workflow progress and journal process events expose model-authored
-      goal, batch purpose, next step, action summary, and audit details without
-      promoting internal counters into permanent title lines.
-- [x] Complex multi-file eval fixture exists as a mechanism gate for typed
-      actions, contribution records, reconcile status, and terminal journal
-      emission.
+- [x] ActionDAG readiness, rank splitting, deferred queue saving, deferred
+      readiness checks, and full deferred staging guards are delivered for the
+      live CLI/REPL data workflow.
+- [x] Deferred queue state is projected into live `workflow_state_json.action_graph`
+      as typed ready/deferred/blocked nodes, not only retained as planner prose.
+- [x] Guard paths now emit typed `WorkflowViolation` payloads where the system has
+      precise action/input/artifact handles. Generic guard conversion covers the
+      remaining non-action prose guards without inventing business semantics.
+- [x] Field-contract, zero-progress, zero-match, unmatched-resolution,
+      zero-eligible, and relation-role blockers reach workflow state as typed
+      signals before later batches can consume invalid artifacts.
+- [x] Artifact visibility now separates prompt compaction from hard-gate contract
+      fields. Hard gates consume the full newest-first contract view instead of
+      lossy prompt samples.
+- [x] Material floors, current-batch inputs, optional discovered evidence, and
+      generated artifacts are separated enough for current execution; auxiliary
+      model-discovered material does not automatically become a workflow hard
+      floor.
+- [x] Ledger state is de-duplicated for rules, row decisions, entity resolutions,
+      and contributions before seeding later actions.
+- [x] Relation-specific scaffold/build paths consume shared action capability,
+      rank, input-contract, and artifact-role helpers where implemented, rather
+      than keeping the critical contracts only in prompt prose.
+- [x] Workflow checkpoints and terminal audits persist storage-neutral journal
+      snapshots with action graph, artifact graph, typed violations, process
+      events, and an explicit resume payload.
+- [x] CLI has an explicit opt-in `--data-resume <checkpoint.json>` path. It never
+      silently resumes user work, skips the initial planner call, loads the
+      checkpoint resume payload, and falls back to typed checkpoint state if the
+      continuation planner returns an empty plan shape.
+- [x] CLI data progress remains on stderr, final answers remain on stdout, and
+      terminal audit paths are printed for scripted/eval inspection.
+- [x] REPL/CLI process events prioritize model-authored goal, batch purpose, next
+      step, action purpose, and failure reason before internal counters when those
+      typed fields are available.
+- [x] A real-scenario opt-in gate script exists for complex data tasks. It checks
+      non-empty output, terminal audit emission, contribution evidence, reconcile
+      status, and optional expected final answer without hard-coding a business
+      domain.
 
-Not blockers for the next real uninterrupted run:
+Still open, but not blockers for the next single real uninterrupted run:
 
-- [ ] Opt-in resume from checkpoint. This is an interruption-recovery feature;
-      it must never silently resume user work, so it should be designed behind
-      an explicit CLI/REPL command rather than rushed into the core loop.
-- [ ] Multi-run volatility gates. They are necessary for release confidence but
-      depend on provider budget and should run after the single-run architecture
-      path is stable.
-- [ ] Exhaustive tests for every precise non-field relation guard code. The
-      shared builder and repeated-edge regression cover the path; individual
-      code-specific tests can be added as those codes become policy-facing.
-- [ ] Historical broad checklist cleanup. Earlier unchecked items should be
-      audited in a separate docs pass so status updates do not obscure the
-      implementation history above.
+- [ ] Move the entire reducer and `ValidatedPlanEnvelope` into
+      `internal/dataworkflow`. Current CLI/REPL paths already share the same
+      reducer helpers and preflight path, so this is a maintainability/reuse
+      boundary rather than an immediate correctness blocker.
+- [ ] Persist full resumable ActionDAG edge state for interrupted sessions. The
+      current explicit resume payload restores records/current/deferred plans and
+      is safe for CLI opt-in recovery; richer edge replay is release-hardening.
+- [ ] Add domain-neutral value-distribution and mapping-candidate actions. Current
+      typed actions can answer the real scenario path, but these actions would
+      reduce repair turns and improve explainability for future tasks.
+- [ ] Promote every evaluator reason into a durable `WorkflowDecision` object.
+      Current typed violations and journal events are sufficient for the next
+      run; a full decision IR remains the next architecture cleanup.
+- [ ] Multi-run volatility gates and CI status checks. They are required before
+      claiming default-on commercial release stability, but provider budget and
+      repeated-run variance should be measured after the single-run path is
+      stable.
+- [ ] Historical checklist de-duplication. Old `[ ]` items should be grouped by
+      architecture theme in a docs-cleanup pass, not mechanically flipped to
+      `[x]` in this implementation batch.
 
-Decision: proceed to the requested real scenario only after the latest binary
-builds and the typed data workflow/unit gates pass. The remaining items above
-are release-hardening and interruption-recovery work, not known blockers for a
-single uninterrupted answer attempt.
+Decision: run unit gates and build first. If they pass, proceed to the requested
+real scenario with the latest binary. If the real scenario still fails, the next
+fix must again be a typed, domain-neutral IR/runtime improvement, not a
+business-specific patch.

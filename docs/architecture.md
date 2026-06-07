@@ -2590,7 +2590,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `write_enabled` | 仅 yaml（部署时决策）。`--mode` CLI flag 在 `write_enabled: false` 时拒绝；REPL `/mode` 同 gate |
 | 其他所有组 | code default → codrax.yaml。**无 CLI override** |
 
-带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--auto-init-repo` / `--allow-scaffold`。
+带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--data-resume` / `--write-phase` / `--auto-apply` / `--auto-init-repo` / `--allow-scaffold`。
 
 ### 14.5 codrax.yaml 查找顺序
 

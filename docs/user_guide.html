@@ -1060,6 +1060,7 @@ multi_repo_enabled: false
 <li>对求和/计数、过滤清洗、多材料关联、名称/编号/类别归一等任务,模型会按任务需要生成规则覆盖、贡献记录、实体归一和对账报告;系统只校验这些通用结构是否完整和可对账,不把某个文件硬判成固定业务角色。</li>
 <li>模型负责理解规则和生成计算计划,系统用受限的确定性 runner 读取候选数据文件并产出结果、材料消费记录、条目级决策记录、贡献/对账摘要和输出契约校验。</li>
 <li>如果用户同时要求“算结果并检查代码实现”,才会进入数据 + 源码的混合流程。</li>
+<li>数据处理会在 <code>.codrax/data-audit/</code> 写入计划、产物、错误、终态审计和 checkpoint。中断后只有在 CLI 显式提供 <code>--data-resume &lt;checkpoint.json&gt;</code> 时才会恢复;系统不会自动续跑旧任务。</li>
 </ul>
 <p>示例:</p>
 <pre><code class="language-text">根据当前目录下的 CSV/JSONL，把同一分组键的数值字段汇总，只输出 JSON。
@@ -3366,7 +3367,7 @@ mcp_servers:
 <p><strong>优先级</strong>(低到高):</p>
 <pre><code>代码默认值 &lt; codrax.yaml &lt; 命令行 flag
 </code></pre>
-<p>只有这些 flag 会覆盖 yaml:<code>--repo</code> / <code>--branch</code> / <code>--multi-repo</code> / <code>--lang</code> / <code>--log-level</code> / <code>--log-dir</code> / <code>--log-stdout</code> / <code>--memory-dir</code> / <code>--cache-dir</code> / <code>--pipeline-max-steps</code> / <code>--pipeline-max-retries</code> / <code>--pipeline-max-stage-visits</code> / <code>--max-prescan-rounds</code> / <code>--log</code> / <code>--log-text</code> / <code>--log-source-prefix</code> / <code>--htrace</code> / <code>--htrace-text</code> / <code>--atrace</code> / <code>--atrace-text</code> / <code>--chitchat-classifier</code> / <code>--mode</code> / <code>--auto-apply</code> / <code>--plan-out</code> / <code>--plan-file</code> / <code>--auto-init-repo</code> / <code>--allow-scaffold</code> / <code>--color</code> / <code>--mermaid-render</code>。</p>
+<p>只有这些 flag 会覆盖 yaml:<code>--repo</code> / <code>--branch</code> / <code>--multi-repo</code> / <code>--lang</code> / <code>--log-level</code> / <code>--log-dir</code> / <code>--log-stdout</code> / <code>--memory-dir</code> / <code>--cache-dir</code> / <code>--pipeline-max-steps</code> / <code>--pipeline-max-retries</code> / <code>--pipeline-max-stage-visits</code> / <code>--max-prescan-rounds</code> / <code>--log</code> / <code>--log-text</code> / <code>--log-source-prefix</code> / <code>--htrace</code> / <code>--htrace-text</code> / <code>--atrace</code> / <code>--atrace-text</code> / <code>--chitchat-classifier</code> / <code>--mode</code> / <code>--data-resume</code> / <code>--write-phase</code> / <code>--auto-apply</code> / <code>--plan-out</code> / <code>--plan-file</code> / <code>--auto-init-repo</code> / <code>--allow-scaffold</code> / <code>--color</code> / <code>--mermaid-render</code>。</p>
 <hr />
 <h1 id="6-repl-命令参考">6. REPL 命令参考</h1>
 <p>REPL 启动后,任何以 <code>/</code> 开头的输入是斜杠命令;TAB 自动补全。<code>/help</code> 列出所有命令。</p>
@@ -3730,6 +3731,11 @@ mcp_servers:
 <td>任务入口;显式 code/operation/data/write 可绕过自动分类</td>
 </tr>
 <tr>
+<td><code>--data-resume &lt;checkpoint.json&gt;</code></td>
+<td>—</td>
+<td>仅 data 单次模式:显式从 <code>.codrax/data-audit/*-checkpoint-*.json</code> 恢复 workflow checkpoint,不会自动续跑旧任务</td>
+</tr>
+<tr>
 <td><code>--write-phase &lt;plan\|apply\|verify&gt;</code></td>
 <td><code>plan</code></td>
 <td>仅 <code>--mode=write</code> 生效;选择写模式内部阶段</td>
@@ -3773,6 +3779,18 @@ codrax -r &quot;what does dispatch do?&quot; --lang en
 
 # 单次 + 切到另一个 yaml
 CODRAX_SETTINGS=/etc/codrax/prod.yaml codrax -r &quot;...&quot;
+
+# 强制代码分析,不走自动分类
+codrax --mode=code -r &quot;这个配置项在哪里定义和消费?&quot;
+
+# 强制电脑操作
+codrax --mode=operation -r &quot;查看当前系统 CPU 和内存信息&quot;
+
+# 强制数据处理
+codrax --mode=data -r &quot;汇总当前目录 CSV 的数值字段总和,只输出数字&quot;
+
+# 显式从数据处理 checkpoint 恢复
+codrax --mode=data --data-resume .codrax/data-audit/20260607-123456-1234-checkpoint-r4.json -r &quot;继续完成这个数据任务&quot;
 
 # 写模式:产 plan + 落盘
 codrax --mode=write --write-phase=plan -r &quot;把 foo 拆成两个函数&quot; --plan-out /tmp/plan.json

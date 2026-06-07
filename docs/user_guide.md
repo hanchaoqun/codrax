@@ -695,6 +695,7 @@ multi_repo_enabled: false
 - 对求和/计数、过滤清洗、多材料关联、名称/编号/类别归一等任务，模型会按任务需要生成规则覆盖、贡献记录、实体归一和对账报告；系统只校验这些通用结构是否完整和可对账，不把某个文件硬判成固定业务角色。
 - 模型负责理解规则和生成计算计划，系统用受限的确定性 runner 读取候选数据文件并产出结果、材料消费记录、条目级决策记录、贡献/对账摘要和输出契约校验。
 - 如果用户同时要求“算结果并检查代码实现”，才会进入数据 + 源码的混合流程。
+- 数据处理会在 `.codrax/data-audit/` 写入计划、产物、错误、终态审计和 checkpoint。中断后只有在 CLI 显式提供 `--data-resume <checkpoint.json>` 时才会恢复；系统不会自动续跑旧任务。
 
 示例：
 
@@ -2472,7 +2473,7 @@ operation_skills:
 代码默认值 < codrax.yaml < 命令行 flag
 ```
 
-只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--multi-repo` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--max-prescan-rounds` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--write-phase` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color` / `--mermaid-render`。
+只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--multi-repo` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--max-prescan-rounds` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--data-resume` / `--write-phase` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color` / `--mermaid-render`。
 
 ---
 
@@ -2582,6 +2583,7 @@ codrax [flags] [request...]
 | `--atrace <path>` / `--atrace-text` | — | `--htrace` / `--htrace-text` 的别名 |
 | `--chitchat-classifier[=true|false]` | — | 本次 Run 覆盖 yaml `chitchat_classifier_enabled` |
 | `--mode <auto\|code\|operation\|data\|write>` | `auto` | 任务入口;显式 code/operation/data/write 可绕过自动分类 |
+| `--data-resume <checkpoint.json>` | — | 仅 data 单次模式:显式从 `.codrax/data-audit/*-checkpoint-*.json` 恢复 workflow checkpoint,不会自动续跑旧任务 |
 | `--write-phase <plan\|apply\|verify>` | `plan` | 仅 `--mode=write` 生效;选择写模式内部阶段 |
 | `--auto-apply` | `false` | 单次 `--mode=write --write-phase=apply` 必须搭配,跳过交互确认 |
 | `--plan-out <path>` | `.codrax/plans/<id>.json` | plan-mode 落盘路径 |
@@ -2612,6 +2614,9 @@ codrax --mode=operation -r "查看当前系统 CPU 和内存信息"
 
 # 强制数据处理
 codrax --mode=data -r "汇总当前目录 CSV 的数值字段总和,只输出数字"
+
+# 显式从数据处理 checkpoint 恢复
+codrax --mode=data --data-resume .codrax/data-audit/20260607-123456-1234-checkpoint-r4.json -r "继续完成这个数据任务"
 
 # 写模式:产 plan + 落盘
 codrax --mode=write --write-phase=plan -r "把 foo 拆成两个函数" --plan-out /tmp/plan.json

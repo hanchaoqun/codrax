@@ -2921,6 +2921,7 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 		ArtifactGraph:      artifactGraph,
 		WorkflowViolations: state.WorkflowViolations,
 		ProcessEvents:      dataTaskWorkflowJournalEvents(a.Records),
+		Resume:             dataTaskWorkflowResumePayload(a.Records, dataquery.TaskPlan{}, dataquery.TaskPlan{}),
 	}
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -2982,6 +2983,7 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		ArtifactGraph:      artifactGraph,
 		WorkflowViolations: violations,
 		ProcessEvents:      processEvents,
+		Resume:             dataTaskWorkflowResumePayload(records, current, deferred),
 	}
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -2996,6 +2998,20 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 	}
 	logging.Info("[%s/data] checkpoint full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
 	return path
+}
+
+func dataTaskWorkflowResumePayload(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) *dataworkflow.WorkflowResumePayload {
+	recordsRaw, recordsErr := json.Marshal(records)
+	currentRaw, currentErr := json.Marshal(current)
+	deferredRaw, deferredErr := json.Marshal(deferred)
+	if recordsErr != nil || currentErr != nil || deferredErr != nil {
+		return nil
+	}
+	return &dataworkflow.WorkflowResumePayload{
+		Records:      recordsRaw,
+		CurrentPlan:  currentRaw,
+		DeferredPlan: deferredRaw,
+	}
 }
 
 func dataTaskWorkflowJournalEvents(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowJournalEvent {
@@ -3478,6 +3494,8 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
 		case "continue":
 			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
+		case "resume":
+			segs = append(segs, fmt.Sprintf("恢复第 %d 批", maxInt(round, 1)))
 		default:
 			segs = append(segs, kind)
 		}
@@ -3498,6 +3516,8 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
 		case "continue":
 			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
+		case "resume":
+			segs = append(segs, fmt.Sprintf("resume batch %d", maxInt(round, 1)))
 		default:
 			segs = append(segs, kind)
 		}
@@ -3621,6 +3641,12 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 				add("继续：", "上一批仍不足以达成目标，继续规划下一批原子动作。")
 			} else {
 				add("Continue: ", "The previous batch is not enough yet; planning the next atomic batch.")
+			}
+		case "resume":
+			if zh {
+				add("恢复：", "从显式指定的 workflow checkpoint 载入已验证状态，再选择下一批原子动作。")
+			} else {
+				add("Resume: ", "Loaded the explicitly supplied workflow checkpoint, then selected the next atomic batch.")
 			}
 		case "repair":
 			if zh {

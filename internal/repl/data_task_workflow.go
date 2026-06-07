@@ -154,7 +154,30 @@ func dataTaskGuardResultFromMessage(code, message string) dataworkflow.GuardResu
 	if message == "" {
 		return dataworkflow.GuardResult{}
 	}
-	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message)
+	violation := dataworkflow.NewGenericViolation(dataworkflow.GenericViolationInput{
+		Code:          code,
+		Severity:      "error",
+		Repairability: dataworkflow.RepairNeedsTypedAction,
+		Reason:        message,
+	})
+	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+}
+
+func dataTaskActionGuardResultFromMessage(code, message string, action dataquery.DataAction) dataworkflow.GuardResult {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return dataworkflow.GuardResult{}
+	}
+	violation := dataworkflow.NewGenericViolation(dataworkflow.GenericViolationInput{
+		Code:          code,
+		Severity:      "error",
+		Repairability: dataworkflow.RepairNeedsTypedAction,
+		Action:        action,
+		InputAliases:  action.InputPaths,
+		OutputAlias:   action.OutputArtifact,
+		Reason:        message,
+	})
+	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 }
 
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
@@ -3767,10 +3790,10 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	if errText := dataTaskActionIntraBatchDependencyGuardError(plan, actionIndex); errText != "" {
-		return dataTaskGuardResultFromMessage("intra_batch_dependency", errText)
+		return dataTaskActionGuardResultFromMessage("intra_batch_dependency", errText, action)
 	}
 	if errText := dataTaskActionInputAvailabilityGuardError(records, plan, action, actionIndex); errText != "" {
-		return dataTaskGuardResultFromMessage("unavailable_action_input", errText)
+		return dataTaskActionGuardResultFromMessage("unavailable_action_input", errText, action)
 	}
 	if guard := dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex); !guard.Empty() {
 		return guard
@@ -3779,57 +3802,57 @@ func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan 
 	if contract, ok := dataworkflow.InputPathContract(kind); ok {
 		if len(inputs) < contract.Min {
 			if kind == dataquery.DataActionComputeContribs {
-				return dataTaskGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
-					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+				return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths containing existing records or generated artifact aliases before contribution computation.",
+					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 			}
-			return dataTaskGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind))))
+			return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind))), action)
 		}
 		if contract.Max > 0 && len(inputs) > contract.Max {
 			if contract.SingleRecordSet {
-				return dataTaskGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
-					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), kind))
+				return dataTaskActionGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
+					actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), kind), action)
 			}
-			return dataTaskGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths, but this action accepts at most %d. Split the graph into atomic DAG ranks; for joins, combine exactly two record sets first, let the output artifact materialize, then join that artifact with the next record set.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), contract.Max))
+			return dataTaskActionGuardResultFromMessage("too_many_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths, but this action accepts at most %d. Split the graph into atomic DAG ranks; for joins, combine exactly two record sets first, let the output artifact materialize, then join that artifact with the next record set.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), contract.Max), action)
 		}
 	}
 	switch kind {
 	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
 		if kind == dataquery.DataActionDeriveFields && !dataTaskDeriveFieldsActionHasSpec(action) {
-			return dataTaskGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 		if kind == dataquery.DataActionExtractFields && !dataTaskDeriveFieldsActionHasSpec(action) {
-			return dataTaskGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is extract_fields but has no field specification. Add params.field_specs or params.extract_specs as an array of source_field/target_field/operation/pattern specs; use it to materialize structured fields from one or more same-schema record/text artifacts.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is extract_fields but has no field specification. Add params.field_specs or params.extract_specs as an array of source_field/target_field/operation/pattern specs; use it to materialize structured fields from one or more same-schema record/text artifacts.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 		if kind == dataquery.DataActionGroupRecords && !dataTaskGroupRecordsActionHasSpec(action) {
-			return dataTaskGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is group_records but has no grouping/text specification. Add params.group_field or params.group_fields, params.text_fields/source_fields, and params.target_field; use group_records to combine multiple rows/spans from one artifact into one grouped record before extract_fields, join_records, filtering, or contribution calculation.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is group_records but has no grouping/text specification. Add params.group_field or params.group_fields, params.text_fields/source_fields, and params.target_field; use group_records to combine multiple rows/spans from one artifact into one grouped record before extract_fields, join_records, filtering, or contribution calculation.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 		if kind == dataquery.DataActionExpandRecords && !dataTaskExpandRecordsActionHasSpec(action) {
-			return dataTaskGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is expand_records but has no source_field. Add params.source_field and optionally params.target_field plus delimiter/separator or split_pattern; use expand_records only to turn one multi-value field into multiple records.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is expand_records but has no source_field. Add params.source_field and optionally params.target_field plus delimiter/separator or split_pattern; use expand_records only to turn one multi-value field into multiple records.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 		if kind == dataquery.DataActionFilterRecords && !dataTaskFilterRecordsActionHasSpec(action) {
-			return dataTaskGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is filter_records but has no filters. Add params.filters_json (array of field/op/value filters) or filter_field/filter_op/filter_value; use filter_records only when the filter fields already exist on the input artifact.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_spec", fmt.Sprintf("data planning incomplete: action %d (%s) is filter_records but has no filters. Add params.filters_json (array of field/op/value filters) or filter_field/filter_op/filter_value; use filter_records only when the filter fields already exist on the input artifact.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 	case dataquery.DataActionApplyResolutions:
 		if len(inputs) < 2 && strings.TrimSpace(action.Params["resolution_path"]) == "" && strings.TrimSpace(action.Params["resolution_specs_json"]) == "" {
-			return dataTaskGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_action_inputs", fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 	case dataquery.DataActionReconcile:
 		if !dataTaskWorkflowHasContributionProducer(records, plan, actionIndex) {
-			return dataTaskGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 	case dataquery.DataActionAssembleAnswer:
 		if !dataTaskWorkflowHasReconcileProducer(records, plan, actionIndex) {
-			return dataTaskGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))))
+			return dataTaskActionGuardResultFromMessage("missing_upstream_ledger", fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))), action)
 		}
 	}
 	return dataworkflow.GuardResult{}
@@ -4708,14 +4731,14 @@ func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArti
 			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, resolutionPath, cleanDataTaskStrings([]string{canonicalIDField, canonicalLabelField}), access); !guard.Empty() {
 				return guard
 			}
-			return dataTaskGuardResultFromMessage("apply_resolution_canonical_field_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
+			return dataTaskActionGuardResultFromMessage("apply_resolution_canonical_field_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
 				actionIndex+1,
 				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 				i+1,
 				resolutionPath,
 				canonicalIDField,
 				canonicalLabelField,
-				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", ")))
+				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", ")), action)
 		}
 		if msg := dataTaskApplyResolutionNoProgressGuardError(access, action, actionIndex, specBasePath, resolutionPath, spec, len(specs)); msg != "" {
 			return dataTaskActionInputContractGuardResult("apply_resolution_no_progress", action, resolutionPath, nil, msg, nil)

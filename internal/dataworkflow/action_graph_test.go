@@ -160,3 +160,27 @@ func TestBlockedActionNodesFromViolationsProjectsTypedRepairState(t *testing.T) 
 		t.Fatalf("node=%+v, want stable blocked key and reason", got)
 	}
 }
+
+func TestNewGenericViolationCarriesActionShapeWhenAvailable(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "derive_total",
+		Kind:           dataquery.DataActionDeriveFields,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "derived.json",
+	}
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:   "missing_action_spec",
+		Action: action,
+		Reason: "derive_fields requires a field specification",
+	})
+
+	if violation.Code != "missing_action_spec" || violation.ActionID != "derive_total" {
+		t.Fatalf("violation=%+v, want code and action id", violation)
+	}
+	if violation.ActionKind != string(dataquery.DataActionDeriveFields) || violation.IdempotencyKey == "" {
+		t.Fatalf("violation=%+v, want action kind and idempotency key", violation)
+	}
+	if len(violation.InputAliases) != 1 || violation.InputAlias != "records.json" {
+		t.Fatalf("violation inputs=%q/%v, want records.json", violation.InputAlias, violation.InputAliases)
+	}
+}

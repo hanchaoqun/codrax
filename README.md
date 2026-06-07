@@ -109,6 +109,14 @@ Codrax 支持面向 Android、Harmony / HiTrace、东湖等运行时 trace 的�
 
 纯只读数据计算不需要 command-operation 审批，也不走源码 citation gate；如果用户同时要求检查代码实现，才会进入数据 + 源码的混合分析。
 
+数据处理运行会在 `.codrax/data-audit/` 留下终态审计文件。中断后需要继续时，可以显式指定 checkpoint：
+
+```bash
+codrax --mode=data --data-resume .codrax/data-audit/<checkpoint>.json -r "继续完成这个数据任务"
+```
+
+它不会自动恢复旧任务；只有提供 `--data-resume` 时才会读取 checkpoint。
+
 ### 外部工具与电脑操作工作流
 
 Codrax 可以通过 MCP 或 operation skills 接入外部能力，例如：

@@ -136,6 +136,27 @@ func TestResolveUserMode_PlanFileOnlyValidWithWriteMode(t *testing.T) {
 	}
 }
 
+func TestResolveUserMode_DataResumeOnlyValidWithDataMode(t *testing.T) {
+	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		CLIFlagMode: "auto",
+		DataResume:  "/tmp/checkpoint.json",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--data-resume") {
+		t.Fatalf("data-resume outside data mode should error, got: %v", err)
+	}
+
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		CLIFlagMode: "data",
+		DataResume:  "/tmp/checkpoint.json",
+	})
+	if err != nil {
+		t.Fatalf("data-resume with data mode should not error: %v", err)
+	}
+	if mode != repl.UserModeData || phase != types.ModeRead {
+		t.Fatalf("resolved mode=%q phase=%q, want data/read", mode, phase)
+	}
+}
+
 func TestResolveUserMode_UnknownRejected(t *testing.T) {
 	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{CLIFlagMode: "bogus"})
 	if err == nil || !strings.Contains(err.Error(), "unknown mode") {

@@ -6632,6 +6632,9 @@ func TestDataTaskWorkflowStagingGuardResultCarriesTypedCode(t *testing.T) {
 	if guard.Code != "missing_executable_body" {
 		t.Fatalf("guard.Code=%q, want missing_executable_body", guard.Code)
 	}
+	if len(guard.Violations) != 1 || guard.Violations[0].Code != "missing_executable_body" {
+		t.Fatalf("guard.Violations=%+v, want typed missing_executable_body payload", guard.Violations)
+	}
 	if !strings.Contains(guard.ErrorText(), "no executable body") {
 		t.Fatalf("guard text=%q, want executable body guidance", guard.ErrorText())
 	}
@@ -6649,6 +6652,9 @@ func TestDataTaskActionDependencyGuardResultCarriesTypedCode(t *testing.T) {
 	}
 	if guard.Code != "missing_action_spec" {
 		t.Fatalf("guard.Code=%q, want missing_action_spec", guard.Code)
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].ActionID != "derive_status" || guard.Violations[0].ActionKind != string(dataquery.DataActionDeriveFields) || guard.Violations[0].IdempotencyKey == "" {
+		t.Fatalf("guard.Violations=%+v, want action-shaped typed violation", guard.Violations)
 	}
 	if !strings.Contains(guard.ErrorText(), "field specification") {
 		t.Fatalf("guard text=%q, want field specification guidance", guard.ErrorText())
@@ -6670,6 +6676,9 @@ func TestDataTaskWorkflowStagingGuardResultPropagatesActionGuard(t *testing.T) {
 	}
 	if guard.Code != "missing_action_spec" {
 		t.Fatalf("guard.Code=%q, want child action code missing_action_spec", guard.Code)
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].ActionID != "derive_status" {
+		t.Fatalf("guard.Violations=%+v, want propagated child action violation", guard.Violations)
 	}
 	if !strings.Contains(guard.ErrorText(), "field specification") {
 		t.Fatalf("guard text=%q, want field specification guidance", guard.ErrorText())

@@ -213,6 +213,7 @@ var (
 	flagAutoApply  bool
 	flagPlanOut    string
 	flagPlanFile   string
+	flagDataResume string
 	// flagAutoInitRepo authorizes the orchestrator to run `git init`
 	// + an empty initial commit when the target repo is bare or has
 	// no HEAD. Symmetric with --auto-apply: the user must explicitly
@@ -572,6 +573,7 @@ func init() {
 	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=write --write-phase=apply in single-shot)")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=write --write-phase=apply|verify)")
+	f.StringVar(&flagDataResume, "data-resume", "", "data mode: opt-in resume from a prior .codrax/data-audit/*-checkpoint-*.json workflow checkpoint")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
 
@@ -635,6 +637,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"auto-apply":                {},
 	"plan-out":                  {},
 	"plan-file":                 {},
+	"data-resume":               {},
 	"auto-init-repo":            {},
 	"allow-scaffold":            {},
 }
@@ -965,6 +968,9 @@ type modeResolutionInputs struct {
 	// PlanFile is --plan-file (pre-absolutization — validation
 	// only cares whether it is empty).
 	PlanFile string
+	// DataResume is --data-resume. It is only meaningful for explicit
+	// --mode=data single-shot recovery.
+	DataResume string
 }
 
 // resolveUserModeAndWritePhase validates the user-facing task mode and maps it
@@ -991,6 +997,9 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 		return "", "", err
 	}
 	userMode = userMode.Normalize()
+	if strings.TrimSpace(in.DataResume) != "" && userMode != repl.UserModeData {
+		return "", "", fmt.Errorf("--data-resume is only valid with --mode=data")
+	}
 	if userMode != repl.UserModeWrite {
 		if in.CLIWritePhasePassed {
 			return "", "", fmt.Errorf("--write-phase is only valid with --mode=write")
@@ -1241,6 +1250,7 @@ func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classifi
 		MaxRepairRounds: app.dataTaskMaxRepairRounds,
 		MaxDataRounds:   app.dataTaskMaxDataRounds,
 		Progress:        os.Stderr,
+		ResumePath:      flagDataResume,
 	})
 	if err != nil {
 		return true, "", fmt.Errorf("data task workflow: %w", err)
@@ -3582,6 +3592,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		HasRequest:          hasRequest,
 		AutoApply:           flagAutoApply,
 		PlanFile:            flagPlanFile,
+		DataResume:          flagDataResume,
 	}
 	if rs != nil {
 		modeInputs.YamlEnabled = rs.WriteEnabled

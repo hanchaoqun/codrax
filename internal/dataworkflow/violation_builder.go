@@ -16,6 +16,21 @@ type FieldContractViolationInput struct {
 	AllowedNextActions []string
 }
 
+type GenericViolationInput struct {
+	Code               string
+	Severity           string
+	Repairability      ViolationRepairability
+	Action             dataquery.DataAction
+	InputAlias         string
+	InputAliases       []string
+	OutputAlias        string
+	MissingFields      []string
+	AvailableFields    []string
+	CandidateArtifacts []string
+	RepairActionHints  []string
+	Reason             string
+}
+
 func NewFieldContractViolation(input FieldContractViolationInput) WorkflowViolation {
 	action, _ := NormalizeRolePathAction(input.Action)
 	kind := NormalizeActionKind(action.Kind)
@@ -50,6 +65,49 @@ func NewFieldContractViolation(input FieldContractViolationInput) WorkflowViolat
 	}
 }
 
+func NewGenericViolation(input GenericViolationInput) WorkflowViolation {
+	violation := WorkflowViolation{
+		Code:                 strings.TrimSpace(input.Code),
+		Severity:             strings.TrimSpace(input.Severity),
+		Repairability:        input.Repairability,
+		InputAlias:           strings.TrimSpace(input.InputAlias),
+		InputAliases:         cleanActionAliases(input.InputAliases),
+		OutputAlias:          strings.TrimSpace(input.OutputAlias),
+		MissingFields:        cleanStrings(input.MissingFields),
+		AvailableFieldSample: clampStrings(input.AvailableFields, 32),
+		CandidateArtifacts:   cleanStrings(input.CandidateArtifacts),
+		RepairActionHints:    cleanStrings(input.RepairActionHints),
+		Reason:               strings.TrimSpace(input.Reason),
+	}
+	if violation.Severity == "" {
+		violation.Severity = "error"
+	}
+	if violation.Repairability == "" {
+		violation.Repairability = RepairNeedsTypedAction
+	}
+	action := input.Action
+	if !actionHasStructuralShape(action) {
+		return violation
+	}
+	action, _ = NormalizeRolePathAction(action)
+	kind := NormalizeActionKind(action.Kind)
+	capability, _ := Capability(kind)
+	violation.ActionID = strings.TrimSpace(action.ID)
+	violation.ActionKind = string(kind)
+	if len(violation.InputAliases) == 0 {
+		violation.InputAliases = cleanActionAliases(action.InputPaths)
+	}
+	if violation.InputAlias == "" && len(violation.InputAliases) > 0 {
+		violation.InputAlias = violation.InputAliases[0]
+	}
+	if violation.OutputAlias == "" {
+		violation.OutputAlias = strings.TrimSpace(action.OutputArtifact)
+	}
+	violation.IdempotencyKey = ActionIdempotencyKey(action)
+	violation.DependencyRank = capability.DependencyRank
+	return violation
+}
+
 func NewActionInputViolation(code, severity string, repairability ViolationRepairability, action dataquery.DataAction, inputAlias string, missingFields []string, reason string, hints []string) WorkflowViolation {
 	action, _ = NormalizeRolePathAction(action)
 	kind := NormalizeActionKind(action.Kind)
@@ -73,6 +131,15 @@ func NewActionInputViolation(code, severity string, repairability ViolationRepai
 		RepairActionHints: cleanStrings(hints),
 		Reason:            strings.TrimSpace(reason),
 	}
+}
+
+func actionHasStructuralShape(action dataquery.DataAction) bool {
+	return strings.TrimSpace(action.ID) != "" ||
+		strings.TrimSpace(string(action.Kind)) != "" ||
+		strings.TrimSpace(action.OutputArtifact) != "" ||
+		len(cleanActionAliases(action.InputPaths)) > 0 ||
+		strings.TrimSpace(action.Script) != "" ||
+		len(action.Params) > 0
 }
 
 func clampStrings(values []string, limit int) []string {

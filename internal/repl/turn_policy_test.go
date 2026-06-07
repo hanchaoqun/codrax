@@ -1503,6 +1503,58 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 	}
 }
 
+func TestRunDataTaskCLIResumesFromCheckpointWithoutInitialPlan(t *testing.T) {
+	root := t.TempDir()
+	contract := dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			Status:         "ready",
+			OutputContract: contract,
+			Goal:           "resume data workflow",
+		},
+		Result: &dataquery.Result{
+			Answer:         "17",
+			OutputContract: contract,
+		},
+	}}
+	checkpoint := writeDataTaskWorkflowCheckpointFile(t.TempDir(), root, records, dataquery.TaskPlan{
+		Status:         "complete",
+		OutputContract: contract,
+		Goal:           "resume data workflow",
+	}, dataquery.TaskPlan{}, 1, 0, "test checkpoint", "test")
+	if checkpoint == "" {
+		t.Fatal("checkpoint path empty")
+	}
+	planner := &stubDataTaskPlanner{
+		continuePlan: dataquery.TaskPlan{},
+	}
+	var progress bytes.Buffer
+	answer, err := RunDataTaskCLI(context.Background(), "继续数据任务", TurnPolicy{Route: RouteData, NeedsDataAccess: true, Source: "data"}, DataTaskCLIConfig{
+		Planner:       planner,
+		RepoRoot:      root,
+		RuntimeAnchor: t.TempDir(),
+		Language:      "zh",
+		MaxDataRounds: 2,
+		Progress:      &progress,
+		ResumePath:    checkpoint,
+	})
+	if err != nil {
+		t.Fatalf("RunDataTaskCLI resume: %v", err)
+	}
+	if strings.TrimSpace(answer) != "17" {
+		t.Fatalf("answer=%q, want 17", answer)
+	}
+	if planner.calls != 0 {
+		t.Fatalf("initial planner calls=%d, want 0 for resume", planner.calls)
+	}
+	if planner.continueCalls != 1 {
+		t.Fatalf("continue planner calls=%d, want one resumed continuation attempt before checkpoint fallback", planner.continueCalls)
+	}
+	if !strings.Contains(progress.String(), "checkpoint") {
+		t.Fatalf("progress missing checkpoint resume detail:\n%s", progress.String())
+	}
+}
+
 func TestRunDataTaskCLIPatchesStructuralResultBeforeScriptRepair(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
