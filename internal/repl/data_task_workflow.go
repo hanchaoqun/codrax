@@ -2127,36 +2127,15 @@ func dataTaskConcreteScaffoldFallback(records []dataTaskWorkflowRecord, current 
 	if len(state.ActionScaffold) == 0 || len(state.AllowedNextActions) == 0 {
 		return dataquery.TaskPlan{}, "", false
 	}
-	contract := dataTaskWorkflowCoverageContract(records, current)
-	base := dataquery.TaskPlan{
-		Status:           "ready",
-		OutputContract:   dataTaskWorkflowOutputContract(records, current),
-		CoverageContract: contract,
-		Goal:             strings.TrimSpace(current.Goal),
-		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
-		ContinueAfter:    true,
-	}
-	if strings.TrimSpace(base.Goal) == "" {
-		base.Goal = "continue the typed data workflow toward the user's requested output"
-	}
-	for _, scaffold := range dataTaskConcreteScaffoldCandidatesForState(state) {
-		action, ok := dataTaskConcreteActionFromScaffold(scaffold)
-		if !ok {
-			continue
-		}
-		base.Actions = []dataquery.DataAction{action}
-		base.InputPaths = mergeDataTaskInputPaths(base.InputPaths, action.InputPaths)
-		base.WhyThisBatch = reasonPrefix + "; execute the next concrete typed action scaffold instead of another script or schema-only inspection"
-		base.NextBatch = "evaluate this materialized typed artifact, then continue with the next legal DAG stage"
-		if strings.TrimSpace(action.Purpose) != "" {
-			base.WhyThisBatch = reasonPrefix + "; " + strings.TrimSpace(action.Purpose)
-		}
-		if dataTaskFallbackPlanAlreadySeen(records, base) {
-			continue
-		}
-		return base, reasonPrefix + "; converted to concrete typed action scaffold", true
-	}
-	return dataquery.TaskPlan{}, "", false
+	return dataworkflow.BuildConcreteFallbackPlan(dataworkflow.ConcreteFallbackPlanInput{
+		Current:        current,
+		Coverage:       dataTaskWorkflowCoverageContract(records, current),
+		Output:         dataTaskWorkflowOutputContract(records, current),
+		Scaffolds:      state.ActionScaffold,
+		Facts:          dataTaskWorkflowStageFacts(state),
+		ReasonPrefix:   reasonPrefix,
+		SeenActionKeys: dataTaskWorkflowSeenActionKeys(records),
+	})
 }
 
 func dataTaskConcreteScaffoldCandidatesForState(state dataTaskWorkflowStateView) []dataTaskActionScaffold {
@@ -2172,6 +2151,14 @@ func normalizeDataTaskActionKindString(kind string) string {
 
 func dataTaskConcreteActionFromScaffold(scaffold dataTaskActionScaffold) (dataquery.DataAction, bool) {
 	return dataworkflow.ConcreteActionFromScaffold(scaffold)
+}
+
+func dataTaskWorkflowSeenActionKeys(records []dataTaskWorkflowRecord) map[string]bool {
+	var actions []dataquery.DataAction
+	for _, rec := range records {
+		actions = append(actions, rec.Plan.Actions...)
+	}
+	return dataworkflow.ActionIdempotencyKeys(actions)
 }
 
 func dataTaskGeneratedDiagnosticInputsForPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, limit int) []string {

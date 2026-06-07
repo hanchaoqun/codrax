@@ -11041,3 +11041,50 @@ Remaining architecture items:
 - [ ] Add realistic multi-file eval gates that assert value-distribution
       diagnostics appear before zero-match filter/contribution repair loops
       when field values are uncertain.
+
+### Batch 251: Shared Concrete Fallback Plan Reducer
+
+The next IR pass moved another scheduling decision out of the REPL layer. The
+workflow already had typed scaffolds and concrete action materialization in
+`internal/dataworkflow`, but one path still assembled the fallback `TaskPlan`
+inside REPL code: pick a scaffold, materialize an action, merge input paths,
+carry coverage/output contracts, attach `continue_after`, and skip actions that
+had already run. That is not UI behavior; it is ActionDAG state transition.
+
+The generic invariant is:
+
+- a concrete fallback plan is derived from typed workflow facts, coverage
+  contract, output contract, action scaffolds, and previously seen action
+  idempotency keys;
+- the reducer does not read user/business keywords or model prose to decide
+  whether an action is legal;
+- REPL/CLI code may adapt local history into typed reducer inputs and render
+  the result, but should not own the scheduling policy;
+- repeated fallback prevention uses stable action idempotency keys, not UI text.
+
+Changes:
+
+- [x] Added `dataworkflow.BuildConcreteFallbackPlan`.
+- [x] Added `dataworkflow.ConcreteFallbackPlanInput` with current plan,
+      coverage/output contracts, stage facts, scaffolds, reason prefix, and
+      seen action keys.
+- [x] Added `dataworkflow.ActionIdempotencyKeys` so adapters can project
+      previous actions into reducer-ready replay guards.
+- [x] Changed the REPL concrete-scaffold fallback path to call the shared
+      reducer instead of assembling the fallback plan locally.
+- [x] Kept thin REPL adapters only where prompt/state rendering still needs
+      scaffold previews; hard plan assembly now lives in the workflow package.
+- [x] Added reducer regression coverage for contract preservation, concrete
+      non-internal field materialization, and seen-action suppression.
+
+Remaining architecture items:
+
+- [ ] Move the larger next-stage fallback assembly into a shared reducer. It
+      still builds extra relation/action scaffolds from REPL-local artifact
+      views before calling concrete action materialization.
+- [ ] Replace REPL-local fallback signatures with reducer-owned action graph
+      replay checks everywhere, including deferred-plan and terminal-repair
+      paths.
+- [ ] Feed reducer transition results into a shared CLI/REPL process-event
+      sink so users see business-facing action intent while audit counters stay
+      low-noise.
