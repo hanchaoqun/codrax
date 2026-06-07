@@ -13807,9 +13807,58 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move the actual state reducer computations out of REPL into
+- [x] Move stage facts and allowed-next-action derivation behind the package
+      neutral state snapshot as the first reducer-facing boundary.
+- [ ] Move the rest of the state reducer computations out of REPL into
       dataworkflow inputs/builders.
 - [ ] Replace prompt/evaluator record slices with runtime state snapshots plus
       bounded record views.
 - [ ] Convert CLI/REPL progress rendering to consume runtime process events
       directly.
+
+### Batch 306: Stage Facts On Workflow State Snapshot
+
+`dataTaskWorkflowStateView` still lives in the REPL adapter, but several hard
+scheduling decisions were already being derived from the same structural facts:
+material coverage, ledger requirements, ledger counts, reconciliation state,
+and answer availability. Keeping those derivations as REPL-local helpers makes
+it easy for future CLI, repair, deferred, or resume paths to drift.
+
+This batch moves stage facts onto the package-neutral
+`WorkflowStateSnapshot`. The REPL adapter still computes the facts for now, but
+the next-stage and allowed-action decisions now read through the shared
+snapshot methods. This is a small boundary migration toward a real reducer, not
+a new guard for any specific data task.
+
+Generic invariants:
+
+- stage selection depends only on typed workflow facts, not prose, prompt text,
+  business labels, or file names;
+- allowed action kinds are derived from the same stage contract used by the
+  planner schema and workflow guards;
+- entrypoints may adapt legacy local state into a snapshot, but they should not
+  fork their own stage decision logic;
+- no source-code, trace, log, operation, or write-mode flow is touched.
+
+Changes:
+
+- [x] Added `StageFacts` to `WorkflowStateSnapshot`.
+- [x] Added snapshot methods for `Facts`, `NextStage`,
+      `AllowedNextActionContracts`, and `AllowedNextActions`.
+- [x] Rewired REPL workflow stage and allowed-action helper wrappers to read
+      through the snapshot methods.
+- [x] Added regression coverage proving snapshot-derived stage and action
+      contracts remain consistent.
+
+Remaining architecture items:
+
+- [ ] Move calculation of `StageFacts` itself out of the REPL
+      `dataTaskWorkflowStateView` adapter and into `dataworkflow` reducer
+      inputs.
+- [ ] Move graph construction for `ActionGraph`, `LedgerGraph`,
+      `ArtifactGraph`, `ProgressWindow`, and typed violations behind the same
+      reducer boundary.
+- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+      snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.

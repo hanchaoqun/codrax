@@ -5602,6 +5602,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 
 func dataTaskWorkflowStateSnapshot(state dataTaskWorkflowStateView) dataworkflow.WorkflowStateSnapshot {
 	return dataworkflow.WorkflowStateSnapshot{
+		StageFacts:                 dataTaskWorkflowStageFacts(state),
 		ActionGraph:                state.ActionGraph,
 		LedgerGraph:                state.LedgerGraph,
 		OutputGraph:                state.OutputProjectionGraph,
@@ -6983,7 +6984,7 @@ func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current da
 }
 
 func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
-	return dataworkflow.NextStage(dataTaskWorkflowStageFacts(state))
+	return dataTaskWorkflowStateSnapshot(state).NextStage()
 }
 
 func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.StageFacts {
@@ -7005,18 +7006,11 @@ func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.St
 }
 
 func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []string {
-	contracts := dataTaskWorkflowAllowedNextActionContracts(state)
-	out := make([]string, 0, len(contracts))
-	for _, contract := range contracts {
-		if contract.Kind != "" {
-			out = append(out, contract.Kind)
-		}
-	}
-	return out
+	return dataTaskWorkflowStateSnapshot(state).AllowedNextActions()
 }
 
 func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView) []dataTaskActionContract {
-	return dataworkflow.AllowedNextActionContractsForFacts(dataTaskWorkflowStageFacts(state))
+	return dataTaskWorkflowStateSnapshot(state).AllowedNextActionContracts()
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
