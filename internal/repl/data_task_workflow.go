@@ -3968,13 +3968,13 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
 		return dataTaskActionMissingFieldContractGuardResult(action, actionIndex, inputs[0], missing, access)
 	case dataquery.DataActionJoinRecords:
-		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskJoinActionFieldContractGuardError(access, action, actionIndex))
+		return dataTaskJoinActionFieldContractGuardResult(access, action, actionIndex)
 	case dataquery.DataActionNormalizeEntities:
-		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskNormalizeActionFieldContractGuardError(access, action, actionIndex))
+		return dataTaskNormalizeActionFieldContractGuardResult(access, action, actionIndex)
 	case dataquery.DataActionEnrichRecords:
-		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskEnrichActionFieldContractGuardError(access, action, actionIndex))
+		return dataTaskEnrichActionFieldContractGuardResult(access, action, actionIndex)
 	case dataquery.DataActionApplyResolutions:
-		return dataTaskGuardResultFromMessage("field_contract_violation", dataTaskApplyResolutionActionFieldContractGuardError(access, action, actionIndex))
+		return dataTaskApplyResolutionActionFieldContractGuardResult(access, action, actionIndex)
 	}
 	return dataworkflow.GuardResult{}
 }
@@ -4377,6 +4377,10 @@ func dataTaskComputeActionFieldRefs(action dataquery.DataAction) []string {
 }
 
 func dataTaskJoinActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskJoinActionFieldContractGuardResult(access, action, actionIndex).ErrorText()
+}
+
+func dataTaskJoinActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	leftPath := firstNonEmptyString(strings.TrimSpace(action.Params["left_path"]), strings.TrimSpace(action.Params["base_path"]))
 	rightPath := firstNonEmptyString(strings.TrimSpace(action.Params["right_path"]), strings.TrimSpace(action.Params["lookup_path"]), strings.TrimSpace(action.Params["reference_path"]))
@@ -4395,21 +4399,25 @@ func dataTaskJoinActionFieldContractGuardError(access []dataTaskArtifactAccessPr
 		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_field"], action.Params["lookup_field"], action.Params["reference_field"]))...,
 	))
 	if leftPath != "" {
-		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, leftPath, dataTaskMissingFieldsOnArtifact(access, leftPath, leftFields), access); msg != "" {
-			return msg
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, leftPath, dataTaskMissingFieldsOnArtifact(access, leftPath, leftFields), access); !guard.Empty() {
+			return guard
 		}
 	}
 	if rightPath != "" {
-		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, rightPath, dataTaskMissingFieldsOnArtifact(access, rightPath, rightFields), access); msg != "" {
-			return msg
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, rightPath, dataTaskMissingFieldsOnArtifact(access, rightPath, rightFields), access); !guard.Empty() {
+			return guard
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskNormalizeActionFieldContractGuardResult(access, action, actionIndex).ErrorText()
+}
+
+func dataTaskNormalizeActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	if len(dataTaskActionObjectListParam(action.Params, "resolutions_json", "mappings_json", "entity_resolutions_json", "resolutions", "mappings", "entity_resolutions")) > 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	sourceFields := cleanDataTaskStrings(append(
 		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["name_fields"], action.Params["name_fields_json"], action.Params["value_fields"], action.Params["value_fields_json"])),
@@ -4449,7 +4457,7 @@ func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAcc
 		referencePath = firstDataTaskActionInput(action, 1)
 	}
 	if sourcePath == "" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if referencePath != "" && explicitSourcePath == "" && explicitReferencePath == "" && len(sourceFields) > 0 {
 		sourceMissing := dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceFields)
@@ -4459,11 +4467,11 @@ func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAcc
 		}
 	}
 	sourceRequired := cleanDataTaskStrings(append(sourceFields, filterFields...))
-	if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, sourcePath, dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceRequired), access); msg != "" {
-		return msg
+	if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, sourcePath, dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceRequired), access); !guard.Empty() {
+		return guard
 	}
 	if referencePath == "" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	referenceRequired := append([]string{}, referenceFields...)
 	if strings.TrimSpace(canonicalIDField) != "" {
@@ -4472,16 +4480,20 @@ func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAcc
 	if strings.TrimSpace(canonicalLabelField) != "" {
 		referenceRequired = append(referenceRequired, canonicalLabelField)
 	}
-	if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceRequired), access); msg != "" {
-		return msg
+	if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceRequired), access); !guard.Empty() {
+		return guard
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskEnrichActionFieldContractGuardResult(access, action, actionIndex).ErrorText()
+}
+
+func dataTaskEnrichActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	basePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), firstDataTaskActionInput(action, 0))
 	if basePath == "" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for _, spec := range dataTaskActionObjectListParam(action.Params, "lookup_specs_json", "enrich_specs_json", "mapping_specs_json", "map_specs_json", "lookup_specs", "enrich_specs", "mapping_specs", "map_specs") {
 		specBase := firstNonEmptyString(dataTaskMapStringValue(spec, "base_path"), basePath)
@@ -4489,8 +4501,8 @@ func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccess
 			dataTaskFieldRefsFromSpec(spec, "base_fields", "source_fields", "left_fields"),
 			dataTaskFieldRefsFromSpec(spec, "base_field", "source_field", "left_field")...,
 		))
-		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, specBase, dataTaskMissingFieldsOnArtifact(access, specBase, baseFields), access); msg != "" {
-			return msg
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, specBase, dataTaskMissingFieldsOnArtifact(access, specBase, baseFields), access); !guard.Empty() {
+			return guard
 		}
 		lookupPath := firstNonEmptyString(
 			dataTaskMapStringValue(spec, "lookup_path"),
@@ -4503,15 +4515,19 @@ func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccess
 			dataTaskFieldRefsFromSpec(spec, "lookup_field", "mapping_field", "reference_field", "lookup_value_field", "mapping_value_field", "reference_value_field")...,
 		))
 		if lookupPath != "" {
-			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, lookupPath, dataTaskMissingFieldsOnArtifact(access, lookupPath, lookupFields), access); msg != "" {
-				return msg
+			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, lookupPath, dataTaskMissingFieldsOnArtifact(access, lookupPath, lookupFields), access); !guard.Empty() {
+				return guard
 			}
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskApplyResolutionActionFieldContractGuardResult(access, action, actionIndex).ErrorText()
+}
+
+func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	inputs := cleanDataTaskStrings(action.InputPaths)
 	topBasePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["source_path"]))
 	basePath := topBasePath
@@ -4530,22 +4546,22 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 			basePath = specBasePath
 		}
 		if basePath != "" && specBasePath != "" && normalizeDataTaskCoveragePath(basePath) != normalizeDataTaskCoveragePath(specBasePath) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) has conflicting apply_entity_resolutions base paths [%s] and [%s]. Apply resolutions to one base record artifact per action, or split separate base artifacts into separate actions.",
+			return dataTaskGuardResultFromMessage("apply_resolution_contract", fmt.Sprintf("data planning incomplete: action %d (%s) has conflicting apply_entity_resolutions base paths [%s] and [%s]. Apply resolutions to one base record artifact per action, or split separate base artifacts into separate actions.",
 				actionIndex+1,
 				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 				basePath,
-				specBasePath)
+				specBasePath))
 		}
 		if i == len(specs)-1 && basePath == "" {
 			basePath = firstDataTaskActionInput(action, 0)
 		}
 	}
 	if basePath == "" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	inferredBasePath, inferredResolutionPath, roleErr := dataTaskInferApplyResolutionRolePaths(access, action, actionIndex, inputs, basePath)
 	if roleErr != "" {
-		return roleErr
+		return dataTaskGuardResultFromMessage("apply_resolution_role_contract", roleErr)
 	}
 	if inferredBasePath != "" {
 		basePath = inferredBasePath
@@ -4572,8 +4588,8 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 			baseFields = parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["base_key_fields"], action.Params["base_key_field"], action.Params["source_key_fields"], action.Params["source_key_field"]))
 		}
 		if missing := dataTaskMissingFieldsOnArtifactWithVirtual(access, specBasePath, baseFields, "_source_index", "source_index", "_source_line", "source_line", "line", "row_index", "row"); len(missing) > 0 {
-			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, specBasePath, missing, access); msg != "" {
-				return msg
+			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, specBasePath, missing, access); !guard.Empty() {
+				return guard
 			}
 		}
 		existingIDField := firstNonEmptyString(
@@ -4589,8 +4605,8 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 			strings.TrimSpace(action.Params["existing_canonical_id_field"]),
 		)
 		if existingIDField != "" {
-			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, specBasePath, dataTaskMissingFieldsOnArtifact(access, specBasePath, []string{existingIDField}), access); msg != "" {
-				return msg
+			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, specBasePath, dataTaskMissingFieldsOnArtifact(access, specBasePath, []string{existingIDField}), access); !guard.Empty() {
+				return guard
 			}
 			referencePath := firstNonEmptyString(
 				dataTaskMapStringValue(spec, "reference_path"),
@@ -4601,11 +4617,11 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 				strings.TrimSpace(action.Params["canonical_reference_path"]),
 			)
 			if referencePath == "" {
-				return fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d declares existing_id_field %q but no reference_path. Provide a reference/lookup artifact plus reference_id_field so the existing canonical value can be verified structurally, or omit existing_id_field.",
+				return dataTaskGuardResultFromMessage("apply_resolution_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d declares existing_id_field %q but no reference_path. Provide a reference/lookup artifact plus reference_id_field so the existing canonical value can be verified structurally, or omit existing_id_field.",
 					actionIndex+1,
 					firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 					i+1,
-					existingIDField)
+					existingIDField))
 			}
 			referenceIDField := firstNonEmptyString(dataTaskMapStringValue(spec, "reference_id_field"), dataTaskMapStringValue(spec, "reference_key_field"), dataTaskMapStringValue(spec, "lookup_id_field"), dataTaskMapStringValue(spec, "canonical_reference_id_field"), strings.TrimSpace(action.Params["reference_id_field"]), strings.TrimSpace(action.Params["reference_key_field"]), strings.TrimSpace(action.Params["lookup_id_field"]), strings.TrimSpace(action.Params["canonical_reference_id_field"]))
 			referenceFields := cleanDataTaskStrings([]string{
@@ -4614,14 +4630,14 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 				firstNonEmptyString(dataTaskMapStringValue(spec, "reference_status_field"), dataTaskMapStringValue(spec, "lookup_status_field"), dataTaskMapStringValue(spec, "canonical_reference_status_field"), strings.TrimSpace(action.Params["reference_status_field"]), strings.TrimSpace(action.Params["lookup_status_field"]), strings.TrimSpace(action.Params["canonical_reference_status_field"])),
 			})
 			if referenceIDField == "" {
-				return fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d declares existing_id_field %q but no reference_id_field. Provide the reference key/code/id field used to verify existing values.",
+				return dataTaskGuardResultFromMessage("apply_resolution_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d declares existing_id_field %q but no reference_id_field. Provide the reference key/code/id field used to verify existing values.",
 					actionIndex+1,
 					firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 					i+1,
-					existingIDField)
+					existingIDField))
 			}
-			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceFields), access); msg != "" {
-				return msg
+			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceFields), access); !guard.Empty() {
+				return guard
 			}
 		}
 		resolutionPath := firstNonEmptyString(
@@ -4642,13 +4658,13 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 		}
 		baseArtifact, baseOK := dataTaskArtifactAccessByAlias(access, basePath)
 		if mapping, ok := dataTaskArtifactAccessByAlias(access, resolutionPath); ok && baseOK && !dataTaskApplyResolutionBaseCompatibleWithMapping(baseArtifact, mapping) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) applies resolution input %s to base artifact %s, but the resolution source lineage [%s] is not compatible with the base lineage [%s]. Apply entity resolutions only to the source record lineage they were produced from, or first materialize a compatible joined/enriched artifact.",
+			return dataTaskGuardResultFromMessage("apply_resolution_lineage_contract", fmt.Sprintf("data planning incomplete: action %d (%s) applies resolution input %s to base artifact %s, but the resolution source lineage [%s] is not compatible with the base lineage [%s]. Apply entity resolutions only to the source record lineage they were produced from, or first materialize a compatible joined/enriched artifact.",
 				actionIndex+1,
 				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 				resolutionPath,
 				basePath,
 				strings.Join(mapping.SourcePaths, ", "),
-				dataTaskArtifactLineageSummary(basePath, baseArtifact))
+				dataTaskArtifactLineageSummary(basePath, baseArtifact)))
 		}
 		resolutionFields := cleanDataTaskStrings(append(
 			dataTaskFieldRefsFromSpec(spec, "resolution_key_fields", "mapping_key_fields"),
@@ -4657,8 +4673,8 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 		if len(resolutionFields) == 0 {
 			resolutionFields = parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["resolution_key_fields"], action.Params["resolution_key_field"], action.Params["mapping_key_fields"], action.Params["mapping_key_field"]))
 		}
-		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, resolutionPath, dataTaskMissingApplyResolutionFieldsOnArtifact(access, resolutionPath, resolutionFields), access); msg != "" {
-			return msg
+		if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, resolutionPath, dataTaskMissingApplyResolutionFieldsOnArtifact(access, resolutionPath, resolutionFields), access); !guard.Empty() {
+			return guard
 		}
 		canonicalIDField := firstNonEmptyString(dataTaskMapStringValue(spec, "canonical_id_field"), strings.TrimSpace(action.Params["canonical_id_field"]), "canonical_id")
 		canonicalLabelField := firstNonEmptyString(dataTaskMapStringValue(spec, "canonical_label_field"), strings.TrimSpace(action.Params["canonical_label_field"]), "canonical_label")
@@ -4667,20 +4683,20 @@ func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtif
 			if !ok || len(artifact.Fields) == 0 {
 				continue
 			}
-			return fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
+			return dataTaskGuardResultFromMessage("apply_resolution_canonical_field_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
 				actionIndex+1,
 				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
 				i+1,
 				resolutionPath,
 				canonicalIDField,
 				canonicalLabelField,
-				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", "))
+				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", ")))
 		}
 		if msg := dataTaskApplyResolutionNoProgressGuardError(access, action, actionIndex, specBasePath, resolutionPath, spec, len(specs)); msg != "" {
-			return msg
+			return dataTaskGuardResultFromMessage("apply_resolution_no_progress", msg)
 		}
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskApplyResolutionNoProgressGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int, basePath, resolutionPath string, spec map[string]any, specCount int) string {

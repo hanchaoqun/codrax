@@ -3221,6 +3221,86 @@ func TestDataTaskWorkflowStagingGuardRejectsJoinRecordsWithThreeInputs(t *testin
 	}
 }
 
+func TestDataTaskWorkflowStagingRelationFieldGuardsCarryTypedPayloads(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "orders",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"order_id", "raw_category"},
+					Fields:  map[string]string{"artifact_aliases": "orders", "json_shape": "array(len=2,item=object(keys=order_id,raw_category))"},
+				},
+				{
+					ID:      "reference",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"category_code", "category_name"},
+					Fields:  map[string]string{"artifact_aliases": "reference", "json_shape": "array(len=2,item=object(keys=category_code,category_name))"},
+				},
+			},
+		},
+	}}
+	cases := []struct {
+		name         string
+		action       dataquery.DataAction
+		wantInput    string
+		wantMissing  string
+		wantActionID string
+	}{
+		{
+			name: "join",
+			action: dataquery.DataAction{
+				ID:         "join_missing",
+				Kind:       dataquery.DataActionJoinRecords,
+				InputPaths: []string{"orders", "reference"},
+				Params: map[string]string{
+					"left_fields":  `["missing_key"]`,
+					"right_fields": `["category_code"]`,
+				},
+			},
+			wantInput:    "orders",
+			wantMissing:  "missing_key",
+			wantActionID: "join_missing",
+		},
+		{
+			name: "enrich",
+			action: dataquery.DataAction{
+				ID:         "enrich_missing",
+				Kind:       dataquery.DataActionEnrichRecords,
+				InputPaths: []string{"orders", "reference"},
+				Params: map[string]string{
+					"base_path": "orders",
+					"lookup_specs_json": `[{
+						"lookup_path":"reference",
+						"base_fields":["raw_category"],
+						"lookup_fields":["missing_lookup"],
+						"mapping_value_field":"category_code",
+						"target_field":"category_code"
+					}]`,
+				},
+			},
+			wantInput:    "reference",
+			wantMissing:  "missing_lookup",
+			wantActionID: "enrich_missing",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			guard := dataTaskWorkflowStagingGuardResult(records, dataquery.TaskPlan{
+				Status:  "ready",
+				Actions: []dataquery.DataAction{tc.action},
+			})
+			if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+				t.Fatalf("guard=%+v, want typed field-contract violation", guard)
+			}
+			violation := guard.Violations[0]
+			if violation.ActionID != tc.wantActionID || violation.InputAlias != tc.wantInput || !slices.Contains(violation.MissingFields, tc.wantMissing) {
+				t.Fatalf("violation=%+v, want action=%s input=%s missing=%s", violation, tc.wantActionID, tc.wantInput, tc.wantMissing)
+			}
+		})
+	}
+}
+
 func TestDataTaskWorkflowStateProjectsFieldContractViolations(t *testing.T) {
 	records := []dataTaskWorkflowRecord{
 		{
@@ -4675,6 +4755,13 @@ func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *test
 	if errText == "" || !strings.Contains(errText, "missing_base_field") || !strings.Contains(errText, "not present on input orders") {
 		t.Fatalf("errText=%q, want missing base field on orders", errText)
 	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed apply_entity_resolutions field-contract violation", guard)
+	}
+	if guard.Violations[0].ActionID != "orders_with_category" || guard.Violations[0].InputAlias != "orders" || !slices.Contains(guard.Violations[0].MissingFields, "missing_base_field") {
+		t.Fatalf("violation=%+v, want missing base field on orders", guard.Violations[0])
+	}
 }
 
 func TestDataTaskWorkflowStagingTreatsCanonicalRecordAsApplyResolutionBase(t *testing.T) {
@@ -4945,6 +5032,13 @@ func TestDataTaskWorkflowStagingRejectsNormalizeEntitiesMissingSourceFields(t *t
 	errText := dataTaskWorkflowStagingGuardError(records, plan)
 	if errText == "" || !strings.Contains(errText, "category_raw") || !strings.Contains(errText, "not present on input entity_mapping") {
 		t.Fatalf("errText=%q, want normalize_entities source field contract guard", errText)
+	}
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed normalize_entities field-contract violation", guard)
+	}
+	if guard.Violations[0].ActionID != "normalize_category" || guard.Violations[0].InputAlias != "entity_mapping" || !slices.Contains(guard.Violations[0].MissingFields, "category_raw") {
+		t.Fatalf("violation=%+v, want missing source field on entity_mapping", guard.Violations[0])
 	}
 }
 

@@ -10294,8 +10294,41 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert relation-specific field sub-guards (`join_records`,
+- [x] Convert relation-specific field sub-guards (`join_records`,
       `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
       produce typed field-contract violations instead of wrapped messages.
+- [ ] Feed propagated guard payloads into business-facing process summaries
+      without leaking internal graph jargon into normal user output.
+
+### Batch 234: Typed Relation Field Sub-Guards
+
+Relation-style data actions use fields across one or more record artifacts:
+joins, reference enrichment, entity normalization, and applying entity
+resolutions. Before this batch, the generic field-contract guard could emit a
+typed violation for simple single-input actions, but relation-specific helper
+guards still returned plain strings and lost the missing-field payload.
+
+This batch converts those relation-specific field-contract helpers to return
+`GuardResult` directly. Missing fields now preserve the same
+`WorkflowViolation` payload as simpler actions: action identity, input alias,
+missing fields, available field sample, candidate artifacts, repair hints, and
+idempotency key. Non-field structural relation errors keep stable typed guard
+codes, but they do not invent business semantics.
+
+Changes:
+
+- [x] Added typed field-contract guard results for `join_records`.
+- [x] Added typed field-contract guard results for `normalize_entities`.
+- [x] Added typed field-contract guard results for `enrich_records`.
+- [x] Added typed field-contract guard results for
+      `apply_entity_resolutions`.
+- [x] Kept existing string wrappers as render-only compatibility paths.
+- [x] Added regression coverage that all four relation actions expose typed
+      missing-field payloads through workflow staging.
+
+Remaining architecture items:
+
+- [ ] Convert remaining non-field relation contract errors into typed
+      violations where they have precise action/input/artifact handles.
 - [ ] Feed propagated guard payloads into business-facing process summaries
       without leaking internal graph jargon into normal user output.
