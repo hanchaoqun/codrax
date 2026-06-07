@@ -10610,3 +10610,42 @@ Remaining architecture items:
 - [ ] Move REPL-local relation scaffold sorting and concrete fallback builders
       into `internal/dataworkflow` so ActionDAG/ArtifactGraph/LedgerGraph own
       this policy in one place.
+
+### Batch 241: Order-Independent Resolution Source Lineage
+
+The next real-scenario gate moved past diagnostic-child pollution and surfaced
+an ArtifactGraph lineage contract bug. A `normalize_entities` mapping ledger can
+carry both the source record artifact and a reference/lookup material in
+`source_paths`. The old `apply_entity_resolutions` guard treated
+`source_paths[0]` as the only valid source lineage. When a ledger happened to
+record `[reference, source]`, the runtime rejected a valid graph edge and kept
+falling back to later stages without producing contribution ledgers.
+
+This is not data-domain specific. Any typed normalization step can read a base
+record set plus one or more reference/evidence materials, and serialized
+lineage order is not a safe hard gate. The invariant is:
+
+- hard compatibility must be based on typed artifact lineage intersection, not
+  source-path ordering;
+- if the base artifact lineage intersects any declared mapping source path, the
+  mapping may proceed to the existing field-contract checks;
+- if there is no lineage intersection, the guard still rejects the edge with
+  `apply_resolution_lineage_contract`;
+- diagnostic/source child artifacts remain non-executable inputs.
+
+Changes:
+
+- [x] Made `apply_entity_resolutions` mapping compatibility order-independent
+      across declared source paths.
+- [x] Kept incompatible mappings rejected when the base artifact has no lineage
+      overlap with the mapping ledger.
+- [x] Added regression coverage for both later-source-path compatibility and
+      no-overlap rejection.
+
+Remaining architecture items:
+
+- [ ] Split mapping ledger lineage into explicit `source_record_paths`,
+      `reference_paths`, and `evidence_paths` in runner-produced ArtifactGraph
+      metadata so future guards do not need to infer roles from mixed lineage.
+- [ ] Move the apply-resolution compatibility guard into `internal/dataworkflow`
+      once ArtifactGraph owns relation readiness for both CLI and REPL.

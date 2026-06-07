@@ -4849,11 +4849,12 @@ func dataTaskApplyResolutionBaseCompatibleWithMapping(base dataTaskArtifactAcces
 	if len(sourcePaths) == 0 {
 		return true
 	}
-	source := sourcePaths[0]
-	// The first source path of a normalize_entities artifact is the source
-	// record lineage; later source paths are reference/evidence lineage and are
-	// intentionally not valid bases for applying the mapping ledger.
-	return dataTaskArtifactLineageContains(base, source)
+	for _, source := range sourcePaths {
+		if dataTaskArtifactLineageContains(base, source) {
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskArtifactLineageSummary(alias string, artifact dataTaskArtifactAccessPrompt) string {
