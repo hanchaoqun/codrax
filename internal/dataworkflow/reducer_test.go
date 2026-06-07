@@ -312,6 +312,44 @@ func TestBuildRequiredOutputProjectionPlanUsesReconcileGroups(t *testing.T) {
 	}
 }
 
+func TestBuildRequiredOutputProjectionPlanUsesOutputGraph(t *testing.T) {
+	result := dataquery.Result{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		Reconcile: &dataquery.ReconcileReport{Groups: []dataquery.ReconcileGroup{{
+			GroupKey: dataquery.LooseText("A"),
+			Metric:   dataquery.LooseText("value"),
+			Actual:   dataquery.LooseText("10"),
+		}}},
+	}
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		Output:           result.OutputContract,
+		ReconcilePresent: true,
+		ReconcileGroups:  1,
+	})
+	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+		Result:         result,
+		OutputGraph:    graph,
+		UseOutputGraph: true,
+	})
+	if !ok {
+		t.Fatal("BuildRequiredOutputProjectionPlan ok=false, want graph-driven projection")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("actions=%+v, want assemble_answer", plan.Actions)
+	}
+}
+
+func TestBuildRequiredOutputProjectionPlanSkipsSatisfiedOutputGraph(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{AnswerPresent: true})
+	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+		OutputGraph:    graph,
+		UseOutputGraph: true,
+	})
+	if ok || len(plan.Actions) > 0 {
+		t.Fatalf("plan=%+v, ok=%t; satisfied output graph should not repair", plan, ok)
+	}
+}
+
 func TestBuildRequiredLedgerCompletionPlanCompletesReconcileFromContributions(t *testing.T) {
 	plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
 		Current:  dataquery.TaskPlan{Goal: "finish validation"},

@@ -8583,6 +8583,8 @@ func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dat
 		Coverage:               dataTaskWorkflowCoverageContract(records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
 		Result:                 result,
+		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
+		UseOutputGraph:         true,
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
 	})
@@ -8613,6 +8615,8 @@ func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataT
 		Result:                 result,
 		LedgerGraph:            dataTaskWorkflowCompletionLedgerGraph(records, current, result),
 		UseLedgerGraph:         true,
+		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
+		UseOutputGraph:         true,
 		ErrorText:              errText,
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),

@@ -13150,7 +13150,41 @@ Changes:
 
 Remaining P0 output work:
 
-- [ ] Move deterministic output-projection repair plan selection to consume
+- [x] Move deterministic output-projection repair plan selection to consume
       OutputProjectionGraph directly instead of recomputing reference gaps.
 - [ ] Feed OutputProjectionGraph status and repair action hints into process
       events/UX summaries.
+
+### Batch 292: OutputProjectionGraph-Driven Projection Repair
+
+After OutputProjectionGraph became the completion-gate source for final-answer
+readiness, deterministic projection repair still selected `assemble_answer`
+from older helper logic. This batch gives projection repair the same graph
+input used by completion decisions, so the gate and repair plan converge on one
+typed output-readiness contract.
+
+Generic invariants:
+
+- `missing_projection` and `incomplete_reference` statuses are the structural
+  reasons that permit deterministic `assemble_answer` repair;
+- `satisfied` output graph state must not produce another projection plan;
+- reference-complete repair still requires the precise reference gap candidate
+  path/field; OutputProjectionGraph decides that the gap exists, while the
+  reference candidate carries the verifiable structural details;
+- legacy non-graph repair remains only for direct/unmigrated callers.
+
+Changes:
+
+- [x] Added OutputProjectionGraph fields to output-projection and
+      completion-repair planner inputs.
+- [x] Rewired REPL/CLI output-projection repair paths to pass
+      OutputProjectionGraph explicitly.
+- [x] Added regression coverage for graph-driven `assemble_answer` repair and
+      satisfied-output no-op behavior.
+
+Remaining P0 output/UX work:
+
+- [ ] Feed OutputProjectionGraph status and repair action hints into process
+      events/UX summaries.
+- [ ] Remove legacy output-projection recomputation once all internal callers
+      pass typed output graph state.

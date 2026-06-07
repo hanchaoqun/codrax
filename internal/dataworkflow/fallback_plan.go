@@ -59,6 +59,8 @@ type CompletionRepairTransitionInput struct {
 	Result                 dataquery.Result
 	LedgerGraph            LedgerGraph
 	UseLedgerGraph         bool
+	OutputGraph            OutputProjectionGraph
+	UseOutputGraph         bool
 	ErrorText              string
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
@@ -88,6 +90,8 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 		Result:                 input.Result,
 		LedgerGraph:            input.LedgerGraph,
 		UseLedgerGraph:         input.UseLedgerGraph,
+		OutputGraph:            input.OutputGraph,
+		UseOutputGraph:         input.UseOutputGraph,
 		ErrorText:              errText,
 		ReferenceGap:           input.ReferenceGap,
 		PlanHasCustomTransform: input.PlanHasCustomTransform,
@@ -429,20 +433,37 @@ type OutputProjectionPlanInput struct {
 	Coverage               dataquery.CoverageContract
 	Output                 dataquery.OutputContract
 	Result                 dataquery.Result
+	OutputGraph            OutputProjectionGraph
+	UseOutputGraph         bool
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
 }
 
 func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataquery.TaskPlan, bool) {
-	needsProjection := ResultNeedsOutputProjection(ResultProjectionNeedInput{
-		Current:                input.Current,
-		Coverage:               input.Coverage,
-		Output:                 input.Output,
-		Result:                 input.Result,
-		PlanHasCustomTransform: input.PlanHasCustomTransform,
-	})
-	if !needsProjection && !input.ReferenceGap.Present {
-		return dataquery.TaskPlan{}, false
+	needsProjection := false
+	if input.UseOutputGraph {
+		switch input.OutputGraph.Status {
+		case OutputProjectionStatusMissingProjection:
+			needsProjection = true
+		case OutputProjectionStatusIncompleteReference:
+			if !input.ReferenceGap.Present {
+				return dataquery.TaskPlan{}, false
+			}
+			needsProjection = true
+		default:
+			return dataquery.TaskPlan{}, false
+		}
+	} else {
+		needsProjection = ResultNeedsOutputProjection(ResultProjectionNeedInput{
+			Current:                input.Current,
+			Coverage:               input.Coverage,
+			Output:                 input.Output,
+			Result:                 input.Result,
+			PlanHasCustomTransform: input.PlanHasCustomTransform,
+		})
+		if !needsProjection && !input.ReferenceGap.Present {
+			return dataquery.TaskPlan{}, false
+		}
 	}
 	contract := BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract)
 	coverage := input.Coverage
@@ -549,6 +570,8 @@ type RequiredLedgerCompletionPlanInput struct {
 	Result                 dataquery.Result
 	LedgerGraph            LedgerGraph
 	UseLedgerGraph         bool
+	OutputGraph            OutputProjectionGraph
+	UseOutputGraph         bool
 	ErrorText              string
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
@@ -560,6 +583,8 @@ func BuildRequiredLedgerCompletionPlan(input RequiredLedgerCompletionPlanInput) 
 		Coverage:               input.Coverage,
 		Output:                 input.Output,
 		Result:                 input.Result,
+		OutputGraph:            input.OutputGraph,
+		UseOutputGraph:         input.UseOutputGraph,
 		ReferenceGap:           input.ReferenceGap,
 		PlanHasCustomTransform: input.PlanHasCustomTransform,
 	}); ok {
