@@ -2878,6 +2878,20 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s",
 			status, reason, lastErr)
 	}
+	r.emitDataTaskTerminalAuditPath(status, terminalPath)
+}
+
+func (r *REPL) emitDataTaskTerminalAuditPath(status, terminalPath string) {
+	if r.renderer == nil || strings.TrimSpace(terminalPath) == "" {
+		return
+	}
+	label := "data audit"
+	segs := []string{strings.TrimSpace(status), "terminal " + terminalPath}
+	if isZh(r.language) {
+		label = "数据审计"
+		segs = []string{strings.TrimSpace(status), "完整终态 " + terminalPath}
+	}
+	r.renderer.EmitLightRouteSummary(label, cleanDataTaskStrings(segs))
 }
 
 func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, reason, lastErr, resultSummary string) string {

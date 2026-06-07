@@ -559,6 +559,23 @@ func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestDataTaskTerminalAuditPathRendersLowNoiseSummary(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+
+	r.emitDataTaskTerminalAuditPath("failed", "/tmp/data-audit/terminal.json")
+
+	got := stripANSIOnly(out.String())
+	for _, want := range []string{"数据审计", "failed", "完整终态 /tmp/data-audit/terminal.json"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("terminal audit summary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh", colorMode: render.ColorNever}

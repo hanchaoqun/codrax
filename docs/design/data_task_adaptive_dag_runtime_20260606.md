@@ -9712,5 +9712,29 @@ Remaining architecture items:
 
 - [ ] Move action event persistence into a storage-neutral workflow journal so
       CLI and future non-REPL runners do not depend on REPL terminal audit.
-- [ ] Add terminal audit links to REPL/CLI process output with strict-output
+- [x] Add terminal audit links to REPL/CLI process output with strict-output
       safety.
+      Completed for REPL process output in Batch 216; CLI strict stdout remains
+      protected because this path only uses renderer-side process summaries.
+
+### Batch 216: Low-Noise Terminal Audit Link
+
+Terminal graph snapshots are only useful if operators can find them. This batch
+adds a low-noise REPL process summary that points to the terminal data-audit
+file after a data workflow reaches a terminal state.
+
+The link is emitted through the renderer process lane, not through final answer
+text. That keeps strict data output clean and avoids changing CLI stdout
+semantics.
+
+Changes:
+
+- [x] Added `emitDataTaskTerminalAuditPath`.
+- [x] Wired terminal data workflow logging to emit a compact audit-link summary
+      when a renderer is available.
+- [x] Added regression coverage for the low-noise terminal audit path summary.
+
+Remaining architecture items:
+
+- [ ] Add an equivalent stderr-only terminal audit path for non-REPL CLI data
+      runs that preserves stdout-only final answers.
