@@ -10200,10 +10200,10 @@ Remaining architecture items:
 
 - [x] Convert the field-contract guard entrypoint and direct missing-field
       helpers to return typed violations/results.
-- [ ] Convert relation-specific field sub-guards, zero-match,
+- [x] Convert relation-specific field sub-guards, zero-match,
       unmatched-resolution, and zero-eligible helpers to return typed
       violations/results directly.
-- [ ] Feed action dependency `GuardResult` objects into checkpoints from
+- [x] Feed action dependency `GuardResult` objects into checkpoints from
       staging loops once action guard results are propagated through the parent
       staging guard result.
 
@@ -10227,7 +10227,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert relation-specific field sub-guards (`join_records`,
+- [x] Convert relation-specific field sub-guards (`join_records`,
       `normalize_entities`, `enrich_records`, `apply_entity_resolutions`) to
       produce typed field-contract violations instead of wrapped messages.
 - [x] Propagate child action guard results through staging guard results so
@@ -10330,5 +10330,38 @@ Remaining architecture items:
 
 - [ ] Convert remaining non-field relation contract errors into typed
       violations where they have precise action/input/artifact handles.
-- [ ] Feed propagated guard payloads into business-facing process summaries
+- [x] Feed propagated guard payloads into business-facing process summaries
       without leaking internal graph jargon into normal user output.
+
+### Batch 235: Business-First Workflow Progress Details
+
+Data workflow progress lines had become useful for system audit but too
+internal for customers: title lines could show ledger/material counts while
+model-authored goal, batch purpose, next step, and action summary lived below
+or were obscured by generic system prose.
+
+This batch keeps the low-noise permanent title line deterministic, but moves
+business-facing details ahead of generic system descriptions. Audit counters
+remain available below the title as audit detail instead of being promoted into
+the permanent line. Failure details are labeled as reasons. The same rendering
+helpers are used by REPL and CLI progress, while stdout remains reserved for
+the final answer in CLI mode.
+
+Changes:
+
+- [x] Stopped promoting data workflow audit counters into the permanent title
+      line.
+- [x] Rendered model-authored `goal`, `why_this_batch`, `next_batch`, and
+      action summaries before generic workflow prose.
+- [x] Labeled failure details as reasons and internal counters as audit
+      details.
+- [x] Added regression coverage for title-line stability and business-first
+      detail rendering.
+
+Remaining architecture items:
+
+- [ ] Convert remaining non-field relation contract errors into typed
+      violations where they have precise action/input/artifact handles.
+- [ ] Add richer structured process-event payloads to the workflow journal so
+      external UIs can render the same business-first view without parsing
+      terminal text.

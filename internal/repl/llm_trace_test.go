@@ -343,8 +343,27 @@ func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) 
 	if !strings.Contains(got, "目标：计算业务指标") {
 		t.Fatalf("workflow audit should render business-facing detail below the summary line:\n%s", got)
 	}
-	if !strings.Contains(got, "细节：上次失败 execute data task") {
-		t.Fatalf("workflow audit should render dynamic detail below the summary line:\n%s", got)
+	if !strings.Contains(got, "原因：上次失败 execute data task") {
+		t.Fatalf("workflow audit should render failure detail below the summary line:\n%s", got)
+	}
+}
+
+func TestEmitDataTaskWorkflowAuditKeepsAuditCountsOutOfTitle(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	r.emitDataTaskWorkflowAudit("result", 3, "消费材料 12 · 规则覆盖 9", "目标：计算业务指标")
+
+	got := stripANSIOnly(out.String())
+	if strings.Contains(got, "数据工作流 · 结果第 3 批 · 消费材料") {
+		t.Fatalf("audit counters should not be promoted into the permanent title line:\n%s", got)
+	}
+	for _, want := range []string{"数据工作流 · 结果第 3 批 · 未读源码", "目标：计算业务指标", "审计：消费材料 12 · 规则覆盖 9"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow audit missing %q:\n%s", want, got)
+		}
 	}
 }
 

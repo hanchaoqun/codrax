@@ -3553,26 +3553,7 @@ func dataTaskWorkflowResultSegment(lang string, result dataquery.Result) string 
 }
 
 func dataTaskWorkflowInlineSegments(kind, lang string, details ...string) []string {
-	if strings.TrimSpace(kind) != "result" {
-		return nil
-	}
-	var out []string
-	for _, detail := range details {
-		detail = strings.TrimSpace(detail)
-		if detail == "" {
-			continue
-		}
-		if dataTaskWorkflowDetailLooksBusinessFacing(detail, lang) {
-			continue
-		}
-		for _, part := range strings.Split(detail, " · ") {
-			part = strings.TrimSpace(part)
-			if part != "" {
-				out = append(out, part)
-			}
-		}
-	}
-	return out
+	return nil
 }
 
 func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ...string) []string {
@@ -3585,57 +3566,73 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 		}
 		lines = append(lines, prefix+oneLineClamp(value, 180))
 	}
-	switch kind {
-	case "execute":
-		if zh {
-			add("动作：", "执行当前有界数据动作批次，生成可复用产物和结构化审计后再评估下一步。")
-		} else {
-			add("Action: ", "Executing this bounded data action batch; reusable artifacts and structured audit feed the next evaluation.")
-		}
-	case "result":
-		if zh {
-			add("结果：", "本批完成，已记录材料消费、生成产物、规则/贡献/归一/对账等结构化信号。")
-		} else {
-			add("Result: ", "Batch completed; material use, artifacts, and structured ledger signals were recorded.")
-		}
-	case "evaluate":
-		if zh {
-			add("评估：", "根据目标、材料覆盖、产物字段、贡献记录和对账状态判断继续、修复或输出。")
-		} else {
-			add("Evaluate: ", "Checking goal progress, material coverage, artifact fields, contributions, and reconcile state.")
-		}
-	case "continue":
-		if zh {
-			add("继续：", "上一批仍不足以达成目标，继续规划下一批原子动作。")
-		} else {
-			add("Continue: ", "The previous batch is not enough yet; planning the next atomic batch.")
-		}
-	case "repair":
-		if zh {
-			add("修复：", "根据结构化失败原因生成下一批修复动作。")
-		} else {
-			add("Repair: ", "Planning the next repair batch from the structured failure reason.")
-		}
-	case "patch":
-		if zh {
-			add("结构修复：", "对无歧义的结果结构漂移做安全补丁，业务语义仍由重新计算承担。")
-		} else {
-			add("Patch: ", "Applying safe structural result patches; semantic changes still require recompute.")
-		}
-	}
+	var businessDetails []string
+	var auditDetails []string
 	for _, detail := range details {
 		detail = strings.TrimSpace(detail)
 		if detail == "" {
 			continue
 		}
 		if dataTaskWorkflowDetailLooksBusinessFacing(detail, lang) {
-			lines = append(lines, detail)
+			businessDetails = append(businessDetails, detail)
+		} else {
+			auditDetails = append(auditDetails, detail)
+		}
+	}
+	lines = append(lines, businessDetails...)
+	if len(businessDetails) == 0 {
+		switch kind {
+		case "execute":
+			if zh {
+				add("动作：", "执行当前有界数据动作批次，生成可复用产物和结构化审计后再评估下一步。")
+			} else {
+				add("Action: ", "Executing this bounded data action batch; reusable artifacts and structured audit feed the next evaluation.")
+			}
+		case "result":
+			if zh {
+				add("结果：", "本批完成，已记录材料消费、生成产物和校验信号。")
+			} else {
+				add("Result: ", "Batch completed; material use, artifacts, and validation signals were recorded.")
+			}
+		case "evaluate":
+			if zh {
+				add("评估：", "根据目标、材料覆盖、产物字段、贡献记录和对账状态判断继续、修复或输出。")
+			} else {
+				add("Evaluate: ", "Checking goal progress, material coverage, artifact fields, contributions, and reconcile state.")
+			}
+		case "continue":
+			if zh {
+				add("继续：", "上一批仍不足以达成目标，继续规划下一批原子动作。")
+			} else {
+				add("Continue: ", "The previous batch is not enough yet; planning the next atomic batch.")
+			}
+		case "repair":
+			if zh {
+				add("修复：", "根据结构化失败原因生成下一批修复动作。")
+			} else {
+				add("Repair: ", "Planning the next repair batch from the structured failure reason.")
+			}
+		case "patch":
+			if zh {
+				add("结构修复：", "对无歧义的结果结构漂移做安全补丁，业务语义仍由重新计算承担。")
+			} else {
+				add("Patch: ", "Applying safe structural result patches; semantic changes still require recompute.")
+			}
+		}
+	}
+	for _, detail := range auditDetails {
+		if dataTaskWorkflowDetailLooksFailure(detail, lang) {
+			if zh {
+				add("原因：", detail)
+			} else {
+				add("Reason: ", detail)
+			}
 			continue
 		}
 		if zh {
-			add("细节：", detail)
+			add("审计：", detail)
 		} else {
-			add("Detail: ", detail)
+			add("Audit: ", detail)
 		}
 	}
 	return lines
@@ -3652,6 +3649,24 @@ func dataTaskWorkflowDetailLooksBusinessFacing(detail, lang string) bool {
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(detail, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskWorkflowDetailLooksFailure(detail, lang string) bool {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return false
+	}
+	prefixes := []string{"last failure ", "failed ", "error "}
+	if isZh(lang) {
+		prefixes = []string{"上次失败 ", "失败 ", "错误 "}
+	}
+	lower := strings.ToLower(detail)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
 			return true
 		}
 	}
