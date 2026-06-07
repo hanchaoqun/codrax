@@ -38,6 +38,7 @@ import (
 	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -2633,10 +2634,23 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 }
 
 type dataTaskAuditArtifact struct {
-	PlanPath   string
-	ScriptPath string
-	ResultPath string
-	ErrorPath  string
+	PlanPath        string
+	ScriptPath      string
+	ActionGraphPath string
+	ResultPath      string
+	ErrorPath       string
+}
+
+type dataTaskActionAuditSnapshot struct {
+	Scope   string                            `json:"scope,omitempty"`
+	Round   int                               `json:"round,omitempty"`
+	Actions []dataTaskActionAuditSnapshotItem `json:"actions,omitempty"`
+}
+
+type dataTaskActionAuditSnapshotItem struct {
+	Original   dataquery.DataAction    `json:"original_action,omitempty"`
+	Normalized dataquery.DataAction    `json:"normalized_action,omitempty"`
+	Node       dataworkflow.ActionNode `json:"action_node,omitempty"`
 }
 
 func (r *REPL) auditDataTaskPlan(scope string, round int, plan dataquery.TaskPlan) dataTaskAuditArtifact {
@@ -2672,13 +2686,25 @@ func (r *REPL) writeDataTaskPlanArtifact(scope string, round int, plan dataquery
 			artifact.ScriptPath = scriptPath
 		}
 	}
+	if len(plan.Actions) > 0 {
+		actionsPath := filepath.Join(dir, prefix+".actions.json")
+		snapshot := dataTaskActionAuditSnapshotFor(scope, round, plan.Actions)
+		raw, err := json.MarshalIndent(snapshot, "", "  ")
+		if err != nil {
+			logging.Warning("[repl/data] marshal data task action audit failed scope=%s round=%d: %v", scope, round, err)
+		} else if err := os.WriteFile(actionsPath, raw, 0600); err != nil {
+			logging.Warning("[repl/data] write data task action audit failed path=%s: %v", actionsPath, err)
+		} else {
+			artifact.ActionGraphPath = actionsPath
+		}
+	}
 	return artifact
 }
 
 func (r *REPL) logDataTaskPlanArtifact(scope string, round int, plan dataquery.TaskPlan, artifact dataTaskAuditArtifact) {
-	logging.Info("[repl/data] data task plan scope=%s round=%d status=%s inputs=%d required=%d script_lines=%d plan_path=%s script_path=%s",
+	logging.Info("[repl/data] data task plan scope=%s round=%d status=%s inputs=%d required=%d actions=%d script_lines=%d plan_path=%s script_path=%s actions_path=%s",
 		scope, round, strings.TrimSpace(plan.Status), len(plan.InputPaths), len(plan.CoverageContract.RequiredPaths()),
-		dataTaskScriptLineCount(plan.Script), artifact.PlanPath, artifact.ScriptPath)
+		len(plan.Actions), dataTaskScriptLineCount(plan.Script), artifact.PlanPath, artifact.ScriptPath, artifact.ActionGraphPath)
 	if strings.TrimSpace(plan.Script) != "" {
 		logging.Info("[repl/data] data task script full scope=%s round=%d path=%s\n%s",
 			scope, round, artifact.ScriptPath, plan.Script)
@@ -2687,6 +2713,29 @@ func (r *REPL) logDataTaskPlanArtifact(scope string, round int, plan dataquery.T
 		logging.Info("[repl/data] data task plan full scope=%s round=%d path=%s\n%s",
 			scope, round, artifact.PlanPath, string(raw))
 	}
+	if len(plan.Actions) > 0 {
+		snapshot := dataTaskActionAuditSnapshotFor(scope, round, plan.Actions)
+		if raw, err := json.MarshalIndent(snapshot, "", "  "); err == nil {
+			logging.Info("[repl/data] data task actions full scope=%s round=%d path=%s\n%s",
+				scope, round, artifact.ActionGraphPath, string(raw))
+		}
+	}
+}
+
+func dataTaskActionAuditSnapshotFor(scope string, round int, actions []dataquery.DataAction) dataTaskActionAuditSnapshot {
+	out := dataTaskActionAuditSnapshot{
+		Scope: strings.TrimSpace(scope),
+		Round: round,
+	}
+	for _, action := range actions {
+		normalized, _ := dataworkflow.NormalizeRolePathAction(action)
+		out.Actions = append(out.Actions, dataTaskActionAuditSnapshotItem{
+			Original:   action,
+			Normalized: normalized,
+			Node:       dataworkflow.ActionNodeFor(action, dataworkflow.ActionStatusReady),
+		})
+	}
+	return out
 }
 
 func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.TaskPlan, artifact dataTaskAuditArtifact) {
@@ -2756,6 +2805,13 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 			fmt.Fprintf(&b, "\n完整计划：`%s`", artifact.PlanPath)
 		} else {
 			fmt.Fprintf(&b, "\nFull plan: `%s`", artifact.PlanPath)
+		}
+	}
+	if artifact.ActionGraphPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n完整动作图：`%s`", artifact.ActionGraphPath)
+		} else {
+			fmt.Fprintf(&b, "\nFull action graph: `%s`", artifact.ActionGraphPath)
 		}
 	}
 	r.renderBorderedMutedCompact(b.String())

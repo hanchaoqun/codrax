@@ -9376,9 +9376,9 @@ Remaining architecture items:
       readiness and idempotency calculation, rather than relying on each caller
       to remember the pass. Completed for current ActionGraph projection and
       idempotency keys in Batch 206.
-- [ ] Persist normalized action nodes and pre-normalization params in
+- [x] Persist normalized action nodes and pre-normalization params in
       data-audit snapshots so execution edges can be audited without replaying
-      planner prompts.
+      planner prompts. Completed in Batch 207.
 
 ### Batch 206: Projection-Native Action Normalization
 
@@ -9404,6 +9404,40 @@ Changes:
 Remaining architecture items:
 
 - [ ] Persist normalized action nodes and original planner params together in
-      data-audit snapshots.
+      data-audit snapshots. Completed in Batch 207.
 - [ ] Move scheduler readiness decisions from REPL record slices into a
       durable ActionDAG reducer that stores node status transitions.
+
+### Batch 207: ActionGraph Audit Snapshots
+
+The ActionGraph projection was visible to the planner through
+`workflow_state_json`, but full forensic audit still required piecing together
+plan JSON, result JSON, and prompt logs. For commercial support this is too
+fragile: operators need to inspect the exact graph edge the system believed it
+was about to run, including both planner-authored params and normalized
+execution inputs.
+
+This batch adds a domain-neutral data-audit artifact beside each plan:
+
+- original planner action;
+- normalized action after structural role-path input normalization;
+- projected `ActionNode` with input aliases, output alias, dependency rank,
+  ledger capabilities, and idempotency key.
+
+It is audit-only. It does not alter scheduling, validation, or model prompts,
+and it does not infer business meaning from names or prose.
+
+Changes:
+
+- [x] Added `.actions.json` audit files for data plans with typed actions.
+- [x] Logged the full action graph snapshot in debug/audit logs.
+- [x] Added compact REPL preview links to the full action graph artifact.
+- [x] Added regression coverage proving normalized inputs and idempotency keys
+      are persisted for audit.
+
+Remaining architecture items:
+
+- [ ] Persist action graph snapshots across terminal workflow summaries, not
+      only per-plan artifacts.
+- [ ] Move scheduler readiness and status transitions from REPL record slices
+      into the durable ActionDAG reducer.

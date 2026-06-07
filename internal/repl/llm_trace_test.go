@@ -429,6 +429,48 @@ func TestAuditDataTaskPlanWritesFullArtifactsAndRendersShortPreview(t *testing.T
 	}
 }
 
+func TestAuditDataTaskPlanWritesActionGraphSnapshot(t *testing.T) {
+	var out bytes.Buffer
+	anchor := t.TempDir()
+	r := &REPL{
+		renderer:      render.New(&out, true),
+		language:      "zh",
+		runtimeAnchor: anchor,
+		repoRoot:      t.TempDir(),
+		out:           &out,
+	}
+
+	artifact := r.auditDataTaskPlan("continue", 2, dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "normalize",
+			Kind: dataquery.DataActionNormalizeEntities,
+			Params: map[string]string{
+				"source_path":    "records.json",
+				"reference_path": "reference.json",
+			},
+		}},
+	})
+
+	if artifact.ActionGraphPath == "" {
+		t.Fatalf("expected action graph audit path, got %#v", artifact)
+	}
+	raw, err := os.ReadFile(artifact.ActionGraphPath)
+	if err != nil {
+		t.Fatalf("read action graph artifact: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"original_action"`, `"normalized_action"`, `"action_node"`, `"records.json"`, `"reference.json"`, `"idempotency_key"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("action graph audit missing %q:\n%s", want, text)
+		}
+	}
+	got := stripANSIOnly(out.String())
+	if !strings.Contains(got, "完整动作图") {
+		t.Fatalf("audit preview missing action graph path:\n%s", got)
+	}
+}
+
 func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh", colorMode: render.ColorNever}
