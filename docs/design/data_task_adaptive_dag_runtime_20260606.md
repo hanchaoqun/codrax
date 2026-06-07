@@ -9198,8 +9198,10 @@ Remaining architecture items:
 - [ ] Move repeated-edge/no-progress guards to consume `ActionNode`
       idempotency keys and typed artifact/ledger deltas instead of local
       REPL-only helper logic.
-- [ ] Persist action graph snapshots in data-audit records and expose
-      deferred queued nodes as `ActionNode{status=deferred}`.
+- [x] Persist action graph snapshots in data-audit records. Completed in
+      Batches 207 and 214.
+- [ ] Expose deferred queued nodes as `ActionNode{status=deferred}` in the
+      shared reducer.
 - [ ] Add typed `WorkflowViolation` records that point to action-node
       idempotency keys, dependency ranks, and blocked input aliases.
 
@@ -9247,8 +9249,9 @@ Remaining architecture items:
 - [x] Promote role-path normalization into `internal/dataworkflow` as an
       ActionDAG normalization pass shared by REPL, CLI, and future batch
       schedulers. Completed in Batch 205.
-- [ ] Represent diagnostic child artifacts and aggregate ledger handles as
+- [x] Represent diagnostic child artifacts and aggregate ledger handles as
       typed `ArtifactGraph` node classes instead of local REPL predicates.
+      Completed in Batch 204.
 - [ ] Add typed scaffold eligibility diagnostics so skipped scaffolds are
       visible in audit without becoming user-facing noise.
 
@@ -9291,8 +9294,9 @@ Remaining architecture items:
       instead of formatting prose first and re-parsing some errors later.
 - [ ] Link violations to `ActionNode.idempotency_key` and dependency rank once
       the full ActionDAG reducer owns scheduling.
-- [ ] Persist violations in data-audit snapshots and surface concise
-      business-facing repair summaries in CLI/REPL process events.
+- [x] Persist violations in data-audit snapshots. Completed in Batch 214.
+- [ ] Surface concise business-facing repair summaries in CLI/REPL process
+      events.
 
 ### Batch 204: ArtifactGraph Node Classes
 
@@ -9514,8 +9518,9 @@ Remaining architecture items:
 - [x] Move candidate-artifact ranking and repair hints for field-contract
       violations into a shared typed schema-violation builder.
       Completed in Batch 210.
-- [ ] Feed schema-contract failures into the shared ActionGraph reducer as
+- [x] Feed schema-contract failures into the shared ActionGraph reducer as
       blocked nodes instead of REPL prose guard errors.
+      Completed in Batch 211.
 
 ### Batch 210: Shared Field-Contract Repair Builder
 
@@ -9682,8 +9687,10 @@ Remaining architecture items:
 
 - [x] Persist reducer event streams, not only projected terminal snapshots.
       Completed in Batch 215.
-- [ ] Add low-noise CLI/REPL links to terminal audit snapshots when useful,
+- [x] Add low-noise CLI/REPL links to terminal audit snapshots when useful,
       without polluting strict stdout output.
+      Completed for REPL process output in Batch 216; non-REPL CLI stderr link
+      remains a separate item.
 
 ### Batch 215: Terminal Action Event Streams
 
