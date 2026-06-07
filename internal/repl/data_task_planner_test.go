@@ -147,6 +147,47 @@ func TestDataTaskDeterministicContinuationFallbackDeriveRules(t *testing.T) {
 	}
 }
 
+func TestDataTaskApplyResolutionGuardRejectsDiagnosticResolutionInput(t *testing.T) {
+	access := []dataTaskArtifactAccessPrompt{{
+		ID:        "records",
+		Kind:      string(dataquery.DataActionExtractRecords),
+		NodeClass: dataworkflow.ArtifactNodeClassRecord,
+		Aliases:   []string{"records.json"},
+		JSONShape: "array(len=2)",
+		Fields:    []string{"item_id", "name"},
+	}, {
+		ID:        "records.json#entity_resolution_source",
+		Kind:      "apply_entity_resolutions/resolution",
+		NodeClass: dataworkflow.ArtifactNodeClassDiagnosticChild,
+		Aliases:   []string{"records.json#entity_resolution_source"},
+		JSONShape: "array(len=2)",
+		Fields:    []string{"item_id", "source_value", "canonical_id", "canonical_label"},
+	}}
+	action := dataquery.DataAction{
+		ID:         "apply_diag",
+		Kind:       dataquery.DataActionApplyResolutions,
+		InputPaths: []string{"records.json", "records.json#entity_resolution_source"},
+		Params: map[string]string{
+			"base_path": "records.json",
+			"resolution_specs": `[{
+				"resolution_path":"records.json#entity_resolution_source",
+				"resolution_key_fields":["item_id"],
+				"target_id_field":"name_canonical_id"
+			}]`,
+		},
+	}
+	guard := dataTaskApplyResolutionActionFieldContractGuardResult(access, action, 0)
+	if guard.Empty() {
+		t.Fatalf("guard empty, want diagnostic input rejection")
+	}
+	if guard.Code != "apply_resolution_diagnostic_input" {
+		t.Fatalf("guard code=%q, want apply_resolution_diagnostic_input", guard.Code)
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].InputAlias != "records.json#entity_resolution_source" {
+		t.Fatalf("violations=%+v", guard.Violations)
+	}
+}
+
 func TestDataTaskDeterministicContinuationFallbackMaterializesRecords(t *testing.T) {
 	current := dataquery.TaskPlan{
 		Status: "ready",

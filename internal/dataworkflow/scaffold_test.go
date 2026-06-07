@@ -88,3 +88,41 @@ func TestJoinRecordScaffoldsIgnoreInternalLineageFields(t *testing.T) {
 		t.Fatalf("CommonFields=%v, want only ordinary field value", got[0].CommonFields)
 	}
 }
+
+func TestApplyResolutionScaffoldsIgnoreDiagnosticResolutionChildren(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:        "records",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"records.json"},
+			JSONShape: "array(len=2,item=object(keys=item_id,name))",
+			Fields:    []string{"item_id", "name"},
+		},
+		{
+			ID:          "entity_mappings.json",
+			Kind:        string(dataquery.DataActionNormalizeEntities),
+			NodeClass:   ArtifactNodeClassArtifact,
+			Aliases:     []string{"entity_mappings.json"},
+			JSONShape:   "array(len=2,item=object(keys=item_id,source_value,canonical_id,canonical_label))",
+			Fields:      []string{"item_id", "source_value", "canonical_id", "canonical_label"},
+			SourcePaths: []string{"records.json", "reference.json"},
+		},
+		{
+			ID:        "entity_mappings.json#entity_resolution_source",
+			Kind:      "apply_entity_resolutions/resolution",
+			NodeClass: ArtifactNodeClassDiagnosticChild,
+			Aliases:   []string{"entity_mappings.json#entity_resolution_source"},
+			JSONShape: "array(len=2,item=object(keys=item_id,source_value,canonical_id))",
+			Fields:    []string{"item_id", "source_value", "canonical_id"},
+		},
+	}
+
+	scaffolds := ApplyResolutionScaffolds(projections, 4)
+	if len(scaffolds) != 1 {
+		t.Fatalf("ApplyResolutionScaffolds=%+v, want exactly one scaffold from real ledger", scaffolds)
+	}
+	if strings.Join(scaffolds[0].InputPaths, ",") != "records.json,entity_mappings.json" {
+		t.Fatalf("InputPaths=%v, want diagnostic child excluded", scaffolds[0].InputPaths)
+	}
+}

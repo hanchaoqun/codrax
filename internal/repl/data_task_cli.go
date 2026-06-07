@@ -50,6 +50,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if repoRoot == "" {
 		repoRoot = "."
 	}
+	dataTaskCLIRequestProgress(cfg.Progress, cfg.Language, request)
 	var records []dataTaskWorkflowRecord
 	var dataRounds int
 	var repairRounds int
@@ -945,6 +946,23 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 	}
 	cliLightRouteSummary(w, label, segs)
 	cliLightRouteDetails(w, dataTaskWorkflowDetailLines(kind, round, lang, details...))
+}
+
+func dataTaskCLIRequestProgress(w io.Writer, lang, request string) {
+	if w == nil {
+		return
+	}
+	request = strings.TrimSpace(request)
+	if request == "" {
+		return
+	}
+	if isZh(lang) {
+		cliLightRouteSummary(w, "数据请求", []string{"已接收"})
+		cliLightRouteDetails(w, []string{"问题：" + oneLineClamp(request, 1000)})
+		return
+	}
+	cliLightRouteSummary(w, "data request", []string{"received"})
+	cliLightRouteDetails(w, []string{"Request: " + oneLineClamp(request, 1000)})
 }
 
 func emitDataTaskCLITerminalAuditPath(w io.Writer, lang, status, terminalPath string) {

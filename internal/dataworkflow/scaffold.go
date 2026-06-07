@@ -208,6 +208,9 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 	}
 	var ledgers []ArtifactSchemaProjection
 	for _, projection := range projections {
+		if projection.NodeClass == ArtifactNodeClassDiagnosticChild {
+			continue
+		}
 		if projection.NodeClass == ArtifactNodeClassWorkflowLedger ||
 			artifactKindHasPrefix(projection.Kind, dataquery.DataActionNormalizeEntities, dataquery.DataActionApplyResolutions) ||
 			looksLikeResolutionProjection(projection) {

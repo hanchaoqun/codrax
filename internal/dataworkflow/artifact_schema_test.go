@@ -113,6 +113,37 @@ func TestProjectArtifactSchemasClassifiesWorkflowLedgerAndDiagnosticChildren(t *
 	}
 }
 
+func TestProjectArtifactSchemasClassifiesEntityResolutionSourceChildrenAsDiagnostic(t *testing.T) {
+	projections := ProjectArtifactSchemasNewestFirst([]dataquery.DataArtifact{{
+		ID:      "entity_mappings.json",
+		Kind:    string(dataquery.DataActionNormalizeEntities),
+		Headers: []string{"item_id", "source_value", "canonical_id", "canonical_label"},
+		Fields:  map[string]string{"json_shape": "array(len=2)"},
+		Children: []dataquery.DataArtifact{{
+			ID:      "records.json#entity_resolution_source",
+			Kind:    "apply_entity_resolutions/resolution",
+			Headers: []string{"item_id", "source_value", "canonical_id"},
+			Fields:  map[string]string{"json_shape": "array(len=2)"},
+		}, {
+			ID:      "records.json#entity_resolutions",
+			Kind:    "entity_resolution_source",
+			Headers: []string{"source_field", "canonical_id_field"},
+			Fields:  map[string]string{"json_shape": "array(len=2)"},
+		}},
+	}})
+	if len(projections) != 3 {
+		t.Fatalf("projection count=%d, want parent plus two children", len(projections))
+	}
+	for _, projection := range projections[1:] {
+		if projection.NodeClass != ArtifactNodeClassDiagnosticChild {
+			t.Fatalf("%s node_class=%q, want diagnostic_child", projection.ID, projection.NodeClass)
+		}
+		if ArtifactUsableForRecordAction(projection) {
+			t.Fatalf("%s should not be usable as record action input", projection.ID)
+		}
+	}
+}
+
 func TestMissingFieldsOnArtifactSchemaUsesAliasContract(t *testing.T) {
 	projections := []ArtifactSchemaProjection{{
 		ID:      "records",

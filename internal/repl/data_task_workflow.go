@@ -4700,6 +4700,19 @@ func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArti
 		if resolutionPath == "" {
 			continue
 		}
+		if resolutionArtifact, ok := dataTaskArtifactAccessByAlias(access, resolutionPath); ok && dataTaskArtifactIsDiagnosticChild(resolutionArtifact) {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions uses diagnostic artifact %s as a resolution input. Diagnostic/source child artifacts can be inspected for schema evidence, but executable resolution application must use a mapping/entity-resolution ledger or an already materialized canonical field on the base record artifact.",
+				actionIndex+1,
+				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+				resolutionPath)
+			return dataTaskActionInputContractGuardResult("apply_resolution_diagnostic_input", action, resolutionPath, nil, message, []string{
+				string(dataquery.DataActionInspectMaterial),
+				string(dataquery.DataActionDeriveFields),
+				string(dataquery.DataActionFilterRecords),
+				string(dataquery.DataActionQualifyRecords),
+				string(dataquery.DataActionComputeContribs),
+			})
+		}
 		baseArtifact, baseOK := dataTaskArtifactAccessByAlias(access, basePath)
 		if mapping, ok := dataTaskArtifactAccessByAlias(access, resolutionPath); ok && baseOK && !dataTaskApplyResolutionBaseCompatibleWithMapping(baseArtifact, mapping) {
 			message := fmt.Sprintf("data planning incomplete: action %d (%s) applies resolution input %s to base artifact %s, but the resolution source lineage [%s] is not compatible with the base lineage [%s]. Apply entity resolutions only to the source record lineage they were produced from, or first materialize a compatible joined/enriched artifact.",

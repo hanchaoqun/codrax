@@ -3615,8 +3615,11 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 			auditDetails = append(auditDetails, detail)
 		}
 	}
-	lines = append(lines, businessDetails...)
-	if len(businessDetails) == 0 {
+	showBusinessDetails := dataTaskWorkflowShouldShowBusinessDetails(kind, auditDetails)
+	if showBusinessDetails {
+		lines = append(lines, businessDetails...)
+	}
+	if !showBusinessDetails || len(businessDetails) == 0 {
 		switch kind {
 		case "execute":
 			if zh {
@@ -3678,6 +3681,15 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 		}
 	}
 	return lines
+}
+
+func dataTaskWorkflowShouldShowBusinessDetails(kind string, auditDetails []string) bool {
+	switch strings.TrimSpace(kind) {
+	case "result", "evaluate":
+		return false
+	default:
+		return true
+	}
 }
 
 func dataTaskWorkflowDetailLooksBusinessFacing(detail, lang string) bool {
@@ -3868,11 +3880,7 @@ func dataTaskActionSummarySegment(actions []dataquery.DataAction, lang string) s
 		if kind == "" {
 			continue
 		}
-		if id := strings.TrimSpace(action.ID); id != "" && id != kind {
-			parts = append(parts, oneLineClamp(id+":"+kind, 28))
-		} else {
-			parts = append(parts, oneLineClamp(kind, 28))
-		}
+		parts = append(parts, kind)
 	}
 	if len(parts) == 0 {
 		return ""

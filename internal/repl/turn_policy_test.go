@@ -1496,7 +1496,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		t.Fatalf("answer=%q, want strict scalar 17", answer)
 	}
 	progressText := progress.String()
-	for _, want := range []string{"◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 修复第 1 次", "◇ 数据工作流 · 结果第 2 批", "◇ 数据工作流 · 评估第 2 批"} {
+	for _, want := range []string{"◇ 数据请求 · 已接收", "问题：汇总 orders.csv，只输出总额", "◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 修复第 1 次", "◇ 数据工作流 · 结果第 2 批", "◇ 数据工作流 · 评估第 2 批"} {
 		if !strings.Contains(progressText, want) {
 			t.Fatalf("progress missing %q:\n%s", want, progressText)
 		}

@@ -360,7 +360,29 @@ func TestEmitDataTaskWorkflowAuditKeepsAuditCountsOutOfTitle(t *testing.T) {
 	if strings.Contains(got, "数据工作流 · 结果第 3 批 · 消费材料") {
 		t.Fatalf("audit counters should not be promoted into the permanent title line:\n%s", got)
 	}
-	for _, want := range []string{"数据工作流 · 结果第 3 批 · 未读源码", "目标：计算业务指标", "审计：消费材料 12 · 规则覆盖 9"} {
+	if strings.Contains(got, "目标：计算业务指标") {
+		t.Fatalf("result event should not repeat plan business details already shown during planning/execution:\n%s", got)
+	}
+	for _, want := range []string{"数据工作流 · 结果第 3 批 · 未读源码", "结果：本批完成", "审计：消费材料 12 · 规则覆盖 9"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow audit missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestEmitDataTaskWorkflowAuditDoesNotRepeatPlanDetailsOnEvaluate(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	r.emitDataTaskWorkflowAudit("evaluate", 4, "目标：计算业务指标", "本批：抽取字段", "下一步：汇总输出")
+
+	got := stripANSIOnly(out.String())
+	if strings.Contains(got, "目标：计算业务指标") || strings.Contains(got, "本批：抽取字段") || strings.Contains(got, "下一步：汇总输出") {
+		t.Fatalf("evaluate event should not repeat plan details:\n%s", got)
+	}
+	for _, want := range []string{"数据工作流 · 评估第 4 批 · 未读源码", "评估：根据目标"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("workflow audit missing %q:\n%s", want, got)
 		}
@@ -396,7 +418,7 @@ func TestDataTaskPlanAuditSplitsTypedIntentIntoDetails(t *testing.T) {
 			{ID: "derive", Kind: dataquery.DataActionDeriveFields},
 		},
 	}, "zh"), "\n")
-	for _, want := range []string{"目标：计算用户要求的聚合结果", "本批：抽取基础记录并保留后续计算所需字段", "下一步：根据抽取结果继续归一和汇总", "步骤 extract:extract_records → derive:derive_fields"} {
+	for _, want := range []string{"目标：计算用户要求的聚合结果", "本批：抽取基础记录并保留后续计算所需字段", "下一步：根据抽取结果继续归一和汇总", "步骤 extract_records → derive_fields"} {
 		if !strings.Contains(got, want) {
 			if !strings.Contains(details, want) {
 				t.Fatalf("plan details missing %q:\n%s", want, details)

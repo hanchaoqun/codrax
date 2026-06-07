@@ -10551,3 +10551,62 @@ Remaining architecture items:
 - [ ] Add a domain-neutral value-distribution preview action so the planner can
       inspect actual field values before filtering/grouping/contribution work
       without inventing scripts or repeating relation joins.
+
+### Batch 240: Diagnostic Artifact Boundary And Progress Detail De-duplication
+
+The next real-scenario run got past the repeated join loop and correctly
+surfaced a typed `stage_no_progress` signal. It then exposed a second generic
+ArtifactGraph boundary issue: source/diagnostic children emitted by
+entity-resolution actions, such as `#entity_resolution_source` and
+`#entity_resolutions`, were still visible to relation scaffolds as if they were
+ordinary executable mapping ledgers. The deterministic fallback could then try
+to apply or join against diagnostic source views, producing field-contract
+failures around `canonical_id`/`canonical_label` even though the base record
+artifact already carried materialized prefixed canonical fields from a prior
+valid apply step.
+
+This is not a domain-data problem. Any data workflow with source-to-canonical
+mapping can produce separate executable ledgers and diagnostic/source children.
+The invariant is:
+
+- executable DAG nodes may consume record artifacts, mapping ledgers, and
+  generated typed artifacts;
+- diagnostic/source children may be inspected for schema evidence and audit,
+  but must not become automatic relation/action inputs;
+- if a planner explicitly names a diagnostic child as a resolution input, the
+  guard should return a typed action-input violation before execution;
+- terminal progress should show business-facing plan text once at the planning
+  or execution boundary, then keep result/evaluate events focused on outcome,
+  audit, and next-state checks.
+
+Changes:
+
+- [x] Classified `#entity_resolutions`, `#entity_resolution_source`, and
+      `#entity_resolution_reference` artifacts as diagnostic children in the
+      shared ArtifactGraph projection.
+- [x] Excluded diagnostic children from shared `ApplyResolutionScaffolds`.
+- [x] Added REPL/CLI guard coverage that rejects diagnostic artifacts as
+      `apply_entity_resolutions` resolution inputs with typed violation code
+      `apply_resolution_diagnostic_input`.
+- [x] Added regression coverage for ArtifactGraph classification, relation
+      scaffolds, and REPL apply-resolution guard behavior.
+- [x] De-duplicated data workflow permanent-detail rendering: execute/plan can
+      show goal/batch/next-step details, while result/evaluate render outcome
+      and audit details instead of repeating the same plan prose.
+- [x] Changed action summaries to show action kinds rather than raw generated
+      action ids, avoiding low-value truncated ids such as
+      `continue_join_records_...` in user-facing permanent lines.
+- [x] Added CLI stderr request anchoring (`数据请求` / `data request`) so
+      single-shot logs show the original user request without polluting stdout.
+
+Remaining architecture items:
+
+- [ ] Extend the same diagnostic/executable boundary to any future generated
+      child kind added by typed actions, ideally by carrying an explicit
+      `node_class` from the runner instead of deriving it from id/kind suffixes.
+- [ ] Promote repeated apply-resolution no-progress into the broader
+      stage-progress signature alongside field-set, row-count, ledger, and
+      stage movement deltas for every typed action kind.
+- [ ] Move REPL-local relation scaffold sorting and concrete fallback builders
+      into `internal/dataworkflow` so ActionDAG/ArtifactGraph/LedgerGraph own
+      this policy in one place.
