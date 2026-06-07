@@ -5936,6 +5936,42 @@ func TestDataTaskWorkflowStateProjectsRejectedAdmissionGuard(t *testing.T) {
 	}
 }
 
+func TestDataTaskStagingGuardRejectsNonRecordArtifactInput(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "schema_summary",
+			Kind:    string(dataquery.DataActionInspectMaterial),
+			Summary: "metadata only artifact",
+			Fields: map[string]string{
+				"json_shape": "object",
+				"count":      "3",
+			},
+		}}},
+	}}
+	action := dataquery.DataAction{
+		ID:         "filter_schema_summary",
+		Kind:       dataquery.DataActionFilterRecords,
+		InputPaths: []string{"schema_summary"},
+		Params: map[string]string{
+			"filters_json": `[{"field":"status","op":"eq","value":"ready"}]`,
+		},
+	}
+	guard := dataTaskWorkflowStagingGuardResult(records, dataquery.TaskPlan{
+		Status:  "ready",
+		Actions: []dataquery.DataAction{action},
+	})
+	if guard.Code != "artifact_schema_incompatible" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want artifact_schema_incompatible", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.Code != "artifact_schema_incompatible" || violation.InputAlias != "schema_summary" || violation.ActionKind != string(dataquery.DataActionFilterRecords) {
+		t.Fatalf("violation=%+v, want typed schema/input/action identity", violation)
+	}
+	if !strings.Contains(violation.Reason, "not a record-shaped artifact") {
+		t.Fatalf("violation reason=%q, want record-shape guidance", violation.Reason)
+	}
+}
+
 func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},

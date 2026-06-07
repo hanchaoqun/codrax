@@ -3513,6 +3513,9 @@ func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan 
 	if guard := dataTaskActionInputAvailabilityGuardResult(records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskActionSchemaShapeGuardResult(records, action, actionIndex); !guard.Empty() {
+		return guard
+	}
 	if guard := dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
@@ -3617,6 +3620,84 @@ func dataTaskActionInputAvailabilityGuardResult(records []dataTaskWorkflowRecord
 
 func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
 	return dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex).ErrorText()
+}
+
+func dataTaskActionSchemaShapeGuardResult(records []dataTaskWorkflowRecord, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
+		return dataworkflow.GuardResult{}
+	}
+	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	if !dataTaskActionRequiresRecordInputs(kind) {
+		return dataworkflow.GuardResult{}
+	}
+	projections := dataTaskWorkflowArtifactSchemaProjections(records)
+	if len(projections) == 0 {
+		return dataworkflow.GuardResult{}
+	}
+	for _, input := range cleanDataTaskStrings(action.InputPaths) {
+		projection, ok := dataworkflow.ArtifactSchemaByAlias(projections, input)
+		if !ok {
+			continue
+		}
+		if dataTaskArtifactSchemaCompatibleRecordInput(projection) {
+			continue
+		}
+		reason := fmt.Sprintf("data planning incomplete: action %d (%s) consumes input %s, but artifact schema projection classifies it as node_class=%s json_shape=%s kind=%s, not a record-shaped artifact for this typed action. Use a record-producing typed action first, choose a record-shaped alias from artifact_graph, or inspect the artifact schema before consuming it.",
+			actionIndex+1,
+			firstNonEmptyString(strings.TrimSpace(action.ID), string(kind)),
+			input,
+			firstNonEmptyString(strings.TrimSpace(projection.NodeClass), "unknown"),
+			firstNonEmptyString(strings.TrimSpace(projection.JSONShape), "unknown"),
+			firstNonEmptyString(strings.TrimSpace(projection.Kind), "unknown"),
+		)
+		violation := dataworkflow.NewActionInputViolation(
+			"artifact_schema_incompatible",
+			"error",
+			dataworkflow.RepairNeedsTypedAction,
+			action,
+			input,
+			nil,
+			reason,
+			[]string{"choose a record-shaped artifact alias or materialize one with a typed record-producing action"},
+		)
+		violation.AvailableFieldSample = append([]string(nil), projection.Fields...)
+		return dataworkflow.NewGuardResult("artifact_schema_incompatible", "error", dataworkflow.RepairNeedsTypedAction, reason, violation)
+	}
+	return dataworkflow.GuardResult{}
+}
+
+func dataTaskArtifactSchemaCompatibleRecordInput(projection dataworkflow.ArtifactSchemaProjection) bool {
+	if len(projection.Fields) == 0 {
+		return false
+	}
+	if projection.NodeClass == dataworkflow.ArtifactNodeClassDiagnosticChild || projection.NodeClass == dataworkflow.ArtifactNodeClassWorkflowLedger {
+		return false
+	}
+	if projection.NodeClass == dataworkflow.ArtifactNodeClassRecord {
+		return true
+	}
+	shape := strings.ToLower(strings.TrimSpace(projection.JSONShape))
+	return strings.Contains(shape, "array") || strings.Contains(shape, "records")
+}
+
+func dataTaskActionRequiresRecordInputs(kind dataquery.DataActionKind) bool {
+	switch kind {
+	case dataquery.DataActionDeriveFields,
+		dataquery.DataActionGroupRecords,
+		dataquery.DataActionExpandRecords,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionValueDistribution,
+		dataquery.DataActionQualifyRecords,
+		dataquery.DataActionMappingCandidate,
+		dataquery.DataActionNormalizeEntities,
+		dataquery.DataActionApplyResolutions,
+		dataquery.DataActionEnrichRecords,
+		dataquery.DataActionJoinRecords,
+		dataquery.DataActionComputeContribs:
+		return true
+	default:
+		return false
+	}
 }
 
 func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
@@ -6840,11 +6921,7 @@ func dataTaskWorkflowArtifactAccess(records []dataTaskWorkflowRecord, limit int)
 }
 
 func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []dataTaskArtifactAccessPrompt {
-	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
-	if len(artifacts) == 0 {
-		return nil
-	}
-	projections := dataworkflow.ProjectArtifactSchemasNewestFirst(artifacts)
+	projections := dataTaskWorkflowArtifactSchemaProjections(records)
 	out := make([]dataTaskArtifactAccessPrompt, 0, len(projections))
 	for _, projection := range projections {
 		out = append(out, dataTaskArtifactAccessPrompt{
@@ -6862,6 +6939,14 @@ func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []
 		})
 	}
 	return out
+}
+
+func dataTaskWorkflowArtifactSchemaProjections(records []dataTaskWorkflowRecord) []dataworkflow.ArtifactSchemaProjection {
+	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
+	if len(artifacts) == 0 {
+		return nil
+	}
+	return dataworkflow.ProjectArtifactSchemasNewestFirst(artifacts)
 }
 
 func dataTaskWorkflowArtifactAvailability(records []dataTaskWorkflowRecord, limit int) ([]dataTaskArtifactAccessPrompt, int, bool) {

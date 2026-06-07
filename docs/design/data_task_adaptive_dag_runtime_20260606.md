@@ -12737,7 +12737,7 @@ P0 IR closure backlog before the next real-scenario gate:
 - [ ] Move deferred queue storage into live `ActionGraph`/workflow journal
       instead of an outer REPL/CLI variable. The variable can remain as a
       compatibility adapter only until the reducer owns enqueue/pop/retain.
-- [ ] Front-load `ArtifactSchemaProjection` into admission so missing fields,
+- [x] Front-load `ArtifactSchemaProjection` into admission so missing fields,
       incompatible shapes, stale aliases, and metadata-vs-record confusion are
       typed `WorkflowViolation` objects before execution or model repair.
 - [x] Promote LedgerGraph from count projection to contract graph: rule,
@@ -13380,3 +13380,47 @@ Remaining P0 deferred work:
       durable workflow runtime object shared by REPL and CLI entrypoints, so
       loop-local variables become purely adapters around a single workflow IR
       handle.
+
+### Batch 297: Admission-Time Artifact Schema Shape Guard
+
+Earlier batches moved field-contract checks to the full internal artifact
+contract view, but one generic shape gap remained: an input alias could exist
+and therefore pass availability checks even when the artifact was metadata,
+diagnostic output, a workflow ledger, or another non-record shape. Record-only
+typed actions should not discover that mistake inside the runner after the
+batch has already been admitted.
+
+This batch front-loads that schema compatibility check into admission. The
+guard uses `ArtifactSchemaProjection` and `ArtifactUsableForRecordAction`,
+which are already domain-neutral IR helpers. It does not inspect business file
+names, row values, user intent keywords, or model prose.
+
+Generic invariants:
+
+- stale aliases remain input-availability violations;
+- missing fields remain field-contract violations with candidate artifact
+  hints;
+- known aliases with non-record shapes become
+  `artifact_schema_incompatible` violations before execution;
+- the guard applies only to record-only typed actions such as filtering,
+  grouping, joining, normalization, enrichment, and contribution calculation;
+- text/record materialization actions such as `extract_fields` are not blocked
+  merely because an input is text-shaped.
+
+Changes:
+
+- [x] Added `dataTaskWorkflowArtifactSchemaProjections` as the full schema
+      projection source for admission-time checks.
+- [x] Reused that projection source for existing full contract artifact access.
+- [x] Added an admission-time schema shape guard for record-only actions.
+- [x] Emitted typed `artifact_schema_incompatible` workflow violations with
+      action/input identity, idempotency key, projection shape/class/kind, and
+      repair hints.
+- [x] Added regression coverage proving metadata-only artifacts cannot be
+      consumed by `filter_records` as if they were record sets.
+
+Remaining schema/IR work:
+
+- [ ] Move the action-specific field-reference extraction currently in REPL
+      helpers into dataworkflow admission utilities, so field-contract guard
+      construction itself no longer lives in the REPL package.
