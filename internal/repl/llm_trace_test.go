@@ -471,6 +471,50 @@ func TestAuditDataTaskPlanWritesActionGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestAuditDataTaskResultWritesArtifactGraphSnapshot(t *testing.T) {
+	var out bytes.Buffer
+	anchor := t.TempDir()
+	r := &REPL{
+		renderer:      render.New(&out, true),
+		language:      "zh",
+		runtimeAnchor: anchor,
+		repoRoot:      t.TempDir(),
+		out:           &out,
+	}
+
+	artifact := r.auditDataTaskResult(3, dataquery.Result{
+		Answer: "ok",
+		Artifacts: []dataquery.DataArtifact{{
+			ID:          "records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			Headers:     []string{"id", "amount"},
+			SourcePaths: []string{"records.csv"},
+			Fields: map[string]string{
+				"artifact_aliases": "records.json",
+				"json_shape":       "array(len=2,item=object(keys=id,amount))",
+			},
+		}},
+	})
+
+	if artifact.ResultPath == "" || artifact.ArtifactGraphPath == "" {
+		t.Fatalf("expected result and artifact graph audit paths, got %#v", artifact)
+	}
+	raw, err := os.ReadFile(artifact.ArtifactGraphPath)
+	if err != nil {
+		t.Fatalf("read artifact graph: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"node_class"`, `"record"`, `"records.json"`, `"id"`, `"amount"`, `"records.csv"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("artifact graph missing %q:\n%s", want, text)
+		}
+	}
+	got := stripANSIOnly(out.String())
+	if !strings.Contains(got, "完整产物图") {
+		t.Fatalf("result preview missing artifact graph path:\n%s", got)
+	}
+}
+
 func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh", colorMode: render.ColorNever}

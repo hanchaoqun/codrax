@@ -2634,11 +2634,12 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 }
 
 type dataTaskAuditArtifact struct {
-	PlanPath        string
-	ScriptPath      string
-	ActionGraphPath string
-	ResultPath      string
-	ErrorPath       string
+	PlanPath          string
+	ScriptPath        string
+	ActionGraphPath   string
+	ArtifactGraphPath string
+	ResultPath        string
+	ErrorPath         string
 }
 
 type dataTaskActionAuditSnapshot struct {
@@ -2946,7 +2947,20 @@ func (r *REPL) writeDataTaskResultArtifact(round int, result dataquery.Result) d
 		logging.Warning("[repl/data] write data task result audit failed path=%s: %v", resultPath, err)
 		return dataTaskAuditArtifact{}
 	}
-	return dataTaskAuditArtifact{ResultPath: resultPath}
+	artifact := dataTaskAuditArtifact{ResultPath: resultPath}
+	if len(result.Artifacts) > 0 {
+		graphPath := filepath.Join(dir, fmt.Sprintf("%s-%d-artifacts-r%d.json", stamp, os.Getpid(), round))
+		projection := dataworkflow.ProjectArtifactSchemasNewestFirst(result.Artifacts)
+		graphRaw, err := json.MarshalIndent(projection, "", "  ")
+		if err != nil {
+			logging.Warning("[repl/data] marshal data task artifact graph failed round=%d: %v", round, err)
+		} else if err := os.WriteFile(graphPath, graphRaw, 0600); err != nil {
+			logging.Warning("[repl/data] write data task artifact graph audit failed path=%s: %v", graphPath, err)
+		} else {
+			artifact.ArtifactGraphPath = graphPath
+		}
+	}
+	return artifact
 }
 
 func (r *REPL) logDataTaskResultArtifact(round int, result dataquery.Result, artifact dataTaskAuditArtifact) {
@@ -2954,11 +2968,17 @@ func (r *REPL) logDataTaskResultArtifact(round int, result dataquery.Result, art
 	if result.Reconcile != nil {
 		reconcileStatus = strings.TrimSpace(result.Reconcile.Status.String())
 	}
-	logging.Info("[repl/data] data task result round=%d answer_len=%d decisions=%d rules=%d contributions=%d resolutions=%d reconcile=%s consumed=%d result_path=%s",
+	logging.Info("[repl/data] data task result round=%d answer_len=%d decisions=%d rules=%d contributions=%d resolutions=%d reconcile=%s consumed=%d result_path=%s artifact_graph_path=%s",
 		round, len(result.Answer), len(result.Rows), len(result.RuleCoverage), len(result.Contributions),
-		len(result.EntityResolutions), reconcileStatus, len(result.ConsumedPaths), artifact.ResultPath)
+		len(result.EntityResolutions), reconcileStatus, len(result.ConsumedPaths), artifact.ResultPath, artifact.ArtifactGraphPath)
 	if raw, err := json.MarshalIndent(result, "", "  "); err == nil {
 		logging.Info("[repl/data] data task result full round=%d path=%s\n%s", round, artifact.ResultPath, string(raw))
+	}
+	if len(result.Artifacts) > 0 {
+		projection := dataworkflow.ProjectArtifactSchemasNewestFirst(result.Artifacts)
+		if raw, err := json.MarshalIndent(projection, "", "  "); err == nil {
+			logging.Info("[repl/data] data task artifact graph full round=%d path=%s\n%s", round, artifact.ArtifactGraphPath, string(raw))
+		}
 	}
 }
 
@@ -3030,6 +3050,13 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 			fmt.Fprintf(&b, "\n\n完整结果：`%s`", artifact.ResultPath)
 		} else {
 			fmt.Fprintf(&b, "\n\nFull result: `%s`", artifact.ResultPath)
+		}
+	}
+	if artifact.ArtifactGraphPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n完整产物图：`%s`", artifact.ArtifactGraphPath)
+		} else {
+			fmt.Fprintf(&b, "\nFull artifact graph: `%s`", artifact.ArtifactGraphPath)
 		}
 	}
 	r.renderBorderedMutedCompact(b.String())

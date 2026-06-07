@@ -9330,8 +9330,9 @@ Remaining architecture items:
 
 - [ ] Move scaffold eligibility fully into an ArtifactGraph-aware reducer
       rather than REPL helper functions.
-- [ ] Persist artifact node classes and lineage snapshots into data-audit
+- [x] Persist artifact node classes and lineage snapshots into data-audit
       records.
+      Completed in Batch 212.
 - [x] Add `artifact_schema_projection` validation to action guards so typed
       actions consume exact executable schema contracts instead of prompt
       samples. Completed for field-contract guards in Batch 209.
@@ -9582,3 +9583,34 @@ Remaining architecture items:
       formatting.
 - [ ] Teach the shared reducer to own blocked-node lifecycle and unblock
       transitions after successful repair actions.
+
+### Batch 212: ArtifactGraph Audit Snapshots
+
+Artifact node classes and schema projection are now used by prompts and
+field-contract guards, but result audit still required inspecting the full
+runner result and reconstructing the graph mentally. That is not enough for
+commercial diagnostics when a workflow reuses many generated artifacts.
+
+This batch writes an artifact graph snapshot next to each result audit file:
+
+- projected artifact id/kind/node_class;
+- executable aliases and access hints;
+- exact fields and row counts when available;
+- source paths for lineage.
+
+The snapshot is audit-only and domain-neutral. It records structural artifact
+shape; it does not classify business roles or interpret user data.
+
+Changes:
+
+- [x] Added `.artifacts.json` audit files for data results with artifacts.
+- [x] Logged full ArtifactGraph projection in audit logs.
+- [x] Added compact REPL preview links to the full artifact graph artifact.
+- [x] Added regression coverage for node class, fields, aliases, and lineage
+      persistence.
+
+Remaining architecture items:
+
+- [ ] Persist cumulative ArtifactGraph snapshots across workflow-terminal
+      summaries, not only per-result snapshots.
+- [ ] Move scaffold eligibility fully into an ArtifactGraph-aware reducer.
