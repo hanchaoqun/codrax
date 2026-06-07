@@ -16,8 +16,9 @@ type WorkflowJournal struct {
 }
 
 type WorkflowJournalEvent struct {
-	Kind   string `json:"kind,omitempty"`
-	Round  int    `json:"round,omitempty"`
-	Status string `json:"status,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Kind   string       `json:"kind,omitempty"`
+	Round  int          `json:"round,omitempty"`
+	Status string       `json:"status,omitempty"`
+	Reason string       `json:"reason,omitempty"`
+	Guard  *GuardResult `json:"guard,omitempty"`
 }

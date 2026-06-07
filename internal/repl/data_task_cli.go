@@ -165,7 +165,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			currentPlan = fallback
 			continue
 		}
-		if errText := dataTaskTerminalWorkflowGuardError(records, currentPlan); errText != "" {
+		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
+			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			writeDataTaskWorkflowCheckpointFile(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
 			if repairErr != nil {
@@ -213,7 +216,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			currentPlan = fallback
 			continue
 		}
-		if errText := dataTaskWorkflowStagingGuardError(records, currentPlan); errText != "" {
+		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
+			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			writeDataTaskWorkflowCheckpointFile(cfg.RuntimeAnchor, repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)

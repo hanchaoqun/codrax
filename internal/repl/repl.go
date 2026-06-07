@@ -1414,7 +1414,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			currentPlan = fallback
 			continue
 		}
-		if errText := dataTaskTerminalWorkflowGuardError(records, currentPlan); errText != "" {
+		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
+			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -1506,7 +1509,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			currentPlan = fallback
 			continue
 		}
-		if errText := dataTaskWorkflowStagingGuardError(records, currentPlan); errText != "" {
+		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
+			guardRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			writeDataTaskWorkflowCheckpointFile(r.runtimeAnchor, r.repoRoot, guardRecords, currentPlan, deferredPlan, dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 				r.emitDataTaskWorkflowAudit("continue", dataRounds, reason)
@@ -2931,7 +2937,7 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 	return path
 }
 
-func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string) string {
+func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {
 	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
@@ -2941,6 +2947,22 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 	artifactGraph := dataTaskArtifactAccessSchemaProjection(state.ArtifactAvailability)
 	if latest, ok := latestDataTaskResult(records); ok && len(latest.Artifacts) > 0 {
 		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(latest.Artifacts)...)
+	}
+	violations := append([]dataworkflow.WorkflowViolation(nil), state.WorkflowViolations...)
+	processEvents := dataTaskWorkflowJournalEvents(records)
+	for _, guard := range guards {
+		if guard.Empty() {
+			continue
+		}
+		violations = append(violations, guard.Violations...)
+		copied := guard
+		processEvents = append(processEvents, dataworkflow.WorkflowJournalEvent{
+			Kind:   "guard",
+			Round:  dataRounds,
+			Status: firstNonEmptyString(guard.Severity, "blocked"),
+			Reason: guard.ErrorText(),
+			Guard:  &copied,
+		})
 	}
 	snapshot := dataworkflow.WorkflowJournal{
 		Status:             "checkpoint",
@@ -2953,8 +2975,8 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		ActionEvents:       dataTaskWorkflowActionEvents(records),
 		ActionGraph:        state.ActionGraph,
 		ArtifactGraph:      artifactGraph,
-		WorkflowViolations: state.WorkflowViolations,
-		ProcessEvents:      dataTaskWorkflowJournalEvents(records),
+		WorkflowViolations: violations,
+		ProcessEvents:      processEvents,
 	}
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

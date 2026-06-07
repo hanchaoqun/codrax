@@ -13,6 +13,7 @@ import (
 	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -611,7 +612,8 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 			}},
 		},
 	}}
-	path := writeDataTaskWorkflowCheckpointFile(anchor, t.TempDir(), records, dataquery.TaskPlan{}, dataquery.TaskPlan{}, 1, 0, "batch result completed", "test")
+	guard := dataworkflow.NewGuardResult("missing_executable_body", "error", dataworkflow.RepairNeedsTypedAction, "guard stopped a non-executable batch")
+	path := writeDataTaskWorkflowCheckpointFile(anchor, t.TempDir(), records, dataquery.TaskPlan{}, dataquery.TaskPlan{}, 1, 0, "batch result completed", "test", guard)
 	if path == "" {
 		t.Fatal("checkpoint path empty")
 	}
@@ -620,7 +622,7 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 		t.Fatalf("read checkpoint: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"materialize source rows"`} {
+	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"process_events"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("checkpoint missing %q:\n%s", want, text)
 		}

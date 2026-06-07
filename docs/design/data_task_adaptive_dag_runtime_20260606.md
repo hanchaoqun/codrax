@@ -10145,7 +10145,35 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Add checkpoint writes for guard/repair records before the next planner
-      call, once staging/action guard results carry full typed payloads.
+- [x] Add checkpoint writes for main staging/terminal guard records before the
+      next planner call.
 - [ ] Add resume-from-checkpoint support as a separate opt-in feature; do not
       silently resume interrupted data tasks yet.
+- [ ] Add checkpoint writes for deeper action-level guard records once those
+      internals emit typed guard payloads directly.
+
+### Batch 229: Guard Checkpoints Before Repair Planning
+
+Successful-batch checkpoints are not enough for repair audits. When the system
+blocks a candidate plan and asks the model to repair or continue, the audit
+should record the typed guard that caused the turn. This batch wires checkpoint
+journals into the main staging and terminal workflow guards before any repair
+planner call.
+
+Changes:
+
+- [x] `WorkflowJournalEvent` can now carry a typed `GuardResult`.
+- [x] Checkpoint journals merge guard violations into
+      `workflow_violations`.
+- [x] CLI writes a guard checkpoint when terminal workflow guard or staging
+      guard blocks a plan.
+- [x] REPL writes the same guard checkpoint for those guard paths.
+- [x] Added regression coverage that checkpoint process events include the
+      guard code and payload.
+
+Remaining architecture items:
+
+- [ ] Convert action-level guard internals to produce `GuardResult` directly,
+      then checkpoint those deeper guard events with the same journal path.
+- [ ] Feed guard checkpoint paths into low-noise CLI/REPL process summaries only
+      when verbose/audit output is enabled; keep stdout final-answer clean.
