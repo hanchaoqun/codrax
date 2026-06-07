@@ -40,6 +40,7 @@ type WorkflowJournalEvent struct {
 	AuditDetails  []string                   `json:"audit_details,omitempty"`
 	Guard         *GuardResult               `json:"guard,omitempty"`
 	Admission     *ActionDAGAdmissionSummary `json:"admission,omitempty"`
+	Decision      *WorkflowDecision          `json:"decision,omitempty"`
 }
 
 type ActionDAGAdmissionSummary struct {

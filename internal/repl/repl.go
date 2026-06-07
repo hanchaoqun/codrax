@@ -1922,7 +1922,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
+		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, deferredQueue, r.language)...)
 		ctx := r.startTurn()
 		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, currentDeferredPlan(), r.language)
 		r.endTurn()
@@ -3019,6 +3019,7 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 			Plan:         current,
 			AuditDetails: cleanDataTaskStrings([]string{guard.Code}),
 			Guard:        &copied,
+			Decision:     state.Decision,
 		}))
 	}
 	snapshot := dataworkflow.WorkflowJournal{
@@ -3658,6 +3659,7 @@ func dataTaskWorkflowInlineSegments(kind, lang string, details ...string) []stri
 const (
 	dataTaskDetailBusinessMarker = "\x1fdata-business:"
 	dataTaskDetailFailureMarker  = "\x1fdata-failure:"
+	dataTaskDetailDecisionMarker = "\x1fdata-decision:"
 )
 
 func dataTaskBusinessDetail(line string) string {
@@ -3676,6 +3678,14 @@ func dataTaskFailureDetail(line string) string {
 	return dataTaskDetailFailureMarker + line
 }
 
+func dataTaskDecisionDetail(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	return dataTaskDetailDecisionMarker + line
+}
+
 func dataTaskWorkflowDetailClass(detail string) (string, string) {
 	detail = strings.TrimSpace(detail)
 	switch {
@@ -3683,6 +3693,8 @@ func dataTaskWorkflowDetailClass(detail string) (string, string) {
 		return "business", strings.TrimSpace(strings.TrimPrefix(detail, dataTaskDetailBusinessMarker))
 	case strings.HasPrefix(detail, dataTaskDetailFailureMarker):
 		return "failure", strings.TrimSpace(strings.TrimPrefix(detail, dataTaskDetailFailureMarker))
+	case strings.HasPrefix(detail, dataTaskDetailDecisionMarker):
+		return "decision", strings.TrimSpace(strings.TrimPrefix(detail, dataTaskDetailDecisionMarker))
 	default:
 		return "audit", detail
 	}
@@ -3712,6 +3724,7 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 	var businessDetails []string
 	var auditDetails []string
 	var failureDetails []string
+	var decisionDetails []string
 	for _, detail := range details {
 		class, text := dataTaskWorkflowDetailClass(detail)
 		if text == "" {
@@ -3722,6 +3735,8 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 			businessDetails = append(businessDetails, text)
 		case "failure":
 			failureDetails = append(failureDetails, text)
+		case "decision":
+			decisionDetails = append(decisionDetails, text)
 		default:
 			auditDetails = append(auditDetails, text)
 		}
@@ -3774,6 +3789,13 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 			} else {
 				add("Patch: ", "Applying safe structural result patches; semantic changes still require recompute.")
 			}
+		}
+	}
+	for _, detail := range decisionDetails {
+		if zh {
+			add("判断：", detail)
+		} else {
+			add("Decision: ", detail)
 		}
 	}
 	for _, detail := range failureDetails {
@@ -3930,6 +3952,16 @@ func dataTaskWorkflowPlanContextDetails(kind string, plan dataquery.TaskPlan, la
 	}
 }
 
+func dataTaskWorkflowDecisionContextDetails(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState, lang string) []string {
+	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:     "evaluate",
+		Plan:     current,
+		Decision: state.Decision,
+	})
+	return dataTaskWorkflowEventBusinessDetails(event, lang, false, true, true, true)
+}
+
 func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEvent, lang string, includeGoal, includeBatch, includeNext, includeActions bool) []string {
 	var segs []string
 	zh := isZh(lang)
@@ -3958,6 +3990,11 @@ func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEven
 			} else {
 				segs = append(segs, dataTaskBusinessDetail("Next: "+oneLineClamp(next, 180)))
 			}
+		}
+	}
+	if event.Decision != nil {
+		if reason := strings.TrimSpace(event.Decision.Reason); reason != "" {
+			segs = append(segs, dataTaskDecisionDetail(oneLineClamp(reason, 180)))
 		}
 	}
 	if includeActions {

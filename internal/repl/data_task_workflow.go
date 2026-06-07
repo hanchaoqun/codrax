@@ -1379,77 +1379,15 @@ func dataTaskNarrowSingleRecordSetActionForExecution(records []dataTaskWorkflowR
 }
 
 func dataTaskSingleRecordSetActionFieldRefs(kind dataquery.DataActionKind, action dataquery.DataAction) []string {
-	switch kind {
-	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields:
-		return dataTaskDeriveActionSourceFieldRefs(action)
-	case dataquery.DataActionGroupRecords:
-		return dataTaskGroupRecordsActionFieldRefs(action)
-	case dataquery.DataActionExpandRecords:
-		return parseDataTaskActionStringListParam(firstNonEmptyString(
-			action.Params["source_field"],
-			action.Params["input_field"],
-			action.Params["field"],
-			action.Params["value_field"],
-		))
-	case dataquery.DataActionFilterRecords:
-		return dataTaskFilterActionFieldRefs(action)
-	case dataquery.DataActionQualifyRecords:
-		return dataTaskQualifyActionFieldRefs(action)
-	default:
-		return nil
-	}
+	return dataworkflow.SingleRecordSetActionFieldRefs(kind, action)
 }
 
 func dataTaskDeriveActionSourceFieldRefs(action dataquery.DataAction) []string {
-	var fields []string
-	for _, spec := range dataTaskActionObjectListParam(action.Params, "field_specs_json", "extract_specs_json", "derive_specs_json", "transforms_json", "field_specs", "extract_specs", "derive_specs", "transforms") {
-		op := strings.ToLower(strings.TrimSpace(firstNonEmptyString(
-			dataTaskMapStringValue(spec, "operation"),
-			dataTaskMapStringValue(spec, "op"),
-			dataTaskMapStringValue(spec, "transform"),
-		)))
-		sources := dataTaskFieldRefsFromSpec(spec, "source_field", "input_field", "field", "value_field")
-		sources = append(sources, dataTaskFieldRefsFromSpec(spec, "source_fields", "input_fields", "fields")...)
-		if len(sources) == 0 && op != "constant" {
-			sources = append(sources, dataTaskFieldRefsFromSpec(spec, "left_field", "right_field")...)
-		}
-		fields = append(fields, sources...)
-	}
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(
-		action.Params["source_field"],
-		action.Params["input_field"],
-		action.Params["field"],
-		action.Params["value_field"],
-	))...)
-	return cleanDataTaskStrings(fields)
+	return dataworkflow.DeriveActionSourceFieldRefs(action)
 }
 
 func dataTaskGroupRecordsActionFieldRefs(action dataquery.DataAction) []string {
-	var fields []string
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(
-		action.Params["group_fields"],
-		action.Params["group_by_fields"],
-		action.Params["key_fields"],
-		action.Params["group_field"],
-		action.Params["group_by"],
-		action.Params["key_field"],
-	))...)
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(
-		action.Params["text_fields"],
-		action.Params["concat_fields"],
-		action.Params["aggregate_fields"],
-		action.Params["source_fields"],
-		action.Params["text_field"],
-		action.Params["source_field"],
-		action.Params["field"],
-	))...)
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(
-		action.Params["first_fields"],
-		action.Params["copy_fields"],
-		action.Params["preserve_fields"],
-		action.Params["keep_fields"],
-	))...)
-	return cleanDataTaskStrings(fields)
+	return dataworkflow.GroupRecordsActionFieldRefs(action)
 }
 
 func dataTaskScopePlanToCurrentBatch(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
@@ -4127,32 +4065,15 @@ func dataTaskDeriveOperationAllowsPartialSources(op string) bool {
 }
 
 func dataTaskFilterActionFieldRefs(action dataquery.DataAction) []string {
-	var fields []string
-	for _, spec := range dataTaskActionObjectListParam(action.Params, "filters_json", "filters") {
-		fields = append(fields, dataTaskFieldRefsFromSpec(spec, "field", "source_field", "input_field")...)
-	}
-	fields = append(fields, parseDataTaskActionStringListParam(action.Params["filter_field"])...)
-	return cleanDataTaskStrings(fields)
+	return dataworkflow.FilterActionFieldRefs(action)
 }
 
 func dataTaskQualifyActionFieldRefs(action dataquery.DataAction) []string {
-	var fields []string
-	fields = append(fields, dataTaskFilterActionFieldRefs(action)...)
-	for _, spec := range dataTaskActionObjectListParam(action.Params, "reject_filters_json", "exclude_filters_json", "block_filters_json", "reject_filters", "exclude_filters", "block_filters") {
-		fields = append(fields, dataTaskFieldRefsFromSpec(spec, "field", "source_field", "input_field")...)
-	}
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["required_fields"], action.Params["non_empty_fields"]))...)
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["evidence_fields"], action.Params["required_evidence_fields"]))...)
-	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["status_fields"], action.Params["generated_status_fields"]))...)
-	return cleanDataTaskStrings(fields)
+	return dataworkflow.QualifyActionFieldRefs(action)
 }
 
 func dataTaskComputeActionFieldRefs(action dataquery.DataAction) []string {
-	var fields []string
-	fields = append(fields, parseDataTaskActionStringListParam(action.Params["value_field"])...)
-	fields = append(fields, parseDataTaskActionStringListParam(action.Params["group_key_field"])...)
-	fields = append(fields, dataTaskFilterActionFieldRefs(action)...)
-	return cleanDataTaskStrings(fields)
+	return dataworkflow.ComputeContributionActionFieldRefs(action)
 }
 
 func dataTaskJoinActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {

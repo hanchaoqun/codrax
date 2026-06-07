@@ -524,7 +524,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, deferredQueue, cfg.Language)...)
 		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, currentDeferredPlan(), cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)

@@ -56,13 +56,14 @@ func TestWorkflowJournalJSONContract(t *testing.T) {
 			ActionSummary: "extract:extract_records",
 			AuditDetails:  []string{"2 consumed material(s)"},
 			Admission:     &ActionDAGAdmissionSummary{Status: "rewritten", RemainderActions: 1},
+			Decision:      &WorkflowDecision{Status: "continue", ReasonCode: "ledger_missing_contributions", Reason: "contributions are missing", NextActions: []string{"compute_contributions"}},
 		}},
 	})
 	if err != nil {
 		t.Fatalf("marshal WorkflowJournal: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "deferred_plan", "deferred_events", "ledger_graph", "dependencies", "output_projection_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions"} {
+	for _, want := range []string{"data_rounds", "repair_rounds", "action_events", "action_graph", "deferred_queue", "deferred_plan", "deferred_events", "ledger_graph", "dependencies", "output_projection_graph", "artifact_graph", "executable_record_aliases", "progress", "repeated_signature_count", "decision", "process_events", "join_next", "batch_purpose", "next_step", "action_summary", "audit_details", "admission", "remainder_actions", "ledger_missing_contributions"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("journal json missing %q: %s", want, text)
 		}
@@ -209,6 +210,28 @@ func TestBuildWorkflowProcessEventUsesTypedPlanIntent(t *testing.T) {
 	}
 	if !strings.Contains(event.ActionSummary, "derive reusable fields") {
 		t.Fatalf("ActionSummary=%q, want action purpose", event.ActionSummary)
+	}
+}
+
+func TestBuildWorkflowProcessEventCarriesDecision(t *testing.T) {
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind: "evaluate",
+		Plan: dataquery.TaskPlan{Goal: "answer", WhyThisBatch: "check progress"},
+		Decision: WorkflowDecision{
+			Status:      "continue",
+			ReasonCode:  "ledger_missing_contributions",
+			Reason:      "contribution ledger is still missing",
+			NextActions: []string{string(dataquery.DataActionComputeContribs)},
+		},
+	})
+	if event.Decision == nil || event.Decision.ReasonCode != "ledger_missing_contributions" {
+		t.Fatalf("event.Decision=%+v, want decision carried", event.Decision)
+	}
+	details := strings.Join(event.AuditDetails, ",")
+	for _, want := range []string{"decision_status=continue", "decision_reason_code=ledger_missing_contributions", "decision_next_actions=compute_contributions"} {
+		if !strings.Contains(details, want) {
+			t.Fatalf("AuditDetails=%v, want %q", event.AuditDetails, want)
+		}
 	}
 }
 

@@ -13421,6 +13421,55 @@ Changes:
 
 Remaining schema/IR work:
 
-- [ ] Move the action-specific field-reference extraction currently in REPL
+- [x] Move the action-specific field-reference extraction currently in REPL
       helpers into dataworkflow admission utilities, so field-contract guard
       construction itself no longer lives in the REPL package.
+
+### Batch 298: Field-Reference IR And Decision Process Events
+
+The next audit found two remaining places where the data workflow still behaved
+like a REPL-owned system instead of a graph-owned one:
+
+- single-record typed actions extracted their input-field references through
+  REPL helper functions, even though those references are part of each action's
+  structural contract;
+- process events carried plan intent and audit counters, but did not carry the
+  reducer's typed `WorkflowDecision`, so UX had to choose between repetitive
+  internal counters and generic fallback text.
+
+This batch moves both toward IR ownership. It is deliberately domain-neutral:
+field references are read from typed action params such as filters, field specs,
+grouping fields, qualification fields, and contribution value/group/filter
+fields. The code does not inspect business names, dates, amounts, file names, or
+customer-specific terms.
+
+Changes:
+
+- [x] Added `SingleRecordSetActionFieldRefs` and action-specific field-reference
+      helpers to `internal/dataworkflow`.
+- [x] Rewired the REPL field-contract adapter to call the dataworkflow helpers
+      for derive/extract, group, expand, filter, qualify, and contribution
+      actions.
+- [x] Added regression coverage for structured arrays/objects, delimited field
+      params, constant transforms, filter refs, qualification refs, grouping
+      refs, and contribution refs.
+- [x] Added `decision` to workflow process events and preserved decision status,
+      reason code, and next actions as audit details.
+- [x] Fed checkpoint guard events and live evaluate progress through the typed
+      `WorkflowDecision`, so CLI/REPL can show the current reducer judgment
+      without parsing error prose.
+- [x] Preserved low-noise suppression of repeated result/evaluate plan details
+      while allowing reducer-carried decision reasons to appear as a distinct
+      process detail.
+
+Remaining architecture items:
+
+- [ ] Move relation-specific field-contract sub-guards for joins, enrichment,
+      mapping candidates, normalization, and resolution application into
+      `internal/dataworkflow` as typed admission utilities.
+- [ ] Replace the remaining REPL-local live workflow loop variables with a
+      durable `WorkflowRuntime` handle that owns records, current plan, deferred
+      queue state, admission decision, and journal snapshots.
+- [ ] Upgrade live CLI/REPL workflow progress calls to consume
+      `WorkflowJournalEvent` directly, rather than passing pre-rendered detail
+      strings through `emitDataTaskWorkflowAudit`.

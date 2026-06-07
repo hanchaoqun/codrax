@@ -16,6 +16,7 @@ type WorkflowProcessEventInput struct {
 	Result       *dataquery.Result
 	AuditDetails []string
 	Guard        *GuardResult
+	Decision     WorkflowDecision
 }
 
 func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalEvent {
@@ -30,6 +31,18 @@ func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalE
 		NextStep:      strings.TrimSpace(plan.NextBatch),
 		ActionSummary: ActionIntentSummary(plan.Actions, 3),
 		AuditDetails:  cleanStrings(input.AuditDetails),
+	}
+	if !workflowDecisionEmpty(input.Decision) {
+		decision := input.Decision
+		event.Decision = &decision
+		event.AuditDetails = append(event.AuditDetails, workflowDecisionAuditDetails(decision)...)
+		event.AuditDetails = cleanStrings(event.AuditDetails)
+		if event.Status == "" {
+			event.Status = strings.TrimSpace(decision.Status)
+		}
+		if event.Reason == "" {
+			event.Reason = strings.TrimSpace(decision.Reason)
+		}
 	}
 	if input.Result != nil {
 		event.AuditDetails = append(event.AuditDetails, ResultAuditDetails(*input.Result)...)
@@ -46,6 +59,28 @@ func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalE
 		}
 	}
 	return event
+}
+
+func workflowDecisionEmpty(decision WorkflowDecision) bool {
+	return strings.TrimSpace(decision.Status) == "" &&
+		strings.TrimSpace(decision.ReasonCode) == "" &&
+		strings.TrimSpace(decision.Reason) == "" &&
+		len(decision.Violations) == 0 &&
+		len(decision.NextActions) == 0
+}
+
+func workflowDecisionAuditDetails(decision WorkflowDecision) []string {
+	var details []string
+	if status := strings.TrimSpace(decision.Status); status != "" {
+		details = append(details, "decision_status="+status)
+	}
+	if code := strings.TrimSpace(decision.ReasonCode); code != "" {
+		details = append(details, "decision_reason_code="+code)
+	}
+	if actions := cleanStrings(decision.NextActions); len(actions) > 0 {
+		details = append(details, "decision_next_actions="+strings.Join(actions, ","))
+	}
+	return details
 }
 
 func BuildAdmissionProcessEvent(round int, decision ActionDAGAdmissionDecision) WorkflowJournalEvent {
