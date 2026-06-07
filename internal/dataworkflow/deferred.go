@@ -107,6 +107,30 @@ func DecideDeferredQueueLifecycle(status DeferredDispatchStatus) DeferredQueueLi
 	}
 }
 
+func DeferredQueueSnapshotForPlan(plan dataquery.TaskPlan) DeferredQueueSnapshot {
+	status := DeferredDispatchStatus{Actions: len(plan.Actions)}
+	if len(plan.Actions) > 0 {
+		first := plan.Actions[0]
+		status.FirstActionID = strings.TrimSpace(first.ID)
+		status.FirstActionKind = string(NormalizeActionKind(first.Kind))
+	}
+	return DeferredQueueSnapshotForStatus(status, DeferredQueueLifecycleDecision{})
+}
+
+func DeferredQueueSnapshotForStatus(status DeferredDispatchStatus, decision DeferredQueueLifecycleDecision) DeferredQueueSnapshot {
+	return DeferredQueueSnapshot{
+		Actions:         status.Actions,
+		ReadyActions:    status.ReadyActions,
+		BlockedActions:  status.BlockedActions,
+		FirstActionID:   strings.TrimSpace(status.FirstActionID),
+		FirstActionKind: strings.TrimSpace(status.FirstActionKind),
+		Ready:           status.Ready,
+		ReasonCode:      strings.TrimSpace(status.ReasonCode),
+		Reason:          strings.TrimSpace(status.Reason),
+		LifecycleAction: strings.TrimSpace(decision.Action),
+	}
+}
+
 func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []DeferredActionCandidate, allowed map[string]bool) ([]dataquery.DataAction, []dataquery.DataAction, string, string) {
 	if len(actions) == 0 {
 		return nil, nil, DeferredBlockEmpty, "deferred queue is empty"

@@ -2978,6 +2978,10 @@ func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records
 		return ""
 	}
 	state := dataTaskWorkflowStateWithDeferred(records, current, deferred)
+	if len(deferred.Actions) > 0 {
+		status := dataTaskDeferredQueueStatus(records, deferred)
+		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))
+	}
 	violations := append([]dataworkflow.WorkflowViolation(nil), state.WorkflowViolations...)
 	processEvents := dataTaskWorkflowJournalEvents(records)
 	for _, guard := range guards {

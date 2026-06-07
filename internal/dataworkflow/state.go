@@ -34,10 +34,23 @@ type MaterialNode struct {
 }
 
 type ActionGraph struct {
-	Executed []ActionNode `json:"executed,omitempty"`
-	Ready    []ActionNode `json:"ready,omitempty"`
-	Deferred []ActionNode `json:"deferred,omitempty"`
-	Blocked  []ActionNode `json:"blocked,omitempty"`
+	Executed      []ActionNode          `json:"executed,omitempty"`
+	Ready         []ActionNode          `json:"ready,omitempty"`
+	Deferred      []ActionNode          `json:"deferred,omitempty"`
+	Blocked       []ActionNode          `json:"blocked,omitempty"`
+	DeferredQueue DeferredQueueSnapshot `json:"deferred_queue,omitempty"`
+}
+
+type DeferredQueueSnapshot struct {
+	Actions         int    `json:"actions,omitempty"`
+	ReadyActions    int    `json:"ready_actions,omitempty"`
+	BlockedActions  int    `json:"blocked_actions,omitempty"`
+	FirstActionID   string `json:"first_action_id,omitempty"`
+	FirstActionKind string `json:"first_action_kind,omitempty"`
+	Ready           bool   `json:"ready,omitempty"`
+	ReasonCode      string `json:"reason_code,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	LifecycleAction string `json:"lifecycle_action,omitempty"`
 }
 
 type ActionNode struct {

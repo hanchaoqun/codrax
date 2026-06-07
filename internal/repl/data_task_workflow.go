@@ -5884,13 +5884,17 @@ func dataTaskWorkflowActionGraphWithDeferredAndViolations(records []dataTaskWork
 	if dataTaskPlanHasExecutableBatch(deferred) {
 		deferredActions = deferred.Actions
 	}
-	return dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
+	graph := dataworkflow.ReduceActionGraphState(dataworkflow.ActionGraphInput{
 		Events:     dataTaskWorkflowActionEvents(records),
 		Ready:      ready,
 		Deferred:   deferredActions,
 		Blocked:    violations,
 		EventLimit: limit,
 	})
+	if len(deferred.Actions) > 0 {
+		graph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForPlan(deferred)
+	}
+	return graph
 }
 
 func dataTaskWorkflowActionEvents(records []dataTaskWorkflowRecord) []dataworkflow.ActionEvent {

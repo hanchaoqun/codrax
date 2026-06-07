@@ -12905,3 +12905,45 @@ Remaining P0 journal/action-graph work:
       as a temporary adapter.
 - [x] Feed admission guard codes into ActionGraph blocked nodes directly, so a
       rejected admission appears as a blocked graph node even before execution.
+
+### Batch 287: Deferred Queue Snapshot In ActionGraph
+
+The deferred queue still has one remaining architectural split: REPL/CLI hold
+the executable deferred `TaskPlan`, while the workflow IR only projected
+deferred action nodes. Batch 287 adds the missing structural slot to the graph:
+ActionGraph and journal snapshots now carry a compact deferred-queue summary.
+This is the first step toward moving queue storage fully into the live
+workflow state.
+
+This batch intentionally does not change execution ownership yet. The outer
+REPL/CLI queue variable remains the adapter that stores the full executable
+plan. The graph now has enough typed state for audits, reducers, and future
+resume logic to reason about the queue without scraping UI lines.
+
+Generic invariants:
+
+- ActionGraph can represent both deferred nodes and the deferred queue state
+  that owns those nodes;
+- checkpoints include ready/blocked counts, first action identity, reason code,
+  reason text, and retain/discard lifecycle action;
+- ordinary workflow state can project a plan-level queue snapshot without
+  recursively recomputing full readiness;
+- execution still requires the existing deferred dispatch admission and
+  staging guards.
+
+Changes:
+
+- [x] Added `DeferredQueueSnapshot` to `ActionGraph`.
+- [x] Added `DeferredQueueSnapshotForPlan` and
+      `DeferredQueueSnapshotForStatus` in `internal/dataworkflow`.
+- [x] Projected plan-level deferred queue snapshots into workflow state.
+- [x] Enriched checkpoint journals with computed deferred status and lifecycle
+      decision.
+- [x] Added reducer/journal JSON coverage for the new deferred queue snapshot.
+
+Remaining P0 deferred-storage work:
+
+- [ ] Store the executable deferred `TaskPlan` in the workflow journal / live
+      state and let REPL/CLI read it back through a reducer-owned queue API.
+- [ ] Make enqueue/pop/retain/discard transitions produce typed ActionGraph
+      events instead of mutating an outer variable directly.

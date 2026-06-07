@@ -86,3 +86,23 @@ func TestDecideDeferredQueueLifecycleDiscardsAdmissionRejectedQueue(t *testing.T
 		t.Fatalf("decision=%+v, want discard admission-rejected queue", decision)
 	}
 }
+
+func TestDeferredQueueSnapshotCarriesStatusAndLifecycle(t *testing.T) {
+	status := DeferredDispatchStatus{
+		Actions:         2,
+		ReadyActions:    0,
+		BlockedActions:  2,
+		FirstActionID:   "join_later",
+		FirstActionKind: string(dataquery.DataActionJoinRecords),
+		ReasonCode:      DeferredBlockInputUnavailable,
+		Reason:          "right side missing",
+	}
+	decision := DecideDeferredQueueLifecycle(status)
+	snapshot := DeferredQueueSnapshotForStatus(status, decision)
+	if snapshot.Actions != 2 || snapshot.FirstActionID != "join_later" || snapshot.ReasonCode != DeferredBlockInputUnavailable {
+		t.Fatalf("snapshot=%+v, want deferred status fields", snapshot)
+	}
+	if snapshot.LifecycleAction != DeferredQueueLifecycleRetain {
+		t.Fatalf("LifecycleAction=%q, want retain", snapshot.LifecycleAction)
+	}
+}
