@@ -332,9 +332,50 @@ func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) 
 	r.emitDataTaskWorkflowAudit("repair", 1, "上次失败 execute data task")
 
 	got := stripANSIOnly(out.String())
-	want := "数据工作流 · 修复第 1 次 · 未读源码 · 上次失败 execute data task"
+	want := "数据工作流 · 修复第 1 次 · 未读源码"
 	if !strings.Contains(got, want) {
 		t.Fatalf("workflow audit should keep fixed lane status before dynamic details; want %q in:\n%s", want, got)
+	}
+	if !strings.Contains(got, "细节：上次失败 execute data task") {
+		t.Fatalf("workflow audit should render dynamic detail below the summary line:\n%s", got)
+	}
+}
+
+func TestDataTaskPlanAuditSplitsTypedIntentIntoDetails(t *testing.T) {
+	label, segs := dataTaskPlanAuditSummary(dataquery.TaskPlan{
+		Status:        "ready",
+		InputPaths:    []string{"orders.csv"},
+		Goal:          "计算用户要求的聚合结果",
+		WhyThisBatch:  "抽取基础记录并保留后续计算所需字段",
+		NextBatch:     "根据抽取结果继续归一和汇总",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{
+			{ID: "extract", Kind: dataquery.DataActionExtractRecords},
+			{ID: "derive", Kind: dataquery.DataActionDeriveFields},
+		},
+	}, "zh")
+	got := label + " · " + strings.Join(segs, " · ")
+	if strings.Contains(got, "目标 ") || strings.Contains(got, "本批 ") || strings.Contains(got, "下一步 ") {
+		t.Fatalf("plan summary should not inline long typed intent details:\n%s", got)
+	}
+	details := strings.Join(dataTaskPlanAuditDetails(dataquery.TaskPlan{
+		Status:        "ready",
+		InputPaths:    []string{"orders.csv"},
+		Goal:          "计算用户要求的聚合结果",
+		WhyThisBatch:  "抽取基础记录并保留后续计算所需字段",
+		NextBatch:     "根据抽取结果继续归一和汇总",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{
+			{ID: "extract", Kind: dataquery.DataActionExtractRecords},
+			{ID: "derive", Kind: dataquery.DataActionDeriveFields},
+		},
+	}, "zh"), "\n")
+	for _, want := range []string{"目标：计算用户要求的聚合结果", "本批：抽取基础记录并保留后续计算所需字段", "下一步：根据抽取结果继续归一和汇总", "步骤 extract:extract_records → derive:derive_fields"} {
+		if !strings.Contains(got, want) {
+			if !strings.Contains(details, want) {
+				t.Fatalf("plan details missing %q:\n%s", want, details)
+			}
+		}
 	}
 }
 

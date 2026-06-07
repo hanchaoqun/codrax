@@ -4,19 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 )
 
 const (
 	DefaultDataTaskMaxRepairRounds                 = 6
-	DefaultDataTaskMaxDataRounds                   = 12
+	DefaultDataTaskMaxDataRounds                   = 18
 	DefaultDataTaskMaxNodeFailures                 = 2
 	DefaultDataTaskMaxCustomTransformClassFailures = 3
 	dataTaskMaxRepairRoundsCeiling                 = 12
-	dataTaskMaxDataRoundsCeiling                   = 24
+	dataTaskMaxDataRoundsCeiling                   = 36
 
 	dataTaskOneShotScriptLineSoftLimit   = 260
 	dataTaskOneShotScriptLineHardLimit   = 420
@@ -25,6 +28,7 @@ const (
 	dataTaskOneShotValidationLedgerLimit = 3
 	dataTaskBroadMaterialDiscoveryLimit  = 12
 	dataTaskMaxActionsPerBatch           = 4
+	dataTaskUserExplicitMaterialPurpose  = "user explicitly referenced this candidate material; keep coverage verifiable for the data goal"
 )
 
 func normalizeDataTaskMaxRepairRounds(value int) int {
@@ -88,6 +92,9 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return errText
 	}
+	if strings.TrimSpace(plan.Script) == "" {
+		return "data planning incomplete: ready data plan has no executable body. Emit a bounded actions[] batch or a script with emit_result/emit; do not mark a data plan ready when it only declares inputs, contracts, or prose."
+	}
 	lines := dataTaskScriptLineCount(plan.Script)
 	if lines > 0 && !dataTaskScriptHasResultEmitter(plan.Script) {
 		return fmt.Sprintf("data planning incomplete: script has no result emitter (script_lines=%d). A bounded data script must call emit(...), emit_result(...), or assign result before it can complete; otherwise split the workflow into typed actions that produce reusable artifacts.",
@@ -132,16 +139,206 @@ func dataTaskWorkflowStagingGuardError(records []dataTaskWorkflowRecord, plan da
 	return dataTaskPlanStagingGuardError(plan)
 }
 
+func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
+	if strings.TrimSpace(dataquery.ClassifyExecutionError(errText).Code) == "text_constraint_rule_coverage_required" {
+		contract := dataTaskWorkflowCoverageContract(records, plan)
+		action := dataTaskRuleCoverageCompletionAction(contract)
+		if strings.TrimSpace(action.ID) != "" {
+			out := plan
+			out.Status = "ready"
+			out.Script = ""
+			out.Actions = []dataquery.DataAction{action}
+			out.InputPaths = mergeDataTaskInputPaths(out.InputPaths, action.InputPaths)
+			out.ContinueAfter = true
+			out.NextBatch = "continue with typed data processing after rule coverage materializes"
+			out.WhyThisBatch = "complete source-backed rule coverage requested by the structural data validator"
+			return out, dataquery.TaskPlan{}, "converted missing rule coverage to a typed derive_rules batch", true
+		}
+	}
+	if fb, rem, hit := dataTaskIntraBatchDependencyPrefixFallback(plan); hit {
+		return fb, rem, "split data plan at intra-batch artifact dependency", true
+	}
+	if fb, hit := dataTaskNoEmitterScriptObservationFallback(records, plan, errText); hit {
+		return fb, dataquery.TaskPlan{}, "converted exploratory script to atomic material observation batch", true
+	}
+	if fb, hit := dataTaskCoverageExpansionFallback(records, plan, errText); hit {
+		return fb, dataquery.TaskPlan{}, "missing material coverage converted to atomic coverage batch", true
+	}
+	if fb, hit := dataTaskMaterialDiscoveryFallback(records, plan, errText); hit {
+		return fb, dataquery.TaskPlan{}, "broad material plan converted to material discovery", true
+	}
+	if fb, hit := dataTaskCustomTransformDisabledFallback(records, plan, errText); hit {
+		return fb, dataquery.TaskPlan{}, "custom_transform disabled plan converted to typed workflow fallback", true
+	}
+	if fb, rem, hit := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText); hit {
+		return fb, rem, "trimmed multi-stage data plan to current DAG stage", true
+	}
+	if fb, hit := dataTaskInvalidRecordActionFallback(records, plan, errText); hit {
+		return fb, dataquery.TaskPlan{}, "converted invalid record action to bounded record extraction", true
+	}
+	if fb, hit := dataTaskHistoricalMissingJoinFieldFallback(records, plan); hit {
+		return fb, dataquery.TaskPlan{}, "materialized historical missing join field from existing artifacts", true
+	}
+	return dataquery.TaskPlan{}, dataquery.TaskPlan{}, "", false
+}
+
+func dataTaskIntraBatchDependencyPrefixFallback(plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	dependencyIndex, _, _, ok := dataTaskFirstIntraBatchDependency(plan.Actions)
+	if !ok || dependencyIndex <= 0 || dependencyIndex >= len(plan.Actions) {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	out := plan
+	out.Actions = append([]dataquery.DataAction(nil), plan.Actions[:dependencyIndex]...)
+	out.Script = ""
+	out.ContinueAfter = true
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = "execute the producer action rank before consuming its generated artifact"
+	}
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = "continue with the deferred dependent action after real artifact fields are available"
+	}
+	remainder := plan
+	remainder.Actions = append([]dataquery.DataAction(nil), plan.Actions[dependencyIndex:]...)
+	remainder.Script = ""
+	remainder.ContinueAfter = true
+	return out, remainder, true
+}
+
+func dataTaskFirstIntraBatchDependency(actions []dataquery.DataAction) (int, string, dataquery.DataAction, bool) {
+	produced := map[string]dataquery.DataAction{}
+	for i, action := range actions {
+		for _, input := range cleanDataTaskStrings(action.InputPaths) {
+			key := normalizeDataTaskCoveragePath(input)
+			if key == "" {
+				continue
+			}
+			if producer, ok := produced[key]; ok {
+				return i, input, producer, true
+			}
+		}
+		for _, alias := range dataTaskActionOutputAliases(action) {
+			key := normalizeDataTaskCoveragePath(alias)
+			if key != "" {
+				produced[key] = action
+			}
+		}
+	}
+	return 0, "", dataquery.DataAction{}, false
+}
+
+func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	if len(plan.Actions) > 0 || strings.TrimSpace(plan.Script) == "" || dataTaskScriptHasResultEmitter(plan.Script) {
+		return dataquery.TaskPlan{}, false
+	}
+	lines := dataTaskScriptLineCount(plan.Script)
+	if lines == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	paths := dataTaskDiscoveryPaths(plan)
+	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
+	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
+	complex := len(paths) >= 3 || requiredMaterials >= 3 || validationLedgers >= 2
+	if !complex {
+		return dataquery.TaskPlan{}, false
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if state.MaterialCoverageSufficient && len(records) > 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	var ruleInputs, structuredInputs, inspectInputs []string
+	for _, p := range paths {
+		switch {
+		case dataTaskPathLooksLikeTextConstraintMaterial(p) && dataTaskPlanShouldDeriveRulesForTextCoverage(plan):
+			ruleInputs = append(ruleInputs, p)
+		case dataTaskPathLooksLikeStructuredMaterial(p):
+			structuredInputs = append(structuredInputs, p)
+		default:
+			inspectInputs = append(inspectInputs, p)
+		}
+	}
+	var actions []dataquery.DataAction
+	if len(ruleInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "observe_rules",
+			Kind:           dataquery.DataActionDeriveRules,
+			Purpose:        "derive generic rule records from rule or constraint materials before calculation",
+			InputPaths:     cleanDataTaskStrings(ruleInputs),
+			OutputArtifact: "observed_rules.json",
+		})
+	}
+	if len(structuredInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "observe_records",
+			Kind:           dataquery.DataActionExtractRecords,
+			Purpose:        "extract bounded generic record samples before choosing the next typed data action",
+			InputPaths:     cleanDataTaskStrings(structuredInputs),
+			OutputArtifact: "observed_records.json",
+			Params:         map[string]string{"limit": "120"},
+		})
+	}
+	if len(inspectInputs) > 0 {
+		actions = append(actions, dataquery.DataAction{
+			ID:             "observe_materials",
+			Kind:           dataquery.DataActionInspectMaterial,
+			Purpose:        "inspect non-structured materials before choosing the next typed data action",
+			InputPaths:     cleanDataTaskStrings(inspectInputs),
+			OutputArtifact: "observed_materials.json",
+		})
+	}
+	if len(actions) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	if len(actions) > dataTaskMaxActionsPerBatch {
+		actions = actions[:dataTaskMaxActionsPerBatch]
+	}
+	contract := dataTaskWorkflowCoverageContract(records, plan)
+	if strings.TrimSpace(errText) != "" {
+		contract.ValidationRules = mergeDataTaskValidationRules(
+			contract.ValidationRules,
+			[]string{"previous exploratory script had no result emitter and was converted into typed observation actions: " + oneLineClamp(errText, 240)},
+		)
+	}
+	out := plan
+	out.Status = "ready"
+	out.Script = ""
+	out.Actions = actions
+	out.InputPaths = paths
+	out.OutputContract = dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true}
+	out.CoverageContract = contract
+	out.ContinueAfter = true
+	out.WhyThisBatch = "observe objective material and rule structure before later bounded calculation actions"
+	out.NextBatch = "continue with typed data workflow actions over the observed artifacts"
+	if strings.TrimSpace(out.Goal) == "" {
+		out.Goal = "observe data task materials"
+	}
+	return out, true
+}
+
+func dataTaskRepairPlannerErrorAllowsContinuation(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "data task planner returned no tool_call") ||
+		strings.Contains(text, "compact tool-param repair returned no tool_call")
+}
+
 func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []string) {
 	var reasons []string
+	if normalizeDataTaskCompleteStatusWithExecutablePayload(&plan) {
+		reasons = append(reasons, "changed status=complete to ready because the plan contains executable script/actions")
+	}
 	if normalizeDataTaskPlanPathLists(&plan) {
 		reasons = append(reasons, "normalized comma-separated path lists in data plan fields")
+	}
+	if normalizeDataTaskCustomActionScriptInputs(&plan) {
+		reasons = append(reasons, "added top-level declared inputs referenced by custom_transform scripts")
 	}
 	if normalizeDataTaskDeriveRulesInputs(&plan) {
 		reasons = append(reasons, "filled derive_rules input_paths from required rule/constraint materials")
 	}
 	if normalizeDataTaskPlanContractFromActions(&plan) {
-		reasons = append(reasons, "enabled rule_coverage_required because the plan contains derive_rules actions")
+		reasons = append(reasons, "enabled validation contracts implied by typed data actions such as derive_rules/compute_contributions/reconcile_artifacts")
 	}
 	if len(plan.Actions) > 0 && strings.TrimSpace(plan.Script) != "" && !dataTaskScriptHasResultEmitter(plan.Script) {
 		plan.Script = ""
@@ -185,46 +382,9 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 		}
 		return plan, reasons
 	}
-	customIndex := -1
-	nonEmptyCustomScript := false
-	for i, action := range plan.Actions {
-		if !strings.EqualFold(strings.TrimSpace(string(action.Kind)), string(dataquery.DataActionCustomTransform)) {
-			continue
-		}
-		if strings.TrimSpace(action.Script) != "" {
-			nonEmptyCustomScript = true
-			continue
-		}
-		if customIndex >= 0 {
-			customIndex = -2
-			break
-		}
-		customIndex = i
-	}
-	if customIndex >= 0 && !nonEmptyCustomScript {
-		plan.Actions[customIndex].Script = plan.Script
+	if len(plan.Actions) > 0 && strings.TrimSpace(plan.Script) != "" {
 		plan.Script = ""
-		if len(plan.InputPaths) > 0 {
-			plan.Actions[customIndex].InputPaths = mergeDataTaskInputPaths(plan.Actions[customIndex].InputPaths, plan.InputPaths)
-		}
-		reasons = append(reasons, "moved top-level script into the single custom_transform action")
-		if normalized, ok := normalizeDataTaskOversizedActionBatch(plan); ok {
-			plan = normalized
-			reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
-		}
-		return plan, reasons
-	}
-	if dataTaskPlanCanAppendTopLevelScriptAsCustomAction(plan) {
-		actionID := fmt.Sprintf("custom_transform_%d", len(plan.Actions)+1)
-		plan.Actions = append(plan.Actions, dataquery.DataAction{
-			ID:         actionID,
-			Kind:       dataquery.DataActionCustomTransform,
-			Purpose:    firstNonEmptyString(strings.TrimSpace(plan.WhyThisBatch), strings.TrimSpace(plan.Goal), "bounded deterministic data transform"),
-			InputPaths: append([]string(nil), plan.InputPaths...),
-			Script:     plan.Script,
-		})
-		plan.Script = ""
-		reasons = append(reasons, "appended bounded top-level script as a final custom_transform action")
+		reasons = append(reasons, "removed stray top-level script from an actions[] plan; actions[] is the executable DAG contract")
 		if normalized, ok := normalizeDataTaskOversizedActionBatch(plan); ok {
 			plan = normalized
 			reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
@@ -236,6 +396,154 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 		reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
 	}
 	return plan, reasons
+}
+
+func normalizeDataTaskCompleteStatusWithExecutablePayload(plan *dataquery.TaskPlan) bool {
+	if plan == nil || !strings.EqualFold(strings.TrimSpace(plan.Status), "complete") {
+		return false
+	}
+	if strings.TrimSpace(plan.Script) == "" && len(plan.Actions) == 0 {
+		return false
+	}
+	plan.Status = "ready"
+	return true
+}
+
+func normalizeDataTaskCustomActionScriptInputs(plan *dataquery.TaskPlan) bool {
+	if plan == nil || len(plan.Actions) == 0 {
+		return false
+	}
+	topInputs := cleanDataTaskStrings(plan.InputPaths)
+	if len(topInputs) == 0 {
+		return false
+	}
+	changed := false
+	for i := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) != dataquery.DataActionCustomTransform {
+			continue
+		}
+		script := strings.TrimSpace(plan.Actions[i].Script)
+		if script == "" {
+			continue
+		}
+		inputSet := map[string]bool{}
+		for _, p := range cleanDataTaskStrings(plan.Actions[i].InputPaths) {
+			inputSet[normalizeDataTaskCoveragePath(p)] = true
+		}
+		actionChanged := false
+		for _, p := range topInputs {
+			normalized := normalizeDataTaskCoveragePath(p)
+			if normalized == "" || inputSet[normalized] || !dataTaskScriptReferencesPathLiteral(script, normalized) {
+				continue
+			}
+			plan.Actions[i].InputPaths = append(plan.Actions[i].InputPaths, p)
+			inputSet[normalized] = true
+			actionChanged = true
+			changed = true
+		}
+		if actionChanged {
+			plan.Actions[i].InputPaths = cleanDataTaskStrings(plan.Actions[i].InputPaths)
+		}
+	}
+	return changed
+}
+
+func dataTaskScriptReferencesPathLiteral(script, p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	return strings.Contains(script, `"`+p+`"`) || strings.Contains(script, `'`+p+`'`)
+}
+
+func normalizeDataTaskPlanShapeForPolicy(plan dataquery.TaskPlan, policy TurnPolicy) (dataquery.TaskPlan, []string) {
+	var reasons []string
+	if normalizeDataTaskAggregationContractFromPolicy(&plan, policy) {
+		reasons = append(reasons, "enabled contribution/reconcile contract for a complex typed data aggregation plan")
+	}
+	if normalizeDataTaskStrictOutputContractFromShape(&plan) {
+		reasons = append(reasons, "enabled contribution/reconcile contract for a complex strict-output data plan")
+	}
+	normalized, shapeReasons := normalizeDataTaskPlanShape(plan)
+	reasons = append(reasons, shapeReasons...)
+	if normalizeDataTaskAggregationContractFromPolicy(&normalized, policy) {
+		reasons = append(reasons, "preserved contribution/reconcile contract after data plan shape normalization")
+	}
+	if normalizeDataTaskStrictOutputContractFromShape(&normalized) {
+		reasons = append(reasons, "preserved contribution/reconcile contract after strict-output shape normalization")
+	}
+	return normalized, reasons
+}
+
+func normalizeDataTaskAggregationContractFromPolicy(plan *dataquery.TaskPlan, policy TurnPolicy) bool {
+	if plan == nil || !dataTaskPolicyRequiresAggregationLedger(policy) || !dataTaskPlanIsComplexAggregationCandidate(*plan) {
+		return false
+	}
+	changed := false
+	if !plan.CoverageContract.ContributionLedgerRequired {
+		plan.CoverageContract.ContributionLedgerRequired = true
+		changed = true
+	}
+	if !plan.CoverageContract.ReconcileRequired {
+		plan.CoverageContract.ReconcileRequired = true
+		changed = true
+	}
+	return changed
+}
+
+func dataTaskPolicyRequiresAggregationLedger(policy TurnPolicy) bool {
+	switch strings.ToLower(strings.TrimSpace(firstNonEmptyString(policy.DataTaskKind, policy.Operation))) {
+	case "data_aggregation":
+		return true
+	default:
+		return false
+	}
+}
+
+func dataTaskPlanIsComplexAggregationCandidate(plan dataquery.TaskPlan) bool {
+	return len(plan.CoverageContract.RequiredMaterials) >= 2 ||
+		len(plan.InputPaths) >= 2 ||
+		len(plan.Actions) > 0
+}
+
+func normalizeDataTaskStrictOutputContractFromShape(plan *dataquery.TaskPlan) bool {
+	if plan == nil || !dataTaskPlanHasStrictOutputContract(*plan) || !dataTaskPlanIsComplexStrictOutputCandidate(*plan) {
+		return false
+	}
+	changed := false
+	if !plan.CoverageContract.DecisionRecordsRequired {
+		plan.CoverageContract.DecisionRecordsRequired = true
+		changed = true
+	}
+	if !plan.CoverageContract.ContributionLedgerRequired {
+		plan.CoverageContract.ContributionLedgerRequired = true
+		changed = true
+	}
+	if !plan.CoverageContract.ReconcileRequired {
+		plan.CoverageContract.ReconcileRequired = true
+		changed = true
+	}
+	return changed
+}
+
+func dataTaskPlanHasStrictOutputContract(plan dataquery.TaskPlan) bool {
+	contract := plan.OutputContract.Normalize()
+	if contract.ExplanationAllowed {
+		return false
+	}
+	switch contract.Format {
+	case dataquery.OutputPlainSingleLine, dataquery.OutputCSVLine, dataquery.OutputJSONOnly, dataquery.OutputMarkdownTable:
+		return true
+	default:
+		return false
+	}
+}
+
+func dataTaskPlanIsComplexStrictOutputCandidate(plan dataquery.TaskPlan) bool {
+	return len(plan.CoverageContract.RequiredMaterials) >= 4 ||
+		len(plan.InputPaths) >= 4 ||
+		len(plan.Actions) >= 2 ||
+		dataTaskScriptLineCount(plan.Script) >= 40
 }
 
 func normalizeDataTaskDeriveRulesInputs(plan *dataquery.TaskPlan) bool {
@@ -487,16 +795,37 @@ func normalizeDataTaskOversizedActionBatch(plan dataquery.TaskPlan) (dataquery.T
 }
 
 func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
-	if plan == nil || plan.CoverageContract.RuleCoverageRequired {
+	if plan == nil {
 		return false
 	}
+	changed := false
 	for _, action := range plan.Actions {
-		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionDeriveRules {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if dataworkflow.IsLeafFallback(kind) {
+			continue
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerRuleCoverage) && !plan.CoverageContract.RuleCoverageRequired {
 			plan.CoverageContract.RuleCoverageRequired = true
-			return true
+			changed = true
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerDecisions) && !plan.CoverageContract.DecisionRecordsRequired {
+			plan.CoverageContract.DecisionRecordsRequired = true
+			changed = true
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ContributionLedgerRequired {
+			plan.CoverageContract.ContributionLedgerRequired = true
+			changed = true
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerReconcile) && !plan.CoverageContract.ReconcileRequired {
+			plan.CoverageContract.ReconcileRequired = true
+			changed = true
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerFinalProjection) && !plan.CoverageContract.ReconcileRequired {
+			plan.CoverageContract.ReconcileRequired = true
+			changed = true
 		}
 	}
-	return false
+	return changed
 }
 
 func dataTaskPlanCanWrapTopLevelScriptAsCustomAction(plan dataquery.TaskPlan) bool {
@@ -511,20 +840,6 @@ func dataTaskPlanCanWrapTopLevelScriptAsCustomAction(plan dataquery.TaskPlan) bo
 	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
 	inputs := len(plan.InputPaths)
 	return requiredMaterials >= 4 || validationLedgers >= 2 || inputs >= 4
-}
-
-func dataTaskPlanCanAppendTopLevelScriptAsCustomAction(plan dataquery.TaskPlan) bool {
-	lines := dataTaskScriptLineCount(plan.Script)
-	if lines == 0 || lines >= dataTaskOneShotScriptLineSoftLimit {
-		return false
-	}
-	if !dataTaskScriptHasResultEmitter(plan.Script) {
-		return false
-	}
-	if dataTaskPlanHasTypedActionContext(plan.Actions, len(plan.Actions)) {
-		return true
-	}
-	return dataTaskPlanNonCustomActionCount(plan.Actions, len(plan.Actions)) >= 1 && dataTaskPlanHasCustomScript(plan.Actions, len(plan.Actions))
 }
 
 func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
@@ -548,14 +863,18 @@ func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan da
 	if strings.TrimSpace(plan.Script) == "" && !dataTaskPlanHasCustomTransform(plan) {
 		return dataquery.TaskPlan{}, false
 	}
+	contract := dataTaskWorkflowCoverageContract(records, plan)
+	contract.RequiredMaterials = nil
+	contract.OptionalMaterials = nil
 	out := dataquery.TaskPlan{
-		Status:          "ready",
-		InputPaths:      paths,
-		OutputContract:  dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
-		Goal:            strings.TrimSpace(plan.Goal),
-		SuccessCriteria: append([]string(nil), plan.SuccessCriteria...),
-		ContinueAfter:   true,
-		WhyThisBatch:    "discover objective material inventory before choosing the next bounded data action batch",
+		Status:           "ready",
+		InputPaths:       paths,
+		OutputContract:   dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: contract,
+		Goal:             strings.TrimSpace(plan.Goal),
+		SuccessCriteria:  append([]string(nil), plan.SuccessCriteria...),
+		ContinueAfter:    true,
+		WhyThisBatch:     "discover objective material inventory before choosing the next bounded data action batch",
 		Actions: []dataquery.DataAction{{
 			ID:         "material_inventory",
 			Kind:       dataquery.DataActionMaterialInventory,
@@ -567,7 +886,10 @@ func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan da
 		out.Goal = "discover data task materials"
 	}
 	if strings.TrimSpace(errText) != "" {
-		out.CoverageContract.ValidationRules = []string{"previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)}
+		out.CoverageContract.ValidationRules = mergeDataTaskValidationRules(
+			out.CoverageContract.ValidationRules,
+			[]string{"previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)},
+		)
 	}
 	return out, true
 }
@@ -577,6 +899,21 @@ func dataTaskCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan da
 	if state.MaterialCoverageSufficient && dataTaskPlanIsCoverageOnly(plan) {
 		return dataquery.TaskPlan{}, false
 	}
+	if !dataTaskCoverageExpansionFallbackNeeded(records, plan) {
+		return dataquery.TaskPlan{}, false
+	}
+	return dataTaskBuildCoverageExpansionFallback(records, plan, errText)
+}
+
+func dataTaskCoverageExpansionFallbackAfterResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	missing := dataTaskCoverageExpansionMissingPaths(records, plan)
+	if len(missing) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	return dataTaskBuildCoverageExpansionFallback(records, plan, errText)
+}
+
+func dataTaskBuildCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
 	missing := dataTaskCoverageExpansionMissingPaths(records, plan)
 	if len(missing) == 0 {
 		return dataquery.TaskPlan{}, false
@@ -584,7 +921,7 @@ func dataTaskCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan da
 	var ruleInputs, structuredInputs, inspectInputs []string
 	for _, p := range missing {
 		switch {
-		case dataTaskPathLooksLikeTextConstraintMaterial(p) && plan.CoverageContract.RuleCoverageRequired:
+		case dataTaskPathLooksLikeTextConstraintMaterial(p) && dataTaskPlanShouldDeriveRulesForTextCoverage(plan):
 			ruleInputs = append(ruleInputs, p)
 		case dataTaskPathLooksLikeStructuredMaterial(p):
 			structuredInputs = append(structuredInputs, p)
@@ -646,6 +983,31 @@ func dataTaskCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan da
 	}, true
 }
 
+func dataTaskPlanShouldDeriveRulesForTextCoverage(plan dataquery.TaskPlan) bool {
+	return plan.CoverageContract.RuleCoverageRequired || dataTaskValidationLedgerCount(plan.CoverageContract) >= 2
+}
+
+func dataTaskCoverageExpansionFallbackNeeded(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) bool {
+	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) == "" && len(dataTaskCoverageExpansionMissingPaths(records, plan)) > 0 {
+		return true
+	}
+	if strings.TrimSpace(dataTaskTerminalRequiredMaterialSchedulingError(records, plan)) != "" {
+		return true
+	}
+	for i, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform {
+			continue
+		}
+		if !dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
+			continue
+		}
+		if len(dataTaskMissingCustomTransformPrerequisites(records, plan, action, i)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.CandidateFile, plan dataquery.TaskPlan) dataquery.TaskPlan {
 	materials := dataTaskUserMentionedCandidateMaterials(userLine, candidates)
 	if len(materials) == 0 {
@@ -665,6 +1027,126 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 	return plan
 }
 
+func prepareDataTaskWorkflowPlanForExecution(userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
+	plan = applyDataTaskUserMaterialFloor(userLine, candidates, plan)
+	normalizeDataTaskPlanPathLists(&plan)
+	normalizeDataTaskCustomActionScriptInputs(&plan)
+	plan = dataTaskNarrowSingleRecordSetActionInputsForExecution(records, plan)
+	return dataTaskScopePlanToCurrentBatch(records, plan)
+}
+
+func dataTaskNarrowSingleRecordSetActionInputsForExecution(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
+	if len(records) == 0 || len(plan.Actions) == 0 {
+		return plan
+	}
+	access, _, _ := dataTaskWorkflowArtifactAvailability(records, 512)
+	if len(access) == 0 {
+		return plan
+	}
+	out := plan
+	for i, action := range out.Actions {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		switch kind {
+		case dataquery.DataActionDeriveFields, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
+		default:
+			continue
+		}
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) <= 1 {
+			continue
+		}
+		fieldRefs := dataTaskSingleRecordSetActionFieldRefs(kind, action)
+		if len(fieldRefs) == 0 {
+			continue
+		}
+		var matches []string
+		for _, input := range inputs {
+			if _, ok := dataTaskArtifactAccessByAlias(access, input); !ok {
+				continue
+			}
+			if len(dataTaskMissingFieldsOnArtifact(access, input, fieldRefs)) == 0 {
+				matches = append(matches, input)
+			}
+		}
+		if len(matches) != 1 {
+			continue
+		}
+		action.InputPaths = []string{matches[0]}
+		if strings.TrimSpace(action.Purpose) != "" {
+			action.Purpose = strings.TrimSpace(action.Purpose) + " (input narrowed by field contract)"
+		}
+		out.Actions[i] = action
+	}
+	return out
+}
+
+func dataTaskSingleRecordSetActionFieldRefs(kind dataquery.DataActionKind, action dataquery.DataAction) []string {
+	switch kind {
+	case dataquery.DataActionDeriveFields:
+		return dataTaskDeriveActionSourceFieldRefs(action)
+	case dataquery.DataActionExpandRecords:
+		return parseDataTaskActionStringListParam(firstNonEmptyString(
+			action.Params["source_field"],
+			action.Params["input_field"],
+			action.Params["field"],
+			action.Params["value_field"],
+		))
+	case dataquery.DataActionFilterRecords:
+		return dataTaskFilterActionFieldRefs(action)
+	case dataquery.DataActionQualifyRecords:
+		return dataTaskQualifyActionFieldRefs(action)
+	default:
+		return nil
+	}
+}
+
+func dataTaskDeriveActionSourceFieldRefs(action dataquery.DataAction) []string {
+	var fields []string
+	for _, spec := range dataTaskActionObjectListParam(action.Params, "field_specs_json", "derive_specs_json", "transforms_json", "field_specs", "derive_specs", "transforms") {
+		op := strings.ToLower(strings.TrimSpace(firstNonEmptyString(
+			dataTaskMapStringValue(spec, "operation"),
+			dataTaskMapStringValue(spec, "op"),
+			dataTaskMapStringValue(spec, "transform"),
+		)))
+		sources := dataTaskFieldRefsFromSpec(spec, "source_field", "input_field", "field", "value_field")
+		sources = append(sources, dataTaskFieldRefsFromSpec(spec, "source_fields", "input_fields", "fields")...)
+		if len(sources) == 0 && op != "constant" {
+			sources = append(sources, dataTaskFieldRefsFromSpec(spec, "left_field", "right_field")...)
+		}
+		fields = append(fields, sources...)
+	}
+	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(
+		action.Params["source_field"],
+		action.Params["input_field"],
+		action.Params["field"],
+		action.Params["value_field"],
+	))...)
+	return cleanDataTaskStrings(fields)
+}
+
+func dataTaskScopePlanToCurrentBatch(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
+	out := plan
+	workflowContract := dataTaskWorkflowCoverageContract(records, plan)
+	currentContract := dataTaskConstrainCurrentRequiredMaterials(dataquery.CoverageContract{}, plan)
+	currentContract.DecisionRecordsRequired = workflowContract.DecisionRecordsRequired
+	currentContract.RuleCoverageRequired = workflowContract.RuleCoverageRequired
+	currentContract.ContributionLedgerRequired = workflowContract.ContributionLedgerRequired
+	currentContract.EntityResolutionRequired = workflowContract.EntityResolutionRequired
+	currentContract.ReconcileRequired = workflowContract.ReconcileRequired
+	if len(currentContract.ValidationRules) == 0 {
+		currentContract.ValidationRules = append([]string(nil), workflowContract.ValidationRules...)
+	}
+	out.CoverageContract = currentContract
+	if len(plan.Actions) == 0 {
+		return out
+	}
+	inputs := dataTaskCurrentBatchInputPaths(plan)
+	if len(inputs) > 0 {
+		out.InputPaths = inputs
+	}
+	return out
+}
+
 func dataTaskUserMentionedCandidateMaterials(userLine string, candidates []dataquery.CandidateFile) []dataquery.CoverageMaterial {
 	request := normalizeDataTaskUserMaterialMatchText(userLine)
 	if request == "" || len(candidates) == 0 {
@@ -680,7 +1162,7 @@ func dataTaskUserMentionedCandidateMaterials(userLine string, candidates []dataq
 		material := dataquery.CoverageMaterial{
 			ID:        dataTaskCoverageIDFromPath(path),
 			Path:      path,
-			Purpose:   "user explicitly referenced this candidate material; keep coverage verifiable for the data goal",
+			Purpose:   dataTaskUserExplicitMaterialPurpose,
 			Required:  true,
 			UsageMode: dataTaskUsageModeForCandidate(candidate),
 		}
@@ -779,14 +1261,16 @@ func dataTaskCoverageExpansionMissingPaths(records []dataTaskWorkflowRecord, pla
 			missing = append(missing, p)
 		}
 	}
-	if !plan.ContinueAfter {
-		required := cleanDataTaskStrings(plan.CoverageContract.RequiredRunnerInputPaths())
-		if len(required) > 0 {
-			scheduled := dataTaskScheduledMaterialConsumption(records, plan)
-			for _, p := range required {
-				if !scheduled[p] {
-					add([]string{p})
-				}
+	requiredContract := dataTaskWorkflowCoverageContract(records, plan)
+	if strings.TrimSpace(dataTaskTerminalRequiredMaterialSchedulingError(records, plan)) != "" {
+		requiredContract = plan.CoverageContract
+	}
+	required := cleanDataTaskStrings(requiredContract.RequiredRunnerInputPaths())
+	if len(required) > 0 {
+		covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
+		for _, p := range required {
+			if !dataTaskCoveragePathCovered(covered, p) {
+				add([]string{p})
 			}
 		}
 	}
@@ -859,14 +1343,23 @@ func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
 			return errText
 		}
 		lines := dataTaskScriptLineCount(action.Script)
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if kind == dataquery.DataActionCustomTransform && lines == 0 {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action such as inspect_material, extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
+				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
 		if lines == 0 {
 			continue
 		}
-		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && !dataTaskScriptHasResultEmitter(action.Script) {
+		if kind != dataquery.DataActionCustomTransform {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when the workflow allows it.",
+				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), lines, kind)
+		}
+		if kind == dataquery.DataActionCustomTransform && !dataTaskScriptHasResultEmitter(action.Script) {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) script has no result emitter (script_lines=%d). A custom_transform must call emit(...), emit_result(...), or assign result.",
 				i+1, strings.TrimSpace(string(action.Kind)), lines)
 		}
-		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform &&
+		if kind == dataquery.DataActionCustomTransform &&
 			lines >= dataTaskComplexCustomScriptLineLimit &&
 			dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split it into smaller typed actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform.",
@@ -875,6 +1368,12 @@ func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
 		if lines >= dataTaskOneShotScriptLineSoftLimit {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
 				i+1, strings.TrimSpace(string(action.Kind)), lines)
+		}
+		if kind == dataquery.DataActionCustomTransform &&
+			dataTaskActionHasBroadPrerequisiteSurface(plan, action) &&
+			dataTaskValidationLedgerCount(plan.CoverageContract) >= 3 {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
+				i+1, strings.TrimSpace(string(action.Kind)), len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
 		}
 	}
 	return ""
@@ -894,6 +1393,9 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 		return errText
 	}
 	if errText := dataTaskTerminalRequiredMaterialSchedulingError(records, plan); errText != "" {
+		return errText
+	}
+	if errText := dataTaskWorkflowCustomTransformDisabledGuardError(records, plan); errText != "" {
 		return errText
 	}
 	if count := dataTaskCustomScriptActionCount(plan.Actions); count > 1 {
@@ -920,13 +1422,24 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 			return errText
 		}
 		lines := dataTaskScriptLineCount(action.Script)
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if kind == dataquery.DataActionCustomTransform && lines == 0 {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action from workflow_state_json.allowed_next_actions, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
+				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
 		if lines == 0 {
 			continue
 		}
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if kind != dataquery.DataActionCustomTransform && lines > 0 {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when workflow_state_json allows it.",
+				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), lines, kind)
+		}
 		if kind == dataquery.DataActionCustomTransform && !dataTaskScriptHasResultEmitter(action.Script) {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) script has no result emitter (script_lines=%d). A custom_transform must call emit(...), emit_result(...), or assign result.",
 				i+1, strings.TrimSpace(string(action.Kind)), lines)
+		}
+		if errText := dataTaskTerminalRawMaterialCustomTransformGuardError(records, plan, action, i, lines); errText != "" {
+			return errText
 		}
 		if kind == dataquery.DataActionCustomTransform &&
 			dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
@@ -934,9 +1447,18 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 				return fmt.Sprintf("data planning incomplete: broad custom_transform action %d (%s) reads or depends on %d material(s) that were not covered by prior typed actions/results: %s. First add smaller atomic actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records for the missing inputs, then use custom_transform only as a bounded transform over known materials.",
 					i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(missing), strings.Join(missing, ", "))
 			}
+			if lines >= dataTaskComplexCustomScriptLineLimit && dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
+				return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Prior coverage of materials does not make one script a valid substitute for the remaining data DAG. Continue with typed actions such as derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform over known artifacts.",
+					i+1, strings.TrimSpace(string(action.Kind)), lines, len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
+			}
 			if lines >= dataTaskOneShotScriptLineSoftLimit {
 				return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
 					i+1, strings.TrimSpace(string(action.Kind)), lines)
+			}
+			rawInputs := dataTaskCustomTransformRawMaterialInputs(records, action)
+			if len(rawInputs) >= 3 && dataTaskValidationLedgerCount(plan.CoverageContract) >= 3 {
+				return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (raw_inputs=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
+					i+1, strings.TrimSpace(string(action.Kind)), len(rawInputs), len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
 			}
 			continue
 		}
@@ -953,6 +1475,252 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 	return ""
 }
 
+func dataTaskWorkflowCustomTransformDisabledGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	if len(records) == 0 || len(plan.Actions) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
+		return ""
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if !state.CustomTransformDisabled {
+		return ""
+	}
+	for i, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform {
+			continue
+		}
+		return fmt.Sprintf("data planning incomplete: workflow custom_transform_disabled=true at next_stage=%s; action %d (%s) uses custom_transform. Use workflow_state_json.allowed_next_actions [%s] and emit typed actions that consume existing source materials or generated artifact aliases; free-form scripts are disabled for this workflow stage.",
+			state.NextStage,
+			i+1,
+			firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+			strings.Join(state.AllowedNextActions, ", "))
+	}
+	return ""
+}
+
+func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	if len(records) == 0 || strings.TrimSpace(errText) == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if !state.CustomTransformDisabled {
+		return dataquery.TaskPlan{}, false
+	}
+	hasCustom := false
+	for _, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform {
+			hasCustom = true
+			break
+		}
+	}
+	if !hasCustom {
+		return dataquery.TaskPlan{}, false
+	}
+	if fallback, _, ok := dataTaskWorkflowNextStageFallback(records, plan, "custom_transform disabled repair rejected"); ok {
+		return fallback, true
+	}
+	inputs := dataTaskGeneratedDiagnosticInputsForPlan(records, plan, 3)
+	if len(inputs) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	out := plan
+	out.Status = "ready"
+	out.Script = ""
+	out.Actions = []dataquery.DataAction{{
+		ID:             "inspect_generated_artifact_schema",
+		Kind:           dataquery.DataActionInspectMaterial,
+		Purpose:        "inspect generated artifact schema after a script-disabled repair attempted to use custom_transform",
+		InputPaths:     inputs,
+		OutputArtifact: "generated_artifact_schema_diagnostics.json",
+	}}
+	out.InputPaths = inputs
+	out.OutputContract = dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true}
+	out.CoverageContract = dataTaskWorkflowCoverageContract(records, plan)
+	out.ContinueAfter = true
+	out.WhyThisBatch = "custom_transform is disabled for the current workflow stage; inspect generated artifact schemas before the next typed repair"
+	out.NextBatch = "continue with allowed typed data actions using the inspected artifact fields"
+	if strings.TrimSpace(out.Goal) == "" {
+		out.Goal = "inspect generated data artifacts for the next typed workflow action"
+	}
+	if dataTaskFallbackPlanAlreadySeen(records, out) {
+		return dataquery.TaskPlan{}, false
+	}
+	return out, true
+}
+
+func dataTaskGeneratedDiagnosticInputsForPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, limit int) []string {
+	if limit <= 0 {
+		limit = 1
+	}
+	generated := dataTaskWorkflowGeneratedArtifactPathSet(records)
+	if len(generated) == 0 {
+		return nil
+	}
+	access := dataTaskWorkflowArtifactAccess(records, 64)
+	accessByAlias := map[string]dataTaskArtifactAccessPrompt{}
+	accessOrder := map[string]int{}
+	for i, artifact := range access {
+		for _, alias := range artifact.Aliases {
+			key := normalizeDataTaskCoveragePath(alias)
+			if key == "" {
+				continue
+			}
+			if _, ok := accessByAlias[key]; !ok {
+				accessByAlias[key] = artifact
+				accessOrder[key] = i
+			}
+		}
+		if key := normalizeDataTaskCoveragePath(artifact.ID); key != "" {
+			if _, ok := accessByAlias[key]; !ok {
+				accessByAlias[key] = artifact
+				accessOrder[key] = i
+			}
+		}
+	}
+	type diagnosticCandidate struct {
+		alias string
+		key   string
+		score int
+		order int
+	}
+	candidates := map[string]diagnosticCandidate{}
+	add := func(value string, fromPlan bool, order int) {
+		value = strings.TrimSpace(value)
+		key := normalizeDataTaskCoveragePath(value)
+		if key == "" || !generated[key] {
+			return
+		}
+		artifact, ok := accessByAlias[key]
+		if !ok || !dataTaskArtifactUsableForGeneratedSchemaDiagnostic(artifact) {
+			return
+		}
+		score := 10
+		if fromPlan {
+			score += 5
+		}
+		if artifactOrder, ok := accessOrder[key]; ok {
+			order = dataTaskMinInt(order, artifactOrder)
+		}
+		score += dataTaskMinInt(len(artifact.Fields), 24)
+		score += 45
+		shape := strings.ToLower(strings.TrimSpace(artifact.JSONShape))
+		if strings.Contains(shape, "array") || strings.Contains(shape, "records") || strings.Contains(shape, "object") {
+			score += 8
+		}
+		if dataTaskArtifactKindHasPrefix(artifact.Kind,
+			dataquery.DataActionApplyResolutions,
+			dataquery.DataActionEnrichRecords,
+			dataquery.DataActionJoinRecords,
+			dataquery.DataActionDeriveFields,
+			dataquery.DataActionFilterRecords,
+			dataquery.DataActionQualifyRecords,
+			dataquery.DataActionExtractRecords,
+			dataquery.DataActionExpandRecords,
+			dataquery.DataActionComputeContribs,
+		) {
+			score += 16
+		}
+		next := diagnosticCandidate{alias: value, key: key, score: score, order: order}
+		if prev, ok := candidates[key]; ok {
+			if prev.score > next.score || (prev.score == next.score && prev.order <= next.order) {
+				return
+			}
+		}
+		candidates[key] = next
+	}
+	order := 0
+	collect := func(values []string) {
+		for _, value := range cleanDataTaskStrings(values) {
+			add(value, true, order)
+			order++
+		}
+	}
+	collect(plan.InputPaths)
+	for _, action := range plan.Actions {
+		collect(action.InputPaths)
+	}
+	for i, artifact := range access {
+		alias := firstDataTaskArtifactAlias(artifact)
+		if alias == "" {
+			continue
+		}
+		add(alias, false, 1000+i)
+	}
+	ranked := make([]diagnosticCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		ranked = append(ranked, candidate)
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].order < ranked[j].order
+	})
+	out := make([]string, 0, dataTaskMinInt(limit, len(ranked)))
+	for _, candidate := range ranked {
+		out = append(out, candidate.alias)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return cleanDataTaskStrings(out)
+}
+
+func dataTaskArtifactUsableForGeneratedSchemaDiagnostic(artifact dataTaskArtifactAccessPrompt) bool {
+	if dataTaskArtifactKindHasPrefix(artifact.Kind,
+		dataquery.DataActionMaterialInventory,
+		dataquery.DataActionInspectMaterial,
+		dataquery.DataActionDeriveRules,
+		dataquery.DataActionNormalizeEntities,
+		dataquery.DataActionReconcile,
+		dataquery.DataActionAssembleAnswer,
+	) {
+		return false
+	}
+	if dataTaskArtifactKindHasPrefix(artifact.Kind,
+		dataquery.DataActionExtractRecords,
+		dataquery.DataActionDeriveFields,
+		dataquery.DataActionExpandRecords,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionQualifyRecords,
+		dataquery.DataActionApplyResolutions,
+		dataquery.DataActionEnrichRecords,
+		dataquery.DataActionJoinRecords,
+		dataquery.DataActionComputeContribs,
+		dataquery.DataActionCustomTransform,
+	) {
+		return len(artifact.Fields) > 0 || dataTaskArtifactShapeLooksRecordLike(artifact)
+	}
+	if len(artifact.Fields) == 0 || dataTaskArtifactLooksLikeMapping(artifact) {
+		return false
+	}
+	return dataTaskArtifactShapeLooksRecordLike(artifact)
+}
+
+func dataTaskArtifactShapeLooksRecordLike(artifact dataTaskArtifactAccessPrompt) bool {
+	shape := strings.ToLower(strings.TrimSpace(artifact.JSONShape))
+	return strings.Contains(shape, "array") || strings.Contains(shape, "records")
+}
+
+func dataTaskArtifactKindHasPrefix(kind string, wants ...dataquery.DataActionKind) bool {
+	got := strings.ToLower(strings.TrimSpace(kind))
+	for _, want := range wants {
+		prefix := strings.ToLower(strings.TrimSpace(string(want)))
+		if prefix == "" {
+			continue
+		}
+		if got == prefix || strings.HasPrefix(got, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskMinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
 	if len(records) == 0 || len(plan.Actions) == 0 {
 		return ""
@@ -966,6 +1734,16 @@ func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecor
 	}
 	for i, action := range plan.Actions {
 		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if dataTaskActionIsGeneratedArtifactDiagnostic(records, action) {
+			continue
+		}
+		if dataTaskActionIsRecordMaterialization(records, action) {
+			continue
+		}
+		if kind == dataquery.DataActionExtractRecords && state.MaterialCoverageSufficient {
+			return fmt.Sprintf("data planning incomplete: workflow next_stage=%s can use extract_records only as record materialization after material coverage is sufficient. Action %d (%s) must declare output_artifact and consume explicit current-batch input paths or generated artifact aliases; do not re-run coverage-only extraction.",
+				state.NextStage, i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
 		if dataTaskWorkflowActionKindAllowed(kind, state) {
 			continue
 		}
@@ -973,6 +1751,17 @@ func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecor
 			state.NextStage, strings.Join(state.AllowedNextActions, ", "), i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind)
 	}
 	return ""
+}
+
+func dataTaskActionIsRecordMaterialization(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
+	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionExtractRecords {
+		return false
+	}
+	if strings.TrimSpace(action.Script) != "" || strings.TrimSpace(action.OutputArtifact) == "" {
+		return false
+	}
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	return len(inputs) > 0
 }
 
 func dataTaskWorkflowHasSuccessfulResult(records []dataTaskWorkflowRecord) bool {
@@ -996,6 +1785,29 @@ func dataTaskPlanActionsAllAllowedForWorkflowStage(plan dataquery.TaskPlan, stat
 	return true
 }
 
+func dataTaskActionIsGeneratedArtifactDiagnostic(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
+	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionInspectMaterial {
+		return false
+	}
+	if strings.TrimSpace(action.Script) != "" {
+		return false
+	}
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if len(inputs) == 0 {
+		return false
+	}
+	generated := dataTaskWorkflowGeneratedArtifactPathSet(records)
+	if len(generated) == 0 {
+		return false
+	}
+	for _, input := range inputs {
+		if !generated[normalizeDataTaskCoveragePath(input)] {
+			return false
+		}
+	}
+	return true
+}
+
 func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state dataTaskWorkflowStateView) bool {
 	for _, action := range state.AllowedNextActions {
 		if kind == dataquery.DataActionKind(action) {
@@ -1006,24 +1818,836 @@ func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state data
 }
 
 func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
 	if !state.MaterialCoverageSufficient {
 		return ""
 	}
 	switch state.NextStage {
-	case "normalize_or_enrich_entities", "compute_contributions", "reconcile_artifacts", "emit_output_contract_answer":
+	case "normalize_or_enrich_entities", "prepare_contribution_inputs", "compute_contributions", "reconcile_artifacts", "emit_output_contract_answer":
 	default:
 		return ""
 	}
 	missingStages := dataTaskWorkflowMissingValidationStages(state)
 	if len(missingStages) <= 1 || !dataTaskPlanHasScriptedCustomTransform(plan) {
+		if len(missingStages) > 1 && dataTaskPlanCrossesTypedActionRanks(plan) {
+			return fmt.Sprintf("data planning incomplete: workflow next_stage=%s action batch crosses multiple dependent DAG ranks while %d validation stage(s) remain: %s. Execute only the first typed action rank now, let it materialize artifacts and field contracts, then plan the next rank from real results.",
+				state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
+		}
 		return ""
 	}
-	if dataTaskPlanIsSingleIntermediateCustomTransform(plan) {
+	if dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan, state) {
 		return ""
 	}
 	return fmt.Sprintf("data planning incomplete: workflow next_stage=%s still has %d unfinished validation stage(s): %s. Do not cross multiple unfinished data DAG stages with one custom_transform. Emit the next atomic stage first (for example derive_fields/normalize_entities/enrich_records/join_records before compute_contributions, compute_contributions before reconcile_artifacts, reconcile_artifacts before the final answer), set continue_after=true, and let the workflow evaluate the reusable artifact before the next batch.",
 		state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
+}
+
+func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	prefix, _, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText)
+	return prefix, ok
+}
+
+func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	if len(records) == 0 || len(plan.Actions) < 2 || strings.TrimSpace(errText) == "" {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	if !dataTaskWorkflowHasSuccessfulResult(records) {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if len(state.AllowedNextActions) == 0 || len(dataTaskWorkflowMissingValidationStages(state)) <= 1 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	keep, rest := dataTaskSplitActionRankForState(plan.Actions, state)
+	if len(keep) == 0 || len(keep) == len(plan.Actions) {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	out := plan
+	out.Actions = keep
+	out.Script = ""
+	out.ContinueAfter = true
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = "execute the typed action prefix for the current data workflow stage"
+	}
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = "continue with the remaining data workflow stages after this prefix produces reusable artifacts"
+	}
+	remainder := plan
+	remainder.Actions = rest
+	remainder.Script = ""
+	remainder.ContinueAfter = true
+	return out, remainder, true
+}
+
+func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	if len(deferred.Actions) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if len(state.AllowedNextActions) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	readyActions, blockedActions := dataTaskSplitDeferredActionsByReadyInputs(records, deferred.Actions)
+	if len(readyActions) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	keep, rest := dataTaskSplitActionRankForState(readyActions, state)
+	if len(keep) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	if errText := dataTaskDeferredDispatchGuardError(records, deferred, keep); errText != "" {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	if len(blockedActions) > 0 {
+		rest = append(rest, blockedActions...)
+	}
+	out := deferred
+	out.Actions = keep
+	out.Script = ""
+	out.ContinueAfter = len(rest) > 0 || deferred.ContinueAfter
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = "continue the deferred typed data action rank from the accepted plan graph"
+	}
+	if strings.TrimSpace(out.NextBatch) == "" && len(rest) > 0 {
+		out.NextBatch = "continue with the remaining deferred typed data action ranks after this batch materializes artifacts"
+	}
+	remainder := deferred
+	remainder.Actions = rest
+	remainder.Script = ""
+	remainder.ContinueAfter = len(rest) > 0 || deferred.ContinueAfter
+	return out, remainder, true
+}
+
+func dataTaskDeferredDispatchGuardError(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	candidate := deferred
+	candidate.Status = "ready"
+	candidate.Actions = append([]dataquery.DataAction(nil), actions...)
+	candidate.Script = ""
+	candidate.ContinueAfter = true
+	return dataTaskWorkflowStagingGuardError(records, candidate)
+}
+
+type dataTaskDeferredQueueState struct {
+	Actions         int
+	ReadyActions    int
+	BlockedActions  int
+	FirstActionID   string
+	FirstActionKind string
+	Ready           bool
+	Reason          string
+}
+
+func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) dataTaskDeferredQueueState {
+	state := dataTaskDeferredQueueState{Actions: len(deferred.Actions)}
+	if len(deferred.Actions) == 0 {
+		state.Reason = "deferred queue is empty"
+		return state
+	}
+	first := deferred.Actions[0]
+	state.FirstActionID = strings.TrimSpace(first.ID)
+	state.FirstActionKind = strings.TrimSpace(string(normalizeDataActionKindForWorkflow(first.Kind)))
+	workflow := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if len(workflow.AllowedNextActions) == 0 {
+		state.Reason = "workflow has no allowed next typed actions"
+		return state
+	}
+	readyActions, blockedActions := dataTaskSplitDeferredActionsByReadyInputs(records, deferred.Actions)
+	state.ReadyActions = len(readyActions)
+	state.BlockedActions = len(blockedActions)
+	if len(readyActions) == 0 {
+		if len(blockedActions) > 0 {
+			state.Reason = dataTaskDeferredActionBlockedReason(records, blockedActions[0])
+		}
+		if strings.TrimSpace(state.Reason) == "" {
+			state.Reason = "first deferred action is not executable from current artifact aliases and field contracts"
+		}
+		return state
+	}
+	keep, _ := dataTaskSplitActionRankForState(readyActions, workflow)
+	if len(keep) == 0 {
+		state.Reason = fmt.Sprintf("workflow next_stage=%s allows [%s], but first ready deferred action is %s",
+			workflow.NextStage, strings.Join(workflow.AllowedNextActions, ", "), state.FirstActionKind)
+		return state
+	}
+	if errText := dataTaskDeferredDispatchGuardError(records, deferred, keep); errText != "" {
+		state.Reason = errText
+		return state
+	}
+	state.Ready = true
+	return state
+}
+
+func dataTaskDeferredActionBlockedReason(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if len(inputs) > 0 {
+		covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
+		artifacts, _, _ := dataTaskWorkflowArtifactAvailability(records, 256)
+		var missing []string
+		for _, input := range inputs {
+			if dataTaskCoveragePathCovered(covered, input) {
+				continue
+			}
+			if _, ok := dataTaskArtifactAccessByAlias(artifacts, input); ok {
+				continue
+			}
+			missing = append(missing, input)
+		}
+		if len(missing) > 0 {
+			return fmt.Sprintf("deferred action %s:%s waits for unavailable input alias/material [%s]",
+				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+				normalizeDataActionKindForWorkflow(action.Kind),
+				strings.Join(missing, ", "))
+		}
+	}
+	if errText := dataTaskActionFieldContractGuardError(records, action, 0); errText != "" {
+		return errText
+	}
+	return ""
+}
+
+func dataTaskDeferredQueueSavedSegment(lang string, deferred dataquery.TaskPlan, reason string) string {
+	reason = oneLineClamp(reason, 120)
+	first := ""
+	if len(deferred.Actions) > 0 {
+		action := deferred.Actions[0]
+		first = firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind)))
+	}
+	if isZh(lang) {
+		parts := []string{fmt.Sprintf("已保存延后 typed 队列 %d 个动作", len(deferred.Actions))}
+		if first != "" {
+			parts = append(parts, "首个 "+first)
+		}
+		if reason != "" {
+			parts = append(parts, reason)
+		}
+		return strings.Join(parts, "；")
+	}
+	parts := []string{fmt.Sprintf("saved deferred typed queue with %d action(s)", len(deferred.Actions))}
+	if first != "" {
+		parts = append(parts, "first "+first)
+	}
+	if reason != "" {
+		parts = append(parts, reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func dataTaskDeferredQueueBlockedSegment(lang string, state dataTaskDeferredQueueState) string {
+	reason := oneLineClamp(state.Reason, 160)
+	action := firstNonEmptyString(state.FirstActionID, state.FirstActionKind, "deferred action")
+	if isZh(lang) {
+		return fmt.Sprintf("延后队列未执行：首个 %s 尚未就绪；ready=%d blocked=%d；%s",
+			action, state.ReadyActions, state.BlockedActions, reason)
+	}
+	return fmt.Sprintf("deferred queue not dispatched: first %s is not ready; ready=%d blocked=%d; %s",
+		action, state.ReadyActions, state.BlockedActions, reason)
+}
+
+func dataTaskSplitDeferredActionsByReadyInputs(records []dataTaskWorkflowRecord, actions []dataquery.DataAction) ([]dataquery.DataAction, []dataquery.DataAction) {
+	var ready []dataquery.DataAction
+	for i, action := range actions {
+		if !dataTaskDeferredActionInputsReady(records, action) {
+			return ready, append([]dataquery.DataAction(nil), actions[i:]...)
+		}
+		ready = append(ready, action)
+	}
+	return ready, nil
+}
+
+func dataTaskDeferredActionInputsReady(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if len(inputs) == 0 {
+		return true
+	}
+	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
+	artifacts, _, _ := dataTaskWorkflowArtifactAvailability(records, 256)
+	for _, input := range inputs {
+		if dataTaskCoveragePathCovered(covered, input) {
+			continue
+		}
+		if _, ok := dataTaskArtifactAccessByAlias(artifacts, input); ok {
+			continue
+		}
+		return false
+	}
+	if dataTaskActionFieldContractGuardError(records, action, 0) != "" {
+		return false
+	}
+	return true
+}
+
+func dataTaskSplitActionRankForState(actions []dataquery.DataAction, state dataTaskWorkflowStateView) ([]dataquery.DataAction, []dataquery.DataAction) {
+	keep := make([]dataquery.DataAction, 0, len(actions))
+	firstRank := 0
+	for _, action := range actions {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if !dataTaskWorkflowActionKindAllowed(kind, state) {
+			break
+		}
+		if kind == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
+			break
+		}
+		rank := dataTaskActionDependencyRank(kind)
+		if rank > 0 {
+			if firstRank == 0 {
+				firstRank = rank
+			} else if rank != firstRank {
+				break
+			}
+		}
+		keep = append(keep, action)
+	}
+	if len(keep) == 0 {
+		return nil, append([]dataquery.DataAction(nil), actions...)
+	}
+	rest := append([]dataquery.DataAction(nil), actions[len(keep):]...)
+	return keep, rest
+}
+
+func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	if strings.TrimSpace(errText) == "" || len(plan.Actions) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	state := dataTaskWorkflowState(records, plan)
+	for _, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionDeriveFields {
+			continue
+		}
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) == 0 {
+			continue
+		}
+		if len(inputs) <= 1 && dataTaskDeriveFieldsActionHasSpec(action) {
+			continue
+		}
+		if state.MaterialCoverageSufficient && state.NextStage != "cover_required_materials" && state.NextStage != "derive_rules" {
+			if fallback, ok := dataTaskInvalidRecordActionEnrichFallback(records, plan, action, inputs); ok {
+				return fallback, true
+			}
+			continue
+		}
+		out := plan
+		out.Actions = []dataquery.DataAction{{
+			ID:             firstNonEmptyString(strings.TrimSpace(action.ID), "extract_records") + "_records",
+			Kind:           dataquery.DataActionExtractRecords,
+			Purpose:        "materialize record samples for later single-record-set derivation, enrichment, join, or contribution steps",
+			InputPaths:     inputs,
+			OutputArtifact: firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "records"),
+			Params: map[string]string{
+				"limit":       "100000",
+				"max_records": "100000",
+			},
+		}}
+		out.Script = ""
+		out.Status = "ready"
+		out.ContinueAfter = true
+		if strings.TrimSpace(out.WhyThisBatch) == "" {
+			out.WhyThisBatch = "derive_fields was not executable as one single-record-set action; first materialize the declared records as a bounded atomic batch"
+		}
+		if strings.TrimSpace(out.NextBatch) == "" {
+			out.NextBatch = "continue with derive_fields, enrich_records, join_records, or compute_contributions after record artifacts materialize"
+		}
+		return out, true
+	}
+	return dataquery.TaskPlan{}, false
+}
+
+func dataTaskInvalidRecordActionEnrichFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, inputs []string) (dataquery.TaskPlan, bool) {
+	if len(inputs) < 2 {
+		return dataquery.TaskPlan{}, false
+	}
+	targetField := firstNonEmptyString(
+		dataTaskHistoricalMissingJoinFieldName(records),
+		strings.TrimSpace(action.Params["target_field"]),
+		strings.TrimSpace(action.Params["output_field"]),
+		strings.TrimSpace(action.Params["derived_field"]),
+	)
+	if strings.TrimSpace(targetField) == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	basePath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["base_path"]),
+		strings.TrimSpace(action.Params["record_path"]),
+		strings.TrimSpace(action.Params["input_path"]),
+		inputs[0],
+	)
+	sourceFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["base_fields"], action.Params["left_fields"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_field"], action.Params["base_field"], action.Params["left_field"], action.Params["field"]))...,
+	))
+	access := dataTaskWorkflowArtifactAccess(records, 24)
+	if len(sourceFields) == 0 {
+		if base, ok := dataTaskArtifactAccessByAlias(access, basePath); ok {
+			sourceFields = dataTaskSourceFieldsForMissingTarget(base.Fields, targetField, 6)
+		}
+	}
+	if len(sourceFields) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	mappingPath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["mapping_path"]),
+		strings.TrimSpace(action.Params["reference_path"]),
+		strings.TrimSpace(action.Params["lookup_path"]),
+	)
+	if mappingPath == "" {
+		for _, input := range inputs {
+			if normalizeDataTaskCoveragePath(input) == normalizeDataTaskCoveragePath(basePath) {
+				continue
+			}
+			mappingPath = input
+			break
+		}
+	}
+	if mappingPath == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	valueField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["mapping_value_field"]),
+		strings.TrimSpace(action.Params["reference_value_field"]),
+		strings.TrimSpace(action.Params["canonical_id_field"]),
+		targetField,
+	)
+	mappingFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["mapping_source_fields"], action.Params["reference_fields"], action.Params["lookup_fields"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["mapping_source_field"], action.Params["reference_field"], action.Params["lookup_field"]))...,
+	))
+	if mapping, ok := dataTaskArtifactAccessByAlias(access, mappingPath); ok {
+		if exact, _ := dataTaskMappingValueFieldForMissingTarget(mapping.Fields, targetField); exact != "" {
+			valueField = exact
+		}
+		if len(mappingFields) == 0 {
+			mappingFields = dataTaskReferenceSourceFieldsForMissingTarget(mapping.Fields, valueField, targetField, 8)
+		}
+	}
+	spec := map[string]any{
+		"lookup_path":        mappingPath,
+		"base_fields":        sourceFields,
+		"lookup_value_field": valueField,
+		"target_field":       targetField,
+		"match_mode":         "contains",
+	}
+	if len(mappingFields) > 0 {
+		spec["lookup_fields"] = mappingFields
+	}
+	out := plan
+	out.Status = "ready"
+	out.Script = ""
+	out.ContinueAfter = true
+	out.Actions = []dataquery.DataAction{{
+		ID:             "materialize_" + dataTaskSafeActionName(targetField),
+		Kind:           dataquery.DataActionEnrichRecords,
+		Purpose:        fmt.Sprintf("materialize field %s on %s using a mapping/reference input", targetField, basePath),
+		InputPaths:     []string{basePath, mappingPath},
+		OutputArtifact: dataTaskMissingFieldOutputArtifact(basePath, targetField),
+		Params: map[string]string{
+			"base_path":         basePath,
+			"lookup_specs_json": mustCompactJSONString([]map[string]any{spec}),
+		},
+	}}
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = fmt.Sprintf("derive_fields cannot consume multiple record sets; convert the lookup/reference mapping into enrich_records to materialize %s first", targetField)
+	}
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = "continue with join_records or compute_contributions after the enriched artifact materializes"
+	}
+	return out, true
+}
+
+func dataTaskHistoricalMissingJoinFieldName(records []dataTaskWorkflowRecord) string {
+	for i := len(records) - 1; i >= 0; i-- {
+		matches := dataTaskJoinMissingFieldPattern.FindStringSubmatch(strings.TrimSpace(records[i].Err))
+		if len(matches) >= 3 && strings.TrimSpace(matches[2]) != "" {
+			return strings.TrimSpace(matches[2])
+		}
+	}
+	return ""
+}
+
+var dataTaskJoinMissingFieldPattern = regexp.MustCompile(`join_records\s+(left|right)\s+field\s+"([^"]+)"\s+was\s+not\s+found\s+in\s+(?:left|right)\s+input\s+(\S+)`)
+
+func dataTaskMissingJoinFieldFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	matches := dataTaskJoinMissingFieldPattern.FindStringSubmatch(errText)
+	if len(matches) < 4 {
+		return dataquery.TaskPlan{}, false
+	}
+	missingField := strings.TrimSpace(matches[2])
+	baseAlias := strings.Trim(strings.TrimSpace(matches[3]), `"'`)
+	if missingField == "" || baseAlias == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	access := dataTaskWorkflowArtifactAccess(records, 24)
+	base, ok := dataTaskArtifactAccessByAlias(access, baseAlias)
+	if !ok || len(base.Fields) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	if firstDataTaskExistingField(base.Fields, missingField) != "" {
+		return dataquery.TaskPlan{}, false
+	}
+	sourceFields := dataTaskSourceFieldsForMissingTarget(base.Fields, missingField, 6)
+	if len(sourceFields) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	mapping, valueField, mappingFields, matchMode, ok := dataTaskMappingForMissingTarget(access, base, missingField, 8)
+	if !ok {
+		return dataquery.TaskPlan{}, false
+	}
+	mappingAlias := firstDataTaskArtifactAlias(mapping)
+	if mappingAlias == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	outputArtifact := dataTaskMissingFieldOutputArtifact(baseAlias, missingField)
+	if dataTaskWorkflowHasArtifactAlias(records, outputArtifact) {
+		return dataquery.TaskPlan{}, false
+	}
+	if normalizeDataTaskCoveragePath(outputArtifact) == normalizeDataTaskCoveragePath(mappingAlias) ||
+		normalizeDataTaskCoveragePath(outputArtifact) == normalizeDataTaskCoveragePath(baseAlias) {
+		return dataquery.TaskPlan{}, false
+	}
+	out := plan
+	out.Status = "ready"
+	out.Script = ""
+	out.ContinueAfter = true
+	out.Actions = []dataquery.DataAction{{
+		ID:             "materialize_" + dataTaskSafeActionName(missingField),
+		Kind:           dataquery.DataActionEnrichRecords,
+		Purpose:        fmt.Sprintf("materialize missing field %s on %s using an existing mapping/reference artifact", missingField, baseAlias),
+		InputPaths:     []string{baseAlias, mappingAlias},
+		OutputArtifact: outputArtifact,
+		Params: map[string]string{
+			"base_path": baseAlias,
+			"lookup_specs_json": mustCompactJSONString([]map[string]any{{
+				"lookup_path":        mappingAlias,
+				"base_fields":        sourceFields,
+				"lookup_fields":      mappingFields,
+				"lookup_value_field": valueField,
+				"target_field":       missingField,
+				"match_mode":         matchMode,
+			}}),
+		},
+	}}
+	if strings.TrimSpace(out.WhyThisBatch) == "" {
+		out.WhyThisBatch = fmt.Sprintf("join_records failed because %s did not contain field %s; materialize that field first from existing mapping/reference rows", baseAlias, missingField)
+	}
+	if strings.TrimSpace(out.NextBatch) == "" {
+		out.NextBatch = "retry the join_records stage using the newly enriched artifact, then continue to compute_contributions"
+	}
+	if dataTaskFallbackPlanAlreadySeen(records, out) {
+		return dataquery.TaskPlan{}, false
+	}
+	return out, true
+}
+
+func dataTaskHistoricalMissingJoinFieldFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) (dataquery.TaskPlan, bool) {
+	if len(records) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	for i := len(records) - 1; i >= 0; i-- {
+		errText := strings.TrimSpace(records[i].Err)
+		if errText == "" || !dataTaskJoinMissingFieldPattern.MatchString(errText) {
+			continue
+		}
+		fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, errText)
+		if !ok {
+			continue
+		}
+		if dataTaskFallbackPlanAlreadySeen(records, fallback) {
+			continue
+		}
+		if strings.TrimSpace(fallback.WhyThisBatch) == "" {
+			fallback.WhyThisBatch = "a previous join_records action found that a base artifact was missing a join field; use the now-available mapping/reference artifact to materialize that field before retrying the join"
+		}
+		if strings.TrimSpace(fallback.NextBatch) == "" {
+			fallback.NextBatch = "retry the join_records stage using the newly enriched artifact, then continue to compute_contributions"
+		}
+		return fallback, true
+	}
+	return dataquery.TaskPlan{}, false
+}
+
+func dataTaskFallbackPlanAlreadySeen(records []dataTaskWorkflowRecord, candidate dataquery.TaskPlan) bool {
+	signature := dataTaskFallbackPlanSignature(candidate)
+	if signature == "" {
+		return false
+	}
+	for _, rec := range records {
+		if dataTaskFallbackPlanSignature(rec.Plan) == signature {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskFallbackPlanSignature(plan dataquery.TaskPlan) string {
+	if len(plan.Actions) == 0 {
+		return ""
+	}
+	type actionSig struct {
+		Kind           string            `json:"kind,omitempty"`
+		InputPaths     []string          `json:"input_paths,omitempty"`
+		OutputArtifact string            `json:"output_artifact,omitempty"`
+		Params         map[string]string `json:"params,omitempty"`
+	}
+	sig := struct {
+		Actions []actionSig `json:"actions,omitempty"`
+	}{Actions: make([]actionSig, 0, len(plan.Actions))}
+	for _, action := range plan.Actions {
+		sig.Actions = append(sig.Actions, actionSig{
+			Kind:           string(normalizeDataActionKindForWorkflow(action.Kind)),
+			InputPaths:     cleanDataTaskStrings(action.InputPaths),
+			OutputArtifact: normalizeDataTaskCoveragePath(action.OutputArtifact),
+			Params:         action.Params,
+		})
+	}
+	raw, err := json.Marshal(sig)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func dataTaskArtifactAccessByAlias(access []dataTaskArtifactAccessPrompt, alias string) (dataTaskArtifactAccessPrompt, bool) {
+	want := normalizeDataTaskCoveragePath(alias)
+	for _, artifact := range access {
+		if normalizeDataTaskCoveragePath(artifact.ID) == want && want != "" {
+			return artifact, true
+		}
+		for _, candidate := range artifact.Aliases {
+			if normalizeDataTaskCoveragePath(candidate) == want && want != "" {
+				return artifact, true
+			}
+		}
+	}
+	return dataTaskArtifactAccessPrompt{}, false
+}
+
+func dataTaskMappingForMissingTarget(access []dataTaskArtifactAccessPrompt, base dataTaskArtifactAccessPrompt, missingField string, limit int) (dataTaskArtifactAccessPrompt, string, []string, string, bool) {
+	baseAlias := firstDataTaskArtifactAlias(base)
+	bestScore := -1
+	var best dataTaskArtifactAccessPrompt
+	bestValue := ""
+	var bestSources []string
+	bestMode := "exact"
+	for _, artifact := range access {
+		alias := firstDataTaskArtifactAlias(artifact)
+		if alias == "" || alias == baseAlias || len(artifact.Fields) == 0 {
+			continue
+		}
+		valueField, exactValue := dataTaskMappingValueFieldForMissingTarget(artifact.Fields, missingField)
+		if valueField == "" {
+			continue
+		}
+		sourceFields := dataTaskReferenceSourceFieldsForMissingTarget(artifact.Fields, valueField, missingField, limit)
+		if len(sourceFields) == 0 {
+			continue
+		}
+		score := 0
+		if exactValue {
+			score += 8
+		}
+		if dataTaskArtifactLooksLikeMapping(artifact) {
+			score += 4
+		}
+		score += dataTaskFieldTokenOverlapScore(artifact.Fields, missingField)
+		score += len(sourceFields)
+		mode := "exact"
+		kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
+		if !strings.Contains(kind, "normalize") && !strings.Contains(kind, "entity_resolution") {
+			mode = "contains"
+		}
+		if score > bestScore {
+			bestScore = score
+			best = artifact
+			bestValue = valueField
+			bestSources = sourceFields
+			bestMode = mode
+		}
+	}
+	if bestScore < 0 {
+		return dataTaskArtifactAccessPrompt{}, "", nil, "", false
+	}
+	return best, bestValue, bestSources, bestMode, true
+}
+
+func dataTaskMappingValueFieldForMissingTarget(fields []string, missingField string) (string, bool) {
+	if exact := firstDataTaskExistingField(fields, missingField); exact != "" {
+		return exact, true
+	}
+	value := dataTaskReferenceValueField(fields)
+	if value == "" {
+		return "", false
+	}
+	return value, false
+}
+
+func dataTaskSourceFieldsForMissingTarget(fields []string, missingField string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	tokens := dataTaskFieldTokens(missingField)
+	var out []string
+	seen := map[string]bool{}
+	add := func(field string) {
+		field = strings.TrimSpace(field)
+		key := strings.ToLower(field)
+		if field == "" || seen[key] || strings.HasPrefix(key, "_") || key == strings.ToLower(strings.TrimSpace(missingField)) {
+			return
+		}
+		seen[key] = true
+		out = append(out, field)
+	}
+	for _, field := range fields {
+		if dataTaskFieldTokenOverlap(dataTaskFieldTokens(field), tokens) > 0 {
+			add(field)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	for _, field := range dataTaskCandidateSourceFields(fields, limit-len(out)) {
+		add(field)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func dataTaskReferenceSourceFieldsForMissingTarget(fields []string, valueField, missingField string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(field string) {
+		field = strings.TrimSpace(field)
+		key := strings.ToLower(field)
+		if field == "" || seen[key] || strings.HasPrefix(key, "_") || key == strings.ToLower(strings.TrimSpace(valueField)) {
+			return
+		}
+		seen[key] = true
+		out = append(out, field)
+	}
+	tokens := dataTaskFieldTokens(missingField)
+	for _, field := range fields {
+		if dataTaskFieldTokenOverlap(dataTaskFieldTokens(field), tokens) > 0 {
+			add(field)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	for _, field := range dataTaskCandidateReferenceSourceFields(fields, valueField, limit-len(out)) {
+		add(field)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func dataTaskFieldTokenOverlapScore(fields []string, target string) int {
+	targetTokens := dataTaskFieldTokens(target)
+	score := 0
+	for _, field := range fields {
+		score += dataTaskFieldTokenOverlap(dataTaskFieldTokens(field), targetTokens)
+	}
+	return score
+}
+
+func dataTaskFieldTokens(field string) map[string]bool {
+	out := map[string]bool{}
+	var b strings.Builder
+	flush := func() {
+		token := strings.ToLower(strings.TrimSpace(b.String()))
+		b.Reset()
+		if len(token) >= 3 {
+			out[token] = true
+		}
+	}
+	for _, r := range field {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func dataTaskFieldTokenOverlap(left, right map[string]bool) int {
+	if len(left) == 0 || len(right) == 0 {
+		return 0
+	}
+	score := 0
+	for token := range left {
+		if right[token] {
+			score++
+		}
+	}
+	return score
+}
+
+func dataTaskMissingFieldOutputArtifact(baseAlias, missingField string) string {
+	base := strings.TrimSpace(path.Base(baseAlias))
+	ext := path.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	if stem == "" {
+		stem = "enriched_records"
+	}
+	return stem + "_with_" + dataTaskSafeActionName(missingField) + ".json"
+}
+
+func dataTaskSafeActionName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "field"
+	}
+	return out
+}
+
+func dataTaskPlanCrossesTypedActionRanks(plan dataquery.TaskPlan) bool {
+	firstRank := 0
+	for _, action := range plan.Actions {
+		kind := normalizeDataActionKindForWorkflow(action.Kind)
+		if kind == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
+			continue
+		}
+		rank := dataTaskActionDependencyRank(kind)
+		if rank == 0 {
+			continue
+		}
+		if firstRank == 0 {
+			firstRank = rank
+			continue
+		}
+		if rank != firstRank {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskActionDependencyRank(kind dataquery.DataActionKind) int {
+	return dataworkflow.DependencyRank(normalizeDataActionKindForWorkflow(kind))
 }
 
 func dataTaskWorkflowMissingValidationStages(state dataTaskWorkflowStateView) []string {
@@ -1031,7 +2655,7 @@ func dataTaskWorkflowMissingValidationStages(state dataTaskWorkflowStateView) []
 	if state.RuleCoverageRequired && state.RuleCoverageRecords == 0 {
 		out = append(out, "rule_coverage")
 	}
-	if state.EntityResolutionRequired && state.EntityResolutionRecords == 0 {
+	if state.EntityResolutionRequired && state.EntityResolutionRecords == 0 && !state.EntityStageMaterialized {
 		out = append(out, "entity_resolution")
 	}
 	if state.DecisionRecordsRequired && state.DecisionRecords == 0 {
@@ -1064,6 +2688,27 @@ func dataTaskPlanIsSingleIntermediateCustomTransform(plan dataquery.TaskPlan) bo
 	}
 	action := plan.Actions[0]
 	return normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != ""
+}
+
+func dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan dataquery.TaskPlan, state dataTaskWorkflowStateView) bool {
+	if !dataTaskPlanIsSingleIntermediateCustomTransform(plan) {
+		return false
+	}
+	action := plan.Actions[0]
+	lines := dataTaskScriptLineCount(action.Script)
+	if lines == 0 || lines >= dataTaskComplexCustomScriptLineLimit {
+		return false
+	}
+	if dataTaskActionLooksLikeWholeWorkflow(plan, action, 0) {
+		return false
+	}
+	if dataTaskValidationLedgerCount(plan.CoverageContract) >= 2 {
+		return false
+	}
+	if (state.NextStage == "prepare_contribution_inputs" || state.NextStage == "compute_contributions") && len(dataTaskWorkflowMissingValidationStages(state)) > 1 {
+		return false
+	}
+	return true
 }
 
 func dataTaskTextConstraintCoverageGuardError(plan dataquery.TaskPlan) string {
@@ -1190,19 +2835,42 @@ func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan
 
 func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	if errText := dataTaskActionIntraBatchDependencyGuardError(plan, actionIndex); errText != "" {
+		return errText
+	}
+	if errText := dataTaskActionInputAvailabilityGuardError(records, plan, action, actionIndex); errText != "" {
+		return errText
+	}
+	if errText := dataTaskActionFieldContractGuardError(records, action, actionIndex); errText != "" {
+		return errText
+	}
 	switch kind {
-	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields:
+	case dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
 		inputs := cleanDataTaskStrings(action.InputPaths)
 		if len(inputs) == 0 {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) requires input_paths. Choose concrete candidate material paths or prior artifact aliases; do not emit an empty %s action.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), strings.TrimSpace(string(kind)))
 		}
-		if kind == dataquery.DataActionDeriveFields && len(inputs) > 1 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields with %d input_paths. derive_fields is a single-record-set field derivation action. Do not use derive_fields for lookup/reference-table mapping. Split different schemas into separate derive_fields actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact, then derive fields from that one artifact.",
-				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(inputs))
+		if (kind == dataquery.DataActionDeriveFields || kind == dataquery.DataActionExpandRecords || kind == dataquery.DataActionFilterRecords || kind == dataquery.DataActionQualifyRecords) && len(inputs) > 1 {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is %s with %d input_paths. %s is a single-record-set action. Do not use it for lookup/reference-table mapping. Split different schemas into separate actions, or first use normalize_entities, enrich_records, or join_records to create one joined/generated artifact.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind, len(inputs), kind)
 		}
 		if kind == dataquery.DataActionDeriveFields && !dataTaskDeriveFieldsActionHasSpec(action) {
 			return fmt.Sprintf("data planning incomplete: action %d (%s) is derive_fields but has no field specification. Add params.field_specs_json (array of source_field/target_field/operation specs) or a single source_field+target_field+operation spec; if this batch only needs to materialize rows without deriving fields, use extract_records instead.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
+		if kind == dataquery.DataActionExpandRecords && !dataTaskExpandRecordsActionHasSpec(action) {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is expand_records but has no source_field. Add params.source_field and optionally params.target_field plus delimiter/separator or split_pattern; use expand_records only to turn one multi-value field into multiple records.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
+		if kind == dataquery.DataActionFilterRecords && !dataTaskFilterRecordsActionHasSpec(action) {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is filter_records but has no filters. Add params.filters_json (array of field/op/value filters) or filter_field/filter_op/filter_value; use filter_records only when the filter fields already exist on the input artifact.",
+				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
+		}
+	case dataquery.DataActionApplyResolutions:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) < 2 && strings.TrimSpace(action.Params["resolution_path"]) == "" && strings.TrimSpace(action.Params["resolution_specs_json"]) == "" {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) is apply_entity_resolutions but has no resolution input. Provide input_paths=[base_record_artifact, entity_resolution_artifact...] or params.resolution_specs with resolution_path.",
 				actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
 		}
 	case dataquery.DataActionComputeContribs:
@@ -1224,6 +2892,732 @@ func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan d
 	return ""
 }
 
+func dataTaskActionIntraBatchDependencyGuardError(plan dataquery.TaskPlan, actionIndex int) string {
+	dependencyIndex, input, producer, ok := dataTaskFirstIntraBatchDependency(plan.Actions)
+	if !ok || dependencyIndex != actionIndex {
+		return ""
+	}
+	return fmt.Sprintf("data planning incomplete: action %d (%s) consumes prior action output %s from action %s in the same batch. Execute the producer action rank first, let it materialize a real artifact and field contract, then continue with dependent actions from the deferred queue.",
+		actionIndex+1,
+		firstNonEmptyString(strings.TrimSpace(plan.Actions[actionIndex].ID), strings.TrimSpace(string(plan.Actions[actionIndex].Kind))),
+		input,
+		firstNonEmptyString(strings.TrimSpace(producer.ID), strings.TrimSpace(producer.OutputArtifact), strings.TrimSpace(string(producer.Kind))))
+}
+
+func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
+		return ""
+	}
+	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	switch kind {
+	case dataquery.DataActionMaterialInventory,
+		dataquery.DataActionInspectMaterial,
+		dataquery.DataActionExtractRecords,
+		dataquery.DataActionDeriveRules:
+		return ""
+	}
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if len(inputs) == 0 {
+		return ""
+	}
+	available := dataTaskWorkflowAvailableActionInputPaths(records, plan, actionIndex)
+	var missing []string
+	for _, input := range inputs {
+		if dataTaskCoveragePathCovered(available, input) {
+			continue
+		}
+		missing = append(missing, input)
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	sort.Strings(missing)
+	return fmt.Sprintf("data planning incomplete: action %d (%s) references unavailable input_path(s) [%s]. Use covered source materials, prior generated artifact aliases from workflow_state_json.artifact_availability, or add earlier typed actions in this batch that output these aliases before consuming them; do not assume deferred or future action outputs already exist.",
+		actionIndex+1,
+		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+		strings.Join(missing, ", "))
+}
+
+func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, action dataquery.DataAction, actionIndex int) string {
+	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
+		return ""
+	}
+	access := dataTaskWorkflowArtifactContractAccess(records)
+	if len(access) == 0 {
+		return ""
+	}
+	kind := normalizeDataActionKindForWorkflow(action.Kind)
+	switch kind {
+	case dataquery.DataActionDeriveFields:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return ""
+		}
+		missing := dataTaskMissingDeriveFieldInputs(access, inputs[0], action)
+		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+	case dataquery.DataActionExpandRecords:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return ""
+		}
+		fields := parseDataTaskActionStringListParam(firstNonEmptyString(
+			action.Params["source_field"],
+			action.Params["input_field"],
+			action.Params["field"],
+			action.Params["value_field"],
+		))
+		if len(fields) == 0 {
+			return ""
+		}
+		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
+		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+	case dataquery.DataActionFilterRecords:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return ""
+		}
+		fields := dataTaskFilterActionFieldRefs(action)
+		if len(fields) == 0 {
+			return ""
+		}
+		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
+		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+	case dataquery.DataActionQualifyRecords:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return ""
+		}
+		fields := dataTaskQualifyActionFieldRefs(action)
+		if len(fields) == 0 {
+			return ""
+		}
+		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
+		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+	case dataquery.DataActionComputeContribs:
+		inputs := cleanDataTaskStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return ""
+		}
+		fields := dataTaskComputeActionFieldRefs(action)
+		if len(fields) == 0 {
+			return ""
+		}
+		missing := dataTaskMissingFieldsOnArtifact(access, inputs[0], fields)
+		return dataTaskActionMissingFieldContractMessage(action, actionIndex, inputs[0], missing, access)
+	case dataquery.DataActionJoinRecords:
+		return dataTaskJoinActionFieldContractGuardError(access, action, actionIndex)
+	case dataquery.DataActionNormalizeEntities:
+		return dataTaskNormalizeActionFieldContractGuardError(access, action, actionIndex)
+	case dataquery.DataActionEnrichRecords:
+		return dataTaskEnrichActionFieldContractGuardError(access, action, actionIndex)
+	case dataquery.DataActionApplyResolutions:
+		return dataTaskApplyResolutionActionFieldContractGuardError(access, action, actionIndex)
+	}
+	return ""
+}
+
+func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, actionIndex int, input string, missing []string, access []dataTaskArtifactAccessPrompt) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	artifact, ok := dataTaskArtifactAccessByAlias(access, input)
+	if !ok || len(artifact.Fields) == 0 {
+		return ""
+	}
+	candidates := dataTaskFieldContractCandidateArtifacts(access, input, missing)
+	candidateHint := ""
+	if len(candidates) > 0 {
+		candidateHint = " Candidate artifact(s) with relevant field(s): " + strings.Join(candidates, "; ") + "."
+	}
+	return fmt.Sprintf("data planning incomplete: action %d (%s) references field(s) [%s] that are not present on input %s fields [%s].%s Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, enrich_records, join_records, or a valid prior typed action before consuming them.",
+		actionIndex+1,
+		firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+		strings.Join(missing, ", "),
+		input,
+		strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", "),
+		candidateHint)
+}
+
+func dataTaskFieldContractCandidateArtifacts(access []dataTaskArtifactAccessPrompt, input string, missing []string) []string {
+	missing = cleanDataTaskStrings(missing)
+	if len(missing) == 0 {
+		return nil
+	}
+	inputKey := strings.ToLower(strings.TrimSpace(input))
+	type candidate struct {
+		alias     string
+		matches   []string
+		matchAll  bool
+		matchSize int
+	}
+	var candidates []candidate
+	for _, artifact := range access {
+		alias := firstDataTaskArtifactAlias(artifact)
+		if alias == "" || strings.EqualFold(strings.TrimSpace(alias), inputKey) || strings.EqualFold(strings.TrimSpace(artifact.ID), inputKey) {
+			continue
+		}
+		fields := dataTaskFieldSet(artifact.Fields)
+		var matches []string
+		for _, field := range missing {
+			if fields[strings.ToLower(strings.TrimSpace(field))] != "" {
+				matches = append(matches, field)
+			}
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			alias:     alias,
+			matches:   matches,
+			matchAll:  len(matches) == len(missing),
+			matchSize: len(matches),
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].matchAll != candidates[j].matchAll {
+			return candidates[i].matchAll
+		}
+		if candidates[i].matchSize != candidates[j].matchSize {
+			return candidates[i].matchSize > candidates[j].matchSize
+		}
+		return candidates[i].alias < candidates[j].alias
+	})
+	var out []string
+	for _, c := range candidates {
+		label := c.alias
+		if !c.matchAll {
+			label += " partial"
+		}
+		out = append(out, fmt.Sprintf("%s has [%s]", label, strings.Join(cleanDataTaskStrings(c.matches), ", ")))
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
+func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alias string, fields []string) []string {
+	artifact, ok := dataTaskArtifactAccessByAlias(access, alias)
+	if !ok || len(artifact.Fields) == 0 {
+		return nil
+	}
+	set := dataTaskFieldSet(artifact.Fields)
+	var missing []string
+	seen := map[string]bool{}
+	for _, field := range cleanDataTaskStrings(fields) {
+		key := strings.ToLower(strings.TrimSpace(field))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if set[key] == "" {
+			missing = append(missing, field)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func dataTaskMissingDeriveFieldInputs(access []dataTaskArtifactAccessPrompt, alias string, action dataquery.DataAction) []string {
+	artifact, ok := dataTaskArtifactAccessByAlias(access, alias)
+	if !ok || len(artifact.Fields) == 0 {
+		return nil
+	}
+	known := dataTaskFieldSet(artifact.Fields)
+	var missing []string
+	seenMissing := map[string]bool{}
+	specs := dataTaskActionObjectListParam(action.Params, "field_specs_json", "derive_specs_json", "transforms_json", "field_specs", "derive_specs", "transforms")
+	for _, spec := range specs {
+		op := strings.ToLower(strings.TrimSpace(firstNonEmptyString(
+			dataTaskMapStringValue(spec, "operation"),
+			dataTaskMapStringValue(spec, "op"),
+			dataTaskMapStringValue(spec, "transform"),
+		)))
+		sources := dataTaskFieldRefsFromSpec(spec, "source_field", "input_field", "field", "value_field")
+		sources = append(sources, dataTaskFieldRefsFromSpec(spec, "source_fields", "input_fields", "fields")...)
+		if len(sources) == 0 && op != "constant" {
+			sources = append(sources, dataTaskFieldRefsFromSpec(spec, "left_field", "right_field")...)
+		}
+		cleanSources := cleanDataTaskStrings(sources)
+		if dataTaskDeriveOperationAllowsPartialSources(op) && len(cleanSources) > 0 {
+			knownCount := 0
+			for _, source := range cleanSources {
+				if known[strings.ToLower(strings.TrimSpace(source))] != "" {
+					knownCount++
+				}
+			}
+			if knownCount > 0 {
+				for _, target := range dataTaskFieldRefsFromSpec(spec, "target_field", "output_field", "derived_field", "name") {
+					target = strings.TrimSpace(target)
+					if target != "" {
+						known[strings.ToLower(target)] = target
+					}
+				}
+				continue
+			}
+		}
+		for _, source := range cleanSources {
+			key := strings.ToLower(strings.TrimSpace(source))
+			if key == "" || known[key] != "" {
+				continue
+			}
+			if !seenMissing[key] {
+				missing = append(missing, source)
+				seenMissing[key] = true
+			}
+		}
+		for _, target := range dataTaskFieldRefsFromSpec(spec, "target_field", "output_field", "derived_field", "name") {
+			target = strings.TrimSpace(target)
+			if target != "" {
+				known[strings.ToLower(target)] = target
+			}
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func dataTaskDeriveOperationAllowsPartialSources(op string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(op))
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	switch normalized {
+	case "concat", "join", "join_fields", "coalesce", "first_non_empty",
+		"concat/join_fields", "join_fields/concat", "concat/join", "join/concat",
+		"coalesce/first_non_empty", "first_non_empty/coalesce":
+		return true
+	default:
+		return false
+	}
+}
+
+func dataTaskFilterActionFieldRefs(action dataquery.DataAction) []string {
+	var fields []string
+	for _, spec := range dataTaskActionObjectListParam(action.Params, "filters_json", "filters") {
+		fields = append(fields, dataTaskFieldRefsFromSpec(spec, "field", "source_field", "input_field")...)
+	}
+	fields = append(fields, parseDataTaskActionStringListParam(action.Params["filter_field"])...)
+	return cleanDataTaskStrings(fields)
+}
+
+func dataTaskQualifyActionFieldRefs(action dataquery.DataAction) []string {
+	var fields []string
+	fields = append(fields, dataTaskFilterActionFieldRefs(action)...)
+	for _, spec := range dataTaskActionObjectListParam(action.Params, "reject_filters_json", "exclude_filters_json", "block_filters_json", "reject_filters", "exclude_filters", "block_filters") {
+		fields = append(fields, dataTaskFieldRefsFromSpec(spec, "field", "source_field", "input_field")...)
+	}
+	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["required_fields"], action.Params["non_empty_fields"]))...)
+	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["evidence_fields"], action.Params["required_evidence_fields"]))...)
+	fields = append(fields, parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["status_fields"], action.Params["generated_status_fields"]))...)
+	return cleanDataTaskStrings(fields)
+}
+
+func dataTaskComputeActionFieldRefs(action dataquery.DataAction) []string {
+	var fields []string
+	fields = append(fields, parseDataTaskActionStringListParam(action.Params["value_field"])...)
+	fields = append(fields, parseDataTaskActionStringListParam(action.Params["group_key_field"])...)
+	fields = append(fields, dataTaskFilterActionFieldRefs(action)...)
+	return cleanDataTaskStrings(fields)
+}
+
+func dataTaskJoinActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	leftPath := firstNonEmptyString(strings.TrimSpace(action.Params["left_path"]), strings.TrimSpace(action.Params["base_path"]))
+	rightPath := firstNonEmptyString(strings.TrimSpace(action.Params["right_path"]), strings.TrimSpace(action.Params["lookup_path"]), strings.TrimSpace(action.Params["reference_path"]))
+	if leftPath == "" && len(inputs) >= 1 {
+		leftPath = inputs[0]
+	}
+	if rightPath == "" && len(inputs) >= 2 {
+		rightPath = inputs[1]
+	}
+	leftFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["left_fields"], action.Params["base_fields"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["left_field"], action.Params["base_field"]))...,
+	))
+	rightFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_fields"], action.Params["lookup_fields"], action.Params["reference_fields"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["right_field"], action.Params["lookup_field"], action.Params["reference_field"]))...,
+	))
+	if leftPath != "" {
+		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, leftPath, dataTaskMissingFieldsOnArtifact(access, leftPath, leftFields), access); msg != "" {
+			return msg
+		}
+	}
+	if rightPath != "" {
+		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, rightPath, dataTaskMissingFieldsOnArtifact(access, rightPath, rightFields), access); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+func dataTaskNormalizeActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	if len(dataTaskActionObjectListParam(action.Params, "resolutions_json", "mappings_json", "entity_resolutions_json", "resolutions", "mappings", "entity_resolutions")) > 0 {
+		return ""
+	}
+	sourceFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["name_fields"], action.Params["name_fields_json"], action.Params["value_fields"], action.Params["value_fields_json"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_field"], action.Params["name_field"], action.Params["value_field"], action.Params["field"]))...,
+	))
+	referenceFields := cleanDataTaskStrings(append(
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["reference_fields"], action.Params["reference_fields_json"], action.Params["reference_name_fields"], action.Params["reference_name_fields_json"], action.Params["mapping_source_fields"], action.Params["mapping_source_fields_json"], action.Params["lookup_fields"], action.Params["lookup_fields_json"])),
+		parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["reference_field"], action.Params["reference_name_field"], action.Params["mapping_source_field"], action.Params["lookup_field"], action.Params["lookup_source_field"]))...,
+	))
+	filterFields := dataTaskFilterActionFieldRefs(action)
+	canonicalIDField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_id_field"]),
+		strings.TrimSpace(action.Params["id_field"]),
+		strings.TrimSpace(action.Params["reference_value_field"]),
+		strings.TrimSpace(action.Params["lookup_value_field"]),
+	)
+	canonicalLabelField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_label_field"]),
+		strings.TrimSpace(action.Params["label_field"]),
+	)
+	explicitSourcePath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["source_path"]),
+		strings.TrimSpace(action.Params["base_path"]),
+		strings.TrimSpace(action.Params["record_path"]),
+	)
+	explicitReferencePath := firstNonEmptyString(
+		strings.TrimSpace(action.Params["reference_path"]),
+		strings.TrimSpace(action.Params["mapping_path"]),
+		strings.TrimSpace(action.Params["lookup_path"]),
+	)
+	sourcePath := explicitSourcePath
+	if sourcePath == "" {
+		sourcePath = firstDataTaskActionInput(action, 0)
+	}
+	referencePath := explicitReferencePath
+	if referencePath == "" {
+		referencePath = firstDataTaskActionInput(action, 1)
+	}
+	if sourcePath == "" {
+		return ""
+	}
+	if referencePath != "" && explicitSourcePath == "" && explicitReferencePath == "" && len(sourceFields) > 0 {
+		sourceMissing := dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceFields)
+		referenceCanBeSource := len(dataTaskMissingFieldsOnArtifact(access, referencePath, sourceFields)) == 0
+		if len(sourceMissing) > 0 && referenceCanBeSource {
+			sourcePath, referencePath = referencePath, sourcePath
+		}
+	}
+	sourceRequired := cleanDataTaskStrings(append(sourceFields, filterFields...))
+	if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, sourcePath, dataTaskMissingFieldsOnArtifact(access, sourcePath, sourceRequired), access); msg != "" {
+		return msg
+	}
+	if referencePath == "" {
+		return ""
+	}
+	referenceRequired := append([]string{}, referenceFields...)
+	if strings.TrimSpace(canonicalIDField) != "" {
+		referenceRequired = append(referenceRequired, canonicalIDField)
+	}
+	if strings.TrimSpace(canonicalLabelField) != "" {
+		referenceRequired = append(referenceRequired, canonicalLabelField)
+	}
+	if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, referencePath, dataTaskMissingFieldsOnArtifact(access, referencePath, referenceRequired), access); msg != "" {
+		return msg
+	}
+	return ""
+}
+
+func dataTaskEnrichActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	basePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), firstDataTaskActionInput(action, 0))
+	if basePath == "" {
+		return ""
+	}
+	for _, spec := range dataTaskActionObjectListParam(action.Params, "lookup_specs_json", "enrich_specs_json", "mapping_specs_json", "map_specs_json", "lookup_specs", "enrich_specs", "mapping_specs", "map_specs") {
+		specBase := firstNonEmptyString(dataTaskMapStringValue(spec, "base_path"), basePath)
+		baseFields := cleanDataTaskStrings(append(
+			dataTaskFieldRefsFromSpec(spec, "base_fields", "source_fields", "left_fields"),
+			dataTaskFieldRefsFromSpec(spec, "base_field", "source_field", "left_field")...,
+		))
+		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, specBase, dataTaskMissingFieldsOnArtifact(access, specBase, baseFields), access); msg != "" {
+			return msg
+		}
+		lookupPath := firstNonEmptyString(
+			dataTaskMapStringValue(spec, "lookup_path"),
+			dataTaskMapStringValue(spec, "mapping_path"),
+			dataTaskMapStringValue(spec, "reference_path"),
+			firstDataTaskActionInput(action, 1),
+		)
+		lookupFields := cleanDataTaskStrings(append(
+			dataTaskFieldRefsFromSpec(spec, "lookup_fields", "mapping_fields", "reference_fields"),
+			dataTaskFieldRefsFromSpec(spec, "lookup_field", "mapping_field", "reference_field", "lookup_value_field", "mapping_value_field", "reference_value_field")...,
+		))
+		if lookupPath != "" {
+			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, lookupPath, dataTaskMissingFieldsOnArtifact(access, lookupPath, lookupFields), access); msg != "" {
+				return msg
+			}
+		}
+	}
+	return ""
+}
+
+func dataTaskApplyResolutionActionFieldContractGuardError(access []dataTaskArtifactAccessPrompt, action dataquery.DataAction, actionIndex int) string {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	topBasePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["source_path"]))
+	basePath := topBasePath
+	specs := dataTaskActionObjectListParam(action.Params, "resolution_specs_json", "apply_specs_json", "resolution_specs", "apply_specs")
+	if len(specs) == 0 {
+		specs = []map[string]any{{}}
+	}
+	for i, spec := range specs {
+		specBasePath := firstNonEmptyString(
+			dataTaskMapStringValue(spec, "base_path"),
+			dataTaskMapStringValue(spec, "record_path"),
+			dataTaskMapStringValue(spec, "input_path"),
+			dataTaskMapStringValue(spec, "source_path"),
+		)
+		if basePath == "" && specBasePath != "" {
+			basePath = specBasePath
+		}
+		if basePath != "" && specBasePath != "" && normalizeDataTaskCoveragePath(basePath) != normalizeDataTaskCoveragePath(specBasePath) {
+			return fmt.Sprintf("data planning incomplete: action %d (%s) has conflicting apply_entity_resolutions base paths [%s] and [%s]. Apply resolutions to one base record artifact per action, or split separate base artifacts into separate actions.",
+				actionIndex+1,
+				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+				basePath,
+				specBasePath)
+		}
+		if i == len(specs)-1 && basePath == "" {
+			basePath = firstDataTaskActionInput(action, 0)
+		}
+	}
+	if basePath == "" {
+		return ""
+	}
+	for i, spec := range specs {
+		specBasePath := firstNonEmptyString(
+			dataTaskMapStringValue(spec, "base_path"),
+			dataTaskMapStringValue(spec, "record_path"),
+			dataTaskMapStringValue(spec, "input_path"),
+			dataTaskMapStringValue(spec, "source_path"),
+			basePath,
+		)
+		baseFields := cleanDataTaskStrings(append(
+			dataTaskFieldRefsFromSpec(spec, "base_key_fields", "source_key_fields"),
+			dataTaskFieldRefsFromSpec(spec, "base_key_field", "source_key_field")...,
+		))
+		if len(baseFields) == 0 {
+			baseFields = parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["base_key_fields"], action.Params["base_key_field"], action.Params["source_key_fields"], action.Params["source_key_field"]))
+		}
+		if missing := dataTaskMissingFieldsOnArtifactWithVirtual(access, specBasePath, baseFields, "_source_index", "source_index", "_source_line", "source_line", "line", "row_index", "row"); len(missing) > 0 {
+			if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, specBasePath, missing, access); msg != "" {
+				return msg
+			}
+		}
+		resolutionPath := firstNonEmptyString(
+			dataTaskMapStringValue(spec, "resolution_path"),
+			dataTaskMapStringValue(spec, "mapping_path"),
+			dataTaskMapStringValue(spec, "lookup_path"),
+			dataTaskMapStringValue(spec, "path"),
+			strings.TrimSpace(action.Params["resolution_path"]),
+			strings.TrimSpace(action.Params["mapping_path"]),
+			strings.TrimSpace(action.Params["lookup_path"]),
+			firstNonBaseDataTaskActionInput(inputs, specBasePath),
+		)
+		if resolutionPath == "" {
+			continue
+		}
+		resolutionFields := cleanDataTaskStrings(append(
+			dataTaskFieldRefsFromSpec(spec, "resolution_key_fields", "mapping_key_fields"),
+			dataTaskFieldRefsFromSpec(spec, "resolution_key_field", "mapping_key_field")...,
+		))
+		if len(resolutionFields) == 0 {
+			resolutionFields = parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["resolution_key_fields"], action.Params["resolution_key_field"], action.Params["mapping_key_fields"], action.Params["mapping_key_field"]))
+		}
+		if msg := dataTaskActionMissingFieldContractMessage(action, actionIndex, resolutionPath, dataTaskMissingApplyResolutionFieldsOnArtifact(access, resolutionPath, resolutionFields), access); msg != "" {
+			return msg
+		}
+		canonicalIDField := firstNonEmptyString(dataTaskMapStringValue(spec, "canonical_id_field"), strings.TrimSpace(action.Params["canonical_id_field"]), "canonical_id")
+		canonicalLabelField := firstNonEmptyString(dataTaskMapStringValue(spec, "canonical_label_field"), strings.TrimSpace(action.Params["canonical_label_field"]), "canonical_label")
+		if !dataTaskArtifactHasAnyField(access, resolutionPath, canonicalIDField, canonicalLabelField) {
+			artifact, ok := dataTaskArtifactAccessByAlias(access, resolutionPath)
+			if !ok || len(artifact.Fields) == 0 {
+				continue
+			}
+			return fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
+				actionIndex+1,
+				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
+				i+1,
+				resolutionPath,
+				canonicalIDField,
+				canonicalLabelField,
+				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", "))
+		}
+	}
+	return ""
+}
+
+func firstNonBaseDataTaskActionInput(inputs []string, basePath string) string {
+	base := normalizeDataTaskCoveragePath(basePath)
+	for _, input := range cleanDataTaskStrings(inputs) {
+		if normalizeDataTaskCoveragePath(input) == "" || normalizeDataTaskCoveragePath(input) == base {
+			continue
+		}
+		return input
+	}
+	return ""
+}
+
+func dataTaskMissingFieldsOnArtifactWithVirtual(access []dataTaskArtifactAccessPrompt, alias string, fields []string, virtualFields ...string) []string {
+	missing := dataTaskMissingFieldsOnArtifact(access, alias, fields)
+	if len(missing) == 0 {
+		return nil
+	}
+	virtual := map[string]bool{}
+	for _, field := range virtualFields {
+		field = strings.ToLower(strings.TrimSpace(field))
+		if field != "" {
+			virtual[field] = true
+		}
+	}
+	var out []string
+	for _, field := range missing {
+		if virtual[strings.ToLower(strings.TrimSpace(field))] {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+func dataTaskMissingApplyResolutionFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alias string, fields []string) []string {
+	missing := dataTaskMissingFieldsOnArtifact(access, alias, fields)
+	if len(missing) == 0 {
+		return nil
+	}
+	artifact, ok := dataTaskArtifactAccessByAlias(access, alias)
+	if !ok || len(artifact.Fields) == 0 {
+		return missing
+	}
+	set := dataTaskFieldSet(artifact.Fields)
+	var out []string
+	for _, field := range missing {
+		if dataTaskResolutionLocatorEquivalentField(set, field) != "" {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+func dataTaskResolutionLocatorEquivalentField(set map[string]string, requested string) string {
+	switch strings.ToLower(strings.TrimSpace(requested)) {
+	case "item_id", "source_locator", "_source_locator", "record_id", "row_id", "id":
+	default:
+		return ""
+	}
+	for _, candidate := range []string{"item_id", "source_locator", "_source_locator", "record_id", "row_id", "id"} {
+		if actual := set[strings.ToLower(candidate)]; actual != "" {
+			return actual
+		}
+	}
+	return ""
+}
+
+func dataTaskArtifactHasAnyField(access []dataTaskArtifactAccessPrompt, alias string, fields ...string) bool {
+	artifact, ok := dataTaskArtifactAccessByAlias(access, alias)
+	if !ok || len(artifact.Fields) == 0 {
+		return true
+	}
+	set := dataTaskFieldSet(artifact.Fields)
+	for _, field := range fields {
+		field = strings.ToLower(strings.TrimSpace(field))
+		if field != "" && set[field] != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstDataTaskActionInput(action dataquery.DataAction, index int) string {
+	inputs := cleanDataTaskStrings(action.InputPaths)
+	if index < 0 || index >= len(inputs) {
+		return ""
+	}
+	return inputs[index]
+}
+
+func dataTaskActionObjectListParam(params map[string]string, keys ...string) []map[string]any {
+	for _, key := range keys {
+		raw := strings.TrimSpace(params[key])
+		if raw == "" {
+			continue
+		}
+		if objects := dataTaskParseObjectList(raw); len(objects) > 0 {
+			return objects
+		}
+	}
+	return nil
+}
+
+func dataTaskParseObjectList(raw string) []map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var list []map[string]any
+	if err := json.Unmarshal([]byte(raw), &list); err == nil {
+		return list
+	}
+	var one map[string]any
+	if err := json.Unmarshal([]byte(raw), &one); err == nil {
+		return []map[string]any{one}
+	}
+	return nil
+}
+
+func dataTaskFieldRefsFromSpec(spec map[string]any, keys ...string) []string {
+	var out []string
+	for _, key := range keys {
+		value, ok := spec[key]
+		if !ok {
+			continue
+		}
+		out = append(out, dataTaskAnyStringList(value)...)
+	}
+	return cleanDataTaskStrings(out)
+}
+
+func dataTaskMapStringValue(spec map[string]any, key string) string {
+	value, ok := spec[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.12f", typed), "0"), ".")
+	case bool:
+		return fmt.Sprintf("%t", typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func dataTaskAnyStringList(value any) []string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case string:
+		return parseDataTaskActionStringListParam(typed)
+	case []string:
+		return cleanDataTaskStrings(typed)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, dataTaskAnyStringList(item)...)
+		}
+		return cleanDataTaskStrings(out)
+	default:
+		return cleanDataTaskStrings([]string{fmt.Sprint(typed)})
+	}
+}
+
 func dataTaskDeriveFieldsActionHasSpec(action dataquery.DataAction) bool {
 	if len(action.Params) == 0 {
 		return false
@@ -1241,16 +3635,55 @@ func dataTaskDeriveFieldsActionHasSpec(action dataquery.DataAction) bool {
 	return false
 }
 
+func dataTaskExpandRecordsActionHasSpec(action dataquery.DataAction) bool {
+	if len(action.Params) == 0 {
+		return false
+	}
+	for _, key := range []string{"source_field", "input_field", "field", "value_field"} {
+		if strings.TrimSpace(action.Params[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskFilterRecordsActionHasSpec(action dataquery.DataAction) bool {
+	if len(action.Params) == 0 {
+		return false
+	}
+	for _, key := range []string{"filters_json", "filters", "filter_field"} {
+		if strings.TrimSpace(action.Params[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func dataTaskCoverageLoopGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
 	state := dataTaskWorkflowState(records, plan)
 	if !state.MaterialCoverageSufficient || !dataTaskPlanIsCoverageOnly(plan) {
 		return ""
 	}
+	if dataTaskPlanIsGeneratedArtifactDiagnostic(records, plan) {
+		return ""
+	}
 	if dataTaskPlanActionsAllAllowedForWorkflowStage(plan, state) {
 		return ""
 	}
-	return fmt.Sprintf("data planning incomplete: material coverage is already sufficient for required runner materials (%d covered, missing=%d). Do not emit another coverage-only batch (material_inventory/inspect_material/extract_records/derive_rules) unless a specific new missing material is listed. Continue toward the user's data goal with compute-stage atomic actions such as derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or one narrow custom_transform over generated artifacts. workflow_next_stage=%s",
+	return fmt.Sprintf("data planning incomplete: material coverage is already sufficient for required runner materials (%d covered, missing=%d). Do not emit another coverage-only batch (material_inventory/inspect_material/derive_rules or extract_records without output_artifact) unless a specific new missing material is listed. extract_records with output_artifact may materialize already-covered sources into reusable record artifacts. Continue toward the user's data goal with compute-stage atomic actions such as derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer. If you need schema diagnostics, inspect a generated artifact alias from artifact_access instead of re-covering original materials. workflow_next_stage=%s",
 		state.RequiredMaterialCount-state.MissingRequiredMaterialCount, state.MissingRequiredMaterialCount, state.NextStage)
+}
+
+func dataTaskPlanIsGeneratedArtifactDiagnostic(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) bool {
+	if len(plan.Actions) == 0 || strings.TrimSpace(plan.Script) != "" {
+		return false
+	}
+	for _, action := range plan.Actions {
+		if !dataTaskActionIsGeneratedArtifactDiagnostic(records, action) {
+			return false
+		}
+	}
+	return true
 }
 
 func dataTaskRepeatedCustomTransformGuardError(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
@@ -1293,7 +3726,7 @@ func dataTaskRepeatedCustomTransformClassGuardError(records []dataTaskWorkflowRe
 	if topCode != "" {
 		codeHint = fmt.Sprintf(" most_common_failure=%s count=%d.", topCode, topCodeCount)
 	}
-	return fmt.Sprintf("data planning incomplete: workflow already has %d custom_transform failure(s).%s Do not bypass this by changing action_id; avoid another broad free-form script. Continue with typed atomic actions that produce reusable artifacts, or use one narrow custom_transform over one known generated artifact with its json_shape/access catalog.",
+	return fmt.Sprintf("data planning incomplete: workflow already has %d custom_transform failure(s).%s Do not bypass this by changing action_id; avoid another broad free-form script. Continue with typed atomic actions that produce reusable artifacts and consume fields from artifact_access.",
 		total, codeHint)
 }
 
@@ -1374,14 +3807,15 @@ func dataTaskCustomScriptActionCount(actions []dataquery.DataAction) int {
 }
 
 func normalizeDataActionKindForWorkflow(kind dataquery.DataActionKind) dataquery.DataActionKind {
-	if strings.EqualFold(strings.TrimSpace(string(kind)), string(dataquery.DataActionCustomTransform)) || strings.TrimSpace(string(kind)) == "" {
-		return dataquery.DataActionCustomTransform
-	}
-	return kind
+	return dataworkflow.NormalizeActionKind(kind)
 }
 
 func dataTaskActionLooksLikeWholeWorkflow(plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) bool {
-	if dataTaskPlanHasTypedActionContext(plan.Actions, actionIndex) && dataTaskScriptLineCount(action.Script) < dataTaskOneShotScriptLineSoftLimit {
+	if dataTaskPlanHasTypedActionContext(plan.Actions, actionIndex) &&
+		dataTaskScriptLineCount(action.Script) < dataTaskOneShotScriptLineSoftLimit &&
+		len(cleanDataTaskStrings(action.InputPaths)) <= 1 &&
+		len(plan.CoverageContract.RequiredMaterials) <= 1 &&
+		dataTaskValidationLedgerCount(plan.CoverageContract) <= 1 {
 		return false
 	}
 	return len(action.InputPaths) >= 4 ||
@@ -1394,6 +3828,42 @@ func dataTaskActionHasBroadPrerequisiteSurface(plan dataquery.TaskPlan, action d
 	lines := dataTaskScriptLineCount(action.Script)
 	return len(inputs) >= 4 ||
 		(lines >= dataTaskComplexCustomScriptLineLimit && dataTaskValidationLedgerCount(plan.CoverageContract) >= 2)
+}
+
+func dataTaskTerminalRawMaterialCustomTransformGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) string {
+	if len(records) == 0 || plan.ContinueAfter {
+		return ""
+	}
+	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
+		return ""
+	}
+	state := dataTaskWorkflowState(records, plan)
+	if state.NextStage != "emit_output_contract_answer" {
+		return ""
+	}
+	rawInputs := dataTaskCustomTransformRawMaterialInputs(records, action)
+	if len(rawInputs) == 0 {
+		return ""
+	}
+	if lines < dataTaskComplexCustomScriptLineLimit && len(rawInputs) <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("data planning incomplete: terminal custom_transform action %d (%s) reads %d original material(s) after prior workflow progress: %s. At the final answer stage, custom_transform may only project or lightly format generated artifacts such as contribution, reconcile, or assembled-answer aliases. Do not recompute material cleaning/joining/aggregation in one script; continue with typed actions (derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer) or a narrow custom_transform over generated artifact aliases only.",
+		actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(rawInputs), strings.Join(rawInputs, ", "))
+}
+
+func dataTaskCustomTransformRawMaterialInputs(records []dataTaskWorkflowRecord, action dataquery.DataAction) []string {
+	generated := dataTaskWorkflowGeneratedArtifactPathSet(records)
+	var raw []string
+	for _, input := range cleanDataTaskStrings(action.InputPaths) {
+		normalized := normalizeDataTaskCoveragePath(input)
+		if normalized == "" || generated[normalized] {
+			continue
+		}
+		raw = append(raw, input)
+	}
+	sort.Strings(raw)
+	return raw
 }
 
 func dataTaskBroadCustomPrerequisiteGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
@@ -1428,7 +3898,7 @@ func dataTaskMissingCustomTransformPrerequisites(records []dataTaskWorkflowRecor
 	covered := dataTaskWorkflowCoveredMaterialPaths(records, plan, actionIndex)
 	var missing []string
 	for _, p := range required {
-		if p == "" || covered[p] {
+		if p == "" || dataTaskCoveragePathCovered(covered, p) {
 			continue
 		}
 		missing = append(missing, p)
@@ -1446,18 +3916,29 @@ func dataTaskWorkflowCoveredMaterialPaths(records []dataTaskWorkflowRecord, plan
 	covered := map[string]bool{}
 	mark := func(values []string) {
 		for _, value := range cleanDataTaskStrings(values) {
-			covered[value] = true
+			normalized := normalizeDataTaskCoveragePath(value)
+			if normalized != "" {
+				covered[normalized] = true
+			}
+		}
+	}
+	var markArtifact func(dataquery.DataArtifact)
+	markArtifact = func(artifact dataquery.DataArtifact) {
+		mark(artifact.SourcePaths)
+		mark(dataTaskArtifactAliasPaths(artifact))
+		for _, child := range artifact.Children {
+			markArtifact(child)
 		}
 	}
 	for _, rec := range records {
 		if rec.Result != nil {
 			mark(rec.Result.ConsumedPaths)
 			for _, artifact := range rec.Result.Artifacts {
-				mark(artifact.SourcePaths)
-				mark(dataTaskArtifactAliasPaths(artifact))
+				markArtifact(artifact)
 			}
 		}
 	}
+	mark(plan.InputPaths)
 	if beforeActionIndex > len(plan.Actions) {
 		beforeActionIndex = len(plan.Actions)
 	}
@@ -1472,6 +3953,96 @@ func dataTaskWorkflowCoveredMaterialPaths(records []dataTaskWorkflowRecord, plan
 		}
 	}
 	return covered
+}
+
+func dataTaskWorkflowAvailableActionInputPaths(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) map[string]bool {
+	available := map[string]bool{}
+	mark := func(values []string) {
+		for _, value := range cleanDataTaskStrings(values) {
+			normalized := normalizeDataTaskCoveragePath(value)
+			if normalized != "" {
+				available[normalized] = true
+			}
+		}
+	}
+	var markArtifact func(dataquery.DataArtifact)
+	markArtifact = func(artifact dataquery.DataArtifact) {
+		mark(artifact.SourcePaths)
+		mark(dataTaskArtifactAliasPaths(artifact))
+		for _, child := range artifact.Children {
+			markArtifact(child)
+		}
+	}
+	for _, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		mark(rec.Result.ConsumedPaths)
+		for _, artifact := range rec.Result.Artifacts {
+			markArtifact(artifact)
+		}
+	}
+	mark(dataTaskTopLevelExternalMaterialInputs(plan.InputPaths))
+	if beforeActionIndex > len(plan.Actions) {
+		beforeActionIndex = len(plan.Actions)
+	}
+	for i := 0; i < beforeActionIndex; i++ {
+		action := plan.Actions[i]
+		switch normalizeDataActionKindForWorkflow(action.Kind) {
+		case dataquery.DataActionCustomTransform, dataquery.DataActionMaterialInventory:
+			continue
+		default:
+			mark(action.InputPaths)
+			mark(dataTaskActionOutputAliases(action))
+		}
+	}
+	return available
+}
+
+func dataTaskTopLevelExternalMaterialInputs(values []string) []string {
+	var out []string
+	for _, value := range cleanDataTaskStrings(values) {
+		if dataTaskPathLooksLikeExternalMaterial(value) {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func dataTaskPathLooksLikeExternalMaterial(value string) bool {
+	value = strings.TrimSpace(filepath.ToSlash(value))
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
+		return true
+	}
+	if strings.Contains(value, "/") {
+		return true
+	}
+	ext := strings.TrimSpace(path.Ext(value))
+	return ext != ""
+}
+
+func dataTaskCoveragePathCovered(covered map[string]bool, required string) bool {
+	required = normalizeDataTaskCoveragePath(required)
+	if required == "" {
+		return true
+	}
+	if covered[required] {
+		return true
+	}
+	if path.Ext(required) != "" {
+		return false
+	}
+	prefix := strings.TrimSuffix(required, "/") + "/"
+	for value := range covered {
+		value = normalizeDataTaskCoveragePath(value)
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskActionOutputAliases(action dataquery.DataAction) []string {
@@ -1561,6 +4132,38 @@ type dataTaskWorkflowRecord struct {
 	Evaluation *dataquery.Evaluation
 }
 
+type dataTaskWorkflowPlanPreflight struct {
+	Plan      dataquery.TaskPlan
+	Original  dataquery.TaskPlan
+	Remainder dataquery.TaskPlan
+	GuardErr  string
+	Reason    string
+	Rewritten bool
+}
+
+func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
+	if protect == nil {
+		protect = func(p dataquery.TaskPlan) dataquery.TaskPlan { return p }
+	}
+	protected := protect(plan)
+	out := dataTaskWorkflowPlanPreflight{Plan: protected, Original: protected}
+	errText := dataTaskWorkflowStagingGuardError(records, protected)
+	if strings.TrimSpace(errText) == "" {
+		return out
+	}
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, protected, errText)
+	if !ok {
+		out.GuardErr = errText
+		return out
+	}
+	out.Plan = protect(fallback)
+	out.Remainder = remainder
+	out.GuardErr = errText
+	out.Reason = reason
+	out.Rewritten = true
+	return out
+}
+
 type dataTaskWorkflowPromptRecord struct {
 	Round               int                       `json:"round"`
 	PlanStatus          string                    `json:"plan_status,omitempty"`
@@ -1580,27 +4183,37 @@ type dataTaskWorkflowPromptRecord struct {
 }
 
 type dataTaskWorkflowStateView struct {
-	MaterialCoverageSufficient   bool                     `json:"material_coverage_sufficient"`
-	RequiredMaterialCount        int                      `json:"required_material_count"`
-	MissingRequiredMaterialCount int                      `json:"missing_required_material_count"`
-	MissingRequiredMaterials     []string                 `json:"missing_required_materials,omitempty"`
-	OutputContract               dataquery.OutputContract `json:"output_contract,omitempty"`
-	RuleCoverageRequired         bool                     `json:"rule_coverage_required,omitempty"`
-	RuleCoverageRecords          int                      `json:"rule_coverage_records,omitempty"`
-	DecisionRecordsRequired      bool                     `json:"decision_records_required,omitempty"`
-	DecisionRecords              int                      `json:"decision_records,omitempty"`
-	EntityResolutionRequired     bool                     `json:"entity_resolution_required,omitempty"`
-	EntityResolutionRecords      int                      `json:"entity_resolution_records,omitempty"`
-	ContributionLedgerRequired   bool                     `json:"contribution_ledger_required,omitempty"`
-	ContributionRecords          int                      `json:"contribution_records,omitempty"`
-	ReconcileRequired            bool                     `json:"reconcile_required,omitempty"`
-	HasReconcile                 bool                     `json:"has_reconcile,omitempty"`
-	HasAnswer                    bool                     `json:"has_answer,omitempty"`
-	NextStage                    string                   `json:"next_stage,omitempty"`
-	CustomTransformFailures      int                      `json:"custom_transform_failures,omitempty"`
-	CustomTransformDisabled      bool                     `json:"custom_transform_disabled,omitempty"`
-	AllowedNextActions           []string                 `json:"allowed_next_actions,omitempty"`
-	AllowedNextActionContracts   []dataTaskActionContract `json:"allowed_next_action_contracts,omitempty"`
+	MaterialCoverageSufficient    bool                           `json:"material_coverage_sufficient"`
+	MaterialCoverageAuthoritative bool                           `json:"material_coverage_authoritative"`
+	RequiredMaterialCount         int                            `json:"required_material_count"`
+	RequiredMaterials             []string                       `json:"required_materials,omitempty"`
+	CoveredRequiredMaterials      []string                       `json:"covered_required_materials,omitempty"`
+	MissingRequiredMaterialCount  int                            `json:"missing_required_material_count"`
+	MissingRequiredMaterials      []string                       `json:"missing_required_materials,omitempty"`
+	CoverageNote                  string                         `json:"coverage_note,omitempty"`
+	OutputContract                dataquery.OutputContract       `json:"output_contract,omitempty"`
+	RuleCoverageRequired          bool                           `json:"rule_coverage_required,omitempty"`
+	RuleCoverageRecords           int                            `json:"rule_coverage_records,omitempty"`
+	DecisionRecordsRequired       bool                           `json:"decision_records_required,omitempty"`
+	DecisionRecords               int                            `json:"decision_records,omitempty"`
+	EntityResolutionRequired      bool                           `json:"entity_resolution_required,omitempty"`
+	EntityResolutionRecords       int                            `json:"entity_resolution_records,omitempty"`
+	EntityStageMaterialized       bool                           `json:"entity_stage_materialized,omitempty"`
+	ContributionLedgerRequired    bool                           `json:"contribution_ledger_required,omitempty"`
+	ContributionRecords           int                            `json:"contribution_records,omitempty"`
+	ReconcileRequired             bool                           `json:"reconcile_required,omitempty"`
+	HasReconcile                  bool                           `json:"has_reconcile,omitempty"`
+	HasAnswer                     bool                           `json:"has_answer,omitempty"`
+	NextStage                     string                         `json:"next_stage,omitempty"`
+	CustomTransformFailures       int                            `json:"custom_transform_failures,omitempty"`
+	CustomTransformDisabled       bool                           `json:"custom_transform_disabled,omitempty"`
+	CustomTransformDisabledNote   string                         `json:"custom_transform_disabled_note,omitempty"`
+	ArtifactAvailabilityCount     int                            `json:"artifact_availability_count,omitempty"`
+	ArtifactAvailabilityTruncated bool                           `json:"artifact_availability_truncated,omitempty"`
+	ArtifactAvailability          []dataTaskArtifactAccessPrompt `json:"artifact_availability,omitempty"`
+	AllowedNextActions            []string                       `json:"allowed_next_actions,omitempty"`
+	AllowedNextActionContracts    []dataTaskActionContract       `json:"allowed_next_action_contracts,omitempty"`
+	ActionScaffold                []dataTaskActionScaffold       `json:"action_scaffold,omitempty"`
 }
 
 type dataTaskActionContract struct {
@@ -1608,6 +4221,17 @@ type dataTaskActionContract struct {
 	InputBoundary string `json:"input_boundary,omitempty"`
 	UseWhen       string `json:"use_when,omitempty"`
 	Output        string `json:"output,omitempty"`
+}
+
+type dataTaskActionScaffold struct {
+	Kind           string            `json:"kind"`
+	UseWhen        string            `json:"use_when,omitempty"`
+	InputPath      string            `json:"input_path,omitempty"`
+	InputPaths     []string          `json:"input_paths,omitempty"`
+	Fields         []string          `json:"fields,omitempty"`
+	CommonFields   []string          `json:"common_fields,omitempty"`
+	ParamsTemplate map[string]string `json:"params_template,omitempty"`
+	Note           string            `json:"note,omitempty"`
 }
 
 type dataTaskResultPromptView struct {
@@ -1635,11 +4259,14 @@ type dataTaskResultPromptView struct {
 }
 
 type dataTaskArtifactAccessPrompt struct {
-	ID          string   `json:"id,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
-	JSONShape   string   `json:"json_shape,omitempty"`
-	AccessHint  string   `json:"access_hint,omitempty"`
-	SourcePaths []string `json:"source_paths,omitempty"`
+	ID           string              `json:"id,omitempty"`
+	Kind         string              `json:"kind,omitempty"`
+	Aliases      []string            `json:"aliases,omitempty"`
+	JSONShape    string              `json:"json_shape,omitempty"`
+	Fields       []string            `json:"fields,omitempty"`
+	FieldSamples map[string][]string `json:"field_samples,omitempty"`
+	AccessHint   string              `json:"access_hint,omitempty"`
+	SourcePaths  []string            `json:"source_paths,omitempty"`
 }
 
 type dataTaskMaterialSetHandlePrompt struct {
@@ -1652,10 +4279,71 @@ type dataTaskMaterialSetHandlePrompt struct {
 }
 
 func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
+	return renderDataTaskRecordsForPromptWithBudget(records, dataTaskPromptRecordBudget{
+		MaxRecords:          6,
+		MaxActions:          8,
+		ActionScriptLimit:   1200,
+		ActionParamLimit:    1200,
+		ScriptPreviewLimit:  1800,
+		ErrorLimit:          1600,
+		EvalReasonLimit:     1000,
+		ResultAnswerLimit:   2400,
+		ResultAuditLimit:    1000,
+		ResultDecisionLimit: 6,
+		ResultRuleLimit:     4,
+		ResultContribLimit:  6,
+		ResultArtifactLimit: 6,
+		ResultAccessLimit:   10,
+		ResultMaterialLimit: 8,
+	})
+}
+
+func renderCompactDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
+	return renderDataTaskRecordsForPromptWithBudget(records, dataTaskPromptRecordBudget{
+		MaxRecords:          3,
+		MaxActions:          4,
+		ActionScriptLimit:   320,
+		ActionParamLimit:    480,
+		ScriptPreviewLimit:  480,
+		ErrorLimit:          700,
+		EvalReasonLimit:     600,
+		ResultAnswerLimit:   700,
+		ResultAuditLimit:    500,
+		ResultDecisionLimit: 2,
+		ResultRuleLimit:     2,
+		ResultContribLimit:  3,
+		ResultArtifactLimit: 4,
+		ResultAccessLimit:   6,
+		ResultMaterialLimit: 4,
+	})
+}
+
+type dataTaskPromptRecordBudget struct {
+	MaxRecords          int
+	MaxActions          int
+	ActionScriptLimit   int
+	ActionParamLimit    int
+	ScriptPreviewLimit  int
+	ErrorLimit          int
+	EvalReasonLimit     int
+	ResultAnswerLimit   int
+	ResultAuditLimit    int
+	ResultDecisionLimit int
+	ResultRuleLimit     int
+	ResultContribLimit  int
+	ResultArtifactLimit int
+	ResultAccessLimit   int
+	ResultMaterialLimit int
+}
+
+func renderDataTaskRecordsForPromptWithBudget(records []dataTaskWorkflowRecord, budget dataTaskPromptRecordBudget) string {
 	if len(records) == 0 {
 		return "(none)\n"
 	}
-	start := len(records) - 6
+	if budget.MaxRecords <= 0 {
+		budget.MaxRecords = 1
+	}
+	start := len(records) - budget.MaxRecords
 	if start < 0 {
 		start = 0
 	}
@@ -1666,7 +4354,7 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 			Round:               i + 1,
 			PlanStatus:          strings.TrimSpace(rec.Plan.Status),
 			Goal:                strings.TrimSpace(rec.Plan.Goal),
-			Actions:             compactDataTaskActionsForPrompt(rec.Plan.Actions, 8, 1200),
+			Actions:             compactDataTaskActionsForPromptWithParamLimit(rec.Plan.Actions, budget.MaxActions, budget.ActionScriptLimit, budget.ActionParamLimit),
 			InputPaths:          append([]string(nil), rec.Plan.InputPaths...),
 			OutputContract:      rec.Plan.OutputContract.Normalize(),
 			SuccessCriteria:     append([]string(nil), rec.Plan.SuccessCriteria...),
@@ -1674,15 +4362,24 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 			NextBatch:           strings.TrimSpace(rec.Plan.NextBatch),
 			WhyThisBatch:        strings.TrimSpace(rec.Plan.WhyThisBatch),
 			ContinueAfter:       rec.Plan.ContinueAfter,
-			ScriptPreview:       clampDataTaskWorkflowText(rec.Plan.Script, 1800),
-			Error:               clampDataTaskWorkflowText(rec.Err, 1600),
+			ScriptPreview:       clampDataTaskWorkflowText(rec.Plan.Script, budget.ScriptPreviewLimit),
+			Error:               clampDataTaskWorkflowText(rec.Err, budget.ErrorLimit),
 		}
 		if rec.Result != nil {
-			view.Result = compactDataTaskResultPromptView(*rec.Result, 2400, 1000, 6, 4, 6)
+			view.Result = compactDataTaskResultPromptViewWithArtifactLimits(*rec.Result,
+				budget.ResultAnswerLimit,
+				budget.ResultAuditLimit,
+				budget.ResultDecisionLimit,
+				budget.ResultRuleLimit,
+				budget.ResultContribLimit,
+				budget.ResultArtifactLimit,
+				budget.ResultAccessLimit,
+				budget.ResultMaterialLimit,
+			)
 		}
 		if rec.Evaluation != nil {
 			eval := *rec.Evaluation
-			eval.Reason = clampDataTaskWorkflowText(eval.Reason, 1000)
+			eval.Reason = clampDataTaskWorkflowText(eval.Reason, budget.EvalReasonLimit)
 			view.Evaluation = &eval
 		}
 		views = append(views, view)
@@ -1690,6 +4387,9 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 	raw, err := json.MarshalIndent(views, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("render data workflow records failed: %v\n", err)
+	}
+	if start > 0 {
+		return fmt.Sprintf("(omitted %d older data rounds; workflow_state_json is authoritative for cumulative coverage, counts, and next-stage state)\n%s", start, string(raw))
 	}
 	return string(raw)
 }
@@ -1700,24 +4400,39 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 	required := cleanDataTaskStrings(contract.RequiredRunnerInputPaths())
 	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
 	var missing []string
+	var coveredRequired []string
 	for _, p := range required {
-		if p == "" || covered[p] {
+		if p == "" {
 			continue
 		}
-		missing = append(missing, p)
+		if dataTaskCoveragePathCovered(covered, p) {
+			coveredRequired = append(coveredRequired, p)
+		} else {
+			missing = append(missing, p)
+		}
 	}
+	sort.Strings(required)
+	sort.Strings(coveredRequired)
 	sort.Strings(missing)
+	materialCoverageSufficient := len(required) > 0 && len(missing) == 0
+	if len(required) == 0 && dataTaskWorkflowHasMaterialProgress(records) {
+		materialCoverageSufficient = true
+	}
 	state := dataTaskWorkflowStateView{
-		RequiredMaterialCount:        len(required),
-		MissingRequiredMaterialCount: len(missing),
-		MissingRequiredMaterials:     missing,
-		OutputContract:               outputContract,
-		MaterialCoverageSufficient:   len(required) > 0 && len(missing) == 0,
-		RuleCoverageRequired:         contract.RuleCoverageRequired,
-		DecisionRecordsRequired:      contract.DecisionRecordsRequired,
-		EntityResolutionRequired:     contract.EntityResolutionRequired,
-		ContributionLedgerRequired:   contract.ContributionLedgerRequired,
-		ReconcileRequired:            contract.ReconcileRequired,
+		MaterialCoverageAuthoritative: true,
+		RequiredMaterialCount:         len(required),
+		RequiredMaterials:             required,
+		CoveredRequiredMaterials:      coveredRequired,
+		MissingRequiredMaterialCount:  len(missing),
+		MissingRequiredMaterials:      missing,
+		CoverageNote:                  "required/covered/missing material fields are deterministic workflow truth; compact result.artifact_access and previous_data_rounds are samples, not coverage authority",
+		OutputContract:                outputContract,
+		MaterialCoverageSufficient:    materialCoverageSufficient,
+		RuleCoverageRequired:          contract.RuleCoverageRequired,
+		DecisionRecordsRequired:       contract.DecisionRecordsRequired,
+		EntityResolutionRequired:      contract.EntityResolutionRequired,
+		ContributionLedgerRequired:    contract.ContributionLedgerRequired,
+		ReconcileRequired:             contract.ReconcileRequired,
 	}
 	for _, rec := range records {
 		if rec.Result == nil {
@@ -1734,15 +4449,668 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 			state.HasAnswer = true
 		}
 	}
+	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
 	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
-	state.CustomTransformDisabled = dataTaskCustomTransformCooldown(records)
 	state.NextStage = dataTaskWorkflowNextStage(state)
+	state.CustomTransformDisabled = dataTaskCustomTransformCooldownForState(records, state)
 	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
 	if state.CustomTransformDisabled {
+		state.CustomTransformDisabledNote = "free-form custom_transform scripts are disabled after workflow/script risk; typed actions remain executable and are the preferred path"
 		state.AllowedNextActionContracts = dataTaskFilterCustomTransformContracts(state.AllowedNextActionContracts)
 	}
+	state.ArtifactAvailability, state.ArtifactAvailabilityCount, state.ArtifactAvailabilityTruncated = dataTaskWorkflowArtifactAvailability(records, 48)
 	state.AllowedNextActions = dataTaskActionKindsFromContracts(state.AllowedNextActionContracts)
+	state.ActionScaffold = dataTaskWorkflowActionScaffold(records, state)
 	return state
+}
+
+func dataTaskWorkflowHasMaterialProgress(records []dataTaskWorkflowRecord) bool {
+	for _, rec := range records {
+		if rec.Result == nil || strings.TrimSpace(rec.Err) != "" {
+			continue
+		}
+		if len(cleanDataTaskStrings(rec.Result.ConsumedPaths)) > 0 {
+			return true
+		}
+		for _, artifact := range rec.Result.Artifacts {
+			if strings.TrimSpace(artifact.ID) != "" || len(cleanDataTaskStrings(artifact.SourcePaths)) > 0 {
+				return true
+			}
+			if artifact.Fields != nil && strings.TrimSpace(artifact.Fields["artifact_path"]) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) bool {
+	for _, rec := range records {
+		if rec.Result == nil || strings.TrimSpace(rec.Err) != "" {
+			continue
+		}
+		for _, artifact := range rec.Result.Artifacts {
+			if dataTaskArtifactMaterializesEntityStage(artifact) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dataTaskArtifactMaterializesEntityStage(artifact dataquery.DataArtifact) bool {
+	kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
+	if strings.Contains(kind, string(dataquery.DataActionNormalizeEntities)) ||
+		strings.Contains(kind, string(dataquery.DataActionEnrichRecords)) ||
+		strings.Contains(kind, string(dataquery.DataActionJoinRecords)) {
+		return true
+	}
+	for _, child := range artifact.Children {
+		if dataTaskArtifactMaterializesEntityStage(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataTaskActionScaffold {
+	if state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions" && state.NextStage != "normalize_or_enrich_entities" {
+		return nil
+	}
+	access := dataTaskWorkflowArtifactAccess(records, 10)
+	if len(access) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, action := range state.AllowedNextActions {
+		allowed[action] = true
+	}
+	var out []dataTaskActionScaffold
+	if allowed[string(dataquery.DataActionDeriveFields)] {
+		for _, artifact := range access {
+			if len(out) >= 6 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionDeriveFields),
+				UseWhen:   "materialize a derived field on one existing record artifact before filtering, joining, or aggregating",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
+				ParamsTemplate: map[string]string{
+					"field_specs_json": `[{"source_field":"<existing field from fields>","source_fields":["<existing field A>","<existing field B>"],"target_field":"<new field>","operation":"parse_number|extract_year|lower|upper|trim|map|regex_extract|concat|coalesce|constant","separator":" "}]`,
+				},
+				Note: "Use only source_field/source_fields names present in fields. concat/coalesce use source_fields. The system does not choose business semantics here.",
+			})
+		}
+	}
+	if allowed[string(dataquery.DataActionExpandRecords)] {
+		for _, artifact := range access {
+			if len(out) >= 8 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionExpandRecords),
+				UseWhen:   "turn one multi-value field on one record artifact into multiple records before enrichment, join, or contribution calculation",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
+				ParamsTemplate: map[string]string{
+					"source_field":   "<existing multi-value field from fields>",
+					"target_field":   "<expanded value field>",
+					"delimiter":      "auto",
+					"original_field": "<optional field to preserve the unsplit source value>",
+				},
+				Note: "Use this for delimited values such as aliases, tags, labels, roles, categories, ids, terms, or other lists. It changes row cardinality; derive_fields does not.",
+			})
+		}
+	}
+	if allowed[string(dataquery.DataActionNormalizeEntities)] {
+		for _, scaffold := range dataTaskNormalizeEntityActionScaffolds(access, 4) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionApplyResolutions)] {
+		for _, scaffold := range dataTaskApplyResolutionActionScaffolds(access, 4) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionEnrichRecords)] {
+		for _, scaffold := range dataTaskEnrichActionScaffolds(access, 4) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionJoinRecords)] {
+		for _, scaffold := range dataTaskJoinActionScaffolds(access, 4) {
+			if len(out) >= 8 {
+				return out
+			}
+			out = append(out, scaffold)
+		}
+	}
+	if allowed[string(dataquery.DataActionFilterRecords)] {
+		for _, artifact := range access {
+			if len(out) >= 10 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionFilterRecords),
+				UseWhen:   "select a smaller reusable record set using fields that already exist on one artifact",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 18),
+				ParamsTemplate: map[string]string{
+					"filters_json": `[{"field":"<existing field from fields>","op":"eq|ne|in|not_in|contains|not_contains|empty|not_empty|gt|gte|lt|lte","value":"<value>"}]`,
+				},
+				Note: "Use only filter field names present in fields. If the desired filter field is missing, first use derive_fields, enrich_records, or join_records to materialize it.",
+			})
+		}
+	}
+	if allowed[string(dataquery.DataActionQualifyRecords)] {
+		for _, artifact := range access {
+			if len(out) >= 10 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionQualifyRecords),
+				UseWhen:   "turn rule/evidence eligibility into auditable include/exclude rows before contribution calculation",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
+				ParamsTemplate: map[string]string{
+					"filters":         `[{"field":"<existing field that must pass>","op":"eq|in|not_empty|exists","value":"<value>"}]`,
+					"reject_filters":  `[{"field":"<existing field that excludes a row>","op":"eq|in|contains","value":"<value>"}]`,
+					"required_fields": `["<existing field that must be non-empty>"]`,
+					"evidence_fields": `["<existing evidence/provenance field if the current rules require it>"]`,
+					"status_fields":   `["<generated *_status field if relevant>"]`,
+					"output_mode":     "filter",
+					"item_id_field":   "<existing stable row id field if available>",
+				},
+				Note: "Use this when records need explicit eligibility decisions before compute_contributions. The model chooses conditions from the current rules; the system only executes typed field/filter/status/evidence checks and emits decision rows.",
+			})
+		}
+	}
+	if allowed[string(dataquery.DataActionComputeContribs)] {
+		for _, artifact := range access {
+			if len(out) >= 10 {
+				return out
+			}
+			alias := firstDataTaskArtifactAlias(artifact)
+			if alias == "" || len(artifact.Fields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:      string(dataquery.DataActionComputeContribs),
+				UseWhen:   "compute a generic contribution ledger from one eligible artifact that already contains the value/group/filter fields",
+				InputPath: alias,
+				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
+				ParamsTemplate: map[string]string{
+					"value_field":     "<existing numeric value field, or omit for count>",
+					"group_key_field": "<existing grouping field, or use group_key for a constant group>",
+					"filters_json":    `[{"field":"<existing field from fields>","op":"eq|in|not_in|contains|exists","value":"<value>"}]`,
+					"operation":       "add|count",
+					"metric":          "<metric name>",
+					"item_id_field":   "<existing stable row id field if available>",
+				},
+				Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
+			})
+		}
+	}
+	return out
+}
+
+func dataTaskApplyResolutionActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var mappings []dataTaskArtifactAccessPrompt
+	for _, artifact := range access {
+		if dataTaskArtifactLooksLikeMapping(artifact) && firstDataTaskExistingField(artifact.Fields, "item_id", "source_line", "source_index", "canonical_id", "canonical_label") != "" {
+			mappings = append(mappings, artifact)
+		}
+	}
+	if len(mappings) == 0 {
+		return nil
+	}
+	var out []dataTaskActionScaffold
+	for _, base := range access {
+		baseAlias := firstDataTaskArtifactAlias(base)
+		if baseAlias == "" || len(base.Fields) == 0 || dataTaskArtifactLooksLikeMapping(base) {
+			continue
+		}
+		for _, mapping := range mappings {
+			mappingAlias := firstDataTaskArtifactAlias(mapping)
+			if mappingAlias == "" || mappingAlias == baseAlias {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:       string(dataquery.DataActionApplyResolutions),
+				UseWhen:    "apply an existing entity_resolution ledger back onto base rows before filtering, joining, or contribution calculation",
+				InputPaths: []string{baseAlias, mappingAlias},
+				Fields:     clampDataTaskStringSlice(base.Fields, 20),
+				ParamsTemplate: map[string]string{
+					"base_path":        baseAlias,
+					"resolution_specs": fmt.Sprintf(`[{"resolution_path":%q,"target_id_field":"<new canonical id field>","target_label_field":"<optional label field>","target_status_field":"<new status field>","resolution_filters":[{"field":"<resolution namespace/source field>","op":"contains","value":"<base source field name when needed>"}]}]`, mappingAlias),
+				},
+				Note: "Use this after normalize_entities when base rows need canonical fields from entity_resolution records. It preserves all base rows by default; base/source filters only choose rows eligible for applying mappings. Use filter_records or base_filter_mode=filter_output only when shrinking rows is intentional. If a workflow ledger contains multiple dimensions or source fields, filter the resolution side for the intended target field. If key fields are omitted, the runner uses base _source_index and parses #N from resolution item_id/source_locator. This action applies existing mappings; it does not decide new mappings.",
+			})
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func dataTaskEnrichActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var mappings []dataTaskArtifactAccessPrompt
+	for _, artifact := range access {
+		if dataTaskArtifactLooksLikeMapping(artifact) {
+			mappings = append(mappings, artifact)
+		}
+	}
+	if len(mappings) == 0 {
+		return nil
+	}
+	var out []dataTaskActionScaffold
+	for _, base := range access {
+		baseAlias := firstDataTaskArtifactAlias(base)
+		if baseAlias == "" || len(base.Fields) == 0 || dataTaskArtifactLooksLikeMapping(base) {
+			continue
+		}
+		for _, mapping := range mappings {
+			mappingAlias := firstDataTaskArtifactAlias(mapping)
+			if mappingAlias == "" || mappingAlias == baseAlias {
+				continue
+			}
+			valueField := dataTaskReferenceValueField(mapping.Fields)
+			if valueField == "" {
+				continue
+			}
+			sourceFields := dataTaskCandidateSourceFields(base.Fields, 4)
+			if len(sourceFields) == 0 {
+				sourceFields = []string{"<field from the base artifact fields>"}
+			}
+			mappingSourceFields := dataTaskCandidateReferenceSourceFields(mapping.Fields, valueField, 6)
+			if len(mappingSourceFields) == 0 {
+				mappingSourceFields = []string{"source_value"}
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:       string(dataquery.DataActionEnrichRecords),
+				UseWhen:    "apply mapping/reference rows back onto base records while preserving the base record fields",
+				InputPaths: []string{baseAlias, mappingAlias},
+				Fields:     clampDataTaskStringSlice(base.Fields, 20),
+				ParamsTemplate: map[string]string{
+					"base_path":    baseAlias,
+					"lookup_specs": fmt.Sprintf(`[{"lookup_path":%q,"base_fields":%s,"lookup_fields":%s,"lookup_value_field":%q,"target_field":"<new canonical/reference field>","match_mode":"exact|contains|mapping_contains_source|source_contains_mapping"}]`, mappingAlias, mustCompactJSONString(sourceFields), mustCompactJSONString(mappingSourceFields), valueField),
+				},
+				Note: "Use this after normalize_entities or reference-table extraction when later joins/filters/aggregation need canonical/reference fields on original base rows. base_fields must exist on the base artifact; lookup_fields and lookup_value_field must exist on the lookup/reference artifact. Do not feed lookup rows directly into compute_contributions unless they are the task items.",
+			})
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func dataTaskNormalizeEntityActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []dataTaskActionScaffold
+	for _, source := range access {
+		sourceAlias := firstDataTaskArtifactAlias(source)
+		if sourceAlias == "" || len(source.Fields) == 0 || dataTaskArtifactLooksLikeMapping(source) {
+			continue
+		}
+		sourceFields := dataTaskCandidateSourceFields(source.Fields, 4)
+		if len(sourceFields) == 0 {
+			continue
+		}
+		for _, reference := range access {
+			refAlias := firstDataTaskArtifactAlias(reference)
+			if refAlias == "" || refAlias == sourceAlias || len(reference.Fields) == 0 {
+				continue
+			}
+			canonicalIDField := dataTaskReferenceValueField(reference.Fields)
+			if canonicalIDField == "" {
+				continue
+			}
+			canonicalLabelField := dataTaskReferenceLabelField(reference.Fields, canonicalIDField)
+			referenceFields := dataTaskCandidateReferenceSourceFields(reference.Fields, canonicalIDField, 8)
+			if len(referenceFields) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:       string(dataquery.DataActionNormalizeEntities),
+				UseWhen:    "build a source-to-reference mapping ledger before enriching, joining, or aggregating records",
+				InputPaths: []string{sourceAlias, refAlias},
+				Fields:     clampDataTaskStringSlice(source.Fields, 18),
+				ParamsTemplate: map[string]string{
+					"source_field":          sourceFields[0],
+					"reference_name_fields": mustCompactJSONString(referenceFields),
+					"canonical_id_field":    canonicalIDField,
+					"canonical_label_field": canonicalLabelField,
+					"match_mode":            "exact|mapping_contains_source|source_contains_mapping|contains",
+				},
+				Note: "Use this when one record set has raw source values and another record set has canonical/reference values. Choose source/reference fields from real fields, then feed this mapping artifact into enrich_records.",
+			})
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func dataTaskArtifactLooksLikeMapping(artifact dataTaskArtifactAccessPrompt) bool {
+	kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
+	if strings.Contains(kind, "normalize_entities") || strings.Contains(kind, "entity_resolution") {
+		return true
+	}
+	fields := dataTaskFieldSet(artifact.Fields)
+	if fields["source_value"] != "" && (fields["canonical_id"] != "" || fields["canonical_label"] != "") {
+		return true
+	}
+	if dataTaskReferenceValueField(artifact.Fields) != "" && len(dataTaskCandidateReferenceSourceFields(artifact.Fields, dataTaskReferenceValueField(artifact.Fields), 3)) > 0 {
+		return true
+	}
+	return false
+}
+
+func dataTaskReferenceLabelField(fields []string, idField string) string {
+	idLower := strings.ToLower(strings.TrimSpace(idField))
+	best := ""
+	bestScore := -1
+	for i, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		lower := strings.ToLower(trimmed)
+		if trimmed == "" || strings.HasPrefix(lower, "_") || lower == idLower {
+			continue
+		}
+		score := 0
+		switch {
+		case lower == "label" || lower == "name" || lower == "title":
+			score = 100
+		case strings.Contains(lower, "label") || strings.Contains(lower, "name") || strings.Contains(lower, "title"):
+			score = 80
+		case strings.Contains(lower, "description") || strings.Contains(lower, "text"):
+			score = 40
+		default:
+			score = 1
+		}
+		if score > bestScore || (score == bestScore && best == "" && i == 0) {
+			best = trimmed
+			bestScore = score
+		}
+	}
+	return best
+}
+
+func dataTaskReferenceValueField(fields []string) string {
+	if field := firstDataTaskExistingField(fields, "canonical_id", "canonical_label", "value", "target_value", "code"); field != "" {
+		return field
+	}
+	for _, field := range fields {
+		lower := strings.ToLower(strings.TrimSpace(field))
+		if lower == "" || strings.HasPrefix(lower, "_") {
+			continue
+		}
+		if strings.Contains(lower, "canonical") && (strings.Contains(lower, "id") || strings.Contains(lower, "code") || strings.Contains(lower, "value")) {
+			return strings.TrimSpace(field)
+		}
+	}
+	for _, field := range fields {
+		lower := strings.ToLower(strings.TrimSpace(field))
+		if lower == "" || strings.HasPrefix(lower, "_") {
+			continue
+		}
+		if strings.HasSuffix(lower, "_id") || strings.HasSuffix(lower, "_code") {
+			return strings.TrimSpace(field)
+		}
+	}
+	return ""
+}
+
+func dataTaskCandidateSourceFields(fields []string, limit int) []string {
+	var out []string
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		lower := strings.ToLower(trimmed)
+		if trimmed == "" || strings.HasPrefix(lower, "_") || lower == "amount" || lower == "year" {
+			continue
+		}
+		if strings.Contains(lower, "name") || strings.Contains(lower, "raw") || strings.Contains(lower, "description") || strings.Contains(lower, "purpose") || strings.Contains(lower, "label") || strings.Contains(lower, "text") || strings.Contains(lower, "title") {
+			out = append(out, trimmed)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func dataTaskCandidateReferenceSourceFields(fields []string, valueField string, limit int) []string {
+	var out []string
+	valueLower := strings.ToLower(strings.TrimSpace(valueField))
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		lower := strings.ToLower(trimmed)
+		if trimmed == "" || strings.HasPrefix(lower, "_") || lower == valueLower {
+			continue
+		}
+		if strings.Contains(lower, "negative") || strings.Contains(lower, "exclude") || strings.Contains(lower, "except") {
+			continue
+		}
+		if strings.Contains(lower, "source") || strings.Contains(lower, "term") || strings.Contains(lower, "name") || strings.Contains(lower, "label") || strings.Contains(lower, "keyword") || strings.Contains(lower, "example") || strings.Contains(lower, "description") || strings.Contains(lower, "text") {
+			out = append(out, trimmed)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	if len(out) == 0 {
+		for _, field := range fields {
+			trimmed := strings.TrimSpace(field)
+			lower := strings.ToLower(trimmed)
+			if trimmed == "" || strings.HasPrefix(lower, "_") || lower == valueLower {
+				continue
+			}
+			if strings.Contains(lower, "negative") || strings.Contains(lower, "exclude") || strings.Contains(lower, "except") {
+				continue
+			}
+			out = append(out, trimmed)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func firstDataTaskExistingField(fields []string, candidates ...string) string {
+	set := dataTaskFieldSet(fields)
+	for _, candidate := range candidates {
+		if field := set[strings.ToLower(strings.TrimSpace(candidate))]; field != "" {
+			return field
+		}
+	}
+	return ""
+}
+
+func mustCompactJSONString(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+func dataTaskWorkflowArtifactAccess(records []dataTaskWorkflowRecord, limit int) []dataTaskArtifactAccessPrompt {
+	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
+	return sampleDataTaskArtifactAccess(artifacts, limit)
+}
+
+func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []dataTaskArtifactAccessPrompt {
+	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
+	if len(artifacts) == 0 {
+		return nil
+	}
+	projections := dataworkflow.ProjectArtifactSchemasNewestFirst(artifacts)
+	out := make([]dataTaskArtifactAccessPrompt, 0, len(projections))
+	for _, projection := range projections {
+		out = append(out, dataTaskArtifactAccessPrompt{
+			ID:          projection.ID,
+			Kind:        projection.Kind,
+			Aliases:     projection.Aliases,
+			JSONShape:   projection.JSONShape,
+			Fields:      projection.Fields,
+			AccessHint:  projection.AccessHint,
+			SourcePaths: projection.SourcePaths,
+		})
+	}
+	return out
+}
+
+func dataTaskWorkflowArtifactAvailability(records []dataTaskWorkflowRecord, limit int) ([]dataTaskArtifactAccessPrompt, int, bool) {
+	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
+	total := dataTaskFlattenedArtifactCount(artifacts)
+	access := sampleDataTaskArtifactAccess(artifacts, limit)
+	for i := range access {
+		access[i].FieldSamples = nil
+	}
+	return access, total, total > len(access)
+}
+
+func dataTaskWorkflowArtifactsNewestFirst(records []dataTaskWorkflowRecord) []dataquery.DataArtifact {
+	var artifacts []dataquery.DataArtifact
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil {
+			continue
+		}
+		// ActionRunner appends seed artifacts first and the freshly
+		// materialized action artifact last. Present newest artifacts first
+		// so compact prompts expose the just-created dependency instead of
+		// burying it behind old seed rows.
+		for j := len(rec.Result.Artifacts) - 1; j >= 0; j-- {
+			artifacts = append(artifacts, rec.Result.Artifacts[j])
+		}
+	}
+	return artifacts
+}
+
+func dataTaskFlattenedArtifactCount(artifacts []dataquery.DataArtifact) int {
+	return dataworkflow.FlattenedArtifactCount(artifacts)
+}
+
+func firstDataTaskArtifactAlias(artifact dataTaskArtifactAccessPrompt) string {
+	for _, alias := range artifact.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias != "" {
+			return alias
+		}
+	}
+	return strings.TrimSpace(artifact.ID)
+}
+
+func dataTaskJoinActionScaffolds(access []dataTaskArtifactAccessPrompt, limit int) []dataTaskActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []dataTaskActionScaffold
+	for i := 0; i < len(access); i++ {
+		leftAlias := firstDataTaskArtifactAlias(access[i])
+		if leftAlias == "" || len(access[i].Fields) == 0 {
+			continue
+		}
+		leftFields := dataTaskFieldSet(access[i].Fields)
+		for j := i + 1; j < len(access); j++ {
+			rightAlias := firstDataTaskArtifactAlias(access[j])
+			if rightAlias == "" || len(access[j].Fields) == 0 {
+				continue
+			}
+			common := dataTaskCommonFields(leftFields, access[j].Fields, 8)
+			if len(common) == 0 {
+				continue
+			}
+			out = append(out, dataTaskActionScaffold{
+				Kind:         string(dataquery.DataActionJoinRecords),
+				UseWhen:      "join two generated record artifacts before later derivation or contribution calculation",
+				InputPaths:   []string{leftAlias, rightAlias},
+				CommonFields: common,
+				ParamsTemplate: map[string]string{
+					"left_fields":  `["<field from common_fields or another field present on the left artifact>"]`,
+					"right_fields": `["<matching field present on the right artifact>"]`,
+					"join_type":    "inner|left",
+					"collision":    "prefix",
+				},
+				Note: "Join fields are side-specific. A left field must exist on the left artifact, and a right field must exist on the right artifact. join_type=inner keeps only matched rows; join_type=left preserves all left rows for later diagnostics or filtering. Prefer enrich_records when applying lookup/reference values onto base rows.",
+			})
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func dataTaskFieldSet(fields []string) map[string]string {
+	out := map[string]string{}
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		key := strings.ToLower(trimmed)
+		if key != "" && out[key] == "" {
+			out[key] = trimmed
+		}
+	}
+	return out
+}
+
+func dataTaskCommonFields(left map[string]string, right []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, field := range right {
+		key := strings.ToLower(strings.TrimSpace(field))
+		if key == "" || seen[key] || left[key] == "" {
+			continue
+		}
+		seen[key] = true
+		out = append(out, left[key])
+		if len(out) >= limit {
+			break
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func dataTaskActionKindsFromContracts(contracts []dataTaskActionContract) []string {
@@ -1767,6 +5135,10 @@ func dataTaskFilterCustomTransformContracts(contracts []dataTaskActionContract) 
 }
 
 func dataTaskCustomTransformCooldown(records []dataTaskWorkflowRecord) bool {
+	total, _, topCodeCount := dataTaskCustomTransformFailureClassStats(records)
+	if total >= DefaultDataTaskMaxCustomTransformClassFailures || topCodeCount >= DefaultDataTaskMaxNodeFailures {
+		return true
+	}
 	for i := len(records) - 1; i >= 0; i-- {
 		rec := records[i]
 		if strings.TrimSpace(rec.Err) != "" && dataTaskRecordHasCustomTransformScript(rec) {
@@ -1774,6 +5146,45 @@ func dataTaskCustomTransformCooldown(records []dataTaskWorkflowRecord) bool {
 		}
 		if strings.TrimSpace(rec.Err) == "" && dataTaskRecordHasPostScriptTypedProgress(rec) {
 			return false
+		}
+	}
+	return false
+}
+
+func dataTaskCustomTransformCooldownForState(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) bool {
+	if dataTaskCustomTransformCooldown(records) {
+		return true
+	}
+	if dataTaskWorkflowShouldPreferTypedActions(state) {
+		return true
+	}
+	total, _, _ := dataTaskCustomTransformFailureClassStats(records)
+	if total == 0 {
+		return false
+	}
+	// Once a broad custom transform has failed in a ledgered workflow, keep
+	// the remaining validation DAG on typed actions until only final answer
+	// projection remains. A later successful typed node is progress, but it
+	// should not reopen the same broad-script escape hatch while contribution
+	// or reconcile ledgers are still structurally missing.
+	for _, missing := range dataTaskWorkflowMissingValidationStages(state) {
+		if missing != "final_answer" {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskWorkflowShouldPreferTypedActions(state dataTaskWorkflowStateView) bool {
+	if state.NextStage == "" || state.NextStage == "complete" || state.NextStage == "emit_output_contract_answer" {
+		return false
+	}
+	if !(state.DecisionRecordsRequired || state.EntityResolutionRequired || state.ContributionLedgerRequired || state.ReconcileRequired) {
+		return false
+	}
+	for _, missing := range dataTaskWorkflowMissingValidationStages(state) {
+		if missing != "final_answer" {
+			return true
 		}
 	}
 	return false
@@ -1789,7 +5200,11 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 	for _, action := range rec.Plan.Actions {
 		switch normalizeDataActionKindForWorkflow(action.Kind) {
 		case dataquery.DataActionDeriveFields,
+			dataquery.DataActionExpandRecords,
+			dataquery.DataActionFilterRecords,
+			dataquery.DataActionQualifyRecords,
 			dataquery.DataActionNormalizeEntities,
+			dataquery.DataActionApplyResolutions,
 			dataquery.DataActionEnrichRecords,
 			dataquery.DataActionJoinRecords,
 			dataquery.DataActionComputeContribs,
@@ -1803,6 +5218,9 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 
 func dataTaskResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
 	if strings.TrimSpace(result.Answer) == "" {
+		return false
+	}
+	if dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
 		return false
 	}
 	if plan.ContinueAfter {
@@ -1875,16 +5293,19 @@ func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
 	if state.RuleCoverageRequired && state.RuleCoverageRecords == 0 {
 		return "derive_rules"
 	}
-	if state.EntityResolutionRequired && state.EntityResolutionRecords == 0 {
+	if state.EntityResolutionRequired && state.EntityResolutionRecords == 0 && !state.EntityStageMaterialized {
 		return "normalize_or_enrich_entities"
 	}
 	if state.ContributionLedgerRequired && state.ContributionRecords == 0 {
-		return "compute_contributions"
+		return "prepare_contribution_inputs"
 	}
 	if state.ReconcileRequired && !state.HasReconcile {
 		return "reconcile_artifacts"
 	}
 	if !state.HasAnswer {
+		if !state.RuleCoverageRequired && !state.EntityResolutionRequired && !state.ContributionLedgerRequired && !state.ReconcileRequired {
+			return "compute_contributions"
+		}
 		return "emit_output_contract_answer"
 	}
 	return "complete"
@@ -1924,20 +5345,41 @@ func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView)
 		}
 	case "normalize_or_enrich_entities":
 		return []dataTaskActionContract{
+			contract(dataquery.DataActionExtractRecords, "covered source material or generated artifact with output_artifact", "materialize a record artifact needed by normalization, enrichment, join, filtering, or contribution actions; this is record materialization, not repeated material coverage", "one reusable record artifact"),
 			contract(dataquery.DataActionDeriveFields, "exactly one existing record artifact/path", "derive same-record fields such as parsed numbers, extracted year, trimmed/lowercase values, constants, regex fields, or maps that do not require a second table", "one enriched record artifact"),
+			contract(dataquery.DataActionExpandRecords, "exactly one existing record artifact/path", "expand one multi-value field into multiple records before enrichment or join, for aliases, tags, categories, roles, labels, terms, or other delimited values", "one expanded record artifact"),
+			contract(dataquery.DataActionFilterRecords, "exactly one existing record artifact/path", "keep/drop rows using existing fields before enrichment, join, or contribution calculation", "one filtered record artifact"),
 			contract(dataquery.DataActionNormalizeEntities, "one or more inputs are OK when producing source-to-canonical mappings", "produce canonical mappings for identifiers, names, categories, accounts, people, devices, labels, or other entities", "entity_resolution records and mapping artifact"),
+			contract(dataquery.DataActionApplyResolutions, "base record artifact plus entity_resolution artifact(s)", "apply existing source-to-canonical mappings back onto base rows before enrichment, join, filtering, or contribution calculation; preserves base rows by default", "one record artifact with canonical id/label/status fields"),
 			contract(dataquery.DataActionEnrichRecords, "base record artifact plus mapping/reference artifact(s)", "apply mapping/reference records to base rows and materialize added canonical or derived fields", "one enriched record artifact"),
-			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join two record sets using explicit key fields before later derivation or contribution calculation", "one joined record artifact"),
+			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join two record sets using explicit key fields before later derivation or contribution calculation; join_type=inner drops unmatched left rows, join_type=left preserves them", "one joined record artifact"),
 			contract(dataquery.DataActionCustomTransform, "small bounded fallback over known artifacts only", "use only when typed actions cannot express this single normalization/enrichment step", "one reusable artifact or ledger slice"),
+		}
+	case "prepare_contribution_inputs":
+		return []dataTaskActionContract{
+			contract(dataquery.DataActionExtractRecords, "covered source material or generated artifact with output_artifact", "materialize a record artifact needed before field derivation, filtering, joining, contribution calculation, or final projection", "one reusable record artifact"),
+			contract(dataquery.DataActionDeriveFields, "exactly one existing record artifact/path", "derive numeric, grouping, filtering, or reference fields that are missing before contribution calculation", "one enriched record artifact"),
+			contract(dataquery.DataActionExpandRecords, "exactly one existing record artifact/path", "expand one multi-value field into multiple records before enrichment, join, or contribution calculation", "one expanded record artifact"),
+			contract(dataquery.DataActionFilterRecords, "exactly one existing record artifact/path", "keep/drop rows with existing filter fields before contribution calculation", "one filtered record artifact"),
+			contract(dataquery.DataActionQualifyRecords, "exactly one existing record artifact/path", "execute model-declared record eligibility conditions and emit include/exclude decision records before contribution calculation", "one eligible/annotated record artifact plus decision rows"),
+			contract(dataquery.DataActionNormalizeEntities, "one or more inputs are OK when producing mappings", "materialize canonical mappings needed by later enrichment, joins, or contribution calculation", "entity_resolution records and mapping artifact"),
+			contract(dataquery.DataActionApplyResolutions, "base record artifact plus entity_resolution artifact(s)", "materialize existing canonical mappings as fields on contribution candidate rows; preserves base rows by default", "one record artifact with canonical id/label/status fields"),
+			contract(dataquery.DataActionEnrichRecords, "base record artifact plus mapping/reference artifact(s)", "apply mappings or reference fields needed by contribution calculation", "one enriched record artifact"),
+			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join base records with target/query/reference rows before contribution calculation; use join_type=left if unmatched base rows must remain observable", "one joined record artifact"),
+			contract(dataquery.DataActionComputeContribs, "one structured record artifact/path with existing value/group/filter fields", "use only when the input artifact already contains every value, group, and filter field named in params", "contribution records and contribution artifact"),
 		}
 	case "compute_contributions":
 		return []dataTaskActionContract{
+			contract(dataquery.DataActionExtractRecords, "covered source material or generated artifact with output_artifact", "materialize a missing record artifact when contribution inputs still exist only as covered material or generated non-record payload", "one reusable record artifact"),
 			contract(dataquery.DataActionDeriveFields, "exactly one existing record artifact/path", "derive final numeric/group/filter fields before contribution calculation", "one enriched record artifact"),
+			contract(dataquery.DataActionExpandRecords, "exactly one existing record artifact/path", "expand one multi-value field into multiple records before enrichment, join, or contribution calculation", "one expanded record artifact"),
+			contract(dataquery.DataActionFilterRecords, "exactly one existing record artifact/path", "keep/drop rows with existing filter fields before contribution calculation", "one filtered record artifact"),
+			contract(dataquery.DataActionQualifyRecords, "exactly one existing record artifact/path", "execute model-declared eligibility conditions when rule/evidence-qualified item decisions are needed before contribution calculation", "one eligible/annotated record artifact plus decision rows"),
 			contract(dataquery.DataActionNormalizeEntities, "one or more inputs are OK when producing mappings", "repair missing canonical mappings needed by contribution calculation", "entity_resolution records and mapping artifact"),
+			contract(dataquery.DataActionApplyResolutions, "base record artifact plus entity_resolution artifact(s)", "apply existing canonical mappings onto rows before contribution calculation; preserves base rows by default", "one record artifact with canonical id/label/status fields"),
 			contract(dataquery.DataActionEnrichRecords, "base record artifact plus mapping/reference artifact(s)", "apply mappings or reference fields needed by contribution calculation", "one enriched record artifact"),
-			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join base records with target/query/reference rows before contribution calculation", "one joined record artifact"),
+			contract(dataquery.DataActionJoinRecords, "two structured record artifacts/paths", "join base records with target/query/reference rows before contribution calculation; use join_type=left if unmatched base rows must remain observable", "one joined record artifact"),
 			contract(dataquery.DataActionComputeContribs, "one structured record artifact/path with existing value/group/filter fields", "compute generic sums, counts, grouped totals, or contribution ledgers", "contribution records and contribution artifact"),
-			contract(dataquery.DataActionCustomTransform, "small bounded fallback over generated/covered artifacts; do not cross compute, reconcile, and final answer in one script", "use only when generic contribution params cannot express this single compute step", "decision/contribution records or one reusable compute artifact"),
 		}
 	case "reconcile_artifacts":
 		return []dataTaskActionContract{
@@ -1963,7 +5405,12 @@ func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
 			return false
 		}
 		switch normalizeDataActionKindForWorkflow(action.Kind) {
-		case dataquery.DataActionMaterialInventory, dataquery.DataActionInspectMaterial, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveRules:
+		case dataquery.DataActionExtractRecords:
+			if strings.TrimSpace(action.OutputArtifact) != "" {
+				return false
+			}
+			continue
+		case dataquery.DataActionMaterialInventory, dataquery.DataActionInspectMaterial, dataquery.DataActionDeriveRules:
 			continue
 		default:
 			return false
@@ -1973,6 +5420,10 @@ func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
 }
 
 func compactDataTaskResultPromptView(result dataquery.Result, answerLimit, auditLimit, decisionLimit, ruleLimit, contributionLimit int) *dataTaskResultPromptView {
+	return compactDataTaskResultPromptViewWithArtifactLimits(result, answerLimit, auditLimit, decisionLimit, ruleLimit, contributionLimit, 6, 10, 8)
+}
+
+func compactDataTaskResultPromptViewWithArtifactLimits(result dataquery.Result, answerLimit, auditLimit, decisionLimit, ruleLimit, contributionLimit, artifactLimit, artifactAccessLimit, materialSetLimit int) *dataTaskResultPromptView {
 	contract := result.OutputContract.Normalize()
 	clampedReconcile := clampPromptReconcileReport(result.Reconcile)
 	groupCount, groupKeys, _ := promptReconcileGroupSummary(result.Reconcile, 20)
@@ -1998,9 +5449,9 @@ func compactDataTaskResultPromptView(result dataquery.Result, answerLimit, audit
 		ReconcileGroupKeySample:  groupKeys,
 		ReconcileGroupsTruncated: groupsTruncated,
 		Metrics:                  result.Metrics,
-		Artifacts:                sampleDataTaskArtifacts(result.Artifacts, 6),
-		ArtifactAccess:           sampleDataTaskArtifactAccess(result.Artifacts, 10),
-		MaterialSetHandles:       sampleDataTaskMaterialSetHandles(result.Artifacts, 8),
+		Artifacts:                sampleDataTaskArtifacts(result.Artifacts, artifactLimit),
+		ArtifactAccess:           sampleDataTaskArtifactAccess(result.Artifacts, artifactAccessLimit),
+		MaterialSetHandles:       sampleDataTaskMaterialSetHandles(result.Artifacts, materialSetLimit),
 		ContractWarnings:         append([]string(nil), result.ContractWarnings...),
 	}
 }
@@ -2099,6 +5550,7 @@ func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int)
 		return nil
 	}
 	var out []dataTaskArtifactAccessPrompt
+	seen := map[string]bool{}
 	var walk func(dataquery.DataArtifact)
 	walk = func(artifact dataquery.DataArtifact) {
 		if len(out) >= limit {
@@ -2110,12 +5562,26 @@ func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int)
 			shape = strings.TrimSpace(artifact.Fields["json_shape"])
 		}
 		if len(aliases) > 0 || shape != "" {
+			key := dataTaskArtifactAccessKey(artifact)
+			if key != "" && seen[key] {
+				for _, child := range artifact.Children {
+					walk(child)
+				}
+				return
+			}
+			if key != "" {
+				seen[key] = true
+			}
+			fields := clampDataTaskStringSlice(artifactAccessFields(artifact), 32)
 			out = append(out, dataTaskArtifactAccessPrompt{
-				ID:          strings.TrimSpace(artifact.ID),
-				Aliases:     clampDataTaskStringSlice(aliases, 8),
-				JSONShape:   clampDataTaskWorkflowText(shape, 240),
-				AccessHint:  dataTaskArtifactAccessHint(shape),
-				SourcePaths: clampDataTaskStringSlice(artifact.SourcePaths, 6),
+				ID:           strings.TrimSpace(artifact.ID),
+				Kind:         strings.TrimSpace(artifact.Kind),
+				Aliases:      clampDataTaskStringSlice(aliases, 8),
+				JSONShape:    clampDataTaskWorkflowText(shape, 240),
+				Fields:       fields,
+				FieldSamples: artifactAccessFieldSamples(artifact, fields, 12, 3),
+				AccessHint:   dataTaskArtifactAccessHint(shape),
+				SourcePaths:  clampDataTaskStringSlice(artifact.SourcePaths, 6),
 			})
 		}
 		for _, child := range artifact.Children {
@@ -2131,11 +5597,146 @@ func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int)
 	return out
 }
 
+func dataTaskArtifactAccessKey(artifact dataquery.DataArtifact) string {
+	for _, alias := range dataTaskArtifactAliasPaths(artifact) {
+		if key := normalizeDataTaskCoveragePath(alias); key != "" {
+			return key
+		}
+	}
+	if artifact.Fields != nil {
+		if path := normalizeDataTaskCoveragePath(artifact.Fields["artifact_path"]); path != "" {
+			return path
+		}
+	}
+	id := strings.TrimSpace(artifact.ID)
+	if id != "" {
+		return "id:" + id
+	}
+	kind := strings.TrimSpace(artifact.Kind)
+	if kind != "" || len(artifact.SourcePaths) > 0 {
+		return "kind:" + kind + "\x00" + strings.Join(cleanDataTaskStrings(artifact.SourcePaths), "\x00")
+	}
+	return ""
+}
+
+func artifactAccessFieldSamples(artifact dataquery.DataArtifact, fields []string, maxFields, maxValues int) map[string][]string {
+	if maxFields <= 0 || maxValues <= 0 || len(fields) == 0 || len(artifact.Sample) == 0 {
+		return nil
+	}
+	allowed := map[string]string{}
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		if trimmed == "" {
+			continue
+		}
+		allowed[strings.ToLower(trimmed)] = trimmed
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	out := map[string][]string{}
+	seen := map[string]map[string]bool{}
+	for _, sample := range artifact.Sample {
+		if len(out) >= maxFields {
+			break
+		}
+		sample = strings.TrimSpace(sample)
+		if sample == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(sample), &obj); err != nil {
+			continue
+		}
+		keys := make([]string, 0, len(obj))
+		for key := range obj {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			canonical := allowed[strings.ToLower(strings.TrimSpace(key))]
+			if canonical == "" {
+				continue
+			}
+			values := out[canonical]
+			if len(values) >= maxValues {
+				continue
+			}
+			value := dataTaskSampleScalar(obj[key])
+			if value == "" {
+				continue
+			}
+			if seen[canonical] == nil {
+				seen[canonical] = map[string]bool{}
+			}
+			if seen[canonical][value] {
+				continue
+			}
+			seen[canonical][value] = true
+			out[canonical] = append(out[canonical], value)
+			if len(out) >= maxFields {
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func dataTaskSampleScalar(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return clampDataTaskWorkflowText(typed, 120)
+	case bool:
+		return fmt.Sprintf("%t", typed)
+	case float64:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.12f", typed), "0"), ".")
+	case int:
+		return fmt.Sprintf("%d", typed)
+	case int64:
+		return fmt.Sprintf("%d", typed)
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func artifactAccessFields(artifact dataquery.DataArtifact) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	for _, header := range artifact.Headers {
+		add(header)
+	}
+	if artifact.Fields != nil {
+		for _, key := range []string{"output_headers", "headers", "fields"} {
+			for _, field := range strings.Split(artifact.Fields[key], ",") {
+				add(field)
+			}
+		}
+	}
+	return out
+}
+
 func dataTaskArtifactAccessHint(shape string) string {
 	shape = strings.TrimSpace(strings.ToLower(shape))
 	switch {
 	case strings.HasPrefix(shape, "array"):
 		return "read with json_records(alias) or iterate json_load(alias) as a list; do not call .get() on the top-level value"
+	case strings.HasPrefix(shape, "object") && strings.Contains(shape, "records"):
+		return "read with json_records(alias); this wrapper object contains a records array plus metadata"
 	case strings.HasPrefix(shape, "object"):
 		return "read with json_load(alias) for object fields, or json_records(alias) when treating object values/wrappers as records"
 	case strings.HasPrefix(shape, "scalar"):
@@ -2146,6 +5747,10 @@ func dataTaskArtifactAccessHint(shape string) string {
 }
 
 func compactDataTaskActionsForPrompt(actions []dataquery.DataAction, limit, scriptLimit int) []dataquery.DataAction {
+	return compactDataTaskActionsForPromptWithParamLimit(actions, limit, scriptLimit, scriptLimit)
+}
+
+func compactDataTaskActionsForPromptWithParamLimit(actions []dataquery.DataAction, limit, scriptLimit, paramLimit int) []dataquery.DataAction {
 	if limit <= 0 || len(actions) == 0 {
 		return nil
 	}
@@ -2157,8 +5762,32 @@ func compactDataTaskActionsForPrompt(actions []dataquery.DataAction, limit, scri
 		action.Purpose = clampDataTaskWorkflowText(action.Purpose, 240)
 		action.InputPaths = clampDataTaskStringSlice(action.InputPaths, 12)
 		action.Script = clampDataTaskWorkflowText(action.Script, scriptLimit)
+		action.Params = compactDataTaskActionParamsForPrompt(action.Params, 16, paramLimit)
 		action.SuccessCriteria = clampDataTaskStringSlice(action.SuccessCriteria, 8)
 		out = append(out, action)
+	}
+	return out
+}
+
+func compactDataTaskActionParamsForPrompt(params map[string]string, maxKeys, valueLimit int) map[string]string {
+	if len(params) == 0 || maxKeys <= 0 {
+		return nil
+	}
+	if valueLimit <= 0 {
+		valueLimit = 240
+	}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make(map[string]string, len(keys))
+	for i, key := range keys {
+		if i >= maxKeys {
+			out["_truncated_params"] = fmt.Sprintf("%d additional param(s) omitted from prompt preview", len(keys)-maxKeys)
+			break
+		}
+		out[key] = clampDataTaskWorkflowText(params[key], valueLimit)
 	}
 	return out
 }
@@ -2447,11 +6076,65 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 }
 
 func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result {
-	result, ok := latestDataTaskResult(records)
-	if !ok {
-		return dataquery.Result{}
+	var out dataquery.Result
+	seenArtifacts := map[string]bool{}
+	seenConsumed := map[string]bool{}
+	addArtifact := func(artifact dataquery.DataArtifact) {
+		key := strings.TrimSpace(artifact.ID)
+		if key == "" && len(artifact.SourcePaths) > 0 {
+			key = strings.Join(cleanDataTaskStrings(artifact.SourcePaths), "\x00")
+		}
+		if key != "" {
+			if seenArtifacts[key] {
+				return
+			}
+			seenArtifacts[key] = true
+		}
+		out.Artifacts = append(out.Artifacts, artifact)
 	}
-	return result
+	addConsumed := func(values []string) {
+		for _, p := range cleanDataTaskStrings(values) {
+			if seenConsumed[p] {
+				continue
+			}
+			seenConsumed[p] = true
+			out.ConsumedPaths = append(out.ConsumedPaths, p)
+		}
+	}
+	for _, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		result := *rec.Result
+		addConsumed(result.ConsumedPaths)
+		for _, artifact := range result.Artifacts {
+			addArtifact(artifact)
+		}
+		out.Rows = append(out.Rows, result.Rows...)
+		out.RuleCoverage = append(out.RuleCoverage, result.RuleCoverage...)
+		out.Contributions = append(out.Contributions, result.Contributions...)
+		out.EntityResolutions = append(out.EntityResolutions, result.EntityResolutions...)
+		out.Metrics = append(out.Metrics, result.Metrics...)
+		out.ContractWarnings = append(out.ContractWarnings, result.ContractWarnings...)
+		if strings.TrimSpace(result.AuditSummary) != "" {
+			if strings.TrimSpace(out.AuditSummary) == "" {
+				out.AuditSummary = result.AuditSummary
+			} else {
+				out.AuditSummary += "; " + result.AuditSummary
+			}
+		}
+		if result.Reconcile != nil {
+			reconcile := *result.Reconcile
+			out.Reconcile = &reconcile
+		}
+		if strings.TrimSpace(result.Answer) != "" && (!dataquery.AnswerLooksLikeArtifactSummary(result.Answer) || strings.TrimSpace(out.Answer) == "" || dataquery.AnswerLooksLikeArtifactSummary(out.Answer)) {
+			out.Answer = result.Answer
+		}
+		if result.OutputContract.Format != "" {
+			out.OutputContract = result.OutputContract
+		}
+	}
+	return out
 }
 
 func dataTaskResultHasHandoffSignal(result dataquery.Result) bool {
@@ -2492,9 +6175,6 @@ func dataTaskArtifactAliasPaths(artifact dataquery.DataArtifact) []string {
 			}
 		}
 	}
-	for _, child := range artifact.Children {
-		out = append(out, dataTaskArtifactAliasPaths(child)...)
-	}
 	return cleanDataTaskStrings(out)
 }
 
@@ -2528,6 +6208,14 @@ func dataTaskWorkflowGeneratedArtifactPathSet(records []dataTaskWorkflowRecord) 
 		}
 	}
 	return out
+}
+
+func dataTaskWorkflowHasArtifactAlias(records []dataTaskWorkflowRecord, alias string) bool {
+	want := normalizeDataTaskCoveragePath(alias)
+	if want == "" {
+		return false
+	}
+	return dataTaskWorkflowGeneratedArtifactPathSet(records)[want]
 }
 
 func dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract dataquery.CoverageContract, generated map[string]bool) dataquery.CoverageContract {
@@ -2626,10 +6314,173 @@ func dataTaskArtifactCandidateSample(artifact dataquery.DataArtifact) []string {
 func dataTaskWorkflowCoverageContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.CoverageContract {
 	contract := dataquery.CoverageContract{}
 	for _, rec := range records {
-		contract = mergeDataTaskCoverageContracts(contract, rec.Plan.CoverageContract)
+		contract = mergeDataTaskCoverageContracts(contract, dataTaskWorkflowRecordCoverageContract(rec))
 	}
-	contract = mergeDataTaskCoverageContracts(contract, current.CoverageContract)
+	currentContract := current.CoverageContract
+	currentContract = dataTaskConstrainWorkflowRequiredMaterials(contract, current)
+	contract = mergeDataTaskCoverageContracts(contract, currentContract)
 	return dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract, dataTaskWorkflowGeneratedArtifactPathSet(records))
+}
+
+func dataTaskWorkflowRecordCoverageContract(rec dataTaskWorkflowRecord) dataquery.CoverageContract {
+	contract := rec.Plan.CoverageContract
+	if strings.TrimSpace(rec.Err) == "" {
+		return contract
+	}
+	out := contract
+	out.RequiredMaterials = nil
+	for _, material := range contract.RequiredMaterials {
+		if dataTaskCoverageMaterialIsUserExplicitFloor(material) {
+			out.RequiredMaterials = append(out.RequiredMaterials, material)
+			continue
+		}
+		if strings.TrimSpace(string(material.UsageMode)) == "" {
+			material.UsageMode = dataquery.MaterialUseReferenceOnly
+		}
+		material.Required = false
+		out.OptionalMaterials = append(out.OptionalMaterials, material)
+	}
+	return out
+}
+
+func dataTaskConstrainCurrentRequiredMaterials(previous dataquery.CoverageContract, current dataquery.TaskPlan) dataquery.CoverageContract {
+	if len(current.CoverageContract.RequiredMaterials) == 0 {
+		return current.CoverageContract
+	}
+	previousRequired := dataTaskCoverageMaterialKeySet(previous.RequiredMaterials)
+	currentInputs := dataTaskCurrentBatchInputPathSet(current)
+	if len(currentInputs) == 0 {
+		return current.CoverageContract
+	}
+	out := current.CoverageContract
+	out.RequiredMaterials = nil
+	for _, material := range current.CoverageContract.RequiredMaterials {
+		if dataTaskCoverageMaterialShouldRemainRequiredInCurrentBatch(material, previousRequired, currentInputs) {
+			out.RequiredMaterials = append(out.RequiredMaterials, material)
+			continue
+		}
+		if strings.TrimSpace(string(material.UsageMode)) == "" {
+			material.UsageMode = dataquery.MaterialUseReferenceOnly
+		}
+		// Keep workflow-level requirements only for deterministic user-pinned
+		// material floors. Model-authored future materials outside this batch
+		// remain optional so they do not create spurious hard coverage gates.
+		material.Required = dataTaskCoverageMaterialIsUserExplicitFloor(material)
+		out.OptionalMaterials = append(out.OptionalMaterials, material)
+	}
+	return out
+}
+
+func dataTaskConstrainWorkflowRequiredMaterials(previous dataquery.CoverageContract, current dataquery.TaskPlan) dataquery.CoverageContract {
+	if len(current.CoverageContract.RequiredMaterials) == 0 {
+		return current.CoverageContract
+	}
+	currentInputs := dataTaskCurrentBatchInputPathSet(current)
+	if len(currentInputs) == 0 {
+		return current.CoverageContract
+	}
+	previousRequired := dataTaskCoverageMaterialMap(previous.RequiredMaterials)
+	userFloorMode := dataTaskCoverageHasUserExplicitFloor(previous.RequiredMaterials) ||
+		dataTaskCoverageHasUserExplicitFloor(previous.OptionalMaterials) ||
+		dataTaskCoverageHasUserExplicitFloor(current.CoverageContract.RequiredMaterials) ||
+		dataTaskCoverageHasUserExplicitFloor(current.CoverageContract.OptionalMaterials)
+	out := current.CoverageContract
+	out.RequiredMaterials = nil
+	for _, material := range current.CoverageContract.RequiredMaterials {
+		if dataTaskCoverageMaterialShouldRemainRequiredInWorkflow(material, previousRequired, currentInputs, userFloorMode) {
+			out.RequiredMaterials = append(out.RequiredMaterials, material)
+			continue
+		}
+		if strings.TrimSpace(string(material.UsageMode)) == "" {
+			material.UsageMode = dataquery.MaterialUseReferenceOnly
+		}
+		material.Required = dataTaskCoverageMaterialIsUserExplicitFloor(material)
+		out.OptionalMaterials = append(out.OptionalMaterials, material)
+	}
+	return out
+}
+
+func dataTaskCoverageMaterialIsUserExplicitFloor(material dataquery.CoverageMaterial) bool {
+	return strings.TrimSpace(material.Purpose) == dataTaskUserExplicitMaterialPurpose
+}
+
+func dataTaskCoverageHasUserExplicitFloor(materials []dataquery.CoverageMaterial) bool {
+	for _, material := range materials {
+		if dataTaskCoverageMaterialIsUserExplicitFloor(material) {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskCoverageMaterialMap(materials []dataquery.CoverageMaterial) map[string]dataquery.CoverageMaterial {
+	out := map[string]dataquery.CoverageMaterial{}
+	for _, material := range materials {
+		if key := dataTaskCoverageMaterialKey(material); key != "" {
+			out[key] = material
+		}
+	}
+	return out
+}
+
+func dataTaskCoverageMaterialShouldRemainRequiredInCurrentBatch(material dataquery.CoverageMaterial, previousRequired, currentInputs map[string]bool) bool {
+	key := dataTaskCoverageMaterialKey(material)
+	if key != "" && previousRequired[key] {
+		return true
+	}
+	for _, raw := range []string{material.Path, material.TextEvidencePath} {
+		p := normalizeDataTaskCoveragePath(raw)
+		if p != "" && currentInputs[p] {
+			return true
+		}
+	}
+	mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
+	return mode == dataquery.MaterialUsePlannerDistilled && len(material.DistilledNotes) > 0
+}
+
+func dataTaskCoverageMaterialShouldRemainRequiredInWorkflow(material dataquery.CoverageMaterial, previousRequired map[string]dataquery.CoverageMaterial, currentInputs map[string]bool, userFloorMode bool) bool {
+	if dataTaskCoverageMaterialIsUserExplicitFloor(material) {
+		return true
+	}
+	key := dataTaskCoverageMaterialKey(material)
+	if key != "" {
+		if previous, ok := previousRequired[key]; ok {
+			return !userFloorMode || dataTaskCoverageMaterialIsUserExplicitFloor(previous)
+		}
+	}
+	if userFloorMode {
+		return false
+	}
+	for _, raw := range []string{material.Path, material.TextEvidencePath} {
+		p := normalizeDataTaskCoveragePath(raw)
+		if p != "" && currentInputs[p] {
+			return true
+		}
+	}
+	mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
+	return mode == dataquery.MaterialUsePlannerDistilled && len(material.DistilledNotes) > 0
+}
+
+func dataTaskCurrentBatchInputPathSet(plan dataquery.TaskPlan) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range dataTaskCurrentBatchInputPaths(plan) {
+		normalized := normalizeDataTaskCoveragePath(p)
+		if normalized != "" {
+			out[normalized] = true
+		}
+	}
+	return out
+}
+
+func dataTaskCurrentBatchInputPaths(plan dataquery.TaskPlan) []string {
+	var inputs []string
+	for _, action := range plan.Actions {
+		inputs = append(inputs, action.InputPaths...)
+	}
+	if len(cleanDataTaskStrings(inputs)) == 0 && len(plan.Actions) == 0 {
+		inputs = append(inputs, plan.InputPaths...)
+	}
+	return cleanDataTaskStrings(inputs)
 }
 
 func preserveDataTaskWorkflowMaterialCoverage(records []dataTaskWorkflowRecord, current, next dataquery.TaskPlan) dataquery.TaskPlan {
@@ -2654,13 +6505,213 @@ func validateDataTaskWorkflowResult(records []dataTaskWorkflowRecord, current da
 }
 
 func dataTaskWorkflowCompletionGateError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
+	return dataTaskWorkflowCompletionGateErrorWithRepo("", records, current, result)
+}
+
+func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
 	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
 		return fmt.Sprintf("validate data workflow completion: %v", err)
+	}
+	if candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); ok {
+		return fmt.Sprintf("validate data workflow completion: data output incomplete: final answer has %d item(s), but reference field %q in %q defines %d output key(s); run assemble_answer with complete_reference=true, reference_path, and reference_key_field to project missing zero/empty values without changing contribution records",
+			answerItems, candidate.Field, candidate.Path, candidate.KeyCount)
+	}
+	if dataTaskResultNeedsOutputProjection(records, current, result) {
+		return "validate data workflow completion: data output incomplete: output_contract requires final answer projection but result.answer is empty while reconcile groups are available"
 	}
 	return ""
 }
 
+func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
+	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract)
+	if contract.Format == "" {
+		return false
+	}
+	contract = contract.Normalize()
+	if result.Reconcile != nil && len(result.Reconcile.Groups) > 0 &&
+		dataTaskOutputContractNeedsFinalProjection(contract) &&
+		!dataTaskResultHasAssembleAnswerArtifact(result) &&
+		!dataTaskPlanHasCustomTransform(current) {
+		return true
+	}
+	if strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
+		return false
+	}
+	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
+		return false
+	}
+	if contract.Format != dataquery.OutputFreeform {
+		return true
+	}
+	if !contract.ExplanationAllowed {
+		return true
+	}
+	coverage := dataTaskWorkflowCoverageContract(records, current)
+	return coverage.ReconcileRequired
+}
+
+func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContract) bool {
+	contract = contract.Normalize()
+	if contract.Format == "" {
+		return false
+	}
+	return contract.Format != dataquery.OutputFreeform || !contract.ExplanationAllowed
+}
+
+func dataTaskResultHasAssembleAnswerArtifact(result dataquery.Result) bool {
+	for _, artifact := range result.Artifacts {
+		if strings.EqualFold(strings.TrimSpace(artifact.Kind), string(dataquery.DataActionAssembleAnswer)) {
+			return true
+		}
+	}
+	return false
+}
+
+func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool) {
+	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, 0, false
+	}
+	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	if contract.Format == "" || (contract.Format == dataquery.OutputFreeform && contract.ExplanationAllowed) {
+		return dataquery.ReferenceKeyCandidate{}, 0, false
+	}
+	groupKeys := dataTaskReconcileGroupKeys(result.Reconcile)
+	if len(groupKeys) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, 0, false
+	}
+	artifacts := dataTaskWorkflowArtifacts(records, result)
+	candidatePaths := dataTaskReferenceCandidatePaths(records, current, result, contract)
+	candidateFields := cleanDataTaskStrings([]string{contract.ReferenceKeyField})
+	runner := dataquery.ActionRunner{
+		RepoRoot: strings.TrimSpace(repoRoot),
+		Seed:     result,
+	}
+	candidate, ok := runner.InferReferenceKeyCandidate(artifacts, groupKeys, candidatePaths, candidateFields, 100000)
+	if !ok || candidate.KeyCount <= len(groupKeys) {
+		return dataquery.ReferenceKeyCandidate{}, 0, false
+	}
+	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
+	if strings.TrimSpace(result.Answer) == "" || dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
+		return candidate, answerItems, true
+	}
+	if answerItems > 0 && answerItems < candidate.KeyCount {
+		return candidate, answerItems, true
+	}
+	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+}
+
+func dataTaskReconcileGroupKeys(report *dataquery.ReconcileReport) []string {
+	if report == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, group := range report.Groups {
+		key := strings.TrimSpace(group.GroupKey.String())
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return cleanDataTaskStrings(out)
+}
+
+func dataTaskWorkflowArtifacts(records []dataTaskWorkflowRecord, result dataquery.Result) []dataquery.DataArtifact {
+	var out []dataquery.DataArtifact
+	for _, rec := range records {
+		if rec.Result != nil {
+			out = append(out, rec.Result.Artifacts...)
+		}
+	}
+	out = append(out, result.Artifacts...)
+	return out
+}
+
+func dataTaskReferenceCandidatePaths(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.OutputContract) []string {
+	var paths []string
+	paths = append(paths, contract.ReferencePath)
+	paths = append(paths, current.InputPaths...)
+	for _, action := range current.Actions {
+		paths = append(paths, action.InputPaths...)
+		paths = append(paths, action.Params["reference_path"], action.Params["reference_paths"])
+	}
+	paths = append(paths, result.ConsumedPaths...)
+	for _, rec := range records {
+		paths = append(paths, rec.Plan.InputPaths...)
+		for _, action := range rec.Plan.Actions {
+			paths = append(paths, action.InputPaths...)
+			paths = append(paths, action.Params["reference_path"], action.Params["reference_paths"])
+		}
+		if rec.Result != nil {
+			paths = append(paths, rec.Result.ConsumedPaths...)
+		}
+	}
+	return cleanDataTaskStrings(paths)
+}
+
+func dataTaskRequiredOutputProjectionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, bool) {
+	return dataTaskRequiredOutputProjectionPlanWithRepo("", records, current, result)
+}
+
+func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, bool) {
+	needsProjection := dataTaskResultNeedsOutputProjection(records, current, result)
+	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	if !needsProjection && !hasReferenceGap {
+		return dataquery.TaskPlan{}, false
+	}
+	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract)
+	coverage := dataTaskWorkflowCoverageContract(records, current)
+	coverage.ReconcileRequired = true
+	params := map[string]string{
+		"order_by":    "group_key",
+		"value_field": "actual",
+	}
+	if delimiter := strings.TrimSpace(contract.Delimiter); delimiter != "" {
+		params["delimiter"] = delimiter
+	}
+	if hasReferenceGap {
+		contract.CompleteReference = true
+		contract.ReferencePath = candidate.Path
+		contract.ReferenceKeyField = candidate.Field
+		params["complete_reference"] = "true"
+		params["reference_path"] = candidate.Path
+		params["reference_key_field"] = candidate.Field
+	}
+	base := dataquery.TaskPlan{
+		Status:           "ready",
+		OutputContract:   contract,
+		CoverageContract: coverage,
+		Goal:             strings.TrimSpace(current.Goal),
+		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
+		ContinueAfter:    false,
+		Actions: []dataquery.DataAction{{
+			ID:             "complete_output_contract_answer",
+			Kind:           dataquery.DataActionAssembleAnswer,
+			Purpose:        "project existing reconcile groups into the requested output contract without changing business decisions or numeric values",
+			OutputArtifact: "final_answer.json",
+			Params:         params,
+		}},
+		WhyThisBatch: "project existing reconcile groups into the requested output contract",
+	}
+	if hasReferenceGap {
+		base.WhyThisBatch = "project existing reconcile groups across the complete structural reference key universe"
+		base.NextBatch = fmt.Sprintf("assemble_answer will preserve %d reference key(s) from %s.%s and fill missing groups with zero/empty values", candidate.KeyCount, candidate.Path, candidate.Field)
+	}
+	if strings.TrimSpace(base.Goal) == "" {
+		base.Goal = "complete the final answer projection from already reconciled data"
+	}
+	return base, true
+}
+
 func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
+	return dataTaskRequiredLedgerCompletionPlanWithRepo("", records, current, result, errText)
+}
+
+func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
+	if plan, ok := dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot, records, current, result); ok {
+		return plan, true
+	}
 	violation := dataquery.ClassifyExecutionError(errText)
 	if strings.TrimSpace(violation.Code) != "missing_required_ledger" {
 		return dataquery.TaskPlan{}, false
@@ -2689,24 +6740,7 @@ func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, curr
 		base.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
 		return base, true
 	case "/entity_resolutions":
-		inputs := dataTaskEntityResolutionCompletionInputs(records, current, result)
-		if len(inputs) == 0 {
-			return dataquery.TaskPlan{}, false
-		}
-		base.Actions = []dataquery.DataAction{{
-			ID:             "complete_entity_resolutions",
-			Kind:           dataquery.DataActionNormalizeEntities,
-			Purpose:        "complete missing generic source-to-canonical entity resolution ledger from already covered structured materials",
-			InputPaths:     inputs,
-			OutputArtifact: "entity_resolutions.json",
-			Params: map[string]string{
-				"reason":          "completed required entity resolution ledger from structured materials",
-				"max_resolutions": "200000",
-			},
-		}}
-		base.InputPaths = mergeDataTaskInputPaths(base.InputPaths, inputs)
-		base.WhyThisBatch = "complete missing entity resolution ledger with a focused normalize_entities node"
-		return base, true
+		return dataquery.TaskPlan{}, false
 	case "/reconcile":
 		if len(result.Contributions) == 0 {
 			return dataquery.TaskPlan{}, false
@@ -2721,6 +6755,106 @@ func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, curr
 		return base, true
 	default:
 		return dataquery.TaskPlan{}, false
+	}
+}
+
+func dataTaskTerminalWorkflowFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) (dataquery.TaskPlan, string, bool) {
+	if !dataTaskPlanStatusLooksTerminal(current.Status) {
+		return dataquery.TaskPlan{}, "", false
+	}
+	return dataTaskWorkflowNextStageFallback(records, current, "terminal plan ended")
+}
+
+func dataTaskDeterministicContinuationFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, err error) (dataquery.TaskPlan, string, bool) {
+	if err == nil {
+		return dataquery.TaskPlan{}, "", false
+	}
+	return dataTaskWorkflowNextStageFallback(records, current, "continuation planner failed")
+}
+
+func dataTaskWorkflowNextStageFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
+	return dataTaskWorkflowNextStageFallbackWithRepo("", records, current, reasonPrefix)
+}
+
+func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
+	state := dataTaskWorkflowState(records, current)
+	if len(dataTaskWorkflowMissingValidationStages(state)) == 0 {
+		return dataquery.TaskPlan{}, "", false
+	}
+	contract := dataTaskWorkflowCoverageContract(records, current)
+	base := dataquery.TaskPlan{
+		Status:           "ready",
+		OutputContract:   dataTaskWorkflowOutputContract(records, current),
+		CoverageContract: contract,
+		Goal:             strings.TrimSpace(current.Goal),
+		SuccessCriteria:  append([]string(nil), current.SuccessCriteria...),
+		ContinueAfter:    true,
+	}
+	if strings.TrimSpace(base.Goal) == "" {
+		base.Goal = "continue the typed data workflow toward the user's requested output"
+	}
+	switch state.NextStage {
+	case "derive_rules":
+		action := dataTaskRuleCoverageCompletionAction(contract)
+		if strings.TrimSpace(action.ID) == "" {
+			return dataquery.TaskPlan{}, "", false
+		}
+		base.Actions = []dataquery.DataAction{action}
+		base.InputPaths = mergeDataTaskInputPaths(base.InputPaths, action.InputPaths)
+		base.NextBatch = "continue with later typed data stages after deriving rule coverage"
+		base.WhyThisBatch = reasonPrefix + " before required rule coverage was materialized"
+		return base, reasonPrefix + "; converted to required derive_rules stage", true
+	case "normalize_or_enrich_entities":
+		return dataquery.TaskPlan{}, "", false
+	case "reconcile_artifacts":
+		latest, ok := latestDataTaskResult(records)
+		if !ok || len(latest.Contributions) == 0 {
+			return dataquery.TaskPlan{}, "", false
+		}
+		base.Actions = []dataquery.DataAction{{
+			ID:             "continue_reconcile",
+			Kind:           dataquery.DataActionReconcile,
+			Purpose:        "reconcile existing contribution records before final answer projection",
+			OutputArtifact: "reconcile_result.json",
+		}}
+		base.NextBatch = "continue with assemble_answer after reconcile materializes"
+		base.WhyThisBatch = reasonPrefix + " before required reconcile stage"
+		return base, reasonPrefix + "; converted to required reconcile stage", true
+	case "emit_output_contract_answer":
+		latest, ok := latestDataTaskResult(records)
+		if !ok {
+			return dataquery.TaskPlan{}, "", false
+		}
+		if plan, ok := dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot, records, current, latest); ok {
+			plan.ContinueAfter = false
+			return plan, reasonPrefix + "; converted to required answer projection stage", true
+		}
+	}
+	return dataquery.TaskPlan{}, "", false
+}
+
+func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	if !dataTaskPlanStatusLooksTerminal(current.Status) {
+		return ""
+	}
+	state := dataTaskWorkflowState(records, current)
+	missing := dataTaskWorkflowMissingValidationStages(state)
+	if len(missing) == 0 || len(state.AllowedNextActions) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("data planning incomplete: terminal status=%q is invalid because workflow next_stage=%s still has unfinished validation stage(s): %s and legal next actions [%s]. Emit status=ready with one bounded typed action batch from workflow_state_json.allowed_next_actions; use continue_after=true when later stages remain. blocked is only for true capability/policy barriers, not for ordinary unfinished typed data workflow stages.",
+		strings.TrimSpace(current.Status),
+		state.NextStage,
+		strings.Join(missing, ", "),
+		strings.Join(state.AllowedNextActions, ", "))
+}
+
+func dataTaskPlanStatusLooksTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "needs_clarification", "blocked", "complete", "completed", "budget_exhausted", "partial_answer_possible":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -2827,6 +6961,10 @@ func dataTaskPathLooksLikeStructuredMaterial(p string) bool {
 }
 
 func dataTaskTerminalPlanCompletionGateError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	return dataTaskTerminalPlanCompletionGateErrorWithRepo("", records, current)
+}
+
+func dataTaskTerminalPlanCompletionGateErrorWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
 	status := strings.ToLower(strings.TrimSpace(current.Status))
 	if status != "complete" && status != "completed" {
 		return ""
@@ -2835,7 +6973,7 @@ func dataTaskTerminalPlanCompletionGateError(records []dataTaskWorkflowRecord, c
 	if !ok {
 		return ""
 	}
-	return dataTaskWorkflowCompletionGateError(records, current, result)
+	return dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot, records, current, result)
 }
 
 func shouldValidateDataTaskWorkflowResult(current dataquery.TaskPlan) bool {
@@ -2923,10 +7061,49 @@ func cleanDataTaskStrings(values []string) []string {
 	return out
 }
 
+func parseDataTaskActionStringListParam(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		var stringsValue []string
+		if err := json.Unmarshal([]byte(raw), &stringsValue); err == nil {
+			return cleanDataTaskStrings(stringsValue)
+		}
+		var anyValue []any
+		if err := json.Unmarshal([]byte(raw), &anyValue); err == nil {
+			out := make([]string, 0, len(anyValue))
+			for _, item := range anyValue {
+				if item == nil {
+					continue
+				}
+				out = append(out, strings.TrimSpace(fmt.Sprint(item)))
+			}
+			return cleanDataTaskStrings(out)
+		}
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', '，', ';', '；', '|', '\n', '\r', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+	return cleanDataTaskStrings(fields)
+}
+
 func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) dataquery.CoverageContract {
 	out := next
-	out.RequiredMaterials = mergeDataTaskCoverageMaterialsExcept(previous.RequiredMaterials, next.RequiredMaterials, true, dataTaskCoverageMaterialKeySet(next.OptionalMaterials))
+	out.RequiredMaterials = mergeDataTaskCoverageMaterialsExcept(previous.RequiredMaterials, next.RequiredMaterials, true, dataTaskCoverageOptionalOverrideKeySet(next.OptionalMaterials))
+	out.RequiredMaterials = mergeDataTaskCoverageMaterials(out.RequiredMaterials, dataTaskRequiredOptionalCoverageMaterials(next.OptionalMaterials), true)
 	out.OptionalMaterials = mergeDataTaskCoverageMaterials(previous.OptionalMaterials, next.OptionalMaterials, false)
+	requiredKeys := dataTaskCoverageMaterialKeySet(out.RequiredMaterials)
+	out.OptionalMaterials = dataTaskFilterCoverageMaterials(out.OptionalMaterials, func(m dataquery.CoverageMaterial) bool {
+		key := dataTaskCoverageMaterialKey(m)
+		return key == "" || !requiredKeys[key]
+	})
 	if len(out.ValidationRules) == 0 && len(previous.ValidationRules) > 0 {
 		out.ValidationRules = append([]string(nil), previous.ValidationRules...)
 	}
@@ -2935,6 +7112,29 @@ func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) d
 	out.ContributionLedgerRequired = previous.ContributionLedgerRequired || next.ContributionLedgerRequired
 	out.EntityResolutionRequired = previous.EntityResolutionRequired || next.EntityResolutionRequired
 	out.ReconcileRequired = previous.ReconcileRequired || next.ReconcileRequired
+	return out
+}
+
+func dataTaskRequiredOptionalCoverageMaterials(materials []dataquery.CoverageMaterial) []dataquery.CoverageMaterial {
+	var out []dataquery.CoverageMaterial
+	for _, material := range materials {
+		if material.Required && dataTaskCoverageMaterialIsUserExplicitFloor(material) {
+			out = append(out, material)
+		}
+	}
+	return out
+}
+
+func dataTaskCoverageOptionalOverrideKeySet(materials []dataquery.CoverageMaterial) map[string]bool {
+	out := map[string]bool{}
+	for _, material := range materials {
+		if material.Required {
+			continue
+		}
+		if key := dataTaskCoverageMaterialKey(material); key != "" {
+			out[key] = true
+		}
+	}
 	return out
 }
 

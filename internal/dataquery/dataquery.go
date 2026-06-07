@@ -35,6 +35,9 @@ type OutputContract struct {
 	Format             OutputFormat `json:"format"`
 	ExplanationAllowed bool         `json:"explanation_allowed"`
 	Delimiter          string       `json:"delimiter,omitempty"`
+	CompleteReference  bool         `json:"complete_reference,omitempty"`
+	ReferencePath      string       `json:"reference_path,omitempty"`
+	ReferenceKeyField  string       `json:"reference_key_field,omitempty"`
 }
 
 func (c OutputContract) Normalize() OutputContract {
@@ -45,6 +48,11 @@ func (c OutputContract) Normalize() OutputContract {
 	}
 	if c.Format == OutputCSVLine && c.Delimiter == "" {
 		c.Delimiter = ","
+	}
+	c.ReferencePath = normalizeMaterialPath(c.ReferencePath)
+	c.ReferenceKeyField = strings.TrimSpace(c.ReferenceKeyField)
+	if c.ReferenceKeyField == "" {
+		c.CompleteReference = false
 	}
 	return c
 }
@@ -75,7 +83,11 @@ const (
 	DataActionExtractRecords    DataActionKind = "extract_records"
 	DataActionDeriveRules       DataActionKind = "derive_rules"
 	DataActionDeriveFields      DataActionKind = "derive_fields"
+	DataActionExpandRecords     DataActionKind = "expand_records"
+	DataActionFilterRecords     DataActionKind = "filter_records"
+	DataActionQualifyRecords    DataActionKind = "qualify_records"
 	DataActionNormalizeEntities DataActionKind = "normalize_entities"
+	DataActionApplyResolutions  DataActionKind = "apply_entity_resolutions"
 	DataActionEnrichRecords     DataActionKind = "enrich_records"
 	DataActionJoinRecords       DataActionKind = "join_records"
 	DataActionComputeContribs   DataActionKind = "compute_contributions"
@@ -2044,7 +2056,7 @@ func validateEntityResolutionRecords(records []EntityResolutionRecord) error {
 
 func resolutionStatusIsOpen(status string) bool {
 	status = strings.ToLower(strings.TrimSpace(status))
-	for _, marker := range []string{"unresolved", "ambiguous", "unknown", "not_found", "no_match", "failed", "invalid", "open"} {
+	for _, marker := range []string{"unresolved", "unmatched", "ambiguous", "unknown", "not_found", "no_match", "failed", "invalid", "open"} {
 		if strings.Contains(status, marker) {
 			return true
 		}
@@ -2070,6 +2082,9 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	expectedAnswer := strings.TrimSpace(report.ExpectedAnswer.String())
 	actualAnswer := strings.TrimSpace(report.ActualAnswer.String())
 	answer = strings.TrimSpace(answer)
+	if answerLooksLikeArtifactSummary(answer) {
+		answer = ""
+	}
 	if expectedAnswer != "" && answer != "" && expectedAnswer != answer {
 		return fmt.Errorf("data reconcile failed: expected_answer %q does not match result.answer %q", expectedAnswer, answer)
 	}
@@ -2284,6 +2299,158 @@ func reconcileGroupParticipatesInTargetCheck(group ReconcileGroup) bool {
 	default:
 		return true
 	}
+}
+
+func answerLooksLikeArtifactSummary(answer string) bool {
+	answer = strings.TrimSpace(answer)
+	if strings.HasPrefix(answer, "artifacts,") {
+		rest := strings.TrimSpace(strings.TrimPrefix(answer, "artifacts,"))
+		if _, ok := new(big.Rat).SetString(rest); ok {
+			return true
+		}
+	}
+	if strings.HasSuffix(answer, " artifact(s)") {
+		rest := strings.TrimSpace(strings.TrimSuffix(answer, " artifact(s)"))
+		if _, ok := new(big.Rat).SetString(rest); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func AnswerLooksLikeArtifactSummary(answer string) bool {
+	return answerLooksLikeArtifactSummary(answer)
+}
+
+func DedupeRuleCoverageRecords(records []RuleCoverageRecord) []RuleCoverageRecord {
+	if len(records) <= 1 {
+		return records
+	}
+	out := make([]RuleCoverageRecord, 0, len(records))
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		key := ruleCoverageRecordIdentityKey(rec)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func ruleCoverageRecordIdentityKey(rec RuleCoverageRecord) string {
+	evidenceRefs := cleanStringList(rec.EvidenceRefs)
+	sort.Strings(evidenceRefs)
+	parts := []string{
+		rec.RuleID.String(),
+		rec.RuleText.String(),
+		rec.Status.String(),
+		rec.Notes.String(),
+		strings.Join(evidenceRefs, "\x1e"),
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if strings.Join(parts, "") == "" {
+		return ""
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func DedupeContributionRecords(records []ContributionRecord) []ContributionRecord {
+	if len(records) <= 1 {
+		return records
+	}
+	out := make([]ContributionRecord, 0, len(records))
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		key := contributionRecordIdentityKey(rec)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func contributionRecordIdentityKey(rec ContributionRecord) string {
+	parts := []string{
+		rec.ItemID.String(),
+		rec.Source.String(),
+		rec.SourceLocator.String(),
+		rec.GroupKey.String(),
+		rec.Metric.String(),
+		rec.Value.String(),
+		rec.Operation.String(),
+		rec.Role.String(),
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if strings.Join(parts, "") == "" {
+		return ""
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func DedupeEntityResolutionRecords(records []EntityResolutionRecord) []EntityResolutionRecord {
+	if len(records) <= 1 {
+		return records
+	}
+	out := make([]EntityResolutionRecord, 0, len(records))
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		key := entityResolutionRecordIdentityKey(rec)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func entityResolutionRecordIdentityKey(rec EntityResolutionRecord) string {
+	candidates := make([]string, 0, len(rec.Candidates))
+	for _, c := range rec.Candidates {
+		candidates = append(candidates, strings.TrimSpace(strings.Join([]string{
+			c.ID.String(),
+			c.Label.String(),
+			c.Evidence.String(),
+			c.Confidence.String(),
+		}, "\x1f")))
+	}
+	sort.Strings(candidates)
+	evidenceRefs := cleanStringList(rec.EvidenceRefs)
+	sort.Strings(evidenceRefs)
+	ruleRefs := cleanStringList(rec.RuleRefs)
+	sort.Strings(ruleRefs)
+	parts := []string{
+		rec.ItemID.String(),
+		rec.SourceValue.String(),
+		rec.CanonicalID.String(),
+		rec.CanonicalLabel.String(),
+		rec.Status.String(),
+		rec.Reason.String(),
+		strings.Join(candidates, "\x1e"),
+		strings.Join(evidenceRefs, "\x1e"),
+		strings.Join(ruleRefs, "\x1e"),
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if strings.Join(parts, "") == "" {
+		return ""
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func validateAnswerScopedReconcileGroup(group ReconcileGroup, answer string, index int) error {

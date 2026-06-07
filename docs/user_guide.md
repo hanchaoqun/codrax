@@ -2414,7 +2414,7 @@ operation_skills:
 | `operation_command_install_policy` | `manual` | 安装/卸载类命令策略:`manual` 等待批准,`deny` 直接阻止 |
 | `operation_command_overwrite_policy` | `manual` | 覆盖写入策略:`manual` 等待批准,`deny` 阻止结构化标记为覆盖或明显强制覆盖的步骤 |
 | `data_task_max_repair_rounds` | `6` | 数据处理脚本失败后的最大自修复轮数。只影响 data lane,不影响源码分析、trace/log、operation 或写模式 |
-| `data_task_max_data_rounds` | `12` | 数据处理 execute/evaluate/continue 的最大批次数。复杂多材料任务可适当调高,系统仍有硬上限防止无限循环 |
+| `data_task_max_data_rounds` | `18` | 数据处理 execute/evaluate/continue 的最大批次数。复杂多材料任务可适当调高,系统仍有硬上限防止无限循环 |
 
 通用命令行操作的第一版工作流:
 

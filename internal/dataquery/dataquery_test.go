@@ -2,7 +2,9 @@ package dataquery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -393,7 +395,8 @@ func TestActionRunnerMaterialInventoryAndInspectArtifacts(t *testing.T) {
 		},
 		ContinueAfter: true,
 	}
-	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	artifactRoot := filepath.Join(root, ".actions")
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: artifactRoot}).Run(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Run actions: %v", err)
 	}
@@ -421,7 +424,8 @@ func TestActionRunnerReturnsPartialArtifactsOnLaterActionFailure(t *testing.T) {
 		},
 		ContinueAfter: true,
 	}
-	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	artifactRoot := filepath.Join(root, ".actions")
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: artifactRoot}).Run(context.Background(), plan)
 	if err == nil {
 		t.Fatalf("Run unexpectedly succeeded")
 	}
@@ -484,6 +488,42 @@ func TestActionRunnerExtractRecordsArtifacts(t *testing.T) {
 	}
 }
 
+func TestActionRunnerExtractRecordsAcceptsMaxRecordsAlias(t *testing.T) {
+	root := t.TempDir()
+	var b strings.Builder
+	b.WriteString("id,amount\n")
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&b, "%d,%d\n", i, i*10)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "extract",
+			Kind:           DataActionExtractRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "records",
+			Params:         map[string]string{"max_records": "30"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ActionRunner.Run: %v", err)
+	}
+	if len(res.Artifacts) != 1 || len(res.Artifacts[0].Children) != 1 {
+		t.Fatalf("artifacts=%+v", res.Artifacts)
+	}
+	child := res.Artifacts[0].Children[0]
+	if child.RowCount != 30 || len(child.Sample) != 30 {
+		t.Fatalf("child row_count=%d sample=%d, want 30/30", child.RowCount, len(child.Sample))
+	}
+	if got := res.Artifacts[0].Fields["limit"]; got != "30" {
+		t.Fatalf("parent limit=%q, want 30", got)
+	}
+}
+
 func TestActionRunnerCustomTransformConsumesPriorActionArtifact(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -515,7 +555,8 @@ emit_result(str(total), output_contract={"format":"plain_single_line","explanati
 			},
 		},
 	}
-	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	artifactRoot := filepath.Join(root, ".actions")
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: artifactRoot}).Run(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Run actions: %v", err)
 	}
@@ -690,6 +731,56 @@ emit_result(str(len(rows)), output_contract={"format":"plain_single_line","expla
 	}
 }
 
+func TestActionRunnerTypedActionConsumesSourceRecordAliasAcrossBatches(t *testing.T) {
+	root := t.TempDir()
+	tempRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "queries.csv"), []byte("id,label\n1,A\n2,B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		ContinueAfter:  true,
+		Actions: []DataAction{{
+			ID:             "extract_all",
+			Kind:           DataActionExtractRecords,
+			InputPaths:     []string{"orders.csv", "queries.csv"},
+			OutputArtifact: "records",
+			Params:         map[string]string{"limit": "10"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("seed Run: %v", err)
+	}
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot, Seed: seed}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "join_alias_records",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"orders.csv#records", "queries.csv#records"},
+			OutputArtifact: "joined",
+			Params: map[string]string{
+				"left_fields":  "id",
+				"right_fields": "id",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("join_records consumed source #records aliases across batches: %v", err)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[len(res.Artifacts)-1].RowCount != 2 {
+		t.Fatalf("Artifacts=%+v, want joined two rows", res.Artifacts)
+	}
+	got := strings.Join(res.ConsumedPaths, ",")
+	if !strings.Contains(got, "orders.csv#records") || !strings.Contains(got, "queries.csv#records") {
+		t.Fatalf("ConsumedPaths=%q, want logical artifact aliases", got)
+	}
+}
+
 func TestActionRunnerTypedActionConsumesPriorActionArtifact(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount,status\nA,10,paid\nB,5,pending\nA,7,paid\n"), 0o644); err != nil {
@@ -737,6 +828,426 @@ func TestActionRunnerTypedActionConsumesPriorActionArtifact(t *testing.T) {
 	}
 	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv,orders_records" {
 		t.Fatalf("ConsumedPaths=%q, want source plus materialized artifact", got)
+	}
+}
+
+func TestActionRunnerFilterRecordsFeedsContributionAction(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,vendor,amount,status\n1,A,10,paid\n2,B,5,pending\n3,A,7,accepted\n4,C,3,cancelled\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "filter_complete",
+				Kind:           DataActionFilterRecords,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "complete_orders",
+				Params: map[string]string{
+					"filters_json": `[{"field":"status","op":"in","value":["paid","accepted"]}]`,
+				},
+			},
+			{
+				ID:         "sum_complete",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"complete_orders"},
+				Params: map[string]string{
+					"group_key_field": "vendor",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "id",
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run filter_records actions: %v", err)
+	}
+	var filterArtifact DataArtifact
+	for _, artifact := range res.Artifacts {
+		if artifact.ID == "complete_orders" {
+			filterArtifact = artifact
+			break
+		}
+	}
+	if filterArtifact.RowCount != 2 || filterArtifact.Kind != string(DataActionFilterRecords) {
+		t.Fatalf("filter artifact=%+v, want 2 filtered rows", filterArtifact)
+	}
+	if len(res.Contributions) != 2 || res.Answer != "17" {
+		t.Fatalf("Answer=%q Contributions=%+v, want sum 17 from two rows", res.Answer, res.Contributions)
+	}
+	gotConsumed := strings.Join(res.ConsumedPaths, ",")
+	if !strings.Contains(gotConsumed, "orders.csv") || !strings.Contains(gotConsumed, "complete_orders") {
+		t.Fatalf("ConsumedPaths=%q, want source plus filtered artifact", gotConsumed)
+	}
+}
+
+func TestActionRunnerQualifyRecordsFeedsContributionAction(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,label,label_status,label_evidence,amount\n1,A,matched,ref.csv:1,10\n2,B,matched_ambiguous,ref.csv:2,5\n3,C,matched,ref.csv:3,7\n4,D,unresolved,,3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "qualify_items",
+				Kind:           DataActionQualifyRecords,
+				InputPaths:     []string{"items.csv"},
+				OutputArtifact: "eligible_items",
+				Params: map[string]string{
+					"item_id_field":   "id",
+					"status_fields":   `["label_status"]`,
+					"evidence_fields": `["label_evidence"]`,
+					"output_mode":     "filter",
+				},
+			},
+			{
+				ID:         "sum_eligible",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"eligible_items"},
+				Params: map[string]string{
+					"group_key":     "all",
+					"metric":        "amount",
+					"value_field":   "amount",
+					"operation":     "add",
+					"item_id_field": "id",
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run qualify_records actions: %v", err)
+	}
+	var qualifyArtifact DataArtifact
+	for _, artifact := range res.Artifacts {
+		if artifact.ID == "eligible_items" {
+			qualifyArtifact = artifact
+			break
+		}
+	}
+	if qualifyArtifact.RowCount != 2 || qualifyArtifact.Kind != string(DataActionQualifyRecords) {
+		t.Fatalf("qualify artifact=%+v, want 2 eligible rows", qualifyArtifact)
+	}
+	if len(res.Rows) != 6 {
+		t.Fatalf("Rows=%+v, want 4 qualification decisions plus 2 contribution decisions", res.Rows)
+	}
+	if len(res.Contributions) != 2 || res.Answer != "17" {
+		t.Fatalf("Answer=%q Contributions=%+v, want sum 17 from eligible rows", res.Answer, res.Contributions)
+	}
+}
+
+func TestActionRunnerComputeContributionsRejectsUnqualifiedGeneratedStatus(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,label,label_status,label_evidence,amount\n1,A,matched,ref.csv:1,10\n2,B,matched_ambiguous,ref.csv:2,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "sum_items",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"group_key":     "all",
+				"metric":        "amount",
+				"value_field":   "amount",
+				"operation":     "add",
+				"item_id_field": "id",
+			},
+		}},
+	}
+	_, err := (ActionRunner{
+		RepoRoot: root,
+		Seed: Result{RuleCoverage: []RuleCoverageRecord{{
+			RuleID:   "rule-1",
+			RuleText: "generated fields must be resolved before target contribution",
+			Status:   "covered",
+		}}},
+	}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "qualify_records") || !strings.Contains(err.Error(), "label_status=matched_ambiguous") {
+		t.Fatalf("Run err=%v, want unresolved generated status repair hint", err)
+	}
+}
+
+func TestActionRunnerFilterRecordsAcceptsBoolLikeAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,eligible,amount\n1,yes,10\n2,no,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "filter",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "eligible_orders",
+			Params: map[string]string{
+				"filters_json": `[{"field":"eligible","op":"eq","value":true}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run bool-like filter: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 {
+		t.Fatalf("Artifacts=%+v, want one yes/true matched row", res.Artifacts)
+	}
+	diag := res.Artifacts[0].Fields["filter_diagnostics"]
+	if !strings.Contains(diag, `"combined_match":1`) || !strings.Contains(diag, "yes") {
+		t.Fatalf("filter_diagnostics=%q, want match count and sample value", diag)
+	}
+}
+
+func TestActionRunnerFilterRecordsUsesActualJSONRecordFields(t *testing.T) {
+	root := t.TempDir()
+	payload := `{"headers":["id","predicted_only"],"records":[{"id":"1","status":"paid"}]}`
+	if err := os.WriteFile(filepath.Join(root, "wrapped.json"), []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "filter",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"wrapped.json"},
+			OutputArtifact: "filtered",
+			Params: map[string]string{
+				"filters_json": `[{"field":"predicted_only","op":"eq","value":"x"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want predicted-only field rejected against actual records")
+	}
+	text := err.Error()
+	for _, want := range []string{"predicted_only", "fields [id, status]", "filter_diagnostics"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Run err=%q, want substring %q", text, want)
+		}
+	}
+}
+
+func TestActionRunnerSeedAliasPrefersRecordArtifactOverMetadata(t *testing.T) {
+	root := t.TempDir()
+	recordPath := filepath.Join(root, "records.json")
+	metaPath := filepath.Join(root, "metadata.json")
+	if err := os.WriteFile(recordPath, []byte(`[{"id":"1","eligible":"yes","amount":"10"},{"id":"2","eligible":"no","amount":"5"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metaPath, []byte(`{"id":"clean","kind":"inspect_material","summary":"metadata only","children":[],"fields":{"count":"1"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Artifacts: []DataArtifact{
+		{
+			ID:     "clean",
+			Kind:   "derive_fields",
+			Fields: map[string]string{"artifact_path": recordPath, "artifact_aliases": "clean"},
+		},
+		{
+			ID:     "clean",
+			Kind:   "inspect_material",
+			Fields: map[string]string{"artifact_path": metaPath, "artifact_aliases": "clean"},
+		},
+	}}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "filter",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"clean"},
+			OutputArtifact: "eligible",
+			Params: map[string]string{
+				"filters_json": `[{"field":"eligible","op":"eq","value":true}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run seed alias preference: %v", err)
+	}
+	var got DataArtifact
+	for _, artifact := range res.Artifacts {
+		if artifact.ID == "eligible" {
+			got = artifact
+			break
+		}
+	}
+	if got.RowCount != 1 || got.Fields["input_rows"] != "2" {
+		t.Fatalf("Artifacts=%+v, want record artifact selected over metadata alias", res.Artifacts)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesRejectsExplicitCanonicalOutsideReferenceUniverse(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "taxonomy.csv"), []byte("code,label\nA,Alpha\nB,Beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "normalize",
+			Kind:           DataActionNormalizeEntities,
+			OutputArtifact: "normalized",
+			Params: map[string]string{
+				"reference_path":   "taxonomy.csv",
+				"reference_field":  "code",
+				"resolutions_json": `[{"source_value":"alpha","canonical_id":"ALPHA_ALIAS","status":"resolved"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want explicit canonical universe rejection")
+	}
+	text := err.Error()
+	for _, want := range []string{"ALPHA_ALIAS", "outside reference universe", "taxonomy.csv", "allowed_sample=[A, B]"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Run err=%q, want substring %q", text, want)
+		}
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesExpandsExplicitSourceValues(t *testing.T) {
+	root := t.TempDir()
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "normalize_status",
+			Kind:           DataActionNormalizeEntities,
+			OutputArtifact: "status_mapping",
+			Params: map[string]string{
+				"resolutions_json": `[{"source_values":["done","paid","accepted"],"canonical_id":"complete","canonical_label":"Complete","status":"resolved"}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run normalize_entities source_values expansion: %v", err)
+	}
+	if len(res.EntityResolutions) != 3 {
+		t.Fatalf("EntityResolutions=%+v, want 3 expanded records", res.EntityResolutions)
+	}
+	got := map[string]string{}
+	for _, rec := range res.EntityResolutions {
+		got[rec.SourceValue.String()] = rec.CanonicalID.String()
+	}
+	for _, source := range []string{"done", "paid", "accepted"} {
+		if got[source] != "complete" {
+			t.Fatalf("expanded source %q maps to %q, want complete; all=%+v", source, got[source], got)
+		}
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesReferenceModeFeedsEnrich(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_name,amount\n1,Alpha Team,10\n2,beta,7\n3,Gamma Unit,3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label,aliases\nA1,Alpha,Alpha Team;Alpha Squad\nB2,Beta,beta;Beta Group\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "name_mapping",
+				Kind:           DataActionNormalizeEntities,
+				InputPaths:     []string{"reference.csv", "items.csv"},
+				OutputArtifact: "name_mapping",
+				Params: map[string]string{
+					"source_field":          "raw_name",
+					"canonical_id_field":    "code",
+					"canonical_label_field": "label",
+					"reference_name_fields": `["aliases","label"]`,
+					"match_mode":            "mapping_contains_source",
+				},
+			},
+			{
+				ID:             "items_enriched",
+				Kind:           DataActionEnrichRecords,
+				InputPaths:     []string{"items.csv", "name_mapping"},
+				OutputArtifact: "items_enriched",
+				Params: map[string]string{
+					"base_path": "items.csv",
+					"lookup_specs_json": `[{
+						"source_fields":["raw_name"],
+						"lookup_fields":["source_value"],
+						"lookup_value_field":"canonical_id",
+						"target_field":"canonical_code",
+						"match_mode":"exact"
+					}]`,
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"items_enriched"},
+				Params: map[string]string{
+					"group_key_field": "canonical_code",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "id",
+					"filters_json":    `[{"field":"canonical_code_status","op":"eq","value":"matched"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run normalize reference mode actions: %v", err)
+	}
+	if len(res.EntityResolutions) < 2 {
+		t.Fatalf("EntityResolutions=%+v, want mapped source values", res.EntityResolutions)
+	}
+	mapped := map[string]string{}
+	for _, rec := range res.EntityResolutions {
+		if rec.SourceValue.String() != "" && rec.CanonicalID.String() != "" {
+			mapped[rec.SourceValue.String()] = rec.CanonicalID.String()
+		}
+	}
+	if mapped["Alpha Team"] != "A1" || mapped["beta"] != "B2" {
+		t.Fatalf("mapped=%+v, want Alpha Team=>A1 and beta=>B2", mapped)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 2 {
+		t.Fatalf("Reconcile=%+v, want two canonical groups", res.Reconcile)
 	}
 }
 
@@ -858,6 +1369,251 @@ func TestActionRunnerJoinRecordsContributionReconcileActions(t *testing.T) {
 	}
 }
 
+func TestActionRunnerJoinRecordsValidatesLeftAndRightFieldsSeparately(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,amount\n1,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,category_code\n1,A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "join",
+			Kind:       DataActionJoinRecords,
+			InputPaths: []string{"left.csv", "right.csv"},
+			Params: map[string]string{
+				"left_path":    "left.csv",
+				"right_path":   "right.csv",
+				"left_fields":  `["category_code"]`,
+				"right_fields": `["category_code"]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `join_records left field "category_code" was not found in left input left.csv`) {
+		t.Fatalf("err=%v, want side-specific left-field validation", err)
+	}
+}
+
+func TestActionRunnerJoinRecordsInfersSidesFromFieldContracts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("vendor_id,category_hint,amount\nV1,C1,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("vendor_id,category_code,query_id\nV1,C1,Q1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "noise.csv"), []byte("id,label\n1,x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "join",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"noise.csv", "right.csv", "left.csv"},
+			OutputArtifact: "joined",
+			Params: map[string]string{
+				"left_fields":  `["vendor_id","category_hint"]`,
+				"right_fields": `["vendor_id","category_code"]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run join with inferred sides: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 {
+		t.Fatalf("Artifacts=%+v, want one joined row", res.Artifacts)
+	}
+	if got := res.Artifacts[0].Fields["left_path"]; got != "left.csv" {
+		t.Fatalf("left_path=%q, want left.csv", got)
+	}
+	if got := res.Artifacts[0].Fields["right_path"]; got != "right.csv" {
+		t.Fatalf("right_path=%q, want right.csv", got)
+	}
+}
+
+func TestActionRunnerFilterRecordsRepairsConcatenatedFilterArrayShape(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,year,status,amount\n1,2026,paid,10\n2,2025,paid,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "filter",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "eligible",
+			Params: map[string]string{
+				"filters_json": `[{"field":"year","op":"eq","value":2026}],{"field":"status","op":"eq","value":"paid"}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run filter with repaired filters_json: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 {
+		t.Fatalf("Artifacts=%+v, want one filtered row", res.Artifacts)
+	}
+}
+
+func TestActionRunnerJoinRecordsKeepsPredictedHeadersForZeroMatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,amount,status\n1,10,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,status,label\n2,active,x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "join",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"left.csv", "right.csv"},
+			OutputArtifact: "joined",
+			Params: map[string]string{
+				"left_fields":  `["id"]`,
+				"right_fields": `["id"]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run join: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 0 {
+		t.Fatalf("Artifacts=%+v, want zero-row join artifact", res.Artifacts)
+	}
+	headers := strings.Join(res.Artifacts[0].Headers, ",")
+	for _, want := range []string{"amount", "id", "right_status", "label", "_left_source", "_right_source"} {
+		if !strings.Contains(headers, want) {
+			t.Fatalf("headers=%q, missing %q", headers, want)
+		}
+	}
+	if !strings.Contains(res.Artifacts[0].Fields["output_headers"], "right_status") {
+		t.Fatalf("Fields=%+v, want output_headers with collision field contract", res.Artifacts[0].Fields)
+	}
+}
+
+func TestActionRunnerJoinRecordsZeroMatchRemainsRecordSetForNextAction(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,amount,status\n1,10,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,status,label\n2,active,x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{
+				ID:             "join",
+				Kind:           DataActionJoinRecords,
+				InputPaths:     []string{"left.csv", "right.csv"},
+				OutputArtifact: "joined",
+				Params: map[string]string{
+					"left_fields":  `["id"]`,
+					"right_fields": `["id"]`,
+				},
+			},
+			{
+				ID:             "filter",
+				Kind:           DataActionFilterRecords,
+				InputPaths:     []string{"joined"},
+				OutputArtifact: "filtered",
+				Params: map[string]string{
+					"filters_json": `[{"field":"amount","op":"gt","value":"0"}]`,
+				},
+			},
+		},
+	}
+	artifactRoot := filepath.Join(root, ".actions")
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: artifactRoot}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run join->filter: %v", err)
+	}
+	if len(res.Artifacts) != 2 {
+		t.Fatalf("Artifacts=%+v, want join and filter artifacts", res.Artifacts)
+	}
+	if res.Artifacts[0].RowCount != 0 || res.Artifacts[1].RowCount != 0 {
+		t.Fatalf("Artifacts=%+v, want zero-row join and zero-row filter", res.Artifacts)
+	}
+	raw, err := os.ReadFile(res.Artifacts[0].Fields["artifact_path"])
+	if err != nil {
+		t.Fatalf("read materialized join artifact: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		t.Fatalf("join artifact payload is null; want schema-bearing empty record set")
+	}
+	if !strings.Contains(string(raw), `"headers"`) || !strings.Contains(string(raw), `"records"`) {
+		t.Fatalf("join artifact payload=%s, want records wrapper with headers", raw)
+	}
+}
+
+func TestActionRunnerLeftJoinPreservesRightSchemaForUnmatchedRows(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,amount,status\n1,10,paid\n2,20,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,status,label\n3,active,x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "join",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"left.csv", "right.csv"},
+			OutputArtifact: "joined",
+			Params: map[string]string{
+				"left_fields":  `["id"]`,
+				"right_fields": `["id"]`,
+				"join_type":    "left",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run left join: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 2 {
+		t.Fatalf("Artifacts=%+v, want two left rows preserved", res.Artifacts)
+	}
+	headers := strings.Join(res.Artifacts[0].Headers, ",")
+	for _, want := range []string{"amount", "right_status", "label", "_right_source"} {
+		if !strings.Contains(headers, want) {
+			t.Fatalf("headers=%q, missing %q", headers, want)
+		}
+	}
+	if got := res.Artifacts[0].Fields["zero_matches"]; got != "true" {
+		t.Fatalf("Fields=%+v, want zero_matches=true", res.Artifacts[0].Fields)
+	}
+	if got := res.Artifacts[0].Fields["unmatched_left_rows"]; got != "2" {
+		t.Fatalf("Fields=%+v, want unmatched_left_rows=2", res.Artifacts[0].Fields)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample: %v", err)
+	}
+	if _, ok := row["right_status"]; !ok {
+		t.Fatalf("row=%+v, want blank right_status field present", row)
+	}
+	if _, ok := row["label"]; !ok {
+		t.Fatalf("row=%+v, want blank label field present", row)
+	}
+}
+
 func TestActionRunnerEnrichJoinContributionReconcileActions(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,vendor_id,category_raw,amount,status\nO1,V1,云资源,10,paid\nO2,V1,办公,5,paid\nO3,V1,算力服务,7,accepted\n"), 0o644); err != nil {
@@ -936,6 +1692,1301 @@ func TestActionRunnerEnrichJoinContributionReconcileActions(t *testing.T) {
 	}
 }
 
+func TestActionRunnerApplyEntityResolutionsMaterializesCanonicalFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_name,amount\n1,Alpha Team,10\n2,beta,7\n3,Gamma Unit,3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label,aliases\nA1,Alpha,Alpha Team;Alpha Squad\nB2,Beta,beta;Beta Group\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "name_mapping",
+				Kind:           DataActionNormalizeEntities,
+				InputPaths:     []string{"items.csv", "reference.csv"},
+				OutputArtifact: "name_mapping",
+				Params: map[string]string{
+					"source_path":           "items.csv",
+					"reference_path":        "reference.csv",
+					"source_field":          "raw_name",
+					"canonical_id_field":    "code",
+					"canonical_label_field": "label",
+					"reference_name_fields": `["aliases","label"]`,
+					"match_mode":            "mapping_contains_source",
+				},
+			},
+			{
+				ID:             "items_resolved",
+				Kind:           DataActionApplyResolutions,
+				InputPaths:     []string{"items.csv", "name_mapping"},
+				OutputArtifact: "items_resolved",
+				Params: map[string]string{
+					"base_path": "items.csv",
+					"resolution_specs_json": `[{
+						"resolution_path":"name_mapping",
+						"target_id_field":"canonical_code",
+						"target_label_field":"canonical_label",
+						"target_status_field":"canonical_status"
+					}]`,
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"items_resolved"},
+				Params: map[string]string{
+					"group_key_field": "canonical_code",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "id",
+					"filters_json":    `[{"field":"canonical_status","op":"eq","value":"resolved"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions actions: %v", err)
+	}
+	if res.Answer != "A1/amount=10; B2/amount=7" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if len(res.Artifacts) < 3 || res.Artifacts[1].Kind != string(DataActionApplyResolutions) {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	if got := res.Artifacts[1].Fields["matched_canonical_code"]; got != "2" {
+		t.Fatalf("matched_canonical_code=%q, want 2", got)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsHonorsSpecBasePathAndLocatorKey(t *testing.T) {
+	root := t.TempDir()
+	orders := []map[string]any{
+		{"id": "o1", "raw_category": "compute", "amount": "10"},
+		{"id": "o2", "raw_category": "storage", "amount": "7"},
+	}
+	resolutions := []map[string]any{
+		{"item_id": "orders.json#1:raw_category", "canonical_id": "C1", "canonical_label": "Compute", "status": "resolved"},
+		{"item_id": "orders.json#2:raw_category", "canonical_id": "S1", "canonical_label": "Storage", "status": "resolved"},
+	}
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("orders.json", orders)
+	writeJSON("category_resolution.json", resolutions)
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "orders_with_category",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"category_resolution.json", "orders.json"},
+			OutputArtifact: "orders_with_category",
+			Params: map[string]string{
+				"resolution_specs_json": `[{
+					"base_path":"orders.json",
+					"resolution_path":"category_resolution.json",
+					"base_key_fields":["_source_index"],
+					"resolution_key_fields":["item_id"],
+					"target_id_field":"category_id",
+					"target_label_field":"category_label",
+					"target_status_field":"category_status"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with spec base path: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if got := artifact.Fields["matched_category_id"]; got != "2" {
+		t.Fatalf("matched_category_id=%q, want 2; artifact=%+v", got, artifact)
+	}
+	var found bool
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("sample %q: %v", sample, err)
+		}
+		if row["id"] == "o1" && row["category_id"] == "C1" && row["category_status"] == "resolved" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Sample=%v, want resolved order row", artifact.Sample)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsKeepsDeclaredTargetFieldsWhenUnmatched(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("records.json", []map[string]any{
+		{"id": "r1", "raw_value": "alpha"},
+		{"id": "r2", "raw_value": "beta"},
+	})
+	writeJSON("resolution.json", []map[string]any{
+		{"item_id": "records.json#99:raw_value", "canonical_id": "Z9", "canonical_label": "Zed", "status": "resolved"},
+	})
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "records_with_resolution",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"records.json", "resolution.json"},
+			OutputArtifact: "records_with_resolution",
+			Params: map[string]string{
+				"resolution_specs_json": `[{
+					"base_path":"records.json",
+					"resolution_path":"resolution.json",
+					"base_key_fields":["_source_index"],
+					"resolution_key_fields":["item_id"],
+					"target_id_field":"resolved_id",
+					"target_label_field":"resolved_label",
+					"target_status_field":"resolution_status"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with unmatched records: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one output artifact", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	for _, want := range []string{"resolved_id", "resolved_label", "resolution_status"} {
+		if !stringSliceContainsFold(artifact.Headers, want) {
+			t.Fatalf("Headers=%v, missing declared target field %q", artifact.Headers, want)
+		}
+	}
+	if got := artifact.Fields["unmatched_resolved_id"]; got != "2" {
+		t.Fatalf("unmatched_resolved_id=%q, want 2; artifact=%+v", got, artifact)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(artifact.Sample[0]), &row); err != nil {
+		t.Fatalf("sample %q: %v", artifact.Sample[0], err)
+	}
+	if _, ok := row["resolved_id"]; !ok {
+		t.Fatalf("row=%+v, missing empty resolved_id key", row)
+	}
+	if _, ok := row["resolved_label"]; !ok {
+		t.Fatalf("row=%+v, missing empty resolved_label key", row)
+	}
+	if row["resolved_id"] != "" || row["resolved_label"] != "" || row["resolution_status"] != "unmatched" {
+		t.Fatalf("row=%+v, want empty declared target fields with unmatched status", row)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsPreservesBaseRowsWhenBaseFiltered(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("records.json", []map[string]any{
+		{"id": "r1", "raw_name": "alpha", "clean_id": ""},
+		{"id": "r2", "raw_name": "beta", "clean_id": "B"},
+		{"id": "r3", "raw_name": "gamma", "clean_id": ""},
+	})
+	writeJSON("resolution.json", []map[string]any{
+		{"item_id": "records.json#1:raw_name", "canonical_id": "A", "canonical_label": "Alpha", "status": "resolved"},
+	})
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "records_with_resolution",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"records.json", "resolution.json"},
+			OutputArtifact: "records_with_resolution",
+			Params: map[string]string{
+				"base_path":             "records.json",
+				"resolution_path":       "resolution.json",
+				"base_key_fields":       `["_source_index"]`,
+				"resolution_key_fields": `["item_id"]`,
+				"source_filters":        `[{"field":"clean_id","op":"empty"}]`,
+				"target_id_field":       "canonical_id",
+				"target_label_field":    "canonical_label",
+				"target_status_field":   "canonical_status",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions preserving filtered base rows: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one output artifact", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.RowCount != 3 || artifact.Fields["output_rows"] != "3" {
+		t.Fatalf("artifact=%+v, want all 3 base rows preserved", artifact)
+	}
+	if artifact.Fields["base_filter_mode"] != "preserve_base_rows" {
+		t.Fatalf("base_filter_mode=%q, want preserve_base_rows", artifact.Fields["base_filter_mode"])
+	}
+	if artifact.Fields["matched_canonical_id"] != "1" ||
+		artifact.Fields["unmatched_canonical_id"] != "1" ||
+		artifact.Fields["not_applicable_canonical_id"] != "1" {
+		t.Fatalf("fields=%+v, want matched/unmatched/not_applicable counts 1/1/1", artifact.Fields)
+	}
+	var rows []map[string]any
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("sample rows=%v, want 3", rows)
+	}
+	if rows[0]["canonical_id"] != "A" || rows[0]["canonical_status"] != "resolved" {
+		t.Fatalf("row0=%+v, want resolved mapping", rows[0])
+	}
+	if rows[1]["canonical_status"] != "not_applicable" {
+		t.Fatalf("row1=%+v, want base-filter skipped row to remain visible", rows[1])
+	}
+	if rows[2]["canonical_status"] != "unmatched" {
+		t.Fatalf("row2=%+v, want eligible but unmatched row", rows[2])
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsCanFilterOutputRowsExplicitly(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("records.json", []map[string]any{
+		{"id": "r1", "raw_name": "alpha", "clean_id": ""},
+		{"id": "r2", "raw_name": "beta", "clean_id": "B"},
+		{"id": "r3", "raw_name": "gamma", "clean_id": ""},
+	})
+	writeJSON("resolution.json", []map[string]any{
+		{"item_id": "records.json#1:raw_name", "canonical_id": "A", "canonical_label": "Alpha", "status": "resolved"},
+	})
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "records_with_resolution",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"records.json", "resolution.json"},
+			OutputArtifact: "records_with_resolution",
+			Params: map[string]string{
+				"base_path":             "records.json",
+				"resolution_path":       "resolution.json",
+				"base_key_fields":       `["_source_index"]`,
+				"resolution_key_fields": `["item_id"]`,
+				"source_filters":        `[{"field":"clean_id","op":"empty"}]`,
+				"base_filter_mode":      "filter_output",
+				"target_id_field":       "canonical_id",
+				"target_label_field":    "canonical_label",
+				"target_status_field":   "canonical_status",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions filtering output rows: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one output artifact", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.RowCount != 2 || artifact.Fields["output_rows"] != "2" {
+		t.Fatalf("artifact=%+v, want filtered output rows", artifact)
+	}
+	if artifact.Fields["base_filter_mode"] != "filter_output_rows" {
+		t.Fatalf("base_filter_mode=%q, want filter_output_rows", artifact.Fields["base_filter_mode"])
+	}
+}
+
+func TestActionRunnerMaterializesSeedEntityResolutionsAsWorkflowHandle(t *testing.T) {
+	root := t.TempDir()
+	orders := []map[string]any{
+		{"id": "o1", "raw_category": "compute", "amount": "10"},
+		{"id": "o2", "raw_category": "storage", "amount": "7"},
+	}
+	raw, err := json.Marshal(orders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{
+		RepoRoot: root,
+		Seed: Result{
+			EntityResolutions: []EntityResolutionRecord{
+				{ItemID: "orders.json#1:raw_category", CanonicalID: "C1", CanonicalLabel: "Compute", Status: "resolved"},
+				{ItemID: "orders.json#2:raw_category", CanonicalID: "S1", CanonicalLabel: "Storage", Status: "resolved"},
+			},
+		},
+	}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "orders_with_category",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"orders.json", "workflow_entity_resolutions"},
+			OutputArtifact: "orders_with_category",
+			Params: map[string]string{
+				"base_path": "orders.json",
+				"resolution_specs_json": `[{
+						"resolution_path":"workflow_entity_resolutions",
+						"base_key_fields":["_source_index"],
+						"resolution_key_fields":["source_locator"],
+						"target_id_field":"category_id",
+						"target_label_field":"category_label",
+						"target_status_field":"category_status"
+					}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with workflow handle: %v", err)
+	}
+	var hasHandle bool
+	for _, artifact := range res.Artifacts {
+		if artifact.ID == "workflow_entity_resolutions" && artifact.Fields["workflow_ledger"] == "true" {
+			hasHandle = true
+		}
+	}
+	if !hasHandle {
+		t.Fatalf("Artifacts=%+v, want workflow_entity_resolutions handle", res.Artifacts)
+	}
+	got := res.Artifacts[len(res.Artifacts)-1]
+	if got.Fields["matched_category_id"] != "2" {
+		t.Fatalf("matched_category_id=%q, want 2; artifact=%+v", got.Fields["matched_category_id"], got)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsPreservesInputPathOrderForBase(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("z_orders.json", []map[string]any{
+		{"id": "o1", "raw_category": "compute", "amount": "10"},
+		{"id": "o2", "raw_category": "storage", "amount": "7"},
+	})
+	writeJSON("a_resolution.json", []map[string]any{
+		{"item_id": "z_orders.json#1:raw_category", "canonical_id": "C1", "canonical_label": "Compute", "status": "resolved"},
+		{"item_id": "z_orders.json#2:raw_category", "canonical_id": "S1", "canonical_label": "Storage", "status": "resolved"},
+	})
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "orders_with_category",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"z_orders.json", "a_resolution.json"},
+			OutputArtifact: "orders_with_category",
+			Params: map[string]string{
+				"resolution_specs_json": `[{
+					"resolution_path":"a_resolution.json",
+					"target_id_field":"category_id",
+					"target_label_field":"category_label",
+					"target_status_field":"category_status"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with ordered inputs: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.RowCount != 2 || artifact.Fields["base_path"] != "z_orders.json" {
+		t.Fatalf("artifact=%+v, want z_orders.json base with 2 rows", artifact)
+	}
+	if artifact.Fields["matched_category_id"] != "2" {
+		t.Fatalf("matched_category_id=%q, want 2; artifact=%+v", artifact.Fields["matched_category_id"], artifact)
+	}
+	var found bool
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("sample %q: %v", sample, err)
+		}
+		if row["id"] == "o1" && row["amount"] == "10" && row["category_id"] == "C1" {
+			found = true
+		}
+		if _, hasResolutionOnlyField := row["source_value"]; hasResolutionOnlyField {
+			t.Fatalf("sample row=%v, base was resolution ledger instead of source records", row)
+		}
+	}
+	if !found {
+		t.Fatalf("Sample=%v, want source order row with applied category", artifact.Sample)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsInheritsTopLevelResolutionPathForSpecs(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("orders.json", []map[string]any{
+		{"id": "o1", "raw_name": "alpha", "amount": "10"},
+		{"id": "o2", "raw_name": "beta", "amount": "7"},
+	})
+	writeJSON("workflow_entity_resolutions.json", []map[string]any{
+		{"item_id": "orders.json#1:raw_name", "canonical_id": "A", "canonical_label": "Alpha", "status": "resolved"},
+		{"item_id": "orders.json#2:raw_name", "canonical_id": "B", "canonical_label": "Beta", "status": "resolved"},
+	})
+
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "orders_with_canonical_fields",
+			Kind:           DataActionApplyResolutions,
+			InputPaths:     []string{"orders.json", "workflow_entity_resolutions.json"},
+			OutputArtifact: "orders_with_canonical_fields",
+			Params: map[string]string{
+				"base_path":       "orders.json",
+				"resolution_path": "workflow_entity_resolutions.json",
+				"resolution_specs_json": `[{
+					"target_id_field":"canonical_vendor_id",
+					"target_label_field":"canonical_vendor_label",
+					"target_status_field":"canonical_vendor_status"
+				},{
+					"target_id_field":"canonical_category_id",
+					"target_label_field":"canonical_category_label",
+					"target_status_field":"canonical_category_status"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with inherited top-level resolution path: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Fields["matched_canonical_vendor_id"] != "2" || artifact.Fields["matched_canonical_category_id"] != "2" {
+		t.Fatalf("artifact fields=%+v, want both specs matched through inherited resolution_path", artifact.Fields)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsRoutesGenericFiltersToResolutionSide(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("orders.json", []map[string]any{
+		{"id": "o1", "raw_vendor": "Vendor A", "raw_category": "Compute", "amount": "10"},
+		{"id": "o2", "raw_vendor": "Vendor B", "raw_category": "Storage", "amount": "7"},
+	})
+
+	res, err := (ActionRunner{
+		RepoRoot: root,
+		Seed: Result{
+			EntityResolutions: []EntityResolutionRecord{
+				{ItemID: "orders.json#1:raw_vendor", SourceValue: "Vendor A", CanonicalID: "V1", CanonicalLabel: "Vendor A", Status: "resolved"},
+				{ItemID: "orders.json#2:raw_vendor", SourceValue: "Vendor B", CanonicalID: "V2", CanonicalLabel: "Vendor B", Status: "resolved"},
+				{ItemID: "orders.json#1:raw_category", SourceValue: "Compute", CanonicalID: "C1", CanonicalLabel: "Compute", Status: "resolved"},
+				{ItemID: "orders.json#2:raw_category", SourceValue: "Storage", CanonicalID: "C2", CanonicalLabel: "Storage", Status: "resolved"},
+			},
+		},
+	}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{
+			{
+				ID:             "apply_vendor",
+				Kind:           DataActionApplyResolutions,
+				InputPaths:     []string{"orders.json", "workflow_entity_resolutions"},
+				OutputArtifact: "orders_with_vendor",
+				Params: map[string]string{
+					"base_path":             "orders.json",
+					"resolution_path":       "workflow_entity_resolutions",
+					"base_key_fields":       `["_source_index"]`,
+					"resolution_key_fields": `["item_id"]`,
+					"filters_json":          `[{"field":"item_id","op":"contains","value":"raw_vendor"}]`,
+					"target_id_field":       "canonical_vendor_id",
+					"target_label_field":    "canonical_vendor_name",
+					"target_status_field":   "vendor_status",
+				},
+			},
+			{
+				ID:             "apply_category",
+				Kind:           DataActionApplyResolutions,
+				InputPaths:     []string{"orders_with_vendor", "workflow_entity_resolutions"},
+				OutputArtifact: "orders_with_category",
+				Params: map[string]string{
+					"base_path":             "orders_with_vendor",
+					"resolution_path":       "workflow_entity_resolutions",
+					"base_key_fields":       `["_source_index"]`,
+					"resolution_key_fields": `["item_id"]`,
+					"filters_json":          `[{"field":"item_id","op":"contains","value":"raw_category"}]`,
+					"target_id_field":       "canonical_category_id",
+					"target_label_field":    "canonical_category_name",
+					"target_status_field":   "category_status",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run apply_entity_resolutions with filtered workflow ledger: %v", err)
+	}
+	var final DataArtifact
+	for _, artifact := range res.Artifacts {
+		if artifact.ID == "orders_with_category" {
+			final = artifact
+			break
+		}
+	}
+	if final.ID == "" {
+		t.Fatalf("Artifacts=%+v, want orders_with_category", res.Artifacts)
+	}
+	if final.Fields["matched_canonical_category_id"] != "2" || final.Fields["ambiguous_canonical_category_id"] != "0" {
+		t.Fatalf("final fields=%+v, want category matches without ambiguity", final.Fields)
+	}
+	var first map[string]any
+	if len(final.Sample) == 0 {
+		t.Fatalf("final sample empty: %+v", final)
+	}
+	if err := json.Unmarshal([]byte(final.Sample[0]), &first); err != nil {
+		t.Fatalf("sample %q: %v", final.Sample[0], err)
+	}
+	if first["canonical_vendor_id"] != "V1" || first["canonical_category_id"] != "C1" {
+		t.Fatalf("sample row=%v, want vendor/category dimensions applied independently", first)
+	}
+	if first["canonical_vendor_id"] == first["canonical_category_id"] {
+		t.Fatalf("sample row=%v, dimensions were cross-applied", first)
+	}
+}
+
+func TestDedupeEntityResolutionRecordsCollapsesRepeatedWorkflowState(t *testing.T) {
+	records := []EntityResolutionRecord{
+		{
+			ItemID:         "orders#1:name",
+			SourceValue:    "alpha",
+			CanonicalID:    "A",
+			CanonicalLabel: "Alpha",
+			Status:         "resolved",
+			EvidenceRefs:   []string{"b", "a"},
+			RuleRefs:       []string{"r2", "r1"},
+		},
+		{
+			ItemID:         "orders#1:name",
+			SourceValue:    "alpha",
+			CanonicalID:    "A",
+			CanonicalLabel: "Alpha",
+			Status:         "resolved",
+			EvidenceRefs:   []string{"a", "b"},
+			RuleRefs:       []string{"r1", "r2"},
+		},
+		{
+			ItemID:         "orders#2:name",
+			SourceValue:    "beta",
+			CanonicalID:    "B",
+			CanonicalLabel: "Beta",
+			Status:         "resolved",
+		},
+	}
+	got := DedupeEntityResolutionRecords(records)
+	if len(got) != 2 {
+		t.Fatalf("len=%d records=%+v, want duplicate collapsed", len(got), got)
+	}
+	if got[0].ItemID.String() != "orders#1:name" || got[1].ItemID.String() != "orders#2:name" {
+		t.Fatalf("records=%+v, want stable first occurrence order", got)
+	}
+}
+
+func TestDedupeRuleCoverageRecordsCollapsesRepeatedWorkflowState(t *testing.T) {
+	records := []RuleCoverageRecord{
+		{
+			RuleID:       "r1",
+			RuleText:     "Use records that satisfy the current task rule",
+			Status:       "derived",
+			EvidenceRefs: []string{"b.md", "a.md"},
+			Notes:        "source backed",
+		},
+		{
+			RuleID:       "r1",
+			RuleText:     "Use records that satisfy the current task rule",
+			Status:       "derived",
+			EvidenceRefs: []string{"a.md", "b.md"},
+			Notes:        "source backed",
+		},
+		{
+			RuleID:   "r2",
+			RuleText: "Keep a different rule",
+			Status:   "derived",
+		},
+	}
+	got := DedupeRuleCoverageRecords(records)
+	if len(got) != 2 {
+		t.Fatalf("len=%d records=%+v, want duplicate collapsed", len(got), got)
+	}
+	if got[0].RuleID.String() != "r1" || got[1].RuleID.String() != "r2" {
+		t.Fatalf("records=%+v, want stable first occurrence order", got)
+	}
+}
+
+func TestActionRunnerDedupesSeedRuleCoverage(t *testing.T) {
+	res, err := (ActionRunner{
+		Seed: Result{
+			RuleCoverage: []RuleCoverageRecord{{
+				RuleID:       "r1",
+				RuleText:     "Use records that satisfy the current task rule",
+				Status:       "derived",
+				EvidenceRefs: []string{"rules.md"},
+				Notes:        "source backed",
+			}},
+		},
+	}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:   "derive_rules",
+			Kind: DataActionDeriveRules,
+			Params: map[string]string{
+				"rules_json": `[{"id":"r1","text":"Use records that satisfy the current task rule","status":"derived","evidence_refs":["rules.md"],"notes":"source backed"}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_rules with duplicate seed: %v", err)
+	}
+	if len(res.RuleCoverage) != 1 {
+		t.Fatalf("RuleCoverage=%+v, want duplicate seed/action rule collapsed", res.RuleCoverage)
+	}
+}
+
+func TestActionRunnerEnrichRecordsSupportsMultipleBaseSourceFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label,description\n1,alpha,first item\n2,,contains beta token\n3,gamma,unmatched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lookup.csv"), []byte("code,terms,label\nA,alpha;aaa,Alpha\nB,beta;bbb,Beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"items.csv", "lookup.csv"},
+			OutputArtifact: "items_enriched",
+			Params: map[string]string{
+				"base_path": "items.csv",
+				"mapping_specs_json": `[
+					{"mapping_path":"lookup.csv","source_fields":["raw_label","description"],"mapping_source_fields":["terms","label"],"mapping_value_field":"code","target_field":"canonical_code","match_mode":"contains"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records with multiple source fields: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["matches_canonical_code"]; got != "2" {
+		t.Fatalf("matches_canonical_code=%q, want 2; artifact=%+v", got, res.Artifacts[0])
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["canonical_code"] != "A" || rows[1]["canonical_code"] != "B" {
+		t.Fatalf("rows=%+v, want source field fallback matches", rows)
+	}
+}
+
+func TestActionRunnerEnrichRecordsInfersReferenceSourceFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label\n1,cloud\n2,security\n3,unknown\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lookup.csv"), []byte("canonical_code,display_name,aliases,description\nCLOUD,Cloud,cloud;compute,compute services\nSEC,Security,security;audit,security services\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"items.csv", "lookup.csv"},
+			OutputArtifact: "items_enriched",
+			Params: map[string]string{
+				"base_path":           "items.csv",
+				"mapping_path":        "lookup.csv",
+				"source_field":        "raw_label",
+				"mapping_value_field": "canonical_code",
+				"target_field":        "canonical_code",
+				"match_mode":          "contains",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records with inferred reference fields: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["matches_canonical_code"]; got != "2" {
+		t.Fatalf("matches_canonical_code=%q, want 2; artifact=%+v", got, res.Artifacts[0])
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["canonical_code"] != "CLOUD" || rows[1]["canonical_code"] != "SEC" {
+		t.Fatalf("rows=%+v, want inferred reference source field matches", rows)
+	}
+}
+
+func TestActionRunnerEnrichRecordsIndexesDelimitedReferenceTerms(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label\n1,compute\n2,audit\n3,unknown\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lookup.csv"), []byte("canonical_code,display_name,aliases,description\nCLOUD,Cloud,cloud;compute,compute services\nSEC,Security,security;audit,security services\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"items.csv", "lookup.csv"},
+			OutputArtifact: "items_enriched",
+			Params: map[string]string{
+				"base_path":           "items.csv",
+				"mapping_path":        "lookup.csv",
+				"source_field":        "raw_label",
+				"mapping_value_field": "canonical_code",
+				"target_field":        "canonical_code",
+				"match_mode":          "exact",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records with delimited inferred reference terms: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["matches_canonical_code"]; got != "2" {
+		t.Fatalf("matches_canonical_code=%q, want 2; artifact=%+v", got, res.Artifacts[0])
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["canonical_code"] != "CLOUD" || rows[1]["canonical_code"] != "SEC" {
+		t.Fatalf("rows=%+v, want exact matches from delimited reference terms", rows)
+	}
+}
+
+func TestActionRunnerEnrichRecordsAppliesEntityResolutionArtifact(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label\n1,alpha\n2,beta\n3,gamma\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{
+			{
+				ID:             "normalize",
+				Kind:           DataActionNormalizeEntities,
+				OutputArtifact: "label_map",
+				Params: map[string]string{
+					"resolutions_json": `[
+						{"source_value":"alpha","canonical_id":"A","canonical_label":"Alpha"},
+						{"source_value":"beta","canonical_id":"B","canonical_label":"Beta"}
+					]`,
+				},
+			},
+			{
+				ID:             "apply",
+				Kind:           DataActionEnrichRecords,
+				InputPaths:     []string{"items.csv", "label_map"},
+				OutputArtifact: "items_with_canonical",
+				Params: map[string]string{
+					"base_path":           "items.csv",
+					"mapping_path":        "label_map",
+					"source_field":        "raw_label",
+					"mapping_value_field": "canonical_id",
+					"target_field":        "canonical_label_id",
+					"match_mode":          "exact",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run normalize_entities -> enrich_records: %v", err)
+	}
+	if got := res.Artifacts[len(res.Artifacts)-1].Fields["matches_canonical_label_id"]; got != "2" {
+		t.Fatalf("matches_canonical_label_id=%q, want 2; artifact=%+v", got, res.Artifacts[len(res.Artifacts)-1])
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[len(res.Artifacts)-1].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["canonical_label_id"] != "A" || rows[1]["canonical_label_id"] != "B" {
+		t.Fatalf("rows=%+v, want canonical ids from entity resolution artifact", rows)
+	}
+	if len(res.EntityResolutions) == 0 {
+		t.Fatalf("EntityResolutions empty, want enrich_records to emit mapping ledger")
+	}
+	if got := res.EntityResolutions[0].CanonicalID.String(); got != "A" {
+		t.Fatalf("first enriched resolution canonical_id=%q, want A; resolutions=%+v", got, res.EntityResolutions)
+	}
+}
+
+func TestActionRunnerDeriveFieldsNormalizesSlashOperationExamples(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,created_at,a,b,c\n1,2026-05-01,foo,bar,\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_field":"created_at","target_field":"year","operation":"year/extract_year"},
+					{"source_fields":["a","b"],"target_field":"joined","operation":"concat/join_fields","separator":"-"},
+					{"source_fields":["c","b"],"target_field":"first","operation":"coalesce/first_non_empty"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields slash operation aliases: %v", err)
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Sample) == 0 {
+		t.Fatalf("Artifacts=%+v, want derived sample", res.Artifacts)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample: %v", err)
+	}
+	if row["year"] != "2026" || row["joined"] != "foo-bar" || row["first"] != "bar" {
+		t.Fatalf("row=%+v, want normalized slash operation outputs", row)
+	}
+}
+
+func TestActionRunnerDeriveFieldsAcceptsStructuredParamAlias(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,created_at,status\n1,2026-05-01, paid \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs": `[
+					{"source_field":"created_at","target_field":"year","operation":"regex_extract","pattern":"^(\\d{4})"},
+					{"source_field":"status","target_field":"status_clean","operation":"trim"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields structured alias: %v", err)
+	}
+	var row map[string]any
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Sample) == 0 {
+		t.Fatalf("Artifacts=%+v, want sample", res.Artifacts)
+	}
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample: %v", err)
+	}
+	if row["year"] != "2026" || row["status_clean"] != "paid" {
+		t.Fatalf("row=%+v, want derived values from field_specs alias", row)
+	}
+}
+
+func TestActionRunnerDeriveFieldsCanCopyVirtualSourceLocatorFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,amount\nA,10\nB,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_field":"_source_index","target_field":"row_index","operation":"copy"},
+					{"source_field":"_source_locator","target_field":"row_locator","operation":"copy"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields virtual locators: %v", err)
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Sample) < 2 {
+		t.Fatalf("Artifacts=%+v, want two derived samples", res.Artifacts)
+	}
+	var first, second map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &first); err != nil {
+		t.Fatalf("unmarshal first sample: %v", err)
+	}
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[1]), &second); err != nil {
+		t.Fatalf("unmarshal second sample: %v", err)
+	}
+	if first["row_index"] != "1" || second["row_index"] != "2" {
+		t.Fatalf("first=%+v second=%+v, want stable per-record row_index", first, second)
+	}
+	if !strings.Contains(fmt.Sprint(first["row_locator"]), "events.csv#1") {
+		t.Fatalf("first=%+v, want source locator", first)
+	}
+}
+
+func TestActionRunnerDeriveFieldsRejectsConstantIndexLikeFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,amount\nA,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs_json": `[{"target_field":"row_index","operation":"constant","value":0}]`,
+			},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "constant spec cannot create locator-like target_field") {
+		t.Fatalf("err=%v, want locator-like constant rejection", err)
+	}
+}
+
+func TestActionRunnerExpandRecordsSplitsMultiValueField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,terms\n1,alpha; beta；alpha\n2,gamma|delta\n3,\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "expand",
+			Kind:           DataActionExpandRecords,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "expanded_terms",
+			Params: map[string]string{
+				"source_field":   "terms",
+				"target_field":   "term",
+				"original_field": "terms_raw",
+				"delimiter":      "auto",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run expand_records: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one expand_records artifact", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Kind != string(DataActionExpandRecords) || artifact.RowCount != 4 {
+		t.Fatalf("artifact=%+v, want expand_records row_count=4", artifact)
+	}
+	if artifact.Fields["source_field"] != "terms" || artifact.Fields["target_field"] != "term" {
+		t.Fatalf("artifact fields=%+v, want source/target fields", artifact.Fields)
+	}
+	var values []string
+	var rows []map[string]any
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+		values = append(values, row["term"].(string))
+	}
+	if strings.Join(values, ",") != "alpha,beta,gamma" {
+		t.Fatalf("sample values=%v rows=%+v, want first three expanded terms", values, rows)
+	}
+	if rows[0]["terms_raw"] != "alpha; beta；alpha" || rows[0]["_source"] != "records.csv" {
+		t.Fatalf("row0=%+v, want original field and source metadata", rows[0])
+	}
+}
+
+func TestActionRunnerEnrichRecordsInfersMissingValueField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,category_raw\nO1,compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "category_mapping.csv"), []byte("source_value,label\ncompute,COMPUTE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"orders.csv", "category_mapping.csv"},
+			OutputArtifact: "orders_enriched",
+			Params: map[string]string{
+				"base_path":             "orders.csv",
+				"mapping_path":          "category_mapping.csv",
+				"source_field":          "category_raw",
+				"mapping_source_fields": `["source_value"]`,
+				"mapping_value_field":   "canonical_id",
+				"target_field":          "category_code",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records inferred value field: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["matches_category_code"]; got != "1" {
+		t.Fatalf("matches_category_code=%q, want 1", got)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample: %v", err)
+	}
+	if row["category_code"] != "COMPUTE" {
+		t.Fatalf("row=%+v, want category_code inferred from label", row)
+	}
+}
+
+func TestActionRunnerEnrichRecordsAcceptsLookupRoleAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,category_raw\nO1,compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "category_mapping.csv"), []byte("source_value,canonical_id\ncompute,COMPUTE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"orders.csv", "category_mapping.csv"},
+			OutputArtifact: "orders_enriched",
+			Params: map[string]string{
+				"base_path": "orders.csv",
+				"lookup_specs_json": `[{
+					"lookup_path":"category_mapping.csv",
+					"base_fields":["category_raw"],
+					"lookup_fields":["source_value"],
+					"lookup_value_field":"canonical_id",
+					"target_field":"category_code"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records with lookup aliases: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["matches_category_code"]; got != "1" {
+		t.Fatalf("matches_category_code=%q, want 1", got)
+	}
+}
+
+func TestActionRunnerEnrichRecordsSwapsInvertedBaseAndMapping(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,category_raw\nO1,compute\nO2,security\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "taxonomy.csv"), []byte("category_code,common_raw_terms\nCOMPUTE,compute;cloud\nSECURITY,security;audit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"taxonomy.csv", "orders.csv"},
+			OutputArtifact: "orders_enriched",
+			Params: map[string]string{
+				"base_path":             "taxonomy.csv",
+				"mapping_path":          "orders.csv",
+				"source_field":          "category_raw",
+				"mapping_source_fields": `["common_raw_terms"]`,
+				"mapping_value_field":   "category_code",
+				"target_field":          "category_code",
+				"match_mode":            "mapping_contains_source",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records inverted base/mapping repair: %v", err)
+	}
+	if got := res.Artifacts[0].Fields["base_path"]; got != "orders.csv" {
+		t.Fatalf("base_path=%q, want deterministic swapped base orders.csv", got)
+	}
+	if got := res.Artifacts[0].Fields["matches_category_code"]; got != "2" {
+		t.Fatalf("matches_category_code=%q, want 2", got)
+	}
+}
+
+func TestActionRunnerEnrichRecordsRejectsMissingBaseSourceField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,category_raw\nO1,compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "category_mapping.csv"), []byte("source_value,canonical_id\ncompute,COMPUTE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "bad_enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"category_mapping.csv", "orders.csv"},
+			OutputArtifact: "orders_enriched",
+			Params: map[string]string{
+				"base_path":             "category_mapping.csv",
+				"mapping_path":          "orders.csv",
+				"source_field":          "category_raw",
+				"mapping_source_fields": `["lookup"]`,
+				"mapping_value_field":   "canonical_id",
+				"target_field":          "category_code",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `enrich_records source_fields [category_raw] were not found in base input category_mapping.csv fields`) {
+		t.Fatalf("err=%v, want missing base source-field validation", err)
+	}
+}
+
+func TestActionRunnerEnrichRecordsRejectsMissingMappingFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("order_id,category_raw\nO1,compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "category_mapping.csv"), []byte("source_value,notes\ncompute,Compute\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "bad_mapping",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"orders.csv", "category_mapping.csv"},
+			OutputArtifact: "orders_enriched",
+			Params: map[string]string{
+				"base_path":             "orders.csv",
+				"mapping_path":          "category_mapping.csv",
+				"source_field":          "category_raw",
+				"mapping_source_fields": `["source_value"]`,
+				"mapping_value_field":   "canonical_id",
+				"target_field":          "category_code",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `enrich_records mapping_value_field "canonical_id" was not found in mapping input category_mapping.csv fields`) {
+		t.Fatalf("err=%v, want missing mapping value-field validation", err)
+	}
+}
+
 func TestActionRunnerDeriveFieldsContributionReconcileActions(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("item_id,token,value_raw,flag\nA,group:alpha,1.234s,ok\nB,group:beta,9ms,skip\nC,group:alpha,0.007s,ok\n"), 0o644); err != nil {
@@ -993,6 +3044,279 @@ func TestActionRunnerDeriveFieldsContributionReconcileActions(t *testing.T) {
 	}
 	if got := res.Artifacts[0].Fields["derived_fields"]; got != "group,value_ms,flag_bucket" {
 		t.Fatalf("derived fields=%q", got)
+	}
+}
+
+func TestActionRunnerDeriveFieldsParsesMappingJSONString(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,status\nA,ok\nB,skip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"status","target_field":"bucket","operation":"map","mapping":"{\"ok\":\"include\",\"skip\":\"exclude\"}"}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run derive_fields with mapping JSON string: %v", err)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[0].Kind != string(DataActionDeriveFields) {
+		t.Fatalf("Artifacts=%+v, want derive_fields artifact", res.Artifacts)
+	}
+	if len(res.Artifacts[0].Sample) != 2 {
+		t.Fatalf("sample=%+v, want 2 rows", res.Artifacts[0].Sample)
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["bucket"] != "include" || rows[1]["bucket"] != "exclude" {
+		t.Fatalf("rows=%+v, want mapped buckets", rows)
+	}
+}
+
+func TestActionRunnerDeriveFieldsCanUsePriorSpecOutput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,status\nA,ok\nB,skip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"events.csv"},
+			OutputArtifact: "events_derived",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_field":"status","target_field":"status_norm","operation":"map","mapping":{"ok":"valid","skip":"drop"}},
+					{"source_field":"status_norm","target_field":"eligible","operation":"map","mapping":{"valid":"true","drop":"false"}}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields with prior spec output: %v", err)
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["eligible"] != "true" || rows[1]["eligible"] != "false" {
+		t.Fatalf("rows=%+v, want later spec to read earlier derived field", rows)
+	}
+}
+
+func TestActionRunnerDeriveFieldsSupportsMultiSourceConcatAndCoalesce(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,a,b,c\n1,foo,bar,\n2,,bee,fallback\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "derived",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_fields":["a","b"],"target_field":"joined","operation":"concat","separator":"|"},
+					{"source_fields":["a","c","b"],"target_field":"first_value","operation":"coalesce"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields concat/coalesce: %v", err)
+	}
+	if len(res.Artifacts) != 1 || len(res.Artifacts[0].Sample) != 2 {
+		t.Fatalf("Artifacts=%+v, want two sample rows", res.Artifacts)
+	}
+	var rows []map[string]any
+	for _, sample := range res.Artifacts[0].Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["joined"] != "foo|bar" || rows[0]["first_value"] != "foo" {
+		t.Fatalf("row0=%+v, want concat and first non-empty", rows[0])
+	}
+	if rows[1]["joined"] != "bee" || rows[1]["first_value"] != "fallback" {
+		t.Fatalf("row1=%+v, want concat and coalesce", rows[1])
+	}
+}
+
+func TestActionRunnerDeriveFieldsAllowsPartialMultiSourceFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,b\n1,bee\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "derived",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_fields":["missing","b"],"target_field":"first_value","operation":"coalesce"},
+					{"source_fields":["missing","b"],"target_field":"joined","operation":"concat","separator":"|"}
+				]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields with partial multi-source fields: %v", err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(res.Artifacts[0].Sample[0]), &row); err != nil {
+		t.Fatalf("unmarshal sample %q: %v", res.Artifacts[0].Sample[0], err)
+	}
+	if row["first_value"] != "bee" || row["joined"] != "bee" {
+		t.Fatalf("row=%+v, want partial-source coalesce/concat to use available field", row)
+	}
+}
+
+func TestActionRunnerMaterializedArtifactCarriesPayloadHeaders(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "vendors.csv"), []byte("vendor_id,vendor_name\nV1,Acme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "vendor_map",
+			Kind:           DataActionNormalizeEntities,
+			InputPaths:     []string{"vendors.csv"},
+			OutputArtifact: "vendor_map",
+			Params: map[string]string{
+				"source_field":          "vendor_name",
+				"canonical_id_field":    "vendor_id",
+				"canonical_label_field": "vendor_name",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run normalize_entities: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one artifact", res.Artifacts)
+	}
+	headers := strings.Join(res.Artifacts[0].Headers, ",")
+	for _, want := range []string{"source_value", "canonical_id", "canonical_label", "status"} {
+		if !strings.Contains(headers, want) {
+			t.Fatalf("headers=%q, missing %q", headers, want)
+		}
+	}
+	if !strings.Contains(res.Artifacts[0].Fields["output_headers"], "source_value") {
+		t.Fatalf("Fields=%+v, want output_headers from materialized payload", res.Artifacts[0].Fields)
+	}
+}
+
+func TestDataActionArtifactPayloadHeadersUnionArrayRecords(t *testing.T) {
+	raw := []byte(`[
+		{"item_id":"row-1","source_value":"a","status":"unresolved"},
+		{"item_id":"row-2","source_value":"b","canonical_id":"B","canonical_label":"Bee","status":"resolved"}
+	]`)
+	headers := strings.Join(dataActionArtifactPayloadHeaders(raw), ",")
+	for _, want := range []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"} {
+		if !strings.Contains(headers, want) {
+			t.Fatalf("headers=%q, missing %q", headers, want)
+		}
+	}
+}
+
+func TestDataActionArtifactPayloadHeadersPreferWrapperRecords(t *testing.T) {
+	raw := []byte(`{
+		"records": [],
+		"headers": ["id", "value"],
+		"diagnostics": {"count":"0"},
+		"fields": {"metadata_only":"true"}
+	}`)
+	headers := dataActionArtifactPayloadHeaders(raw)
+	if got := strings.Join(headers, ","); got != "id,value" {
+		t.Fatalf("headers=%q, want wrapper record headers only", got)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesAppliesDefaultStatusToExplicitRecords(t *testing.T) {
+	root := t.TempDir()
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "normalize_statuses",
+			Kind:           DataActionNormalizeEntities,
+			OutputArtifact: "status_map",
+			Params: map[string]string{
+				"resolutions_json": `[{"item_id":"s1","source_value":"已支付","canonical_id":"paid","canonical_label":"paid"}]`,
+				"default_status":   "resolved",
+				"reason":           "map status values",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run normalize_entities explicit records without status: %v", err)
+	}
+	if len(res.EntityResolutions) != 1 || res.EntityResolutions[0].Status.String() != "resolved" {
+		t.Fatalf("EntityResolutions=%+v, want default status", res.EntityResolutions)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesEmptyExplicitMappingsFallbackToStructuredInputs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "vendors.csv"), []byte("vendor_id,vendor_name\nV1,Acme\nV2,Globex\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "vendor_map",
+			Kind:           DataActionNormalizeEntities,
+			InputPaths:     []string{"vendors.csv"},
+			OutputArtifact: "vendor_map",
+			Params: map[string]string{
+				"resolutions_json":      `[]`,
+				"source_field":          "vendor_name",
+				"canonical_id_field":    "vendor_id",
+				"canonical_label_field": "vendor_name",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run normalize_entities empty explicit mappings: %v", err)
+	}
+	if len(res.EntityResolutions) != 2 {
+		t.Fatalf("EntityResolutions=%+v, want structured fallback records", res.EntityResolutions)
+	}
+	if got := res.Artifacts[0].Fields["count"]; got != "2" {
+		t.Fatalf("artifact count=%q, want 2", got)
 	}
 }
 
@@ -1150,6 +3474,110 @@ func TestActionRunnerComputeContributionsRejectsUnknownFields(t *testing.T) {
 	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "value_field") || !strings.Contains(err.Error(), "amount") {
 		t.Fatalf("Run err=%v, want missing value_field diagnostic", err)
+	}
+}
+
+func TestActionRunnerComputeContributionsRejectsUnknownFilterField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\nA,paid,10\nB,draft,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"group_key":    "all",
+				"metric":       "amount",
+				"value_field":  "amount",
+				"operation":    "add",
+				"filters_json": `[{"field":"status_flag","op":"eq","value":"paid"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want missing filter field diagnostic")
+	}
+	text := err.Error()
+	for _, want := range []string{"filter field", "status_flag", "orders.csv", "status", "field_samples"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Run err=%q, want substring %q", text, want)
+		}
+	}
+}
+
+func TestActionRunnerComputeContributionsAcceptsStructuredFilterAlias(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\nA,paid,10\nB,draft,5\nC,accepted,7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"group_key":   "all",
+				"metric":      "amount",
+				"value_field": "amount",
+				"operation":   "add",
+				"filters":     `[{"field":"status","op":"in","value":["paid","accepted"]}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run compute_contributions structured filter alias: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want paid and accepted rows", res.Contributions)
+	}
+}
+
+func TestActionRunnerComputeContributionsZeroRequiredLedgerHasDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\nA,paid,10\nB,draft,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"group_key":    "all",
+				"metric":       "amount",
+				"value_field":  "amount",
+				"operation":    "add",
+				"filters_json": `[{"field":"status","op":"eq","value":"closed"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want zero contribution diagnostic")
+	}
+	text := err.Error()
+	for _, want := range []string{"zero contribution", "filter_matched=0", "field_samples", "paid"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Run err=%q, want substring %q", text, want)
+		}
 	}
 }
 
@@ -1439,6 +3867,45 @@ func TestActionRunnerIntermediateActionUsesLocalCoverageContract(t *testing.T) {
 	}
 }
 
+func TestActionRunnerMaterialInventoryDoesNotConsumeCoverageMaterials(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("- include completed rows\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status\n1,completed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "rules.md", Purpose: "task rules", Required: true, UsageMode: MaterialUseScriptConsumed},
+				{Path: "orders.csv", Purpose: "source rows", Required: true, UsageMode: MaterialUseScriptConsumed},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID:         "inventory",
+			Kind:       DataActionMaterialInventory,
+			InputPaths: []string{"rules.md", "orders.csv"},
+		}},
+		ContinueAfter: true,
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("material inventory should be an intermediate discovery action, got %v", err)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "" {
+		t.Fatalf("ConsumedPaths=%q, want no consumption evidence from material_inventory", got)
+	}
+	if len(res.Artifacts) == 0 {
+		t.Fatalf("Artifacts empty")
+	}
+}
+
 func TestActionRunnerTerminalActionStillRequiresWorkflowCoverage(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("- include completed rows\n"), 0o644); err != nil {
@@ -1587,6 +4054,7 @@ func TestActionRunnerNormalizeEntitiesFromStructuredInput(t *testing.T) {
 
 func TestActionRunnerNormalizeEntitiesAllowsEmptyIntermediateArtifact(t *testing.T) {
 	root := t.TempDir()
+	tempRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "status.csv"), []byte("status,code\npaid,1\ncompleted,2\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -1606,7 +4074,7 @@ func TestActionRunnerNormalizeEntitiesAllowsEmptyIntermediateArtifact(t *testing
 			},
 		}},
 	}
-	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot}).Run(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Run empty normalize action: %v", err)
 	}
@@ -1618,6 +4086,231 @@ func TestActionRunnerNormalizeEntitiesAllowsEmptyIntermediateArtifact(t *testing
 	}
 	if got := strings.Join(res.ConsumedPaths, ","); got != "status.csv" {
 		t.Fatalf("ConsumedPaths=%q, want status.csv", got)
+	}
+	artifactPath := res.Artifacts[0].Fields["artifact_path"]
+	raw, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("read materialized artifact: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		t.Fatalf("empty entity artifact materialized as null")
+	}
+	if !strings.Contains(string(raw), `"entity_resolutions":[]`) {
+		t.Fatalf("empty entity artifact=%s, want entity_resolutions wrapper", raw)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesRoutesGenericFilterToReferenceByMatchCount(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("po_id,vendor_name_raw,status\nPO1,Acme Cloud Ltd,completed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vendors.csv"), []byte("vendor_id,legal_name,short_name,status\nV001,Acme Cloud Ltd,Acme,active\nV002,Old Vendor,Old,inactive\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_vendors",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"orders.csv", "vendors.csv"},
+			Params: map[string]string{
+				"source_field":          "vendor_name_raw",
+				"reference_name_fields": "legal_name,short_name",
+				"canonical_id_field":    "vendor_id",
+				"canonical_label_field": "legal_name",
+				"match_mode":            "exact",
+				"filters_json":          `[{"field":"status","op":"eq","value":"active"}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run reference-filter normalize action: %v", err)
+	}
+	if len(res.EntityResolutions) != 1 {
+		t.Fatalf("EntityResolutions=%+v, want one resolution", res.EntityResolutions)
+	}
+	if got := res.EntityResolutions[0].CanonicalID.String(); got != "V001" {
+		t.Fatalf("CanonicalID=%q, want V001; records=%+v", got, res.EntityResolutions)
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Children) < 2 {
+		t.Fatalf("Artifacts=%+v, want source/reference diagnostics", res.Artifacts)
+	}
+	if notes := res.Artifacts[0].Children[0].Fields["filter_role_notes"]; !strings.Contains(notes, "reference_by_match_count") {
+		t.Fatalf("filter_role_notes=%q, want reference_by_match_count", notes)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesUsesReferenceCanonicalID(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source.csv"), []byte("item_id,label\n1,Alpha Alias\n2,Beta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,name,aliases\nA,Alpha,Alpha Alias;Alpha A\nB,Beta,Beta Alias\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_labels",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"source.csv", "reference.csv"},
+			Params: map[string]string{
+				"source_field":          "label",
+				"reference_name_fields": `["name","aliases"]`,
+				"canonical_id_field":    "code",
+				"canonical_label_field": "name",
+				"match_mode":            "mapping_contains_source",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run reference canonical normalize action: %v", err)
+	}
+	if len(res.EntityResolutions) != 2 {
+		t.Fatalf("EntityResolutions=%+v, want 2", res.EntityResolutions)
+	}
+	for _, rec := range res.EntityResolutions {
+		if rec.CanonicalID.String() == "" {
+			t.Fatalf("CanonicalID empty for reference normalization: %+v", rec)
+		}
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesInfersReferenceFirstInputOrder(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("item_id,label\n1,Alpha Alias\n2,Beta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "canonical.csv"), []byte("code,name,aliases\nA,Alpha,Alpha Alias;Alpha A\nB,Beta,Beta Alias\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_labels",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"canonical.csv", "records.csv"},
+			Params: map[string]string{
+				"source_field":          "label",
+				"reference_name_fields": `["name","aliases"]`,
+				"canonical_id_field":    "code",
+				"canonical_label_field": "name",
+				"match_mode":            "mapping_contains_source",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run reference-first normalize action: %v", err)
+	}
+	got := map[string]string{}
+	for _, rec := range res.EntityResolutions {
+		got[rec.SourceValue.String()] = rec.CanonicalID.String()
+	}
+	if got["Alpha Alias"] != "A" || got["Beta"] != "B" {
+		t.Fatalf("EntityResolutions=%+v, want inferred source/reference roles", res.EntityResolutions)
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Children) < 2 {
+		t.Fatalf("Artifacts=%+v, want source/reference diagnostics", res.Artifacts)
+	}
+	if got := res.Artifacts[0].Children[0].Fields["role_inference"]; !strings.Contains(got, "swapped_source_reference_by_field_contract") {
+		t.Fatalf("role_inference=%q, want structural swap note", got)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesExplicitSourcePathUsesNonSourceReferenceInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("item_id,label\n1,Alpha Alias\n2,Beta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "canonical.csv"), []byte("code,name,aliases\nA,Alpha,Alpha Alias;Alpha A\nB,Beta,Beta Alias\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_labels",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"canonical.csv", "records.csv"},
+			Params: map[string]string{
+				"source_path":           "records.csv",
+				"source_field":          "label",
+				"reference_name_fields": `["name","aliases"]`,
+				"canonical_id_field":    "code",
+				"canonical_label_field": "name",
+				"match_mode":            "mapping_contains_source",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run explicit-source normalize action: %v", err)
+	}
+	got := map[string]string{}
+	for _, rec := range res.EntityResolutions {
+		got[rec.SourceValue.String()] = rec.CanonicalID.String()
+	}
+	if got["Alpha Alias"] != "A" || got["Beta"] != "B" {
+		t.Fatalf("EntityResolutions=%+v, want non-source input used as reference", res.EntityResolutions)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesUsesUnicodeReferenceCanonicalID(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source.csv"), []byte("item_id,label\n1,算力与云资源服务\n2,制度\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,name,aliases,keywords\nCOMPUTE_SERVICE,算力与云资源服务,云资源;算力,GPU;压测资源\nAI_CONSULTING,AI 咨询与治理,咨询;制度,AI治理;政策工作坊\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_labels",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"source.csv", "reference.csv"},
+			Params: map[string]string{
+				"source_field":          "label",
+				"reference_name_fields": `["name","aliases","keywords"]`,
+				"canonical_id_field":    "code",
+				"canonical_label_field": "name",
+				"match_mode":            "mapping_contains_source",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run unicode reference canonical normalize action: %v", err)
+	}
+	got := map[string]string{}
+	for _, rec := range res.EntityResolutions {
+		got[rec.SourceValue.String()] = rec.CanonicalID.String()
+	}
+	if got["算力与云资源服务"] != "COMPUTE_SERVICE" || got["制度"] != "AI_CONSULTING" {
+		t.Fatalf("EntityResolutions=%+v, want unicode canonical ids", res.EntityResolutions)
 	}
 }
 
@@ -3202,6 +5895,526 @@ func TestActionRunnerAssembleAnswerProjectsReconcileGroups(t *testing.T) {
 	}
 }
 
+func TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "reconcile", Kind: DataActionReconcile}},
+	}
+	seed := Result{
+		Answer:         "- emitted_payload: previous material summary",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("item-1"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("line:2"),
+			GroupKey:      LooseText("Q001"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("42"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "42" {
+		t.Fatalf("Answer=%q, want reconcile-rendered value instead of seed artifact summary", res.Answer)
+	}
+}
+
+func TestActionRunnerComputeContributionsProducesDecisionRows(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("query,amount,status\nQ002,7,done\nQ001,5,draft\nQ001,10,done\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"records.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "records.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		ContinueAfter:  true,
+		Actions: []DataAction{
+			{
+				ID:             "contribs",
+				Kind:           DataActionComputeContribs,
+				InputPaths:     []string{"records.csv"},
+				OutputArtifact: "contribs.json",
+				Params: map[string]string{
+					"group_key_field": "query",
+					"value_field":     "amount",
+					"item_id_field":   "_source_index",
+					"metric":          "amount",
+					"operation":       "add",
+					"filter_field":    "status",
+					"filter_equals":   "done",
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "values",
+					"order_by":   "group_key",
+					"delimiter":  ",",
+				},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want 2 matching records", res.Contributions)
+	}
+	if len(res.Rows) != 2 {
+		t.Fatalf("Rows=%+v, want decision rows derived from contributions", res.Rows)
+	}
+	if res.Rows[0].Decision != "include" || strings.TrimSpace(res.Rows[0].SourceLocator) == "" {
+		t.Fatalf("Rows=%+v, want meaningful include decisions", res.Rows)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 2 {
+		t.Fatalf("Reconcile=%+v, want groups derived from contributions", res.Reconcile)
+	}
+}
+
+func TestActionRunnerComputeContributionsTreatsGroupKeyParamAsFieldWhenItMatchesInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("query,amount\nQ002,7\nQ001,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"records.csv"},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		Actions: []DataAction{
+			{
+				ID:             "contribs",
+				Kind:           DataActionComputeContribs,
+				InputPaths:     []string{"records.csv"},
+				OutputArtifact: "contribs.json",
+				Params: map[string]string{
+					"group_key":   "query",
+					"value_field": "amount",
+					"metric":      "amount",
+					"operation":   "add",
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{ID: "answer", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values", "delimiter": ","}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10,7" {
+		t.Fatalf("Answer=%q, want grouped values ordered by query field", res.Answer)
+	}
+	if got := len(res.Reconcile.Groups); got != 2 {
+		t.Fatalf("Reconcile groups=%d, want 2: %+v", got, res.Reconcile.Groups)
+	}
+}
+
+func TestActionRunnerComputeContributionsSkipsReferenceInputsMissingContributionFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "facts.csv"), []byte("query_id,amount,status\nQ002,7,done\nQ001,10,done\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("query_id\nQ001\nQ002\nQ003\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"facts.csv", "reference.csv"},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "reference.csv",
+			ReferenceKeyField:  "query_id",
+		},
+		Actions: []DataAction{
+			{
+				ID:         "contribs",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"facts.csv", "reference.csv"},
+				Params: map[string]string{
+					"group_key_field": "query_id",
+					"value_field":     "amount",
+					"operation":       "add",
+					"filters":         `[{"field":"status","op":"eq","value":"done"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{ID: "answer", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values", "delimiter": ","}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10,7,0" {
+		t.Fatalf("Answer=%q, want contribution facts plus zero-filled reference", res.Answer)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want only fact rows", res.Contributions)
+	}
+}
+
+func TestActionRunnerComputeContributionsInfersValueFieldFromMetric(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "events.csv"), []byte("id,group,duration_ms\n1,A,7\n2,A,5\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
+		OutputContract:   OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{
+				ID:             "compute",
+				Kind:           DataActionComputeContribs,
+				InputPaths:     []string{"events.csv"},
+				OutputArtifact: "contribs.json",
+				Params: map[string]string{
+					"group_key_field": "group",
+					"item_id_field":   "id",
+					"metric":          "duration_ms",
+					"operation":       "sum",
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{ID: "answer", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values"}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 {
+		t.Fatalf("Reconcile=%+v, want one group", res.Reconcile)
+	}
+	if got := res.Reconcile.Groups[0].Actual.String(); got != "12" {
+		t.Fatalf("Actual=%q, want 12", got)
+	}
+}
+
+func TestActionRunnerAssembleAnswerCompletesReferenceKeysWithZero(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "queries.csv"), []byte("query_id\nQ001\nQ002\nQ003\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Contributions: []ContributionRecord{{
+		ItemID:        LooseText("row-1"),
+		Source:        LooseText("records.csv"),
+		SourceLocator: LooseText("row 2"),
+		GroupKey:      LooseText("Q002"),
+		Metric:        LooseText("amount"),
+		Value:         LooseText("7"),
+		Operation:     LooseText("add"),
+		Role:          LooseText("target"),
+	}}}
+	plan := TaskPlan{
+		InputPaths: []string{"queries.csv"},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:         "answer",
+				Kind:       DataActionAssembleAnswer,
+				InputPaths: []string{"queries.csv"},
+				Params: map[string]string{
+					"projection":          "values",
+					"complete_reference":  "true",
+					"reference_key_field": "query_id",
+					"metric":              "amount",
+					"delimiter":           ",",
+				},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "0,7,0" {
+		t.Fatalf("Answer=%q, want reference-complete value list", res.Answer)
+	}
+}
+
+func TestActionRunnerAssembleAnswerCompletesReferenceKeysFromOutputContract(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "queries.csv"), []byte("query_id\nQ001\nQ002\nQ003\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Contributions: []ContributionRecord{{
+		ItemID:        LooseText("row-1"),
+		Source:        LooseText("records.csv"),
+		SourceLocator: LooseText("row 2"),
+		GroupKey:      LooseText("Q002"),
+		Metric:        LooseText("amount"),
+		Value:         LooseText("7"),
+		Operation:     LooseText("add"),
+		Role:          LooseText("target"),
+	}}}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "queries.csv",
+			ReferenceKeyField:  "query_id",
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:     "answer",
+				Kind:   DataActionAssembleAnswer,
+				Params: map[string]string{"projection": "values", "delimiter": ","},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "0,7,0" {
+		t.Fatalf("Answer=%q, want reference-complete value list from output contract", res.Answer)
+	}
+}
+
+func TestActionRunnerInfersReferenceKeyCandidateStructurally(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nB\nC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, ok := (ActionRunner{RepoRoot: root}).InferReferenceKeyCandidate(nil, []string{"A", "C"}, []string{"targets.csv"}, nil, 100)
+	if !ok {
+		t.Fatal("InferReferenceKeyCandidate returned no candidate")
+	}
+	if candidate.Path != "targets.csv" || candidate.Field != "target" || candidate.KeyCount != 3 || candidate.MissingCount != 1 {
+		t.Fatalf("candidate=%+v, want structural reference candidate over targets.csv.target", candidate)
+	}
+	if got := strings.Join(candidate.MissingKeys, ","); got != "B" {
+		t.Fatalf("MissingKeys=%q, want B", got)
+	}
+}
+
+func TestActionRunnerAssembleAnswerDoesNotCompleteReferenceWithoutContract(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "queries.csv"), []byte("query_id\nQ001\nQ002\nQ003\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Contributions: []ContributionRecord{{
+		ItemID:        LooseText("row-1"),
+		Source:        LooseText("records.csv"),
+		SourceLocator: LooseText("row 2"),
+		GroupKey:      LooseText("Q002"),
+		Metric:        LooseText("amount"),
+		Value:         LooseText("7"),
+		Operation:     LooseText("add"),
+		Role:          LooseText("target"),
+	}}}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			ReferencePath:      "queries.csv",
+			ReferenceKeyField:  "query_id",
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{ID: "answer", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values", "delimiter": ","}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "7" {
+		t.Fatalf("Answer=%q, want existing groups only without complete_reference", res.Answer)
+	}
+}
+
+func TestActionRunnerAssembleAnswerOverridesIntermediateSeedAnswer(t *testing.T) {
+	root := t.TempDir()
+	seed := Result{
+		Answer: "1 artifact(s)",
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("row 2"),
+			GroupKey:      LooseText("Q001"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("12"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		}},
+	}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{ID: "answer", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values"}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "12" {
+		t.Fatalf("Answer=%q, want assembled answer to override intermediate seed summary", res.Answer)
+	}
+}
+
+func TestActionRunnerTreatsUnsatisfiedTypedActionBatchAsIntermediate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("name\nalpha\nbeta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"items.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "items.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "normalize",
+			Kind:           DataActionNormalizeEntities,
+			InputPaths:     []string{"items.csv"},
+			OutputArtifact: "normalized.json",
+			Params:         map[string]string{"source_field": "name"},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.EntityResolutions) == 0 {
+		t.Fatalf("EntityResolutions empty, want intermediate typed progress")
+	}
+	if len(res.Rows) != 0 {
+		t.Fatalf("Rows=%+v, intermediate normalize batch should not synthesize decision rows", res.Rows)
+	}
+}
+
+func TestActionRunnerReconcileSeedContributionsSatisfyDecisionRows(t *testing.T) {
+	seed := Result{Contributions: []ContributionRecord{{
+		ItemID:        LooseText("item-1"),
+		Source:        LooseText("records.json"),
+		SourceLocator: LooseText("json[0]"),
+		GroupKey:      LooseText("Q001"),
+		Metric:        LooseText("amount"),
+		Value:         LooseText("42"),
+		Operation:     LooseText("add"),
+		Role:          LooseText("target"),
+		Reason:        LooseText("included by previous typed action"),
+	}}}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		ContinueAfter:  true,
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "values",
+					"order_by":   "group_key",
+				},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0].RowID != "item-1" || res.Rows[0].Decision != "include" {
+		t.Fatalf("Rows=%+v, want seed contribution-derived decision row", res.Rows)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 {
+		t.Fatalf("Reconcile=%+v, want seed contribution-backed reconcile", res.Reconcile)
+	}
+}
+
+func TestValidateReconcileAllowsIntermediateArtifactSummaryAnswer(t *testing.T) {
+	contract := CoverageContract{
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	}
+	res := Result{
+		Answer: "1 artifact(s)",
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("item-1"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("row 2"),
+			GroupKey:      LooseText("Q001"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("42"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		}},
+		Reconcile: &ReconcileReport{
+			Status:         LooseText("pass"),
+			ExpectedAnswer: LooseText("Q001/amount=42"),
+			ActualAnswer:   LooseText("Q001/amount=42"),
+			Groups: []ReconcileGroup{{
+				GroupKey:   LooseText("Q001"),
+				Metric:     LooseText("amount"),
+				Expected:   LooseText("42"),
+				Actual:     LooseText("42"),
+				Difference: LooseText("0"),
+			}},
+		},
+	}
+	if err := ValidateResultAgainstContract(contract, res); err != nil {
+		t.Fatalf("ValidateResultAgainstContract: %v", err)
+	}
+}
+
 func TestRunnerRejectsMismatchedAnswerScopedReconcileGroup(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -3633,6 +6846,47 @@ func TestActionRunnerLedgerOnlyBatchPreservesSeedAnswer(t *testing.T) {
 	}
 	if len(res.EntityResolutions) == 0 {
 		t.Fatal("entity resolutions not completed")
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesIgnoresMissingFilterField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "taxonomy.csv"), []byte("code,label,aliases\nA,Alpha,alpha;first\nB,Beta,beta;second\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{EntityResolutionRequired: true},
+		ContinueAfter:    true,
+		Actions: []DataAction{{
+			ID:         "normalize_ref",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"taxonomy.csv"},
+			Params: map[string]string{
+				"canonical_id_field":    "code",
+				"canonical_label_field": "label",
+				"name_fields":           `["label","aliases"]`,
+				"filter_field":          "status",
+				"filter_value":          "active",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ActionRunner.Run: %v", err)
+	}
+	if len(res.EntityResolutions) == 0 {
+		t.Fatal("expected entity resolutions despite non-existent filter field")
+	}
+	foundIgnored := false
+	for _, artifact := range res.Artifacts {
+		for _, child := range artifact.Children {
+			if child.Fields["ignored_filter_fields"] == "status" {
+				foundIgnored = true
+			}
+		}
+	}
+	if !foundIgnored {
+		t.Fatalf("ignored_filter_fields=status not recorded in artifacts: %+v", res.Artifacts)
 	}
 }
 

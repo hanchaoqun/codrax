@@ -63,7 +63,10 @@ var dataTaskPlanTool = llm.ToolSchema{
       "properties": {
         "format": {"type": "string", "enum": ["plain_single_line", "csv_line", "json_only", "markdown_table", "markdown", "file_path", "freeform"]},
         "explanation_allowed": {"type": "boolean"},
-        "delimiter": {"type": "string"}
+        "delimiter": {"type": "string"},
+        "complete_reference": {"type": "boolean", "description": "true only when the user goal requires one output element for every key in a reference material, including zero/empty values for keys with no contributing records."},
+        "reference_path": {"type": "string", "description": "Reference material or generated artifact alias that defines the final key universe when complete_reference=true."},
+        "reference_key_field": {"type": "string", "description": "Field in reference_path whose stable order/keys define final output coverage when complete_reference=true."}
       },
       "required": ["format", "explanation_allowed"],
       "description": "Typed final-output contract derived from the user's requested shape. If the user says only output JSON/CSV/a single line, set explanation_allowed=false."
@@ -137,17 +140,21 @@ var dataTaskPlanTool = llm.ToolSchema{
         "type": "object",
         "properties": {
           "id": {"type":"string"},
-          "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","derive_rules","derive_fields","normalize_entities","enrich_records","join_records","compute_contributions","reconcile_artifacts","assemble_answer","custom_transform"]},
+          "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","derive_rules","derive_fields","expand_records","filter_records","qualify_records","normalize_entities","apply_entity_resolutions","enrich_records","join_records","compute_contributions","reconcile_artifacts","assemble_answer","custom_transform"]},
           "purpose": {"type":"string"},
           "input_paths": {"type":"array", "items":{"type":"string"}},
           "output_artifact": {"type":"string"},
           "script": {"type":"string"},
-          "params": {"type":"object", "additionalProperties":{"type":"string"}},
+          "params": {
+            "type":"object",
+            "additionalProperties": true,
+            "description":"Domain-neutral action parameters. Scalars may be strings/numbers/booleans. For arrays or objects, pass real JSON arrays/objects such as field_specs, filters, left_fields, right_fields, lookup_specs, mapping_specs, resolutions, or rules; do not stringify nested JSON unless you intentionally use an existing *_json string field."
+          },
           "success_criteria": {"type":"array", "items":{"type":"string"}}
         },
         "required": ["kind"]
       },
-      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; derive_rules turns task rules/constraints into typed generic rule records; derive_fields materializes generic derived fields such as regex extracts, parsed numbers, lower/upper/trimmed strings, maps, constants, or substrings on an existing record artifact; normalize_entities emits typed source-to-canonical mappings; enrich_records applies mapping/reference records to a base record set and materializes added canonical/derived fields for later joins; join_records creates reusable joined records from two structured inputs using one or more key fields; compute_contributions reads declared local inputs and creates generic contribution records from field/filter params; reconcile_artifacts deterministically reconciles accumulated contributions; assemble_answer projects existing reconcile groups into the final output_contract without changing computed values; custom_transform is the bounded fallback script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform. A batch may contain at most one scripted custom_transform; split multiple transforms into separate batches or express them as typed actions over reusable artifacts."
+      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; derive_rules turns task rules/constraints into typed generic rule records; derive_fields materializes generic derived fields such as regex extracts, parsed numbers, lower/upper/trimmed strings, maps, constants, or substrings on one existing record artifact; expand_records turns one multi-value field on one existing record artifact into multiple records; filter_records selects rows from one existing record artifact using field filters and produces a smaller reusable record artifact; qualify_records executes model-declared record eligibility conditions over one existing record artifact, emits include/exclude decision rows, and materializes eligible or annotated rows before contribution calculation; normalize_entities emits typed source-to-canonical mappings and can resolve a source record set against a reference record set using source_field/source_fields, reference_name_fields/reference_fields, canonical_id_field, canonical_label_field, and match_mode; apply_entity_resolutions applies existing entity_resolution artifacts back onto base records by source locator/key fields, preserves base rows by default, and materializes canonical id/label/status fields; enrich_records applies mapping/reference records to a base record set and materializes added canonical/derived fields for later joins; join_records creates reusable joined records from two structured inputs using one or more key fields; compute_contributions reads declared local inputs and creates generic contribution records from field/filter params; reconcile_artifacts deterministically reconciles accumulated contributions; assemble_answer projects existing reconcile groups into the final output_contract without changing computed values; custom_transform is the bounded fallback script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform. A batch may contain at most one scripted custom_transform; split multiple transforms into separate batches or express them as typed actions over reusable artifacts."
     },
     "script": {
       "type": "string",
@@ -284,23 +291,28 @@ Hard rules:
 - Do not make the model hand-calculate the final answer. The script must compute it.
 - The final result object must include answer as a string and output_contract as an object.
 - Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
-- Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer, then a small custom_transform only when generic typed actions cannot express the bounded step.
+- Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer, then a small custom_transform only when generic typed actions cannot express the bounded step.
 - Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the next atomic action batch, set continue_after=true when more graph expansion is needed, and let the workflow feed real artifacts back before planning the next batch.
 - An action is atomic: it should answer one small observation or transformation question. If one action would inspect many unrelated schemas, normalize entities, compute contributions, reconcile, and render output together, split it.
-- Action outputs are reusable read-only JSON materials. A later action can list an earlier action id or output_artifact in input_paths and read it with json_load(path) or json_records(path), or let typed actions consume it as structured records. Use this for stepwise DAG convergence instead of rebuilding all raw files in each step. Previous result.artifact_access is the authoritative access catalog for generated artifacts: it lists aliases, json_shape, and access_hint. Follow it before writing script code; for array-shaped artifacts use json_records(alias) or iterate json_load(alias) as a list, and never call .get() on the top-level array. Do not ask the user to clarify the internal shape of a system-generated artifact; inspect/read that artifact or use json_records(path).
-- Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use extract_records when you need bounded generic records from selected structured or text materials.
-- Use derive_rules when task rules, constraints, examples, or prior distilled notes should become auditable rule_coverage records before calculation. Params can include rules_json (array of {id,text,status,notes,evidence_refs}) or rules (newline text). If later rows/contributions/entity_resolutions will cite rule_refs, give each rule a stable generic ID using "RULE_ID: rule text" or rules_json.id, then cite exactly that ID.
-- Use derive_fields when an existing record artifact needs generic derived columns before filtering, joining, or aggregation. Provide input_path or one input_paths item, output_artifact, and params.field_specs_json as an array. Each spec can include source_field, target_field, operation, pattern, group, replacement, value, default, mapping, multiplier, divisor, start, length. Supported operations are copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, year/extract_year, and constant. parse_number extracts a decimal token from any string; optional multiplier/divisor can normalize an objective numeric unit when the user/material defines the conversion. This action is field-level and domain-neutral; it does not decide business rules.
-- Use normalize_entities when the current task needs source values mapped to canonical values. It has two generic modes: (1) params.resolutions_json or mappings_json is an array of generic entity_resolutions records; or (2) input_paths plus params.source_field/source_fields/name_fields and canonical_id_field/canonical_label_field derive mappings from structured local materials. Use filters_json/filter_field/filter_value to restrict records when needed. Do not encode domain-specific categories in the schema.
-- Use enrich_records when a base record set needs generic canonical/reference fields before it can be joined, filtered, or aggregated. Provide params.base_path plus mapping_specs_json. Each mapping spec can include mapping_path/reference_path, source_field/base_field, mapping_source_fields/reference_fields, mapping_value_field/reference_value_field, target_field, match_mode exact|mapping_contains_source|source_contains_mapping|contains, and optional mapping_filters. If a field can be derived directly from the same record by regex/parse/map/trim, use derive_fields first. This is domain-neutral: it applies mappings from reference/action artifacts and produces a reusable enriched JSON table with source lineage.
-- Use join_records when the current task needs a reusable joined table before filtering or aggregation. Provide two input_paths or params.left_path/right_path, plus params.left_fields/right_fields as JSON arrays or comma lists. For composite joins, use arrays of equal length. If a join key is derived or canonicalized, first use enrich_records to materialize that field on the left/right records; do not ask join_records to join on a field that is not present yet. join_records is field-level and domain-neutral; it does not decide business rules.
-- Use compute_contributions for generic sums, counts, filters, grouped totals, or contribution ledgers over declared local structured/text inputs. Params are domain-neutral: value_field, group_key_field or group_key, metric, operation, item_id_field, filters_json, rule_refs, max_records, max_contributions.
+- Action outputs are reusable read-only JSON materials. A later action can list an earlier action id or output_artifact in input_paths and read it with json_load(path) or json_records(path), or let typed actions consume it as structured records. Use this for stepwise DAG convergence instead of rebuilding all raw files in each step. Previous result.artifact_access is the authoritative access catalog for generated artifacts: it lists aliases, json_shape, fields, field_samples, and access_hint. Workflow ledger handles such as workflow_entity_resolutions, workflow_rule_coverage, workflow_contributions, and workflow_decision_records are also read-only JSON artifacts when present; consume them directly instead of trying to recreate accumulated ledgers from prose. Follow artifact_access before writing script code; for array-shaped artifacts use json_records(alias) or iterate json_load(alias) as a list, and never call .get() on the top-level array. Do not invent field names that are absent from artifact_access.fields; use field_samples only as objective examples, not as complete data; use derive_fields/enrich_records/join_records first to materialize missing fields. Do not ask the user to clarify the internal shape of a system-generated artifact; inspect/read that artifact or use json_records(path).
+- Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use extract_records when you need bounded generic records from selected structured or text materials. extract_records is a materialization/sample action: set params.limit (or params.max_records) to the number of records the next typed stage actually needs; if the downstream calculation requires the full local file, request a large bounded limit and verify row_count/sample_count before treating it as complete.
+- Params can carry structured JSON arrays/objects directly. Prefer params.field_specs, params.filters, params.left_fields, params.right_fields, params.lookup_specs, params.mapping_specs, params.resolutions, and params.rules as real arrays/objects. Use *_json only when you already have a valid serialized JSON string. Do not spend repair budget on escaping nested JSON strings when a structured param can represent the same data.
+- Use derive_rules when task rules, constraints, examples, or prior distilled notes should become auditable rule_coverage records before calculation. Params can include rules (array of {id,text,status,notes,evidence_refs} or newline text) or rules_json. If later rows/contributions/entity_resolutions will cite rule_refs, give each rule a stable generic ID using "RULE_ID: rule text" or rules[].id, then cite exactly that ID.
+- Use derive_fields when an existing record artifact needs generic derived columns before filtering, joining, or aggregation. Provide input_path or one input_paths item, output_artifact, and params.field_specs as an array. Each spec can include source_field, source_fields, target_field, operation, pattern, group, replacement, value, default, mapping, multiplier, divisor, separator, start, length. Supported operation values are copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, year, extract_year, concat, join_fields, coalesce, first_non_empty, and constant. Record artifacts expose generic source locator fields such as _source_path, _source_index, _source_line, _source_locator, source_index, source_line, source_locator, row_index, and line; copy or parse those fields when a later join/filter needs stable row identity. Never use constant to invent row/source/line/index fields; constant is only for genuinely fixed labels or flags. parse_number extracts a decimal token from any string; optional multiplier/divisor can normalize an objective numeric unit when the user/material defines the conversion. concat/coalesce use source_fields and are for generic field composition only. This action is field-level and domain-neutral; it does not decide business rules.
+- Use expand_records when an existing record artifact has one field containing multiple delimited values and later enrichment/join/aggregation needs one value per row. Provide one input_path, output_artifact, params.source_field, params.target_field, and optionally delimiter/separator or split_pattern, original_field, trim, dedupe, max_output_records. expand_records changes row cardinality; derive_fields never creates additional rows. Use it for generic aliases, tags, labels, roles, categories, ids, terms, or other lists without encoding business semantics in the schema.
+- Use filter_records when existing fields are enough to select a smaller reusable record set before enrichment, join, contribution calculation, or answer projection. Provide exactly one input_path, output_artifact, and params.filters as an array such as [{"field":"status","op":"in","value":["paid","accepted"]}] or params.filter_field/filter_op/filter_value. Supported ops include eq, ne, contains, not_contains, in, not_in, empty, not_empty, exists, gt, gte, lt, lte. filter_records changes row cardinality by keeping/dropping rows; derive_fields only adds fields. If a filter field is missing, first materialize it with derive_fields, enrich_records, or join_records.
+- Use qualify_records when the task needs item-level eligibility decisions before aggregation. The model decides the domain meaning from the current rules, but the system executes only typed conditions: params.filters for required include conditions, params.reject_filters for exclusion conditions, params.required_fields, params.evidence_fields, params.status_fields or auto_status_fields, params.accepted_statuses, params.blocked_statuses, params.pass_field, params.reason_field, and output_mode filter|annotate. This action emits generic result.rows include/exclude decisions and a reusable record artifact; it is the preferred bridge between rule/evidence interpretation and compute_contributions.
+- Use normalize_entities when the current task needs source values mapped to canonical values. It has two generic modes: (1) params.resolutions or params.mappings is an array of generic entity_resolutions records; or (2) a source record set plus a reference record set derive auditable mappings. For mode (2), provide input_paths=[source_records, reference_records] or source_path/reference_path, params.source_field/source_fields/name_fields for source values, reference_name_fields/reference_fields/lookup_fields for reference match candidates, canonical_id_field for the canonical key/code/id, canonical_label_field for the human label, and match_mode exact|mapping_contains_source|source_contains_mapping|contains. Use params.source_filters only for source/base rows and params.reference_filters only for reference/lookup rows; use generic params.filters only when the same condition is definitely meant for source rows. normalize_entities emits a mapping ledger, not a rewritten source table; use apply_entity_resolutions or enrich_records to materialize canonical fields back onto base records before later filtering, joining, or contribution calculation. Use this for any source-to-reference normalization: names, ids, tags, labels, categories, accounts, devices, people, locations, or other dimensions. Do not encode domain-specific categories in the schema.
+- Use apply_entity_resolutions when you already have entity_resolution artifacts and need to materialize canonical fields back onto a base record artifact before filtering, joining, or contribution calculation. Provide input_paths=[base_records, resolution_artifact...] plus params.resolution_specs as an array; each spec names resolution_path, target_id_field, optional base_path, target_label_field/target_status_field, optional base_key_fields and resolution_key_fields. If the base record artifact is not the first input_path, set base_path explicitly at the top level or in every spec. If key fields are omitted, the runner uses base _source_index and parses #N from resolution item_id/source_locator; if resolution_key_fields=["item_id"] or ["source_locator"], the same #N locator can align to base _source_index. By default this action preserves all base rows: params.source_filters/base_filters only mark which base rows are eligible to receive resolution values, and non-eligible rows stay visible with a not_applicable status. Use filter_records before/after, or set base_filter_mode="filter_output", only when you intentionally want to shrink the record set. When one resolution artifact contains mappings for multiple dimensions or source fields, add params.resolution_filters / mapping_filters / reference_filters, or a generic params.filters whose field exists only on the resolution records, so each target field consumes only its intended resolution subset. This action does not decide mappings; it only applies existing typed resolution records.
+- Use enrich_records when a base record set needs generic canonical/reference fields before it can be joined, filtered, or aggregated. Prefer the role-explicit shape: params.base_path plus params.lookup_specs as an array; each spec should name lookup_path/reference_path, base_fields/source_fields, lookup_fields/reference_fields, lookup_value_field/reference_value_field, target_field, match_mode exact|mapping_contains_source|source_contains_mapping|contains, and optional mapping_filters. base_fields are fields that exist on the base records; lookup_fields and lookup_value_field are fields that exist on the lookup/reference records. Use base_fields when several base fields may contain the lookup cue; the runner picks the first reliable match and records status/evidence. lookup_fields may be omitted when the reference/action artifact already has obvious source/name/term/alias/label/text fields; the runner infers positive candidates and ignores negative/exclude-style fields. If a field can be derived directly from the same record by regex/parse/map/trim, use derive_fields first. This is domain-neutral: it applies mappings from reference/action artifacts and produces a reusable enriched JSON table with source lineage.
+- Use join_records when the current task needs a reusable joined table before filtering or aggregation. Provide two input_paths or params.left_path/right_path, plus params.left_fields/right_fields as JSON arrays or comma lists. For composite joins, use arrays of equal length. join_records defaults to join_type=inner and therefore drops unmatched left rows. Use join_type=left when the left/base records must be preserved for later filtering, diagnostics, or enrichment. For applying a mapping/reference value onto base rows, prefer enrich_records; for exact relational matching where unmatched rows should not contribute, join_records with join_type=inner is appropriate. If a join key is derived or canonicalized, first use enrich_records or derive_fields to materialize that field on the left/right records; do not ask join_records to join on a field that is not present yet. join_records is field-level and domain-neutral; it does not decide business rules.
+- Use compute_contributions for generic sums, counts, filters, grouped totals, or contribution ledgers over declared local structured/text inputs that are already eligible for the target metric. Params are domain-neutral: value_field, group_key_field or group_key, metric, operation, item_id_field, filters, rule_refs, max_records, max_contributions. If rule/evidence qualification is still needed, first run qualify_records or filter_records so contribution rows come from an explicit eligible artifact and decision ledger.
 - Use reconcile_artifacts after compute_contributions when reconcile_required=true or when the final scalar/list must be backed by a deterministic contribution sum.
-- Use assemble_answer after reconcile_artifacts when strict final output should be projected from reconcile groups. Params are generic: projection=values|key_values|json_groups|markdown_table, order_by=group_key|metric|value|input, delimiter, value_field=actual|expected, include_keys=true|false. This action must not change business decisions, numeric values, or contribution membership.
+- Use assemble_answer after reconcile_artifacts when strict final output should be projected from reconcile groups. Params are generic: projection=values|key_values|json_groups|markdown_table, order_by=group_key|metric|value|input, delimiter, value_field=actual|expected, include_keys=true|false. If the task requires one output item for every key in a reference list/table, set output_contract.complete_reference=true plus reference_path and reference_key_field, and/or set the same complete_reference/reference_path/reference_key_field on assemble_answer. This fills absent reference keys with zero/empty reconcile values without changing contributing records. Do not set complete_reference for ordinary "only groups that exist" summaries.
 - Use custom_transform only for bounded deterministic transforms over known input_paths that cannot be represented by the typed actions above.
 - A broad custom_transform over many input_paths, required materials, or ledger outputs is not a discovery node. It is allowed only after earlier typed actions or previous rounds have already inspected/derived/normalized/enriched/joined/computed the relevant inputs. If any required input is still unprofiled or a needed field is missing, add inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records first and set continue_after=true.
 - An actions[] batch may contain at most one scripted custom_transform. If the work needs several transforms, emit one batch, let it produce an artifact, then continue with the next batch.
-- When actions are present, top-level script must be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
+- When actions are present, actions[] is the entire executable DAG and top-level script must be empty. The system will ignore/remove a top-level script from an actions[] plan. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
@@ -342,7 +354,7 @@ Hard rules:
 - If the user's strict output contract and success criteria are satisfied, emit status=complete.
 - If more objective material/profile artifacts are needed before computing, emit status=expand_graph.
 - If one specific prior action/node is structurally wrong but the graph shape is still right, emit status=repair_node and fill action_id/action_kind/repair_locus when available.
-- If enough artifacts exist and the next step should be a bounded transform over known inputs, emit status=continue_transform.
+- If enough artifacts exist and the next step should be a bounded transform over known inputs, emit status=continue_transform only when workflow_state_json.custom_transform_disabled is false or absent. When custom_transform_disabled=true, emit expand_graph/continue_data so the continuation planner uses workflow_state_json.allowed_next_actions instead of another script.
 - If the result is a deliberate intermediate batch, contract warnings remain, required item decisions/audit are missing, decision samples show empty/missing parsed fields, or success criteria are not covered but can still be computed from available data files, emit the most precise continue status above. Use continue_data only when none of expand_graph/repair_node/continue_transform fits.
 - If the plan required rule_coverage, contributions, entity_resolutions, or reconcile, those typed result ledgers must be present and reconcile.status must be pass before status=complete.
 - Do not mark complete when reconcile failed or when contribution/entity/rule samples show missing values that are needed for the user goal.
@@ -392,29 +404,25 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator is not configured")
 	}
 	basePrompt := dataTaskEvaluationPrompt(userLine, records, lang)
-	resp, err := p.adapter.Chat(ctx,
+	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_evaluator",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
 			{Role: "user", Content: basePrompt},
 		},
 		[]llm.ToolSchema{dataTaskEvaluationTool},
-		llm.ChatOptions{ToolChoice: "required"},
 	)
-	p.lastTrace = traceFromLLMResponse("data_task_evaluator", resp)
 	if err != nil {
-		return dataquery.Evaluation{}, err
+		return fallbackDataTaskEvaluation(records, llm.Response{}), nil
 	}
 	if len(resp.ToolCalls) == 0 {
-		retryResp, retryErr := p.adapter.Chat(ctx,
+		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, "data_task_evaluator_repair",
 			[]llm.Message{
 				{Role: "system", Content: dataTaskEvaluationSystemPrompt},
 				{Role: "user", Content: dataTaskEvaluationNoToolRepairPrompt(basePrompt, resp)},
 			},
 			[]llm.ToolSchema{dataTaskEvaluationTool},
-			llm.ChatOptions{ToolChoice: "required"},
 		)
 		if retryErr == nil {
-			p.lastTrace = traceFromLLMResponse("data_task_evaluator_repair", retryResp)
 			resp = retryResp
 		}
 		if retryErr != nil || len(resp.ToolCalls) == 0 {
@@ -439,7 +447,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 			return dataquery.Evaluation{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
 		}
 	}
-	return parsed.toEvaluation(), nil
+	return normalizeDataTaskEvaluationForWorkflow(records, parsed.toEvaluation()), nil
 }
 
 func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Response) string {
@@ -476,9 +484,28 @@ func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Respo
 		return eval
 	}
 	if last.Result != nil && len(last.Result.Artifacts) > 0 {
-		return dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason}
+		return normalizeDataTaskEvaluationForWorkflow(records, dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason})
 	}
 	return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
+}
+
+func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, eval dataquery.Evaluation) dataquery.Evaluation {
+	if eval.Status != dataquery.EvalContinueTransform {
+		return eval
+	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if !state.CustomTransformDisabled || len(state.AllowedNextActions) == 0 {
+		return eval
+	}
+	eval.Status = dataquery.EvalExpandGraph
+	note := fmt.Sprintf("workflow custom_transform_disabled=true; continue with typed allowed_next_actions [%s] at next_stage=%s",
+		strings.Join(state.AllowedNextActions, ", "), state.NextStage)
+	if strings.TrimSpace(eval.Reason) != "" {
+		eval.Reason = strings.TrimSpace(eval.Reason) + " " + note
+	} else {
+		eval.Reason = note
+	}
+	return eval
 }
 
 func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
@@ -489,15 +516,13 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLin
 		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner is not configured")
 	}
 	prompt := dataTaskResultPatchPrompt(userLine, previous, partial, violations, records, lang)
-	resp, err := p.adapter.Chat(ctx,
+	resp, err := p.chatDataTaskToolRequired(ctx, "data_result_patch_planner",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskResultPatchSystemPrompt},
 			{Role: "user", Content: prompt},
 		},
 		[]llm.ToolSchema{dataTaskResultPatchTool},
-		llm.ChatOptions{ToolChoice: "required"},
 	)
-	p.lastTrace = traceFromLLMResponse("data_result_patch_planner", resp)
 	if err != nil {
 		return dataquery.DataResultPatchPlan{}, err
 	}
@@ -532,15 +557,13 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 	if p == nil || p.adapter == nil {
 		return dataquery.TaskPlan{}, fmt.Errorf("data task planner is not configured")
 	}
-	resp, err := p.adapter.Chat(ctx,
+	resp, err := p.chatDataTaskToolRequired(ctx, scope,
 		[]llm.Message{
 			{Role: "system", Content: dataTaskPlannerSystemPrompt},
 			{Role: "user", Content: prompt},
 		},
 		[]llm.ToolSchema{dataTaskPlanTool},
-		llm.ChatOptions{ToolChoice: "required"},
 	)
-	p.lastTrace = traceFromLLMResponse(scope, resp)
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
@@ -584,15 +607,13 @@ func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Cont
 	scope := firstNonEmptyString(strings.TrimSpace(req.Scope), strings.TrimSpace(paramErr.Scope), "data structured tool")
 	logging.Warning("[repl/data] structured tool params invalid tool=%s scope=%s raw_bytes=%d; attempting compact repair",
 		firstNonEmptyString(tool.Name, paramErr.ToolName), scope, paramErr.RawLen)
-	resp, err := p.adapter.Chat(ctx,
+	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_structured_tool_repair",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskStructuredToolRepairSystemPrompt},
 			{Role: "user", Content: dataTaskStructuredToolRepairPrompt(tool, paramErr, req)},
 		},
 		[]llm.ToolSchema{tool},
-		llm.ChatOptions{ToolChoice: "required"},
 	)
-	p.lastTrace = traceFromLLMResponse("data_task_structured_tool_repair", resp)
 	if err != nil {
 		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
 	}
@@ -604,6 +625,31 @@ func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Cont
 		return nil, fmt.Errorf("%w; compact tool-param repair returned unexpected tool %q", parseErr, call.Name)
 	}
 	return call.Params, nil
+}
+
+func (p *llmDataTaskPlanner) chatDataTaskToolRequired(ctx context.Context, scope string, messages []llm.Message, tools []llm.ToolSchema) (llm.Response, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p == nil || p.adapter == nil {
+		return llm.Response{}, fmt.Errorf("%s is not configured", firstNonEmptyString(scope, "data task planner"))
+	}
+	const maxAttempts = 2
+	var resp llm.Response
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err = p.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+		p.lastTrace = traceFromLLMResponse(scope, resp)
+		if err == nil {
+			return resp, nil
+		}
+		if attempt >= maxAttempts || !llm.IsRetryableDispatchError(err) {
+			return resp, err
+		}
+		logging.Warning("[repl/data] %s LLM call failed transiently (attempt=%d/%d): %v; retrying",
+			firstNonEmptyString(scope, "data task planner"), attempt, maxAttempts, err)
+	}
+	return resp, err
 }
 
 func dataTaskStructuredToolRepairPrompt(tool llm.ToolSchema, paramErr *replStructuredToolParamError, req dataTaskStructuredToolRepairRequest) string {
@@ -811,7 +857,7 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## previous_data_rounds\n")
-	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
 	if stateJSON := marshalDataTaskWorkflowState(records, dataquery.TaskPlan{}); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
@@ -820,23 +866,33 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
 	b.WriteString("- Prefer extending the adaptive action graph over rewriting a large script. Use previous result.artifacts to decide the next atomic action. A failed custom_transform should usually be replaced by typed prerequisite actions or by one narrow transform over a known generated artifact only when custom_transform remains allowed.\n")
 	b.WriteString("- workflow_state_json.allowed_next_actions is the structural contract for the next batch. Use only those action kinds unless you intentionally change the contract with a valid new material requirement; otherwise the plan will be rejected before execution.\n")
-	b.WriteString("- workflow_state_json.allowed_next_action_contracts gives each allowed action's input boundary. Respect it before writing params: derive_fields is exactly one record set; lookup/reference mapping should use normalize_entities, enrich_records, or join_records; compute_contributions consumes existing value/group/filter fields; reconcile_artifacts consumes prior contributions.\n")
-	b.WriteString("- If workflow_state_json.custom_transform_disabled=true, do not emit custom_transform in the next batch. It means a recent script node failed; move forward with typed atomic actions until a non-script action succeeds.\n")
+	b.WriteString("- workflow_state_json.allowed_next_action_contracts gives each allowed action's input boundary. Respect it before writing params: derive_fields, expand_records, and filter_records each consume exactly one record set; derive_fields adds fields but never creates/drops rows; expand_records creates one row per split value from one multi-value field; filter_records keeps/drops rows using existing fields; lookup/reference mapping should use normalize_entities, enrich_records, or join_records; compute_contributions consumes existing value/group/filter fields; reconcile_artifacts consumes prior contributions.\n")
+	b.WriteString("- Record artifacts expose generic locator fields such as _source_index, _source_locator, source_index, source_locator, row_index, and line. If a later action needs stable row identity, use derive_fields copy/regex_extract from those real locator fields; do not use constant to create row/source/line/index fields.\n")
+	b.WriteString("- workflow_state_json.action_scaffold contains compact valid action templates built from current artifact fields. It is structural help, not a business conclusion. Prefer adapting one scaffold over inventing field names or a broad script, and keep the action kind inside allowed_next_actions.\n")
+	b.WriteString("- For source-to-reference normalization, use normalize_entities with input_paths=[source_records, reference_records], source_field/source_fields on the source, reference_name_fields/reference_fields on the reference, canonical_id_field for the canonical key/code/id, canonical_label_field for the display label, and a match_mode. Put source/base-row filters in params.source_filters and reference/lookup-row filters in params.reference_filters; use generic params.filters only for source rows. This produces a reusable mapping ledger, not a rewritten source table; use apply_entity_resolutions or enrich_records to materialize canonical fields on base records before later filtering, joining, or contribution calculation. apply_entity_resolutions preserves all base rows by default; source/base filters only mark rows eligible for mapping. Use filter_records or base_filter_mode=filter_output only when row shrinking is intended.\n")
+	b.WriteString("- join_records defaults to join_type=inner and drops unmatched left rows. Use join_type=left when left/base records must remain visible for later diagnostics or filtering. Prefer enrich_records when applying lookup/reference values onto base rows.\n")
+	b.WriteString("- workflow_state_json.material_coverage_authoritative=true means required_materials, covered_required_materials, and missing_required_materials are the deterministic material coverage truth. result.artifact_access and previous_data_rounds are compact samples and may omit covered artifacts; do not infer a material is missing from a sample omission.\n")
+	b.WriteString("- workflow_state_json.artifact_availability is the cumulative compact catalog of generated artifacts and aliases. Prefer it over recent result.artifact_access samples when deciding whether an artifact exists. Do not re-extract a covered material merely because a recent compact sample omitted an older artifact.\n")
+	b.WriteString("- Do not cross dependent DAG ranks in one batch. If you need derived/expanded/normalized fields before enrichment/join/filtering, emit only the derive_fields/expand_records/normalize_entities rank now. After those artifacts materialize with real fields, emit enrich_records/join_records/filter_records as appropriate. After that, emit compute_contributions, then reconcile_artifacts, then assemble_answer.\n")
+	b.WriteString("- If workflow_state_json.custom_transform_disabled=true, do not emit custom_transform in the next batch. This disables only free-form scripts; it is not a compute-capability failure. Continue with typed actions from allowed_next_actions/allowed_next_action_contracts until the workflow reaches contribution, reconcile, and answer assembly.\n")
+	b.WriteString("- For strict final projection over a reference list/table, preserve the reference contract through the final batch: set output_contract.complete_reference=true, reference_path, and reference_key_field, and set matching assemble_answer params when needed. This is the generic way to output zero/empty values for reference keys with no contributing records; do not use it for summaries that intentionally include only present groups.\n")
 	b.WriteString("- A single scripted custom_transform with continue_after=true is an intermediate artifact node. It may produce one reusable artifact or one ledger slice, but it must not also perform reconcile/final answer assembly. If a custom transform is needed before compute/reconcile, emit only that one transform now and let the evaluator plan the next batch.\n")
-	b.WriteString("- Follow workflow_state_json.next_stage. If material_coverage_sufficient=true, do not emit another coverage-only batch (material_inventory, inspect_material, extract_records, derive_rules) unless workflow_state_json.missing_required_materials names a specific new material. Move to derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or one narrow custom_transform over generated artifacts.\n")
+	b.WriteString("- Follow workflow_state_json.next_stage. If material_coverage_sufficient=true, do not emit another coverage-only batch (material_inventory, inspect_material, derive_rules, or extract_records without a concrete output_artifact) unless workflow_state_json.missing_required_materials names a specific new material. extract_records with output_artifact is allowed when it materializes already-covered source material or a generated payload into a reusable record artifact needed by later typed actions. If you need schema diagnostics, inspect a generated artifact alias from artifact_availability/artifact_access. Otherwise move to derive_fields, expand_records, filter_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer.\n")
 	b.WriteString("- Previous action ids and output_artifact names are reusable read-only JSON materials. Later actions can list them in input_paths and read them with json_load(path), or typed actions can consume them as structured records.\n")
-	b.WriteString("- Use result.artifact_access as the access contract for generated artifacts. It gives aliases, json_shape, and access_hint. If an artifact is array-shaped, use json_records(alias) or iterate json_load(alias) as a list; do not call .get() on the top-level value.\n")
+	b.WriteString("- Use result.artifact_access as the access contract for generated artifacts. It gives aliases, json_shape, fields, field_samples, and access_hint. If an artifact is array-shaped, use json_records(alias) or iterate json_load(alias) as a list; do not call .get() on the top-level value. For typed actions, only reference fields that appear in artifact_access.fields for that artifact; if a needed field is absent, first materialize it with derive_fields, expand_records, enrich_records, or join_records. field_samples are compact examples only; do not assume they enumerate every value.\n")
+	b.WriteString("- If an older artifact is listed in workflow_state_json.artifact_availability but not in the latest result.artifact_access sample, it is still available by its alias/id. Continue with typed actions over that alias instead of re-reading the original material.\n")
 	b.WriteString("- Use result.material_set_handles as objective candidate groups only. If a group is relevant to the current data goal, expand the concrete member_paths or text_evidence_paths into the next bounded coverage/action batch before compute; do not assume the whole group is required.\n")
 	b.WriteString("- A custom_transform that reads many materials or emits multiple ledgers must be a final bounded transform over known inputs. If prior results have not consumed/profiled every required input, emit typed prerequisite actions first instead of another broad script.\n")
 	b.WriteString("- Emit at most one scripted custom_transform per actions[] batch. If multiple fallback transforms are needed, produce one artifact now and request continuation for the next batch.\n")
 	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
 	b.WriteString("- Continue plans must preserve still-relevant required validation flags. If a prior result has missing rule coverage, missing contributions, missing entity resolutions, or failed reconcile, the next batch should repair the computation or emit a corrected bounded result.\n")
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields before deciding a prior result is missing items or groups.\n")
+	b.WriteString("- For material coverage, use workflow_state_json.missing_required_materials as the authority. Do not ask for coverage expansion when material_coverage_sufficient=true and missing_required_materials is empty merely because a compact artifact list did not show a material.\n")
 	b.WriteString("- Do not repeat a failed script unchanged. Do not re-run successful intermediate batches unless a fresh value is required.\n")
 	b.WriteString("- Ask the user only for user-owned business inputs. Keep computing when the missing fact can be derived from available local data files.\n")
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
 	b.WriteString("## candidate_data_files\n")
-	appendCandidateDataFiles(&b, candidates)
+	appendCompactCandidateDataFiles(&b, candidates)
 	return strings.TrimSpace(b.String())
 }
 
@@ -845,15 +901,18 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	b.WriteString("## data_workflow_rounds\n")
-	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
 	if stateJSON := marshalDataTaskWorkflowState(records, dataquery.TaskPlan{}); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## evaluator_rules\n")
 	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields to distinguish a sample from the full result.\n")
+	b.WriteString("- workflow_state_json.material_coverage_authoritative=true means missing_required_materials is deterministic. Do not infer missing materials from compact artifact_access or sampled previous rounds.\n")
+	b.WriteString("- workflow_state_json.artifact_availability is cumulative. Do not mark generated artifacts missing solely because the latest compact result sample omitted them.\n")
 	b.WriteString("- Do not infer missing reconcile groups, answer items, decisions, contributions, or resolutions solely because the sample list is shorter than the total count.\n")
 	b.WriteString("- Judge completion from the user goal, output_contract, counts, reconcile status, coverage warnings, and explicit failures together.\n")
-	b.WriteString("- Prefer precise continue statuses: expand_graph for more inspection/extraction artifacts, repair_node for one failed/incorrect prior node, continue_transform for a bounded transform over known artifacts. Use continue_data only when no precise status fits.\n")
+	b.WriteString("- Prefer precise continue statuses: expand_graph for more inspection/extraction or typed action graph work, repair_node for one failed/incorrect prior node, continue_transform only when workflow_state_json.custom_transform_disabled is false and a bounded script transform is truly allowed. Use continue_data when the next step should be chosen from workflow_state_json.allowed_next_actions.\n")
+	b.WriteString("- workflow_state_json.custom_transform_disabled=true disables only free-form scripts. It does not mean the task is blocked and does not disable typed actions such as derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer.\n")
 	b.WriteString("- If workflow_state_json.material_coverage_sufficient=true and there is still no contribution/reconcile/final answer, evaluate toward compute-stage continuation; do not ask for more material coverage unless missing_required_materials is non-empty.\n")
 	return strings.TrimSpace(b.String())
 }
@@ -877,7 +936,7 @@ func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, par
 	resultJSON, _ := json.MarshalIndent(compactDataTaskPatchResult(partial), "", "  ")
 	fmt.Fprintf(&b, "## partial_result_compact_json\n%s\n\n", string(resultJSON))
 	b.WriteString("## recent_data_rounds\n")
-	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
 	b.WriteString("\n\n## patch_rules\n")
 	b.WriteString("- Emit status=patch only for structural JSON-shape drift in the already-computed result.\n")
 	b.WriteString("- typed_violations[].json_path points to the structured result JSON, not to a script line. Patch only the exact structural field when allowed; use needs_recompute for computation, coverage, or business-rule changes.\n")
@@ -940,6 +999,44 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 	}
 }
 
+func appendCompactCandidateDataFiles(b *strings.Builder, candidates []dataquery.CandidateFile) {
+	if len(candidates) == 0 {
+		b.WriteString("(none discovered)\n")
+		return
+	}
+	limit := len(candidates)
+	if limit > 50 {
+		limit = 50
+	}
+	for i := 0; i < limit; i++ {
+		f := candidates[i]
+		fmt.Fprintf(b, "- path=%s kind=%s size=%d", f.Path, f.Kind, f.Size)
+		if f.Lines > 0 {
+			fmt.Fprintf(b, " lines=%d", f.Lines)
+		}
+		if strings.TrimSpace(f.Delimiter) != "" {
+			fmt.Fprintf(b, " delimiter=%s", marshalInlineJSON(f.Delimiter))
+		}
+		if len(f.Headers) > 0 {
+			fmt.Fprintf(b, " headers_json=%s", marshalInlineJSON(clampDataTaskStringSlice(f.Headers, 16)))
+		}
+		if len(f.TextEvidencePaths) > 0 {
+			fmt.Fprintf(b, " text_evidence_count=%d", len(f.TextEvidencePaths))
+		}
+		if strings.TrimSpace(f.ExtractionStatus) != "" {
+			fmt.Fprintf(b, " extraction_status=%s", marshalInlineJSON(f.ExtractionStatus))
+		}
+		if strings.TrimSpace(f.InspectError) != "" {
+			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 120))
+		}
+		b.WriteString("\n")
+	}
+	if len(candidates) > limit {
+		fmt.Fprintf(b, "- ... %d more candidate file(s) omitted from compact continuation view\n", len(candidates)-limit)
+	}
+	b.WriteString("note: compact continuation view omits sample_rows/sample_lines; use generated artifacts and workflow_state_json as the current execution context.\n")
+}
+
 func marshalInlineJSON(v any) string {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -970,6 +1067,9 @@ type dataTaskOutputDraft struct {
 	Format             flexiblePolicyString `json:"format"`
 	ExplanationAllowed flexiblePolicyBool   `json:"explanation_allowed"`
 	Delimiter          flexiblePolicyString `json:"delimiter"`
+	CompleteReference  flexiblePolicyBool   `json:"complete_reference"`
+	ReferencePath      flexiblePolicyString `json:"reference_path"`
+	ReferenceKeyField  flexiblePolicyString `json:"reference_key_field"`
 }
 
 type dataTaskQuestionDraft struct {
@@ -1090,6 +1190,9 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 			Format:             dataquery.OutputFormat(strings.TrimSpace(string(d.OutputContract.Format))),
 			ExplanationAllowed: bool(d.OutputContract.ExplanationAllowed),
 			Delimiter:          strings.TrimSpace(string(d.OutputContract.Delimiter)),
+			CompleteReference:  bool(d.OutputContract.CompleteReference),
+			ReferencePath:      strings.TrimSpace(string(d.OutputContract.ReferencePath)),
+			ReferenceKeyField:  strings.TrimSpace(string(d.OutputContract.ReferenceKeyField)),
 		}.Normalize(),
 		CoverageContract:    d.CoverageContract.toCoverageContract(),
 		Actions:             dataTaskActionsToPlan(d.Actions),
@@ -1119,8 +1222,13 @@ func dataTaskActionsToPlan(in []dataTaskActionDraft) []dataquery.DataAction {
 			if k == "" || v == nil {
 				continue
 			}
-			params[k] = fmt.Sprint(v)
+			value := dataTaskActionParamString(v)
+			if value == "" {
+				continue
+			}
+			params[k] = value
 		}
+		params = normalizeDataTaskActionParamAliases(params)
 		id := strings.TrimSpace(string(action.ID))
 		if id == "" {
 			id = fmt.Sprintf("action_%d", i+1)
@@ -1137,6 +1245,67 @@ func dataTaskActionsToPlan(in []dataTaskActionDraft) []dataquery.DataAction {
 		})
 	}
 	return out
+}
+
+func dataTaskActionParamString(v any) string {
+	switch typed := v.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.RawMessage:
+		return strings.TrimSpace(string(typed))
+	case []byte:
+		return strings.TrimSpace(string(typed))
+	default:
+		if b, err := json.Marshal(typed); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func normalizeDataTaskActionParamAliases(params map[string]string) map[string]string {
+	if len(params) == 0 {
+		return params
+	}
+	addAlias := func(alias, canonical string) {
+		value := strings.TrimSpace(params[alias])
+		if value == "" || strings.TrimSpace(params[canonical]) != "" {
+			return
+		}
+		if !dataTaskParamLooksStructured(value) {
+			return
+		}
+		params[canonical] = value
+	}
+	addAlias("field_specs", "field_specs_json")
+	addAlias("derive_specs", "derive_specs_json")
+	addAlias("transforms", "transforms_json")
+	addAlias("filters", "filters_json")
+	addAlias("source_filters", "source_filters_json")
+	addAlias("base_filters", "base_filters_json")
+	addAlias("record_filters", "record_filters_json")
+	addAlias("reference_filters", "reference_filters_json")
+	addAlias("lookup_filters", "lookup_filters_json")
+	addAlias("reject_filters", "reject_filters_json")
+	addAlias("exclude_filters", "exclude_filters_json")
+	addAlias("block_filters", "block_filters_json")
+	addAlias("rules", "rules_json")
+	addAlias("resolutions", "resolutions_json")
+	addAlias("mappings", "mappings_json")
+	addAlias("entity_resolutions", "entity_resolutions_json")
+	addAlias("resolution_specs", "resolution_specs_json")
+	addAlias("apply_specs", "apply_specs_json")
+	addAlias("mapping_specs", "mapping_specs_json")
+	addAlias("map_specs", "map_specs_json")
+	addAlias("enrich_specs", "enrich_specs_json")
+	addAlias("lookup_specs", "lookup_specs_json")
+	addAlias("mapping_filters", "mapping_filters_json")
+	return params
+}
+
+func dataTaskParamLooksStructured(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "[") || strings.HasPrefix(value, "{")
 }
 
 func (d dataTaskCoverageDraft) toCoverageContract() dataquery.CoverageContract {

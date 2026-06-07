@@ -2,8 +2,12 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -76,6 +80,7 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"json_records(path)",
 		"result.artifact_access",
 		"access catalog",
+		"field_samples",
 		"operation pipeline",
 		"coverage_contract",
 		"material inventory",
@@ -104,7 +109,104 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeMovesTopLevelScriptIntoCustomAction(t *testing.T) {
+func TestDataTaskDeterministicContinuationFallbackDeriveRules(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path:      "data_rules.md",
+				Required:  true,
+				UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			RuleCoverageRequired:       true,
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: current,
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"data_rules.md"},
+		},
+	}}
+	plan, reason, ok := dataTaskDeterministicContinuationFallback(records, current, errors.New("data task planner returned no tool_call"))
+	if !ok {
+		t.Fatalf("fallback ok=false")
+	}
+	if !strings.Contains(reason, "derive_rules") {
+		t.Fatalf("reason=%q, want derive_rules", reason)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("actions=%+v, want derive_rules action", plan.Actions)
+	}
+	if !plan.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want true")
+	}
+}
+
+func TestDataTaskWorkflowNextStageFallbackReconcilesContributions(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path:      "orders.csv",
+				Required:  true,
+				UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: current,
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Contributions: []dataquery.ContributionRecord{{
+				ItemID:    dataquery.LooseText("row-1"),
+				GroupKey:  dataquery.LooseText("Q001"),
+				Metric:    dataquery.LooseText("total"),
+				Value:     dataquery.LooseText("17"),
+				Operation: dataquery.LooseText("add"),
+			}},
+		},
+	}}
+	plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed")
+	if !ok {
+		t.Fatalf("fallback ok=false")
+	}
+	if !strings.Contains(reason, "reconcile") {
+		t.Fatalf("reason=%q, want reconcile", reason)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile action", plan.Actions)
+	}
+	if !plan.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want true")
+	}
+}
+
+func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "empty_transform",
+			Kind: dataquery.DataActionCustomTransform,
+		}},
+	}
+	errText := dataTaskActionStagingGuardError(plan)
+	if !strings.Contains(errText, "custom_transform") || !strings.Contains(errText, "no script") {
+		t.Fatalf("errText=%q, want empty custom_transform guard", errText)
+	}
+	errText = dataTaskWorkflowActionStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "custom_transform") || !strings.Contains(errText, "no script") {
+		t.Fatalf("workflow errText=%q, want empty custom_transform guard", errText)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeRemovesTopLevelScriptInsteadOfMovingIntoCustomAction(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv"},
@@ -120,21 +222,94 @@ func TestNormalizeDataTaskPlanShapeMovesTopLevelScriptIntoCustomAction(t *testin
 emit_result(str(len(rows)), output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 	}
 	got, notes := normalizeDataTaskPlanShape(plan)
-	if len(notes) != 1 {
-		t.Fatalf("notes=%v, want one structural normalization note", notes)
-	}
 	if strings.TrimSpace(got.Script) != "" {
 		t.Fatalf("top-level script not cleared: %q", got.Script)
 	}
-	if strings.TrimSpace(got.Actions[1].Script) == "" {
-		t.Fatalf("custom_transform script not populated: %+v", got.Actions[1])
+	if strings.TrimSpace(got.Actions[1].Script) != "" {
+		t.Fatalf("custom_transform script populated from top-level script: %+v", got.Actions[1])
 	}
-	if strings.Join(got.Actions[1].InputPaths, ",") != "orders.csv" {
-		t.Fatalf("custom_transform input paths=%v", got.Actions[1].InputPaths)
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeMergesTopLevelInputsIntoCustomAction(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersOnlyForComplexAggregation(t *testing.T) {
+	policy := TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		DataTaskKind:    "data_aggregation",
+		Operation:       "data_aggregation",
+	}
+	complex := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "queries.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}, {Path: "queries.csv", Required: true}},
+		},
+		Script: `emit_result("0")`,
+	}
+	got, notes := normalizeDataTaskPlanShapeForPolicy(complex, policy)
+	if !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage contract=%+v, want contribution and reconcile required", got.CoverageContract)
+	}
+	if !strings.Contains(strings.Join(notes, "; "), "complex typed data aggregation") {
+		t.Fatalf("notes=%v, want typed aggregation normalization note", notes)
+	}
+
+	simple := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		Script:     `emit_result("17")`,
+	}
+	got, notes = normalizeDataTaskPlanShapeForPolicy(simple, policy)
+	if got.CoverageContract.ContributionLedgerRequired || got.CoverageContract.ReconcileRequired {
+		t.Fatalf("simple coverage contract=%+v, want no forced ledgers", got.CoverageContract)
+	}
+	if strings.Contains(strings.Join(notes, "; "), "complex typed data aggregation") {
+		t.Fatalf("notes=%v, should not contain complex aggregation normalization", notes)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersForComplexStrictOutput(t *testing.T) {
+	policy := TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		DataTaskKind:    "data_task",
+		Operation:       "data_task",
+	}
+	complex := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: strings.Repeat("x = 1\n", 45) + `emit_result("1")`,
+	}
+	got, notes := normalizeDataTaskPlanShapeForPolicy(complex, policy)
+	if !got.CoverageContract.DecisionRecordsRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage contract=%+v, want strict-output ledgers", got.CoverageContract)
+	}
+	if !strings.Contains(strings.Join(notes, "; "), "complex strict-output data plan") {
+		t.Fatalf("notes=%v, want strict-output normalization note", notes)
+	}
+
+	simple := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"a.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: `emit_result("1")`,
+	}
+	got, _ = normalizeDataTaskPlanShapeForPolicy(simple, policy)
+	if got.CoverageContract.DecisionRecordsRequired || got.CoverageContract.ContributionLedgerRequired || got.CoverageContract.ReconcileRequired {
+		t.Fatalf("simple coverage contract=%+v, want no strict-output ledgers", got.CoverageContract)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeRemovesTopLevelScriptFromActionsPlan(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"rules.md", "orders.csv", "queries.csv"},
@@ -147,11 +322,14 @@ func TestNormalizeDataTaskPlanShapeMergesTopLevelInputsIntoCustomAction(t *testi
 emit_result(str(len(rows)), output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 	}
 	got, notes := normalizeDataTaskPlanShape(plan)
-	if len(notes) != 1 {
-		t.Fatalf("notes=%v, want one structural normalization note", notes)
+	if strings.TrimSpace(got.Script) != "" {
+		t.Fatalf("Script=%q, want cleared top-level script", got.Script)
 	}
-	if strings.Join(got.Actions[0].InputPaths, ",") != "rules.md,orders.csv,queries.csv" {
-		t.Fatalf("custom_transform input paths=%v", got.Actions[0].InputPaths)
+	if strings.Join(got.Actions[0].InputPaths, ",") != "rules.md" {
+		t.Fatalf("custom_transform input paths=%v, want action-owned inputs preserved", got.Actions[0].InputPaths)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
 }
 
@@ -177,6 +355,67 @@ emit({'content': content, 'line_count': len(content.splitlines())})`
 	}
 	if got.Actions[0].Script != actionScript {
 		t.Fatalf("action script changed: %q", got.Actions[0].Script)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeDropsStrayTopLevelScriptFromActionsPlan(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "queries.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "compute",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"group_key_field": "query_id",
+				"value_field":     "amount",
+				"operation":       "add",
+			},
+		}},
+		Script: `rows = csv_rows("orders.csv")
+emit_result("17", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
+	}
+	got, notes := normalizeDataTaskPlanShape(plan)
+	if strings.TrimSpace(got.Script) != "" {
+		t.Fatalf("top-level script not cleared: %q", got.Script)
+	}
+	if len(got.Actions) != 1 || got.Actions[0].Kind != dataquery.DataActionComputeContribs {
+		t.Fatalf("actions=%+v, want original typed action preserved", got.Actions)
+	}
+	if strings.Contains(strings.Join(notes, "\n"), "appended bounded top-level script") {
+		t.Fatalf("notes=%v, should not append a stray script to a single-action plan", notes)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal note", notes)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeExecutesCompleteStatusWithPayload(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "complete",
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: `emit_result("32", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
+	}
+	got, notes := normalizeDataTaskPlanShape(plan)
+	if got.Status != "ready" {
+		t.Fatalf("Status=%q, want ready", got.Status)
+	}
+	if strings.TrimSpace(got.Script) == "" && len(got.Actions) == 0 {
+		t.Fatalf("normalized plan lost executable payload: %+v", got)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "status=complete to ready") {
+		t.Fatalf("notes=%v, want complete status repair note", notes)
 	}
 }
 
@@ -215,7 +454,7 @@ emit_result("ok", output_contract={"format":"plain_single_line","explanation_all
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeAppendsBoundedTopLevelScriptAfterTypedActions(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeRemovesTopLevelScriptAfterTypedActions(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv", "rules.md"},
@@ -242,24 +481,18 @@ emit_result("ok", output_contract={"format":"plain_single_line","explanation_all
 		WhyThisBatch: "final bounded transform",
 	}
 	got, notes := normalizeDataTaskPlanShape(plan)
-	if !strings.Contains(strings.Join(notes, "\n"), "appended bounded top-level script") {
-		t.Fatalf("notes=%v", notes)
-	}
 	if strings.TrimSpace(got.Script) != "" {
 		t.Fatalf("top-level script not cleared: %q", got.Script)
 	}
-	if len(got.Actions) != 3 || got.Actions[2].Kind != dataquery.DataActionCustomTransform {
-		t.Fatalf("Actions=%+v, want appended custom_transform", got.Actions)
+	if len(got.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want original typed actions only", got.Actions)
 	}
-	if strings.TrimSpace(got.Actions[2].Script) == "" {
-		t.Fatalf("appended custom_transform missing script: %+v", got.Actions[2])
-	}
-	if strings.Join(got.Actions[2].InputPaths, ",") != "orders.csv,rules.md" {
-		t.Fatalf("custom_transform input paths=%v", got.Actions[2].InputPaths)
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeAppendsTopLevelScriptWhenCustomActionsAlreadyHaveScripts(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeRemovesTopLevelScriptWhenCustomActionsAlreadyHaveScripts(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv", "rules.md"},
@@ -285,18 +518,18 @@ func TestNormalizeDataTaskPlanShapeAppendsTopLevelScriptWhenCustomActionsAlready
 emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 	}
 	got, notes := normalizeDataTaskPlanShape(plan)
-	if !strings.Contains(strings.Join(notes, "\n"), "appended bounded top-level script") {
-		t.Fatalf("notes=%v", notes)
-	}
 	if got.Script != "" {
 		t.Fatalf("top-level script not cleared: %q", got.Script)
 	}
-	if len(got.Actions) != 4 || got.Actions[3].Kind != dataquery.DataActionCustomTransform {
-		t.Fatalf("Actions=%+v, want appended final custom_transform", got.Actions)
+	if len(got.Actions) != 3 {
+		t.Fatalf("Actions=%+v, want original actions only", got.Actions)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeAppendsAfterOneTypedAndExistingCustomScript(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeRemovesTopLevelScriptAfterOneTypedAndExistingCustomScript(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv", "rules.md"},
@@ -321,14 +554,14 @@ func TestNormalizeDataTaskPlanShapeAppendsAfterOneTypedAndExistingCustomScript(t
 emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 	}
 	got, notes := normalizeDataTaskPlanShape(plan)
-	if !strings.Contains(strings.Join(notes, "\n"), "appended bounded top-level script") {
-		t.Fatalf("notes=%v", notes)
-	}
 	if got.Script != "" {
 		t.Fatalf("top-level script not cleared: %q", got.Script)
 	}
-	if len(got.Actions) != 3 || got.Actions[2].Kind != dataquery.DataActionCustomTransform {
-		t.Fatalf("Actions=%+v, want appended final custom_transform", got.Actions)
+	if len(got.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want original actions only", got.Actions)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
+		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
 }
 
@@ -456,6 +689,150 @@ func TestDataTaskWorkflowCompletionGateRequiresCumulativeCoverage(t *testing.T) 
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateRequiresOutputProjection(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		OutputContract: current.OutputContract,
+		Contributions: []dataquery.ContributionRecord{
+			{
+				ItemID:        dataquery.LooseText("row-1"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:2"),
+				GroupKey:      dataquery.LooseText("Q1"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("10"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+			{
+				ItemID:        dataquery.LooseText("row-2"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:3"),
+				GroupKey:      dataquery.LooseText("Q2"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("20"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("Q1"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("10"), Actual: dataquery.LooseText("10"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("Q2"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("20"), Actual: dataquery.LooseText("20"), Difference: dataquery.LooseText("0")},
+			},
+		},
+	}
+	errText := dataTaskWorkflowCompletionGateError(nil, current, result)
+	if errText == "" || !strings.Contains(errText, "final answer projection") {
+		t.Fatalf("completion gate err=%q, want missing projection", errText)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, errText)
+	if !ok {
+		t.Fatal("expected deterministic output projection plan")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("actions=%+v, want one assemble_answer action", plan.Actions)
+	}
+	if got := plan.OutputContract.Normalize().Format; got != dataquery.OutputPlainSingleLine {
+		t.Fatalf("output format=%q, want plain_single_line", got)
+	}
+	if plan.ContinueAfter {
+		t.Fatal("output projection should be terminal by default")
+	}
+	if got := plan.Actions[0].Params["value_field"]; got != "actual" {
+		t.Fatalf("value_field=%q, want actual", got)
+	}
+
+	result.Answer = "Q1/amount=10; Q2/amount=20"
+	errText = dataTaskWorkflowCompletionGateError(nil, current, result)
+	if errText == "" || !strings.Contains(errText, "final answer projection") {
+		t.Fatalf("completion gate err=%q, want projection for reconcile-rendered intermediate answer", errText)
+	}
+
+	result.Artifacts = append(result.Artifacts, dataquery.DataArtifact{ID: "final_answer", Kind: string(dataquery.DataActionAssembleAnswer)})
+	errText = dataTaskWorkflowCompletionGateError(nil, current, result)
+	if errText != "" {
+		t.Fatalf("completion gate err=%q, want assembled answer accepted", errText)
+	}
+}
+
+func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nB\nC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "10,30",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{
+				ItemID:        dataquery.LooseText("row-1"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:2"),
+				GroupKey:      dataquery.LooseText("A"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("10"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+			{
+				ItemID:        dataquery.LooseText("row-2"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:3"),
+				GroupKey:      dataquery.LooseText("C"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("30"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("A"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("10"), Actual: dataquery.LooseText("10"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("C"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("30"), Actual: dataquery.LooseText("30"), Difference: dataquery.LooseText("0")},
+			},
+		},
+	}
+	errText := dataTaskWorkflowCompletionGateErrorWithRepo(root, nil, current, result)
+	if errText == "" || !strings.Contains(errText, "reference field") {
+		t.Fatalf("completion gate err=%q, want reference universe gap", errText)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, errText)
+	if !ok {
+		t.Fatal("expected deterministic reference-complete projection plan")
+	}
+	if !plan.OutputContract.CompleteReference {
+		t.Fatalf("CompleteReference=false, plan=%+v", plan.OutputContract)
+	}
+	if plan.OutputContract.ReferencePath != "targets.csv" || plan.OutputContract.ReferenceKeyField != "target" {
+		t.Fatalf("OutputContract=%+v, want targets.csv.target reference", plan.OutputContract)
+	}
+	if got := plan.Actions[0].Params["complete_reference"]; got != "true" {
+		t.Fatalf("complete_reference param=%q, want true", got)
+	}
+}
+
 func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -483,10 +860,72 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 		t.Fatal("ContinueAfter=false, want true for action workflow")
 	}
 	system := adapter.calls[0].messages[0].Content
-	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "expand_records", "filter_records", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}
+	}
+}
+
+func TestDataTaskActionsToPlanPreservesStructuredParams(t *testing.T) {
+	actions := dataTaskActionsToPlan([]dataTaskActionDraft{{
+		ID:   "derive",
+		Kind: "derive_fields",
+		Params: map[string]any{
+			"field_specs": []any{
+				map[string]any{
+					"source_field": "created_at",
+					"target_field": "year",
+					"operation":    "regex_extract",
+					"pattern":      `^(\d{4})`,
+				},
+			},
+			"filters": []any{
+				map[string]any{"field": "status", "op": "in", "value": []any{"paid", "accepted"}},
+			},
+			"left_fields": []any{"vendor_id", "category_code"},
+			"lookup_specs": []any{
+				map[string]any{
+					"lookup_path":        "category_mapping",
+					"base_fields":        []any{"category_raw"},
+					"lookup_fields":      []any{"source_value"},
+					"lookup_value_field": "canonical_id",
+					"target_field":       "category_code",
+				},
+			},
+		},
+	}})
+	if len(actions) != 1 {
+		t.Fatalf("actions=%+v, want one action", actions)
+	}
+	params := actions[0].Params
+	if strings.Contains(params["field_specs_json"], "map[") || strings.Contains(params["filters_json"], "map[") || strings.Contains(params["left_fields"], " ") && !strings.Contains(params["left_fields"], `"`) {
+		t.Fatalf("params=%+v, want JSON-serialized structured params", params)
+	}
+	var specs []map[string]any
+	if err := json.Unmarshal([]byte(params["field_specs_json"]), &specs); err != nil {
+		t.Fatalf("field_specs_json=%q unmarshal: %v", params["field_specs_json"], err)
+	}
+	if got := specs[0]["pattern"]; got != `^(\d{4})` {
+		t.Fatalf("pattern=%q, want regex preserved", got)
+	}
+	var filters []map[string]any
+	if err := json.Unmarshal([]byte(params["filters_json"]), &filters); err != nil {
+		t.Fatalf("filters_json=%q unmarshal: %v", params["filters_json"], err)
+	}
+	var leftFields []string
+	if err := json.Unmarshal([]byte(params["left_fields"]), &leftFields); err != nil {
+		t.Fatalf("left_fields=%q unmarshal: %v", params["left_fields"], err)
+	}
+	if strings.Join(leftFields, ",") != "vendor_id,category_code" {
+		t.Fatalf("left_fields=%v", leftFields)
+	}
+	var lookupSpecs []map[string]any
+	if err := json.Unmarshal([]byte(params["lookup_specs_json"]), &lookupSpecs); err != nil {
+		t.Fatalf("lookup_specs_json=%q unmarshal: %v", params["lookup_specs_json"], err)
+	}
+	if got := lookupSpecs[0]["lookup_value_field"]; got != "canonical_id" {
+		t.Fatalf("lookup_value_field=%q, want canonical_id", got)
 	}
 }
 
@@ -661,6 +1100,73 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 		if !strings.Contains(user, want) {
 			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
 		}
+	}
+}
+
+func TestDataTaskEvaluatorRetriesTransientLLMError(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			{},
+			{
+				ToolCalls: []llm.ToolCall{{
+					Name:   dataTaskEvaluationTool.Name,
+					Params: []byte(`{"status":"continue_transform","reason":"continue after transient retry","confidence":"medium"}`),
+				}},
+				StopReason: "tool_use",
+			},
+		},
+		errors: []error{
+			fmt.Errorf("temporary stream failure: %w", llm.ErrStreamStalled),
+			nil,
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	evaluator := planner.(DataTaskEvaluator)
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
+		Result: &dataquery.Result{
+			Answer:         "intermediate",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputMarkdown, ExplanationAllowed: true},
+			Artifacts:      []dataquery.DataArtifact{{ID: "a", Kind: "extract_records"}},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateDataTask retry: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d, want transient retry", len(adapter.calls))
+	}
+	if eval.Status != dataquery.EvalContinueTransform || eval.Reason != "continue after transient retry" {
+		t.Fatalf("eval=%+v", eval)
+	}
+}
+
+func TestDataTaskEvaluatorFallsBackAfterTransientLLMErrorBudget(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{{}, {}},
+		errors: []error{
+			fmt.Errorf("temporary stream failure: %w", llm.ErrStreamStalled),
+			fmt.Errorf("temporary stream failure: %w", llm.ErrStreamStalled),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	evaluator := planner.(DataTaskEvaluator)
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
+		Result: &dataquery.Result{
+			Answer:         "intermediate",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputMarkdown, ExplanationAllowed: true},
+			Artifacts:      []dataquery.DataArtifact{{ID: "a", Kind: "extract_records"}},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateDataTask fallback should not fail workflow: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d, want bounded retry budget", len(adapter.calls))
+	}
+	if eval.Status != dataquery.EvalContinueTransform || eval.Confidence != "low" {
+		t.Fatalf("eval=%+v, want deterministic conservative fallback", eval)
 	}
 }
 
@@ -1282,8 +1788,8 @@ func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T
 	if state.HasAnswer {
 		t.Fatalf("HasAnswer=true for intermediate coverage summary; state=%+v", state)
 	}
-	if state.NextStage != "compute_contributions" {
-		t.Fatalf("NextStage=%q, want compute_contributions; state=%+v", state.NextStage, state)
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs; state=%+v", state.NextStage, state)
 	}
 
 	records = append(records, dataTaskWorkflowRecord{
@@ -1340,8 +1846,75 @@ func TestDataTaskWorkflowStateDoesNotTreatActionSummaryAsFinalAnswer(t *testing.
 		},
 	}}
 	state := dataTaskWorkflowState(records, current)
-	if state.HasAnswer || state.NextStage != "emit_output_contract_answer" {
-		t.Fatalf("state=%+v, want action artifact summary to remain intermediate", state)
+	if state.HasAnswer || state.NextStage != "compute_contributions" {
+		t.Fatalf("state=%+v, want action artifact summary to remain intermediate compute stage", state)
+	}
+}
+
+func TestDataTaskWorkflowStatePreservesDeferredRequiredMaterials(t *testing.T) {
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "orders.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "read_rules",
+			Kind:       dataquery.DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+		}},
+	}
+	constrained := dataTaskConstrainCurrentRequiredMaterials(dataquery.CoverageContract{}, current)
+	if got := constrained.RequiredRunnerInputPaths(); strings.Join(got, ",") != "rules.md" {
+		t.Fatalf("current batch required runner paths=%v, want only rules.md", got)
+	}
+	if len(constrained.OptionalMaterials) != 1 || !constrained.OptionalMaterials[0].Required || constrained.OptionalMaterials[0].Path != "orders.csv" {
+		t.Fatalf("deferred optional materials=%+v, want orders.csv with workflow Required=true", constrained.OptionalMaterials)
+	}
+	state := dataTaskWorkflowState(nil, dataquery.TaskPlan{CoverageContract: constrained})
+	if state.MaterialCoverageSufficient {
+		t.Fatalf("state=%+v, want deferred required material to keep coverage incomplete", state)
+	}
+	if !slices.Contains(state.RequiredMaterials, "orders.csv") || !slices.Contains(state.MissingRequiredMaterials, "orders.csv") {
+		t.Fatalf("state=%+v, want orders.csv preserved as missing workflow requirement", state)
+	}
+}
+
+func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "records_artifact",
+				Kind:        string(dataquery.DataActionExtractRecords),
+				SourcePaths: []string{"records.csv"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "narrow_transform",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"records.csv"},
+			Script:     `rows = csv_rows("records.csv"); emit({"answer": str(len(rows))})`,
+		}},
+	}
+	if fallback, ok := dataTaskCoverageExpansionFallback(records, plan, "prior material scheduling check failed"); ok {
+		t.Fatalf("fallback=%+v, want no coverage fallback after historical material coverage", fallback)
 	}
 }
 
@@ -1426,6 +1999,34 @@ func TestDataTaskPlanStagingGuardAllowsFinalCustomTransformAfterTypedContext(t *
 	lines = append(lines, `emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`)
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
+		InputPaths: []string{"projection_source.json"},
+		CoverageContract: dataquery.CoverageContract{
+			ReconcileRequired: true,
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "inspect", Kind: dataquery.DataActionInspectMaterial, InputPaths: []string{"projection_source.json"}},
+			{ID: "rules", Kind: dataquery.DataActionDeriveRules, InputPaths: []string{"rules.md"}},
+			{
+				ID:         "final_transform",
+				Kind:       dataquery.DataActionCustomTransform,
+				InputPaths: []string{"projection_source.json"},
+				Script:     strings.Join(lines, "\n"),
+			},
+		},
+	}
+	if errText := dataTaskPlanStagingGuardError(plan); errText != "" {
+		t.Fatalf("final custom transform after typed context should pass, got %q", errText)
+	}
+}
+
+func TestDataTaskPlanStagingGuardRejectsBroadCustomTransformAfterTypedContext(t *testing.T) {
+	lines := make([]string, 0, dataTaskOneShotScriptLineSoftLimit)
+	for i := 0; i < dataTaskComplexCustomScriptLineLimit+5; i++ {
+		lines = append(lines, fmt.Sprintf("value_%d = %d", i, i))
+	}
+	lines = append(lines, `emit({"answer":"0","rows":[{"row_id":"r1","source":"a.csv","source_locator":"line:2","decision":"include"}],"contributions":[{"item_id":"r1","source":"a.csv","source_locator":"line:2","group_key":"Q1","metric":"amount","value":"1","operation":"add"}],"reconcile":{"status":"pass","groups":[{"group_key":"Q1","metric":"amount","actual":"1","expected":"1"}]}})`)
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
 		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
 		CoverageContract: dataquery.CoverageContract{
 			RequiredMaterials: []dataquery.CoverageMaterial{
@@ -1434,22 +2035,23 @@ func TestDataTaskPlanStagingGuardAllowsFinalCustomTransformAfterTypedContext(t *
 				{Path: "c.csv", Required: true},
 				{Path: "d.csv", Required: true},
 			},
+			DecisionRecordsRequired:    true,
 			ContributionLedgerRequired: true,
 			ReconcileRequired:          true,
 		},
 		Actions: []dataquery.DataAction{
-			{ID: "inspect", Kind: dataquery.DataActionInspectMaterial, InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"}},
 			{ID: "rules", Kind: dataquery.DataActionDeriveRules, InputPaths: []string{"rules.md"}},
 			{
-				ID:         "final_transform",
+				ID:         "compute_all",
 				Kind:       dataquery.DataActionCustomTransform,
-				InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
+				InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv", "rules.md"},
 				Script:     strings.Join(lines, "\n"),
 			},
 		},
 	}
-	if errText := dataTaskPlanStagingGuardError(plan); errText != "" {
-		t.Fatalf("final custom transform after typed context should pass, got %q", errText)
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "too broad for one bounded custom_transform") {
+		t.Fatalf("errText=%q, want broad custom_transform rejected even after typed context", errText)
 	}
 }
 
@@ -1635,6 +2237,334 @@ func TestDataTaskPlanStagingGuardChecksContinueAfterTopLevelScript(t *testing.T)
 	}
 }
 
+func TestDataTaskPlanStagingGuardRejectsReadyPlanWithoutExecutableBody(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
+		},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "no executable body") {
+		t.Fatalf("errText=%q, want no-executable-body guard", errText)
+	}
+}
+
+func TestDataTaskCoverageExpansionFallbackCoversReadyPlanWithoutExecutableBody(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			RuleCoverageRequired: true,
+		},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	if !ok {
+		t.Fatal("expected empty ready plan to convert to deterministic coverage batch")
+	}
+	if !fallback.ContinueAfter {
+		t.Fatal("coverage fallback must continue the workflow")
+	}
+	if got := len(fallback.Actions); got != 2 {
+		t.Fatalf("Actions=%+v, want derive_rules plus extract_records", fallback.Actions)
+	}
+	if fallback.Actions[0].Kind != dataquery.DataActionDeriveRules || fallback.Actions[1].Kind != dataquery.DataActionExtractRecords {
+		t.Fatalf("Actions=%+v, want derive_rules then extract_records", fallback.Actions)
+	}
+}
+
+func TestDataTaskCoverageExpansionFallbackDerivesTextRulesForLedgerTask(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	if !ok {
+		t.Fatal("expected deterministic coverage expansion fallback")
+	}
+	if got := fallback.CoverageContract.RuleCoverageRequired; got {
+		t.Fatalf("fallback should not silently mutate workflow rule requirement, got %v", got)
+	}
+	if len(fallback.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want derive_rules plus extract_records", fallback.Actions)
+	}
+	if fallback.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("first action=%+v, want derive_rules for text constraint material", fallback.Actions[0])
+	}
+	if got := fallback.Actions[0].InputPaths; len(got) != 1 || got[0] != "rules.md" {
+		t.Fatalf("rule InputPaths=%v, want rules.md", got)
+	}
+}
+
+func TestDataTaskNoEmitterComplexScriptFallbackBuildsAtomicObservationBatch(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "queries.csv", "lookup.csv", "amounts.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "queries.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+print(rows[:2])
+`,
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, errText)
+	if !ok {
+		t.Fatal("fallback=false, want deterministic no-emitter observation fallback")
+	}
+	if !strings.Contains(reason, "exploratory script") {
+		t.Fatalf("reason=%q, want exploratory script fallback", reason)
+	}
+	if strings.TrimSpace(fallback.Script) != "" {
+		t.Fatalf("fallback script=%q, want empty", fallback.Script)
+	}
+	if !fallback.ContinueAfter {
+		t.Fatal("ContinueAfter=false, want workflow continuation")
+	}
+	if len(fallback.Actions) != 1 {
+		t.Fatalf("Actions=%+v, want one extract_records action", fallback.Actions)
+	}
+	if fallback.Actions[0].Kind != dataquery.DataActionExtractRecords {
+		t.Fatalf("Actions=%+v, want extract_records", fallback.Actions)
+	}
+	if fallback.OutputContract.Format != dataquery.OutputFreeform || !fallback.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want freeform observation batch", fallback.OutputContract)
+	}
+}
+
+func TestDataTaskCustomTransformDisabledFallbackInspectsGeneratedArtifacts(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				DecisionRecordsRequired:    true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:   "derive",
+				Kind: dataquery.DataActionDeriveFields,
+			}},
+		},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID:     "po_enriched",
+				Kind:   string(dataquery.DataActionJoinRecords),
+				Fields: map[string]string{"json_shape": "array", "artifact_path": "po_enriched.json"},
+			}},
+			Rows: []dataquery.RowDecision{{RowID: "row1", Decision: "include"}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"po_enriched", "queries.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "rebuild",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"po_enriched", "queries.csv"},
+			Script:     `emit_result("diagnostic")`,
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	if !ok {
+		t.Fatal("fallback=false, want generated artifact diagnostic")
+	}
+	if !strings.Contains(reason, "custom_transform disabled") {
+		t.Fatalf("reason=%q, want custom_transform disabled fallback", reason)
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionInspectMaterial {
+		t.Fatalf("Actions=%+v, want inspect_material", fallback.Actions)
+	}
+	if got := fallback.Actions[0].InputPaths; len(got) != 1 || got[0] != "po_enriched" {
+		t.Fatalf("InputPaths=%v, want generated po_enriched only", got)
+	}
+	if fallback.Actions[0].Script != "" {
+		t.Fatalf("inspect action carried script: %q", fallback.Actions[0].Script)
+	}
+}
+
+func TestDataTaskCustomTransformDisabledFallbackPrefersLatestRecordArtifact(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				DecisionRecordsRequired:    true,
+				ContributionLedgerRequired: true,
+				EntityResolutionRequired:   true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:   "apply",
+				Kind: dataquery.DataActionApplyResolutions,
+			}},
+		},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:   "old_mapping_a",
+					Kind: string(dataquery.DataActionNormalizeEntities),
+					Fields: map[string]string{
+						"artifact_aliases": "old_mapping_a",
+						"json_shape":       "array",
+						"fields":           "item_id,source_value,canonical_id,canonical_label,status",
+					},
+				},
+				{
+					ID:   "old_mapping_b",
+					Kind: string(dataquery.DataActionNormalizeEntities),
+					Fields: map[string]string{
+						"artifact_aliases": "old_mapping_b",
+						"json_shape":       "array",
+						"fields":           "item_id,source_value,canonical_id,canonical_label,status",
+					},
+				},
+				{
+					ID:      "latest_records",
+					Kind:    string(dataquery.DataActionApplyResolutions),
+					Headers: []string{"id", "group", "amount", "status", "canonical_id", "canonical_label"},
+					Fields: map[string]string{
+						"artifact_aliases": "latest_records,latest_records.json",
+						"json_shape":       "array(len=3,item=object(keys=id,group,amount,status,canonical_id,canonical_label))",
+					},
+				},
+			},
+			Rows: []dataquery.RowDecision{{RowID: "row1", Decision: "include"}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"old_mapping_a", "old_mapping_b"},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "script_repair",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"old_mapping_a", "old_mapping_b"},
+			Script:     `emit_result("diagnostic")`,
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	if !ok {
+		t.Fatal("fallback=false, want generated artifact diagnostic")
+	}
+	if !strings.Contains(reason, "custom_transform disabled") {
+		t.Fatalf("reason=%q, want custom_transform disabled fallback", reason)
+	}
+	if got := fallback.Actions[0].InputPaths; len(got) == 0 || got[0] != "latest_records" {
+		t.Fatalf("InputPaths=%v, want latest rich record artifact first", got)
+	}
+}
+
+func TestDataTaskCustomTransformDisabledFallbackSkipsRuleArtifacts(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				DecisionRecordsRequired:    true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{ID: "rules", Kind: dataquery.DataActionDeriveRules}},
+		},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:   "rules_artifact",
+					Kind: string(dataquery.DataActionDeriveRules),
+					Fields: map[string]string{
+						"artifact_aliases": "rules_artifact",
+						"json_shape":       "array(len=3,item=object(keys=rule_id,rule_text,status))",
+					},
+					Children: []dataquery.DataArtifact{
+						{
+							ID:   "rule_1",
+							Kind: string(dataquery.DataActionDeriveRules),
+							Fields: map[string]string{
+								"artifact_aliases": "rule_1",
+								"json_shape":       "object(keys=rule_id,rule_text,status)",
+								"fields":           "rule_id,rule_text,status",
+							},
+						},
+					},
+				},
+				{
+					ID:      "po_enriched",
+					Kind:    string(dataquery.DataActionApplyResolutions),
+					Headers: []string{"po_id", "vendor_id", "category_code", "amount"},
+					Fields: map[string]string{
+						"artifact_aliases": "po_enriched,po_enriched.json",
+						"json_shape":       "array(len=50,item=object(keys=po_id,vendor_id,category_code,amount))",
+					},
+				},
+			},
+			Rows: []dataquery.RowDecision{{RowID: "row1", Decision: "include"}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"rule_1", "po_enriched"},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "script_repair",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"rule_1", "po_enriched"},
+			Script:     `emit_result("diagnostic")`,
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	if !ok {
+		t.Fatal("fallback=false, want generated record diagnostic")
+	}
+	if !strings.Contains(reason, "custom_transform disabled") {
+		t.Fatalf("reason=%q, want custom_transform disabled fallback", reason)
+	}
+	got := fallback.Actions[0].InputPaths
+	if len(got) != 1 || got[0] != "po_enriched" {
+		t.Fatalf("InputPaths=%v, want only executable record artifact po_enriched", got)
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsMultipleCustomTransformsInOneBatch(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",
@@ -1742,6 +2672,102 @@ func TestDataTaskWorkflowStagingGuardRejectsDeriveFieldsWithMultipleInputs(t *te
 	}
 }
 
+func TestDataTaskStagingGuardRejectsScriptOnTypedAction(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "enrich_with_script",
+			Kind:       dataquery.DataActionEnrichRecords,
+			InputPaths: []string{"base.json", "mapping.csv"},
+			Script:     `emit({"answer":"bad"})`,
+		}},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "typed data action") || !strings.Contains(errText, "Only custom_transform may carry a script") {
+		t.Fatalf("errText=%q, want typed-action script guard", errText)
+	}
+	errText = dataTaskWorkflowStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "typed data action") || !strings.Contains(errText, "Only custom_transform may carry a script") {
+		t.Fatalf("workflow errText=%q, want typed-action script guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsExpandRecordsWithoutSpec(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "expand",
+			Kind:       dataquery.DataActionExpandRecords,
+			InputPaths: []string{"records.csv"},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "expand_records") || !strings.Contains(errText, "source_field") {
+		t.Fatalf("errText=%q, want expand_records source-field guard", errText)
+	}
+
+	plan.Actions[0].Params = map[string]string{
+		"source_field": "tags",
+		"target_field": "tag",
+	}
+	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+		t.Fatalf("errText=%q, want expand_records with source_field to pass", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsExpandRecordsWithMultipleInputs(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "expand",
+			Kind:       dataquery.DataActionExpandRecords,
+			InputPaths: []string{"records.csv", "lookup.csv"},
+			Params: map[string]string{
+				"source_field": "tags",
+				"target_field": "tag",
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "single-record-set") || !strings.Contains(errText, "2 input_paths") {
+		t.Fatalf("errText=%q, want expand_records multi-input guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsBroadCustomTransformRepairPlan(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		InputPaths:    []string{"a.csv", "b.csv", "c.csv", "d.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:             "repair_whole_workflow",
+			Kind:           dataquery.DataActionCustomTransform,
+			InputPaths:     []string{"a.csv", "b.csv", "c.csv", "d.csv", "rules.md"},
+			OutputArtifact: "result",
+			Script:         strings.Repeat("x = 1\n", dataTaskComplexCustomScriptLineLimit) + "emit({'answer': '0'})\n",
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	if !strings.Contains(errText, "too broad") || !strings.Contains(errText, "custom_transform") {
+		t.Fatalf("errText=%q, want broad custom_transform guard", errText)
+	}
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: plan.Actions[0].InputPaths,
+		},
+	}}
+	errText = dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "custom_transform") ||
+		(!strings.Contains(errText, "allowed_next_actions") && !strings.Contains(errText, "too broad")) {
+		t.Fatalf("errText=%q, want covered-input whole-workflow custom_transform guard", errText)
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsCoverageOnlyAfterCoverageSufficient(t *testing.T) {
 	required := []dataquery.CoverageMaterial{
 		{Path: "orders.csv", Required: true},
@@ -1770,6 +2796,71 @@ func TestDataTaskWorkflowStagingGuardRejectsCoverageOnlyAfterCoverageSufficient(
 	}
 }
 
+func TestDataTaskWorkflowStagingAllowsRecordMaterializationAfterCoverageSufficient(t *testing.T) {
+	required := []dataquery.CoverageMaterial{
+		{Path: "orders.csv", Required: true},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: required}},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:          required,
+			ContributionLedgerRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:             "extract_records_for_compute",
+			Kind:           dataquery.DataActionExtractRecords,
+			InputPaths:     []string{"orders.csv"},
+			OutputArtifact: "orders_record_set",
+		}},
+		ContinueAfter: true,
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "material coverage is already sufficient") {
+		t.Fatalf("errText=%q, record materialization should not be treated as coverage-only", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardAllowsGeneratedArtifactDiagnostics(t *testing.T) {
+	required := []dataquery.CoverageMaterial{
+		{Path: "orders.csv", Required: true},
+		{Path: "rules.md", Required: true},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: required}},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "orders_clean",
+				Kind: string(dataquery.DataActionDeriveFields),
+			}},
+			RuleCoverage: []dataquery.RuleCoverageRecord{{RuleID: dataquery.LooseText("r1"), Status: dataquery.LooseText("applied")}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:          required,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "inspect_generated",
+			Kind:       dataquery.DataActionInspectMaterial,
+			InputPaths: []string{"orders_clean.json"},
+		}},
+		ContinueAfter: true,
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want generated artifact diagnostic inspect allowed", errText)
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing.T) {
 	required := []dataquery.CoverageMaterial{
 		{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
@@ -1777,7 +2868,14 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 	}
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
-			CoverageContract: dataquery.CoverageContract{RequiredMaterials: required, RuleCoverageRequired: true},
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          required,
+				RuleCoverageRequired:       true,
+				EntityResolutionRequired:   true,
+				DecisionRecordsRequired:    true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
 		},
 		Result: &dataquery.Result{
 			ConsumedPaths: []string{"records.csv", "rules.md"},
@@ -1806,8 +2904,8 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		}},
 	}
 	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	if !strings.Contains(errText, "cross multiple unfinished data DAG stages") {
-		t.Fatalf("errText=%q, want cross-stage custom_transform guard", errText)
+	if !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+		t.Fatalf("errText=%q, want typed-stage allowed_next_actions guard", errText)
 	}
 
 	plan.ContinueAfter = true
@@ -1818,8 +2916,24 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		OutputArtifact: "classified_records.json",
 		Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
-		t.Fatalf("errText=%q, want single intermediate custom_transform to pass", errText)
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+		t.Fatalf("errText=%q, want single intermediate custom_transform rejected by typed-stage guard", errText)
+	}
+
+	narrowPlan := plan
+	narrowPlan.CoverageContract = dataquery.CoverageContract{
+		RequiredMaterials:    required,
+		RuleCoverageRequired: true,
+	}
+	narrowPlan.Actions = []dataquery.DataAction{{
+		ID:             "classify",
+		Kind:           dataquery.DataActionCustomTransform,
+		InputPaths:     []string{"records.csv", "rules.md"},
+		OutputArtifact: "classified_records.json",
+		Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
+	}}
+	if errText := dataTaskWorkflowStagingGuardError(records, narrowPlan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+		t.Fatalf("errText=%q, want narrowed candidate contract to still be rejected by prior typed-stage guard", errText)
 	}
 
 	plan.Actions = []dataquery.DataAction{
@@ -1853,6 +2967,1379 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 	}}
 	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
 		t.Fatalf("errText=%q, want next typed stage to pass", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagePrefixFallbackTrimsBeforeScriptedCustomTransform(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			Status:        "ready",
+			ContinueAfter: true,
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{{Path: "records.csv", Required: true}},
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts:     []dataquery.DataArtifact{{ID: "records", Kind: "extract_records", Headers: []string{"amount"}}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: false,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{
+			{
+				ID:             "derive_amount",
+				Kind:           dataquery.DataActionDeriveFields,
+				InputPaths:     []string{"records"},
+				OutputArtifact: "records_derived",
+				Params: map[string]string{
+					"field_specs_json": `[{"source_field":"amount","target_field":"amount_number","operation":"parse_number"}]`,
+				},
+			},
+			{
+				ID:         "whole_workflow",
+				Kind:       dataquery.DataActionCustomTransform,
+				InputPaths: []string{"records_derived"},
+				Script:     `emit_result("0")`,
+			},
+		},
+	}
+	errText := "data planning incomplete: workflow next_stage=prepare_contribution_inputs still has unfinished validation stages"
+	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, errText)
+	if !ok {
+		state := dataTaskWorkflowState(records, plan)
+		t.Fatalf("expected stage prefix fallback for %q; state=%+v missing=%v", errText, state, dataTaskWorkflowMissingValidationStages(state))
+	}
+	if len(got.Actions) != 1 || got.Actions[0].ID != "derive_amount" {
+		t.Fatalf("actions=%+v, want only typed prefix", got.Actions)
+	}
+	if !got.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want true")
+	}
+	if !got.CoverageContract.DecisionRecordsRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage contract not preserved: %+v", got.CoverageContract)
+	}
+}
+
+func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				DecisionRecordsRequired:    true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "mapping.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "orders",
+				Kind:        string(dataquery.DataActionExtractRecords),
+				SourcePaths: []string{"orders.csv"},
+				Headers:     []string{"id", "raw_category", "amount"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: false,
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{
+			{
+				ID:             "derive_amount",
+				Kind:           dataquery.DataActionDeriveFields,
+				InputPaths:     []string{"orders"},
+				OutputArtifact: "orders_derived",
+				Params: map[string]string{
+					"field_specs_json": `[{"source_field":"amount","target_field":"amount_number","operation":"parse_number"}]`,
+				},
+			},
+			{
+				ID:             "enrich_category",
+				Kind:           dataquery.DataActionEnrichRecords,
+				InputPaths:     []string{"orders_derived", "mapping.csv"},
+				OutputArtifact: "orders_enriched",
+				Params: map[string]string{
+					"source_field":         "raw_category",
+					"mapping_source_field": "source_value",
+					"mapping_value_field":  "canonical_id",
+					"target_field":         "category_id",
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       dataquery.DataActionComputeContribs,
+				InputPaths: []string{"orders_enriched"},
+				Params: map[string]string{
+					"value_field":     "amount_number",
+					"group_key_field": "category_id",
+					"operation":       "add",
+				},
+			},
+		},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "crosses multiple dependent DAG ranks") {
+		t.Fatalf("errText=%q, want cross-rank guard", errText)
+	}
+	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, errText)
+	if !ok {
+		t.Fatalf("expected prefix fallback for cross-rank typed plan")
+	}
+	if len(got.Actions) != 1 || got.Actions[0].ID != "derive_amount" {
+		t.Fatalf("actions=%+v, want first typed rank only", got.Actions)
+	}
+	if !got.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want true")
+	}
+	prefix, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText)
+	if !ok {
+		t.Fatalf("expected prefix fallback with remainder")
+	}
+	if len(prefix.Actions) != 1 || len(remainder.Actions) != 2 {
+		t.Fatalf("prefix=%+v remainder=%+v, want 1 + 2 actions", prefix.Actions, remainder.Actions)
+	}
+	records = append(records, dataTaskWorkflowRecord{
+		Plan: prefix,
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "orders_derived",
+			Kind:    string(dataquery.DataActionDeriveFields),
+			Headers: []string{"id", "raw_category", "amount_number"},
+		}}},
+	})
+	next, remaining, ok := dataTaskPopDeferredActionBatch(records, remainder)
+	if !ok {
+		t.Fatalf("expected deferred action batch after prefix result")
+	}
+	if len(next.Actions) != 1 || next.Actions[0].ID != "enrich_category" {
+		t.Fatalf("next actions=%+v, want enrich_category", next.Actions)
+	}
+	if len(remaining.Actions) != 1 || remaining.Actions[0].ID != "contrib" {
+		t.Fatalf("remaining actions=%+v, want contrib", remaining.Actions)
+	}
+}
+
+func TestDataTaskDeferredActionWaitsForGeneratedInputs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_derived",
+				Kind:    string(dataquery.DataActionDeriveFields),
+				Headers: []string{"id", "amount_number"},
+			}},
+		},
+	}}
+	deferred := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "contrib",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"orders_joined"},
+			Params: map[string]string{
+				"value_field":     "amount_number",
+				"group_key_field": "id",
+				"operation":       "add",
+			},
+		}},
+	}
+	if _, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+		t.Fatalf("deferred action popped before generated input orders_joined exists")
+	}
+	records = append(records, dataTaskWorkflowRecord{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:             "join_orders",
+			Kind:           dataquery.DataActionJoinRecords,
+			OutputArtifact: "orders_joined",
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "orders_joined",
+			Kind:    string(dataquery.DataActionJoinRecords),
+			Headers: []string{"id"},
+		}}},
+	})
+	if _, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+		t.Fatalf("deferred action popped before generated input has required fields")
+	}
+	records[len(records)-1].Result.Artifacts[0].Headers = []string{"id", "amount_number"}
+	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	if !ok || len(next.Actions) != 1 || next.Actions[0].ID != "contrib" {
+		t.Fatalf("next=%+v ok=%v, want contrib after generated input exists with required fields", next.Actions, ok)
+	}
+}
+
+func TestDataTaskDeferredActionRechecksFullWorkflowGuard(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+				DecisionRecordsRequired:    true,
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				EntityResolutionRequired:   true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "queries.csv"},
+			RuleCoverage: []dataquery.RuleCoverageRecord{{
+				RuleID:   dataquery.LooseText("R1"),
+				RuleText: dataquery.LooseText("eligible rows must be qualified before contribution"),
+				Status:   dataquery.LooseText("applied"),
+			}},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				ItemID:      dataquery.LooseText("orders.csv#1:entity"),
+				CanonicalID: dataquery.LooseText("E1"),
+				Status:      dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "po_filter_fields",
+					Kind:    string(dataquery.DataActionDeriveFields),
+					Headers: []string{"po_id", "year", "currency", "status", "amount_num", "resolved_vendor_id", "resolved_category_code"},
+					Fields:  map[string]string{"artifact_aliases": "po_filter_fields", "json_shape": "array(len=2,item=object(keys=po_id,year,currency,status,amount_num,resolved_vendor_id,resolved_category_code))"},
+				},
+				{
+					ID:      "queries.csv",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"query_id", "vendor_id", "category_code"},
+					Fields:  map[string]string{"artifact_aliases": "queries.csv", "json_shape": "array(len=1,item=object(keys=query_id,vendor_id,category_code))"},
+				},
+			},
+		},
+	}}
+	deferred := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:             "qualify_eligible",
+			Kind:           dataquery.DataActionQualifyRecords,
+			InputPaths:     []string{"po_filter_fields", "queries.csv"},
+			OutputArtifact: "eligible_pos",
+			Params: map[string]string{
+				"filters_json":    `[{"field":"year","op":"eq","value":"2026"}]`,
+				"required_fields": `["po_id","amount_num"]`,
+			},
+		}},
+	}
+	if next, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+		t.Fatalf("deferred next=%+v, want full staging guard to block multi-input qualify_records", next.Actions)
+	}
+	status := dataTaskDeferredQueueStatus(records, deferred)
+	if status.Ready {
+		t.Fatalf("status=%+v, want not ready", status)
+	}
+	if !strings.Contains(status.Reason, "qualify_records") ||
+		!strings.Contains(status.Reason, "single-record-set") ||
+		!strings.Contains(status.Reason, "2 input_paths") {
+		t.Fatalf("reason=%q, want full staging guard reason", status.Reason)
+	}
+}
+
+func TestDataTaskDeferredActionResumesApplyResolutionsAfterNormalizeRank(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"purchase_orders_raw.csv", "vendors.csv", "category_taxonomy.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{ID: "po_records", Kind: string(dataquery.DataActionExtractRecords), Headers: []string{"po_id", "vendor_name_raw", "category_raw"}},
+				{ID: "vendor_master", Kind: string(dataquery.DataActionExtractRecords), Headers: []string{"vendor_id", "legal_name", "status"}},
+				{ID: "category_taxonomy", Kind: string(dataquery.DataActionExtractRecords), Headers: []string{"category_code", "category_name"}},
+			},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "N1", Kind: dataquery.DataActionNormalizeEntities, InputPaths: []string{"po_records", "vendor_master"}, OutputArtifact: "vendor_normalization"},
+			{ID: "N2", Kind: dataquery.DataActionNormalizeEntities, InputPaths: []string{"po_records", "category_taxonomy"}, OutputArtifact: "category_normalization"},
+			{
+				ID:             "A1",
+				Kind:           dataquery.DataActionApplyResolutions,
+				InputPaths:     []string{"po_records", "vendor_normalization", "category_normalization"},
+				OutputArtifact: "po_enriched",
+				Params: map[string]string{
+					"resolution_specs_json": `[{"base_path":"po_records","resolution_key_fields":["source_locator"],"resolution_path":"vendor_normalization","target_id_field":"canonical_vendor_id","target_label_field":"canonical_vendor_name"},{"base_path":"po_records","resolution_key_fields":["source_locator"],"resolution_path":"category_normalization","target_id_field":"canonical_category_code","target_label_field":"canonical_category_name"}]`,
+				},
+			},
+			{ID: "A2", Kind: dataquery.DataActionDeriveFields, InputPaths: []string{"po_enriched"}, OutputArtifact: "po_with_year"},
+		},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	if !ok {
+		t.Fatalf("fallback=false errText=%q", errText)
+	}
+	if !strings.Contains(reason, "split") {
+		t.Fatalf("reason=%q, want split fallback", reason)
+	}
+	if len(fallback.Actions) != 2 || len(remainder.Actions) != 2 {
+		t.Fatalf("fallback=%+v remainder=%+v, want 2 + 2 actions", fallback.Actions, remainder.Actions)
+	}
+	records = append(records, dataTaskWorkflowRecord{
+		Plan: fallback,
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"po_records", "vendor_master", "category_taxonomy"},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				ItemID:      dataquery.LooseText("row1"),
+				SourceValue: dataquery.LooseText("vendor"),
+				CanonicalID: dataquery.LooseText("V1"),
+				Status:      dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{
+				{ID: "vendor_normalization", Kind: string(dataquery.DataActionNormalizeEntities), Fields: map[string]string{"count": "1"}},
+				{ID: "category_normalization", Kind: string(dataquery.DataActionNormalizeEntities), Fields: map[string]string{"count": "1"}},
+			},
+		},
+	})
+	next, remaining, ok := dataTaskPopDeferredActionBatch(records, remainder)
+	if !ok {
+		t.Fatalf("deferred apply_entity_resolutions did not resume")
+	}
+	if len(next.Actions) != 1 || next.Actions[0].ID != "A1" {
+		t.Fatalf("next=%+v, want A1", next.Actions)
+	}
+	if len(remaining.Actions) != 1 || remaining.Actions[0].ID != "A2" {
+		t.Fatalf("remaining=%+v, want A2", remaining.Actions)
+	}
+}
+
+func TestDataTaskDeriveFieldGuardAllowsPartialMultiSourceFields(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    string(dataquery.DataActionDeriveFields),
+				Headers: []string{"id", "vendor_id", "category_code"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:             "derive_fallback_fields",
+			Kind:           dataquery.DataActionDeriveFields,
+			InputPaths:     []string{"records"},
+			OutputArtifact: "records_projected",
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_fields":["vendor_id_resolved","vendor_id"],"target_field":"vendor_key","operation":"coalesce"},
+					{"source_fields":["category_code","category_resolved_id"],"target_field":"category_key","operation":"coalesce"}
+				]`,
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want partial coalesce sources accepted", errText)
+	}
+
+	plan.Actions[0].Params["field_specs_json"] = `[{"source_fields":["missing_a","missing_b"],"target_field":"missing_key","operation":"coalesce"}]`
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "missing_a") || !strings.Contains(errText, "missing_b") {
+		t.Fatalf("errText=%q, want all-missing coalesce fields reported", errText)
+	}
+}
+
+func TestDataTaskFieldContractGuardReportsCandidateArtifacts(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"attachment_manifest.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "po_entity_resolved",
+					Kind:    string(dataquery.DataActionFilterRecords),
+					Headers: []string{"po_id", "attachment_ids", "amount"},
+				},
+				{
+					ID:      "po_attachment_rows",
+					Kind:    string(dataquery.DataActionExpandRecords),
+					Headers: []string{"po_id", "attachment_ids", "attachment_id_single", "amount"},
+				},
+			},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "join_evidence",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"po_entity_resolved", "attachment_manifest.csv"},
+			Params: map[string]string{
+				"left_fields":  `["attachment_id_single"]`,
+				"right_fields": `["attachment_id"]`,
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	for _, want := range []string{"attachment_id_single", "po_attachment_rows", "Candidate artifact"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
+	}
+}
+
+func TestDataTaskArtifactAccessAliasDoesNotLetParentShadowChild(t *testing.T) {
+	access := sampleDataTaskArtifactAccess([]dataquery.DataArtifact{{
+		ID:      "material_inventory",
+		Kind:    string(dataquery.DataActionMaterialInventory),
+		Headers: []string{"id", "kind", "summary", "fields", "children"},
+		Children: []dataquery.DataArtifact{{
+			ID:      "attachment_manifest.csv",
+			Kind:    "csv",
+			Headers: []string{"attachment_id", "po_id", "attachment_type"},
+		}},
+	}}, 10)
+	got, ok := dataTaskArtifactAccessByAlias(access, "attachment_manifest.csv")
+	if !ok {
+		t.Fatalf("attachment_manifest.csv not found in access=%+v", access)
+	}
+	if got.ID != "attachment_manifest.csv" {
+		t.Fatalf("got ID=%q fields=%v, want child artifact", got.ID, got.Fields)
+	}
+	if !slices.Contains(got.Fields, "attachment_id") {
+		t.Fatalf("fields=%v, want child record fields", got.Fields)
+	}
+	if slices.Contains(got.Fields, "children") {
+		t.Fatalf("fields=%v, parent metadata fields should not shadow child", got.Fields)
+	}
+}
+
+func TestDataTaskApplyResolutionGuardAcceptsItemIDForSourceLocatorKey(t *testing.T) {
+	access := []dataTaskArtifactAccessPrompt{
+		{
+			ID:      "base_records",
+			Aliases: []string{"base_records"},
+			Fields:  []string{"_source_index", "raw_name"},
+		},
+		{
+			ID:      "entity_resolution_records",
+			Aliases: []string{"entity_resolution_records"},
+			Fields:  []string{"item_id", "source_value", "canonical_id", "canonical_label", "status"},
+		},
+	}
+	action := dataquery.DataAction{
+		ID:         "apply_resolution",
+		Kind:       dataquery.DataActionApplyResolutions,
+		InputPaths: []string{"base_records", "entity_resolution_records"},
+		Params: map[string]string{
+			"base_path":       "base_records",
+			"resolution_path": "entity_resolution_records",
+			"resolution_specs_json": `[{
+				"base_key_fields":["_source_index"],
+				"resolution_key_fields":["source_locator"],
+				"target_id_field":"canonical_id_applied"
+			}]`,
+		},
+	}
+	if errText := dataTaskApplyResolutionActionFieldContractGuardError(access, action, 0); errText != "" {
+		t.Fatalf("guard error=%q, want source_locator accepted through item_id equivalent", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingRejectsUnavailableTypedActionInputs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_derived",
+				Kind:    string(dataquery.DataActionDeriveFields),
+				Headers: []string{"id", "amount_number"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "contrib",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"orders_joined"},
+			Params: map[string]string{
+				"value_field":     "amount_number",
+				"group_key_field": "id",
+				"operation":       "add",
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "unavailable input_path") || !strings.Contains(errText, "orders_joined") {
+		t.Fatalf("errText=%q, want unavailable generated input guard", errText)
+	}
+
+	plan.Actions = []dataquery.DataAction{
+		{
+			ID:             "join_orders",
+			Kind:           dataquery.DataActionJoinRecords,
+			InputPaths:     []string{"orders_derived", "orders.csv"},
+			OutputArtifact: "orders_joined",
+			Params: map[string]string{
+				"left_fields":  `["id"]`,
+				"right_fields": `["id"]`,
+			},
+		},
+		{
+			ID:         "contrib",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"orders_joined"},
+			Params: map[string]string{
+				"value_field":     "amount_number",
+				"group_key_field": "id",
+				"operation":       "add",
+			},
+		},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+		t.Fatalf("errText=%q, same-batch output alias should be available to later action", errText)
+	}
+
+	plan = dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"left.csv", "right.csv"},
+		Actions: []dataquery.DataAction{{
+			ID:         "join_current_inputs",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"left.csv", "right.csv"},
+			Params: map[string]string{
+				"left_fields":  `["id"]`,
+				"right_fields": `["id"]`,
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+		t.Fatalf("errText=%q, current-batch top-level input_paths should be available to actions", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingRejectsMissingArtifactFields(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "entity_resolutions",
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Headers: []string{"source_value", "canonical_id", "status"},
+				Fields:  map[string]string{"artifact_aliases": "entity_resolutions", "json_shape": "array(len=4,item=object(keys=source_value,canonical_id,status))"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "filter_business_records",
+			Kind:       dataquery.DataActionFilterRecords,
+			InputPaths: []string{"entity_resolutions"},
+			Params: map[string]string{
+				"filters_json": `[{"field":"amount_number","op":"gt","value":"0"}]`,
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "amount_number") || !strings.Contains(errText, "not present on input entity_resolutions") {
+		t.Fatalf("errText=%q, want missing field contract guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingUsesFullArtifactContractFields(t *testing.T) {
+	headers := make([]string, 0, 46)
+	for i := 0; i < 40; i++ {
+		headers = append(headers, fmt.Sprintf("field_%02d", i))
+	}
+	headers = append(headers, "status_is_valid", "is_cny", "amount_system", "query_id", "po_id")
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "joined_records",
+				Kind:    string(dataquery.DataActionJoinRecords),
+				Headers: headers,
+				Fields: map[string]string{
+					"artifact_aliases": "joined_records,joined_records.json",
+					"json_shape":       "array(len=9,item=object(keys=...))",
+					"output_headers":   strings.Join(headers, ","),
+				},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "compute_totals",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"joined_records"},
+			Params: map[string]string{
+				"value_field":     "amount_system",
+				"group_key_field": "query_id",
+				"item_id_field":   "po_id",
+				"operation":       "sum",
+				"filters_json":    `[{"field":"status_is_valid","op":"eq","value":"true"},{"field":"is_cny","op":"eq","value":"true"}]`,
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, hard gate should use full artifact fields instead of compact prompt fields", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "orders",
+					Kind:    string(dataquery.DataActionDeriveFields),
+					Headers: []string{"id", "raw_category", "amount"},
+					Fields:  map[string]string{"artifact_aliases": "orders,orders.json", "json_shape": "array(len=2,item=object(keys=id,raw_category,amount))"},
+				},
+				{
+					ID:      "category_resolution",
+					Kind:    string(dataquery.DataActionNormalizeEntities),
+					Headers: []string{"item_id", "source_value", "canonical_id", "status"},
+					Fields:  map[string]string{"artifact_aliases": "category_resolution,category_resolution.json", "json_shape": "array(len=2,item=object(keys=item_id,source_value,canonical_id,status))"},
+				},
+			},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "orders_with_category",
+			Kind:       dataquery.DataActionApplyResolutions,
+			InputPaths: []string{"category_resolution", "orders"},
+			Params: map[string]string{
+				"resolution_specs_json": `[{
+					"base_path":"orders",
+					"resolution_path":"category_resolution",
+					"base_key_fields":["_source_index"],
+					"resolution_key_fields":["item_id"],
+					"target_id_field":"category_id"
+				}]`,
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("apply_entity_resolutions guard err=%q, want pass", errText)
+	}
+	plan.Actions[0].Params["resolution_specs_json"] = `[{
+		"base_path":"orders",
+		"resolution_path":"category_resolution",
+		"base_key_fields":["missing_base_field"],
+		"resolution_key_fields":["item_id"],
+		"target_id_field":"category_id"
+	}]`
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "missing_base_field") || !strings.Contains(errText, "not present on input orders") {
+		t.Fatalf("errText=%q, want missing base field on orders", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingRejectsNormalizeEntitiesMissingSourceFields(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "taxonomy.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "entity_mapping",
+					Kind:    string(dataquery.DataActionNormalizeEntities),
+					Headers: []string{"source_value", "canonical_id", "status"},
+					Fields:  map[string]string{"artifact_aliases": "entity_mapping", "json_shape": "array(len=3,item=object(keys=source_value,canonical_id,status))"},
+				},
+				{
+					ID:      "taxonomy.csv",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"category_code", "category_name", "terms"},
+					Fields:  map[string]string{"artifact_aliases": "taxonomy.csv", "json_shape": "array(len=3,item=object(keys=category_code,category_name,terms))"},
+				},
+			},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "normalize_category",
+			Kind:       dataquery.DataActionNormalizeEntities,
+			InputPaths: []string{"entity_mapping", "taxonomy.csv"},
+			Params: map[string]string{
+				"source_fields":         `["category_raw","description"]`,
+				"reference_fields":      `["terms"]`,
+				"canonical_id_field":    "category_code",
+				"canonical_label_field": "category_name",
+			},
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "category_raw") || !strings.Contains(errText, "not present on input entity_mapping") {
+		t.Fatalf("errText=%q, want normalize_entities source field contract guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingAllowsNormalizeEntitiesImplicitRoleSwap(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "taxonomy.csv"},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "taxonomy.csv",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"category_code", "category_name", "terms"},
+					Fields:  map[string]string{"artifact_aliases": "taxonomy.csv", "json_shape": "array(len=3,item=object(keys=category_code,category_name,terms))"},
+				},
+				{
+					ID:      "orders",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"po_id", "category_raw", "description"},
+					Fields:  map[string]string{"artifact_aliases": "orders", "json_shape": "array(len=3,item=object(keys=po_id,category_raw,description))"},
+				},
+			},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "normalize_category",
+			Kind:       dataquery.DataActionNormalizeEntities,
+			InputPaths: []string{"taxonomy.csv", "orders"},
+			Params: map[string]string{
+				"source_fields":         `["category_raw","description"]`,
+				"reference_fields":      `["terms"]`,
+				"canonical_id_field":    "category_code",
+				"canonical_label_field": "category_name",
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want implicit source/reference role swap to pass", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingSplitsIntraBatchArtifactDependency(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{
+			{
+				ID:             "normalize_source",
+				Kind:           dataquery.DataActionNormalizeEntities,
+				InputPaths:     []string{"records.csv", "reference.csv"},
+				OutputArtifact: "source_resolutions",
+				Params: map[string]string{
+					"source_field":          "name_raw",
+					"reference_name_fields": `["name","aliases"]`,
+					"canonical_id_field":    "code",
+				},
+			},
+			{
+				ID:             "filter_source",
+				Kind:           dataquery.DataActionFilterRecords,
+				InputPaths:     []string{"source_resolutions"},
+				OutputArtifact: "filtered_source",
+				Params: map[string]string{
+					"filters_json": `[{"field":"status","op":"eq","value":"ok"}]`,
+				},
+			},
+		},
+		ContinueAfter: true,
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "consumes prior action output") {
+		t.Fatalf("errText=%q, want intra-batch dependency guard", errText)
+	}
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, errText)
+	if !ok {
+		t.Fatalf("deterministic fallback not produced")
+	}
+	if !strings.Contains(reason, "intra-batch artifact dependency") {
+		t.Fatalf("reason=%q, want dependency split reason", reason)
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].ID != "normalize_source" {
+		t.Fatalf("fallback actions=%+v, want producer prefix only", fallback.Actions)
+	}
+	if !fallback.ContinueAfter {
+		t.Fatalf("fallback ContinueAfter=false, want true")
+	}
+	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "filter_source" {
+		t.Fatalf("remainder actions=%+v, want dependent suffix", remainder.Actions)
+	}
+}
+
+func TestDataTaskPreflightWorkflowPlanRewritesBeforeAudit(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{
+			{
+				ID:             "extract_records",
+				Kind:           dataquery.DataActionExtractRecords,
+				InputPaths:     []string{"records.csv"},
+				OutputArtifact: "records",
+			},
+			{
+				ID:             "filter_records",
+				Kind:           dataquery.DataActionFilterRecords,
+				InputPaths:     []string{"records"},
+				OutputArtifact: "filtered",
+				Params: map[string]string{
+					"filters_json": `[{"field":"status","op":"eq","value":"ok"}]`,
+				},
+			},
+		},
+		ContinueAfter: true,
+	}
+	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	if !preflight.Rewritten {
+		t.Fatalf("preflight=%+v, want deterministic rewrite before audit/display", preflight)
+	}
+	if !strings.Contains(preflight.Reason, "intra-batch artifact dependency") {
+		t.Fatalf("reason=%q, want dependency split", preflight.Reason)
+	}
+	if len(preflight.Plan.Actions) != 1 || preflight.Plan.Actions[0].ID != "extract_records" {
+		t.Fatalf("plan actions=%+v, want executable prefix", preflight.Plan.Actions)
+	}
+	if len(preflight.Remainder.Actions) != 1 || preflight.Remainder.Actions[0].ID != "filter_records" {
+		t.Fatalf("remainder=%+v, want deferred suffix", preflight.Remainder.Actions)
+	}
+}
+
+func TestDataTaskWorkflowStagingAllowsSequentialDeriveFieldSpecs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"id", "status_raw"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "derive_status",
+			Kind:       dataquery.DataActionDeriveFields,
+			InputPaths: []string{"orders"},
+			Params: map[string]string{
+				"field_specs_json": `[
+					{"source_field":"status_raw","target_field":"status_normalized","operation":"lower"},
+					{"source_field":"status_normalized","target_field":"is_valid_status","operation":"map","mapping":{"paid":"true"}}
+				]`,
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want sequential derive fields to pass", errText)
+	}
+	plan.Actions[0].Params["field_specs_json"] = `[{"source_field":"missing_status","target_field":"status_normalized","operation":"lower"}]`
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if errText == "" || !strings.Contains(errText, "missing_status") {
+		t.Fatalf("errText=%q, want missing derive source field guard", errText)
+	}
+}
+
+func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
+	planner := &stubDataTaskPlanner{
+		repairErr: errors.New("data task planner returned no tool_call"),
+		continuePlan: dataquery.TaskPlan{
+			Status:        "ready",
+			ContinueAfter: true,
+			Actions: []dataquery.DataAction{{
+				ID:             "derive_next_fields",
+				Kind:           dataquery.DataActionDeriveFields,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "orders_derived.json",
+				Params: map[string]string{
+					"field_specs_json": `[{"source_field":"raw","target_field":"clean","operation":"trim"}]`,
+				},
+			}},
+		},
+	}
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv"}},
+	}}
+	plan, rounds, ok, err := repairDataTaskPlanForCLI(
+		context.Background(),
+		planner,
+		"continue data task",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		dataquery.TaskPlan{Status: "ready"},
+		"data planning incomplete: material coverage is already sufficient",
+		records,
+		0,
+		6,
+	)
+	if err != nil {
+		t.Fatalf("repairDataTaskPlanForCLI: %v", err)
+	}
+	if !ok || rounds != 1 || planner.repairCalls != 1 || planner.continueCalls != 1 {
+		t.Fatalf("ok=%v rounds=%d repair=%d continue=%d", ok, rounds, planner.repairCalls, planner.continueCalls)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].ID != "derive_next_fields" {
+		t.Fatalf("plan=%+v, want continuation plan", plan)
+	}
+}
+
+func TestDataTaskWorkflowStagingAllowsCoverageActionsToReadSourceMaterials(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RuleCoverageRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "derive_rules",
+			Kind:       dataquery.DataActionDeriveRules,
+			InputPaths: []string{"data_rules.md"},
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+		t.Fatalf("errText=%q, source material coverage action should be allowed", errText)
+	}
+}
+
+func TestDataTaskFailedPlanDoesNotPolluteWorkflowRequiredMaterials(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{{
+					Path:      "orders.csv",
+					Purpose:   dataTaskUserExplicitMaterialPurpose,
+					Required:  true,
+					UsageMode: dataquery.MaterialUseScriptConsumed,
+				}},
+				ContributionLedgerRequired: true,
+			}},
+			Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv"}},
+		},
+		{
+			Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{{
+					Path:      "speculative_joined_artifact",
+					Required:  true,
+					UsageMode: dataquery.MaterialUseScriptConsumed,
+				}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			}},
+			Err: "data planning incomplete: speculative generated artifact was not ready",
+		},
+	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if !state.MaterialCoverageSufficient {
+		t.Fatalf("state=%+v, want source-material coverage to remain sufficient", state)
+	}
+	if slices.Contains(state.RequiredMaterials, "speculative_joined_artifact") || slices.Contains(state.MissingRequiredMaterials, "speculative_joined_artifact") {
+		t.Fatalf("state=%+v, failed plan generated artifact polluted required materials", state)
+	}
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("next_stage=%q, want prepare_contribution_inputs", state.NextStage)
+	}
+}
+
+func TestDataTaskInvalidRecordActionFallbackMaterializesBadDeriveFields(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:             "derive_all",
+			Kind:           dataquery.DataActionDeriveFields,
+			InputPaths:     []string{"a.csv", "b.csv"},
+			OutputArtifact: "derived_all",
+		}},
+	}
+	fallback, ok := dataTaskInvalidRecordActionFallback(nil, plan, "data planning incomplete: derive_fields with 2 input_paths")
+	if !ok {
+		t.Fatalf("fallback not produced")
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionExtractRecords {
+		t.Fatalf("Actions=%+v, want extract_records fallback", fallback.Actions)
+	}
+	if got := strings.Join(fallback.Actions[0].InputPaths, ","); got != "a.csv,b.csv" {
+		t.Fatalf("InputPaths=%q, want original inputs", got)
+	}
+	if !fallback.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want continuation")
+	}
+}
+
+func TestPrepareDataTaskWorkflowPlanNarrowsSingleRecordSetActionByFieldContract(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{
+			{
+				ID:      "purchase_orders_raw.csv",
+				Kind:    "extract_records",
+				Headers: []string{"po_id", "created_at", "status"},
+				Fields:  map[string]string{"artifact_aliases": "purchase_orders_raw.csv"},
+			},
+			{
+				ID:      "queries.csv",
+				Kind:    "extract_records",
+				Headers: []string{"query_id", "vendor_id", "category_code"},
+				Fields:  map[string]string{"artifact_aliases": "queries.csv"},
+			},
+		}},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:             "derive_year",
+			Kind:           dataquery.DataActionDeriveFields,
+			InputPaths:     []string{"purchase_orders_raw.csv", "queries.csv"},
+			OutputArtifact: "orders_with_year",
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"created_at","target_field":"year","operation":"substring","start":0,"length":4}]`,
+			},
+		}},
+	}
+	prepared := prepareDataTaskWorkflowPlanForExecution("", nil, records, plan)
+	if len(prepared.Actions) != 1 {
+		t.Fatalf("Actions=%+v", prepared.Actions)
+	}
+	if got := strings.Join(prepared.Actions[0].InputPaths, ","); got != "purchase_orders_raw.csv" {
+		t.Fatalf("InputPaths=%q, want field-backed single input", got)
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, prepared); errText != "" {
+		t.Fatalf("prepared plan guard error=%q", errText)
+	}
+}
+
+func TestPrepareDataTaskWorkflowPlanKeepsAmbiguousSingleRecordSetInputs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{
+			{ID: "left.csv", Headers: []string{"id", "created_at"}, Fields: map[string]string{"artifact_aliases": "left.csv"}},
+			{ID: "right.csv", Headers: []string{"id", "created_at"}, Fields: map[string]string{"artifact_aliases": "right.csv"}},
+		}},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:         "derive_year",
+			Kind:       dataquery.DataActionDeriveFields,
+			InputPaths: []string{"left.csv", "right.csv"},
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"created_at","target_field":"year","operation":"substring","start":0,"length":4}]`,
+			},
+		}},
+	}
+	prepared := prepareDataTaskWorkflowPlanForExecution("", nil, records, plan)
+	if got := strings.Join(prepared.Actions[0].InputPaths, ","); got != "left.csv,right.csv" {
+		t.Fatalf("InputPaths=%q, want ambiguous inputs preserved", got)
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, prepared); !strings.Contains(errText, "single-record-set") {
+		t.Fatalf("errText=%q, want normal guard for ambiguous inputs", errText)
+	}
+}
+
+func TestDataTaskInvalidRecordActionFallbackConvertsLookupDeriveToEnrich(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv", "lookup.csv"}},
+		},
+		{
+			Err: `execute data task: data action failed action_id="join_records" action_kind="join_records": join_records left field "canonical_code" was not found in left input orders.csv`,
+		},
+	}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:             "derive_lookup_field",
+			Kind:           dataquery.DataActionDeriveFields,
+			InputPaths:     []string{"orders.csv", "lookup.csv"},
+			OutputArtifact: "orders_with_canonical_code.json",
+			Params: map[string]string{
+				"source_field":     "raw_label",
+				"field_specs_json": `[{"source_field":"raw_label","target_field":"placeholder","operation":"trim"}]`,
+			},
+		}},
+	}
+	fallback, ok := dataTaskInvalidRecordActionFallback(records, plan, "data planning incomplete: derive_fields with 2 input_paths")
+	if !ok {
+		t.Fatalf("fallback not generated")
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("fallback actions=%+v, want enrich_records", fallback.Actions)
+	}
+	action := fallback.Actions[0]
+	if got := strings.Join(action.InputPaths, ","); got != "orders.csv,lookup.csv" {
+		t.Fatalf("InputPaths=%v", action.InputPaths)
+	}
+	spec := action.Params["lookup_specs_json"]
+	for _, want := range []string{`"target_field":"canonical_code"`, `"base_fields":["raw_label"]`, `"lookup_value_field":"canonical_code"`, `"match_mode":"contains"`} {
+		if !strings.Contains(spec, want) {
+			t.Fatalf("lookup_specs_json missing %s: %s", want, spec)
+		}
+	}
+	if !fallback.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want continuation")
+	}
+}
+
+func TestDataTaskMissingJoinFieldFallbackMaterializesEnrichment(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready"},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{
+			{
+				ID:      "po_enriched_vendor",
+				Kind:    string(dataquery.DataActionEnrichRecords),
+				Headers: []string{"po_id", "vendor_name_raw", "category_raw", "canonical_vendor_id", "year", "currency"},
+				Fields: map[string]string{
+					"artifact_aliases": "po_enriched_vendor.json",
+					"json_shape":       "array[50]",
+				},
+			},
+			{
+				ID:      "category_resolutions",
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Headers: []string{"source_value", "canonical_id", "canonical_label", "status"},
+				Fields: map[string]string{
+					"artifact_aliases": "category_resolutions.json",
+					"json_shape":       "array[27]",
+				},
+			},
+		}},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:   "join_po_query",
+			Kind: dataquery.DataActionJoinRecords,
+			Params: map[string]string{
+				"left_path":    "po_enriched_vendor.json",
+				"right_path":   "queries.csv",
+				"left_fields":  `["canonical_vendor_id","category_code","year","currency"]`,
+				"right_fields": `["vendor_id","category_code","year","currency"]`,
+			},
+		}},
+	}
+	fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, `execute data task: data action failed action_id="join_po_query" action_kind="join_records": join_records left field "category_code" was not found in left input po_enriched_vendor.json`)
+	if !ok {
+		t.Fatalf("fallback not generated")
+	}
+	if len(fallback.Actions) != 1 {
+		t.Fatalf("actions=%+v, want one enrichment action", fallback.Actions)
+	}
+	action := fallback.Actions[0]
+	if action.Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("kind=%q, want enrich_records", action.Kind)
+	}
+	if got := strings.Join(action.InputPaths, ","); got != "po_enriched_vendor.json,category_resolutions" {
+		t.Fatalf("input_paths=%v", action.InputPaths)
+	}
+	raw := action.Params["lookup_specs_json"]
+	for _, want := range []string{`"target_field":"category_code"`, `"category_raw"`, `"lookup_value_field":"canonical_id"`, `"source_value"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("lookup_specs_json missing %s: %s", want, raw)
+		}
+	}
+	if !fallback.ContinueAfter {
+		t.Fatalf("ContinueAfter=false, want true")
+	}
+}
+
+func TestDataTaskHistoricalMissingJoinFieldFallbackUsesLaterMappingArtifact(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"order_id", "raw_label", "amount"},
+				Fields: map[string]string{
+					"artifact_aliases": "orders.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+		},
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "label_resolution",
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Headers: []string{"source_value", "canonical_id", "status"},
+				Fields: map[string]string{
+					"artifact_aliases": "label_resolution.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+		},
+	}
+	fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, dataquery.TaskPlan{Status: "ready", ContinueAfter: true})
+	if !ok {
+		t.Fatalf("historical fallback not generated")
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("fallback actions=%+v, want one enrich_records action", fallback.Actions)
+	}
+	action := fallback.Actions[0]
+	if got := strings.Join(action.InputPaths, ","); got != "orders.json,label_resolution" {
+		t.Fatalf("input_paths=%v", action.InputPaths)
+	}
+	raw := action.Params["lookup_specs_json"]
+	for _, want := range []string{`"target_field":"label_code"`, `"raw_label"`, `"lookup_value_field":"canonical_id"`, `"source_value"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("lookup_specs_json missing %s: %s", want, raw)
+		}
+	}
+}
+
+func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatExistingOutput(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"order_id", "raw_label", "amount"},
+				Fields: map[string]string{
+					"artifact_aliases": "orders.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+		},
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "label_resolution",
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Headers: []string{"source_value", "canonical_id", "status"},
+				Fields: map[string]string{
+					"artifact_aliases": "label_resolution.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+		},
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_with_label_code",
+				Kind:    string(dataquery.DataActionEnrichRecords),
+				Headers: []string{"order_id", "raw_label", "amount", "label_code"},
+				Fields: map[string]string{
+					"artifact_aliases": "orders_with_label_code.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+		},
+	}
+	if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, dataquery.TaskPlan{Status: "ready", ContinueAfter: true}); ok {
+		t.Fatalf("fallback=%+v, want no repeated fallback after output artifact already exists", fallback)
+	}
+}
+
+func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatSamePlan(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"order_id", "raw_label", "amount"},
+				Fields: map[string]string{
+					"artifact_aliases": "orders.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+		},
+		{
+			Plan: dataquery.TaskPlan{Status: "ready"},
+			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+				ID:      "label_resolution",
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Headers: []string{"source_value", "canonical_id", "status"},
+				Fields: map[string]string{
+					"artifact_aliases": "label_resolution.json",
+					"json_shape":       "array[2]",
+				},
+			}}},
+		},
+	}
+	first, ok := dataTaskHistoricalMissingJoinFieldFallback(records, dataquery.TaskPlan{Status: "ready", ContinueAfter: true})
+	if !ok {
+		t.Fatalf("historical fallback not generated")
+	}
+	records = append(records, dataTaskWorkflowRecord{Plan: first, Err: "historical missing join fallback already attempted"})
+	if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, dataquery.TaskPlan{Status: "ready", ContinueAfter: true}); ok {
+		t.Fatalf("fallback=%+v, want no duplicate fallback plan", fallback)
+	}
+}
+
+func TestDataTaskMaterialDiscoveryFallbackPreservesValidationContract(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv", "e.csv", "f.csv", "g.csv", "h.csv", "i.csv", "j.csv", "k.csv", "l.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "b.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "too_broad",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv", "e.csv", "f.csv", "g.csv", "h.csv", "i.csv", "j.csv", "k.csv", "l.csv"},
+			Script:     `emit_result("0")`,
+		}},
+	}
+	got, ok := dataTaskMaterialDiscoveryFallback(nil, plan, "broad transform")
+	if !ok {
+		t.Fatalf("expected material discovery fallback")
+	}
+	if !got.CoverageContract.DecisionRecordsRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("CoverageContract=%+v, want validation flags preserved", got.CoverageContract)
+	}
+	if len(got.CoverageContract.RequiredMaterials) != 0 {
+		t.Fatalf("RequiredMaterials=%+v, want discovery fallback to avoid blocking required-material loop", got.CoverageContract.RequiredMaterials)
 	}
 }
 
@@ -1914,8 +4401,8 @@ func TestDataTaskWorkflowStateDisablesCustomTransformAfterScriptFailure(t *testi
 	if strings.Contains(strings.Join(state.AllowedNextActions, ","), string(dataquery.DataActionCustomTransform)) {
 		t.Fatalf("AllowedNextActions=%v, want custom_transform removed after script failure", state.AllowedNextActions)
 	}
-	if state.NextStage != "compute_contributions" {
-		t.Fatalf("NextStage=%q, want compute_contributions", state.NextStage)
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
 	}
 	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
 		ID:         "retry_script",
@@ -1926,6 +4413,825 @@ func TestDataTaskWorkflowStateDisablesCustomTransformAfterScriptFailure(t *testi
 	errText := dataTaskWorkflowStagingGuardError(records, plan)
 	if !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
 		t.Fatalf("errText=%q, want custom_transform rejected by filtered allowed_next_actions", errText)
+	}
+}
+
+func TestDataTaskWorkflowStateKeepsCustomTransformDisabledAfterTypedProgressWithPendingLedgers(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{
+				CoverageContract: dataquery.CoverageContract{
+					ContributionLedgerRequired: true,
+					ReconcileRequired:          true,
+				},
+				Actions: []dataquery.DataAction{{
+					ID:     "wide_script",
+					Kind:   dataquery.DataActionCustomTransform,
+					Script: "emit_result('x')",
+				}},
+			},
+			Err: `execute data task: data action failed action_id="wide_script" action_kind="custom_transform": data task script failed: exit status 1`,
+		},
+		{
+			Plan: dataquery.TaskPlan{
+				CoverageContract: dataquery.CoverageContract{
+					ContributionLedgerRequired: true,
+					ReconcileRequired:          true,
+				},
+				Actions: []dataquery.DataAction{{
+					ID:   "derive_fields",
+					Kind: dataquery.DataActionDeriveFields,
+				}},
+			},
+			Result: &dataquery.Result{
+				ConsumedPaths: []string{"records.csv"},
+				Artifacts: []dataquery.DataArtifact{{
+					ID:      "records_derived",
+					Kind:    string(dataquery.DataActionDeriveFields),
+					Headers: []string{"id", "amount"},
+					Fields: map[string]string{
+						"artifact_aliases": "records_derived.json",
+						"json_shape":       "array[2]",
+					},
+				}},
+			},
+		},
+	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if !state.CustomTransformDisabled {
+		t.Fatalf("CustomTransformDisabled=false, state=%+v", state)
+	}
+	if strings.Contains(strings.Join(state.AllowedNextActions, ","), string(dataquery.DataActionCustomTransform)) {
+		t.Fatalf("AllowedNextActions=%v, want no custom_transform while ledgers remain pending", state.AllowedNextActions)
+	}
+}
+
+func TestDataTaskWorkflowStateAdvancesAfterJoinedArtifactMaterializesEntityStage(t *testing.T) {
+	contract := dataquery.CoverageContract{
+		RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		},
+		EntityResolutionRequired:   true,
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: contract},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv", "lookup.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "joined_records",
+				Kind:        string(dataquery.DataActionJoinRecords),
+				SourcePaths: []string{"records.csv", "lookup.csv"},
+				Headers:     []string{"record_id", "lookup_id", "amount"},
+				Fields: map[string]string{
+					"artifact_aliases": "joined_records,joined_records.json",
+					"json_shape":       "array(len=2,item=object(keys=record_id,lookup_id,amount))",
+				},
+			}},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: contract})
+	if !state.EntityStageMaterialized {
+		t.Fatalf("EntityStageMaterialized=false, state=%+v", state)
+	}
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs; state=%+v", state.NextStage, state)
+	}
+	if !slices.Contains(state.AllowedNextActions, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("AllowedNextActions=%v, want compute_contributions after joined artifact", state.AllowedNextActions)
+	}
+}
+
+func TestDataTaskWorkflowStateCoversMaterialGroupByConsumedMembers(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "evidence/group", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+					{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"evidence/group/a.txt", "rules.md"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "evidence_records",
+				SourcePaths: []string{"evidence/group/a.txt"},
+			}},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if !state.MaterialCoverageSufficient || state.MissingRequiredMaterialCount != 0 {
+		t.Fatalf("state=%+v, want directory-like required material covered by consumed members", state)
+	}
+	if dataTaskCoveragePathCovered(dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0), "rules") {
+		t.Fatalf("extensionless path rules should not be covered by unrelated rules.md exact file")
+	}
+}
+
+func TestDataTaskActionInputAvailabilityDoesNotTrustCurrentPlanInputs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"source.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID: "known_records",
+				Fields: map[string]string{
+					"artifact_aliases": "known_records,known_records.json",
+				},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		InputPaths: []string{"future_alias"},
+		Actions: []dataquery.DataAction{{
+			ID:         "sum_future",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"future_alias"},
+		}},
+	}
+	errText := dataTaskActionInputAvailabilityGuardError(records, plan, plan.Actions[0], 0)
+	if !strings.Contains(errText, "future_alias") || !strings.Contains(errText, "unavailable input_path") {
+		t.Fatalf("errText=%q, want future alias rejected before execution", errText)
+	}
+}
+
+func TestDataTaskActionInputAvailabilityUsesNestedArtifactAliases(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID: "inventory",
+				Children: []dataquery.DataArtifact{{
+					ID:          "child_records",
+					SourcePaths: []string{"source.csv"},
+					Fields: map[string]string{
+						"artifact_aliases": "child_records,child_records.json",
+					},
+				}},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Actions: []dataquery.DataAction{{
+			ID:         "sum_child",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"child_records"},
+		}},
+	}
+	if errText := dataTaskActionInputAvailabilityGuardError(records, plan, plan.Actions[0], 0); errText != "" {
+		t.Fatalf("errText=%q, want nested artifact alias available", errText)
+	}
+}
+
+func TestDataTaskWorkflowCoverageContractDemotesNewRequiredMaterialsOutsideCurrentBatch(t *testing.T) {
+	previous := dataquery.CoverageContract{
+		RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "core_a.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "core_b.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		},
+		ContributionLedgerRequired: true,
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: previous},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"core_a.csv"},
+		},
+	}}
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "core_a.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "core_b.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "next_batch.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "candidate_1.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "candidate_2.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "read_next",
+			Kind:       dataquery.DataActionExtractRecords,
+			InputPaths: []string{"next_batch.csv"},
+		}},
+	}
+	contract := dataTaskWorkflowCoverageContract(records, current)
+	required := dataTaskCoverageMaterialKeySet(contract.RequiredMaterials)
+	requiredKey := func(path string) string {
+		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	for _, want := range []string{"core_a.csv", "core_b.csv", "next_batch.csv"} {
+		if !required[requiredKey(want)] {
+			t.Fatalf("required=%v, missing %q", contract.RequiredMaterials, want)
+		}
+	}
+	for _, notWant := range []string{"candidate_1.txt", "candidate_2.txt"} {
+		if required[requiredKey(notWant)] {
+			t.Fatalf("required=%v, %q should have been demoted to optional", contract.RequiredMaterials, notWant)
+		}
+	}
+	optional := dataTaskCoverageMaterialKeySet(contract.OptionalMaterials)
+	for _, want := range []string{"candidate_1.txt", "candidate_2.txt"} {
+		if !optional[requiredKey(want)] {
+			t.Fatalf("optional=%v, missing demoted candidate %q", contract.OptionalMaterials, want)
+		}
+	}
+}
+
+func TestDataTaskWorkflowCoverageContractDoesNotPromoteAuxiliaryEvidenceWhenUserMaterialsArePinned(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "rules.md", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "orders.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+		}},
+		Result: &dataquery.Result{ConsumedPaths: []string{"rules.md", "orders.csv"}},
+	}}
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "rules.md", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "orders.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "evidence/a.txt", Purpose: "auxiliary evidence discovered while resolving entities", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "read_aux",
+			Kind:       dataquery.DataActionExtractRecords,
+			InputPaths: []string{"evidence/a.txt"},
+		}},
+	}
+	contract := dataTaskWorkflowCoverageContract(records, current)
+	required := dataTaskCoverageMaterialKeySet(contract.RequiredMaterials)
+	keyFor := func(path string) string {
+		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	for _, want := range []string{"rules.md", "orders.csv"} {
+		if !required[keyFor(want)] {
+			t.Fatalf("required=%+v, missing user-pinned material %q", contract.RequiredMaterials, want)
+		}
+	}
+	if required[keyFor("evidence/a.txt")] {
+		t.Fatalf("required=%+v, auxiliary current-batch evidence should not become a workflow hard gate", contract.RequiredMaterials)
+	}
+	optional := dataTaskCoverageMaterialKeySet(contract.OptionalMaterials)
+	if !optional[keyFor("evidence/a.txt")] {
+		t.Fatalf("optional=%+v, want auxiliary evidence preserved as optional material", contract.OptionalMaterials)
+	}
+}
+
+func TestDataTaskScopePlanToCurrentBatchDoesNotCarryHistoricalRequiredMaterials(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "b.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ReconcileRequired: true,
+		}},
+		Result: &dataquery.Result{ConsumedPaths: []string{"a.csv", "b.csv"}},
+	}}
+	plan := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "b.csv", Purpose: dataTaskUserExplicitMaterialPurpose, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "c.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "read_c",
+			Kind:       dataquery.DataActionExtractRecords,
+			InputPaths: []string{"c.txt"},
+		}},
+	}
+	scoped := dataTaskScopePlanToCurrentBatch(records, plan)
+	requiredPaths := scoped.CoverageContract.RequiredRunnerInputPaths()
+	if strings.Join(requiredPaths, ",") != "c.txt" {
+		t.Fatalf("current batch required paths=%v, want only c.txt", requiredPaths)
+	}
+	if !scoped.CoverageContract.ReconcileRequired {
+		t.Fatalf("workflow ledger flags were not carried into current batch contract: %+v", scoped.CoverageContract)
+	}
+}
+
+func TestPrepareDataTaskWorkflowPlanForExecutionScopesInitialActionBatch(t *testing.T) {
+	candidates := []dataquery.CandidateFile{
+		{Path: "rules.md", Kind: "text"},
+		{Path: "orders.csv", Kind: "csv"},
+		{Path: "attachments/a.txt", Kind: "text"},
+		{Path: "attachments/b.txt", Kind: "text"},
+	}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"rules.md", "orders.csv", "attachments/a.txt", "attachments/b.txt"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "attachments/a.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "attachments/b.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+			DecisionRecordsRequired:    true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "derive_rules",
+			Kind:       dataquery.DataActionDeriveRules,
+			InputPaths: []string{"rules.md"},
+		}, {
+			ID:         "derive_orders",
+			Kind:       dataquery.DataActionDeriveFields,
+			InputPaths: []string{"orders.csv"},
+		}},
+		ContinueAfter: true,
+	}
+	got := prepareDataTaskWorkflowPlanForExecution("根据 rules.md、orders.csv 和附件计算", candidates, nil, plan)
+	if strings.Join(got.InputPaths, ",") != "rules.md,orders.csv" {
+		t.Fatalf("InputPaths=%v, want only current action inputs", got.InputPaths)
+	}
+	required := dataTaskCoverageMaterialKeySet(got.CoverageContract.RequiredMaterials)
+	requiredKey := func(path string) string {
+		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	for _, want := range []string{"rules.md", "orders.csv"} {
+		if !required[requiredKey(want)] {
+			t.Fatalf("required=%+v, missing current batch material %q", got.CoverageContract.RequiredMaterials, want)
+		}
+	}
+	for _, notWant := range []string{"attachments/a.txt", "attachments/b.txt"} {
+		if required[requiredKey(notWant)] {
+			t.Fatalf("required=%+v, %q should be optional until a later action consumes it", got.CoverageContract.RequiredMaterials, notWant)
+		}
+	}
+	optional := dataTaskCoverageMaterialKeySet(got.CoverageContract.OptionalMaterials)
+	for _, want := range []string{"attachments/a.txt", "attachments/b.txt"} {
+		if !optional[requiredKey(want)] {
+			t.Fatalf("optional=%+v, missing deferred material %q", got.CoverageContract.OptionalMaterials, want)
+		}
+	}
+	if !got.CoverageContract.RuleCoverageRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.EntityResolutionRequired || !got.CoverageContract.ReconcileRequired || !got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("validation ledgers were lost: %+v", got.CoverageContract)
+	}
+}
+
+func TestPrepareDataTaskWorkflowPlanForExecutionPreservesScriptOnlyInputs(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Script: "result = {'answer': 'ok'}",
+	}
+	got := prepareDataTaskWorkflowPlanForExecution("", nil, nil, plan)
+	if strings.Join(got.InputPaths, ",") != "orders.csv,rules.md" {
+		t.Fatalf("InputPaths=%v, want script-only inputs preserved", got.InputPaths)
+	}
+	if strings.Join(got.CoverageContract.RequiredPaths(), ",") != "orders.csv,rules.md" {
+		t.Fatalf("RequiredPaths=%v, want script-only requirements preserved", got.CoverageContract.RequiredPaths())
+	}
+}
+
+func TestDataTaskWorkflowStateDoesNotRegressCoverageWhenNextPlanOmitsRequiredMaterials(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "records_artifact",
+				Kind:        string(dataquery.DataActionExtractRecords),
+				SourcePaths: []string{"records.csv"},
+			}},
+		},
+	}}
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	state := dataTaskWorkflowState(records, current)
+	if !state.MaterialCoverageSufficient {
+		t.Fatalf("state=%+v, want historical material progress to keep coverage sufficient", state)
+	}
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs; state=%+v", state.NextStage, state)
+	}
+	if !slices.Contains(state.AllowedNextActions, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("AllowedNextActions=%v, want compute_contributions after material progress", state.AllowedNextActions)
+	}
+}
+
+func TestDataTaskWorkflowStateIncludesTypedActionScaffold(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				ContributionLedgerRequired: true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    "extract_records",
+				Headers: []string{"id", "amount", "status"},
+				Fields: map[string]string{
+					"artifact_aliases": "records,records.json",
+					"json_shape":       "array(len=2,item=object(keys=id,amount,status))",
+				},
+			}},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
+	}
+	if !slices.Contains(state.AllowedNextActions, string(dataquery.DataActionFilterRecords)) {
+		t.Fatalf("AllowedNextActions=%v, want filter_records available before contribution calculation", state.AllowedNextActions)
+	}
+	var sawCompute bool
+	var sawFilter bool
+	for _, scaffold := range state.ActionScaffold {
+		if scaffold.Kind == string(dataquery.DataActionFilterRecords) {
+			sawFilter = true
+			if scaffold.InputPath != "records" || scaffold.ParamsTemplate["filters_json"] == "" {
+				t.Fatalf("filter scaffold=%+v, want input path and filter template", scaffold)
+			}
+		}
+		if scaffold.Kind != string(dataquery.DataActionComputeContribs) {
+			continue
+		}
+		sawCompute = true
+		if scaffold.InputPath != "records" || !strings.Contains(strings.Join(scaffold.Fields, ","), "amount") || scaffold.ParamsTemplate["value_field"] == "" {
+			t.Fatalf("compute scaffold=%+v, want input path, fields, and params template", scaffold)
+		}
+	}
+	if !sawCompute {
+		t.Fatalf("ActionScaffold=%+v, want compute_contributions scaffold", state.ActionScaffold)
+	}
+	if !sawFilter {
+		t.Fatalf("ActionScaffold=%+v, want filter_records scaffold", state.ActionScaffold)
+	}
+}
+
+func TestDataTaskWorkflowGuardAcceptsFilterRecordsWithSpec(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				ContributionLedgerRequired: true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    "extract_records",
+				Headers: []string{"id", "amount", "status"},
+				Fields:  map[string]string{"artifact_aliases": "records", "json_shape": "array(len=3,item=object(keys=id,amount,status))"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{ContinueAfter: true, Actions: []dataquery.DataAction{{
+		ID:             "filter_paid",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records"},
+		OutputArtifact: "paid_records",
+		Params:         map[string]string{"filters_json": `[{"field":"status","op":"eq","value":"paid"}]`},
+	}}}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("filter_records guard err=%q, want pass", errText)
+	}
+	plan.Actions[0].Params = nil
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "filter_records") || !strings.Contains(errText, "filters") {
+		t.Fatalf("errText=%q, want missing filters guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowStagingAllowsRecordMaterializationAtEntityStage(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+					{Path: "vendors.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+				RuleCoverageRequired:     true,
+				EntityResolutionRequired: true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "vendors.csv"},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "normalize rows", Status: "applied"}},
+		},
+	}}
+	plan := dataquery.TaskPlan{ContinueAfter: true, Actions: []dataquery.DataAction{{
+		ID:             "extract_orders",
+		Kind:           dataquery.DataActionExtractRecords,
+		InputPaths:     []string{"orders.csv"},
+		OutputArtifact: "order_records",
+		Params:         map[string]string{"limit": "1000"},
+	}}}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("extract_records materialization guard err=%q, want pass", errText)
+	}
+	plan.Actions[0].InputPaths = []string{"attachments.csv"}
+	plan.Actions[0].OutputArtifact = "attachment_records"
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("current-batch extract_records guard err=%q, want pass", errText)
+	}
+	plan.Actions[0].OutputArtifact = ""
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	if !strings.Contains(errText, "extract_records") || !strings.Contains(errText, "output_artifact") {
+		t.Fatalf("errText=%q, want output_artifact guard", errText)
+	}
+}
+
+func TestDataTaskWorkflowGuardRejectsBroadCustomTransformEvenWithEmitter(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "b.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "c.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "d.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "wide",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
+			Script:     "emit_result('ok')",
+		}},
+	}
+	errText := dataTaskActionStagingGuardError(plan)
+	if !strings.Contains(errText, "too broad for one custom_transform data DAG node") {
+		t.Fatalf("errText=%q, want broad custom_transform guard", errText)
+	}
+}
+
+func TestDataTaskTerminalWorkflowFallbackDoesNotInventEntityResolutionStage(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+					{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				},
+				EntityResolutionRequired:   true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv", "lookup.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "records",
+				Kind:        string(dataquery.DataActionExtractRecords),
+				SourcePaths: []string{"records.csv"},
+			}},
+		},
+	}}
+	current := dataquery.TaskPlan{
+		Status: "blocked",
+		CoverageContract: dataquery.CoverageContract{
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	fallback, reason, ok := dataTaskTerminalWorkflowFallback(records, current)
+	if ok {
+		t.Fatalf("fallback=%+v reason=%q, want no invented normalize_entities fallback", fallback, reason)
+	}
+}
+
+func TestDataTaskTerminalWorkflowGuardRejectsPrematureBlockedPlan(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"id", "amount", "group"},
+				Fields:  map[string]string{"artifact_aliases": "records"},
+			}},
+		},
+	}}
+	current := dataquery.TaskPlan{
+		Status: "blocked",
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	errText := dataTaskTerminalWorkflowGuardError(records, current)
+	for _, want := range []string{"terminal status", "compute_contributions", "legal next actions"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
+	}
+}
+
+func TestNormalizeDataTaskEvaluationUsesTypedGraphWhenCustomDisabled(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:         "failed_script",
+				Kind:       dataquery.DataActionCustomTransform,
+				InputPaths: []string{"records.csv"},
+				Script:     "emit_result('x')",
+			}},
+		},
+		Err: "execute data task: data task script failed: exit status 1",
+	}, {
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:         "records",
+				Kind:       dataquery.DataActionExtractRecords,
+				InputPaths: []string{"records.csv"},
+			}},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"id", "amount", "group"},
+				Fields:  map[string]string{"artifact_aliases": "records"},
+			}},
+		},
+	}}
+	eval := normalizeDataTaskEvaluationForWorkflow(records, dataquery.Evaluation{
+		Status:     dataquery.EvalContinueTransform,
+		Confidence: "medium",
+		Reason:     "continue with bounded transform",
+	})
+	if eval.Status != dataquery.EvalExpandGraph {
+		t.Fatalf("Status=%q, want expand_graph", eval.Status)
+	}
+	if !strings.Contains(eval.Reason, "custom_transform_disabled=true") || !strings.Contains(eval.Reason, "compute_contributions") {
+		t.Fatalf("Reason=%q, want typed graph note", eval.Reason)
+	}
+}
+
+func TestDataTaskWorkflowStateIncludesEnrichRecordsScaffold(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				EntityResolutionRequired:   true,
+				ContributionLedgerRequired: true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				SourceValue:    dataquery.LooseText("Acme"),
+				CanonicalID:    dataquery.LooseText("V1"),
+				CanonicalLabel: dataquery.LooseText("Acme Inc"),
+				Status:         dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "records",
+					Kind:    "extract_records",
+					Headers: []string{"id", "vendor_name", "amount"},
+					Fields: map[string]string{
+						"artifact_aliases": "records,records.json",
+						"json_shape":       "array(len=1,item=object(keys=id,vendor_name,amount))",
+					},
+				},
+				{
+					ID:      "vendor_map",
+					Kind:    "normalize_entities",
+					Headers: []string{"source_value", "canonical_id", "canonical_label", "status"},
+					Fields: map[string]string{
+						"artifact_aliases": "vendor_map,vendor_map.json",
+						"json_shape":       "array(len=1,item=object(keys=source_value,canonical_id,canonical_label,status))",
+					},
+				},
+			},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	if state.NextStage != "prepare_contribution_inputs" {
+		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
+	}
+	var sawEnrich bool
+	for _, scaffold := range state.ActionScaffold {
+		if scaffold.Kind != string(dataquery.DataActionEnrichRecords) {
+			continue
+		}
+		sawEnrich = true
+		if len(scaffold.InputPaths) != 2 || scaffold.InputPaths[0] != "records" || scaffold.InputPaths[1] != "vendor_map" {
+			t.Fatalf("enrich scaffold=%+v, want base and mapping aliases", scaffold)
+		}
+		spec := scaffold.ParamsTemplate["lookup_specs"]
+		for _, want := range []string{"source_value", "canonical_id", "base_fields", "lookup_fields"} {
+			if !strings.Contains(spec, want) {
+				t.Fatalf("lookup_specs=%q, missing %q", spec, want)
+			}
+		}
+	}
+	if !sawEnrich {
+		t.Fatalf("ActionScaffold=%+v, want enrich_records scaffold", state.ActionScaffold)
+	}
+}
+
+func TestDataTaskWorkflowStateIncludesReferenceTableEnrichScaffold(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed}},
+				EntityResolutionRequired:   true,
+				ContributionLedgerRequired: true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv", "reference.csv"},
+			EntityResolutions: []dataquery.EntityResolutionRecord{{
+				SourceValue: dataquery.LooseText("anything"),
+				CanonicalID: dataquery.LooseText("R1"),
+				Status:      dataquery.LooseText("resolved"),
+			}},
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "records",
+					Kind:    "derive_fields",
+					Headers: []string{"id", "raw_label", "description", "amount"},
+					Fields: map[string]string{
+						"artifact_aliases": "records",
+						"json_shape":       "array(len=2,item=object(keys=id,raw_label,description,amount))",
+					},
+				},
+				{
+					ID:      "reference",
+					Kind:    "derive_fields",
+					Headers: []string{"ref_code", "ref_name", "raw_terms", "keywords"},
+					Fields: map[string]string{
+						"artifact_aliases": "reference",
+						"json_shape":       "array(len=2,item=object(keys=ref_code,ref_name,raw_terms,keywords))",
+					},
+				},
+			},
+		},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	var sawReferenceEnrich bool
+	for _, scaffold := range state.ActionScaffold {
+		if scaffold.Kind != string(dataquery.DataActionEnrichRecords) || len(scaffold.InputPaths) != 2 || scaffold.InputPaths[1] != "reference" {
+			continue
+		}
+		sawReferenceEnrich = true
+		spec := scaffold.ParamsTemplate["lookup_specs"]
+		for _, want := range []string{`"base_fields"`, `"lookup_fields"`, "raw_label", "description", "raw_terms", "keywords", "ref_code"} {
+			if !strings.Contains(spec, want) {
+				t.Fatalf("lookup_specs=%q, missing %q", spec, want)
+			}
+		}
+	}
+	if !sawReferenceEnrich {
+		t.Fatalf("ActionScaffold=%+v, want reference-table enrich scaffold", state.ActionScaffold)
 	}
 }
 
@@ -2049,11 +5355,39 @@ func TestDataTaskCoverageExpansionFallbackCoversTerminalRequiredMaterials(t *tes
 	if !fallback.ContinueAfter {
 		t.Fatal("coverage expansion batch must continue the workflow")
 	}
-	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionDeriveRules {
-		t.Fatalf("Actions=%+v, want one derive_rules action", fallback.Actions)
+	if len(fallback.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want extract_records plus derive_rules", fallback.Actions)
+	}
+	if fallback.Actions[0].Kind != dataquery.DataActionDeriveRules || fallback.Actions[1].Kind != dataquery.DataActionExtractRecords {
+		t.Fatalf("Actions=%+v, want derive_rules then extract_records", fallback.Actions)
 	}
 	if got := fallback.Actions[0].InputPaths; len(got) != 1 || got[0] != "rules.md" {
-		t.Fatalf("InputPaths=%v, want rules.md", got)
+		t.Fatalf("rule InputPaths=%v, want rules.md", got)
+	}
+	if got := fallback.Actions[1].InputPaths; len(got) != 1 || got[0] != "orders.csv" {
+		t.Fatalf("record InputPaths=%v, want orders.csv", got)
+	}
+}
+
+func TestDataTaskCoverageExpansionFallbackDoesNotStealNarrowExecutablePlan(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "explanation_allowed": False}})`,
+	}
+	if fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, "missing material coverage before execution"); ok {
+		t.Fatalf("fallback=%+v, want narrow executable plan to run directly", fallback)
 	}
 }
 
@@ -2140,6 +5474,46 @@ func TestDataTaskUserMentionedCandidateMaterialsRequiresExactFileSignal(t *testi
 	}
 }
 
+func TestDataTaskCoverageExpansionFallbackCoversRequiredMaterialsForIntermediateBroadPlan(t *testing.T) {
+	lines := make([]string, 0, dataTaskComplexCustomScriptLineLimit+1)
+	for i := 0; i < dataTaskComplexCustomScriptLineLimit; i++ {
+		lines = append(lines, "x = 1")
+	}
+	lines = append(lines, `emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`)
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "rules.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "broad_compute",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"orders.csv", "rules.md"},
+			Script:     strings.Join(lines, "\n"),
+		}},
+	}
+	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, "missing material coverage before execution")
+	if !ok {
+		t.Fatal("expected deterministic coverage expansion fallback")
+	}
+	if len(fallback.Actions) != 2 {
+		t.Fatalf("Actions=%+v, want derive_rules plus extract_records", fallback.Actions)
+	}
+	if fallback.Actions[0].Kind != dataquery.DataActionDeriveRules || strings.Join(fallback.Actions[0].InputPaths, ",") != "rules.md" {
+		t.Fatalf("first action=%+v, want rules.md derive_rules", fallback.Actions[0])
+	}
+	if fallback.Actions[1].Kind != dataquery.DataActionExtractRecords || strings.Join(fallback.Actions[1].InputPaths, ",") != "orders.csv" {
+		t.Fatalf("second action=%+v, want orders.csv extract_records", fallback.Actions[1])
+	}
+}
+
 func TestApplyDataTaskUserMaterialFloorPreservesExplicitMaterialsAcrossPlanShape(t *testing.T) {
 	candidates := []dataquery.CandidateFile{
 		{Path: "orders.csv", Kind: "csv"},
@@ -2165,8 +5539,8 @@ func TestApplyDataTaskUserMaterialFloorPreservesExplicitMaterialsAcrossPlanShape
 		t.Fatalf("required=%+v, want two user-explicit materials", required)
 	}
 	paths := dataTaskCoverageExpansionMissingPaths(nil, got)
-	if strings.Join(paths, ",") != "lookup.json" {
-		t.Fatalf("missing paths=%v, want lookup.json to remain scheduled before terminal transform", paths)
+	if strings.Join(paths, ",") != "lookup.json,orders.csv" {
+		t.Fatalf("missing paths=%v, want required materials covered by replacement fallback", paths)
 	}
 	if len(got.CoverageContract.OptionalMaterials) != 0 {
 		t.Fatalf("optional=%+v, want explicit required material removed from optional list", got.CoverageContract.OptionalMaterials)
@@ -2202,7 +5576,7 @@ func TestDataTaskMaterialDiscoveryFallbackDoesNotStealTypedActionPlan(t *testing
 	}
 }
 
-func TestDataTaskWorkflowStagingGuardAllowsBroadCustomTransformWithPrerequisites(t *testing.T) {
+func TestDataTaskWorkflowStagingGuardRejectsComputeStageCustomTransformWithPrerequisites(t *testing.T) {
 	lines := make([]string, 0, dataTaskOneShotScriptLineSoftLimit)
 	for i := 0; i < dataTaskComplexCustomScriptLineLimit+5; i++ {
 		lines = append(lines, fmt.Sprintf("value_%d = %d", i, i))
@@ -2230,8 +5604,15 @@ func TestDataTaskWorkflowStagingGuardAllowsBroadCustomTransformWithPrerequisites
 			ConsumedPaths: []string{"rules.md", "orders.csv", "lookup.csv", "evidence.csv"},
 		},
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
-		t.Fatalf("workflow-covered broad transform should pass, got %q", errText)
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	for _, want := range []string{
+		"workflow next_stage=compute_contributions",
+		"allows only next actions",
+		"custom_transform",
+	} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
 	}
 }
 
@@ -2457,10 +5838,12 @@ func TestDataTaskContinuationPromptIncludesArtifactAccessCatalog(t *testing.T) {
 			ID:          "vendor_category_map",
 			Kind:        "normalize_entities",
 			SourcePaths: []string{"vendors.csv"},
+			Headers:     []string{"source_value", "canonical_id", "status"},
 			Fields: map[string]string{
 				"artifact_aliases": "vendor_category_map,vendor_category_map.json",
 				"json_shape":       "array(len=2,item=object(keys=canonical_id,source_value,status))",
 			},
+			Sample: []string{`{"source_value":"vendor a","canonical_id":"V001","status":"resolved"}`},
 		}}},
 	}}
 	prompt := dataTaskContinuationPrompt(
@@ -2474,12 +5857,547 @@ func TestDataTaskContinuationPromptIncludesArtifactAccessCatalog(t *testing.T) {
 		"artifact_access",
 		"vendor_category_map",
 		"array-shaped",
+		"fields",
+		"field_samples",
+		"vendor a",
+		"canonical_id",
 		"json_records(alias)",
 		"do not call .get()",
+		"only reference fields",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("continuation prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestDataTaskContinuationPromptIncludesAuthoritativeCoverageTruth(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true},
+					{Path: "rules.md", Required: true},
+				},
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "orders.csv#records",
+				Kind:        "extract_records/csv",
+				SourcePaths: []string{"orders.csv"},
+				Fields: map[string]string{
+					"artifact_aliases": "orders.csv#records",
+					"json_shape":       "array(len=2,item=object(keys=id,total))",
+				},
+			}},
+		},
+	}}
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	for _, want := range []string{
+		`"material_coverage_authoritative": true`,
+		`"material_coverage_sufficient": true`,
+		`"required_materials": [`,
+		`"covered_required_materials": [`,
+		"deterministic material coverage truth",
+		"compact samples and may omit covered artifacts",
+		"Do not ask for coverage expansion",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDataTaskContinuationPromptIncludesCumulativeArtifactAvailability(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:          "old_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			SourcePaths: []string{"old.csv"},
+			Headers:     []string{"id", "amount"},
+			Fields: map[string]string{
+				"artifact_aliases": "old_records,old_records.json",
+				"json_shape":       "array(len=2,item=object(keys=id,amount))",
+			},
+			Sample: []string{`{"id":"1","amount":"42"}`},
+		}}},
+	}, {
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:          "new_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			SourcePaths: []string{"new.csv"},
+			Headers:     []string{"id", "group"},
+			Fields: map[string]string{
+				"artifact_aliases": "new_records,new_records.json",
+				"json_shape":       "array(len=2,item=object(keys=id,group))",
+			},
+			Sample: []string{`{"id":"1","group":"A"}`},
+		}}},
+	}}
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	for _, want := range []string{
+		`"artifact_availability_count": 2`,
+		`"artifact_availability": [`,
+		"old_records",
+		"new_records",
+		"cumulative compact catalog",
+		"Do not re-extract a covered material",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDataTaskWorkflowArtifactAvailabilityPrioritizesNewestMaterializedArtifacts(t *testing.T) {
+	var oldArtifacts []dataquery.DataArtifact
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("old_%02d", i)
+		oldArtifacts = append(oldArtifacts, dataquery.DataArtifact{
+			ID:      id,
+			Kind:    string(dataquery.DataActionExtractRecords),
+			Headers: []string{"id"},
+			Fields: map[string]string{
+				"artifact_aliases": id + "," + id + ".json",
+				"json_shape":       "array(item=object(keys=id))",
+			},
+		})
+	}
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: oldArtifacts},
+	}, {
+		Result: &dataquery.Result{Artifacts: append(append([]dataquery.DataArtifact{}, oldArtifacts...), dataquery.DataArtifact{
+			ID:      "fresh_joined_records",
+			Kind:    string(dataquery.DataActionJoinRecords),
+			Headers: []string{"query_id", "amount"},
+			Fields: map[string]string{
+				"artifact_aliases": "fresh_joined_records,fresh_joined_records.json",
+				"json_shape":       "array(item=object(keys=query_id,amount))",
+			},
+		})},
+	}}
+	availability, total, truncated := dataTaskWorkflowArtifactAvailability(records, 4)
+	if total <= 20 {
+		t.Fatalf("total=%d, want unique artifacts from both records counted", total)
+	}
+	if !truncated {
+		t.Fatal("truncated=false, want compact availability to report truncation")
+	}
+	if len(availability) == 0 || availability[0].ID != "fresh_joined_records" {
+		t.Fatalf("availability=%+v, want newest materialized artifact first", availability)
+	}
+}
+
+func TestDataTaskPromptsExplainCustomTransformDisabledStillAllowsTypedActions(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{{Path: "records.csv", Required: true}},
+			},
+			Actions: []dataquery.DataAction{{
+				ID:         "bad_script",
+				Kind:       dataquery.DataActionCustomTransform,
+				InputPaths: []string{"records.csv"},
+				Script:     "emit({'answer':'x'})",
+			}},
+		},
+		Err: "execute data task: data task script failed: exit status 1",
+	}, {
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "records.csv", Required: true}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			Actions: []dataquery.DataAction{{
+				ID:         "records",
+				Kind:       dataquery.DataActionExtractRecords,
+				InputPaths: []string{"records.csv"},
+			}},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"id", "amount", "group"},
+				Fields: map[string]string{
+					"artifact_aliases": "records",
+					"json_shape":       "array(len=2,item=object(keys=id,amount,group))",
+				},
+			}},
+		},
+	}}
+	continuation := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	for _, want := range []string{
+		`"custom_transform_disabled": true`,
+		`"custom_transform_disabled_note": "free-form custom_transform scripts are disabled`,
+		"disables only free-form scripts",
+		"not a compute-capability failure",
+		"typed actions",
+	} {
+		if !strings.Contains(continuation, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, continuation)
+		}
+	}
+	evaluation := dataTaskEvaluationPrompt("继续计算", records, "zh-CN")
+	for _, want := range []string{
+		"disables only free-form scripts",
+		"does not mean the task is blocked",
+		"compute_contributions",
+		"reconcile_artifacts",
+	} {
+		if !strings.Contains(evaluation, want) {
+			t.Fatalf("evaluation prompt missing %q:\n%s", want, evaluation)
+		}
+	}
+}
+
+func TestDataTaskContinuationPromptUsesCompactHistory(t *testing.T) {
+	records := make([]dataTaskWorkflowRecord, 0, 7)
+	largeParam := strings.Repeat("field_a|field_b|field_c|", 400)
+	for i := 0; i < 7; i++ {
+		records = append(records, dataTaskWorkflowRecord{
+			Plan: dataquery.TaskPlan{
+				Status: "ready",
+				Actions: []dataquery.DataAction{{
+					ID:             fmt.Sprintf("A%d", i),
+					Kind:           dataquery.DataActionDeriveFields,
+					InputPaths:     []string{"records"},
+					OutputArtifact: fmt.Sprintf("records_%d", i),
+					Params: map[string]string{
+						"field_specs_json": largeParam,
+					},
+					Script: strings.Repeat("print('x')\n", 200),
+				}},
+			},
+			Result: &dataquery.Result{
+				Answer: strings.Repeat("answer,", 500),
+				Artifacts: []dataquery.DataArtifact{{
+					ID:      fmt.Sprintf("records_%d", i),
+					Kind:    "derive_fields",
+					Headers: []string{"field_a", "field_b", "field_c"},
+					Fields: map[string]string{
+						"artifact_aliases": fmt.Sprintf("records_%d", i),
+						"json_shape":       "array(len=100,item=object(keys=field_a,field_b,field_c))",
+					},
+					Sample: []string{`{"field_a":"a","field_b":"b","field_c":"c"}`},
+				}},
+			},
+		})
+	}
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		nil,
+		records,
+	)
+	if !strings.Contains(prompt, "omitted 4 older data rounds") {
+		t.Fatalf("continuation prompt did not omit old rounds:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "field_specs_json") || !strings.Contains(prompt, "truncated") {
+		t.Fatalf("continuation prompt lost compact param preview/truncation marker:\n%s", prompt)
+	}
+	if len(prompt) > 60000 {
+		t.Fatalf("continuation prompt too large after compaction: %d bytes", len(prompt))
+	}
+}
+
+func TestDataTaskContinuationPromptUsesCompactCandidateFiles(t *testing.T) {
+	prompt := dataTaskContinuationPrompt(
+		"继续计算",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "data_aggregation"},
+		[]dataquery.CandidateFile{{
+			Path:              "records.csv",
+			Kind:              "csv",
+			Size:              123,
+			Lines:             10,
+			Headers:           []string{"id", "amount", "status"},
+			SampleRows:        [][]string{{"id", "amount"}, {"1", "42"}},
+			Sample:            []string{"very long sample line"},
+			TextEvidencePaths: []string{"evidence/a.txt", "evidence/b.txt"},
+		}},
+		nil,
+	)
+	for _, want := range []string{"records.csv", "headers_json", "text_evidence_count=2", "compact continuation view"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("continuation prompt missing compact candidate marker %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"sample_rows_json", "sample_lines_json", "very long sample line", "evidence/a.txt"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("continuation prompt leaked full candidate material %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsSingleCustomTransformAcrossValidationStages(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true},
+					{Path: "rules.md", Required: true},
+				},
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md"},
+			RuleCoverage: []dataquery.RuleCoverageRecord{{
+				RuleID:   "R1",
+				RuleText: "Only include valid rows",
+				Status:   "applied",
+				Notes:    "derived from rules.md",
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true},
+				{Path: "rules.md", Required: true},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "compute_all",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"orders.csv#records"},
+			Script:     `emit({"artifacts":[{"id":"partial"}]})`,
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	for _, want := range []string{
+		"custom_transform_disabled=true",
+		"next_stage=prepare_contribution_inputs",
+		"allowed_next_actions",
+		"custom_transform",
+	} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
+	}
+}
+
+func TestDataTaskWorkflowAllowedActionGuardUsesPriorStateNotCandidatePlan(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true},
+					{Path: "queries.csv", Required: true},
+					{Path: "rules.md", Required: true},
+				},
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "queries.csv", "rules.md"},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied"}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			// The candidate plan is intentionally narrower than the accepted
+			// workflow. It must not redefine the next-stage contract used to
+			// validate its own actions.
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "rules.md", Required: true}},
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "reparse_rules",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"rules.md"},
+			Script:     `emit({"rules":["x"]})`,
+		}},
+	}
+	errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan)
+	for _, want := range []string{
+		"workflow next_stage=prepare_contribution_inputs",
+		"allows only next actions",
+		"custom_transform",
+	} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRejectsTerminalRawMaterialCustomTransform(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials: []dataquery.CoverageMaterial{
+					{Path: "orders.csv", Required: true},
+					{Path: "rules.md", Required: true},
+					{Path: "queries.csv", Required: true},
+				},
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md", "queries.csv"},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied"}},
+			Contributions: []dataquery.ContributionRecord{{
+				ItemID:    "orders.csv#1",
+				GroupKey:  "Q1",
+				Metric:    "total",
+				Value:     "42",
+				Operation: "add",
+			}},
+			Reconcile: &dataquery.ReconcileReport{
+				Status:         "pass",
+				ExpectedAnswer: "42",
+				ActualAnswer:   "42",
+				Groups: []dataquery.ReconcileGroup{{
+					GroupKey:   "Q1",
+					Metric:     "total",
+					Expected:   "42",
+					Actual:     "42",
+					Difference: "0",
+				}},
+			},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "reconcile_totals",
+				Kind: string(dataquery.DataActionReconcile),
+				Fields: map[string]string{
+					"artifact_aliases": "reconcile_totals,reconcile_totals.json",
+					"json_shape":       "object(keys=groups,status)",
+				},
+			}},
+		},
+	}}
+	lines := make([]string, 0, dataTaskComplexCustomScriptLineLimit+2)
+	for i := 0; i < dataTaskComplexCustomScriptLineLimit; i++ {
+		lines = append(lines, "x = 1")
+	}
+	lines = append(lines, `emit_result("42", output_contract={"format":"plain_single_line","explanation_allowed":False})`)
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Required: true},
+				{Path: "rules.md", Required: true},
+				{Path: "queries.csv", Required: true},
+			},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "final_projection",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"orders.csv", "rules.md", "queries.csv"},
+			Script:     strings.Join(lines, "\n"),
+		}},
+	}
+	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	for _, want := range []string{"terminal custom_transform", "original material", "generated artifact aliases", "assemble_answer"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("errText=%q, want %q", errText, want)
+		}
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardAllowsTerminalGeneratedArtifactProjection(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RuleCoverageRequired:       true,
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md"},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied"}},
+			Contributions: []dataquery.ContributionRecord{{
+				ItemID:    "orders.csv#1",
+				GroupKey:  "Q1",
+				Metric:    "total",
+				Value:     "42",
+				Operation: "add",
+			}},
+			Reconcile: &dataquery.ReconcileReport{
+				Status:         "pass",
+				ExpectedAnswer: "42",
+				ActualAnswer:   "42",
+				Groups: []dataquery.ReconcileGroup{{
+					GroupKey:   "Q1",
+					Metric:     "total",
+					Expected:   "42",
+					Actual:     "42",
+					Difference: "0",
+				}},
+			},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "reconcile_totals",
+				Kind: string(dataquery.DataActionReconcile),
+				Fields: map[string]string{
+					"artifact_aliases": "reconcile_totals,reconcile_totals.json",
+					"json_shape":       "object(keys=groups,status)",
+				},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "format_answer",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"reconcile_totals"},
+			Script:     `emit_result("42", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
+		}},
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+		t.Fatalf("errText=%q, want generated artifact projection to pass", errText)
 	}
 }
 
@@ -2518,6 +6436,77 @@ func TestValidateDataTaskWorkflowResultRejectsDroppedEarlierRequirements(t *test
 	}
 	if validationErr.Violations[0].Code != "workflow_material_coverage_incomplete" {
 		t.Fatalf("violation=%+v", validationErr.Violations[0])
+	}
+}
+
+func TestDataTaskActionRunnerSeedAccumulatesArtifactsAcrossRecords(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Result: &dataquery.Result{
+				Artifacts: []dataquery.DataArtifact{{
+					ID:          "orders.csv#records",
+					Kind:        "extract_records/csv",
+					SourcePaths: []string{"orders.csv"},
+					Fields: map[string]string{
+						"artifact_path":    "/tmp/orders-records.json",
+						"artifact_aliases": "orders.csv#records",
+					},
+				}},
+				ConsumedPaths: []string{"orders.csv"},
+				RuleCoverage: []dataquery.RuleCoverageRecord{{
+					RuleID:   dataquery.LooseText("r1"),
+					RuleText: dataquery.LooseText("rule one"),
+				}},
+			},
+		},
+		{
+			Result: &dataquery.Result{
+				Artifacts: []dataquery.DataArtifact{{
+					ID:          "queries.csv#records",
+					Kind:        "extract_records/csv",
+					SourcePaths: []string{"queries.csv"},
+					Fields: map[string]string{
+						"artifact_path":    "/tmp/queries-records.json",
+						"artifact_aliases": "queries.csv#records",
+					},
+				}},
+				ConsumedPaths: []string{"queries.csv"},
+			},
+		},
+	}
+	seed := dataTaskActionRunnerSeed(records)
+	if len(seed.Artifacts) != 2 {
+		t.Fatalf("Artifacts=%+v, want both prior batch artifacts", seed.Artifacts)
+	}
+	if got := strings.Join(seed.ConsumedPaths, ","); got != "orders.csv,queries.csv" {
+		t.Fatalf("ConsumedPaths=%q, want accumulated paths", got)
+	}
+	if len(seed.RuleCoverage) != 1 {
+		t.Fatalf("RuleCoverage=%+v, want prior rule coverage", seed.RuleCoverage)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeAddsTopLevelInputsReferencedByCustomScript(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.md", "unused.csv"},
+		Actions: []dataquery.DataAction{{
+			ID:         "bounded_transform",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"orders.csv"},
+			Script: `
+rules = read_text("rules.md")
+rows = csv_rows("orders.csv")
+emit_result(str(len(rows)), output_contract={"format":"plain_single_line","explanation_allowed":False})
+`,
+		}},
+	}
+	got, reasons := normalizeDataTaskPlanShape(plan)
+	if len(reasons) == 0 || !strings.Contains(strings.Join(reasons, ";"), "top-level declared inputs") {
+		t.Fatalf("reasons=%v, want custom action input normalization", reasons)
+	}
+	inputs := strings.Join(got.Actions[0].InputPaths, ",")
+	if inputs != "orders.csv,rules.md" {
+		t.Fatalf("InputPaths=%q, want only referenced declared inputs", inputs)
 	}
 }
 

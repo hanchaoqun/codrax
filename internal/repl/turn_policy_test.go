@@ -1606,7 +1606,9 @@ func TestTurnPolicyDispatch_DataRouteUsesConfiguredRepairBudget(t *testing.T) {
 				Format:             dataquery.OutputPlainSingleLine,
 				ExplanationAllowed: false,
 			},
-			Script: fmt.Sprintf(`raise KeyError(%q)`, msg),
+			Script: fmt.Sprintf(`rows = csv_rows("orders.csv")
+raise KeyError(%q)
+emit_result("0", output_contract={"format": "plain_single_line", "explanation_allowed": False})`, msg),
 		}
 	}
 	planner := &stubDataTaskPlanner{
@@ -1759,7 +1761,7 @@ func TestDataTaskRepeatedNodeFailureDetectsTypedAction(t *testing.T) {
 	}
 }
 
-func TestDataTaskRequiredLedgerCompletionPlanAddsEntityNode(t *testing.T) {
+func TestDataTaskRequiredLedgerCompletionPlanDoesNotInventEntityNode(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
 		CoverageContract: dataquery.CoverageContract{
@@ -1780,17 +1782,8 @@ func TestDataTaskRequiredLedgerCompletionPlanAddsEntityNode(t *testing.T) {
 	}
 	errText := `validate data workflow completion: data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty`
 	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, errText)
-	if !ok {
-		t.Fatal("expected deterministic ledger completion plan")
-	}
-	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionNormalizeEntities {
-		t.Fatalf("actions=%+v, want one normalize_entities action", plan.Actions)
-	}
-	if got := plan.OutputContract.Normalize().Format; got != dataquery.OutputPlainSingleLine {
-		t.Fatalf("output format=%q, want plain_single_line", got)
-	}
-	if plan.ContinueAfter {
-		t.Fatal("ledger completion should be terminal by default")
+	if ok {
+		t.Fatalf("plan=%+v, deterministic completion must not invent entity_resolution semantics without field contracts", plan)
 	}
 }
 

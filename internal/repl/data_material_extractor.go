@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -156,7 +155,7 @@ func (e *llmDataMaterialExtractor) extractOne(ctx context.Context, absRoot, outp
 	if text == "" {
 		return dataquery.MaterialExtraction{}, fmt.Errorf("material extractor returned empty text for %s", rel)
 	}
-	stamp := time.Now().Format("20060102-150405")
+	stamp := dataTaskAuditStamp()
 	name := sanitizeDataExtractionName(rel)
 	textRel := filepath.ToSlash(filepath.Join(".codrax", "data-extract", stamp+"-"+name+".txt"))
 	textAbs := filepath.Join(absRoot, textRel)

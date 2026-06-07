@@ -295,7 +295,7 @@
 # (cleaning / joins / aggregations / strict data-shaped output), not source
 # analysis, trace/log analysis, operation commands, or write mode.
 # data_task_max_repair_rounds: 6
-# data_task_max_data_rounds: 12
+# data_task_max_data_rounds: 18
 # Optional vision/OCR-like extraction for data tasks is configured in
 # providers.yaml via llm.agents.multimodal_material_extractor, not here.
 

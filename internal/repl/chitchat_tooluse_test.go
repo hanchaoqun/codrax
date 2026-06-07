@@ -21,6 +21,7 @@ import (
 type scriptedChatAdapter struct {
 	mu        sync.Mutex
 	responses []llm.Response
+	errors    []error
 	calls     []scriptedCall
 }
 
@@ -41,6 +42,13 @@ func (a *scriptedChatAdapter) Chat(_ context.Context, messages []llm.Message, to
 	}
 	resp := a.responses[0]
 	a.responses = a.responses[1:]
+	if len(a.errors) > 0 {
+		err := a.errors[0]
+		a.errors = a.errors[1:]
+		if err != nil {
+			return resp, err
+		}
+	}
 	// Mimic streaming when the test wired a callback so the round-2
 	// streamed-content branch is also exercised.
 	if opts.OnContentDelta != nil && resp.Content != "" {
