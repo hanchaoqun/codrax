@@ -11666,3 +11666,53 @@ Current backlog before real-scenario testing:
       latest-binary real scenario passes. Do not use those gates to fit one
       business case; they should check generic output, ledger, reconcile, audit,
       and volatility properties.
+
+### Batch 263: Reducer-Owned Plan Shape Guard
+
+The next IR pass moved the ready-plan shape guard out of the REPL adapter and
+into `internal/dataworkflow`. Before this batch, the REPL decided whether a
+ready data plan with no `actions[]` was executable, missing a result emitter,
+too complex as a top-level script, or oversized for one bounded batch. Those
+decisions are scheduling policy, not UI policy.
+
+This remains domain-neutral. The reducer consumes only typed structural counts:
+plan status, whether actions exist, whether a script exists, script line count,
+result-emitter presence, input count, required-material count, validation-ledger
+count, and configured size limits. It does not inspect business file names,
+task prose, or model free text. The REPL still owns environment-bound
+projection of local facts such as script line counting; the reducer owns the
+decision and typed violation.
+
+Changes:
+
+- [x] Added `PlanShapeGuardInput` and `PlanShapeGuardResult` in
+      `internal/dataworkflow`.
+- [x] Returned typed `GuardResult` / `GenericViolation` values for
+      `missing_executable_body`, `missing_result_emitter`,
+      `complex_top_level_script`, and `oversized_data_batch`.
+- [x] Changed REPL staging guard code to pass typed plan-shape facts into the
+      reducer instead of constructing those guard results locally.
+- [x] Kept terminal required-material scheduling after plan-shape validation so
+      existing guard priority is preserved.
+- [x] Added reducer regression coverage for missing executable body, missing
+      result emitter, complex top-level script, oversized script, and action
+      batch pass-through.
+
+Current backlog before real-scenario testing:
+
+- [ ] Move the remaining REPL adapter-owned scheduling predicates behind
+      reducer-owned transition inputs. The top-level plan-shape guard is done;
+      broad custom-transform/material-discovery triggers and field/relation
+      guard entrypoints still need the same treatment where they produce hard
+      scheduling decisions.
+- [ ] Add a domain-neutral `mapping_candidate` typed action for ambiguous
+      source/reference matching. Existing normalization/enrichment can proceed
+      without it, but complex multi-file relation tasks still spend extra model
+      turns when candidate matching is not explicit.
+- [ ] Extend progress signatures beyond relation-family no-progress to include
+      field-set deltas, row-count deltas, schema deltas, ledger deltas, and
+      stage movement for all typed action families.
+- [ ] Add multi-run real-scenario gates and CI/status checks after the single
+      latest-binary real scenario passes. Do not use those gates to fit one
+      business case; they should check generic output, ledger, reconcile, audit,
+      and volatility properties.

@@ -92,34 +92,31 @@ func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardR
 	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
 		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
 	}
-	if strings.TrimSpace(plan.Script) == "" {
-		return dataTaskGuardResultFromMessage("missing_executable_body", "data planning incomplete: ready data plan has no executable body. Emit a bounded actions[] batch or a script with emit_result/emit; do not mark a data plan ready when it only declares inputs, contracts, or prose.")
-	}
 	lines := dataTaskScriptLineCount(plan.Script)
-	if lines > 0 && !dataTaskScriptHasResultEmitter(plan.Script) {
-		return dataTaskGuardResultFromMessage("missing_result_emitter", fmt.Sprintf("data planning incomplete: script has no result emitter (script_lines=%d). A bounded data script must call emit(...), emit_result(...), or assign result before it can complete; otherwise split the workflow into typed actions that produce reusable artifacts.",
-			lines))
-	}
 	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
 	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
 	inputs := len(plan.InputPaths)
-	complexBatch := requiredMaterials >= 4 || validationLedgers >= 2 || inputs >= 4
-	if lines > 0 && complexBatch {
-		return dataTaskGuardResultFromMessage("complex_top_level_script", fmt.Sprintf("data planning incomplete: complex data task should not start as one top-level script (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Emit an atomic actions[] batch such as inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform, and set continue_after=true when more graph work remains.",
-			lines, inputs, requiredMaterials, validationLedgers))
+	if guard := dataworkflow.PlanShapeGuardResult(dataworkflow.PlanShapeGuardInput{
+		Status:                 plan.Status,
+		HasActions:             len(plan.Actions) > 0,
+		HasScript:              strings.TrimSpace(plan.Script) != "",
+		ScriptLines:            lines,
+		ScriptHasResultEmitter: dataTaskScriptHasResultEmitter(plan.Script),
+		InputCount:             inputs,
+		RequiredMaterialCount:  requiredMaterials,
+		ValidationLedgerCount:  validationLedgers,
+		ContinueAfter:          plan.ContinueAfter,
+		SoftScriptLineLimit:    dataTaskOneShotScriptLineSoftLimit,
+		HardScriptLineLimit:    dataTaskOneShotScriptLineHardLimit,
+		RequiredMaterialLimit:  dataTaskOneShotRequiredMaterialLimit,
+		ValidationLedgerLimit:  dataTaskOneShotValidationLedgerLimit,
+	}); !guard.Empty() {
+		return guard
 	}
-	oversized := lines >= dataTaskOneShotScriptLineHardLimit ||
-		(lines >= dataTaskOneShotScriptLineSoftLimit && (requiredMaterials >= dataTaskOneShotRequiredMaterialLimit || validationLedgers >= dataTaskOneShotValidationLedgerLimit)) ||
-		(lines >= 180 && complexBatch) ||
-		(requiredMaterials >= dataTaskOneShotRequiredMaterialLimit+4 && validationLedgers >= dataTaskOneShotValidationLedgerLimit)
-	if !oversized {
-		if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); errText != "" {
-			return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
-		}
-		return dataworkflow.GuardResult{}
+	if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); errText != "" {
+		return dataTaskGuardResultFromMessage("required_material_scheduling", errText)
 	}
-	return dataTaskGuardResultFromMessage("oversized_data_batch", fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller atomic actions[] batch such as material_inventory, inspect_material, extract_records, derive_rules, derive_fields, extract_fields, group_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or a bounded custom_transform; set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
-		lines, inputs, requiredMaterials, validationLedgers))
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskWorkflowStagingGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
