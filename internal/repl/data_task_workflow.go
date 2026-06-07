@@ -9730,20 +9730,33 @@ func dataTaskWorkflowConcreteNextActionFallback(records []dataTaskWorkflowRecord
 	return dataquery.TaskPlan{}, "", false
 }
 
-func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
 	if !dataTaskPlanStatusLooksTerminal(current.Status) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	state := dataTaskWorkflowState(records, current)
 	missing := dataTaskWorkflowMissingValidationStages(state)
 	if len(missing) == 0 || len(state.AllowedNextActions) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return fmt.Sprintf("data planning incomplete: terminal status=%q is invalid because workflow next_stage=%s still has unfinished validation stage(s): %s and legal next actions [%s]. Emit status=ready with one bounded typed action batch from workflow_state_json.allowed_next_actions; use continue_after=true when later stages remain. blocked is only for true capability/policy barriers, not for ordinary unfinished typed data workflow stages.",
+	msg := fmt.Sprintf("data planning incomplete: terminal status=%q is invalid because workflow next_stage=%s still has unfinished validation stage(s): %s and legal next actions [%s]. Emit status=ready with one bounded typed action batch from workflow_state_json.allowed_next_actions; use continue_after=true when later stages remain. blocked is only for true capability/policy barriers, not for ordinary unfinished typed data workflow stages.",
 		strings.TrimSpace(current.Status),
 		state.NextStage,
 		strings.Join(missing, ", "),
 		strings.Join(state.AllowedNextActions, ", "))
+	violation := dataworkflow.WorkflowViolation{
+		Code:              "unfinished_validation_stage",
+		Severity:          "error",
+		Repairability:     dataworkflow.RepairNeedsTypedAction,
+		ActionKind:        firstNonEmptyString(state.NextStage, "data_workflow"),
+		RepairActionHints: append([]string(nil), state.AllowedNextActions...),
+		Reason:            msg,
+	}
+	return dataworkflow.NewGuardResult("unfinished_validation_stage", "error", dataworkflow.RepairNeedsTypedAction, msg, violation)
+}
+
+func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	return dataTaskTerminalWorkflowGuardResult(records, current).ErrorText()
 }
 
 func dataTaskPlanStatusLooksTerminal(status string) bool {

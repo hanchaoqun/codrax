@@ -6479,6 +6479,13 @@ func TestDataTaskTerminalWorkflowGuardRejectsPrematureBlockedPlan(t *testing.T) 
 			ReconcileRequired:          true,
 		},
 	}
+	guard := dataTaskTerminalWorkflowGuardResult(records, current)
+	if guard.Empty() {
+		t.Fatal("typed terminal guard should not be empty")
+	}
+	if guard.Code != "unfinished_validation_stage" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want unfinished_validation_stage with one violation", guard)
+	}
 	errText := dataTaskTerminalWorkflowGuardError(records, current)
 	for _, want := range []string{"terminal status", "compute_contributions", "legal next actions"} {
 		if !strings.Contains(errText, want) {

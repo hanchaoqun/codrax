@@ -10072,3 +10072,31 @@ Remaining architecture items:
       fixture arithmetic independently of the model runner.
 - [ ] Add multi-run volatility gates for the complex data cases once provider
       capacity is stable enough for repeated CI sampling.
+
+### Batch 226: Typed Guard Result And Journal Process Events
+
+The workflow journal had a shared terminal snapshot, but guard APIs still
+mostly returned prose strings and terminal snapshots did not include the
+process events that led to the final state. This batch adds the shared carrier
+needed for incremental migration without changing runtime decisions.
+
+Changes:
+
+- [x] Added `dataworkflow.GuardResult` as a storage-neutral typed guard result
+      with code, severity, repairability, message, reason, and workflow
+      violations.
+- [x] Converted the terminal unfinished-workflow guard to produce a typed
+      `GuardResult` first, while preserving the existing string wrapper for
+      current REPL/CLI callers.
+- [x] Added per-record process events to terminal workflow journals so the
+      audit artifact records completed/failed action or script batches, status,
+      round order, and compact reason.
+- [x] Added regression coverage for guard-result behavior, typed terminal
+      guard output, and terminal journal process-event emission.
+
+Remaining architecture items:
+
+- [ ] Convert the main staging guard and action-level guard entrypoints to
+      return `GuardResult` directly.
+- [ ] Persist workflow journal checkpoints during execution, not only at
+      terminal exit.
