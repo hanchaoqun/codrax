@@ -9988,3 +9988,31 @@ Remaining architecture items:
       process-event fields instead of only free-form detail strings.
 - [ ] Add audit metrics that distinguish user-facing process summaries from
       internal graph counters.
+
+### Batch 223: Storage-Neutral Workflow Journal Type
+
+Terminal graph snapshots were shared by REPL and CLI after Batch 219, but the
+JSON type itself still lived in `internal/repl`. This batch moves that terminal
+snapshot contract into `internal/dataworkflow` as `WorkflowJournal`.
+
+The journal type is storage-neutral: it does not know whether it will be
+rendered by REPL, written by CLI, or consumed by a future non-terminal runner.
+It carries typed action events, projected ActionGraph, ArtifactGraph,
+WorkflowViolations, terminal status, result summary, and optional process
+events. The existing terminal audit file format is preserved.
+
+Changes:
+
+- [x] Added `dataworkflow.WorkflowJournal` and `WorkflowJournalEvent`.
+- [x] Rewired terminal data audit writer to marshal the shared journal type.
+- [x] Kept `dataTaskTerminalAuditSnapshot` as a type alias so existing tests and
+      callers do not fork a second schema.
+- [x] Added JSON contract coverage for journal field names and deferred action
+      graph content.
+
+Remaining architecture items:
+
+- [ ] Append process events into the journal throughout execution, not only at
+      terminal snapshot construction.
+- [ ] Persist journal checkpoints before terminal exit so interrupted sessions
+      can resume typed graph state.

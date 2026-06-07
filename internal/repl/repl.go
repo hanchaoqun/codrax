@@ -167,19 +167,7 @@ type dataTaskTerminalAudit struct {
 	Result       *dataquery.Result
 }
 
-type dataTaskTerminalAuditSnapshot struct {
-	Status             string                                  `json:"status,omitempty"`
-	Reason             string                                  `json:"reason,omitempty"`
-	DataRounds         int                                     `json:"data_rounds,omitempty"`
-	RepairRounds       int                                     `json:"repair_rounds,omitempty"`
-	RecordCount        int                                     `json:"record_count,omitempty"`
-	ResultSummary      string                                  `json:"result_summary,omitempty"`
-	LastError          string                                  `json:"last_error,omitempty"`
-	ActionEvents       []dataworkflow.ActionEvent              `json:"action_events,omitempty"`
-	ActionGraph        dataworkflow.ActionGraph                `json:"action_graph,omitempty"`
-	ArtifactGraph      []dataworkflow.ArtifactSchemaProjection `json:"artifact_graph,omitempty"`
-	WorkflowViolations []dataworkflow.WorkflowViolation        `json:"workflow_violations,omitempty"`
-}
+type dataTaskTerminalAuditSnapshot = dataworkflow.WorkflowJournal
 
 // autoInitRepoSetter is the optional capability `/approve` flips on
 // after the user (or the yaml/CLI pre-authorization) consents to
@@ -2913,7 +2901,7 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 	if a.Result != nil && len(a.Result.Artifacts) > 0 {
 		artifactGraph = appendArtifactSchemaProjections(artifactGraph, dataworkflow.ProjectArtifactSchemasNewestFirst(a.Result.Artifacts)...)
 	}
-	snapshot := dataTaskTerminalAuditSnapshot{
+	snapshot := dataworkflow.WorkflowJournal{
 		Status:             status,
 		Reason:             reason,
 		DataRounds:         a.DataRounds,
