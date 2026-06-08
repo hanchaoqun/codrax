@@ -7,12 +7,13 @@ import (
 )
 
 type ActionDAGAdmissionInput struct {
-	Plan                  dataquery.TaskPlan
-	Protect               func(dataquery.TaskPlan) dataquery.TaskPlan
-	PrefixFallback        func(dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool)
-	Guard                 func(dataquery.TaskPlan) GuardResult
-	DeterministicFallback func(dataquery.TaskPlan, GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool)
-	MaxRewrites           int
+	Plan                   dataquery.TaskPlan
+	Protect                func(dataquery.TaskPlan) dataquery.TaskPlan
+	PrefixFallback         func(dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool)
+	Guard                  func(dataquery.TaskPlan) GuardResult
+	DeterministicFallback  func(dataquery.TaskPlan, GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool)
+	BlockedIdempotencyKeys []string
+	MaxRewrites            int
 }
 
 type ActionDAGAdmissionDecision struct {
@@ -56,6 +57,9 @@ func AdmitActionDAGPlan(input ActionDAGAdmissionInput) ActionDAGAdmissionDecisio
 				continue
 			}
 		}
+		if guardResult := duplicateActionEdgeGuard(current, input.BlockedIdempotencyKeys); !guardResult.Empty() {
+			return admissionBlocked(out, current, guardResult)
+		}
 		guardResult := guard(current)
 		if guardResult.Empty() {
 			out.Plan = current
@@ -82,6 +86,38 @@ func AdmitActionDAGPlan(input ActionDAGAdmissionInput) ActionDAGAdmissionDecisio
 	}
 	out.Plan = current
 	return out
+}
+
+func duplicateActionEdgeGuard(plan dataquery.TaskPlan, blockedKeys []string) GuardResult {
+	if len(plan.Actions) == 0 || len(blockedKeys) == 0 {
+		return GuardResult{}
+	}
+	blocked := make(map[string]bool, len(blockedKeys))
+	for _, key := range blockedKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		blocked[key] = true
+	}
+	if len(blocked) == 0 {
+		return GuardResult{}
+	}
+	for _, action := range plan.Actions {
+		key := ActionIdempotencyKey(action)
+		if key == "" || !blocked[key] {
+			continue
+		}
+		violation := NewGenericViolation(GenericViolationInput{
+			Code:          "duplicate_action_edge",
+			Severity:      "error",
+			Repairability: RepairNeedsTypedAction,
+			Action:        action,
+			Reason:        "candidate action repeats a previously blocked or failed workflow edge with the same idempotency key",
+		})
+		return NewGuardResult("duplicate_action_edge", "error", RepairNeedsTypedAction, violation.Reason, violation)
+	}
+	return GuardResult{}
 }
 
 func admissionBlocked(out ActionDAGAdmissionDecision, current dataquery.TaskPlan, guard GuardResult) ActionDAGAdmissionDecision {

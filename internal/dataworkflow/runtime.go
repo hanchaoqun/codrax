@@ -1,6 +1,11 @@
 package dataworkflow
 
-import "github.com/hanchaoqun/codrax/internal/dataquery"
+import (
+	"sort"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
 
 // WorkflowRuntime is the storage-neutral handle for live data workflow state.
 // It deliberately stores only workflow/dataquery IR, not REPL or CLI types.
@@ -145,6 +150,68 @@ func (rt *WorkflowRuntime) RecordsWith(record WorkflowRecord) []WorkflowRecord {
 	}
 	out := rt.Records()
 	out = append(out, cloneWorkflowRecord(record))
+	return out
+}
+
+func blockedIdempotencyKeysFromRecords(records []WorkflowRecord) []string {
+	seen := map[string]bool{}
+	addAction := func(action dataquery.DataAction) {
+		if key := strings.TrimSpace(ActionIdempotencyKey(action)); key != "" {
+			seen[key] = true
+		}
+	}
+	addPlan := func(plan dataquery.TaskPlan) {
+		for _, action := range plan.Actions {
+			addAction(action)
+		}
+	}
+	for _, record := range records {
+		blocked := strings.TrimSpace(record.Err) != "" || len(record.Violations) > 0
+		if record.Admission != nil && strings.TrimSpace(record.Admission.FinalGuardErr) != "" {
+			blocked = true
+		}
+		if !blocked {
+			continue
+		}
+		addPlan(record.Plan)
+		if record.Admission != nil {
+			addPlan(record.Admission.Plan)
+			addPlan(record.Admission.Original)
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func mergeIdempotencyKeys(first, second []string) []string {
+	if len(first) == 0 && len(second) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, key := range first {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	for _, key := range second {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for key := range seen {
+		out = append(out, key)
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -311,6 +378,9 @@ func (rt *WorkflowRuntime) Admission() ActionDAGAdmissionDecision {
 }
 
 func (rt *WorkflowRuntime) AdmitCandidatePlan(round int, source string, input ActionDAGAdmissionInput) CandidatePlanAdmissionDecision {
+	if rt != nil {
+		input.BlockedIdempotencyKeys = mergeIdempotencyKeys(input.BlockedIdempotencyKeys, blockedIdempotencyKeysFromRecords(rt.records))
+	}
 	admission := AdmitActionDAGPlan(input)
 	out := CandidatePlanAdmissionDecision{
 		Admission: cloneAdmissionDecision(admission),

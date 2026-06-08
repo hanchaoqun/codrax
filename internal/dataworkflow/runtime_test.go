@@ -223,6 +223,37 @@ func TestWorkflowRuntimeAdmitsCandidatePlanBlocked(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeBlocksDuplicateFailedActionEdge(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	failedAction := dataquery.DataAction{
+		ID:             "first_filter",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "paid.json",
+		Params: map[string]string{
+			"filters_json": `[{"field":"status","op":"eq","value":"paid"}]`,
+		},
+	}
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{failedAction}},
+		Err:  "field contract failed",
+	})
+	replayed := failedAction
+	replayed.ID = "renamed_filter"
+	decision := rt.AdmitCandidatePlan(2, "repair", ActionDAGAdmissionInput{
+		Plan: dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{replayed}},
+	})
+	if decision.Accepted || !decision.Blocked || decision.Admission.FinalGuard.Code != "duplicate_action_edge" {
+		t.Fatalf("decision=%+v, want duplicate edge blocked before transition", decision)
+	}
+	if len(rt.PlanTransitions()) != 0 {
+		t.Fatalf("transitions=%+v, duplicate blocked admission should not transition", rt.PlanTransitions())
+	}
+	if got := rt.CurrentPlan(); len(got.Actions) != 1 || got.Actions[0].ID != "renamed_filter" {
+		t.Fatalf("current plan=%+v, want rejected candidate kept for audit", got)
+	}
+}
+
 func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{

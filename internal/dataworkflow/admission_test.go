@@ -92,3 +92,27 @@ func TestAdmitActionDAGPlanReturnsTypedFinalGuardWhenUnrepairable(t *testing.T) 
 		t.Fatalf("decision=%+v, want typed final guard", decision)
 	}
 }
+
+func TestAdmitActionDAGPlanBlocksDuplicateActionEdge(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "filter_paid",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "paid.json",
+		Params: map[string]string{
+			"filters_json": `[{"field":"status","op":"eq","value":"paid"}]`,
+		},
+	}
+	decision := AdmitActionDAGPlan(ActionDAGAdmissionInput{
+		Plan: dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{action}},
+		BlockedIdempotencyKeys: []string{
+			ActionIdempotencyKey(action),
+		},
+	})
+	if decision.FinalGuard.Code != "duplicate_action_edge" || decision.FinalGuardErr == "" {
+		t.Fatalf("decision=%+v, want duplicate_action_edge guard", decision)
+	}
+	if len(decision.FinalGuard.Violations) != 1 || decision.FinalGuard.Violations[0].IdempotencyKey != ActionIdempotencyKey(action) {
+		t.Fatalf("violations=%+v, want duplicate idempotency violation", decision.FinalGuard.Violations)
+	}
+}

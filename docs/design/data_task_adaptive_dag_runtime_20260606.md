@@ -16751,8 +16751,8 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
       `WorkflowViolation` objects.
-- [ ] Add focused architecture regression for the deduplicated current queue
-      before the next real-scenario gate.
+- [x] Add focused architecture regression for the deduplicated current queue.
+      Completed in Batch 402.
 
 ### Batch 391: Relation-Aware Enrichment Scaffolds
 
@@ -17064,8 +17064,46 @@ Remaining architecture items:
 - [ ] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
       `WorkflowViolation` objects.
-- [ ] Add focused architecture regression for the deduplicated current queue
-      before the next real-scenario gate.
+- [x] Add focused architecture regression for the deduplicated current queue.
+      Completed in Batch 402.
+
+### Batch 402: Admission-Level Duplicate Edge Blocking
+
+The ActionGraph view already suppressed ready/deferred nodes whose idempotency
+keys matched failed or blocked nodes. That made the prompt state cleaner, but it
+did not prove that candidate admission itself would reject a repeated graph
+edge. A model could rename an action while keeping the same kind/input/output/
+params shape, and adapter code could still try to admit it again.
+
+Generic invariants:
+
+- duplicate detection uses exact action idempotency keys derived from typed
+  action structure, not action IDs, business prose, or model text;
+- `WorkflowRuntime` derives blocked keys from failed/blocked workflow records
+  and admission decisions;
+- `AdmitActionDAGPlan` rejects a candidate action whose key matches a blocked
+  key before adding a new transition;
+- the rejection is a typed `duplicate_action_edge` guard with a structured
+  violation and repairability, so evaluator/repair flows can react through the
+  same IR path;
+- this is data workflow admission only and does not affect source, trace, log,
+  operation, or write-mode pipelines.
+
+Changes:
+
+- [x] Added `BlockedIdempotencyKeys` to `ActionDAGAdmissionInput`.
+- [x] Added admission-level `duplicate_action_edge` guard generation.
+- [x] Made `WorkflowRuntime.AdmitCandidatePlan` merge blocked keys from failed
+      or guarded workflow records into admission input.
+- [x] Added direct admission regression for exact duplicate action keys.
+- [x] Added runtime regression proving a renamed but structurally identical
+      failed action edge is blocked without creating a plan transition.
+
+Remaining architecture items:
+
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
 
 ### Batch 394: Relation-Backed Missing Field Recovery
 
