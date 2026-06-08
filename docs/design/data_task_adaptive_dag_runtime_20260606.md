@@ -15700,6 +15700,54 @@ Remaining architecture items:
 - [ ] Feed typed execution violation counts into workflow evaluator/process
       events so users see structural blockers without internal jargon.
 
+### Batch 351: Typed Numeric Value-Shape Contracts
+
+Field-contract violations cover "the declared field is absent." A different
+generic failure is "the field exists, but sampled values do not satisfy the
+operation's value shape." Numeric filters and numeric contribution operations
+were still returning prose-only errors for this case.
+
+This batch introduces `DataValueContractError` for value-shape failures. It
+keeps numeric validation domain-neutral: the system does not know whether a
+field represents money, duration, count, score, percentage, or any other unit.
+It only checks the objective contract that a numeric operation needs numeric
+values or a numeric comparison literal.
+
+Generic invariants:
+
+- value-shape failures are not missing-field failures;
+- typed violations carry action kind, role, input alias, field, operation,
+  expected shape, and sampled actual values;
+- hard control and workflow state consume typed fields, not the diagnostic
+  prose;
+- model repair can still read the preserved message and sampled values.
+
+Changes:
+
+- [x] Added `DataValueContractError` and mapped it through
+      `ClassifyExecutionFailure`.
+- [x] Extended `DataTaskViolation` and `WorkflowViolation` with `field` and
+      `operation`.
+- [x] Preserved `field`/`operation` through completion-gate projection and
+      blocked-node idempotency keys.
+- [x] Converted numeric filter value/field contract failures to typed value
+      violations.
+- [x] Converted numeric contribution value-field contract failures to typed
+      value violations.
+- [x] Added regression coverage for typed numeric filter and contribution
+      failures.
+
+Remaining architecture items:
+
+- [ ] Add a typed `field_inference_violation` for actions that cannot infer
+      required fields from available schema but do not have explicit missing
+      field names.
+- [ ] Feed typed execution violation counts into workflow evaluator/process
+      events so users see structural blockers without internal jargon.
+- [ ] Add process-event summaries that render value-shape blockers as user
+      meaningful "字段值类型不满足本步操作" style information without leaking
+      internal stage names.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

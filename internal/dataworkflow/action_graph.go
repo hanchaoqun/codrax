@@ -213,6 +213,8 @@ func blockedViolationKey(violation WorkflowViolation, inputs []string) string {
 		strings.TrimSpace(violation.Code),
 		strings.TrimSpace(violation.ActionID),
 		strings.TrimSpace(violation.ActionKind),
+		strings.TrimSpace(violation.Field),
+		strings.TrimSpace(violation.Operation),
 		inputs,
 		strings.TrimSpace(violation.OutputAlias),
 		cleanStrings(violation.MissingFields),

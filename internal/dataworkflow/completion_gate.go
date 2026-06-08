@@ -98,6 +98,8 @@ func validationErrorWorkflowViolations(err error) []WorkflowViolation {
 			Repairability:        RepairNeedsTypedAction,
 			ActionID:             strings.TrimSpace(violation.ActionID),
 			ActionKind:           strings.TrimSpace(violation.ActionKind),
+			Field:                strings.TrimSpace(violation.Field),
+			Operation:            strings.TrimSpace(violation.Operation),
 			InputAlias:           strings.TrimSpace(violation.InputAlias),
 			InputAliases:         cleanStrings(violation.InputAliases),
 			RepairActionHints:    cleanStrings([]string{violation.RepairHint}),

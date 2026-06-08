@@ -1605,6 +1605,13 @@ func TestActionRunnerFilterRecordsRejectsNonNumericFieldForNumericOp(t *testing.
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
 	}
+	var valueErr DataValueContractError
+	if !errors.As(err, &valueErr) {
+		t.Fatalf("err=%T %v, want DataValueContractError", err, err)
+	}
+	if valueErr.ActionKind != DataActionFilterRecords || valueErr.Role != "filter_field" || valueErr.Field != "eligible" || valueErr.Operation != "gt" || valueErr.InputAlias != "records.csv" {
+		t.Fatalf("valueErr=%+v, want typed numeric filter contract", valueErr)
+	}
 }
 
 func TestActionRunnerFilterRecordsUsesActualJSONRecordFields(t *testing.T) {
@@ -5159,6 +5166,13 @@ func TestActionRunnerComputeContributionsRejectsNonNumericValueField(t *testing.
 		if !strings.Contains(text, want) {
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
+	}
+	var valueErr DataValueContractError
+	if !errors.As(err, &valueErr) {
+		t.Fatalf("err=%T %v, want DataValueContractError", err, err)
+	}
+	if valueErr.ActionKind != DataActionComputeContribs || valueErr.Role != "value" || valueErr.Field != "eligible" || valueErr.Operation != "add" || valueErr.InputAlias != "orders.csv" {
+		t.Fatalf("valueErr=%+v, want typed numeric contribution contract", valueErr)
 	}
 }
 

@@ -21,6 +21,8 @@ type WorkflowViolation struct {
 	Repairability        ViolationRepairability `json:"repairability,omitempty"`
 	ActionID             string                 `json:"action_id,omitempty"`
 	ActionKind           string                 `json:"action_kind,omitempty"`
+	Field                string                 `json:"field,omitempty"`
+	Operation            string                 `json:"operation,omitempty"`
 	InputAlias           string                 `json:"input_alias,omitempty"`
 	InputAliases         []string               `json:"input_aliases,omitempty"`
 	OutputAlias          string                 `json:"output_alias,omitempty"`
@@ -182,6 +184,12 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 		Reason:             firstNonEmptyViolationText(violation.Summary, violation.ActualSnippet, code),
 		CandidateArtifacts: nil,
 	})
+	if strings.TrimSpace(projected.Field) == "" {
+		projected.Field = strings.TrimSpace(violation.Field)
+	}
+	if strings.TrimSpace(projected.Operation) == "" {
+		projected.Operation = strings.TrimSpace(violation.Operation)
+	}
 	if strings.TrimSpace(projected.ActionID) == "" {
 		projected.ActionID = strings.TrimSpace(violation.ActionID)
 	}

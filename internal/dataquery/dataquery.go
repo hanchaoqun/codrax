@@ -259,6 +259,8 @@ type DataTaskViolation struct {
 	ActualSnippet        string            `json:"actual_snippet,omitempty"`
 	ActionID             string            `json:"action_id,omitempty"`
 	ActionKind           string            `json:"action_kind,omitempty"`
+	Field                string            `json:"field,omitempty"`
+	Operation            string            `json:"operation,omitempty"`
 	InputAlias           string            `json:"input_alias,omitempty"`
 	InputAliases         []string          `json:"input_aliases,omitempty"`
 	MissingFields        []string          `json:"missing_fields,omitempty"`
@@ -373,6 +375,10 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	var fieldErr DataFieldContractError
 	if errors.As(err, &fieldErr) {
 		return fieldErr.Violation()
+	}
+	var valueErr DataValueContractError
+	if errors.As(err, &valueErr) {
+		return valueErr.Violation()
 	}
 	var validationErr DataValidationError
 	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {

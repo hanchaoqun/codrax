@@ -121,6 +121,52 @@ func dataFieldContractError(kind DataActionKind, role, inputAlias string, missin
 	return err
 }
 
+type DataValueContractError struct {
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	Field         string         `json:"field,omitempty"`
+	Operation     string         `json:"operation,omitempty"`
+	InputAlias    string         `json:"input_alias,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+}
+
+func (e DataValueContractError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	field := strings.TrimSpace(e.Field)
+	if field == "" {
+		field = "value"
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "expected value shape"
+	}
+	return fmt.Sprintf("%s field %q does not satisfy %s", kind, field, expected)
+}
+
+func (e DataValueContractError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "value_contract_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Field:         strings.TrimSpace(e.Field),
+		Operation:     strings.TrimSpace(e.Operation),
+		ActualSnippet: strings.TrimSpace(e.ActualSnippet),
+		InputAlias:    strings.TrimSpace(e.InputAlias),
+		Role:          strings.TrimSpace(e.Role),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "value matching action operation"),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Materialize a typed field whose values satisfy the requested operation, or use an operation compatible with the existing value shape.",
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -3044,8 +3090,8 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			),
 		)
 	}
-	if errText := numericFilterContractError(rel, records, effectiveFilters); errText != "" {
-		return DataArtifact{}, nil, nil, errors.New(errText)
+	if err := numericFilterContractError(rel, records, effectiveFilters); err != nil {
+		return DataArtifact{}, nil, nil, err
 	}
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(records)))
 	for _, record := range records {
@@ -6717,8 +6763,8 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		for _, filter := range effectiveFilters {
 			filterFields = append(filterFields, filter.Field)
 		}
-		if errText := numericContributionValueContractError(rel, records, effectiveFilters, effectiveValueField, operation); errText != "" {
-			return DataArtifact{}, nil, nil, errors.New(errText)
+		if err := numericContributionValueContractError(rel, records, effectiveFilters, effectiveValueField, operation); err != nil {
+			return DataArtifact{}, nil, nil, err
 		}
 		consumed = append(consumed, rel)
 		matched := 0
@@ -9127,48 +9173,71 @@ func compareRecordDecimal(got, want, op string) bool {
 	}
 }
 
-func numericFilterContractError(rel string, records []actionRecord, filters []contributionFilter) string {
+func numericFilterContractError(rel string, records []actionRecord, filters []contributionFilter) error {
 	for _, filter := range filters {
 		if !contributionFilterOpRequiresNumeric(filter.Op) {
 			continue
 		}
 		if _, err := parseDecimalRat(filter.Value); err != nil {
-			return fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q uses non-numeric comparison value %q; use a numeric literal or a non-numeric filter op",
-				rel, strings.TrimSpace(filter.Field), strings.TrimSpace(filter.Op), strings.TrimSpace(filter.Value))
+			return DataValueContractError{
+				ActionKind:    DataActionFilterRecords,
+				Role:          "filter_value",
+				Field:         strings.TrimSpace(filter.Field),
+				Operation:     strings.TrimSpace(filter.Op),
+				InputAlias:    rel,
+				ExpectedShape: "numeric comparison value",
+				ActualSnippet: strings.TrimSpace(filter.Value),
+				Message: fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q uses non-numeric comparison value %q; use a numeric literal or a non-numeric filter op",
+					rel, strings.TrimSpace(filter.Field), strings.TrimSpace(filter.Op), strings.TrimSpace(filter.Value)),
+			}
 		}
 		stats := numericFieldSampleStats(records, filter.Field, nil, 8)
 		if stats.NonEmpty == 0 || stats.Numeric > 0 {
 			continue
 		}
-		return fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q requires numeric values but sampled non-empty values are non-numeric (numeric=%d non_numeric=%d bool_like=%d samples=%s). First materialize a numeric field with derive_fields operation=parse_number from an existing numeric source field, or use a non-numeric filter op when the field is a flag/status.",
-			rel,
-			strings.TrimSpace(filter.Field),
-			strings.TrimSpace(filter.Op),
-			stats.Numeric,
-			stats.NonNumeric,
-			stats.BoolLike,
-			strings.Join(stats.Samples, ", "))
+		actual := fmt.Sprintf("numeric=%d non_numeric=%d bool_like=%d samples=%s", stats.Numeric, stats.NonNumeric, stats.BoolLike, strings.Join(stats.Samples, ", "))
+		return DataValueContractError{
+			ActionKind:    DataActionFilterRecords,
+			Role:          "filter_field",
+			Field:         strings.TrimSpace(filter.Field),
+			Operation:     strings.TrimSpace(filter.Op),
+			InputAlias:    rel,
+			ExpectedShape: "numeric field values",
+			ActualSnippet: actual,
+			Message: fmt.Sprintf("numeric field contract failed: filter_records input %s field %q op %q requires numeric values but sampled non-empty values are non-numeric (%s). First materialize a numeric field with derive_fields operation=parse_number from an existing numeric source field, or use a non-numeric filter op when the field is a flag/status.",
+				rel,
+				strings.TrimSpace(filter.Field),
+				strings.TrimSpace(filter.Op),
+				actual),
+		}
 	}
-	return ""
+	return nil
 }
 
-func numericContributionValueContractError(rel string, records []actionRecord, filters []contributionFilter, valueField, operation string) string {
+func numericContributionValueContractError(rel string, records []actionRecord, filters []contributionFilter, valueField, operation string) error {
 	valueField = strings.TrimSpace(valueField)
 	if valueField == "" || strings.EqualFold(strings.TrimSpace(operation), "count") {
-		return ""
+		return nil
 	}
 	stats := numericFieldSampleStats(records, valueField, filters, 8)
 	if stats.NonEmpty == 0 || stats.Numeric > 0 {
-		return ""
+		return nil
 	}
-	return fmt.Sprintf("numeric field contract failed: compute_contributions input %s value_field %q operation %q requires numeric contribution values after filters, but sampled non-empty values are non-numeric (numeric=%d non_numeric=%d bool_like=%d samples=%s). First materialize a numeric value field with derive_fields operation=parse_number from an existing numeric source field, then use that field as value_field; keep flags/status fields for filtering or decisions only.",
-		rel,
-		valueField,
-		strings.TrimSpace(operation),
-		stats.Numeric,
-		stats.NonNumeric,
-		stats.BoolLike,
-		strings.Join(stats.Samples, ", "))
+	actual := fmt.Sprintf("numeric=%d non_numeric=%d bool_like=%d samples=%s", stats.Numeric, stats.NonNumeric, stats.BoolLike, strings.Join(stats.Samples, ", "))
+	return DataValueContractError{
+		ActionKind:    DataActionComputeContribs,
+		Role:          "value",
+		Field:         valueField,
+		Operation:     strings.TrimSpace(operation),
+		InputAlias:    rel,
+		ExpectedShape: "numeric contribution values",
+		ActualSnippet: actual,
+		Message: fmt.Sprintf("numeric field contract failed: compute_contributions input %s value_field %q operation %q requires numeric contribution values after filters, but sampled non-empty values are non-numeric (%s). First materialize a numeric value field with derive_fields operation=parse_number from an existing numeric source field, then use that field as value_field; keep flags/status fields for filtering or decisions only.",
+			rel,
+			valueField,
+			strings.TrimSpace(operation),
+			actual),
+	}
 }
 
 func contributionFilterOpRequiresNumeric(op string) bool {
