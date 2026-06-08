@@ -227,6 +227,45 @@ func TestCompileAnswerIntentContract_TraceArtifactWithoutRequiredSourceUsesRunti
 	)
 }
 
+func TestCompileAnswerIntentContract_TraceArtifactSourceScopeKeepsCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentRootCause,
+		Scenario:      ScenarioPerformanceBottleneck,
+		PredicateAxis: AxisImplement,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceAllow,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
+	)
+	if !rm.RequiresCurrentSourceForExternalObservation(nil) {
+		t.Fatal("typed source scope on an external trace should require current-source evidence")
+	}
+}
+
 func TestCompileAnswerIntentContract_MCPResourceDefaultsToCurrentSourceUnlessExcluded(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "读取 mcp://fixture/trace/sleep-wakeup 并回答",

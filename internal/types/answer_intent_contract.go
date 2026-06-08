@@ -350,6 +350,9 @@ func (rm RequestModel) RequiresCurrentSourceForExternalObservation(contract *Ans
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return true
 	}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		return true
+	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
 	}

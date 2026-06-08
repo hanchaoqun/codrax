@@ -71,6 +71,49 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentSourceProfile(t *t
 	}
 }
 
+func TestAssessExternalObservationSufficiency_BlockedByTypedSourceScope(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		PerfBundle: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+	})
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceAllow,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+	}
+	got := AssessExternalObservationSufficiency(ledger.Records, rm, TurnRouteHint{
+		Route:  "repo",
+		Source: "artifact",
+	})
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("typed source scope must block external-only sufficiency, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_RouteHintOverridesDefaultSourceRequirement(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "row",

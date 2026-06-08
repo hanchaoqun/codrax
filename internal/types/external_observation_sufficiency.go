@@ -88,6 +88,9 @@ func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint 
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
 	}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		return true
+	}
 	return rm.CurrentSourceLaneDecision().RequiresCurrentSource() && !hint.ExternalObservationFirst()
 }
 

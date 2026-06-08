@@ -370,3 +370,25 @@ Expected outcomes:
 - no `read_exit:127` from missing shared binary.
 - data route log regex should match across run logs.
 - PASS rows should show advisory repair/contract telemetry when present.
+
+## Delivery Status
+
+### Batch 1 - Mixed typed source-scope lane
+
+Status: done and pushed in code batch.
+
+Changes:
+
+- Added `RequestModel.HasTypedCurrentSourceScopeRequest()` as a precise typed signal for external-observation turns that also carry analyzer-emitted current-source path scope.
+- Wired that signal into `CurrentSourceLaneDecision`, `RequiresCurrentSourceForExternalObservation`, and `AssessExternalObservationSufficiency`.
+- Added regression tests for source-scoped external trace requests so they compile `current_source + runtime_artifact` origins and block external-only sufficiency.
+
+Validation:
+
+```bash
+go test ./internal/types
+go test ./internal/orchestrator -run 'TestAcceptedClosureAutoComplete|TestParallel|MixedOrigin|RuntimeCurrentSource'
+go test ./internal/agent -run 'TestAnswerDocumentEvaluator_(MixedRuntimeCurrentSourceDoesNotRenderObservationOnly|CurrentSourceExplanationProfileRendersMixedGuidance|RuntimeObservationOnlySuppressesRepoEnrichment|RuntimeObservationOnly)'
+```
+
+Result: all passed.

@@ -292,6 +292,57 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	}
 }
 
+func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentRootCause,
+		Scenario:      ScenarioPerformanceBottleneck,
+		PredicateAxis: AxisImplement,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceAllow,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+	}
+	if !rm.HasExternalOnlyRuntimeArtifact() {
+		t.Fatal("fixture should be an external runtime artifact")
+	}
+	if !rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("typed production source scope on an external artifact should request current-source evidence")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("source-scoped external artifact should require current source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("source-scoped external artifact must not be treated as source-optional")
+	}
+
+	rm.ExternalObservationPolicy.CurrentSourceMode = ExternalObservationCurrentSourceExclude
+	rm.ExternalObservationPolicy.SourceQuotes = []string{"只分析 trace"}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("explicit typed source exclusion must override source-scope drift")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("explicit source exclusion should still exclude current source, got %s", got)
+	}
+}
+
 func TestCurrentSourceLaneDecision_CurrentVersionExactTargetRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,

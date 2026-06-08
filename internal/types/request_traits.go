@@ -1033,6 +1033,25 @@ func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
 		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
+// HasTypedCurrentSourceScopeRequest reports that an external-observation turn
+// also carries a typed source-scope contract for current checkout evidence. The
+// signal is intentionally narrow: it consumes only analyzer-emitted structured
+// scope fields plus artifact/source policy state, never raw request prose,
+// analyzer rationale text, or model-authored narrative.
+func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
+		return false
+	}
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if rm.SourceScopeProfile == nil {
+		return false
+	}
+	scope := rm.SourceScopeProfile.RequestedScope
+	return scope != "" && scope != SourceScopeUnknown && scope.IsValid()
+}
+
 // CurrentSourceLaneDecision is the typed, non-prose decision used by hard
 // current-source gates. It separates "source analysis is allowed by default"
 // from "source evidence is required before completion"; external observations
@@ -1063,6 +1082,9 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 	}
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return CurrentSourceLaneExcluded
+	}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		return CurrentSourceLaneRequired
 	}
 	return CurrentSourceLaneAllowedOptional
 }
