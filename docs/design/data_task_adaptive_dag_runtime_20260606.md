@@ -14101,7 +14101,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction behind package-level artifact/schema
+- [x] Move result prompt compaction behind package-level artifact/schema
       inputs.
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
@@ -14148,7 +14148,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction behind package-level artifact/schema
+- [x] Move result prompt compaction behind package-level artifact/schema
       inputs.
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
@@ -14190,8 +14190,54 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction behind package-level artifact/schema
+- [x] Move result prompt compaction behind package-level artifact/schema
       inputs.
+- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+      issue discovery behind package-level artifact/schema inputs instead of
+      REPL prompt views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 314: Package-Level Result Prompt Views
+
+Recent-round prompt context needs a compact view of data results: answer/audit
+snippets, ledger counts, bounded decision/rule/contribution/entity samples,
+reconcile summaries, artifact previews, artifact access, material collection
+handles, and contract warnings. Keeping that compaction in the REPL created
+another local state surface and duplicated artifact/material view logic.
+
+This batch moves result prompt compaction into `internal/dataworkflow` as
+`ResultPromptView`. The REPL now keeps type aliases and thin compatibility
+wrappers for existing call sites, while the actual result projection,
+ledger-projection, artifact-sampling, and row/reconcile clipping logic lives in
+the IR package.
+
+Generic invariants:
+
+- result prompt views are projections of typed `dataquery.Result` structures;
+- hard gates continue to use precise schema/ledger state, not clipped samples;
+- bounded samples are for model context and user audit only;
+- artifact access and material collection fields reuse the package-level IR
+  views introduced in the previous batches;
+- no business-domain roles, field names, or intent keywords are introduced.
+
+Changes:
+
+- [x] Added `ResultPromptView`.
+- [x] Added `LedgerProjection`.
+- [x] Added `ResultPromptViewBudget`.
+- [x] Added `BuildResultPromptView` and
+      `BuildCompactResultPromptView`.
+- [x] Moved artifact sample compaction, answer item counting, reconcile group
+      summary, ledger projection, decision/rule/contribution/entity samples,
+      and reconcile clipping into `dataworkflow`.
+- [x] Rewired REPL result prompt helpers to delegate to `dataworkflow`.
+- [x] Added package-level regression coverage for nested artifact prompt
+      compaction, ledger projection, related material handles, and bounded
+      entity samples.
+
+Remaining architecture items:
+
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
