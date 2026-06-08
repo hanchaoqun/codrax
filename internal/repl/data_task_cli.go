@@ -260,7 +260,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, cfg.Language)...)
+				dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+					Kind:         "repair",
+					Round:        repairRounds,
+					Plan:         currentPlan,
+					AuditDetails: []string{guard.Code},
+					Guard:        &guard,
+				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
@@ -368,14 +374,24 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, cfg.Language)...)
+				dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+					Kind:         "repair",
+					Round:        repairRounds,
+					Plan:         currentPlan,
+					AuditDetails: []string{guard.Code},
+					Guard:        &guard,
+				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
 		dataRounds++
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds, dataTaskWorkflowPlanContextDetails("execute", currentPlan, cfg.Language)...)
+		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:  "execute",
+			Round: dataRounds,
+			Plan:  currentPlan,
+		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true})
 		var result dataquery.Result
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
@@ -486,8 +502,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "cli")
-		resultDetails := append([]string{dataTaskWorkflowResultSegment(cfg.Language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, cfg.Language)...)
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, resultDetails...)
+		resultForEvent := result
+		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:   "result",
+			Round:  dataRounds,
+			Plan:   currentPlan,
+			Result: &resultForEvent,
+		}), dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
 		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
 			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -545,7 +566,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
-		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, workflowRuntime.DeferredQueue(), cfg.Language)...)
+		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(records, currentPlan, workflowRuntime.DeferredQueue())
+		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:     "evaluate",
+			Round:    dataRounds,
+			Plan:     currentPlan,
+			Decision: stateForEvent.Decision,
+		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, currentDeferredPlan(), cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
@@ -977,6 +1004,15 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 	}
 	cliLightRouteSummary(w, display.Label, segs)
 	cliLightRouteDetails(w, dataTaskWorkflowDetailLines(kind, round, lang, details...))
+}
+
+func dataTaskCLIWorkflowEventProgress(w io.Writer, lang string, event dataworkflow.WorkflowJournalEvent, opts dataTaskWorkflowEventRenderOptions) {
+	if w == nil {
+		return
+	}
+	display := dataworkflow.BuildWorkflowProcessDisplay(event, lang)
+	cliLightRouteSummary(w, display.Label, display.Segments)
+	cliLightRouteDetails(w, dataTaskWorkflowEventDetailLines(event, lang, opts))
 }
 
 func dataTaskCLIRequestProgress(w io.Writer, lang, request string) {

@@ -1457,7 +1457,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, r.language)...)
+				r.emitDataTaskWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+					Kind:         "repair",
+					Round:        repairRounds,
+					Plan:         currentPlan,
+					AuditDetails: []string{guard.Code},
+					Guard:        &guard,
+				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 				r.endTurn()
@@ -1608,7 +1614,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
-				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, r.language)...)
+				r.emitDataTaskWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+					Kind:         "repair",
+					Round:        repairRounds,
+					Plan:         currentPlan,
+					AuditDetails: []string{guard.Code},
+					Guard:        &guard,
+				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 				r.endTurn()
@@ -1690,7 +1702,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		dataRounds++
 		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
-		r.emitDataTaskWorkflowAudit("execute", dataRounds, dataTaskWorkflowPlanContextDetails("execute", currentPlan, r.language)...)
+		r.emitDataTaskWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:  "execute",
+			Round: dataRounds,
+			Plan:  currentPlan,
+		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true})
 		var result dataquery.Result
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
@@ -1864,8 +1880,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Result: &result, Admission: dataTaskAdmissionDecisionForPlan(workflowRuntime.Admission(), currentPlan)})
 		r.auditDataTaskResult(dataRounds, result)
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "repl")
-		resultDetails := append([]string{dataTaskWorkflowResultSegment(r.language, result)}, dataTaskWorkflowPlanContextDetails("result", currentPlan, r.language)...)
-		r.emitDataTaskWorkflowAudit("result", dataRounds, resultDetails...)
+		resultForEvent := result
+		r.emitDataTaskWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:   "result",
+			Round:  dataRounds,
+			Plan:   currentPlan,
+			Result: &resultForEvent,
+		}), dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
 		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
 			r.emitDataTaskWorkflowAudit("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
@@ -1938,7 +1959,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		r.emitDataTaskWorkflowAudit("evaluate", dataRounds, dataTaskWorkflowDecisionContextDetails(records, currentPlan, workflowRuntime.DeferredQueue(), r.language)...)
+		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(records, currentPlan, workflowRuntime.DeferredQueue())
+		r.emitDataTaskWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:     "evaluate",
+			Round:    dataRounds,
+			Plan:     currentPlan,
+			Decision: stateForEvent.Decision,
+		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		ctx := r.startTurn()
 		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, currentDeferredPlan(), r.language)
 		r.endTurn()
@@ -3483,6 +3510,26 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 	}
 }
 
+func (r *REPL) emitDataTaskWorkflowEvent(event dataworkflow.WorkflowJournalEvent, opts dataTaskWorkflowEventRenderOptions) {
+	if r.renderer == nil {
+		return
+	}
+	display := dataworkflow.BuildWorkflowProcessDisplay(event, r.language)
+	r.renderer.EmitLightRouteSummary(display.Label, display.Segments)
+	if lines := dataTaskWorkflowEventDetailLines(event, r.language, opts); len(lines) > 0 {
+		r.renderBorderedDataProcessCompact(strings.Join(lines, "\n"))
+	}
+}
+
+type dataTaskWorkflowEventRenderOptions struct {
+	IncludeGoal    bool
+	IncludeBatch   bool
+	IncludeNext    bool
+	IncludeActions bool
+	IncludeFailure bool
+	IncludeAudit   bool
+}
+
 func dataTaskWorkflowErrorSegment(lang, errText string) string {
 	errText = oneLineClamp(errText, 80)
 	if strings.TrimSpace(errText) == "" {
@@ -3598,6 +3645,95 @@ func dataTaskDisplayDetailLines(lines []string) []string {
 		}
 	}
 	return out
+}
+
+func dataTaskWorkflowEventDetailLines(event dataworkflow.WorkflowJournalEvent, lang string, opts dataTaskWorkflowEventRenderOptions) []string {
+	zh := isZh(lang)
+	var lines []string
+	add := func(prefix, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		lines = append(lines, prefix+oneLineClamp(value, 180))
+	}
+	display := dataworkflow.BuildWorkflowProcessDisplay(event, lang)
+	var businessLines []string
+	var decisionValues []string
+	var failureValues []string
+	var auditValues []string
+	for _, detail := range display.Details {
+		text := strings.TrimSpace(detail.Text)
+		value := strings.TrimSpace(firstNonEmptyString(detail.Value, detail.Text))
+		if text == "" && value == "" {
+			continue
+		}
+		switch strings.TrimSpace(detail.Class) {
+		case "business":
+			switch strings.TrimSpace(detail.Key) {
+			case "goal":
+				if opts.IncludeGoal {
+					businessLines = append(businessLines, text)
+				}
+			case "batch":
+				if opts.IncludeBatch {
+					businessLines = append(businessLines, text)
+				}
+			case "next":
+				if opts.IncludeNext {
+					businessLines = append(businessLines, text)
+				}
+			case "actions":
+				if opts.IncludeActions {
+					businessLines = append(businessLines, text)
+				}
+			case "default":
+				businessLines = append(businessLines, text)
+			}
+		case "decision":
+			decisionValues = append(decisionValues, value)
+		case "failure":
+			if opts.IncludeFailure {
+				failureValues = append(failureValues, value)
+			}
+		case "audit":
+			if opts.IncludeAudit {
+				auditValues = append(auditValues, value)
+			}
+		}
+	}
+	if len(businessLines) > 0 && dataTaskWorkflowShouldShowBusinessDetails(event.Kind, auditValues) {
+		lines = append(lines, businessLines...)
+	} else {
+		defaultDisplay := dataworkflow.BuildWorkflowProcessDisplay(dataworkflow.WorkflowJournalEvent{Kind: strings.TrimSpace(event.Kind), Round: event.Round}, lang)
+		for _, detail := range defaultDisplay.Details {
+			if text := strings.TrimSpace(detail.Text); text != "" {
+				lines = append(lines, oneLineClamp(text, 180))
+			}
+		}
+	}
+	for _, detail := range decisionValues {
+		if zh {
+			add("判断：", detail)
+		} else {
+			add("Decision: ", detail)
+		}
+	}
+	for _, detail := range failureValues {
+		if zh {
+			add("原因：", detail)
+		} else {
+			add("Reason: ", detail)
+		}
+	}
+	for _, detail := range auditValues {
+		if zh {
+			add("审计：", detail)
+		} else {
+			add("Audit: ", detail)
+		}
+	}
+	return lines
 }
 
 func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ...string) []string {

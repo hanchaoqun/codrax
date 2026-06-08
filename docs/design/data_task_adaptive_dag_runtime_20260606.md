@@ -14428,3 +14428,46 @@ Remaining architecture items:
 
 - [ ] Move the remaining detail-marker compatibility layer out of REPL once
       all progress callers emit typed process events.
+
+### Batch 319: Typed Process Event Rendering Bridge
+
+The previous batches gave the runtime a process-event sink and taught guard
+repair lines to carry typed guard context. The main execution path still had
+one UI adapter seam: execute/result/evaluate progress lines converted typed
+plan/result/decision state into legacy marker strings before rendering.
+
+This batch adds typed process-event renderers for REPL and CLI. Callers that
+already have typed plan/result/decision/guard state can now pass a
+`WorkflowJournalEvent` directly to the shared display projection. The renderer
+then applies the existing UX rules: deterministic title segments stay compact;
+result/evaluate lines avoid repeating business context; business goal/batch
+next-step/action, decision, failure, and audit details remain low-noise
+permanent details.
+
+Generic invariants:
+
+- event rendering consumes `WorkflowJournalEvent`, not marker strings;
+- result progress uses typed `dataquery.Result` audit state;
+- evaluate progress uses typed `WorkflowDecision`;
+- guard repair progress uses typed `GuardResult`;
+- raw runtime errors and ad hoc continuation reasons remain legacy strings
+  until they have typed event inputs; the system does not infer structure from
+  prose.
+
+Changes:
+
+- [x] Added REPL `emitDataTaskWorkflowEvent`.
+- [x] Added CLI `dataTaskCLIWorkflowEventProgress`.
+- [x] Added typed event detail rendering that consumes
+      `WorkflowProcessDisplayDetail` keys/classes/values directly.
+- [x] Rewired REPL execute/result/evaluate progress to typed process events.
+- [x] Rewired CLI execute/result/evaluate progress to typed process events.
+- [x] Rewired REPL/CLI terminal and staging guard repair progress to the typed
+      event renderer.
+
+Remaining architecture items:
+
+- [ ] Convert raw continuation/fallback/retry reasons into typed
+      `WorkflowProcessEventInput` where they are system decisions.
+- [ ] Remove the legacy detail-marker compatibility functions after all
+      remaining raw-string progress callers have typed event inputs.

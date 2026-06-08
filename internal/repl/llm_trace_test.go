@@ -410,6 +410,39 @@ func TestEmitDataTaskWorkflowAuditDoesNotRepeatPlanDetailsOnEvaluate(t *testing.
 	}
 }
 
+func TestEmitDataTaskWorkflowEventRendersTypedResultAudit(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:  "result",
+		Round: 2,
+		Plan: dataquery.TaskPlan{
+			Goal:         "计算业务指标",
+			WhyThisBatch: "汇总记录",
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv", "rules.md"},
+			Contributions: []dataquery.ContributionRecord{{
+				ItemID: "r1",
+			}},
+		},
+	})
+	r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
+
+	got := stripANSIOnly(out.String())
+	if strings.Contains(got, "目标：计算业务指标") || strings.Contains(got, "本批：汇总记录") {
+		t.Fatalf("typed result event should not repeat business context:\n%s", got)
+	}
+	for _, want := range []string{"数据工作流 · 结果第 2 批 · 未读源码", "结果：本批完成", "审计：consumed_materials=2", "审计：contributions=1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed result event missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestDataTaskPlanAuditSplitsTypedIntentIntoDetails(t *testing.T) {
 	label, segs := dataTaskPlanAuditSummary(dataquery.TaskPlan{
 		Status:        "ready",
