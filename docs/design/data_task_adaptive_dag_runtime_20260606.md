@@ -17361,6 +17361,48 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 408: Runtime-Owned Plan Switch Event Delta
+
+Batch 406 made candidate-plan admission return the process-event delta created
+by the reducer, but ordinary plan switches still had a smaller adapter seam:
+CLI and REPL recorded `len(ProcessEvents())`, called `SwitchCurrentPlan`, then
+scanned the runtime event slice to find newly created `plan_transition` events.
+That is not a business-rule bug, but it is exactly the kind of live-loop mirror
+the IR work is trying to remove.
+
+This batch adds an explicit plan-switch decision returned by the runtime. The
+adapter asks the reducer to switch the current plan and receives the emitted
+process-event delta as typed IR. Rendering remains adapter-owned, but event
+discovery is no longer adapter-owned.
+
+Generic invariants:
+
+- runtime owns current-plan mutation and the process events produced by that
+  mutation;
+- adapters consume returned `PlanSwitchDecision.ProcessEvents` instead of
+  slicing or scanning runtime internals;
+- the returned plan and events are clone-isolated;
+- blocked admission behavior is unchanged;
+- stdout/final-answer behavior is unchanged.
+
+Changes:
+
+- [x] Added `PlanSwitchDecision`.
+- [x] Added `WorkflowRuntime.SwitchCurrentPlanWithEvents`.
+- [x] Rewired CLI data workflow plan switches to consume the returned event
+      delta.
+- [x] Rewired REPL data workflow plan switches to consume the same event delta.
+- [x] Added reducer-level regression coverage for event-delta isolation.
+
+Remaining architecture items:
+
+- [ ] Introduce a reducer-owned live iteration API before removing the
+      remaining CLI/REPL execution cursors.
+- [ ] Keep moving ordinary continue/repair/fallback decisions behind reducer
+      decisions that return typed process-event deltas.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

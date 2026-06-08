@@ -1430,15 +1430,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	currentPlan := plan
 	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {
-		before := len(workflowRuntime.ProcessEvents())
-		current := workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
-		for _, event := range workflowRuntime.ProcessEvents()[before:] {
+		switchDecision := workflowRuntime.SwitchCurrentPlanWithEvents(round, source, next, reason)
+		for _, event := range switchDecision.ProcessEvents {
 			if event.Kind != "plan_transition" {
 				continue
 			}
 			r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		}
-		return current
+		return switchDecision.Plan
 	}
 	repairRounds := 0
 	dataRounds := 0

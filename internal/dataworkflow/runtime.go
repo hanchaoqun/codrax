@@ -29,6 +29,15 @@ type PlanTransitionEvent struct {
 	Reason          string `json:"reason,omitempty"`
 }
 
+type PlanSwitchDecision struct {
+	Source        string                 `json:"source,omitempty"`
+	Round         int                    `json:"round,omitempty"`
+	Reason        string                 `json:"reason,omitempty"`
+	Plan          dataquery.TaskPlan     `json:"plan,omitempty"`
+	ProcessEvents []WorkflowJournalEvent `json:"process_events,omitempty"`
+	Switched      bool                   `json:"switched,omitempty"`
+}
+
 type DeferredQueueAdvanceDecision struct {
 	Action         string                         `json:"action,omitempty"`
 	Status         DeferredDispatchStatus         `json:"status,omitempty"`
@@ -149,6 +158,23 @@ func (rt *WorkflowRuntime) SwitchCurrentPlan(round int, source string, plan data
 	rt.planTransitions = appendPlanTransitionEvent(rt.planTransitions, transition)
 	rt.processEvents = appendWorkflowJournalEvents(rt.processEvents, BuildPlanTransitionProcessEvent(transition, rt.currentPlan))
 	return rt.CurrentPlan()
+}
+
+func (rt *WorkflowRuntime) SwitchCurrentPlanWithEvents(round int, source string, plan dataquery.TaskPlan, reason string) PlanSwitchDecision {
+	out := PlanSwitchDecision{
+		Source: trimRuntimeText(source),
+		Round:  round,
+		Reason: trimRuntimeText(reason),
+		Plan:   cloneTaskPlanValue(plan),
+	}
+	if rt == nil {
+		return out
+	}
+	processEventStart := len(rt.processEvents)
+	out.Plan = rt.SwitchCurrentPlan(round, source, plan, reason)
+	out.ProcessEvents = rt.processEventsSince(processEventStart)
+	out.Switched = true
+	return out
 }
 
 func (rt *WorkflowRuntime) CurrentPlan() dataquery.TaskPlan {

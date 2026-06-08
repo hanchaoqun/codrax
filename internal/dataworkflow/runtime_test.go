@@ -299,6 +299,40 @@ func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeSwitchCurrentPlanWithEventsReturnsDelta(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendProcessEventFromInput(WorkflowProcessEventInput{
+		Kind:   "evaluate",
+		Round:  1,
+		Reason: "prior event",
+	})
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:      "assemble",
+		Kind:    dataquery.DataActionAssembleAnswer,
+		Purpose: "project final grouped values",
+	}}}
+
+	decision := rt.SwitchCurrentPlanWithEvents(4, "continue", plan, "next typed output stage")
+	if !decision.Switched || decision.Source != "continue" || decision.Round != 4 {
+		t.Fatalf("decision=%+v, want switched continue decision", decision)
+	}
+	if len(decision.ProcessEvents) != 1 || decision.ProcessEvents[0].Kind != "plan_transition" {
+		t.Fatalf("process_events=%+v, want one plan transition delta", decision.ProcessEvents)
+	}
+	if len(rt.ProcessEvents()) != 2 {
+		t.Fatalf("runtime events=%+v, want prior event plus transition", rt.ProcessEvents())
+	}
+	decision.ProcessEvents[0].Kind = "mutated"
+	decision.Plan.Actions[0].Purpose = "mutated"
+	gotEvents := rt.ProcessEvents()
+	if gotEvents[1].Kind != "plan_transition" {
+		t.Fatalf("runtime transition event leaked returned delta mutation: %+v", gotEvents)
+	}
+	if rt.CurrentPlan().Actions[0].Purpose != "project final grouped values" {
+		t.Fatalf("runtime current plan leaked returned decision mutation: %+v", rt.CurrentPlan())
+	}
+}
+
 func TestWorkflowRuntimeRecordsPlanTransitionProcessEvent(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{

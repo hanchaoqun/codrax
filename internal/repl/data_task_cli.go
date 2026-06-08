@@ -243,15 +243,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	currentPlan := plan
 	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {
-		before := len(workflowRuntime.ProcessEvents())
-		current := workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
-		for _, event := range workflowRuntime.ProcessEvents()[before:] {
+		switchDecision := workflowRuntime.SwitchCurrentPlanWithEvents(round, source, next, reason)
+		for _, event := range switchDecision.ProcessEvents {
 			if event.Kind != "plan_transition" {
 				continue
 			}
 			dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		}
-		return current
+		return switchDecision.Plan
 	}
 	runtimeView := func() dataTaskWorkflowRuntimeView {
 		view := dataTaskWorkflowRuntimeViewFrom(workflowRuntime, records, currentPlan, currentDeferredPlan(), dataRounds, repairRounds)
