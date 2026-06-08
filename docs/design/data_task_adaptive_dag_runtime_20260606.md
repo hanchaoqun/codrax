@@ -16881,6 +16881,38 @@ Remaining architecture items:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario run.
 
+### Batch 375: Runtime-Fed Evaluator Architecture Regression
+
+The runtime-view helper needs an end-to-end adapter regression, not only a unit
+test. This batch upgrades the existing CLI repair test so it proves the
+post-batch evaluator receives records from the live runtime after both failed
+and repaired batches.
+
+Generic invariants:
+
+- evaluator inputs after execution come from accumulated workflow records, not
+  an empty or stale adapter mirror;
+- the evaluator sees the latest structured result before deciding complete /
+  continue / repair;
+- the test asserts structural record counts and final result presence, not any
+  business-specific field or prompt wording.
+
+Changes:
+
+- [x] Extended the CLI data planner stub to record evaluator input sizes and
+      last-result answers.
+- [x] Asserted that the repaired-script CLI workflow feeds two runtime records
+      into the evaluator and that the latest record carries the repaired result.
+
+Remaining architecture items:
+
+- [ ] Add matching regressions for continuation and node-repair planner inputs
+      as those paths move further onto runtime snapshots.
+- [ ] Continue narrowing preflight/guard helpers that still accept local
+      mirrors directly.
+- [ ] Keep the real-scenario gate closed until the current deduplicated IR
+      backlog is either implemented or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

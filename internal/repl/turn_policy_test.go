@@ -78,25 +78,27 @@ type structuredErrorLegacyClassifier struct {
 }
 
 type stubDataTaskPlanner struct {
-	plan          dataquery.TaskPlan
-	err           error
-	calls         int
-	candidates    [][]dataquery.CandidateFile
-	repairPlan    dataquery.TaskPlan
-	repairPlans   []dataquery.TaskPlan
-	repairErr     error
-	repairCalls   int
-	repairErrors  []string
-	eval          dataquery.Evaluation
-	evals         []dataquery.Evaluation
-	evalErr       error
-	evalCalls     int
-	patchPlan     dataquery.DataResultPatchPlan
-	patchErr      error
-	patchCalls    int
-	continuePlan  dataquery.TaskPlan
-	continueErr   error
-	continueCalls int
+	plan            dataquery.TaskPlan
+	err             error
+	calls           int
+	candidates      [][]dataquery.CandidateFile
+	repairPlan      dataquery.TaskPlan
+	repairPlans     []dataquery.TaskPlan
+	repairErr       error
+	repairCalls     int
+	repairErrors    []string
+	eval            dataquery.Evaluation
+	evals           []dataquery.Evaluation
+	evalErr         error
+	evalCalls       int
+	evalRecordLens  []int
+	evalLastAnswers []string
+	patchPlan       dataquery.DataResultPatchPlan
+	patchErr        error
+	patchCalls      int
+	continuePlan    dataquery.TaskPlan
+	continueErr     error
+	continueCalls   int
 }
 
 func (s *stubDataTaskPlanner) PlanDataTask(_ context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
@@ -120,6 +122,12 @@ func (s *stubDataTaskPlanner) RepairDataTask(_ context.Context, userLine, repoRo
 
 func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
 	s.evalCalls++
+	s.evalRecordLens = append(s.evalRecordLens, len(records))
+	lastAnswer := ""
+	if len(records) > 0 && records[len(records)-1].Result != nil {
+		lastAnswer = records[len(records)-1].Result.Answer
+	}
+	s.evalLastAnswers = append(s.evalLastAnswers, lastAnswer)
 	if len(s.evals) > 0 {
 		idx := s.evalCalls - 1
 		if idx >= len(s.evals) {
@@ -1492,6 +1500,12 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 	}
 	if planner.calls != 1 || planner.repairCalls != 1 || planner.evalCalls != 1 {
 		t.Fatalf("calls plan/repair/eval=%d/%d/%d, want 1/1/1", planner.calls, planner.repairCalls, planner.evalCalls)
+	}
+	if len(planner.evalRecordLens) != 1 || planner.evalRecordLens[0] != 2 {
+		t.Fatalf("evalRecordLens=%v, want evaluator fed from runtime records after failed+repaired batches", planner.evalRecordLens)
+	}
+	if len(planner.evalLastAnswers) != 1 || planner.evalLastAnswers[0] != "17" {
+		t.Fatalf("evalLastAnswers=%v, want evaluator to see repaired runtime result", planner.evalLastAnswers)
 	}
 	if strings.TrimSpace(answer) != "17" {
 		t.Fatalf("answer=%q, want strict scalar 17", answer)
