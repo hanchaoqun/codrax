@@ -15124,10 +15124,58 @@ Changes:
 Remaining architecture items:
 
 - [x] Numeric-constant reuse staging now returns typed guard results.
-- [ ] Convert remaining string-only staging checks such as terminal
-      raw-material custom-transform into typed reducer-owned guard results.
+- [x] Terminal raw-material custom-transform staging now returns typed guard
+      results.
 - [ ] Feed numeric-constant guard codes into ActionGraph blocked nodes and
       workflow process events instead of only returning them through repair.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 339: Typed Terminal Raw-Material Custom-Transform Admission
+
+The next string-first check was the terminal raw-material custom-transform
+guard. After the workflow has reached final answer projection, a scripted
+`custom_transform` should not reopen original materials and recompute cleaning,
+joining, or aggregation in one large step. At that stage a script can still be
+valid, but only as a narrow projection or formatting step over generated
+artifacts.
+
+This batch moves the terminal raw-material decision into
+`internal/dataworkflow`. REPL supplies objective facts: whether prior workflow
+records exist, whether the plan is still a continuation batch, current
+workflow state, script line count, and which action inputs are original
+materials rather than generated artifacts. The package-level guard returns a
+typed violation with action/input metadata and allowed-action repair hints.
+
+Generic invariants:
+
+- final projection cannot silently restart the data workflow over raw inputs;
+- terminal scripts are still allowed when they are narrow projection steps over
+  generated artifacts;
+- continuation batches are not treated as terminal final-output attempts;
+- the guard does not infer business roles, file names, domains, or user intent
+  from prose;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `TerminalRawMaterialCustomTransformGuardInput` and
+      `TerminalRawMaterialCustomTransformGuardResult`.
+- [x] Added typed violation `terminal_raw_material_custom_transform`.
+- [x] Rewired REPL workflow staging to consume the typed result directly.
+- [x] Kept the old string function as a renderer over the typed result during
+      the staged migration.
+- [x] Added dataworkflow-level regression coverage for terminal raw-material
+      rejection and continuation-batch allowance.
+
+Remaining architecture items:
+
+- [x] The staging guards explicitly listed in Batch 334 are now typed:
+      action-batch shape, allowed-next-action, stage-progress, coverage-loop,
+      numeric-constant reuse, and terminal raw-material custom-transform.
+- [ ] Feed these guard codes into ActionGraph blocked nodes and workflow
+      process events instead of only returning them through repair.
+- [ ] Audit remaining REPL string-returning hard gates and classify each as
+      already typed-renderer, soft diagnostic, or still needing an IR guard.
 - [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations

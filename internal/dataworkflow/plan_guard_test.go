@@ -261,6 +261,48 @@ func TestNumericConstantReuseGuardResultAllowsUnconsumedAliases(t *testing.T) {
 	}
 }
 
+func TestTerminalRawMaterialCustomTransformGuardResultUsesTypedViolation(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "final_script",
+		Kind:       dataquery.DataActionCustomTransform,
+		InputPaths: []string{"raw_a.csv", "raw_b.csv"},
+		Script:     "emit({'answer': 'x'})",
+	}
+	guard := TerminalRawMaterialCustomTransformGuardResult(TerminalRawMaterialCustomTransformGuardInput{
+		RecordsPresent:  true,
+		State:           WorkflowStateView{NextStage: StageEmitOutputContractAnswer, AllowedNextActions: []string{string(dataquery.DataActionAssembleAnswer)}},
+		Action:          action,
+		ActionIndex:     0,
+		ScriptLines:     200,
+		RawInputAliases: []string{"raw_a.csv", "raw_b.csv"},
+	})
+	if guard.Code != "terminal_raw_material_custom_transform" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed terminal raw-material violation", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "final_script" || len(v.InputAliases) != 2 || len(v.RepairActionHints) != 1 || v.RepairActionHints[0] != string(dataquery.DataActionAssembleAnswer) {
+		t.Fatalf("violation=%+v, want action/input metadata and allowed repair hint", v)
+	}
+}
+
+func TestTerminalRawMaterialCustomTransformGuardResultAllowsContinuation(t *testing.T) {
+	guard := TerminalRawMaterialCustomTransformGuardResult(TerminalRawMaterialCustomTransformGuardInput{
+		RecordsPresent: true,
+		ContinueAfter:  true,
+		State:          WorkflowStateView{NextStage: StageEmitOutputContractAnswer},
+		Action: dataquery.DataAction{
+			ID:     "script",
+			Kind:   dataquery.DataActionCustomTransform,
+			Script: "emit({'answer': 'x'})",
+		},
+		ScriptLines:     200,
+		RawInputAliases: []string{"raw.csv"},
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want continuation allowed", guard)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {

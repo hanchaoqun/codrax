@@ -250,8 +250,8 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 		); !guard.Empty() {
 			return guard
 		}
-		if errText := dataTaskTerminalRawMaterialCustomTransformGuardError(records, plan, action, i, dataTaskScriptLineCount(action.Script)); errText != "" {
-			return dataTaskGuardResultFromMessage("terminal_raw_material_custom_transform", errText)
+		if guard := dataTaskTerminalRawMaterialCustomTransformGuardResult(records, plan, action, i, dataTaskScriptLineCount(action.Script)); !guard.Empty() {
+			return guard
 		}
 		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
 			if guard := dataTaskBroadCustomPrerequisiteGuardResult(records, plan, action, i); !guard.Empty() {
@@ -4759,25 +4759,21 @@ func dataTaskActionHasBroadPrerequisiteSurface(plan dataquery.TaskPlan, action d
 }
 
 func dataTaskTerminalRawMaterialCustomTransformGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) string {
-	if len(records) == 0 || plan.ContinueAfter {
-		return ""
-	}
-	if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
-		return ""
-	}
+	return dataTaskTerminalRawMaterialCustomTransformGuardResult(records, plan, action, actionIndex, lines).ErrorText()
+}
+
+func dataTaskTerminalRawMaterialCustomTransformGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) dataworkflow.GuardResult {
 	state := dataTaskWorkflowState(records, plan)
-	if state.NextStage != "emit_output_contract_answer" {
-		return ""
-	}
-	rawInputs := dataTaskCustomTransformRawMaterialInputs(records, action)
-	if len(rawInputs) == 0 {
-		return ""
-	}
-	if lines < dataTaskComplexCustomScriptLineLimit && len(rawInputs) <= 1 {
-		return ""
-	}
-	return fmt.Sprintf("data planning incomplete: terminal custom_transform action %d (%s) reads %d original material(s) after prior workflow progress: %s. At the final answer stage, custom_transform may only project or lightly format generated artifacts such as contribution, reconcile, or assembled-answer aliases. Do not recompute material cleaning/joining/aggregation in one script; continue with typed actions (derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer) or a narrow custom_transform over generated artifact aliases only.",
-		actionIndex+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), len(rawInputs), strings.Join(rawInputs, ", "))
+	return dataworkflow.TerminalRawMaterialCustomTransformGuardResult(dataworkflow.TerminalRawMaterialCustomTransformGuardInput{
+		RecordsPresent:         len(records) > 0,
+		ContinueAfter:          plan.ContinueAfter,
+		State:                  state,
+		Action:                 action,
+		ActionIndex:            actionIndex,
+		ScriptLines:            lines,
+		RawInputAliases:        dataTaskCustomTransformRawMaterialInputs(records, action),
+		ComplexScriptLineLimit: dataTaskComplexCustomScriptLineLimit,
+	})
 }
 
 func dataTaskCustomTransformRawMaterialInputs(records []dataTaskWorkflowRecord, action dataquery.DataAction) []string {

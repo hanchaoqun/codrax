@@ -97,6 +97,17 @@ type NumericConstantReuseGuardInput struct {
 	Uses      []NumericFieldUseFact
 }
 
+type TerminalRawMaterialCustomTransformGuardInput struct {
+	RecordsPresent         bool
+	ContinueAfter          bool
+	State                  WorkflowStateView
+	Action                 dataquery.DataAction
+	ActionIndex            int
+	ScriptLines            int
+	RawInputAliases        []string
+	ComplexScriptLineLimit int
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -428,4 +439,43 @@ func guardAliasesIntersect(left, right []string) bool {
 
 func guardAliasKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func TerminalRawMaterialCustomTransformGuardResult(input TerminalRawMaterialCustomTransformGuardInput) GuardResult {
+	if !input.RecordsPresent || input.ContinueAfter {
+		return GuardResult{}
+	}
+	action := input.Action
+	if NormalizeActionKind(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
+		return GuardResult{}
+	}
+	if strings.TrimSpace(input.State.NextStage) != StageEmitOutputContractAnswer {
+		return GuardResult{}
+	}
+	rawInputs := cleanStrings(input.RawInputAliases)
+	if len(rawInputs) == 0 {
+		return GuardResult{}
+	}
+	limit := input.ComplexScriptLineLimit
+	if limit <= 0 {
+		limit = 160
+	}
+	if input.ScriptLines < limit && len(rawInputs) <= 1 {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: terminal custom_transform action %d (%s) reads %d original material(s) after prior workflow progress: %s. At the final answer stage, custom_transform may only project or lightly format generated artifacts such as contribution, reconcile, or assembled-answer aliases. Do not recompute material cleaning/joining/aggregation in one script; continue with typed actions (derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer) or a narrow custom_transform over generated artifact aliases only.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(action),
+		len(rawInputs),
+		strings.Join(rawInputs, ", "))
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              "terminal_raw_material_custom_transform",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		Action:            action,
+		InputAliases:      rawInputs,
+		RepairActionHints: cleanStrings(input.State.AllowedNextActions),
+		Reason:            message,
+	})
+	return NewGuardResult("terminal_raw_material_custom_transform", "error", RepairNeedsTypedAction, message, violation)
 }
