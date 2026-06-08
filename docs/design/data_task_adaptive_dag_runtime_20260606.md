@@ -15748,6 +15748,50 @@ Remaining architecture items:
       meaningful "字段值类型不满足本步操作" style information without leaking
       internal stage names.
 
+### Batch 352: Typed Field-Inference Violations
+
+Some action failures are neither "field missing" nor "value shape mismatch."
+When the model omits required field selectors and the runner cannot infer them
+from objective schema, the correct structural problem is field-selection
+ambiguity. Previously these failures were prose-only, for example
+`could not infer source fields`.
+
+This batch adds `DataFieldInferenceError` and maps it into
+`field_inference_violation`. The distinction matters: a missing-field violation
+means "you named a field that does not exist"; an inference violation means
+"there is no reliable structural field choice yet." The repair path should ask
+for explicit selectors or a diagnostic/materialization action, not pretend a
+specific missing field exists.
+
+Generic invariants:
+
+- inference failures stay separate from missing-field failures;
+- the system reports available field samples and expected selector shape, not
+  business roles;
+- hard control consumes typed action kind, role, input alias, expected shape,
+  and available fields;
+- no user-intent keyword matching or model prose parsing is introduced.
+
+Changes:
+
+- [x] Added `DataFieldInferenceError` and mapped it through
+      `ClassifyExecutionFailure`.
+- [x] Converted mapping-candidate source/reference inference failures to typed
+      field-inference violations.
+- [x] Converted normalize-entities structured/reference inference failures to
+      typed field-inference violations.
+- [x] Added regression coverage for mapping-candidate source field inference.
+
+Remaining architecture items:
+
+- [ ] Feed typed execution violation counts into workflow evaluator/process
+      events so users see structural blockers without internal jargon.
+- [ ] Add process-event summaries that render field/value/inference blockers as
+      user-meaningful current-step blockers while keeping raw details in audit.
+- [ ] Continue auditing non-field execution failures for typed equivalents:
+      max-output caps, ambiguous role selection, invalid action parameter
+      shapes, and result-shape repairability.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

@@ -167,6 +167,60 @@ func (e DataValueContractError) Violation() DataTaskViolation {
 	}
 }
 
+type DataFieldInferenceError struct {
+	ActionKind           DataActionKind `json:"action_kind,omitempty"`
+	Role                 string         `json:"role,omitempty"`
+	InputAlias           string         `json:"input_alias,omitempty"`
+	ExpectedShape        string         `json:"expected_shape,omitempty"`
+	AvailableFieldSample []string       `json:"available_field_sample,omitempty"`
+	Message              string         `json:"message,omitempty"`
+}
+
+func (e DataFieldInferenceError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	role := strings.TrimSpace(e.Role)
+	if role == "" {
+		role = "field"
+	}
+	input := strings.TrimSpace(e.InputAlias)
+	if input == "" {
+		input = "input"
+	}
+	return fmt.Sprintf("%s could not infer %s fields for %s", kind, role, input)
+}
+
+func (e DataFieldInferenceError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:                 "field_inference_violation",
+		Summary:              clampViolationText(e.Error(), 500),
+		ActionKind:           strings.TrimSpace(string(e.ActionKind)),
+		ActualSnippet:        strings.Join(cleanStringSlice(e.AvailableFieldSample), ", "),
+		InputAlias:           strings.TrimSpace(e.InputAlias),
+		AvailableFieldSample: cleanStringSlice(e.AvailableFieldSample),
+		Role:                 strings.TrimSpace(e.Role),
+		ExpectedShape:        firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "explicit field selector"),
+		Repairability:        RepairabilityNeedsRecompute,
+		RepairHint:           "Declare the exact input field(s) for this action, or inspect/materialize a clearer artifact schema before retrying.",
+	}
+}
+
+func dataFieldInferenceError(kind DataActionKind, role, inputAlias, expectedShape string, availableFields []string, message string) DataFieldInferenceError {
+	return DataFieldInferenceError{
+		ActionKind:           kind,
+		Role:                 strings.TrimSpace(role),
+		InputAlias:           strings.TrimSpace(inputAlias),
+		ExpectedShape:        strings.TrimSpace(expectedShape),
+		AvailableFieldSample: cleanStringSlice(availableFields),
+		Message:              strings.TrimSpace(message),
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -1407,10 +1461,24 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 		referenceFields = inferEnrichMappingSourceFields(referenceHeaders, canonicalIDField, canonicalLabelField)
 	}
 	if len(sourceFields) == 0 {
-		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate could not infer source fields for %s; provide source_field or source_fields", sourceRel)
+		return DataArtifact{}, nil, nil, dataFieldInferenceError(
+			DataActionMappingCandidate,
+			"source",
+			sourceRel,
+			"source_field/source_fields",
+			sourceFieldNames,
+			fmt.Sprintf("mapping_candidate could not infer source fields for %s; provide source_field or source_fields", sourceRel),
+		)
 	}
 	if len(referenceFields) == 0 {
-		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate could not infer reference fields for %s; provide reference_fields or reference_name_fields", referenceRel)
+		return DataArtifact{}, nil, nil, dataFieldInferenceError(
+			DataActionMappingCandidate,
+			"reference",
+			referenceRel,
+			"reference_fields/reference_name_fields",
+			referenceFieldNames,
+			fmt.Sprintf("mapping_candidate could not infer reference fields for %s; provide reference_fields or reference_name_fields", referenceRel),
+		)
 	}
 	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {
 		return DataArtifact{}, nil, nil, dataFieldContractError(
@@ -1624,7 +1692,14 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 			}
 		}
 		if len(sourceFields) == 0 {
-			return nil, nil, nil, fmt.Errorf("normalize_entities structured mode could not infer source fields for %s; provide params.source_field, source_fields, or name_fields", rel)
+			return nil, nil, nil, dataFieldInferenceError(
+				DataActionNormalizeEntities,
+				"source",
+				rel,
+				"source_field/source_fields/name_fields",
+				actionRecordFieldNames(headers, records),
+				fmt.Sprintf("normalize_entities structured mode could not infer source fields for %s; provide params.source_field, source_fields, or name_fields", rel),
+			)
 		}
 		effectiveFilters, ignoredFilters := effectiveActionFiltersForRecords(filters, headers, records)
 		matched := 0
@@ -1798,7 +1873,14 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 		referenceFields = inferEnrichMappingSourceFields(referenceHeaders, canonicalIDField, canonicalLabelField)
 	}
 	if len(referenceFields) == 0 {
-		return nil, nil, nil, true, fmt.Errorf("normalize_entities reference mode could not infer reference fields for %s; provide params.reference_fields or reference_name_fields", referenceRel)
+		return nil, nil, nil, true, dataFieldInferenceError(
+			DataActionNormalizeEntities,
+			"reference",
+			referenceRel,
+			"reference_fields/reference_name_fields",
+			referenceFieldNames,
+			fmt.Sprintf("normalize_entities reference mode could not infer reference fields for %s; provide params.reference_fields or reference_name_fields", referenceRel),
+		)
 	}
 	referenceFields = addReferenceCanonicalIDField(referenceFields, referenceFieldNames, canonicalIDField)
 	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {

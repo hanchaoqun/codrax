@@ -150,7 +150,7 @@ func TestActionRunnerMappingCandidateMissingFieldsAreTyped(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,name\n1,Alpha\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label\nA,Alpha\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("label\nAlpha\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	plan := TaskPlan{
@@ -176,6 +176,42 @@ func TestActionRunnerMappingCandidateMissingFieldsAreTyped(t *testing.T) {
 	}
 	if fieldErr.ActionKind != DataActionMappingCandidate || fieldErr.Role != "source" || fieldErr.InputAlias != "items.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "raw_label" {
 		t.Fatalf("fieldErr=%+v, want typed mapping source field contract", fieldErr)
+	}
+}
+
+func TestActionRunnerMappingCandidateFieldInferenceIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,qty\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label\nA,Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "candidates",
+			Kind:       DataActionMappingCandidate,
+			InputPaths: []string{"items.csv", "reference.csv"},
+			Params: map[string]string{
+				"reference_name_fields": `["label"]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed field inference failure")
+	}
+	var inferenceErr DataFieldInferenceError
+	if !errors.As(err, &inferenceErr) {
+		t.Fatalf("err=%T %v, want DataFieldInferenceError", err, err)
+	}
+	if inferenceErr.ActionKind != DataActionMappingCandidate || inferenceErr.Role != "source" || inferenceErr.InputAlias != "items.csv" {
+		t.Fatalf("inferenceErr=%+v, want typed source inference contract", inferenceErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "field_inference_violation" || violation.ActionID != "candidates" || violation.InputAlias != "items.csv" {
+		t.Fatalf("violation=%+v, want typed field inference violation", violation)
 	}
 }
 

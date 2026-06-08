@@ -380,6 +380,10 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	if errors.As(err, &valueErr) {
 		return valueErr.Violation()
 	}
+	var inferenceErr DataFieldInferenceError
+	if errors.As(err, &inferenceErr) {
+		return inferenceErr.Violation()
+	}
 	var validationErr DataValidationError
 	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {
 		return validationErr.Violations[0]
