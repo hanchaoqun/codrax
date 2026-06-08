@@ -486,37 +486,20 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					recordedErr = true
 					emitWorkflowReason("continue", dataRounds, recovery.Reason)
 					view := runtimeView()
-					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
-					var contErrText string
-					var fallback dataquery.TaskPlan
-					var fallbackReason string
-					var fallbackOK bool
-					if contErr != nil {
-						contErrText = contErr.Error()
-						fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, contErr)
-					}
-					plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
-						Plan:              nextPlan,
-						ErrorText:         contErrText,
-						FallbackPlan:      fallback,
-						FallbackReason:    fallbackReason,
-						FallbackAvailable: fallbackOK,
-						FailurePrefix:     "continue data task",
-					})
-					switch plannerDecision.Action {
-					case dataworkflow.PlannerPlanFallbackPlan:
-						fallback = protectPlan(plannerDecision.Plan)
-						auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-						dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, plannerDecision.Reason)
-						continue
-					case dataworkflow.PlannerPlanAccept:
-						nextPlan = plannerDecision.Plan
+					continuationResult, contErr := dataTaskRunContinuationPlannerWithRuntimeView(ctx, continuer, request, repoRoot, policy, candidates, view, errText)
+					if contErr == nil {
+						if strings.TrimSpace(continuationResult.FallbackReason) != "" {
+							fallback := protectPlan(continuationResult.Plan)
+							auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+							dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, continuationResult.FallbackReason)
+							continue
+						}
+						nextPlan := continuationResult.Plan
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 							logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 							nextPlan = normalized
 						}
-						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, nextPlan, errText)
 						currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 						continue
 					}
@@ -694,40 +677,23 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			continue
 		case dataworkflow.EvaluationDecisionContinuePlan:
 			view = runtimeView()
-			nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
-			var errText string
-			var fallback dataquery.TaskPlan
-			var fallbackReason string
-			var fallbackOK bool
+			continuationResult, err := dataTaskRunContinuationPlannerWithRuntimeView(ctx, continuer, request, repoRoot, policy, candidates, view, "")
 			if err != nil {
-				errText = err.Error()
-				fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err)
+				return "", err
 			}
-			plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
-				Plan:              nextPlan,
-				ErrorText:         errText,
-				FallbackPlan:      fallback,
-				FallbackReason:    fallbackReason,
-				FallbackAvailable: fallbackOK,
-				FailurePrefix:     "continue data task",
-			})
-			switch plannerDecision.Action {
-			case dataworkflow.PlannerPlanFallbackPlan:
-				fallback = protectPlan(plannerDecision.Plan)
+			if strings.TrimSpace(continuationResult.FallbackReason) != "" {
+				fallback := protectPlan(continuationResult.Plan)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-				emitWorkflowReason("continue", dataRounds, plannerDecision.Reason)
+				emitWorkflowReason("continue", dataRounds, continuationResult.FallbackReason)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, plannerDecision.Reason)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, continuationResult.FallbackReason)
 				continue
-			case dataworkflow.PlannerPlanFail:
-				return "", fmt.Errorf("%s", plannerDecision.Reason)
 			}
-			nextPlan = plannerDecision.Plan
+			nextPlan := continuationResult.Plan
 			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 				logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 				nextPlan = normalized
 			}
-			nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 			emitWorkflowReason("continue", dataRounds, "")
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue

@@ -1766,40 +1766,23 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					emitWorkflowReason("continue", dataRounds, recovery.Reason)
 					ctx := r.startTurn()
 					view := runtimeView()
-					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
+					continuationResult, contErr := dataTaskRunContinuationPlannerWithRuntimeView(ctx, continuer, line, r.repoRoot, policy, candidates, view, errText)
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-					var contErrText string
-					var fallback dataquery.TaskPlan
-					var fallbackReason string
-					var fallbackOK bool
-					if contErr != nil {
-						contErrText = contErr.Error()
-						fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, contErr)
-					}
-					plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
-						Plan:              nextPlan,
-						ErrorText:         contErrText,
-						FallbackPlan:      fallback,
-						FallbackReason:    fallbackReason,
-						FallbackAvailable: fallbackOK,
-						FailurePrefix:     "continue data task",
-					})
-					switch plannerDecision.Action {
-					case dataworkflow.PlannerPlanFallbackPlan:
-						emitWorkflowReason("continue", dataRounds, plannerDecision.Reason)
-						fallback = protectPlan(plannerDecision.Plan)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, plannerDecision.Reason)
-						continue
-					case dataworkflow.PlannerPlanAccept:
-						nextPlan = plannerDecision.Plan
+					if contErr == nil {
+						if strings.TrimSpace(continuationResult.FallbackReason) != "" {
+							emitWorkflowReason("continue", dataRounds, continuationResult.FallbackReason)
+							fallback := protectPlan(continuationResult.Plan)
+							r.emitDataTaskPlanAudit(fallback)
+							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
+							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, continuationResult.FallbackReason)
+							continue
+						}
+						nextPlan := continuationResult.Plan
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 							logging.Info("[repl/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 							nextPlan = normalized
 						}
-						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, nextPlan, errText)
 						currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 						continue
 					}
@@ -2053,48 +2036,31 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			emitWorkflowReason("continue", dataRounds, "")
 			ctx := r.startTurn()
 			view = runtimeView()
-			nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
+			continuationResult, contErr := dataTaskRunContinuationPlannerWithRuntimeView(ctx, continuer, line, r.repoRoot, policy, candidates, view, "")
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-			var errText string
-			var fallback dataquery.TaskPlan
-			var fallbackReason string
-			var fallbackOK bool
 			if contErr != nil {
-				errText = contErr.Error()
-				fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, contErr)
-			}
-			plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
-				Plan:              nextPlan,
-				ErrorText:         errText,
-				FallbackPlan:      fallback,
-				FallbackReason:    fallbackReason,
-				FallbackAvailable: fallbackOK,
-				FailurePrefix:     "continue data task",
-			})
-			switch plannerDecision.Action {
-			case dataworkflow.PlannerPlanFallbackPlan:
-				emitWorkflowReason("continue", dataRounds, plannerDecision.Reason)
-				fallback = protectPlan(plannerDecision.Plan)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, plannerDecision.Reason)
-				continue
-			case dataworkflow.PlannerPlanFail:
-				msg := dataTaskErrorMarkdown(r.language, plannerDecision.Reason)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: plannerDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+				msg := dataTaskErrorMarkdown(r.language, contErr.Error())
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: contErr.Error(), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("failed")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			nextPlan = plannerDecision.Plan
+			if strings.TrimSpace(continuationResult.FallbackReason) != "" {
+				emitWorkflowReason("continue", dataRounds, continuationResult.FallbackReason)
+				fallback := protectPlan(continuationResult.Plan)
+				r.emitDataTaskPlanAudit(fallback)
+				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, continuationResult.FallbackReason)
+				continue
+			}
+			nextPlan := continuationResult.Plan
 			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 				logging.Info("[repl/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 				nextPlan = normalized
 			}
-			nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
 		case dataworkflow.EvaluationDecisionRepairPlan:

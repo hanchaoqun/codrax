@@ -6274,6 +6274,97 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 	}
 }
 
+func TestDataTaskContinuationCoreNoToolUsesTypedFallback(t *testing.T) {
+	planner := &stubDataTaskPlanner{
+		continueErr: newDataTaskPlannerNoToolError("data task continuation planner", nil),
+	}
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path:      "rules.md",
+				Required:  true,
+				UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			RuleCoverageRequired:       true,
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	view := dataTaskWorkflowRuntimeView{
+		CurrentPlan: current,
+		Records: []dataTaskWorkflowRecord{{
+			Plan:   current,
+			Result: &dataquery.Result{ConsumedPaths: []string{"rules.md"}},
+		}},
+	}
+	result, err := dataTaskRunContinuationPlannerWithRuntimeView(context.Background(), planner, "continue data task", "/repo", TurnPolicy{Route: RouteData}, nil, view, "")
+	if err != nil {
+		t.Fatalf("dataTaskRunContinuationPlannerWithRuntimeView: %v", err)
+	}
+	if planner.continueCalls != 1 {
+		t.Fatalf("continueCalls=%d, want 1", planner.continueCalls)
+	}
+	if result.FallbackReason == "" || !strings.Contains(result.FallbackReason, "derive_rules") {
+		t.Fatalf("fallback reason=%q, want derive_rules", result.FallbackReason)
+	}
+	if len(result.Plan.Actions) != 1 || result.Plan.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("plan=%+v, want deterministic derive_rules fallback", result.Plan)
+	}
+}
+
+func TestDataTaskContinuationCorePreservesWorkflowCoverageForExecutionError(t *testing.T) {
+	planner := &stubDataTaskPlanner{
+		continuePlan: dataquery.TaskPlan{
+			Status:        "ready",
+			ContinueAfter: true,
+			Actions: []dataquery.DataAction{{
+				ID:             "derive_next_fields",
+				Kind:           dataquery.DataActionDeriveFields,
+				InputPaths:     []string{"orders.csv"},
+				OutputArtifact: "orders_derived.json",
+				Params: map[string]string{
+					"field_specs_json": `[{"source_field":"raw","target_field":"clean","operation":"trim"}]`,
+				},
+			}},
+		},
+	}
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path:      "orders.csv",
+				Required:  true,
+				UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	view := dataTaskWorkflowRuntimeView{
+		CurrentPlan: current,
+		Records: []dataTaskWorkflowRecord{{
+			Plan:   current,
+			Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv"}},
+		}},
+	}
+	result, err := dataTaskRunContinuationPlannerWithRuntimeView(context.Background(), planner, "continue data task", "/repo", TurnPolicy{Route: RouteData}, nil, view, "execute data task: previous batch failed")
+	if err != nil {
+		t.Fatalf("dataTaskRunContinuationPlannerWithRuntimeView: %v", err)
+	}
+	if result.FallbackReason != "" {
+		t.Fatalf("fallback reason=%q, want ordinary accepted continuation", result.FallbackReason)
+	}
+	if got := strings.Join(result.Plan.CoverageContract.RequiredRunnerInputPaths(), ","); got != "orders.csv" {
+		t.Fatalf("required runner inputs=%q, want orders.csv", got)
+	}
+	if !result.Plan.CoverageContract.ContributionLedgerRequired || !result.Plan.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage=%+v, want workflow ledger requirements preserved", result.Plan.CoverageContract)
+	}
+}
+
 func TestDataTaskRepairPlannerContinuationRequiresTypedNoToolError(t *testing.T) {
 	if !dataTaskRepairPlannerErrorAllowsContinuation(newDataTaskPlannerNoToolError("data task planner", nil)) {
 		t.Fatal("typed no-tool planner error should allow deterministic continuation")

@@ -18534,6 +18534,56 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 433: Shared Continuation Planner Adapter
+
+The next duplicated IR boundary was normal continuation planning. CLI and REPL
+both called the continuation planner, built deterministic no-tool fallback,
+ran `DecidePlannerPlanResult`, and then preserved workflow coverage in local
+adapter code. That made the two routes easy to drift even though the decision is
+pure data-workflow IR.
+
+This batch adds a shared continuation adapter that owns:
+
+- the single runtime-view input boundary for one continuation planner turn;
+- deterministic typed fallback when the planner returns a typed no-tool or
+  no-plan-shape error;
+- `DecidePlannerPlanResult` acceptance/failure semantics;
+- normal versus execution-error material coverage preservation.
+
+REPL still owns turn tracing and panel rendering. CLI still owns stderr
+progress and stdout final answers. The shared adapter only returns a typed plan
+result and optional fallback reason.
+
+Generic invariants:
+
+- continuation acceptance is reducer-owned and route-neutral;
+- typed no-tool/no-plan-shape fallback is based on workflow state, not prose;
+- execution-failure continuation preserves durable workflow coverage while
+  ordinary evaluation continuation preserves the normal workflow contract;
+- source-code analysis, trace/log analysis, operation, write mode, and final
+  output contracts are unchanged.
+
+Changes:
+
+- [x] Added `dataTaskRunContinuationPlannerWithRuntimeView`.
+- [x] Reused it from repair-failure continuation fallback.
+- [x] Rewired CLI execution-failure continuation and evaluator continuation
+      through the shared adapter.
+- [x] Rewired REPL execution-failure continuation and evaluator continuation
+      through the shared adapter.
+- [x] Added regression coverage for typed no-tool fallback and execution-error
+      coverage preservation.
+
+Remaining architecture items:
+
+- [ ] Continue migrating pre-run guard recovery and validation-failure recovery
+      plan switching into reducer-owned runtime decisions.
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
