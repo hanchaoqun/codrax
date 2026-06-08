@@ -215,6 +215,52 @@ func TestCoverageLoopGuardResultAllowsGeneratedArtifactDiagnostics(t *testing.T)
 	}
 }
 
+func TestNumericConstantReuseGuardResultUsesTypedViolation(t *testing.T) {
+	guard := NumericConstantReuseGuardResult(NumericConstantReuseGuardInput{
+		Constants: []DerivedConstantFieldFact{{
+			ActionIndex:   0,
+			ActionID:      "derive_label",
+			Action:        dataquery.DataAction{ID: "derive_label", Kind: dataquery.DataActionDeriveFields, OutputArtifact: "derived"},
+			Field:         "score",
+			Value:         "approved",
+			OutputAliases: []string{"derived"},
+		}},
+		Uses: []NumericFieldUseFact{{
+			ActionIndex:  1,
+			Action:       dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"derived"}},
+			Field:        "score",
+			InputAliases: []string{"derived"},
+		}},
+	})
+	if guard.Code != "numeric_constant_reused_as_numeric_field" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed numeric constant violation", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "compute" || len(v.CandidateArtifacts) != 1 || v.CandidateArtifacts[0] != "derived" || len(v.MissingFields) != 1 || v.MissingFields[0] != "score" {
+		t.Fatalf("violation=%+v, want consumer action metadata and constant field", v)
+	}
+}
+
+func TestNumericConstantReuseGuardResultAllowsUnconsumedAliases(t *testing.T) {
+	guard := NumericConstantReuseGuardResult(NumericConstantReuseGuardInput{
+		Constants: []DerivedConstantFieldFact{{
+			ActionIndex:   0,
+			Field:         "score",
+			Value:         "approved",
+			OutputAliases: []string{"other"},
+		}},
+		Uses: []NumericFieldUseFact{{
+			ActionIndex:  1,
+			Action:       dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"derived"}},
+			Field:        "score",
+			InputAliases: []string{"derived"},
+		}},
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want unrelated aliases allowed", guard)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {

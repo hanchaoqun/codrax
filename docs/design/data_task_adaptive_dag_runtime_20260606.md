@@ -15078,10 +15078,55 @@ Changes:
 Remaining architecture items:
 
 - [x] Coverage-loop staging now returns typed guard results.
-- [ ] Convert remaining string-only staging checks such as numeric-constant
-      reuse and terminal raw-material custom-transform into typed reducer-owned
-      guard results.
+- [ ] Convert remaining string-only staging checks such as terminal
+      raw-material custom-transform into typed reducer-owned guard results.
 - [ ] Feed coverage-loop guard codes into ActionGraph blocked nodes and
+      workflow process events instead of only returning them through repair.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 338: Typed Numeric-Constant Reuse Admission
+
+The next string-first check was numeric-constant reuse. The planner can derive
+constant fields for labels or fixed flags, but a later action must not consume
+that same field as a numeric comparison input or contribution value. The old
+REPL guard detected this and rendered a plain string.
+
+This batch moves the structural decision into `internal/dataworkflow`. REPL
+still parses action parameters into facts during the transition: derived
+non-numeric constant fields and later numeric field uses. The dataworkflow guard
+then decides whether a later action consumes the constant field through one of
+the producing aliases and returns a typed violation.
+
+Generic invariants:
+
+- non-numeric constants are allowed as labels, flags, grouping labels, or fixed
+  metadata;
+- a field derived as a non-numeric constant cannot be reused as a numeric
+  filter/value in a later action that consumes the producing artifact;
+- the guard does not infer business meaning, currencies, dates, units, or
+  domain labels;
+- repair hints ask for a typed derivation of the numeric field instead of a
+  broad script;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `DerivedConstantFieldFact`, `NumericFieldUseFact`, and
+      `NumericConstantReuseGuardResult`.
+- [x] Added typed violation `numeric_constant_reused_as_numeric_field`.
+- [x] Removed the REPL-local derived-constant fact type and rewired REPL to
+      emit dataworkflow facts.
+- [x] Kept the old string function as a renderer over the typed result during
+      the staged migration.
+- [x] Added dataworkflow-level regression coverage for rejected constant reuse
+      and allowed unrelated aliases.
+
+Remaining architecture items:
+
+- [x] Numeric-constant reuse staging now returns typed guard results.
+- [ ] Convert remaining string-only staging checks such as terminal
+      raw-material custom-transform into typed reducer-owned guard results.
+- [ ] Feed numeric-constant guard codes into ActionGraph blocked nodes and
       workflow process events instead of only returning them through repair.
 - [x] Run full build/test before continuing the IR closure audit.
 

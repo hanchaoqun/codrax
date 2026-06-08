@@ -1695,19 +1695,15 @@ func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, p
 	return dataTaskWorkflowActionStagingGuardResult(records, plan).ErrorText()
 }
 
-type dataTaskDerivedConstantField struct {
-	ActionIndex int
-	ActionID    string
-	Field       string
-	Value       string
-	Aliases     []string
+func dataTaskWorkflowNumericConstantReuseGuardError(plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowNumericConstantReuseGuardResult(plan).ErrorText()
 }
 
-func dataTaskWorkflowNumericConstantReuseGuardError(plan dataquery.TaskPlan) string {
+func dataTaskWorkflowNumericConstantReuseGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if len(plan.Actions) < 2 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	var constants []dataTaskDerivedConstantField
+	var constants []dataworkflow.DerivedConstantFieldFact
 	for i, action := range plan.Actions {
 		kind := normalizeDataActionKindForWorkflow(action.Kind)
 		if kind != dataquery.DataActionDeriveFields && kind != dataquery.DataActionExtractFields {
@@ -1732,41 +1728,34 @@ func dataTaskWorkflowNumericConstantReuseGuardError(plan dataquery.TaskPlan) str
 			if field == "" || dataTaskStringLooksNumeric(value) {
 				continue
 			}
-			constants = append(constants, dataTaskDerivedConstantField{
-				ActionIndex: i,
-				ActionID:    firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(kind))),
-				Field:       field,
-				Value:       value,
-				Aliases:     dataTaskActionOutputAliases(action),
+			constants = append(constants, dataworkflow.DerivedConstantFieldFact{
+				ActionIndex:   i,
+				ActionID:      firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(kind))),
+				Action:        action,
+				Field:         field,
+				Value:         value,
+				OutputAliases: dataTaskActionOutputAliases(action),
 			})
 		}
 	}
 	if len(constants) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
+	var uses []dataworkflow.NumericFieldUseFact
 	for j, action := range plan.Actions {
-		uses := dataTaskNumericFieldUsesFromAction(action)
-		if len(uses) == 0 {
-			continue
-		}
-		inputs := cleanDataTaskStrings(action.InputPaths)
-		for _, constant := range constants {
-			if constant.ActionIndex >= j || !dataTaskActionInputsMayConsumeAliases(inputs, constant.Aliases) {
-				continue
-			}
-			if !dataTaskStringSliceContainsFold(uses, constant.Field) {
-				continue
-			}
-			return fmt.Sprintf("data planning incomplete: action %d (%s) uses field %q as numeric filter/value, but action %d (%s) materializes it as non-numeric constant %q. Keep constant fields for fixed labels/flags only; first materialize a numeric field with derive_fields operation=parse_number from an existing numeric source field, then use that numeric field for gt/gte/lt/lte or compute_contributions.value_field.",
-				j+1,
-				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(normalizeDataActionKindForWorkflow(action.Kind)))),
-				constant.Field,
-				constant.ActionIndex+1,
-				constant.ActionID,
-				constant.Value)
+		for _, field := range dataTaskNumericFieldUsesFromAction(action) {
+			uses = append(uses, dataworkflow.NumericFieldUseFact{
+				ActionIndex:  j,
+				Action:       action,
+				Field:        field,
+				InputAliases: cleanDataTaskStrings(action.InputPaths),
+			})
 		}
 	}
-	return ""
+	return dataworkflow.NumericConstantReuseGuardResult(dataworkflow.NumericConstantReuseGuardInput{
+		Constants: constants,
+		Uses:      uses,
+	})
 }
 
 func dataTaskNumericFieldUsesFromAction(action dataquery.DataAction) []string {

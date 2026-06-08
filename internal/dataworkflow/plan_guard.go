@@ -76,6 +76,27 @@ type CoverageLoopGuardInput struct {
 	ActionsAllAllowedForCurrentStage bool
 }
 
+type DerivedConstantFieldFact struct {
+	ActionIndex   int
+	ActionID      string
+	Action        dataquery.DataAction
+	Field         string
+	Value         string
+	OutputAliases []string
+}
+
+type NumericFieldUseFact struct {
+	ActionIndex  int
+	Action       dataquery.DataAction
+	Field        string
+	InputAliases []string
+}
+
+type NumericConstantReuseGuardInput struct {
+	Constants []DerivedConstantFieldFact
+	Uses      []NumericFieldUseFact
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -342,4 +363,69 @@ func CoverageLoopGuardResult(input CoverageLoopGuardInput) GuardResult {
 		Reason:            message,
 	})
 	return NewGuardResult("coverage_loop_after_sufficient_materials", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func NumericConstantReuseGuardResult(input NumericConstantReuseGuardInput) GuardResult {
+	for _, use := range input.Uses {
+		field := strings.TrimSpace(use.Field)
+		if field == "" {
+			continue
+		}
+		for _, constant := range input.Constants {
+			if constant.ActionIndex >= use.ActionIndex {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(constant.Field), field) {
+				continue
+			}
+			if !guardAliasesIntersect(use.InputAliases, constant.OutputAliases) {
+				continue
+			}
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) uses field %q as numeric filter/value, but action %d (%s) materializes it as non-numeric constant %q. Keep constant fields for fixed labels/flags only; first materialize a numeric field with derive_fields operation=parse_number from an existing numeric source field, then use that numeric field for gt/gte/lt/lte or compute_contributions.value_field.",
+				guardActionNumber(use.ActionIndex),
+				guardActionLabel(use.Action),
+				constant.Field,
+				guardActionNumber(constant.ActionIndex),
+				firstNonEmpty(strings.TrimSpace(constant.ActionID), guardActionLabel(constant.Action)),
+				constant.Value)
+			violation := NewGenericViolation(GenericViolationInput{
+				Code:               "numeric_constant_reused_as_numeric_field",
+				Severity:           "error",
+				Repairability:      RepairNeedsTypedAction,
+				Action:             use.Action,
+				InputAliases:       cleanStrings(use.InputAliases),
+				CandidateArtifacts: cleanStrings(constant.OutputAliases),
+				MissingFields:      cleanStrings([]string{constant.Field}),
+				RepairActionHints:  []string{string(dataquery.DataActionDeriveFields)},
+				Reason:             message,
+			})
+			return NewGuardResult("numeric_constant_reused_as_numeric_field", "error", RepairNeedsTypedAction, message, violation)
+		}
+	}
+	return GuardResult{}
+}
+
+func guardAliasesIntersect(left, right []string) bool {
+	left = cleanStrings(left)
+	right = cleanStrings(right)
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	set := map[string]bool{}
+	for _, value := range right {
+		key := guardAliasKey(value)
+		if key != "" {
+			set[key] = true
+		}
+	}
+	for _, value := range left {
+		if set[guardAliasKey(value)] {
+			return true
+		}
+	}
+	return false
+}
+
+func guardAliasKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
