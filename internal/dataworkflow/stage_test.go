@@ -276,3 +276,37 @@ func TestDecideGuardRecoveryFallsBackToRepair(t *testing.T) {
 		t.Fatalf("decision=%+v, want repair", decision)
 	}
 }
+
+func TestDecideDataRoundBudgetContinuesBeforeLimit(t *testing.T) {
+	decision := DecideDataRoundBudget(DataRoundBudgetDecisionInput{DataRounds: 2, MaxDataRounds: 3})
+	if decision.Action != DataRoundBudgetContinue {
+		t.Fatalf("decision=%+v, want continue", decision)
+	}
+}
+
+func TestDecideDataRoundBudgetFailsOnCompletionGuard(t *testing.T) {
+	guard := NewGuardResult("completion_gate", "error", RepairNeedsTypedAction, "missing projection", WorkflowViolation{Code: "missing_projection"})
+	decision := DecideDataRoundBudget(DataRoundBudgetDecisionInput{
+		DataRounds:      3,
+		MaxDataRounds:   3,
+		HasResult:       true,
+		CompletionGuard: guard,
+	})
+	if decision.Action != DataRoundBudgetFail || decision.Status != "budget_exhausted" || decision.Guard.Code != "completion_gate" {
+		t.Fatalf("decision=%+v, want guarded budget failure", decision)
+	}
+}
+
+func TestDecideDataRoundBudgetReturnsExistingResult(t *testing.T) {
+	decision := DecideDataRoundBudget(DataRoundBudgetDecisionInput{DataRounds: 3, MaxDataRounds: 3, HasResult: true})
+	if decision.Action != DataRoundBudgetReturnResult || !strings.Contains(decision.Reason, "after producing a result") {
+		t.Fatalf("decision=%+v, want return result", decision)
+	}
+}
+
+func TestDecideDataRoundBudgetFailsWithoutResult(t *testing.T) {
+	decision := DecideDataRoundBudget(DataRoundBudgetDecisionInput{DataRounds: 3, MaxDataRounds: 3})
+	if decision.Action != DataRoundBudgetFail || !strings.Contains(decision.Reason, "before producing a result") {
+		t.Fatalf("decision=%+v, want failure without result", decision)
+	}
+}

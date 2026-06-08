@@ -349,16 +349,16 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if handled, answer, err := terminalDataTaskPlanForCLI(currentPlan, records, cfg.Language); handled {
 			return answer, err
 		}
-		if dataRounds >= dataRoundsMax {
-			if result, ok := latestDataTaskResult(records); ok {
-				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
-					errText := guard.ErrorText()
-					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-					return "", fmt.Errorf("data task workflow budget exhausted before final output: %s", errText)
-				}
+		switch budgetDecision, result, hasResult := dataTaskDataRoundBudgetDecisionWithRepo(repoRoot, records, currentPlan, dataRounds, dataRoundsMax); budgetDecision.Action {
+		case dataworkflow.DataRoundBudgetFail:
+			if !budgetDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, budgetDecision.Guard)
+			}
+			return "", fmt.Errorf("%s", budgetDecision.Reason)
+		case dataworkflow.DataRoundBudgetReturnResult:
+			if hasResult {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
-			return "", fmt.Errorf("data task workflow budget exhausted before producing a result")
 		}
 		switch preExecutionDecision := dataTaskPreExecutionDecision(records, currentPlan); preExecutionDecision.Action {
 		case dataworkflow.PreExecutionFallbackPlan:

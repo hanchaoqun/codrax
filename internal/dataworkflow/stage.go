@@ -358,6 +358,55 @@ func DecideGuardRecovery(input GuardRecoveryDecisionInput) GuardRecoveryDecision
 	}
 }
 
+type DataRoundBudgetDecisionAction string
+
+const (
+	DataRoundBudgetContinue     DataRoundBudgetDecisionAction = "continue"
+	DataRoundBudgetReturnResult DataRoundBudgetDecisionAction = "return_result"
+	DataRoundBudgetFail         DataRoundBudgetDecisionAction = "fail"
+)
+
+type DataRoundBudgetDecisionInput struct {
+	DataRounds      int         `json:"data_rounds,omitempty"`
+	MaxDataRounds   int         `json:"max_data_rounds,omitempty"`
+	HasResult       bool        `json:"has_result,omitempty"`
+	CompletionGuard GuardResult `json:"completion_guard,omitempty"`
+}
+
+type DataRoundBudgetDecision struct {
+	Action DataRoundBudgetDecisionAction `json:"action,omitempty"`
+	Status string                        `json:"status,omitempty"`
+	Guard  GuardResult                   `json:"guard,omitempty"`
+	Reason string                        `json:"reason,omitempty"`
+}
+
+func DecideDataRoundBudget(input DataRoundBudgetDecisionInput) DataRoundBudgetDecision {
+	if input.MaxDataRounds <= 0 || input.DataRounds < input.MaxDataRounds {
+		return DataRoundBudgetDecision{Action: DataRoundBudgetContinue}
+	}
+	if !input.CompletionGuard.Empty() {
+		reason := "data task workflow budget exhausted before final output: " + input.CompletionGuard.ErrorText()
+		return DataRoundBudgetDecision{
+			Action: DataRoundBudgetFail,
+			Status: "budget_exhausted",
+			Guard:  input.CompletionGuard,
+			Reason: reason,
+		}
+	}
+	if input.HasResult {
+		return DataRoundBudgetDecision{
+			Action: DataRoundBudgetReturnResult,
+			Status: "budget_exhausted",
+			Reason: "data task workflow budget exhausted after producing a result",
+		}
+	}
+	return DataRoundBudgetDecision{
+		Action: DataRoundBudgetFail,
+		Status: "budget_exhausted",
+		Reason: "data task workflow budget exhausted before producing a result",
+	}
+}
+
 func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
 	return ActionContract{
 		Kind:          string(kind),

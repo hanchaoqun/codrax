@@ -235,6 +235,24 @@ func dataTaskStagingGuardRecoveryDecision(records []dataTaskWorkflowRecord, plan
 	})
 }
 
+func dataTaskDataRoundBudgetDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, dataRounds, maxDataRounds int) (dataworkflow.DataRoundBudgetDecision, dataquery.Result, bool) {
+	var result dataquery.Result
+	hasResult := false
+	var guard dataworkflow.GuardResult
+	if latest, ok := latestDataTaskResult(records); ok {
+		result = latest
+		hasResult = true
+		guard = dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, latest)
+	}
+	decision := dataworkflow.DecideDataRoundBudget(dataworkflow.DataRoundBudgetDecisionInput{
+		DataRounds:      dataRounds,
+		MaxDataRounds:   maxDataRounds,
+		HasResult:       hasResult,
+		CompletionGuard: guard,
+	})
+	return decision, result, hasResult
+}
+
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,

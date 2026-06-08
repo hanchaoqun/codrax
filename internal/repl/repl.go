@@ -1587,36 +1587,34 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line, dataRounds, repairRounds); handled {
 			return
 		}
-		if dataRounds >= r.dataTaskMaxDataRounds {
-			if result, ok := latestDataTaskResult(records); ok {
-				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
-					errText := guard.ErrorText()
-					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-					reason := "data task workflow budget exhausted before final output: " + errText
-					msg := dataTaskErrorMarkdown(r.language, reason)
-					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-					r.finishDataTaskRouteSpinner("budget_exhausted")
-					r.renderBordered(msg)
-					r.lastAnswerOrigin = replAnswerOriginLocal
-					r.recordTurn(display, line, msg, memory.KindPipeline)
-					return
-				}
+		switch budgetDecision, result, hasResult := dataTaskDataRoundBudgetDecisionWithRepo(r.repoRoot, records, currentPlan, dataRounds, r.dataTaskMaxDataRounds); budgetDecision.Action {
+		case dataworkflow.DataRoundBudgetFail:
+			if !budgetDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, budgetDecision.Guard)
+			}
+			reason := budgetDecision.Reason
+			msg := dataTaskErrorMarkdown(r.language, reason)
+			var resultPtr *dataquery.Result
+			if hasResult {
+				resultCopy := result
+				resultPtr = &resultCopy
+			}
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: resultPtr})
+			r.finishDataTaskRouteSpinner("budget_exhausted")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		case dataworkflow.DataRoundBudgetReturnResult:
+			if hasResult {
 				msg := dataTaskAnswerMarkdown(r.language, result)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: "data task workflow budget exhausted after producing a result", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: budgetDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("budget_exhausted")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			reason := "data task workflow budget exhausted before producing a result"
-			msg := dataTaskErrorMarkdown(r.language, reason)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
-			r.finishDataTaskRouteSpinner("budget_exhausted")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
-			return
 		}
 		switch preExecutionDecision := dataTaskPreExecutionDecision(records, currentPlan); preExecutionDecision.Action {
 		case dataworkflow.PreExecutionFallbackPlan:

@@ -17638,6 +17638,51 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 414: Data Round Budget Decision IR
+
+After terminal, pre-execution, and guard-recovery branches moved behind typed
+decisions, the next duplicated adapter branch was data-round budget handling.
+Both CLI and REPL checked whether the data-round budget was exhausted, whether
+a result existed, and whether the existing result still failed the completion
+gate.
+
+This batch adds a reducer-owned budget decision. Adapters still render CLI/REPL
+output differently, but they consume one typed decision: continue, return the
+existing result, or fail with the completion guard / no-result reason.
+
+Generic invariants:
+
+- budget decisions use integer round counters, max round limits, result
+  presence, and typed completion guards;
+- completion guard failures stay typed and auditable;
+- output rendering remains adapter-owned so CLI stdout contracts and REPL
+  panels stay unchanged;
+- no model prose, user intent keywords, or business-domain fields are used for
+  the hard decision;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and planner prompts are unchanged.
+
+Changes:
+
+- [x] Added `DataRoundBudgetDecisionAction`.
+- [x] Added `DataRoundBudgetDecisionInput`.
+- [x] Added `DataRoundBudgetDecision`.
+- [x] Added `DecideDataRoundBudget`.
+- [x] Added tests for continue, guarded failure, return-result, and no-result
+      failure decisions.
+- [x] Added a REPL compatibility wrapper that computes result presence and
+      typed completion guard before calling the reducer.
+- [x] Rewired CLI and REPL budget branches to consume the reducer decision.
+
+Remaining architecture items:
+
+- [ ] Expand next-executable decision IR to post-result deferred/continuation
+      decisions.
+- [ ] Keep shrinking adapter-local execution cursors until the loop consumes a
+      single reducer-owned executable-decision object.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
