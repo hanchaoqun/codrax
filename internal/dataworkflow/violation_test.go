@@ -155,6 +155,42 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 	}
 }
 
+func TestWorkflowViolationsFromRecordExecutionProjectsMaterialContractAsTypedAction(t *testing.T) {
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:         "profile_inputs",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"materials"},
+		}}},
+		Violations: []dataquery.DataTaskViolation{{
+			Code:          "material_contract_violation",
+			Summary:       "materials is a directory",
+			ActionID:      "profile_inputs",
+			ActionKind:    string(dataquery.DataActionCustomTransform),
+			InputAlias:    "materials",
+			InputAliases:  []string{"materials"},
+			Operation:     "script_consumed",
+			ExpectedShape: "concrete file input",
+			Repairability: dataquery.RepairabilityNeedsRecompute,
+			RepairHint:    string(dataquery.DataActionExtractRecords),
+		}},
+	}}
+
+	violations := WorkflowViolationsFromRecordExecution(records)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v, want one material contract violation", violations)
+	}
+	got := violations[0]
+	if got.Code != "material_contract_violation" ||
+		got.ActionID != "profile_inputs" ||
+		got.ActionKind != string(dataquery.DataActionCustomTransform) ||
+		got.InputAlias != "materials" ||
+		got.Operation != "script_consumed" ||
+		got.Repairability != RepairNeedsTypedAction {
+		t.Fatalf("violation=%+v, want typed material contract projection", got)
+	}
+}
+
 func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
 	summary := BuildWorkflowViolationSummary([]WorkflowViolation{
 		{

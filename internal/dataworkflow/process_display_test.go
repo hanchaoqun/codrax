@@ -119,6 +119,34 @@ func TestBuildWorkflowProcessDisplayRendersActionLimitBlocker(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersMaterialContractBlocker(t *testing.T) {
+	guard := NewGuardResult("material_contract_violation", "error", RepairNeedsTypedAction, "materials is a directory", WorkflowViolation{
+		Code:              "material_contract_violation",
+		ActionID:          "profile_inputs",
+		ActionKind:        string(dataquery.DataActionCustomTransform),
+		InputAlias:        "materials",
+		Operation:         "script_consumed",
+		RepairActionHints: []string{string(dataquery.DataActionExtractRecords)},
+		Reason:            "materials is a directory",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "action_batch",
+		Round: 2,
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "profile_inputs",
+			Kind: dataquery.DataActionCustomTransform,
+		}}},
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	for _, want := range []string{"当前阻塞：本步选择的材料形态还不能被该动作可靠消费", "输入 materials", "操作 script_consumed", "可继续：优先生成下一批结构化动作：抽取记录"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("details=%q, want %q", got, want)
+		}
+	}
+}
+
 func TestBuildWorkflowProcessDisplayRendersOutputContractBlocker(t *testing.T) {
 	guard := NewGuardResult("output_contract_violation", "error", RepairNeedsTypedAction, "output contract plain_single_line requires a single line", WorkflowViolation{
 		Code:     "output_contract_violation",

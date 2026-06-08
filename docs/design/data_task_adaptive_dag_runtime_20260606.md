@@ -16807,6 +16807,41 @@ Remaining architecture items:
 - [ ] Add the focused architecture regression gate for the deduplicated current
       queue before the next real-scenario run.
 
+### Batch 373: Material Contract Violations In Workflow IR And UX
+
+Batch 372 made bounded transform material-contract failures typed at the runner
+boundary. This batch carries that signal through the workflow projection and
+process display path so CLI/REPL users see a business-useful blocker instead of
+only a raw internal error sentence.
+
+Generic invariants:
+
+- data-runner violations are projected into `WorkflowViolation` without parsing
+  model prose;
+- material shape/usage failures require the next typed action batch, even when
+  the low-level data violation used `needs_recompute`;
+- permanent process lines describe the actionable blocker at a business level,
+  with structural context such as input alias and operation kept compact;
+- display wording stays domain-neutral and does not name any business material
+  class.
+
+Changes:
+
+- [x] Classified `material_contract_violation` as `RepairNeedsTypedAction` in
+      workflow violation projection.
+- [x] Added domain-neutral CLI/REPL blocker copy for
+      `material_contract_violation`.
+- [x] Added regression coverage for record-execution projection and process
+      display.
+
+Remaining architecture items:
+
+- [ ] Continue moving direct planner/evaluator inputs to runtime snapshots.
+- [ ] Continue converting runner contract families that still return plain
+      errors into typed violations.
+- [ ] Add the focused architecture regression gate for the deduplicated current
+      queue before the next real-scenario run.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
