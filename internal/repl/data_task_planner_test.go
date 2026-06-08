@@ -1722,6 +1722,34 @@ func TestDataTaskEvaluatorFallsBackAfterTransientLLMErrorBudget(t *testing.T) {
 	}
 }
 
+func TestDataTaskEvaluatorFallbackUsesTypedWorkflowViolation(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			Status: "ready",
+			Actions: []dataquery.DataAction{{
+				ID:   "stale_last_action",
+				Kind: dataquery.DataActionCustomTransform,
+			}},
+		},
+		Err: "opaque failure text",
+		Violations: []dataquery.DataTaskViolation{{
+			Code:       "action_param_violation",
+			ActionID:   "derive_bad",
+			ActionKind: string(dataquery.DataActionDeriveFields),
+			Param:      "operation",
+			Summary:    "derive_fields operation is unsupported",
+		}},
+	}}
+	eval := fallbackDataTaskEvaluation(records, llm.Response{})
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "derive_bad" ||
+		eval.ActionKind != string(dataquery.DataActionDeriveFields) ||
+		eval.RepairLocus != "operation" ||
+		!strings.Contains(eval.Reason, "typed_violation=action_param_violation") {
+		t.Fatalf("eval=%+v, want fallback repair from typed workflow violation", eval)
+	}
+}
+
 func TestRenderDataTaskRecordsForPromptCarriesReconcileTotals(t *testing.T) {
 	groups := make([]dataquery.ReconcileGroup, 0, 12)
 	for i := 1; i <= 12; i++ {

@@ -519,6 +519,24 @@ func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Respo
 	if len(records) == 0 {
 		return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
 	}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	for _, violation := range state.WorkflowViolations {
+		if strings.TrimSpace(violation.Code) == "" {
+			continue
+		}
+		repairReason := reason + "; typed_violation=" + strings.TrimSpace(violation.Code)
+		if strings.TrimSpace(violation.Reason) != "" {
+			repairReason += "; " + strings.TrimSpace(violation.Reason)
+		}
+		return dataquery.Evaluation{
+			Status:      dataquery.EvalRepairNode,
+			Confidence:  "low",
+			Reason:      repairReason,
+			ActionID:    strings.TrimSpace(violation.ActionID),
+			ActionKind:  strings.TrimSpace(violation.ActionKind),
+			RepairLocus: firstNonEmptyString(strings.TrimSpace(violation.InputAlias), strings.TrimSpace(violation.Param), strings.TrimSpace(violation.Field), strings.TrimSpace(violation.OutputAlias)),
+		}
+	}
 	last := records[len(records)-1]
 	if strings.TrimSpace(last.Err) != "" {
 		eval := dataquery.Evaluation{Status: dataquery.EvalRepairNode, Confidence: "low", Reason: reason}

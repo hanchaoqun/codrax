@@ -16442,3 +16442,41 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 363: Evaluator Fallback Uses Typed Reducer Violations
+
+Batch 362 passed typed repair locus into the planner once a repair decision had
+already been made. A related evaluator gap remained: when the evaluator LLM did
+not return the required structured tool call, the fallback logic chose
+`repair_node` from the last error and the last action in the plan. That could
+point repair at a stale action even when the reducer had already projected a
+precise workflow violation from execution records.
+
+Generic invariant:
+
+- evaluator no-tool fallback must consume deterministic reducer state before
+  making a repair/continue decision;
+- if `workflow_state.workflow_violations` contains a typed blocker, fallback
+  returns `repair_node` for that violation's action and structural locus;
+- model prose or opaque error text remains soft/audit context only;
+- if no typed violation exists, the previous conservative fallback remains.
+
+Changes:
+
+- [x] Changed evaluator no-tool fallback to build workflow state from records
+      and select the first typed workflow violation.
+- [x] Filled fallback evaluation action id, action kind, and repair locus from
+      violation fields such as input alias, parameter, field, or output alias.
+- [x] Preserved the older artifact-progress fallback when no typed violation is
+      present.
+- [x] Added regression coverage proving fallback does not choose a stale last
+      action when a typed workflow violation is available.
+
+Remaining architecture items:
+
+- [ ] Continue auditing evaluator repair/continue decisions for places where
+      model-provided reason text overrides reducer status.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.
