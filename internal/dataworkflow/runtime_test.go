@@ -287,6 +287,51 @@ func TestWorkflowRuntimeRecordsPlanTransitionProcessEvent(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeSnapshotClonesLiveState(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	current := rt.SwitchCurrentPlan(2, "continue", dataquery.TaskPlan{
+		Actions: []dataquery.DataAction{{
+			ID:     "filter",
+			Kind:   dataquery.DataActionFilterRecords,
+			Params: map[string]string{"field": "status"},
+		}},
+	}, "next batch")
+	rt.EnqueueDeferred(2, dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:     "compute",
+		Kind:   dataquery.DataActionComputeContribs,
+		Params: map[string]string{"value_field": "amount"},
+	}}}, "later rank")
+	rt.SetAdmission(ActionDAGAdmissionDecision{Plan: current})
+	rt.SetRounds(3, 4)
+	rt.AppendRecord(WorkflowRecord{Plan: current, Result: &dataquery.Result{Answer: "42"}})
+
+	snapshot := rt.Snapshot()
+	snapshot.CurrentPlan.Actions[0].Params["field"] = "mutated"
+	snapshot.DeferredPlan.Actions[0].Params["value_field"] = "mutated"
+	snapshot.DeferredQueue.Plan.Actions[0].Params["value_field"] = "mutated"
+	snapshot.Records[0].Result.Answer = "mutated"
+	snapshot.ProcessEvents[0].Kind = "mutated"
+	snapshot.PlanTransitions[0].Source = "mutated"
+	snapshot.Admission.Plan.Actions[0].Params["field"] = "mutated"
+
+	next := rt.Snapshot()
+	if next.CurrentPlan.Actions[0].Params["field"] != "status" {
+		t.Fatalf("snapshot current plan leaked mutation: %+v", next.CurrentPlan.Actions[0].Params)
+	}
+	if next.DeferredPlan.Actions[0].Params["value_field"] != "amount" || next.DeferredQueue.Plan.Actions[0].Params["value_field"] != "amount" {
+		t.Fatalf("snapshot deferred state leaked mutation: %+v / %+v", next.DeferredPlan.Actions[0].Params, next.DeferredQueue.Plan.Actions[0].Params)
+	}
+	if next.Records[0].Result.Answer != "42" || next.ProcessEvents[0].Kind == "mutated" || next.PlanTransitions[0].Source != "continue" {
+		t.Fatalf("snapshot runtime state leaked mutation: records=%+v events=%+v transitions=%+v", next.Records, next.ProcessEvents, next.PlanTransitions)
+	}
+	if next.Admission.Plan.Actions[0].Params["field"] != "status" {
+		t.Fatalf("snapshot admission leaked mutation: %+v", next.Admission.Plan.Actions[0].Params)
+	}
+	if next.DataRounds != 3 || next.RepairRounds != 4 {
+		t.Fatalf("snapshot rounds=%d/%d, want 3/4", next.DataRounds, next.RepairRounds)
+	}
+}
+
 func TestWorkflowRuntimeAppendsTypedGuardEvent(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{

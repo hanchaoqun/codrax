@@ -16754,6 +16754,58 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
+### Batch 371: Runtime Snapshot Boundary For Audit Writers
+
+The next state-ownership seam was not an execution rule but an audit input
+shape. Terminal and checkpoint writers accepted local adapter mirrors such as
+`records`, `currentPlan`, deferred queue state, and round counters, then asked
+the runtime to build a journal. That was already safer than records-only
+reconstruction, but it still left too many parallel values at the call site.
+
+This batch adds a runtime snapshot boundary and rewires audit writers to prefer
+that snapshot when a live `WorkflowRuntime` is available. Preview records
+remain supported for guard/checkpoint snapshots, but current plan, deferred
+queue, deferred plan, rounds, process events, plan transitions, and admission
+state now have one runtime source of truth.
+
+Generic invariants:
+
+- runtime snapshots contain only dataworkflow/dataquery IR, never REPL or CLI
+  renderer types;
+- snapshot values are deep-copied so audit code cannot mutate live runtime
+  state;
+- guard preview records may still be passed explicitly, because checkpointing
+  a not-yet-appended blocking record is a deliberate audit operation;
+- terminal/checkpoint journal writers prefer runtime state over local mirrors
+  where that state is already runtime-owned;
+- no planning, gating, execution, or business semantics change.
+
+Changes:
+
+- [x] Added `WorkflowRuntimeSnapshot`.
+- [x] Added `WorkflowRuntime.Snapshot`.
+- [x] Rewired terminal audit writing to fill records, current plan, deferred
+      queue, deferred plan, and rounds from the runtime snapshot.
+- [x] Rewired checkpoint audit writing to use the runtime snapshot for current
+      plan, deferred queue, and round state while preserving explicit preview
+      records.
+- [x] Added regression coverage proving snapshots are clone-isolated for plans,
+      deferred queues, records, process events, transitions, admission, and
+      rounds.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing live loop mirrors by moving prompt/evaluator input
+      assembly to consume runtime snapshots directly.
+- [ ] Retire legacy error/output recomputation fallbacks only after all direct
+      callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
+      and WorkflowViolation inputs.
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario gate.
+
 Testing rule:
 
 - Do not run the real local procurement-style scenario until the current

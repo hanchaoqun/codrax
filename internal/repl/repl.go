@@ -3053,12 +3053,19 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 	deferredQueue := dataworkflow.DeferredQueueState{}
 	deferred := dataquery.TaskPlan{}
 	if workflowRuntime != nil {
+		runtimeSnapshot := workflowRuntime.Snapshot()
 		if len(records) == 0 {
-			records = workflowRuntime.Records()
+			records = runtimeSnapshot.Records
 		}
-		current = workflowRuntime.CurrentPlan()
-		deferredQueue = workflowRuntime.DeferredQueue()
-		deferred = workflowRuntime.DeferredPlan()
+		if a.DataRounds == 0 && runtimeSnapshot.DataRounds > 0 {
+			a.DataRounds = runtimeSnapshot.DataRounds
+		}
+		if a.RepairRounds == 0 && runtimeSnapshot.RepairRounds > 0 {
+			a.RepairRounds = runtimeSnapshot.RepairRounds
+		}
+		current = runtimeSnapshot.CurrentPlan
+		deferredQueue = runtimeSnapshot.DeferredQueue
+		deferred = runtimeSnapshot.DeferredPlan
 	}
 	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
 	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
@@ -3100,6 +3107,20 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
 		return ""
+	}
+	if workflowRuntime != nil {
+		runtimeSnapshot := workflowRuntime.Snapshot()
+		if len(records) == 0 {
+			records = runtimeSnapshot.Records
+		}
+		current = runtimeSnapshot.CurrentPlan
+		if dataRounds == 0 && runtimeSnapshot.DataRounds > 0 {
+			dataRounds = runtimeSnapshot.DataRounds
+		}
+		if repairRounds == 0 && runtimeSnapshot.RepairRounds > 0 {
+			repairRounds = runtimeSnapshot.RepairRounds
+		}
+		deferredQueue = runtimeSnapshot.DeferredQueue
 	}
 	deferred := dataworkflow.DeferredQueuePlan(deferredQueue)
 	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)

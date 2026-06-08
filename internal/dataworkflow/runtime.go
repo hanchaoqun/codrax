@@ -45,6 +45,18 @@ type CandidatePlanAdmissionDecision struct {
 	AppendedRecord bool                       `json:"appended_record,omitempty"`
 }
 
+type WorkflowRuntimeSnapshot struct {
+	CurrentPlan     dataquery.TaskPlan         `json:"current_plan,omitempty"`
+	DeferredQueue   DeferredQueueState         `json:"deferred_queue,omitempty"`
+	DeferredPlan    dataquery.TaskPlan         `json:"deferred_plan,omitempty"`
+	Records         []WorkflowRecord           `json:"records,omitempty"`
+	ProcessEvents   []WorkflowJournalEvent     `json:"process_events,omitempty"`
+	PlanTransitions []PlanTransitionEvent      `json:"plan_transitions,omitempty"`
+	Admission       ActionDAGAdmissionDecision `json:"admission,omitempty"`
+	DataRounds      int                        `json:"data_rounds,omitempty"`
+	RepairRounds    int                        `json:"repair_rounds,omitempty"`
+}
+
 func NewWorkflowRuntime(current dataquery.TaskPlan) *WorkflowRuntime {
 	rt := &WorkflowRuntime{}
 	rt.SetCurrentPlan(current)
@@ -74,6 +86,24 @@ func (rt *WorkflowRuntime) CurrentPlan() dataquery.TaskPlan {
 		return dataquery.TaskPlan{}
 	}
 	return cloneTaskPlanValue(rt.currentPlan)
+}
+
+func (rt *WorkflowRuntime) Snapshot() WorkflowRuntimeSnapshot {
+	if rt == nil {
+		return WorkflowRuntimeSnapshot{}
+	}
+	deferredQueue := rt.DeferredQueue()
+	return WorkflowRuntimeSnapshot{
+		CurrentPlan:     rt.CurrentPlan(),
+		DeferredQueue:   deferredQueue,
+		DeferredPlan:    DeferredQueuePlan(deferredQueue),
+		Records:         rt.Records(),
+		ProcessEvents:   rt.ProcessEvents(),
+		PlanTransitions: rt.PlanTransitions(),
+		Admission:       rt.Admission(),
+		DataRounds:      rt.DataRounds(),
+		RepairRounds:    rt.RepairRounds(),
+	}
 }
 
 func (rt *WorkflowRuntime) PlanTransitions() []PlanTransitionEvent {
