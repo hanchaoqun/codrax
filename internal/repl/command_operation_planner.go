@@ -74,6 +74,81 @@ type ProviderOperationEvaluator interface {
 	EvaluateProviderOperation(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (operation.OperationEvaluation, error)
 }
 
+type operationPlannerErrorCode string
+
+const (
+	operationPlannerErrorNoToolCall     operationPlannerErrorCode = "no_tool_call"
+	operationPlannerErrorUnexpectedTool operationPlannerErrorCode = "unexpected_tool"
+)
+
+type operationPlannerError struct {
+	Code   operationPlannerErrorCode
+	Scope  string
+	Tool   string
+	Detail string
+	Cause  error
+}
+
+func (e *operationPlannerError) Error() string {
+	if e == nil {
+		return ""
+	}
+	detail := strings.TrimSpace(e.Detail)
+	if detail == "" {
+		detail = string(e.Code)
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("%v; %s", e.Cause, detail)
+	}
+	return detail
+}
+
+func (e *operationPlannerError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func newOperationPlannerNoToolError(scope string, cause error) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "operation planner"
+	}
+	return &operationPlannerError{
+		Code:   operationPlannerErrorNoToolCall,
+		Scope:  scope,
+		Detail: scope + ": LLM returned no tool_call",
+		Cause:  cause,
+	}
+}
+
+func newOperationPlannerUnexpectedToolError(scope, tool string, cause error) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "operation planner"
+	}
+	tool = strings.TrimSpace(tool)
+	return &operationPlannerError{
+		Code:   operationPlannerErrorUnexpectedTool,
+		Scope:  scope,
+		Tool:   tool,
+		Detail: fmt.Sprintf("%s: unexpected tool %q", scope, tool),
+		Cause:  cause,
+	}
+}
+
+func operationPlannerErrorHasCode(err error, code operationPlannerErrorCode) bool {
+	if err == nil {
+		return false
+	}
+	var plannerErr *operationPlannerError
+	if !errors.As(err, &plannerErr) || plannerErr == nil {
+		return false
+	}
+	return plannerErr.Code == code
+}
+
 type llmCommandOperationPlanner struct {
 	adapter   llm.Adapter
 	lastTrace replLLMCallTrace
@@ -456,11 +531,11 @@ func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Conte
 		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluation llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluator: LLM returned no tool_call")
+		return operation.OperationEvaluation{}, newOperationPlannerNoToolError("provider operation evaluator", nil)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != operationEvaluationTool.Name {
-		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluator: unexpected tool %q", call.Name)
+		return operation.OperationEvaluation{}, newOperationPlannerUnexpectedToolError("provider operation evaluator", call.Name, nil)
 	}
 	parsed, err := unmarshalOperationEvaluation(call.Params)
 	if err != nil {
@@ -500,11 +575,11 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluation llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluator: LLM returned no tool_call")
+		return operation.OperationEvaluation{}, newOperationPlannerNoToolError("command operation evaluator", nil)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != operationEvaluationTool.Name {
-		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluator: unexpected tool %q", call.Name)
+		return operation.OperationEvaluation{}, newOperationPlannerUnexpectedToolError("command operation evaluator", call.Name, nil)
 	}
 	parsed, err := unmarshalOperationEvaluation(call.Params)
 	if err != nil {
@@ -700,11 +775,11 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		return zeroDraft, fmt.Errorf("command operation planner llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return zeroDraft, fmt.Errorf("command operation planner: LLM returned no tool_call")
+		return zeroDraft, newOperationPlannerNoToolError("command operation planner", nil)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != commandOperationPlanTool.Name {
-		return zeroDraft, fmt.Errorf("command operation planner: unexpected tool %q", call.Name)
+		return zeroDraft, newOperationPlannerUnexpectedToolError("command operation planner", call.Name, nil)
 	}
 	parsed, err := unmarshalCommandOperationPlan(call.Params)
 	if err != nil {
@@ -778,11 +853,11 @@ func (p *llmCommandOperationPlanner) repairOperationStructuredToolParams(ctx con
 		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return nil, fmt.Errorf("%w; compact tool-param repair returned no tool_call", parseErr)
+		return nil, newOperationPlannerNoToolError("operation compact tool-param repair", parseErr)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != tool.Name {
-		return nil, fmt.Errorf("%w; compact tool-param repair returned unexpected tool %q", parseErr, call.Name)
+		return nil, newOperationPlannerUnexpectedToolError("operation compact tool-param repair", call.Name, parseErr)
 	}
 	return call.Params, nil
 }

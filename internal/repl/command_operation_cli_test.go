@@ -3,6 +3,7 @@ package repl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,20 @@ func (p fakeCLICommandPlanner) AnswerCommandOperationRecords(ctx context.Context
 		return "no records", nil
 	}
 	return "final: " + strings.TrimSpace(records[len(records)-1].Result.OutputPreview), nil
+}
+
+func TestOperationPlannerErrorsUseTypedCodes(t *testing.T) {
+	noTool := newOperationPlannerNoToolError("command operation planner", nil)
+	if !operationPlannerErrorHasCode(noTool, operationPlannerErrorNoToolCall) {
+		t.Fatal("typed no-tool operation planner error not recognized")
+	}
+	wrapped := newOperationPlannerUnexpectedToolError("command operation planner", "wrong_tool", noTool)
+	if !operationPlannerErrorHasCode(wrapped, operationPlannerErrorUnexpectedTool) {
+		t.Fatal("typed unexpected-tool operation planner error not recognized")
+	}
+	if operationPlannerErrorHasCode(errors.New("command operation planner: LLM returned no tool_call"), operationPlannerErrorNoToolCall) {
+		t.Fatal("plain operation error text must not satisfy typed no-tool code")
+	}
 }
 
 func TestRunCommandOperationCLI_ExecutesAutoPlanAndReturnsFinalAnswer(t *testing.T) {

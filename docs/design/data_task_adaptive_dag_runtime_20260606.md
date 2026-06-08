@@ -16856,8 +16856,51 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Apply the same typed direct-planner error pattern to operation planner
+- [x] Apply the same typed direct-planner error pattern to operation planner
       structured tool calls.
+- [ ] Move continuation/planner error handling fully into reducer-owned
+      `WorkflowDecision` once direct planner calls return typed outcomes
+      instead of Go errors at the adapter boundary.
+- [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
+      `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
+
+### Batch 396: Typed Planner Errors For Operation Workflow
+
+The data lane no longer uses prose error strings to decide whether a missing
+structured tool call can fall back to typed workflow state. The same direct LLM
+planner pattern existed in the command-operation lane: planner, evaluator, and
+compact tool-param repair failures returned ordinary text errors for
+`no_tool_call` and `unexpected_tool`.
+
+This batch applies the same typed-error shape to operation workflow planners.
+It does not change operation prompts, risk assessment, command approval,
+execution, or final-answer generation. It only makes structured-call failure
+classification explicit and reusable.
+
+Generic invariants:
+
+- direct planner/evaluator structured-call failures carry stable typed codes;
+- readable error text remains available for logs and UI;
+- future recovery/repair decisions can use `errors.As` over the typed code
+  instead of matching text;
+- plain errors with similar words do not satisfy typed operation planner
+  codes.
+
+Changes:
+
+- [x] Added operation planner error codes for `no_tool_call` and
+      `unexpected_tool`.
+- [x] Rewired command-operation planner, command-operation evaluator,
+      provider-operation evaluator, and compact operation tool-param repair to
+      return typed errors for those structured-call failures.
+- [x] Added regression coverage proving typed errors are recognized and plain
+      text errors are not.
+
+Remaining architecture items:
+
+- [ ] Move operation structured-call failure recovery into a shared direct LLM
+      planner outcome layer once data and operation planners expose common
+      typed result envelopes.
 - [ ] Move continuation/planner error handling fully into reducer-owned
       `WorkflowDecision` once direct planner calls return typed outcomes
       instead of Go errors at the adapter boundary.
