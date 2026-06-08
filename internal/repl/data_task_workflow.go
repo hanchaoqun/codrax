@@ -2371,16 +2371,6 @@ func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred d
 	return next, remainder, ok
 }
 
-func dataTaskPopDeferredQueueActionBatch(records []dataTaskWorkflowRecord, queue dataworkflow.DeferredQueueState, round int) (dataquery.TaskPlan, dataworkflow.DeferredQueueState, bool) {
-	deferred := dataworkflow.DeferredQueuePlan(queue)
-	next, remainder, status, ok := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
-	if !ok {
-		return dataquery.TaskPlan{}, queue, false
-	}
-	nextQueue := dataworkflow.DispatchDeferredQueue(queue, round, next, remainder, status, "dispatch ready deferred typed data action rank")
-	return next, nextQueue, true
-}
-
 func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, dataworkflow.DeferredDispatchStatus, bool) {
 	if len(deferred.Actions) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{ReasonCode: dataworkflow.DeferredBlockEmpty, Reason: "deferred queue is empty"}, false

@@ -166,11 +166,12 @@ func (rt *WorkflowRuntime) EnqueueDeferred(round int, plan dataquery.TaskPlan, r
 	rt.deferredQueue = EnqueueDeferredQueue(rt.deferredQueue, round, plan, reason)
 }
 
-func (rt *WorkflowRuntime) DispatchDeferred(round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, reason string) {
+func (rt *WorkflowRuntime) DispatchDeferred(round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, reason string) DeferredQueueState {
 	if rt == nil {
-		return
+		return DeferredQueueState{}
 	}
 	rt.deferredQueue = DispatchDeferredQueue(rt.deferredQueue, round, dispatched, remainder, status, reason)
+	return rt.DeferredQueue()
 }
 
 func (rt *WorkflowRuntime) RetainDeferred(round int, status DeferredDispatchStatus) {

@@ -68,6 +68,25 @@ func TestWorkflowRuntimeOwnsDeferredQueueAndAdmission(t *testing.T) {
 	if len(rt.DeferredQueue().Events) != 1 || rt.DeferredQueue().Events[0].Action != DeferredQueueTransitionEnqueue {
 		t.Fatalf("deferred events not recorded: %#v", rt.DeferredQueue().Events)
 	}
+	dispatched := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "join",
+		Kind: dataquery.DataActionJoinRecords,
+	}}}
+	remainder := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:     "compute",
+		Kind:   dataquery.DataActionComputeContribs,
+		Params: map[string]string{"value_field": "amount"},
+	}}}
+	queue := rt.DispatchDeferred(3, dispatched, remainder, DeferredDispatchStatus{Ready: true, ReadyActions: 1}, "dispatch ready rank")
+	remainder.Actions[0].Params["value_field"] = "mutated"
+	queue.Plan.Actions[0].Params["value_field"] = "mutated again"
+	gotDeferredAfterDispatch := rt.DeferredPlan()
+	if gotDeferredAfterDispatch.Actions[0].Params["value_field"] != "amount" {
+		t.Fatalf("runtime deferred dispatch leaked queue state: %#v", gotDeferredAfterDispatch.Actions[0].Params)
+	}
+	if len(rt.DeferredQueue().Events) != 2 || rt.DeferredQueue().Events[1].Action != DeferredQueueTransitionDispatch {
+		t.Fatalf("deferred dispatch event not recorded: %#v", rt.DeferredQueue().Events)
+	}
 
 	admission := ActionDAGAdmissionDecision{
 		Plan: deferred,

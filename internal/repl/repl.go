@@ -1915,13 +1915,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			Plan:   currentPlan,
 			Result: &resultForEvent,
 		}), dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
-		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
+		if nextDeferred, remainder, status, ok := dataTaskPopDeferredActionBatchWithStatus(records, workflowRuntime.DeferredPlan()); ok {
 			emitWorkflowReason("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
 			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, "continuing deferred typed data action rank")
-			workflowRuntime.SetDeferredQueue(updatedQueue)
+			workflowRuntime.DispatchDeferred(dataRounds+1, nextDeferred, remainder, status, "dispatch ready deferred typed data action rank")
 			remainingDeferred := currentDeferredPlan()
 			if len(remainingDeferred.Actions) > 0 {
 				r.auditDataTaskPlan("deferred", dataRounds+1, remainingDeferred)

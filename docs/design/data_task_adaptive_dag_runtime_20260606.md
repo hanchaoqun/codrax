@@ -14637,3 +14637,46 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 324: Runtime-Owned Deferred Dispatch Mutations
+
+The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch
+still had one adapter-owned write path: CLI/REPL computed an updated
+`DeferredQueueState` after popping a ready rank and then wrote it back with
+`SetDeferredQueue`. That made the runtime a storage holder instead of the owner
+of the queue transition, and it left dispatch events vulnerable to caller
+drift.
+
+This batch keeps readiness calculation unchanged, but moves the actual
+dispatch mutation through `WorkflowRuntime.DispatchDeferred`. The live runtime
+now records the dispatch transition and owns the remaining deferred plan.
+CLI/REPL only receive the next executable batch and then ask the runtime for
+the remaining queue state.
+
+Generic invariants:
+
+- deferred queue transitions are runtime mutations, not adapter assignment;
+- dispatch events are recorded by the same runtime handle used for audit and
+  workflow state;
+- readiness/admission checks remain typed and deterministic;
+- CLI/REPL may still compute ready candidates while the larger reducer
+  migration continues, but they no longer write updated queue state directly;
+- no business-domain roles, field names, or prompt prose control dispatch
+  mutation.
+
+Changes:
+
+- [x] Let `WorkflowRuntime.DispatchDeferred` return the cloned updated queue.
+- [x] Rewired CLI deferred dispatch to call `DispatchDeferred` instead of
+      `SetDeferredQueue(updatedQueue)`.
+- [x] Rewired REPL deferred dispatch to call `DispatchDeferred` instead of
+      `SetDeferredQueue(updatedQueue)`.
+- [x] Added runtime regression coverage for cloned deferred dispatch state and
+      typed dispatch events.
+- [x] Removed the old adapter helper that returned an externally updated queue
+      for callers to write back.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
