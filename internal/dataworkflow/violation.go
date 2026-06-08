@@ -52,10 +52,12 @@ type WorkflowStateViolationInput struct {
 func BuildWorkflowStateViolations(input WorkflowStateViolationInput) []WorkflowViolation {
 	state := input.State
 	additional := make([]WorkflowViolation, 0,
-		len(state.FieldContractViolations)+
+		len(input.Records)+
+			len(state.FieldContractViolations)+
 			len(state.ZeroMatchFilterViolations)+
 			len(state.UnmatchedResolutionViolations)+
 			len(state.ZeroEligibleViolations))
+	additional = append(additional, WorkflowViolationsFromRecordExecution(input.Records)...)
 	for _, issue := range state.FieldContractViolations {
 		additional = append(additional, WorkflowViolation{
 			Code:                 "field_contract_violation",
@@ -145,6 +147,109 @@ func BuildWorkflowStateViolations(input WorkflowStateViolationInput) []WorkflowV
 		GuardViolations:     input.GuardViolations,
 		Additional:          additional,
 	})
+}
+
+func WorkflowViolationsFromRecordExecution(records []WorkflowRecord) []WorkflowViolation {
+	var out []WorkflowViolation
+	for _, rec := range records {
+		for _, violation := range rec.Violations {
+			projected := WorkflowViolationFromDataTaskViolation(violation, matchingViolationAction(rec.Plan, violation))
+			if strings.TrimSpace(projected.Code) == "" {
+				continue
+			}
+			out = append(out, projected)
+		}
+	}
+	return out
+}
+
+func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolation, action dataquery.DataAction) WorkflowViolation {
+	code := strings.TrimSpace(violation.Code)
+	if code == "" {
+		return WorkflowViolation{}
+	}
+	inputAliases := cleanActionAliases(violation.InputAliases)
+	projected := NewGenericViolation(GenericViolationInput{
+		Code:               code,
+		Severity:           "error",
+		Repairability:      workflowRepairabilityForDataViolation(violation),
+		Action:             action,
+		InputAlias:         strings.TrimSpace(violation.InputAlias),
+		InputAliases:       inputAliases,
+		MissingFields:      append([]string(nil), violation.MissingFields...),
+		AvailableFields:    append([]string(nil), violation.AvailableFieldSample...),
+		RepairActionHints:  cleanStrings([]string{violation.RepairHint}),
+		Reason:             firstNonEmptyViolationText(violation.Summary, violation.ActualSnippet, code),
+		CandidateArtifacts: nil,
+	})
+	if strings.TrimSpace(projected.ActionID) == "" {
+		projected.ActionID = strings.TrimSpace(violation.ActionID)
+	}
+	if strings.TrimSpace(projected.ActionKind) == "" {
+		projected.ActionKind = strings.TrimSpace(violation.ActionKind)
+	}
+	if strings.TrimSpace(projected.InputAlias) == "" && len(inputAliases) > 0 {
+		projected.InputAlias = inputAliases[0]
+	}
+	if len(projected.InputAliases) == 0 {
+		projected.InputAliases = cleanActionAliases(append([]string{violation.InputAlias}, violation.InputAliases...))
+	}
+	if len(projected.MissingFields) == 0 {
+		projected.MissingFields = cleanStrings(violation.MissingFields)
+	}
+	if len(projected.AvailableFieldSample) == 0 {
+		projected.AvailableFieldSample = cleanStrings(violation.AvailableFieldSample)
+	}
+	if strings.TrimSpace(projected.Reason) == "" {
+		projected.Reason = code
+	}
+	return projected
+}
+
+func matchingViolationAction(plan dataquery.TaskPlan, violation dataquery.DataTaskViolation) dataquery.DataAction {
+	actionID := strings.TrimSpace(violation.ActionID)
+	actionKind := strings.TrimSpace(violation.ActionKind)
+	for _, action := range plan.Actions {
+		if actionID != "" && strings.TrimSpace(action.ID) == actionID {
+			return action
+		}
+	}
+	for _, action := range plan.Actions {
+		kind := strings.TrimSpace(string(NormalizeActionKind(action.Kind)))
+		if actionKind != "" && kind == actionKind {
+			return action
+		}
+	}
+	return dataquery.DataAction{
+		ID:         actionID,
+		Kind:       dataquery.DataActionKind(actionKind),
+		InputPaths: cleanActionAliases(append([]string{violation.InputAlias}, violation.InputAliases...)),
+	}
+}
+
+func workflowRepairabilityForDataViolation(violation dataquery.DataTaskViolation) ViolationRepairability {
+	if strings.TrimSpace(violation.Code) == "field_contract_violation" {
+		return RepairNeedsTypedAction
+	}
+	switch violation.Repairability {
+	case dataquery.RepairabilitySafePatch:
+		return RepairSafePatch
+	case dataquery.RepairabilityNeedsClarification:
+		return RepairNeedsClarification
+	case dataquery.RepairabilityNeedsRecompute:
+		return RepairNeedsRecompute
+	default:
+		return RepairNeedsTypedAction
+	}
+}
+
+func firstNonEmptyViolationText(values ...string) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {

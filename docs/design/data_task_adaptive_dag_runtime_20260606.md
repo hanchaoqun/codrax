@@ -15558,6 +15558,57 @@ Remaining architecture items:
 - [ ] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 348: Record Execution Violations Enter Workflow State
+
+Batch 347 made execution failures typed at the dataquery boundary, but the
+first landing still left a structural gap: the missing-field fallback could see
+`WorkflowRecord.Violations`, while the canonical `workflow_state_json`,
+`WorkflowViolations`, and `ActionGraph.Blocked` were still assembled mostly
+from guard records and diagnostic batches. That kept one foot in local helper
+state instead of the shared IR.
+
+This batch projects record-level execution violations into the unified workflow
+state. A failed atomic action can now contribute a domain-neutral
+`WorkflowViolation` with action id/kind, input alias, full input edge set,
+missing fields, available-field samples, repair hints, and idempotency key.
+The reducer then blocks the failed node through the same ActionGraph path used
+for admission and completion guards.
+
+Generic invariants:
+
+- execution-layer typed violations are workflow facts, not REPL-only helper
+  hints;
+- `input_alias` identifies the specific failed side/input, while
+  `input_aliases` preserves the action's complete structural input edges;
+- ActionGraph blocking derives from typed violation fields and action shape,
+  never from error prose;
+- the same converter can be reused by any atomic action that emits
+  `DataTaskViolation`, not only `join_records`;
+- model-facing state and audit records see the same violation facts that hard
+  control uses.
+
+Changes:
+
+- [x] Added `WorkflowViolationsFromRecordExecution` and
+      `WorkflowViolationFromDataTaskViolation`.
+- [x] Mapped dataquery repairability into workflow repairability without
+      business-specific logic; field-contract violations remain typed-action
+      repairable.
+- [x] Matched execution violations back to their action shape so idempotency,
+      output aliases, dependency ranks, and full input edges stay structural.
+- [x] Included record execution violations in `BuildWorkflowStateViolations`.
+- [x] Added regression coverage proving execution violations appear in
+      `WorkflowViolations` and block the failed current action in ActionGraph.
+
+Remaining architecture items:
+
+- [ ] Feed richer execution violation details into workflow journal snapshots
+      as first-class record fields, not only through terminal snapshots.
+- [ ] Convert more action execution failures to typed dataquery violations so
+      this state path becomes the default for structural execution errors.
+- [ ] Add reducer-level metrics for blocked-node sources: admission guard,
+      completion guard, execution violation, and diagnostic violation.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch
