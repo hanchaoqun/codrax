@@ -42,6 +42,33 @@ func TestRequiredMaterialSchedulingGuardAllowsScheduledPaths(t *testing.T) {
 	}
 }
 
+func TestTextConstraintCoverageGuardResultUsesTypedViolation(t *testing.T) {
+	guard := TextConstraintCoverageGuardResult(TextConstraintCoverageGuardInput{
+		ValidationLedgerCount:       2,
+		CustomInputPaths:            []string{"rules.md", "data.csv"},
+		ScriptConsumedMaterialPaths: []string{"rules.md", "data.csv"},
+	})
+	if guard.Code != "text_constraint_coverage_required" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed text-constraint coverage violation", guard)
+	}
+	v := guard.Violations[0]
+	if len(v.InputAliases) != 1 || v.InputAliases[0] != "rules.md" || len(v.RepairActionHints) != 1 || v.RepairActionHints[0] != "derive_rules" {
+		t.Fatalf("violation=%+v, want text material input and derive_rules hint", v)
+	}
+}
+
+func TestTextConstraintCoverageGuardResultAllowsRuleCoverageRequired(t *testing.T) {
+	guard := TextConstraintCoverageGuardResult(TextConstraintCoverageGuardInput{
+		RuleCoverageRequired:        true,
+		ValidationLedgerCount:       2,
+		CustomInputPaths:            []string{"rules.md"},
+		ScriptConsumedMaterialPaths: []string{"rules.md"},
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want existing rule coverage contract allowed", guard)
+	}
+}
+
 func TestBroadCustomPrerequisiteGuardRejectsMissingPrerequisites(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:         "wide_transform",

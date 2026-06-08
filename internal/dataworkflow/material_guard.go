@@ -2,15 +2,60 @@ package dataworkflow
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
+type TextConstraintCoverageGuardInput struct {
+	ContinueAfter               bool
+	RuleCoverageRequired        bool
+	ValidationLedgerCount       int
+	CustomInputPaths            []string
+	ScriptConsumedMaterialPaths []string
+}
+
 type RequiredMaterialSchedulingGuardInput struct {
 	ContinueAfter  bool
 	RequiredPaths  []string
 	ScheduledPaths []string
+}
+
+func TextConstraintCoverageGuardResult(input TextConstraintCoverageGuardInput) GuardResult {
+	if input.ContinueAfter || input.RuleCoverageRequired || input.ValidationLedgerCount < 2 {
+		return GuardResult{}
+	}
+	inputs := map[string]bool{}
+	for _, p := range cleanStrings(input.CustomInputPaths) {
+		inputs[normalizeCoveragePath(p)] = true
+	}
+	if len(inputs) == 0 {
+		return GuardResult{}
+	}
+	var materials []string
+	for _, material := range cleanStrings(input.ScriptConsumedMaterialPaths) {
+		p := normalizeCoveragePath(material)
+		if p == "" || !inputs[p] || !PathLooksLikeTextConstraintMaterial(p) {
+			continue
+		}
+		materials = append(materials, p)
+	}
+	if len(materials) == 0 {
+		return GuardResult{}
+	}
+	sort.Strings(materials)
+	message := fmt.Sprintf("data planning incomplete: terminal data calculation consumes text/rule material(s) %s with decision/contribution/reconcile ledgers but coverage_contract.rule_coverage_required=false. Add a derive_rules action or emit result.rule_coverage records linked from decisions/contributions/entity_resolutions before completing.",
+		strings.Join(materials, ", "))
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              "text_constraint_coverage_required",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		InputAliases:      materials,
+		RepairActionHints: []string{string(dataquery.DataActionDeriveRules)},
+		Reason:            message,
+	})
+	return NewGuardResult("text_constraint_coverage_required", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func RequiredMaterialSchedulingGuardResult(input RequiredMaterialSchedulingGuardInput) GuardResult {

@@ -15174,8 +15174,52 @@ Remaining architecture items:
       numeric-constant reuse, and terminal raw-material custom-transform.
 - [ ] Feed these guard codes into ActionGraph blocked nodes and workflow
       process events instead of only returning them through repair.
-- [ ] Audit remaining REPL string-returning hard gates and classify each as
+- [x] Audit remaining REPL string-returning hard gates and classify each as
       already typed-renderer, soft diagnostic, or still needing an IR guard.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 340: Remove Generic String-Wrapped Staging Guards
+
+After the explicitly listed staging guards were typed, a residual audit found
+two remaining hard-gate paths that still rendered prose first and wrapped it
+back into a generic guard result: text-constraint coverage and
+custom-transform cooldown. Both are structural workflow decisions and should
+produce typed guard results directly.
+
+This batch moves both decisions into `internal/dataworkflow` and removes the
+now-unused generic string-wrapper helper from REPL. REPL remains responsible for
+collecting adapter-local facts, such as which material paths are consumed by
+scripted transforms, but not for owning the violation schema.
+
+Generic invariants:
+
+- terminal calculations that consume text/rule materials while requiring
+  multiple validation ledgers must expose rule coverage as a typed contract;
+- custom-transform cooldown blocks only free-form script actions and keeps
+  typed actions available;
+- hard gates return typed `GuardResult` / `WorkflowViolation` directly instead
+  of rendering strings and re-wrapping them;
+- the system does not infer business roles, file names, or user intent through
+  keyword matching;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `TextConstraintCoverageGuardInput` and
+      `TextConstraintCoverageGuardResult`.
+- [x] Added typed violation `text_constraint_coverage_required`.
+- [x] Added `CustomTransformDisabledGuardInput` and
+      `CustomTransformDisabledGuardResult`.
+- [x] Rewired REPL staging to consume both typed results directly.
+- [x] Removed the unused generic `dataTaskGuardResultFromMessage` helper.
+- [x] Added dataworkflow-level regression coverage for both guard families.
+
+Remaining architecture items:
+
+- [x] Generic string-wrapped staging hard gates are removed from REPL.
+- [ ] Keep the action-specific adapter helper under review; it currently wraps
+      an apply-resolution canonical-field contract where REPL still computes
+      role-specific adapter facts.
 - [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations

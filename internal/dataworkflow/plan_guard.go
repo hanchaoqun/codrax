@@ -108,6 +108,14 @@ type TerminalRawMaterialCustomTransformGuardInput struct {
 	ComplexScriptLineLimit int
 }
 
+type CustomTransformDisabledGuardInput struct {
+	RecordsPresent      bool
+	HasActions          bool
+	HasSuccessfulResult bool
+	State               WorkflowStateView
+	Actions             []dataquery.DataAction
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -478,4 +486,30 @@ func TerminalRawMaterialCustomTransformGuardResult(input TerminalRawMaterialCust
 		Reason:            message,
 	})
 	return NewGuardResult("terminal_raw_material_custom_transform", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func CustomTransformDisabledGuardResult(input CustomTransformDisabledGuardInput) GuardResult {
+	if !input.RecordsPresent || !input.HasActions || !input.HasSuccessfulResult || !input.State.CustomTransformDisabled {
+		return GuardResult{}
+	}
+	for i, action := range input.Actions {
+		if NormalizeActionKind(action.Kind) != dataquery.DataActionCustomTransform {
+			continue
+		}
+		message := fmt.Sprintf("data planning incomplete: workflow custom_transform_disabled=true at next_stage=%s; action %d (%s) uses custom_transform. Use workflow_state_json.allowed_next_actions [%s] and emit typed actions that consume existing source materials or generated artifact aliases; free-form scripts are disabled for this workflow stage.",
+			input.State.NextStage,
+			guardActionNumber(i),
+			guardActionLabel(action),
+			strings.Join(cleanStrings(input.State.AllowedNextActions), ", "))
+		violation := NewGenericViolation(GenericViolationInput{
+			Code:              "custom_transform_disabled",
+			Severity:          "error",
+			Repairability:     RepairNeedsTypedAction,
+			Action:            action,
+			RepairActionHints: cleanStrings(input.State.AllowedNextActions),
+			Reason:            message,
+		})
+		return NewGuardResult("custom_transform_disabled", "error", RepairNeedsTypedAction, message, violation)
+	}
+	return GuardResult{}
 }

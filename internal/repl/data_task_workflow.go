@@ -90,8 +90,8 @@ func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardR
 	if len(plan.Actions) > 0 {
 		return dataTaskActionStagingGuardResult(plan)
 	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
+	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
+		return guard
 	}
 	lines := dataTaskScriptLineCount(plan.Script)
 	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
@@ -132,27 +132,13 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 	if len(plan.Actions) > 0 {
 		return dataTaskWorkflowActionStagingGuardResult(records, plan)
 	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
+	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
 	return dataTaskPlanStagingGuardResult(plan)
-}
-
-func dataTaskGuardResultFromMessage(code, message string) dataworkflow.GuardResult {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return dataworkflow.GuardResult{}
-	}
-	violation := dataworkflow.NewGenericViolation(dataworkflow.GenericViolationInput{
-		Code:          code,
-		Severity:      "error",
-		Repairability: dataworkflow.RepairNeedsTypedAction,
-		Reason:        message,
-	})
-	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 }
 
 func dataTaskActionGuardResultFromMessage(code, message string, action dataquery.DataAction) dataworkflow.GuardResult {
@@ -179,8 +165,8 @@ func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.Guar
 	}, false); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
+	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
 		return guard
@@ -208,14 +194,14 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	}, true); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
+	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskWorkflowCustomTransformDisabledGuardError(records, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("custom_transform_disabled", errText)
+	if guard := dataTaskWorkflowCustomTransformDisabledGuardResult(records, plan); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
 		MultipleCustomScript: true,
@@ -231,8 +217,8 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	if guard := dataTaskWorkflowStageProgressGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskWorkflowNumericConstantReuseGuardError(plan); errText != "" {
-		return dataTaskGuardResultFromMessage("numeric_constant_reuse_guard", errText)
+	if guard := dataTaskWorkflowNumericConstantReuseGuardResult(plan); !guard.Empty() {
+		return guard
 	}
 	for i, action := range plan.Actions {
 		if guard := dataTaskActionDependencyGuardResult(records, plan, action, i); !guard.Empty() {
@@ -1847,24 +1833,18 @@ func dataTaskStringLooksNumeric(value string) bool {
 }
 
 func dataTaskWorkflowCustomTransformDisabledGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	if len(records) == 0 || len(plan.Actions) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
-		return ""
-	}
+	return dataTaskWorkflowCustomTransformDisabledGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskWorkflowCustomTransformDisabledGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	state := dataTaskWorkflowState(records, plan)
-	if !state.CustomTransformDisabled {
-		return ""
-	}
-	for i, action := range plan.Actions {
-		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform {
-			continue
-		}
-		return fmt.Sprintf("data planning incomplete: workflow custom_transform_disabled=true at next_stage=%s; action %d (%s) uses custom_transform. Use workflow_state_json.allowed_next_actions [%s] and emit typed actions that consume existing source materials or generated artifact aliases; free-form scripts are disabled for this workflow stage.",
-			state.NextStage,
-			i+1,
-			firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-			strings.Join(state.AllowedNextActions, ", "))
-	}
-	return ""
+	return dataworkflow.CustomTransformDisabledGuardResult(dataworkflow.CustomTransformDisabledGuardInput{
+		RecordsPresent:      len(records) > 0,
+		HasActions:          len(plan.Actions) > 0,
+		HasSuccessfulResult: dataTaskWorkflowHasSuccessfulResult(records),
+		State:               state,
+		Actions:             plan.Actions,
+	})
 }
 
 func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
@@ -3242,18 +3222,15 @@ func dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan dataquery.TaskPl
 }
 
 func dataTaskTextConstraintCoverageGuardError(plan dataquery.TaskPlan) string {
-	if plan.ContinueAfter || plan.CoverageContract.RuleCoverageRequired {
-		return ""
-	}
-	if dataTaskValidationLedgerCount(plan.CoverageContract) < 2 {
-		return ""
-	}
+	return dataTaskTextConstraintCoverageGuardResult(plan).ErrorText()
+}
+
+func dataTaskTextConstraintCoverageGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	var customInputs []string
 	if len(plan.Actions) == 0 {
-		if strings.TrimSpace(plan.Script) == "" {
-			return ""
+		if strings.TrimSpace(plan.Script) != "" {
+			customInputs = append(customInputs, plan.InputPaths...)
 		}
-		customInputs = append(customInputs, plan.InputPaths...)
 	} else {
 		for _, action := range plan.Actions {
 			if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
@@ -3262,30 +3239,20 @@ func dataTaskTextConstraintCoverageGuardError(plan dataquery.TaskPlan) string {
 			customInputs = append(customInputs, action.InputPaths...)
 		}
 	}
-	if len(customInputs) == 0 {
-		return ""
-	}
-	inputs := map[string]bool{}
-	for _, p := range cleanDataTaskStrings(customInputs) {
-		inputs[normalizeDataTaskCoveragePath(p)] = true
-	}
 	var materials []string
 	for _, material := range plan.CoverageContract.RequiredMaterials {
 		if normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode) != dataquery.MaterialUseScriptConsumed {
 			continue
 		}
-		p := normalizeDataTaskCoveragePath(material.Path)
-		if p == "" || !inputs[p] || !dataTaskPathLooksLikeTextConstraintMaterial(p) {
-			continue
-		}
-		materials = append(materials, p)
+		materials = append(materials, material.Path)
 	}
-	if len(materials) == 0 {
-		return ""
-	}
-	sort.Strings(materials)
-	return fmt.Sprintf("data planning incomplete: terminal data calculation consumes text/rule material(s) %s with decision/contribution/reconcile ledgers but coverage_contract.rule_coverage_required=false. Add a derive_rules action or emit result.rule_coverage records linked from decisions/contributions/entity_resolutions before completing.",
-		strings.Join(materials, ", "))
+	return dataworkflow.TextConstraintCoverageGuardResult(dataworkflow.TextConstraintCoverageGuardInput{
+		ContinueAfter:               plan.ContinueAfter,
+		RuleCoverageRequired:        plan.CoverageContract.RuleCoverageRequired,
+		ValidationLedgerCount:       dataTaskValidationLedgerCount(plan.CoverageContract),
+		CustomInputPaths:            customInputs,
+		ScriptConsumedMaterialPaths: materials,
+	})
 }
 
 func dataTaskPathLooksLikeTextConstraintMaterial(p string) bool {

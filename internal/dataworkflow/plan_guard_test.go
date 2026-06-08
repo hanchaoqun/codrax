@@ -303,6 +303,44 @@ func TestTerminalRawMaterialCustomTransformGuardResultAllowsContinuation(t *test
 	}
 }
 
+func TestCustomTransformDisabledGuardResultUsesTypedViolation(t *testing.T) {
+	action := dataquery.DataAction{ID: "fallback_script", Kind: dataquery.DataActionCustomTransform, Script: "emit({})"}
+	guard := CustomTransformDisabledGuardResult(CustomTransformDisabledGuardInput{
+		RecordsPresent:      true,
+		HasActions:          true,
+		HasSuccessfulResult: true,
+		State: WorkflowStateView{
+			NextStage:               StagePrepareContributionInputs,
+			CustomTransformDisabled: true,
+			AllowedNextActions:      []string{string(dataquery.DataActionDeriveFields)},
+		},
+		Actions: []dataquery.DataAction{action},
+	})
+	if guard.Code != "custom_transform_disabled" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed custom-transform disabled violation", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "fallback_script" || len(v.RepairActionHints) != 1 || v.RepairActionHints[0] != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("violation=%+v, want action metadata and allowed-action hint", v)
+	}
+}
+
+func TestCustomTransformDisabledGuardResultAllowsTypedActions(t *testing.T) {
+	guard := CustomTransformDisabledGuardResult(CustomTransformDisabledGuardInput{
+		RecordsPresent:      true,
+		HasActions:          true,
+		HasSuccessfulResult: true,
+		State: WorkflowStateView{
+			CustomTransformDisabled: true,
+			AllowedNextActions:      []string{string(dataquery.DataActionDeriveFields)},
+		},
+		Actions: []dataquery.DataAction{{ID: "derive", Kind: dataquery.DataActionDeriveFields}},
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want typed actions allowed while custom transform disabled", guard)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {
