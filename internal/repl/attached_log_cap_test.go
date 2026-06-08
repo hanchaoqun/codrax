@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestREPL_AttachedLogCap_Default confirms that a zero-value
@@ -75,6 +77,50 @@ func TestREPL_HandleLogLoad_HonorsCap(t *testing.T) {
 	}
 }
 
+func TestREPL_HandleLogLoad_RejectsBinaryAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.log")
+	if err := os.WriteFile(path, []byte{'l', 'o', 'g', 0, 1, 2}, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out})
+
+	r.handleLogLoad(path)
+
+	if r.attachedLog != "" {
+		t.Fatalf("binary log must not become sticky attachment: %q", r.attachedLog)
+	}
+	got := out.String()
+	for _, want := range []string{"附加 log", "不是可解析文本", "UTF-8"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("binary log warning missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestREPL_HandleLogAppend_RejectsBinaryWithoutMutatingExistingAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.log")
+	if err := os.WriteFile(path, []byte{'b', 'a', 'd', 0, 3}, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out})
+	r.attachedLog = "existing\n"
+
+	r.handleLogAppend(path)
+
+	if r.attachedLog != "existing\n" {
+		t.Fatalf("binary append should not mutate existing attachment: %q", r.attachedLog)
+	}
+	if !strings.Contains(out.String(), "不是可解析文本") {
+		t.Fatalf("append rejection should be visible:\n%s", out.String())
+	}
+}
+
 func TestREPL_HandleHitraceLoad_HonorsCapWithSourceHeader(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "big.systrace")
@@ -97,5 +143,76 @@ func TestREPL_HandleHitraceLoad_HonorsCapWithSourceHeader(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "hitrace truncated") {
 		t.Errorf("expected truncation warning in output, got: %q", out.String())
+	}
+}
+
+func TestREPL_HandleHitraceLoad_RejectsBinaryWithConvertHint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture.htrace")
+	if err := os.WriteFile(path, []byte{'H', 'T', 0, 1, 2, 3}, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out})
+
+	r.handleHitraceCmd("/htrace " + path)
+
+	if r.attachedHitrace != "" {
+		t.Fatalf("binary trace must not become sticky attachment: %q", r.attachedHitrace)
+	}
+	got := out.String()
+	for _, want := range []string{"附加 trace", "/htrace convert", "codrax trace convert"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("binary trace guidance missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestREPL_HandleAtraceAlias_RejectsBinaryWithConvertHint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture.atrace")
+	if err := os.WriteFile(path, []byte{'A', 'T', 0, 1, 2, 3}, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out})
+	line := "/atrace " + path
+	r.pendingHitraceSource = replTraceSourceHint(line)
+	r.handleSlash(types.NormalizeREPLCommandAlias(line))
+
+	if r.attachedHitrace != "" {
+		t.Fatalf("binary atrace must not become sticky attachment: %q", r.attachedHitrace)
+	}
+	if r.pendingHitraceSource != "android_atrace" {
+		t.Fatalf("atrace alias should set android source hint, got %q", r.pendingHitraceSource)
+	}
+	got := out.String()
+	for _, want := range []string{"附加 trace", "/htrace convert", "codrax trace convert"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("binary atrace guidance missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestREPL_HandleHitraceAppend_RejectsBinaryWithoutMutatingExistingAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture.htrace")
+	if err := os.WriteFile(path, []byte{'H', 0, 4, 5}, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out})
+	r.attachedHitrace = "existing trace\n"
+
+	r.handleHitraceAppend(path)
+
+	if r.attachedHitrace != "existing trace\n" {
+		t.Fatalf("binary trace append should not mutate existing attachment: %q", r.attachedHitrace)
+	}
+	if !strings.Contains(out.String(), "/htrace convert") {
+		t.Fatalf("trace append rejection should include convert guidance:\n%s", out.String())
 	}
 }

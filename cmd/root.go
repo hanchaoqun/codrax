@@ -20,6 +20,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/env"
@@ -865,6 +866,9 @@ func enforceStdinExclusivity() error {
 // truncateAttachedToCap. `kind` is "log" / "trace" for error context.
 func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int) (string, error) {
 	if inlineText != "" {
+		if err := attachment.ValidateText(attachment.Kind(kind), "--"+kind+"-text", []byte(inlineText), false); err != nil {
+			return "", err
+		}
 		return inlineText, nil
 	}
 	if len(paths) == 0 {
@@ -901,9 +905,12 @@ func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int)
 		if remaining <= 0 {
 			break
 		}
-		data, err := readAttachedSourceLimited(p, remaining)
+		data, truncated, err := readAttachedSourceLimited(p, remaining)
 		if err != nil {
 			return "", fmt.Errorf("load attached %s %q: %w", kind, p, err)
+		}
+		if err := attachment.ValidateText(attachment.Kind(kind), p, data, truncated); err != nil {
+			return "", err
 		}
 		b.Write(data)
 		remaining -= len(data)
@@ -911,19 +918,33 @@ func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int)
 	return b.String(), nil
 }
 
-func readAttachedSourceLimited(path string, limit int) ([]byte, error) {
+func readAttachedSourceLimited(path string, limit int) ([]byte, bool, error) {
 	if limit <= 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	if path == "-" {
-		return io.ReadAll(io.LimitReader(os.Stdin, int64(limit)))
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, int64(limit)+1))
+		if err != nil {
+			return nil, false, err
+		}
+		if len(data) > limit {
+			return data[:limit], true, nil
+		}
+		return data, false, nil
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, int64(limit)))
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > limit {
+		return data[:limit], true, nil
+	}
+	return data, false, nil
 }
 
 func truncateAttachedLog(s string) string {

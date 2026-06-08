@@ -76,6 +76,38 @@ func TestLoadMultiPathSlice_InlineTakesPriority(t *testing.T) {
 	}
 }
 
+func TestLoadMultiPathSlice_RejectsBinaryLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.log")
+	if err := os.WriteFile(path, []byte{'l', 'o', 'g', 0, 1, 2}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadMultiPathSlice("log", []string{path}, "", 1<<20)
+	if err == nil {
+		t.Fatal("binary log should be rejected")
+	}
+	if !strings.Contains(err.Error(), "not readable text") && !strings.Contains(err.Error(), "可解析文本") {
+		t.Fatalf("error should explain text attachment problem: %v", err)
+	}
+}
+
+func TestLoadMultiPathSlice_RejectsBinaryTraceWithConvertHint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture.htrace")
+	if err := os.WriteFile(path, []byte{'H', 'T', 0, 1, 2, 3}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadMultiPathSlice("trace", []string{path}, "", 1<<20)
+	if err == nil {
+		t.Fatal("binary trace should be rejected")
+	}
+	for _, want := range []string{"codrax trace convert", "--htrace", "capture.htrace"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("trace error missing %q: %v", want, err)
+		}
+	}
+}
+
 // TestEnforceStdinExclusivity catches multi-stdin mistakes.
 func TestEnforceStdinExclusivity(t *testing.T) {
 	saveLog := flagAttachLog

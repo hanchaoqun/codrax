@@ -37,6 +37,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pterm/pterm"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/env"
@@ -10456,6 +10457,9 @@ func (r *REPL) handleLogAppend(path string) {
 		r.errorf("append log: %v\n", err)
 		return
 	}
+	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindLog, path, data, truncated)) {
+		return
+	}
 	combined += string(data)
 	if truncated {
 		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
@@ -10525,6 +10529,9 @@ func (r *REPL) handleHitraceCmd(line string) {
 		data, truncated, err := readFileLimited(rest, remaining)
 		if err != nil {
 			r.errorf("load hitrace: %v\n", err)
+			return
+		}
+		if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindTrace, rest, data, truncated)) {
 			return
 		}
 		if truncated {
@@ -10607,6 +10614,9 @@ func (r *REPL) handleHitraceAppend(path string) {
 		r.errorf("append hitrace: %v\n", err)
 		return
 	}
+	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindTrace, path, data, truncated)) {
+		return
+	}
 	combined += string(data)
 	if truncated {
 		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
@@ -10672,12 +10682,28 @@ func (r *REPL) handleLogLoad(path string) {
 		r.errorf("load log: %v\n", err)
 		return
 	}
+	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindLog, path, data, truncated)) {
+		return
+	}
 	if truncated {
 		r.warn("log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
 	}
 	r.attachedLog = string(data)
 	r.attachedLogAutoRouted = false
 	r.success(fmt.Sprintf("attached log loaded: %s (%d bytes)", path, len(data)))
+}
+
+func (r *REPL) reportAttachmentTextIssue(err error) bool {
+	if err == nil {
+		return false
+	}
+	var issue attachment.TextIssue
+	if errors.As(err, &issue) {
+		r.errorf("%s\n", issue.Message(r.language, attachment.SurfaceREPL))
+		return true
+	}
+	r.errorf("%v\n", err)
+	return true
 }
 
 func readFileLimited(path string, limit int) ([]byte, bool, error) {
