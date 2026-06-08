@@ -15217,9 +15217,49 @@ Changes:
 Remaining architecture items:
 
 - [x] Generic string-wrapped staging hard gates are removed from REPL.
-- [ ] Keep the action-specific adapter helper under review; it currently wraps
+- [x] Keep the action-specific adapter helper under review; it currently wraps
       an apply-resolution canonical-field contract where REPL still computes
       role-specific adapter facts.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 341: Typed Apply-Resolution Canonical Field Contract
+
+The residual string-wrapper audit found one last action-specific helper in
+REPL. It wrapped an apply-resolution canonical-field contract after REPL had
+computed adapter-local facts about the resolution input and its available
+fields. The violation itself belongs to the workflow schema layer.
+
+This batch adds a reducer-owned canonical-field guard in `internal/dataworkflow`
+and removes the remaining REPL string-wrapper helper. REPL now passes the
+resolution input alias, expected canonical fields, and available fields as
+facts; dataworkflow produces the typed guard result and violation metadata.
+
+Generic invariants:
+
+- apply-resolution actions must consume a resolution artifact that has an
+  explicit canonical value field, or materialize one through a prior typed
+  action;
+- REPL may collect artifact field samples, but does not own the canonical-field
+  violation schema;
+- no business-specific entity names, domains, or material roles are inferred by
+  the guard;
+- the final REPL string-wrapper helper family is removed;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `ApplyResolutionCanonicalFieldGuardInput` and
+      `ApplyResolutionCanonicalFieldGuardResult`.
+- [x] Rewired REPL apply-resolution field-contract handling to call the typed
+      dataworkflow guard.
+- [x] Deleted the last `dataTask*GuardResultFromMessage` helper.
+- [x] Added dataworkflow-level regression coverage for canonical-field
+      violations.
+
+Remaining architecture items:
+
+- [x] REPL no longer has generic or action-specific string-wrapper helpers for
+      data staging hard gates.
 - [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations

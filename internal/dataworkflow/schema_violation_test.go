@@ -124,6 +124,21 @@ func TestApplyResolutionGuardResultsAreReducerOwned(t *testing.T) {
 	if noProgress.Code != "apply_resolution_no_progress" || !strings.Contains(noProgress.ErrorText(), "idempotent") {
 		t.Fatalf("noProgress=%+v, want no-progress guard", noProgress)
 	}
+
+	canonical := ApplyResolutionCanonicalFieldGuardResult(ApplyResolutionCanonicalFieldGuardInput{
+		Action:          action,
+		ActionIndex:     3,
+		SpecIndex:       1,
+		ResolutionPath:  "mapping",
+		CanonicalFields: []string{"canonical_id", "canonical_label"},
+		AvailableFields: []string{"source_value", "match_status"},
+	})
+	if canonical.Code != "apply_resolution_canonical_field_contract" || !strings.Contains(canonical.ErrorText(), "canonical value field") {
+		t.Fatalf("canonical=%+v, want canonical field guard", canonical)
+	}
+	if got := canonical.Violations[0].MissingFields; len(got) != 2 || got[0] != "canonical_id" || got[1] != "canonical_label" {
+		t.Fatalf("canonical violation=%+v, want canonical missing fields", canonical.Violations[0])
+	}
 }
 
 func TestActionDependencyGuardResultsAreReducerOwned(t *testing.T) {

@@ -120,6 +120,15 @@ type ApplyResolutionNoProgressGuardInput struct {
 	TargetFields   []string
 }
 
+type ApplyResolutionCanonicalFieldGuardInput struct {
+	Action          dataquery.DataAction
+	ActionIndex     int
+	SpecIndex       int
+	ResolutionPath  string
+	CanonicalFields []string
+	AvailableFields []string
+}
+
 type GenericViolationInput struct {
 	Code               string
 	Severity           string
@@ -477,6 +486,34 @@ func ApplyResolutionNoProgressGuardResult(input ApplyResolutionNoProgressGuardIn
 		Action:     input.Action,
 		InputAlias: resolutionPath,
 		Message:    message,
+	})
+}
+
+func ApplyResolutionCanonicalFieldGuardResult(input ApplyResolutionCanonicalFieldGuardInput) GuardResult {
+	resolutionPath := strings.TrimSpace(input.ResolutionPath)
+	canonicalFields := cleanStrings(input.CanonicalFields)
+	available := clampStrings(cleanStrings(input.AvailableFields), 32)
+	if resolutionPath == "" || len(canonicalFields) == 0 || len(available) == 0 {
+		return GuardResult{}
+	}
+	specNumber := input.SpecIndex + 1
+	if specNumber <= 0 {
+		specNumber = 1
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but none of [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(input.Action),
+		specNumber,
+		resolutionPath,
+		strings.Join(canonicalFields, ", "),
+		strings.Join(available, ", "))
+	return ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:              "apply_resolution_canonical_field_contract",
+		Action:            input.Action,
+		InputAlias:        resolutionPath,
+		MissingFields:     canonicalFields,
+		Message:           message,
+		RepairActionHints: []string{string(dataquery.DataActionDeriveFields), string(dataquery.DataActionEnrichRecords), string(dataquery.DataActionNormalizeEntities)},
 	})
 }
 

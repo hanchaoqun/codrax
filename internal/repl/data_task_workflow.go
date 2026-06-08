@@ -141,23 +141,6 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 	return dataTaskPlanStagingGuardResult(plan)
 }
 
-func dataTaskActionGuardResultFromMessage(code, message string, action dataquery.DataAction) dataworkflow.GuardResult {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return dataworkflow.GuardResult{}
-	}
-	violation := dataworkflow.NewGenericViolation(dataworkflow.GenericViolationInput{
-		Code:          code,
-		Severity:      "error",
-		Repairability: dataworkflow.RepairNeedsTypedAction,
-		Action:        action,
-		InputAliases:  action.InputPaths,
-		OutputAlias:   action.OutputArtifact,
-		Reason:        message,
-	})
-	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
-}
-
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,
@@ -4198,14 +4181,14 @@ func dataTaskApplyResolutionActionFieldContractGuardResult(access []dataTaskArti
 			if guard := dataTaskActionMissingFieldContractGuardResult(action, actionIndex, resolutionPath, cleanDataTaskStrings([]string{canonicalIDField, canonicalLabelField}), access); !guard.Empty() {
 				return guard
 			}
-			return dataTaskActionGuardResultFromMessage("apply_resolution_canonical_field_contract", fmt.Sprintf("data planning incomplete: action %d (%s) apply_entity_resolutions spec %d needs a canonical value field on resolution input %s, but neither [%s] nor [%s] is present. Use fields from %s, or first materialize the needed canonical field with a typed action.",
-				actionIndex+1,
-				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-				i+1,
-				resolutionPath,
-				canonicalIDField,
-				canonicalLabelField,
-				strings.Join(clampDataTaskStringSlice(artifact.Fields, 32), ", ")), action)
+			return dataworkflow.ApplyResolutionCanonicalFieldGuardResult(dataworkflow.ApplyResolutionCanonicalFieldGuardInput{
+				Action:          action,
+				ActionIndex:     actionIndex,
+				SpecIndex:       i,
+				ResolutionPath:  resolutionPath,
+				CanonicalFields: cleanDataTaskStrings([]string{canonicalIDField, canonicalLabelField}),
+				AvailableFields: artifact.Fields,
+			})
 		}
 		if guard := dataTaskApplyResolutionNoProgressGuardResult(access, action, actionIndex, specBasePath, resolutionPath, spec, len(specs)); !guard.Empty() {
 			return guard
