@@ -1514,7 +1514,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		t.Fatalf("read terminal audit: %v", err)
 	}
 	terminalText := string(rawTerminal)
-	for _, want := range []string{`"kind": "execute"`, `"kind": "repair"`, `"kind": "result"`, `"kind": "evaluate"`, `"plan_transitions"`, `"source": "repair"`, `"current_plan"`} {
+	for _, want := range []string{`"data_rounds": 2`, `"repair_rounds": 1`, `"kind": "execute"`, `"kind": "repair"`, `"kind": "result"`, `"kind": "evaluate"`, `"plan_transitions"`, `"source": "repair"`, `"current_plan"`} {
 		if !strings.Contains(terminalText, want) {
 			t.Fatalf("terminal audit missing live process event %q:\n%s", want, terminalText)
 		}

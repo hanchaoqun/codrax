@@ -139,6 +139,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		workflowRuntime.SetDeferredQueue(dataworkflow.NewDeferredQueue(resume.DeferredPlan))
 		dataRounds = resume.DataRounds
 		repairRounds = resume.RepairRounds
+		workflowRuntime.SetRounds(dataRounds, repairRounds)
 		resumed = true
 		emitWorkflowReason("resume", dataRounds, fmt.Sprintf("checkpoint %s", resumePath))
 	}
@@ -242,6 +243,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
+			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
 				return "", repairErr
 			}
@@ -271,6 +273,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
+			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
 				return "", repairErr
 			}
@@ -385,6 +388,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			var repaired dataquery.TaskPlan
 			var ok bool
 			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if err != nil {
 				return "", err
 			}
@@ -406,7 +410,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
-		dataRounds++
+		dataRounds = workflowRuntime.IncrementDataRound()
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:  "execute",
 			Round: dataRounds,
@@ -480,6 +484,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			var repaired dataquery.TaskPlan
 			var ok bool
 			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if !recordedErr {
 				appendRecord(executionRecord)
 			}
@@ -503,6 +508,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				var repaired dataquery.TaskPlan
 				var ok bool
 				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if err != nil {
 					return "", err
@@ -615,6 +621,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				var repaired dataquery.TaskPlan
 				var ok bool
 				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				if len(records) > 0 {
 					attachLastError(errText)
 				}
@@ -670,7 +677,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if !repairOK || repairRounds >= repairRoundsMax {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
-			repairRounds++
+			repairRounds = workflowRuntime.IncrementRepairRound()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			repairedPlan, err := repairer.RepairDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason)

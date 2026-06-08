@@ -212,8 +212,22 @@ func (rt *WorkflowRuntime) SetRounds(dataRounds, repairRounds int) {
 	if rt == nil {
 		return
 	}
+	if dataRounds < 0 {
+		dataRounds = 0
+	}
+	if repairRounds < 0 {
+		repairRounds = 0
+	}
 	rt.dataRounds = dataRounds
 	rt.repairRounds = repairRounds
+}
+
+func (rt *WorkflowRuntime) IncrementDataRound() int {
+	if rt == nil {
+		return 0
+	}
+	rt.dataRounds++
+	return rt.dataRounds
 }
 
 func (rt *WorkflowRuntime) DataRounds() int {
@@ -221,6 +235,14 @@ func (rt *WorkflowRuntime) DataRounds() int {
 		return 0
 	}
 	return rt.dataRounds
+}
+
+func (rt *WorkflowRuntime) IncrementRepairRound() int {
+	if rt == nil {
+		return 0
+	}
+	rt.repairRounds++
+	return rt.repairRounds
 }
 
 func (rt *WorkflowRuntime) RepairRounds() int {

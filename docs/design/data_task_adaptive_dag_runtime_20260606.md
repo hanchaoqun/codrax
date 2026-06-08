@@ -14594,3 +14594,46 @@ Changes:
 Remaining architecture items:
 
 - [x] Run focused regression suites before continuing the IR closure audit.
+
+### Batch 323: Runtime-Owned Round Counters
+
+The runtime-backed journal snapshot closed one audit divergence, but CLI and
+REPL still advanced `data_rounds` and `repair_rounds` through local loop
+variables. That left a small but important state-ownership gap: terminal
+audits, checkpoints, process events, and future resume/reducer logic could
+observe different round values if an entrypoint forgot to mirror a local
+counter into `WorkflowRuntime`.
+
+This batch makes round advancement a runtime-owned operation. Existing local
+variables remain as short-lived mirrors while the larger loop migration
+continues, but all data-workflow execution and repair round mutations now go
+through the runtime API.
+
+Generic invariants:
+
+- `WorkflowRuntime` owns data/repair round mutation;
+- CLI/REPL may mirror returned values for legacy call signatures, but they do
+  not independently advance data workflow counters;
+- checkpoint resume restores counters into the runtime before continuing;
+- helper-returned repair counts are synchronized back into the runtime;
+- command-operation repair counters remain outside the data workflow runtime;
+- no business-domain roles, field names, prompt prose, or user-intent keywords
+  participate in round ownership.
+
+Changes:
+
+- [x] Added clamped `WorkflowRuntime.SetRounds`.
+- [x] Added `IncrementDataRound` and `IncrementRepairRound` runtime APIs.
+- [x] Rewired CLI data execution rounds to advance through `WorkflowRuntime`.
+- [x] Rewired CLI data repair round sync after helper repair planning and
+      evaluator-triggered repair.
+- [x] Rewired REPL data execution and repair rounds to advance through
+      `WorkflowRuntime`.
+- [x] Added runtime unit coverage for round ownership and clamped restore.
+- [x] Extended CLI terminal-audit regression coverage for persisted
+      `data_rounds` and `repair_rounds`.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.

@@ -117,6 +117,24 @@ func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeOwnsRoundCounters(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.SetRounds(-3, -4)
+	if rt.DataRounds() != 0 || rt.RepairRounds() != 0 {
+		t.Fatalf("negative rounds should clamp to zero: data=%d repair=%d", rt.DataRounds(), rt.RepairRounds())
+	}
+	if got := rt.IncrementDataRound(); got != 1 {
+		t.Fatalf("IncrementDataRound=%d, want 1", got)
+	}
+	if got := rt.IncrementRepairRound(); got != 1 {
+		t.Fatalf("IncrementRepairRound=%d, want 1", got)
+	}
+	rt.SetRounds(7, 8)
+	if rt.IncrementDataRound() != 8 || rt.IncrementRepairRound() != 9 {
+		t.Fatalf("round counters not owned by runtime: data=%d repair=%d", rt.DataRounds(), rt.RepairRounds())
+	}
+}
+
 func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	record := WorkflowRecord{
