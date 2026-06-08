@@ -17036,6 +17036,46 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 379: Workflow-Owned Available Action Inputs
+
+After upstream-ledger readiness moved into `dataworkflow`, action input
+availability was still computed in the REPL adapter. That kept a duplicate
+view of generated artifact aliases, consumed source paths, top-level external
+inputs, and previous action outputs outside the workflow IR package.
+
+Generic invariants:
+
+- available action inputs are objective graph state, not UI state;
+- availability can come from executed result consumed paths, generated artifact
+  aliases, top-level external material inputs, or earlier non-terminal typed
+  actions in the accepted batch;
+- custom transforms and material-inventory actions do not automatically create
+  reusable input aliases before they execute;
+- unavailable inputs produce typed `unavailable_action_input` guards from the
+  workflow reducer;
+- business roles are not inferred by this layer.
+
+Changes:
+
+- [x] Added workflow-owned `AvailableActionInputPaths`.
+- [x] Added workflow-owned `ActionInputAvailabilityGuardResult`.
+- [x] Added workflow-owned `WorkflowHasSuccessfulResult`.
+- [x] Added shared `ActionOutputAliases`.
+- [x] Rewired REPL data action input-availability guard to call the workflow
+      reducer.
+- [x] Removed the REPL-local available-input-set helper family.
+- [x] Added regression coverage for artifact aliases, top-level external
+      inputs, prior action outputs, and missing inputs.
+
+Remaining architecture items:
+
+- [ ] Continue migrating coverage-material set computation from REPL-local
+      helpers into MaterialGraph reducers.
+- [ ] Continue migrating schema/field-contract guards from REPL-local helper
+      families into ArtifactGraph/SchemaProjection reducers.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

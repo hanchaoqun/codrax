@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -3423,37 +3422,11 @@ func dataTaskActionInputAvailabilityGuardError(records []dataTaskWorkflowRecord,
 }
 
 func dataTaskActionInputAvailabilityGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
-	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
-		return dataworkflow.GuardResult{}
-	}
-	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	switch kind {
-	case dataquery.DataActionMaterialInventory,
-		dataquery.DataActionInspectMaterial,
-		dataquery.DataActionExtractRecords,
-		dataquery.DataActionDeriveRules:
-		return dataworkflow.GuardResult{}
-	}
-	inputs := cleanDataTaskStrings(action.InputPaths)
-	if len(inputs) == 0 {
-		return dataworkflow.GuardResult{}
-	}
-	available := dataTaskWorkflowAvailableActionInputPaths(records, plan, actionIndex)
-	var missing []string
-	for _, input := range inputs {
-		if dataTaskCoveragePathCovered(available, input) {
-			continue
-		}
-		missing = append(missing, input)
-	}
-	if len(missing) == 0 {
-		return dataworkflow.GuardResult{}
-	}
-	sort.Strings(missing)
-	return dataworkflow.UnavailableActionInputGuardResult(dataworkflow.UnavailableActionInputGuardInput{
+	return dataworkflow.ActionInputAvailabilityGuardResult(dataworkflow.ActionInputAvailabilityGuardInput{
+		Records:     records,
+		Plan:        plan,
 		Action:      action,
 		ActionIndex: actionIndex,
-		Missing:     missing,
 	})
 }
 
@@ -4839,75 +4812,6 @@ func dataTaskWorkflowCoveredMaterialPaths(records []dataTaskWorkflowRecord, plan
 		}
 	}
 	return covered
-}
-
-func dataTaskWorkflowAvailableActionInputPaths(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) map[string]bool {
-	available := map[string]bool{}
-	mark := func(values []string) {
-		for _, value := range cleanDataTaskStrings(values) {
-			normalized := normalizeDataTaskCoveragePath(value)
-			if normalized != "" {
-				available[normalized] = true
-			}
-		}
-	}
-	var markArtifact func(dataquery.DataArtifact)
-	markArtifact = func(artifact dataquery.DataArtifact) {
-		mark(artifact.SourcePaths)
-		mark(dataTaskArtifactAliasPaths(artifact))
-		for _, child := range artifact.Children {
-			markArtifact(child)
-		}
-	}
-	for _, rec := range records {
-		if rec.Result == nil {
-			continue
-		}
-		mark(rec.Result.ConsumedPaths)
-		for _, artifact := range rec.Result.Artifacts {
-			markArtifact(artifact)
-		}
-	}
-	mark(dataTaskTopLevelExternalMaterialInputs(plan.InputPaths))
-	if beforeActionIndex > len(plan.Actions) {
-		beforeActionIndex = len(plan.Actions)
-	}
-	for i := 0; i < beforeActionIndex; i++ {
-		action := plan.Actions[i]
-		switch normalizeDataActionKindForWorkflow(action.Kind) {
-		case dataquery.DataActionCustomTransform, dataquery.DataActionMaterialInventory:
-			continue
-		default:
-			mark(action.InputPaths)
-			mark(dataTaskActionOutputAliases(action))
-		}
-	}
-	return available
-}
-
-func dataTaskTopLevelExternalMaterialInputs(values []string) []string {
-	var out []string
-	for _, value := range cleanDataTaskStrings(values) {
-		if dataTaskPathLooksLikeExternalMaterial(value) {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
-func dataTaskPathLooksLikeExternalMaterial(value string) bool {
-	value = strings.TrimSpace(filepath.ToSlash(value))
-	if value == "" {
-		return false
-	}
-	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
-		return true
-	}
-	if strings.Contains(value, "/") {
-		return true
-	}
-	ext := strings.TrimSpace(path.Ext(value))
-	return ext != ""
 }
 
 func dataTaskCoveragePathCovered(covered map[string]bool, required string) bool {
