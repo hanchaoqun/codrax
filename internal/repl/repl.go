@@ -1798,7 +1798,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 							logging.Info("[repl/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 							nextPlan = normalized
 						}
-						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, nextPlan, errText)
+						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, nextPlan, errText)
 						currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 						continue
 					}

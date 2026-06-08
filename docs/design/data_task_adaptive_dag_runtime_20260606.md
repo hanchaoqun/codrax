@@ -18467,6 +18467,40 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 431: REPL Continuation Preserve From Runtime View
+
+The follow-up search found the same input-boundary pattern in one REPL
+execution-failure continuation branch. The branch already built a
+`WorkflowRuntimeView` and passed it to the continuation planner, but after an
+accepted continuation plan it preserved material coverage using adapter-local
+`records/currentPlan`.
+
+This batch makes that preservation step use the same runtime view as the
+planner call. It is intentionally small: the goal is to keep each planner
+turn's candidates, fallback, and coverage preservation rooted in one typed
+snapshot.
+
+Generic invariants:
+
+- one continuation turn should use one runtime-view source of truth;
+- adapter mirrors remain compatibility state, not hard decision input when a
+  runtime view exists;
+- no prompts, business semantics, output contracts, source analysis,
+  trace/log analysis, operation, or write mode behavior changes.
+
+Changes:
+
+- [x] Rewired REPL execution-failure continuation material-coverage
+      preservation to use `view.Records` and `view.CurrentPlan`.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
