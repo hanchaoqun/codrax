@@ -173,42 +173,145 @@ func dataTaskActionGuardResultFromMessage(code, message string, action dataquery
 }
 
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	msg := dataTaskActionStagingGuardError(plan)
-	if strings.TrimSpace(msg) == "" {
-		return dataworkflow.GuardResult{}
-	}
-	if guard := dataTaskMatchingActionDependencyGuardResult(nil, plan, msg); !guard.Empty() {
+	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
+		TopLevelScript: true,
+		ActionCount:    true,
+	}, false); !guard.Empty() {
 		return guard
 	}
-	return dataTaskGuardResultFromMessage("action_staging_guard", msg)
-}
-
-func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	msg := dataTaskWorkflowActionStagingGuardError(records, plan)
-	if strings.TrimSpace(msg) == "" {
-		return dataworkflow.GuardResult{}
+	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
+		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
 	}
-	if guard := dataTaskMatchingActionDependencyGuardResult(records, plan, msg); !guard.Empty() {
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
 		return guard
 	}
-	return dataTaskGuardResultFromMessage("workflow_action_staging_guard", msg)
-}
-
-func dataTaskMatchingActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, renderedMessage string) dataworkflow.GuardResult {
-	renderedMessage = strings.TrimSpace(renderedMessage)
-	if renderedMessage == "" {
-		return dataworkflow.GuardResult{}
+	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
+		MultipleCustomScript: true,
+	}, false); !guard.Empty() {
+		return guard
 	}
 	for i, action := range plan.Actions {
-		guard := dataTaskActionDependencyGuardResult(records, plan, action, i)
-		if guard.Empty() {
-			continue
+		if guard := dataTaskActionDependencyGuardResult(nil, plan, action, i); !guard.Empty() {
+			return guard
 		}
-		if strings.TrimSpace(guard.ErrorText()) == renderedMessage {
+		if guard := dataTaskSingleActionShapeGuardResult(nil, plan, action, i, false); !guard.Empty() {
 			return guard
 		}
 	}
 	return dataworkflow.GuardResult{}
+}
+
+func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
+		TopLevelScript: true,
+		ActionCount:    true,
+	}, true); !guard.Empty() {
+		return guard
+	}
+	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
+		return dataTaskGuardResultFromMessage("text_constraint_coverage_guard", errText)
+	}
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
+		return guard
+	}
+	if errText := dataTaskWorkflowCustomTransformDisabledGuardError(records, plan); errText != "" {
+		return dataTaskGuardResultFromMessage("custom_transform_disabled", errText)
+	}
+	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
+		MultipleCustomScript: true,
+	}, true); !guard.Empty() {
+		return guard
+	}
+	if errText := dataTaskCoverageLoopGuardError(records, plan); errText != "" {
+		return dataTaskGuardResultFromMessage("coverage_loop_guard", errText)
+	}
+	if errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan); errText != "" {
+		return dataTaskGuardResultFromMessage("allowed_next_action_guard", errText)
+	}
+	if errText := dataTaskWorkflowStageProgressGuardError(records, plan); errText != "" {
+		return dataTaskGuardResultFromMessage("stage_progress_guard", errText)
+	}
+	if errText := dataTaskWorkflowNumericConstantReuseGuardError(plan); errText != "" {
+		return dataTaskGuardResultFromMessage("numeric_constant_reuse_guard", errText)
+	}
+	for i, action := range plan.Actions {
+		if guard := dataTaskActionDependencyGuardResult(records, plan, action, i); !guard.Empty() {
+			return guard
+		}
+		if guard := dataworkflow.RepeatedCustomTransformGuardResult(action, dataTaskWorkflowErrorTexts(records), DefaultDataTaskMaxNodeFailures); !guard.Empty() {
+			return guard
+		}
+		if guard := dataworkflow.RepeatedCustomTransformClassGuardResult(
+			action,
+			dataTaskActionHasBroadPrerequisiteSurface(plan, action) || dataTaskActionLooksLikeWholeWorkflow(plan, action, i),
+			dataTaskCustomTransformFailureErrors(records),
+			DefaultDataTaskMaxCustomTransformClassFailures,
+			DefaultDataTaskMaxNodeFailures,
+		); !guard.Empty() {
+			return guard
+		}
+		if errText := dataTaskTerminalRawMaterialCustomTransformGuardError(records, plan, action, i, dataTaskScriptLineCount(action.Script)); errText != "" {
+			return dataTaskGuardResultFromMessage("terminal_raw_material_custom_transform", errText)
+		}
+		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
+			if guard := dataTaskBroadCustomPrerequisiteGuardResult(records, plan, action, i); !guard.Empty() {
+				return guard
+			}
+		}
+		if guard := dataTaskSingleActionShapeGuardResult(records, plan, action, i, true); !guard.Empty() {
+			return guard
+		}
+	}
+	return dataworkflow.GuardResult{}
+}
+
+func dataTaskActionBatchShapeGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, checks dataworkflow.ActionBatchShapeChecks, workflowAware bool) dataworkflow.GuardResult {
+	return dataworkflow.ActionBatchShapeGuardResult(dataworkflow.ActionBatchShapeGuardInput{
+		Plan:                         plan,
+		Checks:                       checks,
+		TopLevelScriptLines:          dataTaskScriptLineCount(plan.Script),
+		MaxActionsPerBatch:           dataTaskMaxActionsPerBatch,
+		CustomScriptActionCount:      dataTaskCustomScriptActionCount(plan.Actions),
+		RequiredMaterialCount:        len(plan.CoverageContract.RequiredMaterials),
+		ValidationLedgerCount:        dataTaskValidationLedgerCount(plan.CoverageContract),
+		ComplexCustomScriptLineLimit: dataTaskComplexCustomScriptLineLimit,
+		OneShotScriptLineSoftLimit:   dataTaskOneShotScriptLineSoftLimit,
+		ActionFacts:                  dataTaskActionShapeFacts(records, plan, plan.Actions),
+		WorkflowAware:                workflowAware,
+	})
+}
+
+func dataTaskSingleActionShapeGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int, workflowAware bool) dataworkflow.GuardResult {
+	facts := dataTaskActionShapeFacts(records, plan, []dataquery.DataAction{action})
+	if len(facts) > 0 {
+		facts[0].ActionIndex = actionIndex
+	}
+	return dataworkflow.ActionBatchShapeGuardResult(dataworkflow.ActionBatchShapeGuardInput{
+		Plan:                         plan,
+		Checks:                       dataworkflow.ActionBatchShapeChecks{ActionScripts: true},
+		RequiredMaterialCount:        len(plan.CoverageContract.RequiredMaterials),
+		ValidationLedgerCount:        dataTaskValidationLedgerCount(plan.CoverageContract),
+		ComplexCustomScriptLineLimit: dataTaskComplexCustomScriptLineLimit,
+		OneShotScriptLineSoftLimit:   dataTaskOneShotScriptLineSoftLimit,
+		ActionFacts:                  facts,
+		WorkflowAware:                workflowAware,
+	})
+}
+
+func dataTaskActionShapeFacts(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, actions []dataquery.DataAction) []dataworkflow.ActionShapeFact {
+	out := make([]dataworkflow.ActionShapeFact, 0, len(actions))
+	for offset, action := range actions {
+		out = append(out, dataworkflow.ActionShapeFact{
+			Action:                 action,
+			ActionIndex:            offset,
+			ScriptLines:            dataTaskScriptLineCount(action.Script),
+			HasResultEmitter:       dataTaskScriptHasResultEmitter(action.Script),
+			LooksLikeWholeWorkflow: dataTaskActionLooksLikeWholeWorkflow(plan, action, offset),
+			BroadPrereqSurface:     dataTaskActionHasBroadPrerequisiteSurface(plan, action),
+			RawInputCount:          len(dataTaskCustomTransformRawMaterialInputs(records, action)),
+		})
+	}
+	return out
 }
 
 func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
@@ -1585,162 +1688,11 @@ func dataTaskPlanHasCustomTransform(plan dataquery.TaskPlan) bool {
 }
 
 func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
-	topLevelLines := dataTaskScriptLineCount(plan.Script)
-	if topLevelLines > 0 {
-		return fmt.Sprintf("data planning incomplete: actions[] plans must not carry a top-level script (script_lines=%d). Put each bounded transform script on its custom_transform action, or split the workflow into typed atomic actions; top-level script is only for simple non-actions plans.",
-			topLevelLines)
-	}
-	if len(plan.Actions) > dataTaskMaxActionsPerBatch {
-		return fmt.Sprintf("data planning incomplete: actions[] batch contains %d action(s), above the atomic batch limit %d. Emit only the next small DAG batch and set continue_after=true when more data workflow work remains.",
-			len(plan.Actions), dataTaskMaxActionsPerBatch)
-	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return errText
-	}
-	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
-		return guard.ErrorText()
-	}
-	if count := dataTaskCustomScriptActionCount(plan.Actions); count > 1 {
-		return fmt.Sprintf("data planning incomplete: actions[] batch contains %d custom_transform scripts. A batch may have at most one bounded custom_transform; split independent transforms into separate batches or use typed actions that produce reusable artifacts.",
-			count)
-	}
-	for i, action := range plan.Actions {
-		if errText := dataTaskActionDependencyGuardError(nil, plan, action, i); errText != "" {
-			return errText
-		}
-		lines := dataTaskScriptLineCount(action.Script)
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		if kind == dataquery.DataActionCustomTransform && lines == 0 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action such as inspect_material, extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
-				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
-		}
-		if lines == 0 {
-			continue
-		}
-		if kind != dataquery.DataActionCustomTransform {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when the workflow allows it.",
-				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), lines, kind)
-		}
-		if kind == dataquery.DataActionCustomTransform && !dataTaskScriptHasResultEmitter(action.Script) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) script has no result emitter (script_lines=%d). A custom_transform must call emit(...), emit_result(...), or assign result.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines)
-		}
-		if kind == dataquery.DataActionCustomTransform &&
-			lines >= dataTaskComplexCustomScriptLineLimit &&
-			dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split it into smaller typed actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines, len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
-		}
-		if lines >= dataTaskOneShotScriptLineSoftLimit {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines)
-		}
-		if kind == dataquery.DataActionCustomTransform &&
-			dataTaskActionHasBroadPrerequisiteSurface(plan, action) &&
-			dataTaskValidationLedgerCount(plan.CoverageContract) >= 3 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
-				i+1, strings.TrimSpace(string(action.Kind)), len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
-		}
-	}
-	return ""
+	return dataTaskActionStagingGuardResult(plan).ErrorText()
 }
 
 func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	topLevelLines := dataTaskScriptLineCount(plan.Script)
-	if topLevelLines > 0 {
-		return fmt.Sprintf("data planning incomplete: actions[] plans must not carry a top-level script (script_lines=%d). Put each bounded transform script on its custom_transform action, or split the workflow into typed atomic actions; top-level script is only for simple non-actions plans.",
-			topLevelLines)
-	}
-	if len(plan.Actions) > dataTaskMaxActionsPerBatch {
-		return fmt.Sprintf("data planning incomplete: actions[] batch contains %d action(s), above the atomic batch limit %d. Emit only the next small DAG batch and set continue_after=true when more data workflow work remains.",
-			len(plan.Actions), dataTaskMaxActionsPerBatch)
-	}
-	if errText := dataTaskTextConstraintCoverageGuardError(plan); errText != "" {
-		return errText
-	}
-	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
-		return guard.ErrorText()
-	}
-	if errText := dataTaskWorkflowCustomTransformDisabledGuardError(records, plan); errText != "" {
-		return errText
-	}
-	if count := dataTaskCustomScriptActionCount(plan.Actions); count > 1 {
-		return fmt.Sprintf("data planning incomplete: actions[] batch contains %d custom_transform scripts. A batch may have at most one bounded custom_transform; split independent transforms into separate batches or use typed actions that produce reusable artifacts.",
-			count)
-	}
-	if errText := dataTaskCoverageLoopGuardError(records, plan); errText != "" {
-		return errText
-	}
-	if errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan); errText != "" {
-		return errText
-	}
-	if errText := dataTaskWorkflowStageProgressGuardError(records, plan); errText != "" {
-		return errText
-	}
-	if errText := dataTaskWorkflowNumericConstantReuseGuardError(plan); errText != "" {
-		return errText
-	}
-	for i, action := range plan.Actions {
-		if errText := dataTaskActionDependencyGuardError(records, plan, action, i); errText != "" {
-			return errText
-		}
-		if errText := dataTaskRepeatedCustomTransformGuardError(records, action); errText != "" {
-			return errText
-		}
-		if errText := dataTaskRepeatedCustomTransformClassGuardError(records, plan, action, i); errText != "" {
-			return errText
-		}
-		lines := dataTaskScriptLineCount(action.Script)
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		if kind == dataquery.DataActionCustomTransform && lines == 0 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action from workflow_state_json.allowed_next_actions, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
-				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
-		}
-		if lines == 0 {
-			continue
-		}
-		if kind != dataquery.DataActionCustomTransform && lines > 0 {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when workflow_state_json allows it.",
-				i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), lines, kind)
-		}
-		if kind == dataquery.DataActionCustomTransform && !dataTaskScriptHasResultEmitter(action.Script) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) script has no result emitter (script_lines=%d). A custom_transform must call emit(...), emit_result(...), or assign result.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines)
-		}
-		if errText := dataTaskTerminalRawMaterialCustomTransformGuardError(records, plan, action, i, lines); errText != "" {
-			return errText
-		}
-		if kind == dataquery.DataActionCustomTransform &&
-			dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
-			if guard := dataTaskBroadCustomPrerequisiteGuardResult(records, plan, action, i); !guard.Empty() {
-				return guard.ErrorText()
-			}
-			if lines >= dataTaskComplexCustomScriptLineLimit && dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
-				return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Prior coverage of materials does not make one script a valid substitute for the remaining data DAG. Continue with typed actions such as derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform over known artifacts.",
-					i+1, strings.TrimSpace(string(action.Kind)), lines, len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
-			}
-			if lines >= dataTaskOneShotScriptLineSoftLimit {
-				return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
-					i+1, strings.TrimSpace(string(action.Kind)), lines)
-			}
-			rawInputs := dataTaskCustomTransformRawMaterialInputs(records, action)
-			if len(rawInputs) >= 3 && dataTaskValidationLedgerCount(plan.CoverageContract) >= 3 {
-				return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (raw_inputs=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
-					i+1, strings.TrimSpace(string(action.Kind)), len(rawInputs), len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
-			}
-			continue
-		}
-		if kind == dataquery.DataActionCustomTransform && lines >= dataTaskComplexCustomScriptLineLimit &&
-			dataTaskActionLooksLikeWholeWorkflow(plan, action, i) {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split it into smaller typed actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines, len(action.InputPaths), len(plan.CoverageContract.RequiredMaterials), dataTaskValidationLedgerCount(plan.CoverageContract))
-		}
-		if lines >= dataTaskOneShotScriptLineSoftLimit {
-			return fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
-				i+1, strings.TrimSpace(string(action.Kind)), lines)
-		}
-	}
-	return ""
+	return dataTaskWorkflowActionStagingGuardResult(records, plan).ErrorText()
 }
 
 type dataTaskDerivedConstantField struct {

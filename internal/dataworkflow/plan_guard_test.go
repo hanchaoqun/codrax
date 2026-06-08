@@ -3,6 +3,8 @@ package dataworkflow
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
 func TestPlanShapeGuardRejectsMissingExecutableBody(t *testing.T) {
@@ -76,6 +78,38 @@ func TestPlanShapeGuardAllowsActionBatch(t *testing.T) {
 	})
 	if !guard.Empty() {
 		t.Fatalf("guard=%+v, want empty for action batch", guard)
+	}
+}
+
+func TestActionBatchShapeGuardResultUsesTypedViolation(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "wide",
+		Kind:       dataquery.DataActionCustomTransform,
+		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
+		Script:     "emit_result('ok')\n",
+	}
+	guard := ActionBatchShapeGuardResult(ActionBatchShapeGuardInput{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+		Checks: ActionBatchShapeChecks{
+			ActionScripts: true,
+		},
+		RequiredMaterialCount:        4,
+		ValidationLedgerCount:        2,
+		ComplexCustomScriptLineLimit: 1,
+		ActionFacts: []ActionShapeFact{{
+			Action:                 action,
+			ActionIndex:            0,
+			ScriptLines:            1,
+			HasResultEmitter:       true,
+			LooksLikeWholeWorkflow: true,
+		}},
+	})
+	if guard.Code != "broad_custom_transform" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed broad_custom_transform", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "wide" || v.ActionKind != string(dataquery.DataActionCustomTransform) || v.IdempotencyKey == "" {
+		t.Fatalf("violation=%+v, want action metadata and idempotency key", v)
 	}
 }
 

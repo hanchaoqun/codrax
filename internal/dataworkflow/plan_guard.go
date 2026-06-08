@@ -3,6 +3,8 @@ package dataworkflow
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
 type PlanShapeGuardInput struct {
@@ -19,6 +21,37 @@ type PlanShapeGuardInput struct {
 	HardScriptLineLimit    int
 	RequiredMaterialLimit  int
 	ValidationLedgerLimit  int
+}
+
+type ActionBatchShapeChecks struct {
+	TopLevelScript       bool
+	ActionCount          bool
+	MultipleCustomScript bool
+	ActionScripts        bool
+}
+
+type ActionShapeFact struct {
+	Action                 dataquery.DataAction
+	ActionIndex            int
+	ScriptLines            int
+	HasResultEmitter       bool
+	LooksLikeWholeWorkflow bool
+	BroadPrereqSurface     bool
+	RawInputCount          int
+}
+
+type ActionBatchShapeGuardInput struct {
+	Plan                         dataquery.TaskPlan
+	Checks                       ActionBatchShapeChecks
+	TopLevelScriptLines          int
+	MaxActionsPerBatch           int
+	CustomScriptActionCount      int
+	RequiredMaterialCount        int
+	ValidationLedgerCount        int
+	ComplexCustomScriptLineLimit int
+	OneShotScriptLineSoftLimit   int
+	ActionFacts                  []ActionShapeFact
+	WorkflowAware                bool
 }
 
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
@@ -73,6 +106,111 @@ func planShapeGuard(code, message string) GuardResult {
 		Code:          code,
 		Severity:      "error",
 		Repairability: RepairNeedsTypedAction,
+		Reason:        message,
+	})
+	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func ActionBatchShapeGuardResult(input ActionBatchShapeGuardInput) GuardResult {
+	if input.Checks.TopLevelScript && input.TopLevelScriptLines > 0 {
+		message := fmt.Sprintf("data planning incomplete: actions[] plans must not carry a top-level script (script_lines=%d). Put each bounded transform script on its custom_transform action, or split the workflow into typed atomic actions; top-level script is only for simple non-actions plans.",
+			input.TopLevelScriptLines)
+		return actionBatchShapeGuard("action_batch_top_level_script", message, dataquery.DataAction{})
+	}
+	if input.Checks.ActionCount && input.MaxActionsPerBatch > 0 && len(input.Plan.Actions) > input.MaxActionsPerBatch {
+		message := fmt.Sprintf("data planning incomplete: actions[] batch contains %d action(s), above the atomic batch limit %d. Emit only the next small DAG batch and set continue_after=true when more data workflow work remains.",
+			len(input.Plan.Actions), input.MaxActionsPerBatch)
+		return actionBatchShapeGuard("action_batch_too_large", message, dataquery.DataAction{})
+	}
+	if input.Checks.MultipleCustomScript && input.CustomScriptActionCount > 1 {
+		message := fmt.Sprintf("data planning incomplete: actions[] batch contains %d custom_transform scripts. A batch may have at most one bounded custom_transform; split independent transforms into separate batches or use typed actions that produce reusable artifacts.",
+			input.CustomScriptActionCount)
+		return actionBatchShapeGuard("multiple_custom_transform_scripts", message, dataquery.DataAction{})
+	}
+	if !input.Checks.ActionScripts {
+		return GuardResult{}
+	}
+	complexLimit := input.ComplexCustomScriptLineLimit
+	if complexLimit <= 0 {
+		complexLimit = 160
+	}
+	softLimit := input.OneShotScriptLineSoftLimit
+	if softLimit <= 0 {
+		softLimit = 260
+	}
+	for _, fact := range input.ActionFacts {
+		action := fact.Action
+		kind := NormalizeActionKind(action.Kind)
+		lines := fact.ScriptLines
+		if kind == dataquery.DataActionCustomTransform && lines == 0 {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action such as inspect_material, extract_records, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
+				guardActionNumber(fact.ActionIndex), guardActionLabel(action))
+			if input.WorkflowAware {
+				message = fmt.Sprintf("data planning incomplete: action %d (%s) is custom_transform but has no script. Emit a typed action from workflow_state_json.allowed_next_actions, or provide one bounded custom_transform script that calls emit(...), emit_result(...), or assigns result.",
+					guardActionNumber(fact.ActionIndex), guardActionLabel(action))
+			}
+			return actionBatchShapeGuard("missing_custom_transform_script", message, action)
+		}
+		if lines == 0 {
+			continue
+		}
+		if kind != dataquery.DataActionCustomTransform {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when the workflow allows it.",
+				guardActionNumber(fact.ActionIndex), guardActionLabel(action), lines, kind)
+			if input.WorkflowAware {
+				message = fmt.Sprintf("data planning incomplete: action %d (%s) is a typed data action but carries a script (script_lines=%d). Only custom_transform may carry a script. For %s, remove script and express the operation with input_paths, output_artifact, and params; if a script is truly required, use custom_transform only when workflow_state_json allows it.",
+					guardActionNumber(fact.ActionIndex), guardActionLabel(action), lines, kind)
+			}
+			return actionBatchShapeGuard("typed_action_carries_script", message, action)
+		}
+		if !fact.HasResultEmitter {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) script has no result emitter (script_lines=%d). A custom_transform must call emit(...), emit_result(...), or assign result.",
+				guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), lines)
+			return actionBatchShapeGuard("custom_transform_missing_result_emitter", message, action)
+		}
+		if input.WorkflowAware && fact.BroadPrereqSurface {
+			if lines >= complexLimit && fact.LooksLikeWholeWorkflow {
+				message := fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Prior coverage of materials does not make one script a valid substitute for the remaining data DAG. Continue with typed actions such as derive_fields, expand_records, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform over known artifacts.",
+					guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), lines, len(action.InputPaths), input.RequiredMaterialCount, input.ValidationLedgerCount)
+				return actionBatchShapeGuard("broad_custom_transform", message, action)
+			}
+			if lines >= softLimit {
+				message := fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
+					guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), lines)
+				return actionBatchShapeGuard("oversized_atomic_action", message, action)
+			}
+			if fact.RawInputCount >= 3 && input.ValidationLedgerCount >= 3 {
+				message := fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (raw_inputs=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
+					guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), fact.RawInputCount, len(action.InputPaths), input.RequiredMaterialCount, input.ValidationLedgerCount)
+				return actionBatchShapeGuard("broad_custom_transform_raw_inputs", message, action)
+			}
+			continue
+		}
+		if lines >= complexLimit && fact.LooksLikeWholeWorkflow {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one bounded custom_transform (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d). Split it into smaller typed actions such as inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, and reserve custom_transform for one narrow transform.",
+				guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), lines, len(action.InputPaths), input.RequiredMaterialCount, input.ValidationLedgerCount)
+			return actionBatchShapeGuard("broad_custom_transform", message, action)
+		}
+		if lines >= softLimit {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) is too large for one atomic data action (script_lines=%d). Split the workflow into smaller typed actions such as material_inventory, inspect_material, and bounded custom_transform nodes.",
+				guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), lines)
+			return actionBatchShapeGuard("oversized_atomic_action", message, action)
+		}
+		if fact.BroadPrereqSurface && input.ValidationLedgerCount >= 3 {
+			message := fmt.Sprintf("data planning incomplete: action %d (%s) is too broad for one custom_transform data DAG node (input_paths=%d required_materials=%d validation_ledgers=%d). Split the work into typed atomic actions such as inspect_material, derive_rules, derive_fields, filter_records, qualify_records, normalize_entities, enrich_records, join_records, compute_contributions, and reconcile_artifacts. Reserve custom_transform for one narrow transform over known generated artifacts.",
+				guardActionNumber(fact.ActionIndex), strings.TrimSpace(string(kind)), len(action.InputPaths), input.RequiredMaterialCount, input.ValidationLedgerCount)
+			return actionBatchShapeGuard("broad_custom_transform_prerequisites", message, action)
+		}
+	}
+	return GuardResult{}
+}
+
+func actionBatchShapeGuard(code, message string, action dataquery.DataAction) GuardResult {
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:          code,
+		Severity:      "error",
+		Repairability: RepairNeedsTypedAction,
+		Action:        action,
 		Reason:        message,
 	})
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)

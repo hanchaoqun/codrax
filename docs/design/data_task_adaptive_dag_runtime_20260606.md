@@ -14894,7 +14894,58 @@ Remaining architecture items:
 - [x] State-method compatibility wrappers are removed.
 - [ ] Audit historical "Remaining architecture items" sections and mark stale
       items as historical or closed only where code/tests prove closure.
-- [ ] Run full build/test before continuing the IR closure audit.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 334: Typed Action-Batch Shape Guards
+
+The next reducer boundary was action-batch staging. The outer REPL guard still
+rendered a long error string, then attempted to recover typed action-dependency
+metadata by comparing the rendered message with another guard result. That kept
+one of the most important admission paths on a string-first path.
+
+This batch adds a package-level `ActionBatchShapeGuardResult` in
+`internal/dataworkflow`. REPL now collects precise structural facts such as
+top-level script line count, action count, custom-transform script count,
+per-action script line count, result-emitter presence, broad-surface flags, and
+raw-input count. `dataworkflow` turns those facts into typed `GuardResult` /
+`WorkflowViolation` objects. The legacy `dataTaskActionStagingGuardError` and
+`dataTaskWorkflowActionStagingGuardError` functions are now string renderers
+over typed results.
+
+Generic invariants:
+
+- hard staging decisions consume precise structural facts, not model prose or
+  rendered error text;
+- action-shape violations carry action id/kind/input/output/idempotency metadata
+  when an action exists;
+- REPL can still collect local facts, but no longer owns the typed action-batch
+  violation schema;
+- source-code, trace/log, operation, and write-mode chains are untouched.
+
+Changes:
+
+- [x] Added `ActionBatchShapeChecks`, `ActionShapeFact`, and
+      `ActionBatchShapeGuardInput`.
+- [x] Added `ActionBatchShapeGuardResult` with typed violations for top-level
+      action scripts, oversized batches, multiple custom scripts, missing
+      custom-transform scripts, typed actions carrying scripts, missing result
+      emitters, oversized atomic actions, and broad custom transforms.
+- [x] Rewired REPL action staging result paths to call the dataworkflow guard
+      before rendering strings.
+- [x] Removed the old rendered-message matching helper.
+- [x] Converted `dataTaskActionStagingGuardError` and
+      `dataTaskWorkflowActionStagingGuardError` into typed-result renderers.
+- [x] Added dataworkflow-level guard coverage and focused REPL guard tests.
+
+Remaining architecture items:
+
+- [x] Top-level action-batch shape guards now return typed guard results.
+- [ ] Convert remaining string-only staging checks such as coverage-loop,
+      allowed-next-action, stage-progress, numeric-constant reuse, and terminal
+      raw-material custom-transform into typed reducer-owned guard results.
+- [ ] Feed admission guard codes into ActionGraph blocked nodes and workflow
+      process events.
+- [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
