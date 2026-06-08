@@ -111,6 +111,24 @@ func (view WorkflowStateView) ComputedAllowedNextActions() []string {
 	return ActionKindsFromContracts(view.ComputedAllowedNextActionContracts())
 }
 
+func (view WorkflowStateView) Snapshot() WorkflowStateSnapshot {
+	nextStage := strings.TrimSpace(view.NextStage)
+	if nextStage == "" {
+		nextStage = view.ComputedNextStage()
+	}
+	return WorkflowStateSnapshot{
+		StageFacts:                 view.Facts(),
+		ActionGraph:                view.ActionGraph,
+		LedgerGraph:                view.LedgerGraph,
+		OutputGraph:                view.OutputProjectionGraph,
+		ArtifactGraph:              view.ArtifactGraph,
+		Progress:                   view.ProgressSignatures,
+		WorkflowViolations:         append([]WorkflowViolation(nil), view.WorkflowViolations...),
+		Decision:                   view.Decision,
+		DecisionFallbackReasonCode: nextStage,
+	}
+}
+
 type MaterialGraph struct {
 	WorkflowRequired []MaterialNode `json:"workflow_required,omitempty"`
 	CurrentInputs    []MaterialNode `json:"current_inputs,omitempty"`

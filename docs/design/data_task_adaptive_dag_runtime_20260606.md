@@ -14758,3 +14758,36 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 327: Workflow State Snapshot Projection Method
+
+`WorkflowStateView` now owns structural derivations, but the conversion from
+the prompt/evaluator state view into the durable reducer snapshot still lived
+as a REPL helper. That kept one more IR projection attached to the adapter
+layer.
+
+This batch moves the projection onto `WorkflowStateView.Snapshot`. REPL keeps a
+thin compatibility wrapper while call sites migrate. The snapshot copies typed
+violations and derives a stable fallback stage when `NextStage` is not already
+set.
+
+Generic invariants:
+
+- converting workflow-state JSON into a reducer/journal snapshot is a
+  dataworkflow operation;
+- adapters may call the method but do not define snapshot semantics;
+- snapshot projection copies mutable slices before returning;
+- fallback stage is derived from typed state, not prompt prose.
+
+Changes:
+
+- [x] Added `WorkflowStateView.Snapshot`.
+- [x] Rewired the REPL compatibility wrapper to delegate to
+      `WorkflowStateView.Snapshot`.
+- [x] Added regression coverage for snapshot facts, fallback stage, and
+      violation slice cloning.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.

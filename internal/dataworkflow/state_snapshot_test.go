@@ -70,6 +70,14 @@ func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
 	if got := strings.Join(view.ComputedAllowedNextActions(), ","); !strings.Contains(got, string(dataquery.DataActionFilterRecords)) {
 		t.Fatalf("ComputedAllowedNextActions=%q, want explicit allowed action", got)
 	}
+	snapshot := view.Snapshot()
+	if snapshot.DecisionFallbackReasonCode != StagePrepareContributionInputs || !snapshot.StageFacts.ContributionLedgerRequired {
+		t.Fatalf("Snapshot=%+v, want contribution fallback and facts", snapshot)
+	}
+	view.WorkflowViolations[0].Code = "mutated"
+	if snapshot.WorkflowViolations[0].Code != "field_contract_violation" {
+		t.Fatalf("snapshot leaked view violation mutation: %+v", snapshot.WorkflowViolations)
+	}
 }
 
 func TestBuildWorkflowStateSnapshotReducesGraphsAndDecision(t *testing.T) {
