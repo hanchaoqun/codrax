@@ -1520,16 +1520,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		if fallback, reason, ok := dataTaskTerminalWorkflowFallback(records, currentPlan); ok {
+		switch terminalDecision := dataTaskTerminalWorkflowDecision(records, currentPlan); terminalDecision.Action {
+		case dataworkflow.TerminalWorkflowFallbackPlan:
+			reason := terminalDecision.Reason
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback = protectPlan(fallback)
+			fallback := protectPlan(terminalDecision.Plan)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		}
-		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
+		case dataworkflow.TerminalWorkflowGuard:
+			guard := terminalDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)

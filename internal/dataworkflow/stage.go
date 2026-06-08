@@ -171,6 +171,74 @@ func TerminalWorkflowGuardResult(status string, facts StageFacts, allowedNextAct
 	return NewGuardResult("unfinished_validation_stage", "error", RepairNeedsTypedAction, msg, violation)
 }
 
+type TerminalWorkflowDecisionAction string
+
+const (
+	TerminalWorkflowNoop         TerminalWorkflowDecisionAction = ""
+	TerminalWorkflowFallbackPlan TerminalWorkflowDecisionAction = "fallback_plan"
+	TerminalWorkflowGuard        TerminalWorkflowDecisionAction = "guard"
+)
+
+type TerminalWorkflowDecisionInput struct {
+	Current                 dataquery.TaskPlan
+	Facts                   StageFacts
+	AllowedNextActions      []string
+	FallbackPlan            dataquery.TaskPlan
+	FallbackReason          string
+	FallbackAvailable       bool
+	SuppressFallbackActions []dataquery.DataActionKind
+}
+
+type TerminalWorkflowDecision struct {
+	Action TerminalWorkflowDecisionAction `json:"action,omitempty"`
+	Plan   dataquery.TaskPlan             `json:"plan,omitempty"`
+	Guard  GuardResult                    `json:"guard,omitempty"`
+	Reason string                         `json:"reason,omitempty"`
+}
+
+func (d TerminalWorkflowDecision) HasPlan() bool {
+	return len(d.Plan.Actions) > 0 || strings.TrimSpace(d.Plan.Status) != "" || len(d.Plan.InputPaths) > 0 || strings.TrimSpace(d.Plan.Script) != ""
+}
+
+func DecideTerminalWorkflow(input TerminalWorkflowDecisionInput) TerminalWorkflowDecision {
+	if !PlanStatusLooksTerminal(input.Current.Status) {
+		return TerminalWorkflowDecision{}
+	}
+	if input.FallbackAvailable && terminalFallbackPlanAllowed(input.FallbackPlan, input.SuppressFallbackActions) {
+		return TerminalWorkflowDecision{
+			Action: TerminalWorkflowFallbackPlan,
+			Plan:   cloneTaskPlanValue(input.FallbackPlan),
+			Reason: strings.TrimSpace(input.FallbackReason),
+		}
+	}
+	guard := TerminalWorkflowGuardResult(input.Current.Status, input.Facts, input.AllowedNextActions)
+	if !guard.Empty() {
+		return TerminalWorkflowDecision{
+			Action: TerminalWorkflowGuard,
+			Guard:  guard,
+			Reason: guard.ErrorText(),
+		}
+	}
+	return TerminalWorkflowDecision{}
+}
+
+func terminalFallbackPlanAllowed(plan dataquery.TaskPlan, suppressed []dataquery.DataActionKind) bool {
+	if len(plan.Actions) == 0 || len(suppressed) == 0 {
+		return true
+	}
+	first := normalizeStageActionKind(plan.Actions[0].Kind)
+	for _, kind := range suppressed {
+		if first == normalizeStageActionKind(kind) {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeStageActionKind(kind dataquery.DataActionKind) dataquery.DataActionKind {
+	return kind
+}
+
 func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
 	return ActionContract{
 		Kind:          string(kind),

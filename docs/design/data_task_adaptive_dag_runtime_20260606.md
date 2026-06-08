@@ -17495,6 +17495,54 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 411: Terminal Workflow Decision IR
+
+The next executable-decision seam was terminal-plan handling. CLI and REPL each
+checked whether a model had emitted a terminal status while workflow ledgers
+still had unfinished stages, then separately tried a next-stage fallback or a
+terminal guard. That duplicated the decision order in adapters even though the
+inputs were already typed: plan status, stage facts, allowed actions, and an
+optional deterministic fallback plan.
+
+This batch introduces a reducer-owned terminal workflow decision. The adapter
+still prepares the fallback candidate from existing typed graph helpers and
+still renders/executes the result, but it no longer owns the ordering between
+"run deterministic fallback" and "surface typed terminal guard".
+
+Generic invariants:
+
+- terminal decisions use plan status, `StageFacts`, allowed next actions, and
+  typed fallback availability;
+- fallback suppression is structural action-kind filtering, not business text
+  matching;
+- terminal guards still come from `TerminalWorkflowGuardResult`;
+- adapters execute a returned decision instead of duplicating the decision
+  order;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and final stdout contracts are unchanged.
+
+Changes:
+
+- [x] Added `TerminalWorkflowDecisionAction`.
+- [x] Added `TerminalWorkflowDecisionInput`.
+- [x] Added `TerminalWorkflowDecision`.
+- [x] Added `DecideTerminalWorkflow`.
+- [x] Added tests for fallback preference, fallback suppression to guard, and
+      non-terminal no-op behavior.
+- [x] Added a REPL compatibility wrapper that builds the terminal decision from
+      existing workflow state/fallback helpers.
+- [x] Rewired CLI and REPL terminal-plan handling to consume the reducer
+      terminal decision.
+
+Remaining architecture items:
+
+- [ ] Expand the same next-executable decision IR to pre-execution coverage,
+      staging, and budget decisions.
+- [ ] Introduce a fuller live iteration API that returns the next executable
+      decision, not only the allocated round snapshot.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

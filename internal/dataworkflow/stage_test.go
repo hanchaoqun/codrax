@@ -136,3 +136,62 @@ func TestTerminalWorkflowGuardResultUsesSharedStageFacts(t *testing.T) {
 		t.Fatalf("message=%q, want terminal status and legal action hint", guard.Message)
 	}
 }
+
+func TestDecideTerminalWorkflowPrefersAllowedFallback(t *testing.T) {
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}
+	decision := DecideTerminalWorkflow(TerminalWorkflowDecisionInput{
+		Current:            dataquery.TaskPlan{Status: "complete"},
+		Facts:              StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true},
+		AllowedNextActions: []string{string(dataquery.DataActionComputeContribs)},
+		FallbackPlan:       fallback,
+		FallbackReason:     "terminal plan ended before contribution ledger",
+		FallbackAvailable:  true,
+	})
+	if decision.Action != TerminalWorkflowFallbackPlan || !decision.HasPlan() || decision.Plan.Actions[0].ID != "compute" {
+		t.Fatalf("decision=%+v, want fallback plan", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	if fallback.Actions[0].ID != "compute" {
+		t.Fatalf("fallback plan leaked decision mutation: %+v", fallback)
+	}
+}
+
+func TestDecideTerminalWorkflowUsesGuardWhenFallbackSuppressed(t *testing.T) {
+	decision := DecideTerminalWorkflow(TerminalWorkflowDecisionInput{
+		Current: dataquery.TaskPlan{Status: "complete"},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+		},
+		AllowedNextActions: []string{string(dataquery.DataActionComputeContribs)},
+		FallbackPlan: dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+			ID:   "extract",
+			Kind: dataquery.DataActionExtractRecords,
+		}}},
+		FallbackReason:          "terminal plan ended",
+		FallbackAvailable:       true,
+		SuppressFallbackActions: []dataquery.DataActionKind{dataquery.DataActionExtractRecords},
+	})
+	if decision.Action != TerminalWorkflowGuard || decision.Guard.Code != "unfinished_validation_stage" {
+		t.Fatalf("decision=%+v, want terminal workflow guard", decision)
+	}
+}
+
+func TestDecideTerminalWorkflowIgnoresNonTerminalStatus(t *testing.T) {
+	decision := DecideTerminalWorkflow(TerminalWorkflowDecisionInput{
+		Current:            dataquery.TaskPlan{Status: "ready"},
+		Facts:              StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true},
+		AllowedNextActions: []string{string(dataquery.DataActionComputeContribs)},
+		FallbackPlan: dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}}},
+		FallbackAvailable: true,
+	})
+	if decision.Action != TerminalWorkflowNoop || decision.HasPlan() || !decision.Guard.Empty() {
+		t.Fatalf("decision=%+v, want no terminal decision", decision)
+	}
+}

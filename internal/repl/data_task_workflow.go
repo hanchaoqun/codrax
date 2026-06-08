@@ -4957,6 +4957,23 @@ func dataTaskTerminalWorkflowFallback(records []dataTaskWorkflowRecord, current 
 	return fallback, reason, true
 }
 
+func dataTaskTerminalWorkflowDecision(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.TerminalWorkflowDecision {
+	if !dataTaskPlanStatusLooksTerminal(current.Status) {
+		return dataworkflow.TerminalWorkflowDecision{}
+	}
+	fallback, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "terminal plan ended")
+	state := dataTaskWorkflowState(records, current)
+	return dataworkflow.DecideTerminalWorkflow(dataworkflow.TerminalWorkflowDecisionInput{
+		Current:                 current,
+		Facts:                   state.Facts(),
+		AllowedNextActions:      state.AllowedNextActions,
+		FallbackPlan:            fallback,
+		FallbackReason:          reason,
+		FallbackAvailable:       ok,
+		SuppressFallbackActions: []dataquery.DataActionKind{dataquery.DataActionExtractRecords},
+	})
+}
+
 func dataTaskDeterministicContinuationFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, err error) (dataquery.TaskPlan, string, bool) {
 	if err == nil {
 		return dataquery.TaskPlan{}, "", false
