@@ -99,3 +99,93 @@ func TestGateEvaluationWithWorkflowViolationsUsesClarificationRepairability(t *t
 		t.Fatalf("eval=%+v, want needs_clarification from typed repairability", eval)
 	}
 }
+
+func TestConservativeEvaluationFromWorkflowStateUsesTypedViolation(t *testing.T) {
+	eval := ConservativeEvaluationFromWorkflowState(ConservativeEvaluationInput{
+		Records: []WorkflowRecord{{
+			Plan: dataquery.TaskPlan{
+				Actions: []dataquery.DataAction{{
+					ID:   "last_action",
+					Kind: dataquery.DataActionCustomTransform,
+				}},
+			},
+			Err: "opaque failure",
+		}},
+		State: WorkflowStateView{
+			WorkflowViolations: []WorkflowViolation{{
+				Code:          "action_param_violation",
+				Severity:      "error",
+				Repairability: RepairNeedsTypedAction,
+				ActionID:      "derive_bad",
+				ActionKind:    string(dataquery.DataActionDeriveFields),
+				Param:         "operation",
+				Reason:        "derive_fields operation is unsupported",
+			}},
+		},
+	})
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "derive_bad" ||
+		eval.ActionKind != string(dataquery.DataActionDeriveFields) ||
+		eval.RepairLocus != "operation" ||
+		!strings.Contains(eval.Reason, "typed_violation=action_param_violation") {
+		t.Fatalf("eval=%+v, want repair from typed workflow violation", eval)
+	}
+}
+
+func TestConservativeEvaluationFromWorkflowStateUsesLastError(t *testing.T) {
+	eval := ConservativeEvaluationFromWorkflowState(ConservativeEvaluationInput{
+		Records: []WorkflowRecord{{
+			Plan: dataquery.TaskPlan{
+				Actions: []dataquery.DataAction{{
+					ID:   "compute_totals",
+					Kind: dataquery.DataActionComputeContribs,
+				}},
+			},
+			Err: "execute data task: action failed",
+		}},
+	})
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "compute_totals" ||
+		eval.ActionKind != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("eval=%+v, want repair from latest failed action", eval)
+	}
+}
+
+func TestConservativeEvaluationFromWorkflowStateContinuesAfterArtifacts(t *testing.T) {
+	eval := ConservativeEvaluationFromWorkflowState(ConservativeEvaluationInput{
+		Records: []WorkflowRecord{{
+			Result: &dataquery.Result{
+				Artifacts: []dataquery.DataArtifact{{
+					ID:   "records",
+					Kind: string(dataquery.DataActionExtractRecords),
+				}},
+			},
+		}},
+		HadProse: true,
+	})
+	if eval.Status != dataquery.EvalContinueTransform ||
+		eval.Confidence != "low" ||
+		!strings.Contains(eval.Reason, "after prose response") {
+		t.Fatalf("eval=%+v, want conservative transform continuation after artifacts", eval)
+	}
+}
+
+func TestNormalizeEvaluationForWorkflowStateExpandsWhenCustomTransformDisabled(t *testing.T) {
+	eval := NormalizeEvaluationForWorkflowState(WorkflowStateView{
+		CustomTransformDisabled: true,
+		NextStage:               "contribution",
+		AllowedNextActions:      []string{string(dataquery.DataActionComputeContribs), string(dataquery.DataActionReconcile)},
+	}, dataquery.Evaluation{
+		Status:     dataquery.EvalContinueTransform,
+		Confidence: "medium",
+		Reason:     "continue with bounded transform",
+	})
+	if eval.Status != dataquery.EvalExpandGraph {
+		t.Fatalf("Status=%q, want expand_graph", eval.Status)
+	}
+	if !strings.Contains(eval.Reason, "custom_transform_disabled=true") ||
+		!strings.Contains(eval.Reason, "compute_contributions") ||
+		!strings.Contains(eval.Reason, "reconcile_artifacts") {
+		t.Fatalf("Reason=%q, want typed graph note", eval.Reason)
+	}
+}

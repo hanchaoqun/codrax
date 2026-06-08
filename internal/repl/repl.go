@@ -1464,7 +1464,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 						emitWorkflowReason("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -1526,7 +1526,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 						emitWorkflowReason("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -1687,7 +1687,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 						emitWorkflowReason("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -1730,7 +1730,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 						emitWorkflowReason("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -1820,7 +1820,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					recordedErr = true
 					emitWorkflowReason("continue", dataRounds, transition.Reason)
 					ctx := r.startTurn()
-					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), runtimeView())
+					view := runtimeView()
+					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if contErr == nil {
@@ -1846,7 +1847,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 						emitWorkflowReason("continue", dataRounds, reason)
 						r.emitDataTaskPlanAudit(fallback)
 						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -1904,7 +1905,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if repairErr != nil {
-						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 							emitWorkflowReason("continue", dataRounds, reason)
 							r.emitDataTaskPlanAudit(fallback)
 							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -2068,7 +2069,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if repairErr != nil {
-						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 							emitWorkflowReason("continue", dataRounds, reason)
 							r.emitDataTaskPlanAudit(fallback)
 							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -2178,7 +2179,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if repairErr != nil {
-				if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, currentPlan, records, repairErr); ok {
+				if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
 					emitWorkflowReason("continue", dataRounds, reason)
 					r.emitDataTaskPlanAudit(fallback)
 					r.auditDataTaskPlan("continue", dataRounds+1, fallback)
@@ -2595,7 +2596,9 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
-func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, records []dataTaskWorkflowRecord, repairErr error) (dataquery.TaskPlan, string, bool) {
+func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool) {
+	records := view.Records
+	currentPlan := view.CurrentPlan
 	continuer, continuationReady := r.dataTaskPlanner.(DataTaskContinuationPlanner)
 	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
 		CurrentPlan:              currentPlan,
@@ -2608,7 +2611,7 @@ func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy Tur
 		return dataquery.TaskPlan{}, "", false
 	}
 	ctx := r.startTurn()
-	nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+	nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), view)
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_after_repair_failure", types.AgentName("data_planner"), types.PipelineStage("data"))
 	if contErr != nil {

@@ -16744,13 +16744,18 @@ Current deduplicated IR backlog before real-scenario testing:
       free-form reason line for the same transition.
 - [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
       and round counters) so prompt/evaluator/checkpoint inputs are produced
-      from runtime snapshots rather than parallel adapter variables.
+      from runtime snapshots rather than parallel adapter variables. Production
+      planner prompts already consume runtime views; Batch 404 moved evaluator
+      no-tool fallback and repair-failure continuation decisions to runtime
+      views / workflow IR. Remaining work is compatibility wrappers and local
+      loop cursors, not a separate hard-decision path.
 - [ ] Retire legacy error/output recomputation fallbacks only after all direct
       callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
       and WorkflowViolation inputs.
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Current confirmed structural runner
+      failures completed in Batch 403.
 - [x] Add focused architecture regression for the deduplicated current queue.
       Completed in Batch 402.
 
@@ -17018,9 +17023,9 @@ Remaining architecture items:
 
 - [x] Move terminal/checkpoint journal input assembly fully to
       `WorkflowRuntimeSnapshot`. Completed in Batch 401.
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Completed in Batch 403.
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
@@ -17061,9 +17066,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Completed in Batch 403.
 - [x] Add focused architecture regression for the deduplicated current queue.
       Completed in Batch 402.
 
@@ -17101,9 +17106,108 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Completed in Batch 403.
+
+### Batch 403: Typed Runner Contract Violations For Ledger Convergence
+
+After duplicate ActionDAG edges were blocked at admission, the next remaining
+P0 seam was action-runner failures that were structurally meaningful but still
+surfaced primarily as plain error text. That forced the evaluator and repair
+planner to recover action kind, parameter, ledger role, and repair direction
+from prose even though the runner already knew the typed context.
+
+This batch converts the confirmed structural runner failures into existing
+typed error families. It does not classify arbitrary business mistakes, does
+not hard-gate on prompt prose, and does not add procurement-specific rules.
+
+Generic invariants:
+
+- malformed structured action params are `DataActionParamError`;
+- a required typed ledger that is empty after an action is a
+  `DataActionDependencyError` with action kind, ledger role, expected shape,
+  and bounded diagnostics;
+- values that violate a reference universe are `DataValueContractError`;
+- unresolved/generated qualification status before contribution calculation is
+  an upstream typed dependency, not a string-only repair hint;
+- ordinary I/O, permission, timeout, and custom script runtime failures remain
+  runtime errors unless they expose an existing typed contract.
+
+Changes:
+
+- [x] Converted malformed `normalize_entities.resolutions_json` to
+      `DataActionParamError`.
+- [x] Converted empty required entity-resolution ledgers to
+      `DataActionDependencyError`.
+- [x] Converted explicit canonical IDs outside a reference universe to
+      `DataValueContractError`.
+- [x] Converted unresolved/generated status blockers before contribution
+      calculation to `DataActionDependencyError`.
+- [x] Converted empty required contribution ledgers to
+      `DataActionDependencyError` while preserving compact diagnostics.
+- [x] Added regression coverage proving `errors.As` and
+      `ClassifyExecutionFailure` both retain action id, action kind, role,
+      expected shape, actual snippet, and repair hint where applicable.
+
+Remaining architecture items:
+
+- [ ] Keep auditing newly introduced action-runner errors as they are added;
+      structural contract failures must use typed errors from the start.
+- [ ] Promote field/value/action diagnostics into evaluator policies only when
+      they are backed by typed violations or graph state, not prose text.
+
+### Batch 404: Runtime-State Evaluator Fallbacks
+
+Batch 403 typed runner contract failures, but the no-tool evaluator fallback
+still lived in the REPL planner adapter. That local helper made the right
+choices, but it duplicated reducer logic: it looked at records, last error,
+artifacts, custom-transform disabled state, and workflow violations outside the
+`dataworkflow` package.
+
+This batch moves those fallback decisions into workflow IR. The adapter may
+still expose older function names for tests and alternate planner
+implementations, but the hard decision now consumes `WorkflowStateView`,
+`WorkflowRecord`, typed violations, and state-derived allowed actions.
+
+Generic invariants:
+
+- a missing evaluator tool call is handled from deterministic workflow state,
+  not model prose;
+- model prose can only change the human-readable reason text;
+- typed workflow violations remain authoritative over optimistic model
+  evaluations and fallback status;
+- `custom_transform_disabled` is enforced by state-derived allowed actions,
+  not by prompt wording or localized UI text;
+- REPL/CLI wrappers may adapt local mirrors into a runtime view, but they do
+  not own the fallback status machine.
+
+Changes:
+
+- [x] Added `ConservativeEvaluationFromWorkflowState`.
+- [x] Added `NormalizeEvaluationForWorkflowState`.
+- [x] Rewired the REPL evaluator no-tool fallback to delegate to
+      `dataworkflow`.
+- [x] Rewired the REPL evaluator normalization helper to delegate to
+      `dataworkflow`.
+- [x] Rewired repair-failure continuation fallback to pass a runtime view and
+      to use runtime-view continuation dispatch.
+- [x] Ensured continuation candidates built during repair-failure recovery use
+      the same runtime-view records as the continuation prompt.
+- [x] Added regression coverage for typed-violation fallback, last-error
+      fallback, artifact continuation fallback, and custom-transform-disabled
+      expansion.
+
+Remaining architecture items:
+
+- [ ] Keep legacy evaluator/continuation/repair wrapper functions only as
+      compatibility shells; production built-in planner paths should continue
+      to prefer runtime-view interfaces.
+- [ ] Continue shrinking live-loop cursor mirrors after the runtime reducer can
+      expose a stable iteration API for batch number, current plan, and
+      candidate artifact view.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
 
 ### Batch 394: Relation-Backed Missing Field Recovery
 
@@ -18276,9 +18380,9 @@ Remaining architecture items:
 - [ ] Retire legacy error/output recomputation fallbacks only after all direct
       callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
       and WorkflowViolation inputs.
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Completed in Batch 403.
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
@@ -18332,8 +18436,8 @@ Remaining architecture items:
 - [ ] Retire legacy error/output recomputation fallbacks only after all direct
       callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
       and WorkflowViolation inputs.
-- [ ] Keep converting remaining typed action contract failures that still
+- [x] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
-      `WorkflowViolation` objects.
+      `WorkflowViolation` objects. Completed in Batch 403.
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.

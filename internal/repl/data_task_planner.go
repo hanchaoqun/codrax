@@ -652,57 +652,17 @@ func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Respon
 }
 
 func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Response) dataquery.Evaluation {
-	reason := "evaluator produced no structured tool call; continuing conservatively from deterministic workflow state"
-	if content := strings.TrimSpace(resp.Content); content != "" {
-		reason = "evaluator produced no structured tool call after prose response; continuing conservatively"
-	}
-	if len(records) == 0 {
-		return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
-	}
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if eval, ok := dataworkflow.GateEvaluationWithWorkflowViolations(dataquery.Evaluation{
-		Status:     dataquery.EvalContinueData,
-		Confidence: "low",
-		Reason:     reason,
-	}, state.WorkflowViolations); ok {
-		return eval
-	}
-	last := records[len(records)-1]
-	if strings.TrimSpace(last.Err) != "" {
-		eval := dataquery.Evaluation{Status: dataquery.EvalRepairNode, Confidence: "low", Reason: reason}
-		if len(last.Plan.Actions) > 0 {
-			action := last.Plan.Actions[len(last.Plan.Actions)-1]
-			eval.ActionID = action.ID
-			eval.ActionKind = string(action.Kind)
-		}
-		return eval
-	}
-	if last.Result != nil && len(last.Result.Artifacts) > 0 {
-		return normalizeDataTaskEvaluationForWorkflow(records, dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason})
-	}
-	return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
+	return dataworkflow.ConservativeEvaluationFromWorkflowState(dataworkflow.ConservativeEvaluationInput{
+		Records:  records,
+		State:    state,
+		HadProse: strings.TrimSpace(resp.Content) != "",
+	})
 }
 
 func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, eval dataquery.Evaluation) dataquery.Evaluation {
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if gated, ok := dataworkflow.GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
-		return gated
-	}
-	if eval.Status != dataquery.EvalContinueTransform {
-		return eval
-	}
-	if !state.CustomTransformDisabled || len(state.AllowedNextActions) == 0 {
-		return eval
-	}
-	eval.Status = dataquery.EvalExpandGraph
-	note := fmt.Sprintf("workflow custom_transform_disabled=true; continue with typed allowed_next_actions [%s] at next_stage=%s",
-		strings.Join(state.AllowedNextActions, ", "), state.NextStage)
-	if strings.TrimSpace(eval.Reason) != "" {
-		eval.Reason = strings.TrimSpace(eval.Reason) + " " + note
-	} else {
-		eval.Reason = note
-	}
-	return eval
+	return dataworkflow.NormalizeEvaluationForWorkflowState(state, eval)
 }
 
 func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {

@@ -6,6 +6,62 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 )
 
+type ConservativeEvaluationInput struct {
+	Records  []WorkflowRecord
+	State    WorkflowStateView
+	HadProse bool
+}
+
+// ConservativeEvaluationFromWorkflowState returns the deterministic fallback
+// evaluation used when an evaluator fails to emit a structured tool call. It
+// consumes only workflow IR: typed violations, the latest record shape, and
+// state-derived action constraints. Model prose may change the human-readable
+// reason, but it never drives the hard decision.
+func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) dataquery.Evaluation {
+	reason := "evaluator produced no structured tool call; continuing conservatively from deterministic workflow state"
+	if input.HadProse {
+		reason = "evaluator produced no structured tool call after prose response; continuing conservatively"
+	}
+	base := dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
+	if gated, ok := GateEvaluationWithWorkflowViolations(base, input.State.WorkflowViolations); ok {
+		return gated
+	}
+	if len(input.Records) == 0 {
+		return NormalizeEvaluationForWorkflowState(input.State, base)
+	}
+	last := input.Records[len(input.Records)-1]
+	if strings.TrimSpace(last.Err) != "" {
+		eval := dataquery.Evaluation{Status: dataquery.EvalRepairNode, Confidence: "low", Reason: reason}
+		if len(last.Plan.Actions) > 0 {
+			action := last.Plan.Actions[len(last.Plan.Actions)-1]
+			eval.ActionID = action.ID
+			eval.ActionKind = string(action.Kind)
+		}
+		return NormalizeEvaluationForWorkflowState(input.State, eval)
+	}
+	if last.Result != nil && len(last.Result.Artifacts) > 0 {
+		return NormalizeEvaluationForWorkflowState(input.State, dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason})
+	}
+	return NormalizeEvaluationForWorkflowState(input.State, base)
+}
+
+func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery.Evaluation) dataquery.Evaluation {
+	if gated, ok := GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
+		return gated
+	}
+	if eval.Status != dataquery.EvalContinueTransform {
+		return eval
+	}
+	allowed := state.ComputedAllowedNextActions()
+	if !state.CustomTransformDisabled || len(allowed) == 0 {
+		return eval
+	}
+	eval.Status = dataquery.EvalExpandGraph
+	note := "workflow custom_transform_disabled=true; continue with typed allowed_next_actions [" + strings.Join(allowed, ", ") + "] at next_stage=" + strings.TrimSpace(state.NextStage)
+	eval.Reason = appendEvaluationReason(eval.Reason, note)
+	return eval
+}
+
 // GateEvaluationWithWorkflowViolations makes reducer-owned blockers
 // authoritative over model-produced evaluator statuses.
 func GateEvaluationWithWorkflowViolations(eval dataquery.Evaluation, violations []WorkflowViolation) (dataquery.Evaluation, bool) {

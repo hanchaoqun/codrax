@@ -2082,6 +2082,22 @@ func TestActionRunnerComputeContributionsRejectsUnqualifiedGeneratedStatus(t *te
 	if err == nil || !strings.Contains(err.Error(), "qualify_records") || !strings.Contains(err.Error(), "label_status=matched_ambiguous") {
 		t.Fatalf("Run err=%v, want unresolved generated status repair hint", err)
 	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) {
+		t.Fatalf("err=%T %v, want DataActionDependencyError", err, err)
+	}
+	if depErr.ActionKind != DataActionComputeContribs || depErr.Role != "qualification_status" || depErr.RepairAction != DataActionQualifyRecords {
+		t.Fatalf("depErr=%+v, want compute contribution qualification dependency", depErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_dependency_violation" ||
+		violation.ActionID != "sum_items" ||
+		violation.ActionKind != string(DataActionComputeContribs) ||
+		violation.Role != "qualification_status" ||
+		violation.RepairHint != string(DataActionQualifyRecords) ||
+		!strings.Contains(violation.ActualSnippet, "label_status=matched_ambiguous") {
+		t.Fatalf("violation=%+v, want typed qualification dependency violation", violation)
+	}
 }
 
 func TestActionRunnerComputeContributionsRejectsOpenStatusAfterIncompleteFilter(t *testing.T) {
@@ -2120,6 +2136,10 @@ func TestActionRunnerComputeContributionsRejectsOpenStatusAfterIncompleteFilter(
 	}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "resolution_status=unmatched") || !strings.Contains(err.Error(), "after_filter") {
 		t.Fatalf("Run err=%v, want unmatched status blocked even after incomplete filter", err)
+	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) || depErr.Role != "qualification_status" {
+		t.Fatalf("err=%T %v dep=%+v, want qualification dependency", err, err, depErr)
 	}
 }
 
@@ -2335,11 +2355,93 @@ func TestActionRunnerNormalizeEntitiesRejectsExplicitCanonicalOutsideReferenceUn
 	if err == nil {
 		t.Fatal("Run err=nil, want explicit canonical universe rejection")
 	}
+	var valueErr DataValueContractError
+	if !errors.As(err, &valueErr) {
+		t.Fatalf("err=%T %v, want DataValueContractError", err, err)
+	}
+	if valueErr.ActionKind != DataActionNormalizeEntities || valueErr.Role != "canonical_universe" || valueErr.Field != "canonical_id" || valueErr.InputAlias != "taxonomy.csv" {
+		t.Fatalf("valueErr=%+v, want canonical universe value contract", valueErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "value_contract_violation" ||
+		violation.ActionID != "normalize" ||
+		violation.ActionKind != string(DataActionNormalizeEntities) ||
+		violation.Role != "canonical_universe" ||
+		violation.InputAlias != "taxonomy.csv" ||
+		!strings.Contains(violation.ActualSnippet, "ALPHA_ALIAS") {
+		t.Fatalf("violation=%+v, want typed canonical universe violation", violation)
+	}
 	text := err.Error()
 	for _, want := range []string{"ALPHA_ALIAS", "outside reference universe", "taxonomy.csv", "allowed_sample=[A, B]"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesResolutionParamShapeIsTyped(t *testing.T) {
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "normalize_bad",
+			Kind: DataActionNormalizeEntities,
+			Params: map[string]string{
+				"resolutions_json": `[{"source_value":"A"`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed normalize resolution param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionNormalizeEntities || paramErr.Param != "resolutions_json" {
+		t.Fatalf("paramErr=%+v, want normalize resolutions_json param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "normalize_bad" ||
+		violation.ActionKind != string(DataActionNormalizeEntities) ||
+		violation.Param != "resolutions_json" {
+		t.Fatalf("violation=%+v, want typed normalize param violation", violation)
+	}
+}
+
+func TestActionRunnerNormalizeEntitiesZeroRequiredLedgerIsTypedDependency(t *testing.T) {
+	plan := TaskPlan{
+		Status: "ready",
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:   "normalize_empty",
+			Kind: DataActionNormalizeEntities,
+			Params: map[string]string{
+				"resolutions_json": `[]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want zero entity resolution typed dependency")
+	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) {
+		t.Fatalf("err=%T %v, want DataActionDependencyError", err, err)
+	}
+	if depErr.ActionKind != DataActionNormalizeEntities || depErr.Role != "entity_resolution_records" || depErr.RepairAction != DataActionNormalizeEntities {
+		t.Fatalf("depErr=%+v, want normalize entity dependency", depErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_dependency_violation" ||
+		violation.ActionID != "normalize_empty" ||
+		violation.ActionKind != string(DataActionNormalizeEntities) ||
+		violation.Role != "entity_resolution_records" ||
+		!strings.Contains(violation.ExpectedShape, "entity resolution ledger") {
+		t.Fatalf("violation=%+v, want typed entity resolution dependency violation", violation)
 	}
 }
 
@@ -5861,6 +5963,21 @@ func TestActionRunnerComputeContributionsZeroRequiredLedgerHasDiagnostics(t *tes
 		if !strings.Contains(text, want) {
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
+	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) {
+		t.Fatalf("err=%T %v, want DataActionDependencyError", err, err)
+	}
+	if depErr.ActionKind != DataActionComputeContribs || depErr.Role != "contributions" || depErr.RepairAction != DataActionComputeContribs {
+		t.Fatalf("depErr=%+v, want contribution dependency", depErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_dependency_violation" ||
+		violation.ActionID != "contrib" ||
+		violation.ActionKind != string(DataActionComputeContribs) ||
+		violation.Role != "contributions" ||
+		!strings.Contains(violation.ActualSnippet, "filter_matched=0") {
+		t.Fatalf("violation=%+v, want typed zero contribution dependency violation", violation)
 	}
 }
 

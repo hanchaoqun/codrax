@@ -1462,7 +1462,13 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 		var err error
 		records, err = parseExplicitEntityResolutionRecords(raw)
 		if err != nil {
-			return DataArtifact{}, nil, fmt.Errorf("parse normalize_entities resolutions_json: %w", err)
+			return DataArtifact{}, nil, dataActionParamError(
+				DataActionNormalizeEntities,
+				"resolutions_json",
+				"array/object of entity resolution records",
+				raw,
+				err,
+			)
 		}
 	}
 	if raw == "" || (len(records) == 0 && len(cleanStringList(action.InputPaths)) > 0) {
@@ -1499,8 +1505,18 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 			Children:          children,
 		}
 		if requireNonEmpty {
-			return artifact, nil, fmt.Errorf("normalize_entities produced zero entity resolution records while entity resolution ledger is required; diagnostics=%s. Check source/reference input paths, source_fields, reference_fields, canonical_id_field, match_mode, and role-specific source_filters/reference_filters against available fields and samples",
-				entityNormalizationDiagnosticsJSON(artifact))
+			diagnostics := entityNormalizationDiagnosticsJSON(artifact)
+			return artifact, nil, DataActionDependencyError{
+				ActionKind:    DataActionNormalizeEntities,
+				Role:          "entity_resolution_records",
+				Operation:     "normalize",
+				InputAliases:  normalizeMaterialPaths(consumed),
+				ExpectedShape: "non-empty entity resolution ledger",
+				ActualSnippet: diagnostics,
+				RepairAction:  DataActionNormalizeEntities,
+				Message: fmt.Sprintf("normalize_entities produced zero entity resolution records while entity resolution ledger is required; diagnostics=%s. Check source/reference input paths, source_fields, reference_fields, canonical_id_field, match_mode, and role-specific source_filters/reference_filters against available fields and samples",
+					diagnostics),
+			}
 		}
 		return artifact, nil, nil
 	}
@@ -1732,12 +1748,23 @@ func (r ActionRunner) validateExplicitEntityResolutionCanonicalUniverse(action D
 	}
 	sort.Strings(invalid)
 	sort.Strings(allowedValues)
-	return fmt.Errorf("normalize_entities explicit canonical_id value(s) [%s] are outside reference universe %s field(s) [%s]; use canonical ids from the reference table, or omit explicit resolutions and let structured normalization derive them. allowed_sample=[%s]",
-		strings.Join(clampStringSliceForError(invalid, 12), ", "),
-		refRel,
-		strings.Join(usedFields, ", "),
-		strings.Join(clampStringSliceForError(allowedValues, 24), ", "),
-	)
+	invalidSample := strings.Join(clampStringSliceForError(invalid, 12), ", ")
+	allowedSample := strings.Join(clampStringSliceForError(allowedValues, 24), ", ")
+	return DataValueContractError{
+		ActionKind:    DataActionNormalizeEntities,
+		Role:          "canonical_universe",
+		Field:         "canonical_id",
+		Operation:     "normalize",
+		InputAlias:    refRel,
+		ExpectedShape: "canonical_id values present in the reference universe",
+		ActualSnippet: fmt.Sprintf("invalid=[%s] allowed_sample=[%s]", invalidSample, allowedSample),
+		Message: fmt.Sprintf("normalize_entities explicit canonical_id value(s) [%s] are outside reference universe %s field(s) [%s]; use canonical ids from the reference table, or omit explicit resolutions and let structured normalization derive them. allowed_sample=[%s]",
+			invalidSample,
+			refRel,
+			strings.Join(usedFields, ", "),
+			allowedSample,
+		),
+	}
 }
 
 func applyEntityResolutionDefaults(records []EntityResolutionRecord, action DataAction) {
@@ -7474,10 +7501,20 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		if len(blockedStatusSamples) > 0 {
 			fields["blocked_status_rows"] = fmt.Sprintf("%d", len(blockedStatusSamples))
 			fields["blocked_status_samples"] = strings.Join(blockedStatusSamples, "; ")
-			return DataArtifact{}, nil, nil, fmt.Errorf("compute_contributions found rule-qualified target contribution rows with unresolved generated status fields in input %s: %s. Add a qualify_records or filter_records batch to produce explicit include/exclude decisions, or resolve/materialize the evidence fields before computing contributions",
-				rel,
-				strings.Join(blockedStatusSamples, "; "),
-			)
+			actual := strings.Join(blockedStatusSamples, "; ")
+			return DataArtifact{}, nil, nil, DataActionDependencyError{
+				ActionKind:    DataActionComputeContribs,
+				Role:          "qualification_status",
+				Operation:     "compute_contributions",
+				InputAlias:    rel,
+				ExpectedShape: "explicit include/exclude decisions or resolved status fields before target contribution calculation",
+				ActualSnippet: actual,
+				RepairAction:  DataActionQualifyRecords,
+				Message: fmt.Sprintf("compute_contributions found rule-qualified target contribution rows with unresolved generated status fields in input %s: %s. Add a qualify_records or filter_records batch to produce explicit include/exclude decisions, or resolve/materialize the evidence fields before computing contributions",
+					rel,
+					actual,
+				),
+			}
 		}
 		if effectiveValueField != "" && valueField == "" && rawMetric != "" && effectiveValueField == rawMetric {
 			fields["value_field_inferred_from"] = "metric"
@@ -7517,8 +7554,18 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	}
 	if len(contributions) == 0 {
 		if requireNonEmpty {
-			return DataArtifact{}, nil, nil, fmt.Errorf("compute_contributions produced zero contribution records while contribution ledger is required; diagnostics=[%s]; check filter field names, filter values, value_field, and group_key_field against the input artifact fields",
-				strings.Join(diagnostics, "; "))
+			actual := strings.Join(diagnostics, "; ")
+			return DataArtifact{}, nil, nil, DataActionDependencyError{
+				ActionKind:    DataActionComputeContribs,
+				Role:          "contributions",
+				Operation:     "compute_contributions",
+				InputAliases:  normalizeMaterialPaths(paths),
+				ExpectedShape: "non-empty contribution ledger satisfying the current filters/value/group contract",
+				ActualSnippet: actual,
+				RepairAction:  DataActionComputeContribs,
+				Message: fmt.Sprintf("compute_contributions produced zero contribution records while contribution ledger is required; diagnostics=[%s]; check filter field names, filter values, value_field, and group_key_field against the input artifact fields",
+					actual),
+			}
 		}
 		id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "contributions")
 		return DataArtifact{
