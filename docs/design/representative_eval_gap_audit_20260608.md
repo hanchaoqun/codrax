@@ -505,7 +505,7 @@ Result: unit/package tests passed; early focused data eval passed, but later rer
 
 ### Batch 7 - Data relation quality and final projection completion hardening
 
-Status: done in current code batch; pending commit/push after final validation.
+Status: done and pushed in code batch.
 
 Follow-up audit:
 
