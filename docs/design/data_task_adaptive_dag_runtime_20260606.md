@@ -14718,3 +14718,43 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 326: Workflow State View Structural Derivations
+
+After moving the `workflow_state_json` schema into `internal/dataworkflow`, the
+next adapter-owned seam was structural derivation. REPL wrappers still rebuilt
+stage facts, missing validation stages, allowed next actions, and allowed action
+contracts from the state view. Those are not UI rules; they are pure workflow
+state operations.
+
+This batch moves those derivations onto `WorkflowStateView` methods. The REPL
+helpers remain as thin compatibility wrappers while call sites are migrated.
+The derivation accepts either the expanded boolean fields or the embedded
+workflow contract view, so future constructors can populate the state in a more
+compact form without losing reducer behavior.
+
+Generic invariants:
+
+- stage facts are derived from typed state, not REPL logic;
+- allowed action contracts/actions are derived by the workflow package;
+- missing validation stages are workflow-state methods;
+- direct boolean fields and `workflow_contract` requirements are reconciled
+  structurally;
+- no business-domain fields, regexes, or prompt prose participate in the
+  derivation.
+
+Changes:
+
+- [x] Added `WorkflowStateView.Facts`.
+- [x] Added `WorkflowStateView.ComputedNextStage`.
+- [x] Added `WorkflowStateView.MissingValidationStages`.
+- [x] Added `WorkflowStateView.ComputedAllowedNextActionContracts`.
+- [x] Added `WorkflowStateView.ComputedAllowedNextActions`.
+- [x] Rewired REPL compatibility helpers to delegate to the dataworkflow
+      methods.
+- [x] Added schema/method regression coverage for contract-backed state facts.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.

@@ -3277,7 +3277,7 @@ func dataTaskActionDependencyRank(kind dataquery.DataActionKind) int {
 }
 
 func dataTaskWorkflowMissingValidationStages(state dataTaskWorkflowStateView) []string {
-	return dataworkflow.MissingValidationStages(dataTaskWorkflowStageFacts(state))
+	return state.MissingValidationStages()
 }
 
 func dataTaskPlanHasScriptedCustomTransform(plan dataquery.TaskPlan) bool {
@@ -6512,29 +6512,19 @@ func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current da
 }
 
 func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
-	return dataTaskWorkflowStateSnapshot(state).NextStage()
+	return state.ComputedNextStage()
 }
 
 func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.StageFacts {
-	return dataworkflow.BuildStageFacts(dataworkflow.StageFactsInput{
-		MaterialCoverageSufficient: state.MaterialCoverageSufficient,
-		Coverage:                   state.WorkflowContract,
-		RuleCoverageRecords:        state.RuleCoverageRecords,
-		DecisionRecords:            state.DecisionRecords,
-		EntityResolutionRecords:    state.EntityResolutionRecords,
-		EntityStageMaterialized:    state.EntityStageMaterialized,
-		ContributionRecords:        state.ContributionRecords,
-		HasReconcile:               state.HasReconcile,
-		HasAnswer:                  state.HasAnswer,
-	})
+	return state.Facts()
 }
 
 func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []string {
-	return dataTaskWorkflowStateSnapshot(state).AllowedNextActions()
+	return state.ComputedAllowedNextActions()
 }
 
 func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView) []dataTaskActionContract {
-	return dataTaskWorkflowStateSnapshot(state).AllowedNextActionContracts()
+	return state.ComputedAllowedNextActionContracts()
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {

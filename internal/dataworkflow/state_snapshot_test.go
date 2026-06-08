@@ -35,8 +35,9 @@ func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
 	view := WorkflowStateView{
 		MaterialCoverageSufficient: true,
 		WorkflowContract: CoverageContractView{
-			Layer:                    CoverageLayerWorkflow,
-			RequiredRunnerInputPaths: []string{"input.csv"},
+			Layer:                      CoverageLayerWorkflow,
+			RequiredRunnerInputPaths:   []string{"input.csv"},
+			ContributionLedgerRequired: true,
 		},
 		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
 		AllowedNextActions: []string{
@@ -59,6 +60,15 @@ func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("workflow state view JSON missing %q: %s", want, text)
 		}
+	}
+	if view.Facts().ContributionLedgerRequired != true || view.ComputedNextStage() != StagePrepareContributionInputs {
+		t.Fatalf("workflow state view facts/stage=%+v/%s, want contribution stage", view.Facts(), view.ComputedNextStage())
+	}
+	if got := strings.Join(view.MissingValidationStages(), ","); !strings.Contains(got, "contribution_ledger") {
+		t.Fatalf("MissingValidationStages=%q, want contribution_ledger", got)
+	}
+	if got := strings.Join(view.ComputedAllowedNextActions(), ","); !strings.Contains(got, string(dataquery.DataActionFilterRecords)) {
+		t.Fatalf("ComputedAllowedNextActions=%q, want explicit allowed action", got)
 	}
 }
 

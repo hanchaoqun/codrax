@@ -69,6 +69,48 @@ type WorkflowStateView struct {
 	WorkflowViolations            []WorkflowViolation        `json:"workflow_violations,omitempty"`
 }
 
+func (view WorkflowStateView) Facts() StageFacts {
+	coverage := view.WorkflowContract
+	coverage.RuleCoverageRequired = coverage.RuleCoverageRequired || view.RuleCoverageRequired
+	coverage.DecisionRecordsRequired = coverage.DecisionRecordsRequired || view.DecisionRecordsRequired
+	coverage.EntityResolutionRequired = coverage.EntityResolutionRequired || view.EntityResolutionRequired
+	coverage.ContributionLedgerRequired = coverage.ContributionLedgerRequired || view.ContributionLedgerRequired
+	coverage.ReconcileRequired = coverage.ReconcileRequired || view.ReconcileRequired
+	return BuildStageFacts(StageFactsInput{
+		MaterialCoverageSufficient: view.MaterialCoverageSufficient,
+		Coverage:                   coverage,
+		RuleCoverageRecords:        view.RuleCoverageRecords,
+		DecisionRecords:            view.DecisionRecords,
+		EntityResolutionRecords:    view.EntityResolutionRecords,
+		EntityStageMaterialized:    view.EntityStageMaterialized,
+		ContributionRecords:        view.ContributionRecords,
+		HasReconcile:               view.HasReconcile,
+		HasAnswer:                  view.HasAnswer,
+	})
+}
+
+func (view WorkflowStateView) ComputedNextStage() string {
+	return NextStage(view.Facts())
+}
+
+func (view WorkflowStateView) MissingValidationStages() []string {
+	return MissingValidationStages(view.Facts())
+}
+
+func (view WorkflowStateView) ComputedAllowedNextActionContracts() []ActionContract {
+	if len(view.AllowedNextActionContracts) > 0 {
+		return append([]ActionContract(nil), view.AllowedNextActionContracts...)
+	}
+	return AllowedNextActionContractsForFacts(view.Facts())
+}
+
+func (view WorkflowStateView) ComputedAllowedNextActions() []string {
+	if len(view.AllowedNextActions) > 0 {
+		return cleanStrings(view.AllowedNextActions)
+	}
+	return ActionKindsFromContracts(view.ComputedAllowedNextActionContracts())
+}
+
 type MaterialGraph struct {
 	WorkflowRequired []MaterialNode `json:"workflow_required,omitempty"`
 	CurrentInputs    []MaterialNode `json:"current_inputs,omitempty"`
