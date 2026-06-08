@@ -692,7 +692,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			repairRounds = workflowRuntime.IncrementRepairRound()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
-			repairedPlan, err := repairer.RepairDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason)
+			repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason, dataTaskRepairViolationFromRecords(records, repairReason))
 			if err != nil {
 				return "", fmt.Errorf("repair data task node: %w", err)
 			}
@@ -826,7 +826,7 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 		return dataquery.TaskPlan{}, repairRounds, false, nil
 	}
 	repairRounds++
-	repairedPlan, err := repairer.RepairDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+	repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 	if err != nil {
 		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, currentPlan, records, err); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", reason)

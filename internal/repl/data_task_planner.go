@@ -21,6 +21,10 @@ type DataTaskRepairPlanner interface {
 	RepairDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error)
 }
 
+type DataTaskTypedRepairPlanner interface {
+	RepairDataTaskWithViolation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error)
+}
+
 type DataTaskEvaluator interface {
 	EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error)
 }
@@ -415,7 +419,11 @@ func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoo
 }
 
 func (p *llmDataTaskPlanner) RepairDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error) {
-	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPrompt(userLine, repoRoot, policy, candidates, previous, executionError))
+	return p.RepairDataTaskWithViolation(ctx, userLine, repoRoot, policy, candidates, previous, executionError, dataquery.DataTaskViolation{})
+}
+
+func (p *llmDataTaskPlanner) RepairDataTaskWithViolation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error) {
+	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPromptWithViolation(userLine, repoRoot, policy, candidates, previous, executionError, violation))
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
@@ -726,8 +734,14 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 }
 
 func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {
+	return dataTaskRepairPromptWithViolation(userLine, repoRoot, policy, candidates, previous, executionError, dataquery.DataTaskViolation{})
+}
+
+func dataTaskRepairPromptWithViolation(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) string {
 	var b strings.Builder
-	violation := dataquery.ClassifyExecutionError(executionError)
+	if strings.TrimSpace(violation.Code) == "" {
+		violation = dataquery.ClassifyExecutionError(executionError)
+	}
 	fmt.Fprintf(&b, "## repair_goal\nThe previous data task script failed at execution time. Emit a corrected emit_data_task_plan.\n\n")
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	fmt.Fprintf(&b, "## workspace_root\n%s\n\n", strings.TrimSpace(repoRoot))
@@ -762,6 +776,13 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
 	return strings.TrimSpace(b.String())
+}
+
+func repairDataTaskWithViolation(ctx context.Context, repairer DataTaskRepairPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error) {
+	if typed, ok := repairer.(DataTaskTypedRepairPlanner); ok && strings.TrimSpace(violation.Code) != "" {
+		return typed.RepairDataTaskWithViolation(ctx, userLine, repoRoot, policy, candidates, previous, executionError, violation)
+	}
+	return repairer.RepairDataTask(ctx, userLine, repoRoot, policy, candidates, previous, executionError)
 }
 
 type dataTaskRepairContext struct {

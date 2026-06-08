@@ -1565,6 +1565,54 @@ KeyError: 'missing'`
 	}
 }
 
+func TestDataTaskRepairPlannerPromptPrefersTypedViolation(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false},"actions":[{"id":"fix_node","kind":"derive_fields","input_paths":["orders.csv"],"params":{"operation":"copy","source_field":"amount","target_field":"amount_copy"}}]}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	repairer, ok := planner.(DataTaskTypedRepairPlanner)
+	if !ok {
+		t.Fatal("planner does not implement DataTaskTypedRepairPlanner")
+	}
+	previous := dataquery.TaskPlan{
+		Status:         "ready",
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []dataquery.DataAction{{
+			ID:         "derive_bad",
+			Kind:       dataquery.DataActionDeriveFields,
+			InputPaths: []string{"orders.csv"},
+			Params: map[string]string{
+				"operation": "unsupported_transform",
+			},
+		}},
+	}
+	executionErr := "opaque runtime text that would otherwise classify as runtime_failure"
+	typedViolation := dataquery.DataTaskViolation{
+		Code:          "action_param_violation",
+		ActionID:      "derive_bad",
+		ActionKind:    string(dataquery.DataActionDeriveFields),
+		Param:         "operation",
+		ExpectedShape: "supported derive operation",
+		ActualSnippet: "unsupported_transform",
+		RepairHint:    "Use a supported typed field operation.",
+	}
+	_, err := repairer.RepairDataTaskWithViolation(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv", Size: 10}}, previous, executionErr, typedViolation)
+	if err != nil {
+		t.Fatalf("RepairDataTaskWithViolation: %v", err)
+	}
+	user := adapter.calls[0].messages[1].Content
+	for _, want := range []string{`"code": "action_param_violation"`, `"action_id": "derive_bad"`, `"action_kind": "derive_fields"`, `"param": "operation"`, `"actual_snippet": "unsupported_transform"`} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("repair prompt missing typed violation %q:\n%s", want, user)
+		}
+	}
+	if strings.Contains(user, `"code": "runtime_failure"`) {
+		t.Fatalf("repair prompt reclassified opaque error instead of using typed violation:\n%s", user)
+	}
+}
+
 func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{{

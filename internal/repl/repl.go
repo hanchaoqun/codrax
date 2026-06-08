@@ -1441,7 +1441,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = workflowRuntime.IncrementRepairRound()
 				ctx := r.startTurn()
-				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+				repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
@@ -1502,7 +1502,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					Guard:        &guard,
 				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				ctx := r.startTurn()
-				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+				repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
@@ -1662,7 +1662,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					Guard:        &guard,
 				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				ctx := r.startTurn()
-				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+				repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
@@ -1704,7 +1704,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				repairRounds = workflowRuntime.IncrementRepairRound()
 				emitWorkflowFailure("repair", repairRounds, errText)
 				ctx := r.startTurn()
-				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+				repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
@@ -1836,7 +1836,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				repairRounds = workflowRuntime.IncrementRepairRound()
 				emitWorkflowFailure("repair", repairRounds, errText)
 				ctx := r.startTurn()
-				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+				repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
@@ -1881,7 +1881,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					repairRounds = workflowRuntime.IncrementRepairRound()
 					emitWorkflowFailure("repair", repairRounds, errText)
 					ctx := r.startTurn()
-					repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+					repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if repairErr != nil {
@@ -2044,7 +2044,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 					repairRounds = workflowRuntime.IncrementRepairRound()
 					ctx := r.startTurn()
-					repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
+					repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if repairErr != nil {
@@ -2151,7 +2151,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			ctx := r.startTurn()
-			repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason)
+			repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason, dataTaskRepairViolationFromRecords(records, repairReason))
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if repairErr != nil {

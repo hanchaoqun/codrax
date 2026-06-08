@@ -16399,3 +16399,46 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 362: Typed Repair Locus From Runtime To Planner
+
+Batches 353-361 made more runner and reducer failures typed, but the repair
+planner path still had a gap: it rebuilt `typed_repair_locus` from the error
+string with `ClassifyExecutionError`. That meant a precise
+`DataTaskViolation` captured during execution could be degraded back to a
+generic `runtime_failure` if the textual error was opaque or wrapped.
+
+Generic invariant:
+
+- once runtime/reducer has a typed violation, repair planning must consume that
+  typed violation directly;
+- string classification remains only as a fallback when no typed violation is
+  available;
+- prompt text may include the original execution error for audit, but hard
+  repair locus fields come from typed IR;
+- this applies uniformly to CLI and REPL data repair paths.
+
+Changes:
+
+- [x] Added an optional typed repair-planner interface
+      `RepairDataTaskWithViolation` while preserving the older repair
+      interface for tests and non-typed callers.
+- [x] Changed the LLM data planner repair prompt builder to prefer supplied
+      `DataTaskViolation` and classify error text only when the violation is
+      absent.
+- [x] Added a shared repair helper that dispatches to typed repair when the
+      planner supports it.
+- [x] Passed the latest workflow-record typed violation into CLI and REPL
+      repair calls.
+- [x] Added regression coverage proving an opaque execution error does not
+      overwrite an explicit typed repair locus.
+
+Remaining architecture items:
+
+- [ ] Move evaluator repair decisions themselves to consume typed reducer state
+      before deciding repair/continue/blocked, not only when building the
+      repair prompt.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

@@ -6165,6 +6165,17 @@ func dataTaskWorkflowRecordWithExecutionViolation(plan dataquery.TaskPlan, resul
 	return rec
 }
 
+func dataTaskRepairViolationFromRecords(records []dataTaskWorkflowRecord, errText string) dataquery.DataTaskViolation {
+	for i := len(records) - 1; i >= 0; i-- {
+		for _, violation := range records[i].Violations {
+			if strings.TrimSpace(violation.Code) != "" {
+				return violation
+			}
+		}
+	}
+	return dataquery.ClassifyExecutionError(errText)
+}
+
 func dataTaskArtifactAliasPaths(artifact dataquery.DataArtifact) []string {
 	var out []string
 	if strings.TrimSpace(artifact.ID) != "" {
