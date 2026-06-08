@@ -16646,10 +16646,60 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Continue moving ordinary continuation/fallback plan transitions into a
+- [x] Continue moving ordinary continuation/fallback plan transitions into a
       reducer-owned transition helper so all `SwitchCurrentPlan` calls pass
       through one workflow-runtime API with uniform process events.
 - [ ] Audit historical `Remaining architecture items` and mark stale entries
       that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.
+
+### Batch 368: Runtime-Owned Plan Transition Process Events
+
+Candidate admission and deferred queue mutation had moved into
+`WorkflowRuntime`, but ordinary continuation/fallback transitions still had a
+weaker audit shape: adapters switched the current plan through the runtime, yet
+the durable process event was usually a separate free-form reason line emitted
+by CLI or REPL. That keeps the execution state correct, but it makes the
+terminal journal less useful for reducers and future UX, because a plan
+transition is not represented as a first-class workflow event with the plan's
+business intent fields.
+
+This batch moves the event part of ordinary plan transitions into the runtime.
+It does not change planning, staging, execution, repair, or completion gates.
+It only records the typed transition in the same storage-neutral event stream
+already used by action batches, guards, admission decisions, evaluations, and
+results.
+
+Generic invariants:
+
+- every current-plan switch records a typed transition event in the runtime;
+- the event carries durable plan intent fields: goal, batch purpose, next step,
+  action summary, transition source, first action, and reason;
+- CLI/REPL may still render their existing low-noise progress lines, but the
+  audit source of truth now lives in the runtime journal;
+- transition events read system-owned source enums and plan IR fields, not
+  business-domain names, model prose for hard branching, or localized UI text;
+- this is domain-neutral and benefits any data DAG that advances through
+  continuation, ledger repair, deferred dispatch, or deterministic fallback.
+
+Changes:
+
+- [x] Added `BuildPlanTransitionProcessEvent`.
+- [x] Made `WorkflowRuntime.SwitchCurrentPlan` append a runtime-owned
+      `plan_transition` process event alongside the existing compact
+      `plan_transitions` summary.
+- [x] Added display labels for transition events so future CLI/REPL event-sink
+      rendering can show them without internal jargon.
+- [x] Added regression coverage proving transition events preserve business
+      intent fields and remain clone-isolated from caller mutation.
+
+Remaining architecture items:
+
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Replace adapter-emitted duplicate transition reason lines with direct
+      rendering of runtime transition events once CLI/REPL share one event
+      sink.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.

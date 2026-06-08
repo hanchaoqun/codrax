@@ -126,6 +126,30 @@ func BuildAdmissionProcessEvent(round int, decision ActionDAGAdmissionDecision) 
 	return event
 }
 
+func BuildPlanTransitionProcessEvent(transition PlanTransitionEvent, plan dataquery.TaskPlan) WorkflowJournalEvent {
+	var audit []string
+	if source := strings.TrimSpace(transition.Source); source != "" {
+		audit = append(audit, "transition_source="+source)
+	}
+	if transition.Actions > 0 {
+		audit = append(audit, fmt.Sprintf("transition_actions=%d", transition.Actions))
+	}
+	if id := strings.TrimSpace(transition.FirstActionID); id != "" {
+		audit = append(audit, "transition_first_action="+id)
+	}
+	if kind := strings.TrimSpace(transition.FirstActionKind); kind != "" {
+		audit = append(audit, "transition_first_action_kind="+kind)
+	}
+	return BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:         "plan_transition",
+		Round:        transition.Round,
+		Status:       strings.TrimSpace(transition.Source),
+		Reason:       transition.Reason,
+		Plan:         plan,
+		AuditDetails: audit,
+	})
+}
+
 func AdmissionSummary(decision ActionDAGAdmissionDecision) ActionDAGAdmissionSummary {
 	status := "accepted"
 	if !decision.FinalGuard.Empty() || strings.TrimSpace(decision.FinalGuardErr) != "" {

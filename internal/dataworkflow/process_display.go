@@ -57,6 +57,8 @@ func processDisplaySegments(event WorkflowJournalEvent, zh bool) []string {
 			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
 		case "resume":
 			segs = append(segs, fmt.Sprintf("恢复第 %d 批", maxProcessRound(round)))
+		case "plan_transition":
+			segs = append(segs, fmt.Sprintf("计划第 %d 批", maxProcessRound(round)))
 		default:
 			segs = append(segs, kind)
 		}
@@ -80,6 +82,8 @@ func processDisplaySegments(event WorkflowJournalEvent, zh bool) []string {
 		segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
 	case "resume":
 		segs = append(segs, fmt.Sprintf("resume batch %d", maxProcessRound(round)))
+	case "plan_transition":
+		segs = append(segs, fmt.Sprintf("plan batch %d", maxProcessRound(round)))
 	default:
 		segs = append(segs, kind)
 	}

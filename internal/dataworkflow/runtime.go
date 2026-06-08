@@ -63,7 +63,9 @@ func (rt *WorkflowRuntime) SwitchCurrentPlan(round int, source string, plan data
 		return cloneTaskPlanValue(plan)
 	}
 	rt.currentPlan = cloneTaskPlanValue(plan)
-	rt.planTransitions = appendPlanTransitionEvent(rt.planTransitions, buildPlanTransitionEvent(round, source, rt.currentPlan, reason))
+	transition := buildPlanTransitionEvent(round, source, rt.currentPlan, reason)
+	rt.planTransitions = appendPlanTransitionEvent(rt.planTransitions, transition)
+	rt.processEvents = appendWorkflowJournalEvents(rt.processEvents, BuildPlanTransitionProcessEvent(transition, rt.currentPlan))
 	return rt.CurrentPlan()
 }
 

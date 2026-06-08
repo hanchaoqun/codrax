@@ -251,6 +251,42 @@ func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeRecordsPlanTransitionProcessEvent(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	plan := dataquery.TaskPlan{
+		Goal:         "answer the data question",
+		WhyThisBatch: "compute reusable grouped contributions",
+		NextBatch:    "assemble the requested final output",
+		Actions: []dataquery.DataAction{{
+			ID:      "compute",
+			Kind:    dataquery.DataActionComputeContribs,
+			Purpose: "sum values for each requested group",
+		}},
+	}
+	rt.SwitchCurrentPlan(5, "ledger", plan, "contribution ledger is missing")
+	plan.Goal = "mutated"
+	plan.Actions[0].Purpose = "mutated"
+
+	events := rt.ProcessEvents()
+	if len(events) != 1 {
+		t.Fatalf("ProcessEvents=%+v, want one transition event", events)
+	}
+	event := events[0]
+	if event.Kind != "plan_transition" || event.Round != 5 || event.Status != "ledger" || event.Reason != "contribution ledger is missing" {
+		t.Fatalf("transition event=%+v", event)
+	}
+	if event.Goal != "answer the data question" || event.BatchPurpose != "compute reusable grouped contributions" || event.NextStep != "assemble the requested final output" {
+		t.Fatalf("transition event intent not preserved: %+v", event)
+	}
+	if event.ActionSummary != "sum values for each requested group" {
+		t.Fatalf("ActionSummary=%q, want action purpose", event.ActionSummary)
+	}
+	events[0].Goal = "mutated"
+	if rt.ProcessEvents()[0].Goal != "answer the data question" {
+		t.Fatalf("runtime transition event leaked returned slice: %+v", rt.ProcessEvents())
+	}
+}
+
 func TestWorkflowRuntimeAppendsTypedGuardEvent(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{
