@@ -190,6 +190,37 @@ func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
 	}
 }
 
+func TestWorkflowViolationProjectionCarriesParamAndLimit(t *testing.T) {
+	violation := WorkflowViolationFromDataTaskViolation(dataquery.DataTaskViolation{
+		Code:          "action_limit_violation",
+		Summary:       "too many rows",
+		ActionID:      "filter_limit",
+		ActionKind:    string(dataquery.DataActionFilterRecords),
+		Param:         "max_output_records",
+		Limit:         1,
+		Observed:      2,
+		Repairability: dataquery.RepairabilityNeedsRecompute,
+		RepairHint:    string(dataquery.DataActionFilterRecords),
+	}, dataquery.DataAction{
+		ID:             "filter_limit",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.csv"},
+		OutputArtifact: "filtered.json",
+	})
+	if violation.Code != "action_limit_violation" ||
+		violation.ActionID != "filter_limit" ||
+		violation.Param != "max_output_records" ||
+		violation.Limit != 1 ||
+		violation.Observed != 2 ||
+		violation.InputAlias != "records.csv" {
+		t.Fatalf("violation=%+v, want param/limit projection", violation)
+	}
+	summary := BuildWorkflowViolationSummary([]WorkflowViolation{violation})
+	if summary.FirstParam != "max_output_records" || summary.FirstLimit != 1 || summary.FirstObserved != 2 {
+		t.Fatalf("summary=%+v, want first param/limit fields", summary)
+	}
+}
+
 func TestBuildWorkflowStateViewProjectsRecordExecutionViolationIntoActionGraph(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:             "filter_paid",

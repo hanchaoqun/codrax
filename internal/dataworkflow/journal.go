@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -317,11 +318,14 @@ func workflowViolationJournalKey(violation WorkflowViolation) string {
 		string(violation.Repairability),
 		strings.TrimSpace(violation.ActionID),
 		strings.TrimSpace(violation.ActionKind),
+		strings.TrimSpace(violation.Param),
 		strings.TrimSpace(violation.InputAlias),
 		strings.Join(cleanJournalStrings(violation.InputAliases), ","),
 		strings.TrimSpace(violation.OutputAlias),
 		strings.TrimSpace(violation.IdempotencyKey),
 		strings.Join(cleanJournalStrings(violation.MissingFields), ","),
+		fmt.Sprintf("%d", violation.Limit),
+		fmt.Sprintf("%d", violation.Observed),
 		strings.TrimSpace(violation.Reason),
 	}, "\x1f")
 }

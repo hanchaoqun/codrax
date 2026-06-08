@@ -221,6 +221,112 @@ func dataFieldInferenceError(kind DataActionKind, role, inputAlias, expectedShap
 	}
 }
 
+type DataActionParamError struct {
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Param         string         `json:"param,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	Cause         error          `json:"-"`
+}
+
+func (e DataActionParamError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	param := strings.TrimSpace(e.Param)
+	if param == "" {
+		param = "parameter"
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "schema-compatible value"
+	}
+	msg := fmt.Sprintf("%s parameter %q does not match %s", kind, param, expected)
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataActionParamError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataActionParamError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "action_param_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Param:         strings.TrimSpace(e.Param),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "schema-compatible action parameter"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Use the typed action schema for this parameter. Keep arrays as JSON arrays and objects as JSON objects; split the batch if the parameter belongs to a later action.",
+	}
+}
+
+func dataActionParamError(kind DataActionKind, param, expectedShape, actualSnippet string, cause error) DataActionParamError {
+	return DataActionParamError{
+		ActionKind:    kind,
+		Param:         strings.TrimSpace(param),
+		ExpectedShape: strings.TrimSpace(expectedShape),
+		ActualSnippet: strings.TrimSpace(actualSnippet),
+		Cause:         cause,
+	}
+}
+
+type DataActionLimitError struct {
+	ActionKind DataActionKind `json:"action_kind,omitempty"`
+	Param      string         `json:"param,omitempty"`
+	Limit      int            `json:"limit,omitempty"`
+	Observed   int            `json:"observed,omitempty"`
+	Message    string         `json:"message,omitempty"`
+}
+
+func (e DataActionLimitError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	param := strings.TrimSpace(e.Param)
+	if param == "" {
+		param = "output"
+	}
+	return fmt.Sprintf("%s exceeded %s=%d", kind, param, e.Limit)
+}
+
+func (e DataActionLimitError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "action_limit_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Param:         strings.TrimSpace(e.Param),
+		ExpectedShape: fmt.Sprintf("%s <= %d", firstNonEmptyString(strings.TrimSpace(e.Param), "output"), e.Limit),
+		ActualSnippet: fmt.Sprintf("%d", e.Observed),
+		Limit:         e.Limit,
+		Observed:      e.Observed,
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Split the typed action into smaller input groups or add narrower filters before retrying this action.",
+	}
+}
+
+func dataActionLimitError(kind DataActionKind, param string, limit, observed int) DataActionLimitError {
+	return DataActionLimitError{
+		ActionKind: kind,
+		Param:      strings.TrimSpace(param),
+		Limit:      limit,
+		Observed:   observed,
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -1532,7 +1638,7 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 			}
 			if len(candidates) == 0 {
 				if len(rows) >= maxOutput {
-					return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+					return DataArtifact{}, nil, nil, dataActionLimitError(DataActionMappingCandidate, "max_output_records", maxOutput, len(rows)+1)
 				}
 				rows = append(rows, map[string]any{
 					"source_path":     sourceRel,
@@ -1547,7 +1653,7 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 			}
 			for rank, candidate := range candidates {
 				if len(rows) >= maxOutput {
-					return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+					return DataArtifact{}, nil, nil, dataActionLimitError(DataActionMappingCandidate, "max_output_records", maxOutput, len(rows)+1)
 				}
 				rows = append(rows, map[string]any{
 					"source_path":        sourceRel,
@@ -1713,7 +1819,7 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 					continue
 				}
 				if len(out) >= maxResolutions {
-					return nil, nil, nil, fmt.Errorf("normalize_entities exceeded max_resolutions=%d; split the action into smaller filters or input groups", maxResolutions)
+					return nil, nil, nil, dataActionLimitError(DataActionNormalizeEntities, "max_resolutions", maxResolutions, len(out)+1)
 				}
 				canonicalID := recordField(record.Fields, pathCanonicalIDField)
 				canonicalLabel := recordField(record.Fields, pathCanonicalLabelField)
@@ -1939,7 +2045,7 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 				continue
 			}
 			if len(out) >= maxResolutions {
-				return nil, nil, nil, true, fmt.Errorf("normalize_entities exceeded max_resolutions=%d; split the action into smaller filters or input groups", maxResolutions)
+				return nil, nil, nil, true, dataActionLimitError(DataActionNormalizeEntities, "max_resolutions", maxResolutions, len(out)+1)
 			}
 			candidate, status, evidence := selectEntityReferenceCandidate(sourceValue, referenceLookup, matchMode)
 			canonicalID := candidate.ID
@@ -2918,7 +3024,7 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 	rows := make([]map[string]any, 0, minInt(len(order), maxOutput))
 	for _, key := range order {
 		if len(rows) >= maxOutput {
-			return DataArtifact{}, nil, nil, fmt.Errorf("group_records exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+			return DataArtifact{}, nil, nil, dataActionLimitError(DataActionGroupRecords, "max_output_records", maxOutput, len(rows)+1)
 		}
 		group := groups[key]
 		row := map[string]any{}
@@ -3073,7 +3179,7 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 		}
 		for _, value := range values {
 			if len(rows) >= maxOutput {
-				return DataArtifact{}, nil, nil, fmt.Errorf("expand_records exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+				return DataArtifact{}, nil, nil, dataActionLimitError(DataActionExpandRecords, "max_output_records", maxOutput, len(rows)+1)
 			}
 			row := map[string]any{}
 			for key, original := range record.Fields {
@@ -3181,7 +3287,7 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			continue
 		}
 		if len(rows) >= maxOutput {
-			return DataArtifact{}, nil, nil, fmt.Errorf("filter_records exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+			return DataArtifact{}, nil, nil, dataActionLimitError(DataActionFilterRecords, "max_output_records", maxOutput, len(rows)+1)
 		}
 		row := map[string]any{}
 		for key, value := range record.Fields {
@@ -3440,7 +3546,7 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 		outputMode = "filter"
 	}
 	if outputMode != "filter" && outputMode != "annotate" && outputMode != "all" {
-		return DataArtifact{}, nil, nil, nil, fmt.Errorf("qualify_records unsupported output_mode %q; use filter or annotate", outputMode)
+		return DataArtifact{}, nil, nil, nil, dataActionParamError(DataActionQualifyRecords, "output_mode", "filter, annotate, or all", outputMode, nil)
 	}
 	ruleRefs := parseActionStringListParam(action.Params["rule_refs"])
 	if len(ruleRefs) == 0 {
@@ -3528,7 +3634,7 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 			continue
 		}
 		if len(rows) >= maxOutput {
-			return DataArtifact{}, nil, nil, nil, fmt.Errorf("qualify_records exceeded max_output_records=%d; split the action or lower max_records", maxOutput)
+			return DataArtifact{}, nil, nil, nil, dataActionLimitError(DataActionQualifyRecords, "max_output_records", maxOutput, len(rows)+1)
 		}
 		row := map[string]any{}
 		for key, value := range record.Fields {
@@ -6859,7 +6965,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			}
 			filterMatched++
 			if len(contributions) >= maxContribs {
-				return DataArtifact{}, nil, nil, fmt.Errorf("compute_contributions exceeded max_contributions=%d; split the action into smaller groups or filters", maxContribs)
+				return DataArtifact{}, nil, nil, dataActionLimitError(DataActionComputeContribs, "max_contributions", maxContribs, len(contributions)+1)
 			}
 			value := ""
 			if effectiveValueField != "" {
@@ -8502,7 +8608,7 @@ func parseContributionFilters(action DataAction) ([]contributionFilter, error) {
 	if raw := strings.TrimSpace(firstNonEmptyString(structuredActionParam(action.Params, "filters"), action.Params["filters_json"])); raw != "" {
 		parsed, err := parseContributionFiltersRaw(raw)
 		if err != nil {
-			return nil, err
+			return nil, dataActionParamError(action.Kind, "filters_json", "array of {field, op, value} objects", raw, err)
 		}
 		filters = append(filters, parsed...)
 	}
@@ -8521,7 +8627,7 @@ func parseContributionFilters(action DataAction) ([]contributionFilter, error) {
 		filters[i].Op = strings.ToLower(strings.TrimSpace(filters[i].Op))
 		filters[i].Value = normalizeContributionFilterStringValue(filters[i].Value)
 		if filters[i].Field == "" {
-			return nil, fmt.Errorf("filters_json[%d] has empty field", i)
+			return nil, dataActionParamError(action.Kind, "filters_json", "each filter has a non-empty field", fmt.Sprintf("filters_json[%d]", i), nil)
 		}
 		if filters[i].Op == "" {
 			filters[i].Op = "eq"
@@ -8538,14 +8644,14 @@ func parseActionFilterListParams(action DataAction, keys ...string) ([]contribut
 		}
 		filters, err := parseContributionFiltersRaw(raw)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", key, err)
+			return nil, dataActionParamError(action.Kind, key, "array of {field, op, value} objects", raw, err)
 		}
 		for i := range filters {
 			filters[i].Field = strings.TrimSpace(filters[i].Field)
 			filters[i].Op = strings.ToLower(strings.TrimSpace(filters[i].Op))
 			filters[i].Value = normalizeContributionFilterStringValue(filters[i].Value)
 			if filters[i].Field == "" {
-				return nil, fmt.Errorf("%s[%d] has empty field", key, i)
+				return nil, dataActionParamError(action.Kind, key, "each filter has a non-empty field", fmt.Sprintf("%s[%d]", key, i), nil)
 			}
 			if filters[i].Op == "" {
 				filters[i].Op = "eq"

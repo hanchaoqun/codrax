@@ -215,6 +215,83 @@ func TestActionRunnerMappingCandidateFieldInferenceIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerFilterParamShapeIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,status\n1,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "filter_bad",
+			Kind:       DataActionFilterRecords,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"filters_json": `{"field":"status","op":"eq","value":"paid"`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed action param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionFilterRecords || paramErr.Param != "filters_json" {
+		t.Fatalf("paramErr=%+v, want filter filters_json param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "filter_bad" ||
+		violation.ActionKind != string(DataActionFilterRecords) ||
+		violation.Param != "filters_json" ||
+		!strings.Contains(violation.ExpectedShape, "field") {
+		t.Fatalf("violation=%+v, want typed action param violation", violation)
+	}
+}
+
+func TestActionRunnerFilterOutputLimitIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,status\n1,paid\n2,paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "filter_limit",
+			Kind:       DataActionFilterRecords,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"filter_field":       "status",
+				"filter_value":       "paid",
+				"max_output_records": "1",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed action limit failure")
+	}
+	var limitErr DataActionLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("err=%T %v, want DataActionLimitError", err, err)
+	}
+	if limitErr.ActionKind != DataActionFilterRecords || limitErr.Param != "max_output_records" || limitErr.Limit != 1 || limitErr.Observed != 2 {
+		t.Fatalf("limitErr=%+v, want filter max_output_records limit", limitErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_limit_violation" ||
+		violation.ActionID != "filter_limit" ||
+		violation.ActionKind != string(DataActionFilterRecords) ||
+		violation.Param != "max_output_records" ||
+		violation.Limit != 1 ||
+		violation.Observed != 2 {
+		t.Fatalf("violation=%+v, want typed action limit violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

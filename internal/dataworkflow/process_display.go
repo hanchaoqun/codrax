@@ -150,22 +150,27 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 	}
 	input := firstNonEmptyProcessText(violation.InputAlias, summary.FirstInputAlias)
 	field := firstNonEmptyProcessText(violation.Field, summary.FirstField, strings.Join(cleanStrings(violation.MissingFields), ", "), strings.Join(summary.FirstMissingFields, ", "))
+	param := firstNonEmptyProcessText(violation.Param, summary.FirstParam)
 	operation := firstNonEmptyProcessText(violation.Operation, summary.FirstOperation)
 	reason := firstNonEmptyProcessText(violation.Reason, summary.FirstReason, guardErrorText(guard), code)
 	if zh {
 		switch code {
 		case "field_contract_violation":
-			return appendProcessDisplayContext("本步引用的字段在输入中不存在。", input, field, operation, zh)
+			return appendProcessDisplayContext("本步引用的字段在输入中不存在。", input, field, param, operation, zh)
 		case "value_contract_violation":
-			return appendProcessDisplayContext("字段值不满足本步操作需要的值类型或形状。", input, field, operation, zh)
+			return appendProcessDisplayContext("字段值不满足本步操作需要的值类型或形状。", input, field, param, operation, zh)
 		case "field_inference_violation":
-			return appendProcessDisplayContext("本步还没有足够结构信息来确定应使用哪些字段。", input, field, operation, zh)
+			return appendProcessDisplayContext("本步还没有足够结构信息来确定应使用哪些字段。", input, field, param, operation, zh)
+		case "action_param_violation":
+			return appendProcessDisplayContext("本步参数结构不符合动作 schema。", input, field, param, operation, zh)
+		case "action_limit_violation":
+			return appendProcessDisplayContext(processDisplayLimitText("本步输出超过当前安全上限，需要拆成更小批次。", violation, summary, zh), input, field, param, operation, zh)
 		case "zero_match_filter":
-			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, operation, zh)
+			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, param, operation, zh)
 		case "unmatched_resolution":
-			return appendProcessDisplayContext("当前记录与参考/映射产物没有形成有效匹配。", input, field, operation, zh)
+			return appendProcessDisplayContext("当前记录与参考/映射产物没有形成有效匹配。", input, field, param, operation, zh)
 		case "zero_eligible_records":
-			return appendProcessDisplayContext("当前批次没有得到符合下一步条件的记录。", input, field, operation, zh)
+			return appendProcessDisplayContext("当前批次没有得到符合下一步条件的记录。", input, field, param, operation, zh)
 		case ViolationStageNoProgress:
 			return "连续批次没有推进结构化进展，需要调整下一批原子动作。"
 		default:
@@ -174,17 +179,21 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 	}
 	switch code {
 	case "field_contract_violation":
-		return appendProcessDisplayContext("This step references fields that do not exist in the selected input.", input, field, operation, zh)
+		return appendProcessDisplayContext("This step references fields that do not exist in the selected input.", input, field, param, operation, zh)
 	case "value_contract_violation":
-		return appendProcessDisplayContext("Field values do not satisfy the value shape required by this operation.", input, field, operation, zh)
+		return appendProcessDisplayContext("Field values do not satisfy the value shape required by this operation.", input, field, param, operation, zh)
 	case "field_inference_violation":
-		return appendProcessDisplayContext("This step does not have enough structural information to infer the fields to use.", input, field, operation, zh)
+		return appendProcessDisplayContext("This step does not have enough structural information to infer the fields to use.", input, field, param, operation, zh)
+	case "action_param_violation":
+		return appendProcessDisplayContext("This step has an action parameter that does not match the typed schema.", input, field, param, operation, zh)
+	case "action_limit_violation":
+		return appendProcessDisplayContext(processDisplayLimitText("This step exceeded the current safety limit and needs a smaller batch.", violation, summary, zh), input, field, param, operation, zh)
 	case "zero_match_filter":
-		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, operation, zh)
+		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, param, operation, zh)
 	case "unmatched_resolution":
-		return appendProcessDisplayContext("The current records did not match the reference or mapping artifact.", input, field, operation, zh)
+		return appendProcessDisplayContext("The current records did not match the reference or mapping artifact.", input, field, param, operation, zh)
 	case "zero_eligible_records":
-		return appendProcessDisplayContext("The current batch produced no records eligible for the next step.", input, field, operation, zh)
+		return appendProcessDisplayContext("The current batch produced no records eligible for the next step.", input, field, param, operation, zh)
 	case ViolationStageNoProgress:
 		return "Repeated batches did not advance structured workflow progress; the next atomic action needs adjustment."
 	default:
@@ -222,13 +231,16 @@ func processDisplayFirstViolation(guard *GuardResult, summary WorkflowViolationS
 		OutputAlias:       summary.FirstOutputAlias,
 		Field:             summary.FirstField,
 		Operation:         summary.FirstOperation,
+		Param:             summary.FirstParam,
 		MissingFields:     append([]string(nil), summary.FirstMissingFields...),
 		RepairActionHints: append([]string(nil), summary.FirstRepairActionHints...),
+		Limit:             summary.FirstLimit,
+		Observed:          summary.FirstObserved,
 		Reason:            summary.FirstReason,
 	}
 }
 
-func appendProcessDisplayContext(base, input, field, operation string, zh bool) string {
+func appendProcessDisplayContext(base, input, field, param, operation string, zh bool) string {
 	var parts []string
 	if input != "" {
 		if zh {
@@ -244,6 +256,13 @@ func appendProcessDisplayContext(base, input, field, operation string, zh bool) 
 			parts = append(parts, "field "+field)
 		}
 	}
+	if param != "" {
+		if zh {
+			parts = append(parts, "参数 "+param)
+		} else {
+			parts = append(parts, "param "+param)
+		}
+	}
 	if operation != "" {
 		if zh {
 			parts = append(parts, "操作 "+operation)
@@ -255,6 +274,24 @@ func appendProcessDisplayContext(base, input, field, operation string, zh bool) 
 		return base
 	}
 	return base + "（" + strings.Join(parts, " · ") + "）"
+}
+
+func processDisplayLimitText(base string, violation WorkflowViolation, summary WorkflowViolationSummary, zh bool) string {
+	limit := violation.Limit
+	if limit == 0 {
+		limit = summary.FirstLimit
+	}
+	observed := violation.Observed
+	if observed == 0 {
+		observed = summary.FirstObserved
+	}
+	if limit == 0 && observed == 0 {
+		return base
+	}
+	if zh {
+		return fmt.Sprintf("%s（当前 %d / 上限 %d）", base, observed, limit)
+	}
+	return fmt.Sprintf("%s (observed %d / limit %d)", base, observed, limit)
 }
 
 func processDisplayActionHintLabels(hints []string, zh bool) []string {

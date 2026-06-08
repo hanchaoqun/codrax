@@ -16030,3 +16030,54 @@ Remaining architecture items:
       shapes, and result-shape repairability.
 - [ ] Move more evaluator decisions to consume the summary from reducer state
       once remaining guard paths are typed.
+
+### Batch 354: Typed Action Parameter And Limit Violations
+
+Batch 353 made execution blockers visible once they were already typed. The
+next structural gap was that common action-runner failures still entered the
+system as prose: invalid JSON/list/object parameter shapes, unsupported generic
+mode parameters, and output budget overflows such as `max_output_records` or
+`max_contributions`.
+
+This batch adds domain-neutral action-parameter and action-limit violation
+types. The goal is not to make the model better at one data task; it is to
+preserve executable action contracts as typed state whenever any data task uses
+structured parameters or bounded outputs.
+
+Generic invariants:
+
+- action parameter shape failures are `action_param_violation` with action kind,
+  parameter name, expected shape, and actual snippet;
+- bounded output failures are `action_limit_violation` with action kind,
+  parameter name, limit, and observed count;
+- workflow violation projection carries `param`, `limit`, and `observed` into
+  state, journals, and process display;
+- process UX explains these blockers generically as parameter schema mismatch
+  or batch-size overflow, not business-specific advice;
+- hard gates still consume typed violations and action IR, not the rendered UX
+  text.
+
+Changes:
+
+- [x] Added `DataActionParamError` and `DataActionLimitError`.
+- [x] Added `param`, `limit`, and `observed` to `DataTaskViolation`,
+      `WorkflowViolation`, and `WorkflowViolationSummary`.
+- [x] Mapped action parameter and limit errors through
+      `ClassifyExecutionFailure`.
+- [x] Converted filter-parameter parsing, unsupported `qualify_records`
+      `output_mode`, and common `max_output_records` / `max_contributions` /
+      `max_resolutions` overflows to typed violations.
+- [x] Rendered action-parameter and action-limit blockers in process display
+      with low-noise generic labels.
+- [x] Added regression coverage for typed param/limit classification,
+      workflow projection, summary, and UX.
+
+Remaining architecture items:
+
+- [ ] Continue converting remaining parse/parameter contracts, especially
+      derive/extract field spec shapes, join field-count mismatches, and
+      apply-resolution/enrich mapping spec contracts.
+- [ ] Add typed result-shape repairability for materialization and final-output
+      assembly errors.
+- [ ] Move evaluator repair decisions to consume typed param/limit blockers
+      directly from reducer state instead of broad retry reasons.

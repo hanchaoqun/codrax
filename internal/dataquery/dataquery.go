@@ -261,11 +261,14 @@ type DataTaskViolation struct {
 	ActionKind           string            `json:"action_kind,omitempty"`
 	Field                string            `json:"field,omitempty"`
 	Operation            string            `json:"operation,omitempty"`
+	Param                string            `json:"param,omitempty"`
 	InputAlias           string            `json:"input_alias,omitempty"`
 	InputAliases         []string          `json:"input_aliases,omitempty"`
 	MissingFields        []string          `json:"missing_fields,omitempty"`
 	AvailableFieldSample []string          `json:"available_field_sample,omitempty"`
 	Role                 string            `json:"role,omitempty"`
+	Limit                int               `json:"limit,omitempty"`
+	Observed             int               `json:"observed,omitempty"`
 	ScriptLine           int               `json:"script_line,omitempty"`
 	RunnerLine           int               `json:"runner_line,omitempty"`
 	Repairability        DataRepairability `json:"repairability,omitempty"`
@@ -383,6 +386,14 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	var inferenceErr DataFieldInferenceError
 	if errors.As(err, &inferenceErr) {
 		return inferenceErr.Violation()
+	}
+	var paramErr DataActionParamError
+	if errors.As(err, &paramErr) {
+		return paramErr.Violation()
+	}
+	var limitErr DataActionLimitError
+	if errors.As(err, &limitErr) {
+		return limitErr.Violation()
 	}
 	var validationErr DataValidationError
 	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {

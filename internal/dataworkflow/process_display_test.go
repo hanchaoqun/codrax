@@ -90,6 +90,35 @@ func TestBuildWorkflowProcessDisplayRendersTypedBlockerSummary(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersActionLimitBlocker(t *testing.T) {
+	guard := NewGuardResult("action_limit_violation", "error", RepairNeedsTypedAction, "too many records", WorkflowViolation{
+		Code:              "action_limit_violation",
+		ActionID:          "filter_limit",
+		ActionKind:        string(dataquery.DataActionFilterRecords),
+		Param:             "max_output_records",
+		Limit:             1,
+		Observed:          2,
+		RepairActionHints: []string{string(dataquery.DataActionFilterRecords)},
+		Reason:            "too many records",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "action_batch",
+		Round: 2,
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "filter_limit",
+			Kind: dataquery.DataActionFilterRecords,
+		}}},
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	for _, want := range []string{"当前阻塞：本步输出超过当前安全上限，需要拆成更小批次", "当前 2 / 上限 1", "参数 max_output_records", "可继续：优先生成下一批结构化动作：筛选记录"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("details=%q, want %q", got, want)
+		}
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {

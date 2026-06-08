@@ -24,6 +24,7 @@ type WorkflowViolation struct {
 	ActionKind           string                 `json:"action_kind,omitempty"`
 	Field                string                 `json:"field,omitempty"`
 	Operation            string                 `json:"operation,omitempty"`
+	Param                string                 `json:"param,omitempty"`
 	InputAlias           string                 `json:"input_alias,omitempty"`
 	InputAliases         []string               `json:"input_aliases,omitempty"`
 	OutputAlias          string                 `json:"output_alias,omitempty"`
@@ -33,6 +34,8 @@ type WorkflowViolation struct {
 	AvailableFieldSample []string               `json:"available_field_sample,omitempty"`
 	CandidateArtifacts   []string               `json:"candidate_artifacts,omitempty"`
 	RepairActionHints    []string               `json:"repair_action_hints,omitempty"`
+	Limit                int                    `json:"limit,omitempty"`
+	Observed             int                    `json:"observed,omitempty"`
 	Reason               string                 `json:"reason,omitempty"`
 }
 
@@ -50,8 +53,11 @@ type WorkflowViolationSummary struct {
 	FirstOutputAlias       string                       `json:"first_output_alias,omitempty"`
 	FirstField             string                       `json:"first_field,omitempty"`
 	FirstOperation         string                       `json:"first_operation,omitempty"`
+	FirstParam             string                       `json:"first_param,omitempty"`
 	FirstMissingFields     []string                     `json:"first_missing_fields,omitempty"`
 	FirstRepairActionHints []string                     `json:"first_repair_action_hints,omitempty"`
+	FirstLimit             int                          `json:"first_limit,omitempty"`
+	FirstObserved          int                          `json:"first_observed,omitempty"`
 	FirstReason            string                       `json:"first_reason,omitempty"`
 }
 
@@ -215,6 +221,9 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 	if strings.TrimSpace(projected.Operation) == "" {
 		projected.Operation = strings.TrimSpace(violation.Operation)
 	}
+	if strings.TrimSpace(projected.Param) == "" {
+		projected.Param = strings.TrimSpace(violation.Param)
+	}
 	if strings.TrimSpace(projected.ActionID) == "" {
 		projected.ActionID = strings.TrimSpace(violation.ActionID)
 	}
@@ -235,6 +244,12 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 	}
 	if strings.TrimSpace(projected.Reason) == "" {
 		projected.Reason = code
+	}
+	if projected.Limit == 0 {
+		projected.Limit = violation.Limit
+	}
+	if projected.Observed == 0 {
+		projected.Observed = violation.Observed
 	}
 	return projected
 }
@@ -327,8 +342,11 @@ func BuildWorkflowViolationSummary(violations []WorkflowViolation) WorkflowViola
 			summary.FirstOutputAlias = strings.TrimSpace(violation.OutputAlias)
 			summary.FirstField = strings.TrimSpace(violation.Field)
 			summary.FirstOperation = strings.TrimSpace(violation.Operation)
+			summary.FirstParam = strings.TrimSpace(violation.Param)
 			summary.FirstMissingFields = cleanStrings(violation.MissingFields)
 			summary.FirstRepairActionHints = cleanStrings(violation.RepairActionHints)
+			summary.FirstLimit = violation.Limit
+			summary.FirstObserved = violation.Observed
 			summary.FirstReason = strings.TrimSpace(violation.Reason)
 		}
 	}
