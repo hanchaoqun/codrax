@@ -18340,7 +18340,46 @@ Changes:
 Remaining architecture items:
 
 - [ ] Extract a storage-neutral repair-result adapter once REPL and CLI have
-      identical typed inputs/outputs.
+      identical typed inputs/outputs. Batch 428 extracted the storage-neutral
+      repair-planner core; continuation fallback still needs the same treatment.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 428: Storage-Neutral Repair Planner Core
+
+After Batch 427, REPL and CLI both represented repair outcomes as
+`dataTaskRepairPlanResult`, but each adapter still called the repair planner,
+accepted the plan, and preserved workflow material coverage locally. That was
+the next small duplication in the repair path.
+
+This batch extracts the storage-neutral repair-planner core into
+`dataTaskRunRepairPlannerWithRuntimeView`. The helper consumes only typed
+runtime inputs: current plan, repair reason, candidates, policy, and workflow
+view. It invokes the repair planner, routes the result through the accept
+reducer, and preserves material coverage. It does not write logs, render UX,
+audit files, mutate REPL/CLI state, or inspect model prose.
+
+Generic invariants:
+
+- the shared core owns repair planner invocation and typed accept validation;
+- REPL and CLI own their own trace/progress/audit/storage behavior;
+- repair continuation fallback remains separate until it can be extracted with
+  the same no-storage/no-rendering contract;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `dataTaskRunRepairPlannerWithRuntimeView`.
+- [x] Rewired `repairDataTaskPlanForCLI` to use the shared repair core.
+- [x] Rewired `REPL.repairDataTaskPlanForREPL` to use the shared repair core.
+- [x] Kept fallback, normalization, trace rendering, and CLI progress outside
+      the shared core.
+
+Remaining architecture items:
+
+- [ ] Extract storage-neutral repair-failure continuation fallback so CLI and
+      REPL share the same typed continuation decision core.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

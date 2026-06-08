@@ -2557,19 +2557,15 @@ func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candida
 		return dataTaskRepairPlanResult{}, fmt.Errorf("data task repair planner has no current workflow plan")
 	}
 	ctx := r.startTurn()
-	repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
+	repairedPlan, repairErr := dataTaskRunRepairPlannerWithRuntimeView(ctx, repairer, line, r.repoRoot, policy, candidates, view.CurrentPlan, errText, view)
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-	if repairErr == nil {
-		repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-	}
 	if repairErr != nil {
 		if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, view, repairErr); ok {
 			return dataTaskRepairPlanResult{Plan: fallback, FallbackReason: reason}, nil
 		}
 		return dataTaskRepairPlanResult{}, repairErr
 	}
-	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText)
 	if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
 		normalizeScope = strings.TrimSpace(normalizeScope)
 		if normalizeScope == "" {

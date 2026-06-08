@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -93,6 +94,23 @@ func dataTaskAcceptPlannerPlan(plan dataquery.TaskPlan, scope string) (dataquery
 		return decision.Plan, nil
 	}
 	return dataquery.TaskPlan{}, newDataTaskPlannerNoPlanShapeError(scope, decision.Reason)
+}
+
+func dataTaskRunRepairPlannerWithRuntimeView(ctx context.Context, repairer DataTaskRepairPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = currentPlan
+	}
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		return dataquery.TaskPlan{}, newDataTaskPlannerNoPlanShapeError("data task repair planner", "data task repair planner has no current workflow plan")
+	}
+	repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, userLine, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
+	if err == nil {
+		repairedPlan, err = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
+	}
+	if err != nil {
+		return dataquery.TaskPlan{}, err
+	}
+	return preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText), nil
 }
 
 func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {

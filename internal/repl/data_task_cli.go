@@ -921,10 +921,7 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 		repairRounds++
 	}
 	view.RepairRounds = repairRounds
-	repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
-	if err == nil {
-		repairedPlan, err = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-	}
+	repairedPlan, err := dataTaskRunRepairPlannerWithRuntimeView(ctx, repairer, request, repoRoot, policy, candidates, currentPlan, errText, view)
 	if err != nil {
 		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", reason)
@@ -934,7 +931,6 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 		}
 		return dataTaskRepairPlanResult{}, repairRounds, false, fmt.Errorf("%s\nrepair data task: %w", errText, err)
 	}
-	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText)
 	return dataTaskRepairPlanResult{Plan: repairedPlan}, repairRounds, true, nil
 }
 
