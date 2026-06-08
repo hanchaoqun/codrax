@@ -54,10 +54,14 @@ type CandidatePlanAdmissionDecision struct {
 	Source         string                     `json:"source,omitempty"`
 	Plan           dataquery.TaskPlan         `json:"plan,omitempty"`
 	ProcessEvents  []WorkflowJournalEvent     `json:"process_events,omitempty"`
+	DeferredPlan   dataquery.TaskPlan         `json:"deferred_plan,omitempty"`
+	DeferredQueue  DeferredQueueState         `json:"deferred_queue,omitempty"`
+	DeferredReason string                     `json:"deferred_reason,omitempty"`
 	Accepted       bool                       `json:"accepted,omitempty"`
 	Blocked        bool                       `json:"blocked,omitempty"`
 	Rewritten      bool                       `json:"rewritten,omitempty"`
 	AppendedRecord bool                       `json:"appended_record,omitempty"`
+	DeferredQueued bool                       `json:"deferred_queued,omitempty"`
 }
 
 type WorkflowRuntimeSnapshot struct {
@@ -517,6 +521,20 @@ func (rt *WorkflowRuntime) AdmitCandidatePlan(round int, source string, input Ac
 	}
 	out.Admission = rt.Admission()
 	out.ProcessEvents = rt.processEventsSince(processEventStart)
+	return out
+}
+
+func (rt *WorkflowRuntime) AdmitCandidatePlanAndQueueRemainder(round int, source string, input ActionDAGAdmissionInput) CandidatePlanAdmissionDecision {
+	out := rt.AdmitCandidatePlan(round, source, input)
+	if rt == nil || !out.Rewritten || len(out.Admission.Remainder.Actions) == 0 {
+		return out
+	}
+	reason := firstNonEmpty(out.Admission.Reason, "deferred remainder from admitted candidate plan")
+	rt.EnqueueDeferred(round, out.Admission.Remainder, reason)
+	out.DeferredQueued = true
+	out.DeferredPlan = cloneTaskPlanValue(out.Admission.Remainder)
+	out.DeferredQueue = rt.DeferredQueue()
+	out.DeferredReason = reason
 	return out
 }
 

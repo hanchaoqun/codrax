@@ -17787,9 +17787,63 @@ Remaining architecture items:
       consumes one reducer-owned "next executable" decision object spanning
       budget, terminal, pre-execution, execution result, post-result, and
       evaluator decisions.
-- [ ] Move continuation-planner result admission and repair-planner result
+- [x] Move continuation-planner result admission and repair-planner result
       admission behind the same next-executable reducer boundary instead of
-      accepting candidate plans directly in the adapters.
+      accepting candidate plans directly in the adapters. Completed in Batch
+      417 for admission-rewrite deferred queue ownership.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 417: Runtime-Owned Admission Remainder Queueing
+
+Batch 416 moved evaluator status priority into reducer IR, but candidate plan
+admission still had one remaining adapter-owned side effect. When
+`ActionDAGAdmission` rewrote a candidate plan into an executable prefix plus a
+deferred remainder, CLI and REPL each decided to enqueue that remainder after
+calling runtime admission. That meant plan admission accepted the prefix in
+runtime state, while the deferred edge that makes the DAG converge was still
+owned by entrypoint code.
+
+This batch keeps the existing `AdmitCandidatePlan` behavior for callers that
+only want admission, and adds a stronger runtime method for live workflows:
+`AdmitCandidatePlanAndQueueRemainder`. Live CLI/REPL candidate admission now
+uses that method. The runtime admits the prefix, records the transition, and
+queues the typed remainder in one state mutation. Adapters only audit/render
+the already queued deferred plan.
+
+Generic invariants:
+
+- candidate admission rewrite emits typed prefix/remainder plans from
+  `ActionDAGAdmission`, not from user or model prose;
+- deferred queue mutation is runtime state, not CLI/REPL state;
+- adapters may display and audit the queued remainder, but they do not decide
+  whether admission rewrite produced a queue edge;
+- the old admission method remains available for unit tests and pure admission
+  callers that should not mutate the deferred queue;
+- no source analysis, trace/log analysis, operation, write mode, action runner,
+  planner prompt, or output contract behavior changes.
+
+Changes:
+
+- [x] Extended `CandidatePlanAdmissionDecision` with queued-deferred fields.
+- [x] Added `WorkflowRuntime.AdmitCandidatePlanAndQueueRemainder`.
+- [x] Added regression coverage proving the old admission method does not queue
+      remainders.
+- [x] Added regression coverage proving the live admission method queues a
+      rewritten remainder and records an enqueue event.
+- [x] Rewired CLI candidate-plan admission to consume the runtime-owned queued
+      remainder.
+- [x] Rewired REPL candidate-plan admission to consume the same runtime-owned
+      queued remainder.
+
+Remaining architecture items:
+
+- [ ] Keep shrinking adapter-local execution cursors until the live loop
+      consumes one reducer-owned "next executable" decision object spanning
+      budget, terminal, pre-execution, execution result, post-result, evaluator,
+      admission, and repair/continuation planner result handling.
+- [ ] Move staging-guard explicit remainder queueing through the same runtime
+      admission/queue boundary where possible.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

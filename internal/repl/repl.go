@@ -1397,7 +1397,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
 		records = workflowRuntime.Records()
 		preflight := admission.Admission
 		if preflight.Rewritten {
@@ -1408,8 +1408,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			logging.Info("[repl/data] data task candidate plan rejected scope=%s round=%d reason=%q", admission.Source, round, preflight.FinalGuardErr)
 			return preflight.Plan
 		}
-		if preflight.Rewritten {
-			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
+		if admission.DeferredQueued {
+			r.auditDataTaskPlan("deferred", round, admission.DeferredPlan)
+			emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, admission.DeferredPlan, admission.DeferredReason))
 		}
 		renderAdmissionEvents(admission.ProcessEvents)
 		r.emitDataTaskPlanAudit(preflight.Plan)

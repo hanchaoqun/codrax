@@ -200,7 +200,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
 		records = workflowRuntime.Records()
 		preflight := admission.Admission
 		if preflight.Rewritten {
@@ -211,8 +211,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			logging.Info("[cli/data] data task candidate plan rejected scope=%s round=%d reason=%q", admission.Source, round, preflight.FinalGuardErr)
 			return preflight.Plan
 		}
-		if preflight.Rewritten {
-			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
+		if admission.DeferredQueued {
+			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", round, admission.DeferredPlan)
+			emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, admission.DeferredPlan, admission.DeferredReason))
 		}
 		renderAdmissionEvents(admission.ProcessEvents)
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, admission.Source, round, preflight.Plan)

@@ -210,6 +210,42 @@ func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
 	if transitionEvents != 1 {
 		t.Fatalf("process_events=%+v, want one plan transition event", decision.ProcessEvents)
 	}
+	if len(rt.DeferredPlan().Actions) != 0 {
+		t.Fatalf("deferred plan=%+v, AdmitCandidatePlan should not queue remainder", rt.DeferredPlan())
+	}
+}
+
+func TestWorkflowRuntimeAdmitsCandidatePlanAndQueuesRemainder(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{
+		{ID: "extract", Kind: dataquery.DataActionExtractRecords},
+		{ID: "compute", Kind: dataquery.DataActionComputeContribs},
+	}}
+	decision := rt.AdmitCandidatePlanAndQueueRemainder(3, "repair", ActionDAGAdmissionInput{
+		Plan: candidate,
+		PrefixFallback: func(plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
+			prefix := plan
+			prefix.Actions = append([]dataquery.DataAction(nil), plan.Actions[:1]...)
+			remainder := plan
+			remainder.Actions = append([]dataquery.DataAction(nil), plan.Actions[1:]...)
+			return prefix, remainder, "split rank", true
+		},
+	})
+	if !decision.Accepted || !decision.Rewritten || !decision.DeferredQueued {
+		t.Fatalf("decision=%+v, want accepted rewritten queued admission", decision)
+	}
+	if len(decision.DeferredPlan.Actions) != 1 || decision.DeferredPlan.Actions[0].ID != "compute" {
+		t.Fatalf("deferred plan=%+v, want queued remainder", decision.DeferredPlan)
+	}
+	if len(rt.DeferredPlan().Actions) != 1 || rt.DeferredPlan().Actions[0].ID != "compute" {
+		t.Fatalf("runtime deferred=%+v, want queued remainder", rt.DeferredPlan())
+	}
+	if len(decision.DeferredQueue.Events) != 1 || decision.DeferredQueue.Events[0].Action != DeferredQueueTransitionEnqueue {
+		t.Fatalf("deferred queue=%+v, want enqueue event", decision.DeferredQueue)
+	}
+	if decision.DeferredReason != "split rank" {
+		t.Fatalf("DeferredReason=%q, want split rank", decision.DeferredReason)
+	}
 }
 
 func TestWorkflowRuntimeAdmitsCandidatePlanBlocked(t *testing.T) {
