@@ -1467,6 +1467,16 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		syncIteration(workflowRuntime.BeginRepairIteration())
 		return repairRounds
 	}
+	applyRepairResult := func(result dataTaskRepairPlanResult) {
+		if strings.TrimSpace(result.FallbackReason) != "" {
+			emitWorkflowReason("continue", dataRounds, result.FallbackReason)
+			r.emitDataTaskPlanAudit(result.Plan)
+			r.auditDataTaskPlan("continue", dataRounds+1, result.Plan)
+			currentPlan = setCurrentPlan("continue", dataRounds+1, result.Plan, result.FallbackReason)
+			return
+		}
+		currentPlan = acceptCandidatePlan("repair", repairRounds, result.Plan)
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -1480,7 +1490,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if result, ok := latestDataTaskResult(records); ok {
 				transition = dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
 			}
-			repairer, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
+			_, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
 			recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
 			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
 				completionPlan := protectPlan(recovery.Plan)
@@ -1500,22 +1510,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			if repairReady {
 				repairRounds = beginRepairIteration()
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "terminal-completion repaired")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
@@ -1525,12 +1522,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized terminal-completion repaired data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
@@ -1558,7 +1550,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+			if _, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = beginRepairIteration()
 				appendRecord(guardRecord)
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
@@ -1568,22 +1560,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					AuditDetails: []string{guard.Code},
 					Guard:        &guard,
 				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "terminal-workflow repaired")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task terminal workflow: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
@@ -1593,12 +1572,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
@@ -1669,7 +1643,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			appendRecord(guardRecord)
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+			if _, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = beginRepairIteration()
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
@@ -1678,22 +1652,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					AuditDetails: []string{guard.Code},
 					Guard:        &guard,
 				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "repaired")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
@@ -1703,12 +1664,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
@@ -1721,25 +1677,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if errText := r.prepareDataTaskNonTextMaterials(context.Background(), &candidates, currentPlan); errText != "" {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+			if _, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = beginRepairIteration()
 				emitWorkflowFailure("repair", repairRounds, errText)
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "repaired")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
@@ -1749,12 +1692,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
@@ -1885,25 +1823,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if !recordedErr {
 				appendRecord(executionRecord)
 			}
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+			if _, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = beginRepairIteration()
 				emitWorkflowFailure("repair", repairRounds, errText)
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "repaired")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
@@ -1913,12 +1838,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
@@ -1963,25 +1883,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					return
 				}
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
-				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+				if _, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 					repairRounds = beginRepairIteration()
 					emitWorkflowFailure("repair", repairRounds, errText)
-					ctx := r.startTurn()
 					repairView := runtimeView()
-					repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-					r.endTurn()
-					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-					if repairErr == nil {
-						repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-					}
+					repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "repaired")
 					if repairErr != nil {
-						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-							emitWorkflowReason("continue", dataRounds, reason)
-							r.emitDataTaskPlanAudit(fallback)
-							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-							continue
-						}
 						reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
 						msg := dataTaskErrorMarkdown(r.language, reason)
 						r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -1991,12 +1898,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						r.recordTurn(display, line, msg, memory.KindPipeline)
 						return
 					}
-					repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-						logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-						repairedPlan = normalized
-					}
-					currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+					applyRepairResult(repairResult)
 					continue
 				}
 				msg := dataTaskErrorMarkdown(r.language, errText)
@@ -2110,7 +2012,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if len(records) > 0 {
 			attachLastEvaluation(eval)
 		}
-		repairer, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
+		_, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
 		evalDecision := dataTaskEvaluationDecisionWithRepo(r.repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, r.dataTaskMaxRepairRounds)
 		switch evalDecision.Action {
 		case dataworkflow.EvaluationDecisionReturnAnswer:
@@ -2231,22 +2133,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					return
 				}
 				repairRounds = beginRepairIteration()
-				ctx := r.startTurn()
 				repairView := runtimeView()
-				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-				r.endTurn()
-				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-				if repairErr == nil {
-					repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-				}
+				repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, errText, "completion-repair")
 				if repairErr != nil {
-					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-						emitWorkflowReason("continue", dataRounds, reason)
-						r.emitDataTaskPlanAudit(fallback)
-						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-						continue
-					}
 					reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -2256,34 +2145,16 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-					logging.Info("[repl/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
-					repairedPlan = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+				applyRepairResult(repairResult)
 				continue
 			}
 			view = runtimeView()
 			repairRounds = beginRepairIteration()
 			repairReason := evalDecision.Reason
 			emitWorkflowFailure("repair", repairRounds, repairReason)
-			ctx := r.startTurn()
 			repairView := runtimeView()
-			repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(repairView.Records, repairReason), repairView)
-			r.endTurn()
-			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-			if repairErr == nil {
-				repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-			}
+			repairResult, repairErr := r.repairDataTaskPlanForREPL(line, policy, candidates, repairView, repairReason, "repaired")
 			if repairErr != nil {
-				if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-					emitWorkflowReason("continue", dataRounds, reason)
-					r.emitDataTaskPlanAudit(fallback)
-					r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-					continue
-				}
 				reason := fmt.Sprintf("%s\nrepair data task node: %v", repairReason, repairErr)
 				msg := dataTaskErrorMarkdown(r.language, reason)
 				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -2293,12 +2164,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, repairReason)
-			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-				logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-				repairedPlan = normalized
-			}
-			currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
+			applyRepairResult(repairResult)
 			continue
 		case dataworkflow.EvaluationDecisionFail:
 			if !evalDecision.Guard.Empty() {
@@ -2680,6 +2546,44 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 		}
 	}
 	r.emitOperationLightRouteSummary(label, segs)
+}
+
+type dataTaskRepairPlanResult struct {
+	Plan           dataquery.TaskPlan
+	FallbackReason string
+}
+
+func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, errText, normalizeScope string) (dataTaskRepairPlanResult, error) {
+	repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner)
+	if !ok {
+		return dataTaskRepairPlanResult{}, fmt.Errorf("data task repair planner is unavailable")
+	}
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		return dataTaskRepairPlanResult{}, fmt.Errorf("data task repair planner has no current workflow plan")
+	}
+	ctx := r.startTurn()
+	repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
+	r.endTurn()
+	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+	if repairErr == nil {
+		repairedPlan, repairErr = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
+	}
+	if repairErr != nil {
+		if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, view, repairErr); ok {
+			return dataTaskRepairPlanResult{Plan: fallback, FallbackReason: reason}, nil
+		}
+		return dataTaskRepairPlanResult{}, repairErr
+	}
+	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText)
+	if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
+		normalizeScope = strings.TrimSpace(normalizeScope)
+		if normalizeScope == "" {
+			normalizeScope = "repaired"
+		}
+		logging.Info("[repl/data] normalized %s data task plan: %s", normalizeScope, strings.Join(notes, "; "))
+		repairedPlan = normalized
+	}
+	return dataTaskRepairPlanResult{Plan: repairedPlan}, nil
 }
 
 func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool) {

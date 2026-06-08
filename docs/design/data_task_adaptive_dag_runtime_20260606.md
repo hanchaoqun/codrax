@@ -18233,7 +18233,62 @@ Remaining architecture items:
 
 - [ ] Continue migrating direct repair call sites toward a shared
       repair-result adapter that bundles trace emission, accept decision,
-      continuation fallback, normalization, and audit emission.
+      continuation fallback, normalization, and audit emission. REPL repair
+      branches were consolidated in Batch 426; CLI still has a compatibility
+      helper and one direct evaluator-repair branch.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 426: REPL Repair Adapter Consolidation
+
+The REPL data workflow had many structurally identical repair branches:
+terminal completion repair, terminal workflow guard repair, pre-execution guard
+repair, non-text material preparation repair, execution failure repair,
+validation failure repair, and evaluator-requested repair. After Batch 425 they
+all used the same accept reducer, but each branch still hand-wrote the same
+adapter sequence: start LLM turn, call repair planner, emit trace, accept plan,
+try continuation fallback, preserve coverage, normalize, and either continue
+or fail.
+
+This batch consolidates those REPL branches behind one repair adapter method.
+The method does not decide business semantics. It consumes the typed runtime
+view and typed repair reason, invokes the existing repair planner, routes the
+returned plan through `dataTaskAcceptPlannerPlan`, and reuses the existing
+repair-failure continuation fallback when typed planner errors allow it.
+
+Generic invariants:
+
+- every REPL repair branch now uses the same planner-call and accept path;
+- repair acceptance still reads typed plan shape only;
+- continuation fallback still reads typed planner error code and workflow
+  state only;
+- user-facing terminal error messages remain branch-specific so existing UX
+  behavior is preserved;
+- REPL owns trace/progress rendering; reducers own hard structural decisions;
+- source analysis, trace/log analysis, operation, write mode, CLI data
+  execution, planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `dataTaskRepairPlanResult` for adapter output.
+- [x] Added `REPL.repairDataTaskPlanForREPL`.
+- [x] Added a local `applyRepairResult` continuation/repair application helper
+      inside `dataTaskDispatch`.
+- [x] Rewired REPL terminal-completion repair through the shared adapter.
+- [x] Rewired REPL terminal-workflow guard repair through the shared adapter.
+- [x] Rewired REPL pre-execution guard repair through the shared adapter.
+- [x] Rewired REPL non-text material preparation repair through the shared
+      adapter.
+- [x] Rewired REPL execution failure repair through the shared adapter.
+- [x] Rewired REPL validation failure repair through the shared adapter.
+- [x] Rewired REPL evaluator-requested repair through the shared adapter.
+
+Remaining architecture items:
+
+- [ ] Consolidate CLI direct evaluator-repair handling with the same adapter
+      semantics while preserving stdout/stderr and strict-output behavior.
+- [ ] Extract a storage-neutral repair-result adapter once REPL and CLI have
+      identical typed inputs/outputs.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
