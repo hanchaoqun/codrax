@@ -227,3 +227,29 @@ func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
 		t.Fatalf("RecordsWith mutated runtime length: %#v", rt.Records())
 	}
 }
+
+func TestWorkflowRuntimeOwnsLiveProcessEvents(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	plan := dataquery.TaskPlan{
+		WhyThisBatch: "extract records",
+		Actions: []dataquery.DataAction{{
+			ID:   "extract",
+			Kind: dataquery.DataActionExtractRecords,
+		}},
+	}
+	rt.AppendRecord(WorkflowRecord{Plan: plan})
+	events := rt.ProcessEvents()
+	if len(events) != 1 || events[0].Kind != "action_batch" || events[0].Round != 1 {
+		t.Fatalf("ProcessEvents=%+v, want one live action batch event", events)
+	}
+	events[0].Kind = "mutated"
+	if rt.ProcessEvents()[0].Kind != "action_batch" {
+		t.Fatalf("runtime process events leaked returned slice: %+v", rt.ProcessEvents())
+	}
+
+	rt.AppendProcessEvent(WorkflowJournalEvent{Kind: "evaluate", Round: 1, Reason: "needs next stage"})
+	events = rt.ProcessEvents()
+	if len(events) != 2 || events[1].Kind != "evaluate" || events[1].Reason != "needs next stage" {
+		t.Fatalf("ProcessEvents=%+v, want appended evaluate event", events)
+	}
+}

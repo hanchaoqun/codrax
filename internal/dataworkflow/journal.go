@@ -103,7 +103,7 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	}
 	processEvents := cloneWorkflowJournalEvents(input.ProcessEvents)
 	if input.ProcessEvents == nil {
-		processEvents = BuildWorkflowJournalEvents(records)
+		processEvents = runtimeProcessEventsForRecords(rt, records)
 	}
 	state := input.State
 	stateProvided := !state.IsZero()
@@ -245,25 +245,29 @@ func cloneDataActions(in []dataquery.DataAction) []dataquery.DataAction {
 func cloneWorkflowJournalEvents(in []WorkflowJournalEvent) []WorkflowJournalEvent {
 	out := make([]WorkflowJournalEvent, 0, len(in))
 	for _, event := range in {
-		copied := event
-		copied.AuditDetails = append([]string(nil), event.AuditDetails...)
-		if event.Guard != nil {
-			guard := cloneGuardResult(*event.Guard)
-			copied.Guard = &guard
-		}
-		if event.Admission != nil {
-			admission := *event.Admission
-			copied.Admission = &admission
-		}
-		if event.Decision != nil {
-			decision := *event.Decision
-			decision.Violations = append([]string(nil), event.Decision.Violations...)
-			decision.NextActions = append([]string(nil), event.Decision.NextActions...)
-			copied.Decision = &decision
-		}
-		out = append(out, copied)
+		out = append(out, cloneWorkflowJournalEvent(event))
 	}
 	return out
+}
+
+func cloneWorkflowJournalEvent(event WorkflowJournalEvent) WorkflowJournalEvent {
+	copied := event
+	copied.AuditDetails = append([]string(nil), event.AuditDetails...)
+	if event.Guard != nil {
+		guard := cloneGuardResult(*event.Guard)
+		copied.Guard = &guard
+	}
+	if event.Admission != nil {
+		admission := *event.Admission
+		copied.Admission = &admission
+	}
+	if event.Decision != nil {
+		decision := *event.Decision
+		decision.Violations = append([]string(nil), event.Decision.Violations...)
+		decision.NextActions = append([]string(nil), event.Decision.NextActions...)
+		copied.Decision = &decision
+	}
+	return copied
 }
 
 func cloneWorkflowViolations(in []WorkflowViolation) []WorkflowViolation {

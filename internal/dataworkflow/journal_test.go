@@ -137,6 +137,43 @@ func TestWorkflowRuntimeBuildJournalSnapshotUsesRuntimeState(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeBuildJournalSnapshotPrefersLiveProcessEvents(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{
+			WhyThisBatch: "first batch",
+			Actions: []dataquery.DataAction{{
+				ID:   "extract",
+				Kind: dataquery.DataActionExtractRecords,
+			}},
+		},
+	})
+	rt.AppendProcessEvent(WorkflowJournalEvent{Kind: "evaluate", Round: 1, Reason: "continue"})
+	previewRecords := rt.RecordsWith(WorkflowRecord{
+		Plan: dataquery.TaskPlan{
+			Actions: []dataquery.DataAction{{
+				ID:   "preview",
+				Kind: dataquery.DataActionFilterRecords,
+			}},
+		},
+		Err: "blocked preview",
+	})
+
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status:  "checkpoint",
+		Records: previewRecords,
+	})
+	if len(snapshot.ProcessEvents) != 3 {
+		t.Fatalf("ProcessEvents=%+v, want live events plus preview record event", snapshot.ProcessEvents)
+	}
+	if snapshot.ProcessEvents[0].Kind != "action_batch" || snapshot.ProcessEvents[1].Kind != "evaluate" {
+		t.Fatalf("ProcessEvents=%+v, want runtime live event order preserved", snapshot.ProcessEvents)
+	}
+	if got := snapshot.ProcessEvents[2]; got.Round != 2 || got.Status != "failed" || got.Kind != "action_batch" {
+		t.Fatalf("preview event=%+v, want failed action batch round 2", got)
+	}
+}
+
 func TestWorkflowRuntimeBuildJournalSnapshotPrefersStateSnapshot(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{

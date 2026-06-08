@@ -8,6 +8,7 @@ type WorkflowRuntime struct {
 	currentPlan     dataquery.TaskPlan
 	planTransitions []PlanTransitionEvent
 	records         []WorkflowRecord
+	processEvents   []WorkflowJournalEvent
 	deferredQueue   DeferredQueueState
 	admission       ActionDAGAdmissionDecision
 	dataRounds      int
@@ -64,6 +65,7 @@ func (rt *WorkflowRuntime) SetRecords(records []WorkflowRecord) {
 		return
 	}
 	rt.records = cloneWorkflowRecords(records)
+	rt.processEvents = BuildWorkflowJournalEvents(rt.records)
 }
 
 func (rt *WorkflowRuntime) Records() []WorkflowRecord {
@@ -77,7 +79,10 @@ func (rt *WorkflowRuntime) AppendRecord(record WorkflowRecord) []WorkflowRecord 
 	if rt == nil {
 		return []WorkflowRecord{cloneWorkflowRecord(record)}
 	}
-	rt.records = append(rt.records, cloneWorkflowRecord(record))
+	nextRound := len(rt.records) + 1
+	copied := cloneWorkflowRecord(record)
+	rt.records = append(rt.records, copied)
+	rt.processEvents = appendWorkflowJournalEvents(rt.processEvents, BuildWorkflowJournalEventsForRecord(nextRound, copied)...)
 	return rt.Records()
 }
 
@@ -88,6 +93,25 @@ func (rt *WorkflowRuntime) RecordsWith(record WorkflowRecord) []WorkflowRecord {
 	out := rt.Records()
 	out = append(out, cloneWorkflowRecord(record))
 	return out
+}
+
+func (rt *WorkflowRuntime) AppendProcessEvent(event WorkflowJournalEvent) []WorkflowJournalEvent {
+	if rt == nil {
+		return []WorkflowJournalEvent{cloneWorkflowJournalEvent(event)}
+	}
+	rt.processEvents = appendWorkflowJournalEvents(rt.processEvents, event)
+	return rt.ProcessEvents()
+}
+
+func (rt *WorkflowRuntime) AppendProcessEventFromInput(input WorkflowProcessEventInput) []WorkflowJournalEvent {
+	return rt.AppendProcessEvent(BuildWorkflowProcessEvent(input))
+}
+
+func (rt *WorkflowRuntime) ProcessEvents() []WorkflowJournalEvent {
+	if rt == nil {
+		return nil
+	}
+	return cloneWorkflowJournalEvents(rt.processEvents)
 }
 
 func (rt *WorkflowRuntime) AttachLastEvaluation(eval dataquery.Evaluation) []WorkflowRecord {
@@ -213,6 +237,35 @@ func cloneAdmissionDecision(in ActionDAGAdmissionDecision) ActionDAGAdmissionDec
 	out.Remainder = cloneTaskPlanValue(in.Remainder)
 	out.Guard = cloneGuardResult(in.Guard)
 	out.FinalGuard = cloneGuardResult(in.FinalGuard)
+	return out
+}
+
+func runtimeProcessEventsForRecords(rt *WorkflowRuntime, records []WorkflowRecord) []WorkflowJournalEvent {
+	if rt == nil {
+		return BuildWorkflowJournalEvents(records)
+	}
+	events := rt.ProcessEvents()
+	if len(events) == 0 {
+		return BuildWorkflowJournalEvents(records)
+	}
+	runtimeRecords := rt.Records()
+	if len(records) > len(runtimeRecords) {
+		for i := len(runtimeRecords); i < len(records); i++ {
+			events = appendWorkflowJournalEvents(events, BuildWorkflowJournalEventsForRecord(i+1, records[i])...)
+		}
+	}
+	return events
+}
+
+func appendWorkflowJournalEvents(events []WorkflowJournalEvent, next ...WorkflowJournalEvent) []WorkflowJournalEvent {
+	out := cloneWorkflowJournalEvents(events)
+	for _, event := range next {
+		out = append(out, cloneWorkflowJournalEvent(event))
+	}
+	const maxWorkflowProcessEvents = 128
+	if len(out) > maxWorkflowProcessEvents {
+		out = out[len(out)-maxWorkflowProcessEvents:]
+	}
 	return out
 }
 

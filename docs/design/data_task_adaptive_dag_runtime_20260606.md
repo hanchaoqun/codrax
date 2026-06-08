@@ -14329,9 +14329,57 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Append live process events through the runtime journal sink at each
+- [x] Append live process events through the runtime journal sink at each
       execution/admission/evaluation boundary, so process histories no longer
       need to be reconstructed from records after the fact.
+- [ ] Feed reducer decision reasons and typed guard summaries directly into
+      `WorkflowProcessEventInput` at every CLI/REPL call site instead of
+      passing legacy detail strings.
+- [ ] Move the remaining detail-marker compatibility layer out of REPL once
+      all progress callers emit typed process events.
+
+### Batch 317: Runtime-Owned Process Event Sink
+
+`WorkflowRuntime` already owned current plan, records, deferred queue,
+admission decisions, and plan transitions. Process events were the remaining
+piece that journals could only rebuild after the fact from workflow records,
+with ad hoc preview records appended by checkpoint writers. That made the
+journal less faithful to live execution boundaries and kept later CLI/REPL
+event rendering too close to local call-site strings.
+
+This batch adds a storage-neutral process-event sink to `WorkflowRuntime`.
+Appending a workflow record now appends the corresponding typed process event
+at the same round. Callers can also append explicit process events for
+evaluation, guard, admission, or future reducer boundaries. Journal snapshots
+prefer runtime live events and append typed preview events only for records
+that are intentionally supplied outside the current runtime state.
+
+Generic invariants:
+
+- process events are workflow IR state, not REPL/CLI UI state;
+- runtime process events are cloned on input/output and cannot be mutated by
+  callers;
+- journal snapshots prefer live process events when present;
+- preview records used for checkpoints still get typed process events without
+  mutating runtime records;
+- no prompt prose or business-domain meaning participates in control flow.
+
+Changes:
+
+- [x] Added runtime-owned process-event storage.
+- [x] Added `AppendProcessEvent`.
+- [x] Added `AppendProcessEventFromInput`.
+- [x] Added `ProcessEvents`.
+- [x] Made `AppendRecord` append a typed process event for the appended record.
+- [x] Made `SetRecords` rebuild process events from the supplied snapshot
+      records so resume/checkpoint state stays internally consistent.
+- [x] Made journal snapshots prefer runtime live process events, while
+      appending typed preview events for records beyond runtime state.
+- [x] Added regression coverage for runtime event ownership and live-event
+      journal precedence.
+
+Remaining architecture items:
+
 - [ ] Feed reducer decision reasons and typed guard summaries directly into
       `WorkflowProcessEventInput` at every CLI/REPL call site instead of
       passing legacy detail strings.
