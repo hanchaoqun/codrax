@@ -5335,20 +5335,7 @@ type dataTaskLedgerProjection struct {
 	Truncated     bool           `json:"truncated,omitempty"`
 }
 
-type dataTaskArtifactAccessPrompt struct {
-	ID                string              `json:"id,omitempty"`
-	Kind              string              `json:"kind,omitempty"`
-	NodeClass         string              `json:"node_class,omitempty"`
-	Aliases           []string            `json:"aliases,omitempty"`
-	JSONShape         string              `json:"json_shape,omitempty"`
-	Fields            []string            `json:"fields,omitempty"`
-	FieldSamples      map[string][]string `json:"field_samples,omitempty"`
-	AccessHint        string              `json:"access_hint,omitempty"`
-	SourcePaths       []string            `json:"source_paths,omitempty"`
-	SourceRecordPaths []string            `json:"source_record_paths,omitempty"`
-	ReferencePaths    []string            `json:"reference_paths,omitempty"`
-	EvidencePaths     []string            `json:"evidence_paths,omitempty"`
-}
+type dataTaskArtifactAccessPrompt = dataworkflow.ArtifactAccessView
 
 type dataTaskMaterialSetHandlePrompt struct {
 	ID                string   `json:"id,omitempty"`
@@ -6670,28 +6657,12 @@ func mustCompactJSONString(value any) string {
 
 func dataTaskWorkflowArtifactAccess(records []dataTaskWorkflowRecord, limit int) []dataTaskArtifactAccessPrompt {
 	artifacts := dataTaskWorkflowArtifactsNewestFirst(records)
-	return sampleDataTaskArtifactAccess(artifacts, limit)
+	return dataworkflow.BuildArtifactAccessViews(artifacts, limit)
 }
 
 func dataTaskWorkflowArtifactContractAccess(records []dataTaskWorkflowRecord) []dataTaskArtifactAccessPrompt {
 	projections := dataTaskWorkflowArtifactSchemaProjections(records)
-	out := make([]dataTaskArtifactAccessPrompt, 0, len(projections))
-	for _, projection := range projections {
-		out = append(out, dataTaskArtifactAccessPrompt{
-			ID:                projection.ID,
-			Kind:              projection.Kind,
-			NodeClass:         projection.NodeClass,
-			Aliases:           projection.Aliases,
-			JSONShape:         projection.JSONShape,
-			Fields:            projection.Fields,
-			AccessHint:        projection.AccessHint,
-			SourcePaths:       projection.SourcePaths,
-			SourceRecordPaths: projection.SourceRecordPaths,
-			ReferencePaths:    projection.ReferencePaths,
-			EvidencePaths:     projection.EvidencePaths,
-		})
-	}
-	return out
+	return dataworkflow.ArtifactAccessViewsFromProjections(projections, len(projections))
 }
 
 func dataTaskWorkflowArtifactSchemaProjections(records []dataTaskWorkflowRecord) []dataworkflow.ArtifactSchemaProjection {
@@ -7082,212 +7053,11 @@ func uniqueSortedDataTaskStrings(in []string) []string {
 }
 
 func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int) []dataTaskArtifactAccessPrompt {
-	return sampleDataTaskArtifactAccessWithFieldSamples(artifacts, limit, 6, 2)
+	return dataworkflow.BuildArtifactAccessViews(artifacts, limit)
 }
 
 func sampleDataTaskArtifactAccessWithFieldSamples(artifacts []dataquery.DataArtifact, limit, maxSampleFields, maxSampleValues int) []dataTaskArtifactAccessPrompt {
-	if limit <= 0 || len(artifacts) == 0 {
-		return nil
-	}
-	var out []dataTaskArtifactAccessPrompt
-	seen := map[string]bool{}
-	var walk func(dataquery.DataArtifact)
-	walk = func(artifact dataquery.DataArtifact) {
-		if len(out) >= limit {
-			return
-		}
-		aliases := dataTaskArtifactAliasPaths(artifact)
-		shape := ""
-		if artifact.Fields != nil {
-			shape = strings.TrimSpace(artifact.Fields["json_shape"])
-		}
-		if len(aliases) > 0 || shape != "" {
-			key := dataTaskArtifactAccessKey(artifact)
-			if key != "" && seen[key] {
-				for _, child := range artifact.Children {
-					walk(child)
-				}
-				return
-			}
-			if key != "" {
-				seen[key] = true
-			}
-			fields := clampDataTaskStringSlice(artifactAccessFields(artifact), 32)
-			out = append(out, dataTaskArtifactAccessPrompt{
-				ID:                strings.TrimSpace(artifact.ID),
-				Kind:              strings.TrimSpace(artifact.Kind),
-				NodeClass:         dataworkflow.ArtifactNodeClass(artifact),
-				Aliases:           clampDataTaskStringSlice(aliases, 8),
-				JSONShape:         clampDataTaskWorkflowText(shape, 240),
-				Fields:            fields,
-				FieldSamples:      artifactAccessFieldSamples(artifact, fields, maxSampleFields, maxSampleValues),
-				AccessHint:        dataTaskArtifactAccessHint(shape),
-				SourcePaths:       clampDataTaskStringSlice(artifact.SourcePaths, 6),
-				SourceRecordPaths: clampDataTaskStringSlice(artifact.SourceRecordPaths, 6),
-				ReferencePaths:    clampDataTaskStringSlice(artifact.ReferencePaths, 6),
-				EvidencePaths:     clampDataTaskStringSlice(artifact.EvidencePaths, 6),
-			})
-		}
-		for _, child := range artifact.Children {
-			walk(child)
-		}
-	}
-	for _, artifact := range artifacts {
-		walk(artifact)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
-}
-
-func dataTaskArtifactAccessKey(artifact dataquery.DataArtifact) string {
-	for _, alias := range dataTaskArtifactAliasPaths(artifact) {
-		if key := normalizeDataTaskCoveragePath(alias); key != "" {
-			return key
-		}
-	}
-	if artifact.Fields != nil {
-		if path := normalizeDataTaskCoveragePath(artifact.Fields["artifact_path"]); path != "" {
-			return path
-		}
-	}
-	id := strings.TrimSpace(artifact.ID)
-	if id != "" {
-		return "id:" + id
-	}
-	kind := strings.TrimSpace(artifact.Kind)
-	if kind != "" || len(artifact.SourcePaths) > 0 {
-		return "kind:" + kind + "\x00" + strings.Join(cleanDataTaskStrings(artifact.SourcePaths), "\x00")
-	}
-	return ""
-}
-
-func artifactAccessFieldSamples(artifact dataquery.DataArtifact, fields []string, maxFields, maxValues int) map[string][]string {
-	if maxFields <= 0 || maxValues <= 0 || len(fields) == 0 || len(artifact.Sample) == 0 {
-		return nil
-	}
-	allowed := map[string]string{}
-	for _, field := range fields {
-		trimmed := strings.TrimSpace(field)
-		if trimmed == "" {
-			continue
-		}
-		allowed[strings.ToLower(trimmed)] = trimmed
-	}
-	if len(allowed) == 0 {
-		return nil
-	}
-	out := map[string][]string{}
-	seen := map[string]map[string]bool{}
-	for _, sample := range artifact.Sample {
-		if len(out) >= maxFields {
-			break
-		}
-		sample = strings.TrimSpace(sample)
-		if sample == "" {
-			continue
-		}
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(sample), &obj); err != nil {
-			continue
-		}
-		keys := make([]string, 0, len(obj))
-		for key := range obj {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			canonical := allowed[strings.ToLower(strings.TrimSpace(key))]
-			if canonical == "" {
-				continue
-			}
-			values := out[canonical]
-			if len(values) >= maxValues {
-				continue
-			}
-			value := dataTaskSampleScalar(obj[key])
-			if value == "" {
-				continue
-			}
-			if seen[canonical] == nil {
-				seen[canonical] = map[string]bool{}
-			}
-			if seen[canonical][value] {
-				continue
-			}
-			seen[canonical][value] = true
-			out[canonical] = append(out[canonical], value)
-			if len(out) >= maxFields {
-				break
-			}
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func dataTaskSampleScalar(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return clampDataTaskWorkflowText(typed, 120)
-	case bool:
-		return fmt.Sprintf("%t", typed)
-	case float64:
-		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.12f", typed), "0"), ".")
-	case int:
-		return fmt.Sprintf("%d", typed)
-	case int64:
-		return fmt.Sprintf("%d", typed)
-	case json.Number:
-		return typed.String()
-	default:
-		return ""
-	}
-}
-
-func artifactAccessFields(artifact dataquery.DataArtifact) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(value string) {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			return
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	for _, header := range artifact.Headers {
-		add(header)
-	}
-	if artifact.Fields != nil {
-		for _, key := range []string{"output_headers", "headers", "fields"} {
-			for _, field := range strings.Split(artifact.Fields[key], ",") {
-				add(field)
-			}
-		}
-	}
-	return out
-}
-
-func dataTaskArtifactAccessHint(shape string) string {
-	shape = strings.TrimSpace(strings.ToLower(shape))
-	switch {
-	case strings.HasPrefix(shape, "array"):
-		return "read with json_records(alias) or iterate json_load(alias) as a list; do not call .get() on the top-level value"
-	case strings.HasPrefix(shape, "object") && strings.Contains(shape, "records"):
-		return "read with json_records(alias); this wrapper object contains a records array plus metadata"
-	case strings.HasPrefix(shape, "object"):
-		return "read with json_load(alias) for object fields, or json_records(alias) when treating object values/wrappers as records"
-	case strings.HasPrefix(shape, "scalar"):
-		return "read with json_load(alias) as a scalar value"
-	default:
-		return "use json_records(alias) for record-oriented access; inspect artifact json_shape before assuming dict/list shape"
-	}
+	return dataworkflow.BuildArtifactAccessViewsWithFieldSamples(artifacts, limit, maxSampleFields, maxSampleValues)
 }
 
 func compactDataTaskActionsForPrompt(actions []dataquery.DataAction, limit, scriptLimit int) []dataquery.DataAction {

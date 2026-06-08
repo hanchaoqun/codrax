@@ -14101,8 +14101,55 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction, artifact-access view, and material-set
-      handle projection behind package-level artifact/schema inputs.
+- [ ] Move result prompt compaction and material-set handle projection behind
+      package-level artifact/schema inputs.
+- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+      issue discovery behind package-level artifact/schema inputs instead of
+      REPL prompt views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 312: Package-Level Artifact Access Views
+
+Planner/evaluator prompts and REPL-local guards need a compact catalog of
+generated artifacts: aliases, JSON shape, fields, access hints, lineage, and a
+few field samples. That catalog is not business logic and should not live as a
+REPL-private prompt struct. It is an IR view over the artifact/schema graph.
+
+This batch moves artifact-access rendering into `internal/dataworkflow` as
+`ArtifactAccessView`. The REPL keeps a type alias while delegating all artifact
+access sampling to the package-level implementation. Contract access built from
+`ArtifactSchemaProjection` deliberately preserves full fields and lineage
+because hard field gates must consume precise schema signals, not bounded prompt
+previews.
+
+Generic invariants:
+
+- artifact-access views are derived from objective artifact/schema metadata;
+- business roles are not inferred by system code;
+- prompt availability views are bounded and may include small field samples;
+- contract views derived from schema projections preserve complete fields for
+  hard gates;
+- access hints are generated from shape metadata only and remain advisory;
+- no prompt prose or case-specific field names drive control flow.
+
+Changes:
+
+- [x] Added `ArtifactAccessView`.
+- [x] Added `BuildArtifactAccessViews` and
+      `BuildArtifactAccessViewsWithFieldSamples`.
+- [x] Added `ArtifactAccessViewsFromProjections` for full contract access.
+- [x] Rewired REPL artifact availability, contract access, and result prompt
+      access sampling to delegate to `dataworkflow`.
+- [x] Removed the duplicate REPL-local artifact access sampler, field-sample
+      extractor, access-key builder, and shape hint implementation.
+- [x] Added regression coverage for schema/lineage/sample rendering, dedupe
+      with child traversal, and projection-derived contract views.
+
+Remaining architecture items:
+
+- [ ] Move result prompt compaction and material-set handle projection behind
+      package-level artifact/schema inputs.
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
