@@ -484,14 +484,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					appendRecord(executionRecord)
 					recordedErr = true
 					emitWorkflowReason("continue", dataRounds, recovery.Reason)
-					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), runtimeView())
+					view := runtimeView()
+					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 					var contErrText string
 					var fallback dataquery.TaskPlan
 					var fallbackReason string
 					var fallbackOK bool
 					if contErr != nil {
 						contErrText = contErr.Error()
-						fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(records, currentPlan, contErr)
+						fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, contErr)
 					}
 					plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
 						Plan:              nextPlan,
@@ -514,7 +515,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 							logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 							nextPlan = normalized
 						}
-						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, nextPlan, errText)
+						nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, nextPlan, errText)
 						currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 						continue
 					}

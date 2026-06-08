@@ -18429,6 +18429,44 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 430: CLI Continuation Inputs From Runtime View
+
+The next runtime-snapshot seam was small but concrete. One CLI execution-failure
+continuation branch passed a live `WorkflowRuntimeView` to the continuation
+planner, but built candidate workflow artifacts from the adapter-local
+`records` mirror in the same argument list. Because Go evaluates arguments
+left-to-right, the candidate list could be assembled from a stale mirror before
+`runtimeView()` synchronized local state from the runtime.
+
+This batch makes that branch read one runtime view first and then uses the same
+view for candidates, deterministic fallback, and material-coverage preservation.
+
+Generic invariants:
+
+- prompt/continuation inputs for one planner call should come from one runtime
+  snapshot boundary;
+- adapter-local mirrors remain compatibility state, not the source of truth
+  when a runtime view is available;
+- no business semantics, prompts, action execution, output contracts, source
+  analysis, trace/log analysis, operation, or write mode behavior changes.
+
+Changes:
+
+- [x] Rewired CLI execution-failure continuation candidates to use
+      `view.Records`.
+- [x] Rewired the same branch's deterministic continuation fallback to use
+      `view.Records` and `view.CurrentPlan`.
+- [x] Rewired continuation material-coverage preservation to use the same
+      runtime view.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
