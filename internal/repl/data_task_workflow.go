@@ -222,8 +222,8 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	}, true); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskCoverageLoopGuardError(records, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("coverage_loop_guard", errText)
+	if guard := dataTaskCoverageLoopGuardResult(records, plan); !guard.Empty() {
+		return guard
 	}
 	if guard := dataTaskWorkflowAllowedNextActionGuardResult(records, plan); !guard.Empty() {
 		return guard
@@ -4624,18 +4624,17 @@ func dataTaskFilterRecordsActionHasSpec(action dataquery.DataAction) bool {
 }
 
 func dataTaskCoverageLoopGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskCoverageLoopGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskCoverageLoopGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	state := dataTaskWorkflowState(records, plan)
-	if !state.MaterialCoverageSufficient || !dataTaskPlanIsCoverageOnly(plan) {
-		return ""
-	}
-	if dataTaskPlanIsGeneratedArtifactDiagnostic(records, plan) {
-		return ""
-	}
-	if dataTaskPlanActionsAllAllowedForWorkflowStage(plan, state) {
-		return ""
-	}
-	return fmt.Sprintf("data planning incomplete: material coverage is already sufficient for required runner materials (%d covered, missing=%d). Do not emit another coverage-only batch (material_inventory/inspect_material/derive_rules or extract_records without output_artifact) unless a specific new missing material is listed. extract_records with output_artifact may materialize already-covered sources into reusable record artifacts. Continue toward the user's data goal with compute-stage atomic actions such as derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer. If you need schema diagnostics, inspect a generated artifact alias from artifact_access instead of re-covering original materials. workflow_next_stage=%s",
-		state.RequiredMaterialCount-state.MissingRequiredMaterialCount, state.MissingRequiredMaterialCount, state.NextStage)
+	return dataworkflow.CoverageLoopGuardResult(dataworkflow.CoverageLoopGuardInput{
+		State:                            state,
+		CoverageOnly:                     dataTaskPlanIsCoverageOnly(plan),
+		GeneratedArtifactDiagnostic:      dataTaskPlanIsGeneratedArtifactDiagnostic(records, plan),
+		ActionsAllAllowedForCurrentStage: dataTaskPlanActionsAllAllowedForWorkflowStage(plan, state),
+	})
 }
 
 func dataTaskPlanIsGeneratedArtifactDiagnostic(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) bool {

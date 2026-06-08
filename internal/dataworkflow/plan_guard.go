@@ -69,6 +69,13 @@ type StageProgressGuardInput struct {
 	NarrowSingleIntermediateTransform bool
 }
 
+type CoverageLoopGuardInput struct {
+	State                            WorkflowStateView
+	CoverageOnly                     bool
+	GeneratedArtifactDiagnostic      bool
+	ActionsAllAllowedForCurrentStage bool
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -313,4 +320,26 @@ func stageProgressGuard(code, message string, state WorkflowStateView) GuardResu
 		Reason:            message,
 	})
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func CoverageLoopGuardResult(input CoverageLoopGuardInput) GuardResult {
+	state := input.State
+	if !state.MaterialCoverageSufficient ||
+		!input.CoverageOnly ||
+		input.GeneratedArtifactDiagnostic ||
+		input.ActionsAllAllowedForCurrentStage {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: material coverage is already sufficient for required runner materials (%d covered, missing=%d). Do not emit another coverage-only batch (material_inventory/inspect_material/derive_rules or extract_records without output_artifact) unless a specific new missing material is listed. extract_records with output_artifact may materialize already-covered sources into reusable record artifacts. Continue toward the user's data goal with compute-stage atomic actions such as derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer. If you need schema diagnostics, inspect a generated artifact alias from artifact_access instead of re-covering original materials. workflow_next_stage=%s",
+		state.RequiredMaterialCount-state.MissingRequiredMaterialCount,
+		state.MissingRequiredMaterialCount,
+		state.NextStage)
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              "coverage_loop_after_sufficient_materials",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		RepairActionHints: cleanStrings(state.AllowedNextActions),
+		Reason:            message,
+	})
+	return NewGuardResult("coverage_loop_after_sufficient_materials", "error", RepairNeedsTypedAction, message, violation)
 }

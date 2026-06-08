@@ -15033,10 +15033,55 @@ Changes:
 Remaining architecture items:
 
 - [x] Stage-progress staging now returns typed guard results.
-- [ ] Convert remaining string-only staging checks such as coverage-loop,
-      numeric-constant reuse, and terminal raw-material custom-transform into
-      typed reducer-owned guard results.
+- [ ] Convert remaining string-only staging checks such as numeric-constant
+      reuse and terminal raw-material custom-transform into typed reducer-owned
+      guard results.
 - [ ] Feed stage-progress guard codes into ActionGraph blocked nodes and
+      workflow process events instead of only returning them through repair.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 337: Typed Coverage-Loop Admission
+
+The next string-first staging check was the coverage-loop guard. Once workflow
+material coverage is sufficient, the runtime should not keep accepting
+coverage-only batches that revisit material inventory or original-material
+inspection instead of moving through the typed action DAG. The old REPL guard
+owned this decision as a rendered error string.
+
+This batch moves the decision into `internal/dataworkflow`. REPL now supplies
+only structural facts: whether the candidate plan is coverage-only, whether it
+is a generated-artifact diagnostic, and whether every action is already allowed
+for the current workflow stage. The package-level guard returns a typed
+violation with allowed-action repair hints.
+
+Generic invariants:
+
+- material coverage sufficiency is a workflow-state fact, not a prompt
+  convention;
+- coverage-only loops are rejected only when they would pull the graph backward
+  from already sufficient coverage;
+- generated-artifact diagnostics and current-stage legal actions remain
+  allowed;
+- the guard does not infer business roles or inspect user prose;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `CoverageLoopGuardInput` and `CoverageLoopGuardResult`.
+- [x] Added typed violation `coverage_loop_after_sufficient_materials`.
+- [x] Rewired REPL workflow staging to consume the typed result directly.
+- [x] Kept the old string function as a renderer over the typed result during
+      the staged migration.
+- [x] Added dataworkflow-level regression coverage for rejecting coverage loops
+      and allowing generated-artifact diagnostics.
+
+Remaining architecture items:
+
+- [x] Coverage-loop staging now returns typed guard results.
+- [ ] Convert remaining string-only staging checks such as numeric-constant
+      reuse and terminal raw-material custom-transform into typed reducer-owned
+      guard results.
+- [ ] Feed coverage-loop guard codes into ActionGraph blocked nodes and
       workflow process events instead of only returning them through repair.
 - [x] Run full build/test before continuing the IR closure audit.
 

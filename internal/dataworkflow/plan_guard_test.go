@@ -181,6 +181,40 @@ func TestStageProgressGuardResultUsesTypedViolationForBroadCustomTransform(t *te
 	}
 }
 
+func TestCoverageLoopGuardResultUsesTypedViolation(t *testing.T) {
+	state := WorkflowStateView{
+		MaterialCoverageSufficient:   true,
+		NextStage:                    StagePrepareContributionInputs,
+		RequiredMaterialCount:        3,
+		MissingRequiredMaterialCount: 0,
+		AllowedNextActions:           []string{string(dataquery.DataActionDeriveFields)},
+	}
+	guard := CoverageLoopGuardResult(CoverageLoopGuardInput{
+		State:        state,
+		CoverageOnly: true,
+	})
+	if guard.Code != "coverage_loop_after_sufficient_materials" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed coverage loop violation", guard)
+	}
+	if got := guard.Violations[0].RepairActionHints; len(got) != 1 || got[0] != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("repair hints=%v, want allowed next actions", got)
+	}
+}
+
+func TestCoverageLoopGuardResultAllowsGeneratedArtifactDiagnostics(t *testing.T) {
+	guard := CoverageLoopGuardResult(CoverageLoopGuardInput{
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			NextStage:                  StagePrepareContributionInputs,
+		},
+		CoverageOnly:                true,
+		GeneratedArtifactDiagnostic: true,
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want generated artifact diagnostics allowed", guard)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {
