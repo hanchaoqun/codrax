@@ -16296,3 +16296,56 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 360: Typed Action Entry Parameter Contracts
+
+Batch 359 typed ambiguous action roles, but a lower-level class of failures was
+still plain prose: action nodes that missed their own mandatory inputs or
+selectors. Examples include a record-filter action without an input artifact, a
+group action without a group selector, or a contribution action without input
+records. These are structural action-contract failures. They should enter the
+same typed violation stream as malformed JSON parameters instead of falling back
+to string error classification.
+
+This batch keeps the boundary domain-neutral:
+
+- an action that lacks its required input handles or selector parameters emits
+  `action_param_violation`;
+- the violation carries action kind/id, the missing parameter group, expected
+  shape, and a bounded actual snippet such as existing param keys or input
+  aliases;
+- missing executable fields still emit `field_contract_violation`;
+- missing ledger dependencies, such as "no prior contributions", are left for
+  LedgerGraph/reducer work instead of being mislabeled as action parameters;
+- repair prompts and UX can explain the blocker, but scheduling and evaluator
+  decisions consume typed fields only.
+
+Changes:
+
+- [x] Added shared helpers for missing action-parameter contracts without
+      introducing a second error hierarchy.
+- [x] Converted missing `input_paths` / `input_path` failures for
+      `inspect_material`, `extract_records`, `derive_fields`,
+      `extract_fields`, `group_records`, `expand_records`,
+      `filter_records`, `value_distribution`, `qualify_records`,
+      `join_records`, and `compute_contributions` into typed action
+      parameter violations.
+- [x] Converted missing rule inputs for `derive_rules` and missing selector
+      inputs for `group_records`, `expand_records`, and `filter_records` into
+      typed parameter violations.
+- [x] Converted unsupported typed action kind and unsupported contribution
+      operation into typed parameter violations.
+- [x] Added regression coverage for missing action input handles and missing
+      group selectors.
+
+Remaining architecture items:
+
+- [ ] Convert field-spec-internal contracts, such as derive/extract operation
+      selectors and source-field requirements, into typed param/field/value
+      violations.
+- [ ] Move evaluator repair decisions to consume typed role/output/result/
+      materialization/parameter blockers directly from reducer state.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

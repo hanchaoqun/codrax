@@ -252,6 +252,76 @@ func TestActionRunnerFilterParamShapeIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerMissingActionInputIsTyped(t *testing.T) {
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "filter_no_input",
+			Kind: DataActionFilterRecords,
+			Params: map[string]string{
+				"filter_field": "status",
+				"filter_value": "paid",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed missing input param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionFilterRecords || paramErr.Param != "input_path/input_paths" {
+		t.Fatalf("paramErr=%+v, want filter input_path/input_paths param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "filter_no_input" ||
+		violation.ActionKind != string(DataActionFilterRecords) ||
+		violation.Param != "input_path/input_paths" ||
+		!strings.Contains(violation.ExpectedShape, "record artifact") {
+		t.Fatalf("violation=%+v, want typed missing input param violation", violation)
+	}
+}
+
+func TestActionRunnerGroupSelectorParamIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,text\n1,hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "group_no_selector",
+			Kind:       DataActionGroupRecords,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"text_fields": `["text"]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed group selector param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionGroupRecords || paramErr.Param != "group_field/group_fields/group_all" {
+		t.Fatalf("paramErr=%+v, want group selector param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "group_no_selector" ||
+		violation.ActionKind != string(DataActionGroupRecords) ||
+		violation.Param != "group_field/group_fields/group_all" ||
+		!strings.Contains(violation.ExpectedShape, "group selectors") {
+		t.Fatalf("violation=%+v, want typed group selector violation", violation)
+	}
+}
+
 func TestActionRunnerFilterOutputLimitIsTyped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,status\n1,paid\n2,paid\n"), 0o644); err != nil {

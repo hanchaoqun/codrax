@@ -280,6 +280,35 @@ func dataActionParamError(kind DataActionKind, param, expectedShape, actualSnipp
 	}
 }
 
+func dataActionMissingParamError(kind DataActionKind, param, expectedShape string, actual any) DataActionParamError {
+	return dataActionParamError(kind, param, expectedShape, actionParamActualSnippet(actual), nil)
+}
+
+func actionParamActualSnippet(actual any) string {
+	switch value := actual.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(value)
+	case []string:
+		return strings.Join(cleanStringListPreserveOrder(value), ",")
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func actionParamKeys(params map[string]string) []string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 type DataActionLimitError struct {
 	ActionKind DataActionKind `json:"action_kind,omitempty"`
 	Param      string         `json:"param,omitempty"`
@@ -788,7 +817,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				summaries = append(summaries, result.AuditSummary)
 			}
 		default:
-			return failAction(action, fmt.Errorf("unsupported data action kind %q", action.Kind))
+			return failAction(action, dataActionParamError(action.Kind, "kind", "supported typed data action kind", string(action.Kind), nil))
 		}
 	}
 	if lastResult != nil {
@@ -1023,7 +1052,7 @@ func (r ActionRunner) runMaterialInventory(action DataAction) (DataArtifact, err
 func (r ActionRunner) runInspectMaterial(action DataAction) (DataArtifact, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) == 0 {
-		return DataArtifact{}, errors.New("inspect_material action has no input_paths")
+		return DataArtifact{}, dataActionMissingParamError(DataActionInspectMaterial, "input_paths", "at least one material path", action.InputPaths)
 	}
 	root := firstNonEmptyString(strings.TrimSpace(r.RepoRoot), ".")
 	all, err := DiscoverCandidateFiles(root, 1000)
@@ -1062,7 +1091,7 @@ func (r ActionRunner) runInspectMaterial(action DataAction) (DataArtifact, error
 func (r ActionRunner) runExtractRecords(action DataAction) (DataArtifact, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) == 0 {
-		return DataArtifact{}, errors.New("extract_records action has no input_paths")
+		return DataArtifact{}, dataActionMissingParamError(DataActionExtractRecords, "input_paths", "at least one record material path", action.InputPaths)
 	}
 	limit := actionIntParamAny(action, []string{"limit", "max_records"}, 20, 1, 1000000)
 	children := make([]DataArtifact, 0, len(paths))
@@ -1140,7 +1169,7 @@ func (r ActionRunner) runDeriveRules(plan TaskPlan, action DataAction) (DataArti
 		rules = parseValidationRuleTexts(plan)
 	}
 	if len(rules) == 0 {
-		return DataArtifact{}, nil, errors.New("derive_rules action has no rules; provide params.rules_json, params.rules, or coverage_contract.validation_rules")
+		return DataArtifact{}, nil, dataActionMissingParamError(DataActionDeriveRules, "rules_json/rules", "rules from params, input materials, or coverage_contract.validation_rules", actionParamKeys(action.Params))
 	}
 	rules = normalizeActionRuleDraftIDs(rules)
 	records := make([]RuleCoverageRecord, 0, len(rules))
@@ -1858,7 +1887,7 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]EntityResolutionRecord, []string, []DataArtifact, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) == 0 {
-		return nil, nil, nil, errors.New("normalize_entities action requires either params.resolutions_json or structured input_paths")
+		return nil, nil, nil, dataActionMissingParamError(DataActionNormalizeEntities, "resolutions_json/input_paths", "explicit resolutions or structured source/reference input paths", actionParamKeys(action.Params))
 	}
 	if records, consumed, children, ok, err := r.deriveEntityResolutionsFromReferenceInputs(action, paths); ok || err != nil {
 		return records, consumed, children, err
@@ -2693,7 +2722,7 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, errors.New("derive_fields requires input_path or at least one input_path")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionDeriveFields, "input_path/input_paths", "one executable record artifact or material path", action.InputPaths)
 	}
 	specs, err := parseDeriveFieldSpecs(action)
 	if err != nil {
@@ -2807,7 +2836,7 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 	}
 	inputPaths = cleanStringListPreserveOrder(inputPaths)
 	if len(inputPaths) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("extract_fields requires input_path or one input_path")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionExtractFields, "input_path/input_paths", "one or more executable record/text artifact paths", action.InputPaths)
 	}
 	specs, err := parseDeriveFieldSpecs(action)
 	if err != nil {
@@ -3020,7 +3049,7 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, errors.New("group_records requires input_path or at least one input_path")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionGroupRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	groupFields := parseActionStringListParam(firstNonEmptyString(
 		action.Params["group_fields"],
@@ -3032,7 +3061,7 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 	))
 	groupAll := actionBoolParam(action, "group_all", false)
 	if len(groupFields) == 0 && !groupAll {
-		return DataArtifact{}, nil, nil, errors.New("group_records requires group_field/group_fields, or group_all=true for an intentional single output group")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionGroupRecords, "group_field/group_fields/group_all", "group selectors or group_all=true for one intentional output group", actionParamKeys(action.Params))
 	}
 	textFields := parseActionStringListParam(firstNonEmptyString(
 		action.Params["text_fields"],
@@ -3073,7 +3102,7 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 		}
 	}
 	if len(textFields) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("group_records requires text_fields/source_fields, or an input field named text/text_clean/content/body/raw_text")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionGroupRecords, "text_fields/source_fields", "fields to concatenate or aggregate for each group", actionParamKeys(action.Params))
 	}
 	for _, field := range append(append([]string{}, groupFields...), append(textFields, firstFields...)...) {
 		if strings.TrimSpace(field) == "" {
@@ -3268,11 +3297,11 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, errors.New("expand_records requires input_path or at least one input_path")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionExpandRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	sourceField := firstNonEmptyString(action.Params["source_field"], action.Params["input_field"], action.Params["field"], action.Params["value_field"])
 	if strings.TrimSpace(sourceField) == "" {
-		return DataArtifact{}, nil, nil, errors.New("expand_records requires source_field")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionExpandRecords, "source_field", "field containing values to expand", actionParamKeys(action.Params))
 	}
 	targetField := firstNonEmptyString(action.Params["target_field"], action.Params["output_field"], action.Params["expanded_field"], sourceField)
 	originalField := strings.TrimSpace(firstNonEmptyString(action.Params["original_field"], action.Params["keep_original_field"]))
@@ -3373,14 +3402,14 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, errors.New("filter_records requires input_path or at least one input_path")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	filters, err := parseContributionFilters(action)
 	if err != nil {
 		return DataArtifact{}, nil, nil, err
 	}
 	if len(filters) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("filter_records requires filters_json or filter_field/filter_value")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "filters_json/filter_field", "at least one typed filter object or field/value selector", actionParamKeys(action.Params))
 	}
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
@@ -3479,7 +3508,7 @@ func (r ActionRunner) runValueDistribution(action DataAction) (DataArtifact, []s
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, errors.New("value_distribution requires input_path or at least one input_path")
+		return DataArtifact{}, nil, dataActionMissingParamError(DataActionValueDistribution, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	topN := actionIntParam(action, "top_n", 8, 1, 100)
@@ -3648,7 +3677,7 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, nil, errors.New("qualify_records requires input_path or at least one input_path")
+		return DataArtifact{}, nil, nil, nil, dataActionMissingParamError(DataActionQualifyRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	includeFilters, err := parseContributionFilters(action)
 	if err != nil {
@@ -6798,7 +6827,7 @@ func (r ActionRunner) inferJoinRecordPaths(paths []string, explicitLeft, explici
 		return explicitLeft, explicitRight, nil
 	}
 	if len(paths) < 2 && (explicitLeft == "" || explicitRight == "") {
-		return "", "", errors.New("join_records requires left_path/right_path or at least two input_paths")
+		return "", "", dataActionMissingParamError(DataActionJoinRecords, "left_path/right_path/input_paths", "explicit left/right paths or at least two input_paths", paths)
 	}
 	profiles := make([]joinRecordPathProfile, 0, len(paths))
 	for _, p := range paths {
@@ -7102,7 +7131,7 @@ type contributionFilterDraft struct {
 func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs []string, requireNonEmpty bool) (DataArtifact, []ContributionRecord, []string, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("compute_contributions action has no input_paths")
+		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionComputeContribs, "input_paths", "at least one executable record artifact path", action.InputPaths)
 	}
 	groupKeyField := strings.TrimSpace(action.Params["group_key_field"])
 	groupKeyConst := strings.TrimSpace(action.Params["group_key"])
@@ -7117,7 +7146,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	}
 	operation, ok := normalizeContributionOperation(operation)
 	if !ok || operation == "" {
-		return DataArtifact{}, nil, nil, fmt.Errorf("compute_contributions unsupported operation %q", action.Params["operation"])
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionComputeContribs, "operation", "add or count", action.Params["operation"], nil)
 	}
 	role := firstNonEmptyString(strings.TrimSpace(action.Params["role"]), strings.TrimSpace(action.Params["scope"]))
 	if role == "" {
