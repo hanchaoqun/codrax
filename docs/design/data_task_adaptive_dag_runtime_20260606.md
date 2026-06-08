@@ -14051,7 +14051,7 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+- [x] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
 - [x] Replace planner/evaluator prompts that consume raw record slices with a
@@ -14103,7 +14103,7 @@ Remaining architecture items:
 
 - [x] Move result prompt compaction behind package-level artifact/schema
       inputs.
-- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+- [x] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
@@ -14150,7 +14150,7 @@ Remaining architecture items:
 
 - [x] Move result prompt compaction behind package-level artifact/schema
       inputs.
-- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+- [x] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
@@ -14238,8 +14238,49 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+- [x] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 315: Package-Level Field Contract Issue Discovery
+
+Zero-match filter, unmatched resolution, and zero-eligible qualification issue
+discovery already lived in `internal/dataworkflow`, but field-contract issue
+discovery still parsed typed guard errors and zero-match extraction artifacts in
+the REPL. That left one important workflow diagnostic path tied to REPL prompt
+views rather than package-level artifact/schema inputs.
+
+This batch adds `FieldContractIssue` and package-level discovery over
+`WorkflowRecord`, `ArtifactAccessView`, and allowed typed action names. The
+REPL now delegates field-contract discovery to `dataworkflow`, keeping only the
+existing workflow-state eligibility gate and a thin compatibility wrapper for
+older tests.
+
+Generic invariants:
+
+- discovery consumes typed workflow records and artifact/schema views;
+- regex parsing is limited to system-generated typed guard/error messages, not
+  user prose or model narrative;
+- candidate artifacts are derived from artifact fields and aliases;
+- numeric-looking hints use field samples as soft repair guidance only;
+- no business-domain field names or intent keyword matching are introduced.
+
+Changes:
+
+- [x] Added `FieldContractIssue`.
+- [x] Added `FieldContractIssueInput`.
+- [x] Added `DiscoverFieldContractIssues`.
+- [x] Added package-level artifact-access-to-schema projection helpers.
+- [x] Moved planning missing-field, numeric contract, and zero-match
+      `extract_fields` issue discovery from REPL to `dataworkflow`.
+- [x] Rewired REPL workflow state to delegate issue discovery to
+      `dataworkflow`.
+- [x] Added package-level regression coverage for typed guard errors and
+      zero-match extraction artifacts.
+
+Remaining architecture items:
+
 - [ ] Convert process rendering to consume runtime/reducer events rather than
       REPL-local stage summaries.

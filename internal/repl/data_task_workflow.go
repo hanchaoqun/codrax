@@ -3965,11 +3965,7 @@ func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alia
 }
 
 func dataTaskArtifactAccessSchemaProjection(access []dataTaskArtifactAccessPrompt) []dataworkflow.ArtifactSchemaProjection {
-	out := make([]dataworkflow.ArtifactSchemaProjection, 0, len(access))
-	for _, artifact := range access {
-		out = append(out, dataTaskArtifactAccessToSchemaProjection(artifact))
-	}
-	return out
+	return dataworkflow.ArtifactAccessSchemaProjections(access)
 }
 
 func dataTaskMissingDeriveFieldInputs(access []dataTaskArtifactAccessPrompt, alias string, action dataquery.DataAction) []string {
@@ -5275,23 +5271,7 @@ type dataTaskActionContract = dataworkflow.ActionContract
 
 type dataTaskActionScaffold = dataworkflow.ActionScaffold
 
-type dataTaskFieldContractViolation struct {
-	Round                int      `json:"round,omitempty"`
-	ActionIndex          int      `json:"action_index,omitempty"`
-	ActionID             string   `json:"action_id,omitempty"`
-	ArtifactID           string   `json:"artifact_id,omitempty"`
-	ActionKind           string   `json:"action_kind,omitempty"`
-	InputAlias           string   `json:"input_alias,omitempty"`
-	InputAliases         []string `json:"input_aliases,omitempty"`
-	OutputAlias          string   `json:"output_alias,omitempty"`
-	IdempotencyKey       string   `json:"idempotency_key,omitempty"`
-	DependencyRank       int      `json:"dependency_rank,omitempty"`
-	MissingFields        []string `json:"missing_fields,omitempty"`
-	AvailableFieldSample []string `json:"available_field_sample,omitempty"`
-	CandidateArtifacts   []string `json:"candidate_artifacts,omitempty"`
-	RepairActionHints    []string `json:"repair_action_hints,omitempty"`
-	Reason               string   `json:"reason,omitempty"`
-}
+type dataTaskFieldContractViolation = dataworkflow.FieldContractIssue
 
 type dataTaskZeroMatchFilterIssue = dataworkflow.ZeroMatchFilterIssue
 
@@ -5807,31 +5787,32 @@ func dataTaskWorkflowFieldContractViolations(records []dataTaskWorkflowRecord, s
 	if len(access) == 0 {
 		return nil
 	}
-	allowed := map[string]bool{}
-	for _, action := range state.AllowedNextActions {
-		allowed[action] = true
-	}
-	var out []dataTaskFieldContractViolation
-	for i := len(records) - 1; i >= 0 && len(out) < limit; i-- {
-		rec := records[i]
-		for _, violation := range dataTaskFieldContractViolationsFromRecord(i+1, rec, access, allowed) {
-			out = append(out, violation)
-			if len(out) >= limit {
-				break
-			}
-		}
-		if rec.Result != nil {
-			for j := len(rec.Result.Artifacts) - 1; j >= 0 && len(out) < limit; j-- {
-				for _, violation := range dataTaskExtractFieldContractViolationsFromArtifact(i+1, rec.Result.Artifacts[j], access) {
-					out = append(out, violation)
-					if len(out) >= limit {
-						break
-					}
-				}
-			}
+	return dataworkflow.DiscoverFieldContractIssues(dataworkflow.FieldContractIssueInput{
+		Records:            records,
+		ArtifactAccess:     access,
+		AllowedNextActions: state.AllowedNextActions,
+		Limit:              limit,
+	})
+}
+
+func dataTaskFieldContractViolationsFromRecord(round int, rec dataTaskWorkflowRecord, access []dataTaskArtifactAccessPrompt, allowed map[string]bool) []dataTaskFieldContractViolation {
+	allowedActions := make([]string, 0, len(allowed))
+	for action, ok := range allowed {
+		if ok {
+			allowedActions = append(allowedActions, action)
 		}
 	}
-	return out
+	sort.Strings(allowedActions)
+	issues := dataworkflow.DiscoverFieldContractIssues(dataworkflow.FieldContractIssueInput{
+		Records:            []dataworkflow.WorkflowRecord{rec},
+		ArtifactAccess:     access,
+		AllowedNextActions: allowedActions,
+		Limit:              16,
+	})
+	for i := range issues {
+		issues[i].Round = round
+	}
+	return issues
 }
 
 func dataTaskWorkflowZeroMatchFilterIssues(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, limit int) []dataTaskZeroMatchFilterIssue {
@@ -5877,258 +5858,6 @@ func dataTaskArtifactDiagnosticBatches(records []dataTaskWorkflowRecord) []dataw
 		})
 	}
 	return out
-}
-
-func dataTaskArtifactIntField(artifact dataquery.DataArtifact, keys ...string) int {
-	for _, key := range keys {
-		raw := strings.TrimSpace(artifact.Fields[key])
-		if raw == "" {
-			continue
-		}
-		value, err := strconv.Atoi(raw)
-		if err == nil {
-			return value
-		}
-	}
-	return 0
-}
-
-var dataTaskPlanningMissingFieldRe = regexp.MustCompile(`data planning incomplete: action (\d+) \(([^)]*)\) references field\(s\) \[([^\]]*)\] that are not present on input ([^ ]+) fields \[([^\]]*)\]`)
-var dataTaskNumericFieldContractRe = regexp.MustCompile(`numeric field contract failed: (filter_records|compute_contributions) input ([^ ]+) (?:field|value_field) "([^"]+)"`)
-
-func dataTaskFieldContractViolationsFromRecord(round int, rec dataTaskWorkflowRecord, access []dataTaskArtifactAccessPrompt, allowed map[string]bool) []dataTaskFieldContractViolation {
-	errText := strings.TrimSpace(rec.Err)
-	if errText == "" {
-		return nil
-	}
-	matches := dataTaskPlanningMissingFieldRe.FindAllStringSubmatch(errText, -1)
-	var out []dataTaskFieldContractViolation
-	for _, match := range matches {
-		actionIndex := 0
-		fmt.Sscanf(match[1], "%d", &actionIndex)
-		actionID := strings.TrimSpace(match[2])
-		actionKind := ""
-		var action dataquery.DataAction
-		hasAction := false
-		if actionIndex > 0 && actionIndex <= len(rec.Plan.Actions) {
-			action = rec.Plan.Actions[actionIndex-1]
-			hasAction = true
-			actionID = firstNonEmptyString(strings.TrimSpace(action.ID), actionID)
-			actionKind = strings.TrimSpace(string(normalizeDataActionKindForWorkflow(action.Kind)))
-		}
-		missing := cleanDataTaskStrings(parseDataTaskActionStringListParam(match[3]))
-		input := strings.TrimSpace(match[4])
-		available := clampDataTaskStringSlice(cleanDataTaskStrings(parseDataTaskActionStringListParam(match[5])), 24)
-		if hasAction {
-			violation := dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
-				Action:             action,
-				InputAlias:         input,
-				MissingFields:      missing,
-				AvailableFields:    available,
-				SchemaProjections:  dataTaskArtifactAccessSchemaProjection(access),
-				AllowedNextActions: dataTaskAllowedActionNamesFromMap(allowed),
-			})
-			view := dataTaskFieldContractViolationFromWorkflowViolation(round, actionIndex, violation)
-			view.ActionID = firstNonEmptyString(view.ActionID, actionID)
-			view.Reason = clampDataTaskWorkflowText(match[0], 700)
-			out = append(out, view)
-			continue
-		}
-		violation := dataTaskFieldContractViolation{
-			Round:                round,
-			ActionIndex:          actionIndex,
-			ActionID:             actionID,
-			ActionKind:           actionKind,
-			InputAlias:           input,
-			MissingFields:        missing,
-			AvailableFieldSample: available,
-			CandidateArtifacts:   dataTaskFieldContractCandidateArtifacts(access, input, missing),
-			RepairActionHints:    dataTaskFieldContractRepairHints(allowed),
-			Reason:               clampDataTaskWorkflowText(match[0], 700),
-		}
-		out = append(out, violation)
-	}
-	for _, match := range dataTaskNumericFieldContractRe.FindAllStringSubmatch(errText, -1) {
-		input := strings.TrimSpace(match[2])
-		field := strings.TrimSpace(match[3])
-		available := []string{}
-		if artifact, ok := dataTaskArtifactAccessByAlias(access, input); ok {
-			available = clampDataTaskStringSlice(artifact.Fields, 24)
-		}
-		out = append(out, dataTaskFieldContractViolation{
-			Round:                round,
-			ActionKind:           strings.TrimSpace(match[1]),
-			InputAlias:           input,
-			MissingFields:        []string{field},
-			AvailableFieldSample: available,
-			CandidateArtifacts:   dataTaskNumericFieldCandidateArtifacts(access, input),
-			RepairActionHints: []string{
-				"use derive_fields operation=parse_number to materialize a numeric field from an existing numeric-looking source field",
-				"do not repeat numeric filter_records or compute_contributions with a flag/status/text field as the numeric field",
-				"use flag/status fields only for eq/in/contains/decision filters, then use a separate numeric value_field for contribution/reconcile",
-			},
-			Reason: clampDataTaskWorkflowText(match[0], 700),
-		})
-	}
-	return out
-}
-
-func dataTaskFieldContractViolationFromWorkflowViolation(round, actionIndex int, violation dataworkflow.WorkflowViolation) dataTaskFieldContractViolation {
-	return dataTaskFieldContractViolation{
-		Round:                round,
-		ActionIndex:          actionIndex,
-		ActionID:             strings.TrimSpace(violation.ActionID),
-		ActionKind:           strings.TrimSpace(violation.ActionKind),
-		InputAlias:           strings.TrimSpace(violation.InputAlias),
-		InputAliases:         cleanDataTaskStrings(violation.InputAliases),
-		OutputAlias:          strings.TrimSpace(violation.OutputAlias),
-		IdempotencyKey:       strings.TrimSpace(violation.IdempotencyKey),
-		DependencyRank:       violation.DependencyRank,
-		MissingFields:        append([]string(nil), violation.MissingFields...),
-		AvailableFieldSample: append([]string(nil), violation.AvailableFieldSample...),
-		CandidateArtifacts:   append([]string(nil), violation.CandidateArtifacts...),
-		RepairActionHints:    append([]string(nil), violation.RepairActionHints...),
-		Reason:               strings.TrimSpace(violation.Reason),
-	}
-}
-
-func dataTaskExtractFieldContractViolationsFromArtifact(round int, artifact dataquery.DataArtifact, access []dataTaskArtifactAccessPrompt) []dataTaskFieldContractViolation {
-	var out []dataTaskFieldContractViolation
-	var walk func(dataquery.DataArtifact)
-	walk = func(current dataquery.DataArtifact) {
-		if dataTaskArtifactKindHasPrefix(current.Kind, dataquery.DataActionExtractFields) {
-			inputRows := dataTaskArtifactIntField(current, "input_rows")
-			outputRows := dataTaskArtifactIntField(current, "output_rows")
-			required := cleanDataTaskStrings(strings.Split(current.Fields["required_fields"], ","))
-			extracted := cleanDataTaskStrings(strings.Split(current.Fields["extracted_fields"], ","))
-			if inputRows > 0 && outputRows == 0 && (len(required) > 0 || len(extracted) > 0) {
-				missing := required
-				if len(missing) == 0 {
-					missing = extracted
-				}
-				inputAlias := firstNonEmptyString(strings.TrimSpace(current.Fields["input_path"]), strings.TrimSpace(current.Fields["input_paths"]))
-				available := cleanDataTaskStrings(strings.Split(firstNonEmptyString(current.Fields["source_fields"], strings.Join(current.Headers, ",")), ","))
-				candidateFields := cleanDataTaskStrings(strings.Split(firstNonEmptyString(current.Fields["source_fields"], strings.Join(current.Headers, ",")), ","))
-				candidates := dataTaskFieldContractCandidateArtifacts(access, inputAlias, candidateFields)
-				if len(candidates) == 0 {
-					candidates = dataTaskFieldContractCandidateArtifacts(access, inputAlias, missing)
-				}
-				if len(candidates) == 0 {
-					candidates = clampDataTaskStringSlice(dataTaskArtifactAliasPaths(current), 8)
-				}
-				reasonParts := []string{"extract_fields produced zero matched records from a non-empty input"}
-				if diag := strings.TrimSpace(current.Fields["zero_match_diagnostics"]); diag != "" {
-					reasonParts = append(reasonParts, "diagnostics="+diag)
-				}
-				if samples := strings.TrimSpace(current.Fields["source_field_samples"]); samples != "" {
-					reasonParts = append(reasonParts, "source_field_samples="+samples)
-				}
-				out = append(out, dataTaskFieldContractViolation{
-					Round:                round,
-					ArtifactID:           strings.TrimSpace(current.ID),
-					ActionKind:           string(dataquery.DataActionExtractFields),
-					InputAlias:           inputAlias,
-					MissingFields:        clampDataTaskStringSlice(missing, 16),
-					AvailableFieldSample: clampDataTaskStringSlice(available, 24),
-					CandidateArtifacts:   clampDataTaskStringSlice(candidates, 8),
-					RepairActionHints: []string{
-						"inspect source_field_samples and current artifact fields before retrying extraction",
-						"repair extract_fields by adjusting source_field/source_fields, regex/pattern, document scope, grouping, or required_fields",
-						"do not compute contributions or assemble a final answer from this zero-match extraction while contribution/reconcile/projection remains required",
-					},
-					Reason: clampDataTaskWorkflowText(strings.Join(reasonParts, "; "), 1200),
-				})
-			}
-		}
-		for _, child := range current.Children {
-			walk(child)
-		}
-	}
-	walk(artifact)
-	return out
-}
-
-func dataTaskNumericFieldCandidateArtifacts(access []dataTaskArtifactAccessPrompt, input string) []string {
-	inputKey := normalizeDataTaskCoveragePath(input)
-	type candidate struct {
-		label string
-		score int
-	}
-	var candidates []candidate
-	for _, artifact := range access {
-		alias := firstDataTaskArtifactAlias(artifact)
-		if alias == "" {
-			alias = artifact.ID
-		}
-		if strings.TrimSpace(alias) == "" {
-			continue
-		}
-		fields := dataTaskNumericLookingSampleFields(artifact.FieldSamples, 6)
-		if len(fields) == 0 {
-			continue
-		}
-		score := len(fields)
-		if normalizeDataTaskCoveragePath(alias) == inputKey || normalizeDataTaskCoveragePath(artifact.ID) == inputKey {
-			score += 10
-		}
-		candidates = append(candidates, candidate{
-			label: fmt.Sprintf("%s numeric-like fields [%s]", alias, strings.Join(fields, ", ")),
-			score: score,
-		})
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		return candidates[i].label < candidates[j].label
-	})
-	var out []string
-	for _, candidate := range candidates {
-		out = append(out, candidate.label)
-		if len(out) >= 4 {
-			break
-		}
-	}
-	return out
-}
-
-func dataTaskNumericLookingSampleFields(samples map[string][]string, limit int) []string {
-	if limit <= 0 {
-		limit = 1
-	}
-	var out []string
-	for field, values := range samples {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		for _, value := range values {
-			if dataTaskStringLooksNumeric(value) {
-				out = append(out, field)
-				break
-			}
-		}
-	}
-	sort.Strings(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func dataTaskFieldContractRepairHints(allowed map[string]bool) []string {
-	return dataworkflow.FieldContractRepairHints(dataTaskAllowedActionNamesFromMap(allowed))
-}
-
-func dataTaskAllowedActionNamesFromMap(allowed map[string]bool) []string {
-	allowedActions := make([]string, 0, len(allowed))
-	for action, ok := range allowed {
-		if ok {
-			allowedActions = append(allowedActions, action)
-		}
-	}
-	sort.Strings(allowedActions)
-	return allowedActions
 }
 
 func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) bool {
