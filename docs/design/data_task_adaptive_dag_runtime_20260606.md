@@ -16480,3 +16480,48 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 364: Evaluator Decisions Gated By Typed Error Blockers
+
+Batch 363 covered the evaluator no-tool fallback path. The next IR gap was the
+normal model-returned evaluator path: the evaluator could emit a structured
+`complete`, `continue_*`, or other optimistic status even though
+`workflow_state.workflow_violations` already contained a deterministic typed
+error blocker. That left a narrow path where model-provided status could skip a
+field, parameter, role, output, or materialization failure that the reducer had
+already projected.
+
+This batch keeps the boundary generic and typed:
+
+- evaluator status is model guidance, not a hard override of reducer state;
+- `workflow_violations` with severity `error` or empty severity are hard
+  blockers for completion/continuation;
+- warning diagnostics stay soft and do not by themselves override evaluator
+  status;
+- hard blocker repair locus is taken from typed violation fields such as
+  `input_alias`, `param`, `field`, or `output_alias`;
+- no prose error text or business vocabulary participates in the gate.
+
+Changes:
+
+- [x] Routed model-returned evaluator decisions through the same typed
+      workflow-violation selector used by evaluator fallback.
+- [x] Converted optimistic statuses to `repair_node` when reducer state has a
+      typed error blocker.
+- [x] Filled missing repair-node action id, action kind, and repair locus from
+      reducer violations when the model emits an under-specified repair
+      decision.
+- [x] Preserved warning-only workflow diagnostics as soft context so they do
+      not make the data lane overly conservative.
+- [x] Added regression coverage for optimistic model completion blocked by a
+      typed field-contract violation and for warning-only diagnostics not
+      hard-blocking evaluator decisions.
+
+Remaining architecture items:
+
+- [ ] Continue moving evaluator repair/continue decisions into a shared
+      DataWorkflowState reducer so CLI and REPL consume the same decision IR.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

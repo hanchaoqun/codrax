@@ -1750,6 +1750,66 @@ func TestDataTaskEvaluatorFallbackUsesTypedWorkflowViolation(t *testing.T) {
 	}
 }
 
+func TestDataTaskEvaluatorModelCompleteBlockedByTypedWorkflowViolation(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{{
+			ToolCalls: []llm.ToolCall{{
+				Name:   dataTaskEvaluationTool.Name,
+				Params: []byte(`{"status":"complete","reason":"model believes the answer is ready","confidence":"high"}`),
+			}},
+			StopReason: "tool_use",
+		}},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	evaluator := planner.(DataTaskEvaluator)
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			Status: "ready",
+			Actions: []dataquery.DataAction{{
+				ID:         "filter_bad",
+				Kind:       dataquery.DataActionFilterRecords,
+				InputPaths: []string{"records.json"},
+			}},
+		},
+		Result: &dataquery.Result{
+			Answer:         "0",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		},
+		Violations: []dataquery.DataTaskViolation{{
+			Code:          "field_contract_violation",
+			ActionID:      "filter_bad",
+			ActionKind:    string(dataquery.DataActionFilterRecords),
+			InputAlias:    "records.json",
+			Field:         "status",
+			MissingFields: []string{"status"},
+			Summary:       "field is not present in the executable artifact schema",
+		}},
+	}}
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "统计数据", records, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateDataTask: %v", err)
+	}
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "filter_bad" ||
+		eval.ActionKind != string(dataquery.DataActionFilterRecords) ||
+		eval.RepairLocus != "records.json" ||
+		!strings.Contains(eval.Reason, "original_status=complete") ||
+		!strings.Contains(eval.Reason, "typed_violation=field_contract_violation") {
+		t.Fatalf("eval=%+v, want typed blocker to override optimistic completion", eval)
+	}
+}
+
+func TestDataTaskEvaluatorWarningWorkflowViolationDoesNotBlock(t *testing.T) {
+	if violation, ok := dataTaskFirstWorkflowViolationForEvaluation([]dataworkflow.WorkflowViolation{{
+		Code:          "zero_match_filter",
+		Severity:      "warning",
+		Repairability: dataworkflow.RepairNeedsTypedAction,
+		InputAlias:    "records.json",
+	}}); ok {
+		t.Fatalf("violation=%+v, warning-only diagnostics should not hard-block evaluator status", violation)
+	}
+}
+
 func TestRenderDataTaskRecordsForPromptCarriesReconcileTotals(t *testing.T) {
 	groups := make([]dataquery.ReconcileGroup, 0, 12)
 	for i := 1; i <= 12; i++ {
