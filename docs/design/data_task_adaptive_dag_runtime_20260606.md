@@ -17482,6 +17482,45 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 390: ArtifactGraph-Owned Missing-Field Recovery
+
+The next field-contract seam was the recovery path for a `join_records` action
+whose selected base artifact was missing a field, plus the related
+multi-input `derive_fields`/`extract_fields` recovery that should become
+`enrich_records`. Both paths previously lived in the REPL adapter and carried
+their own schema/mapping selection helpers.
+
+Generic invariants:
+
+- recovery starts from typed field-contract violations or typed action params,
+  not user prose;
+- candidate artifacts come from `ArtifactSchemaProjection`;
+- the emitted recovery is a typed `enrich_records` action with structured
+  lookup specs;
+- duplicate recovery plans are suppressed by workflow-owned plan signatures;
+- this batch migrates existing schema recovery into the IR layer; it does not
+  broaden business semantics or add new domain-specific matching rules.
+
+Changes:
+
+- [x] Added workflow-owned missing-join-field fallback plan builder.
+- [x] Added workflow-owned historical missing-join-field violation lookup.
+- [x] Added workflow-owned invalid-record enrich fallback builder.
+- [x] Rewired REPL missing-field and invalid-record enrich recovery wrappers
+      to call `dataworkflow`.
+- [x] Removed the duplicate REPL-local missing-field recovery helpers.
+- [x] Added regression coverage for missing join field enrichment,
+      duplicate suppression, and multi-input derive-to-enrich recovery.
+
+Remaining architecture items:
+
+- [ ] Replace field-name scoring helpers with a stronger relation IR over
+      artifact lineage, key coverage, candidate mappings, and evaluator
+      violations.
+- [ ] Move repeated-node expansion into reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
