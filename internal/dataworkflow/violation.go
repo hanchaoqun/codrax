@@ -84,6 +84,42 @@ type WorkflowStateViolationInput struct {
 	NoProgressThreshold int
 }
 
+// ActiveGuardViolationsFromRecords returns admission guard blockers that still
+// belong to the live workflow suffix. Older rejected-plan guards remain in
+// journal/audit events, but once a later record produces successful typed
+// progress they should not keep steering the current reducer decision.
+func ActiveGuardViolationsFromRecords(records []WorkflowRecord) []WorkflowViolation {
+	start := 0
+	for i, rec := range records {
+		if workflowRecordHasSuccessfulProgress(rec) {
+			start = i + 1
+		}
+	}
+	var out []WorkflowViolation
+	for _, rec := range records[start:] {
+		guard := activeAdmissionGuard(rec.Admission)
+		if guard.Empty() {
+			continue
+		}
+		out = append(out, guard.Violations...)
+	}
+	return cloneWorkflowViolations(out)
+}
+
+func workflowRecordHasSuccessfulProgress(rec WorkflowRecord) bool {
+	return rec.Result != nil && strings.TrimSpace(rec.Err) == ""
+}
+
+func activeAdmissionGuard(admission *ActionDAGAdmissionDecision) GuardResult {
+	if admission == nil {
+		return GuardResult{}
+	}
+	if !admission.FinalGuard.Empty() {
+		return admission.FinalGuard
+	}
+	return admission.Guard
+}
+
 func BuildWorkflowStateViolations(input WorkflowStateViolationInput) []WorkflowViolation {
 	state := input.State
 	additional := make([]WorkflowViolation, 0,

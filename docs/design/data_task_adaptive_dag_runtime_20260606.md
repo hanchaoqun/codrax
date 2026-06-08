@@ -20085,3 +20085,46 @@ Remaining architecture items:
 
 - [ ] Add a workflow-level metric for rejected terminal candidates so eval logs
       can report when a model tried to finish with an intermediate artifact.
+
+### Batch 437: Active Completion Blockers And Guard Violation Lifecycle
+
+The next real-scenario run confirmed that Batch 371/372 closed the previous
+false-success path: stdout stayed empty and the terminal audit failed instead
+of rendering an intermediate artifact summary as the final answer. The failure
+then exposed two workflow-IR issues that are generic to long data DAGs:
+
+- terminal completion can report a downstream rule-link validation error while
+  the reducer already knows that required decision/contribution/reconcile
+  ledgers are still missing;
+- guard violations emitted by older rejected plans can remain in
+  `workflow_violations` after later batches made progress through a different
+  typed path, causing stale blockers to steer the evaluator away from the
+  current ledger/action graph.
+
+Generic invariant:
+
+- completion blockers should be ordered by live typed workflow state:
+  incomplete required ledgers and output projection gaps are more actionable
+  than downstream validation symptoms that cannot be satisfied until those
+  ledgers exist;
+- rejected-plan violations are audit facts, but only the active suffix since
+  the latest successful workflow progress should drive current reducer
+  decisions;
+- a workflow contract note such as "custom transform disabled" is not itself a
+  permanent hard blocker once typed actions continue to make progress;
+- all of the above is based on typed record/admission/result state, not on user
+  prose or model free text.
+
+Changes:
+
+- [x] Prefer `LedgerGraphCompletionGuardResult` over downstream rule-link
+      validation errors when required ledgers are missing or blocked.
+- [x] Filter guard violations to the active suffix after the most recent
+      successful progress record before feeding them into `WorkflowStateView`.
+- [x] Keep full historical guard violations in audit artifacts while keeping
+      live `workflow_violations` focused on active blockers.
+- [x] Add regression coverage for missing-ledger priority over rule-link
+      validation symptoms and stale guard deactivation after successful
+      progress.
+- [x] Re-run focused dataworkflow/REPL tests and the full test suite before the
+      next real-scenario gate.

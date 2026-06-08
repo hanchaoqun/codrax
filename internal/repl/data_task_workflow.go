@@ -3843,14 +3843,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 }
 
 func dataTaskWorkflowGuardViolations(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowViolation {
-	var guardViolations []dataworkflow.WorkflowViolation
-	for _, rec := range records {
-		if rec.Admission == nil || rec.Admission.FinalGuard.Empty() {
-			continue
-		}
-		guardViolations = append(guardViolations, rec.Admission.FinalGuard.Violations...)
-	}
-	return guardViolations
+	return dataworkflow.ActiveGuardViolationsFromRecords(records)
 }
 
 func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {

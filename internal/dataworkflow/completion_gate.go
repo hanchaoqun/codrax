@@ -16,13 +16,15 @@ type CompletionGateGuardInput struct {
 }
 
 func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
+	ledgerGuard, ledgerDep, ledgerBlocked := completionLedgerGuard(input.LedgerGraph)
 	if input.ValidationErr != nil {
-		if validationErrorHasCode(input.ValidationErr, "missing_required_ledger") {
-			if guard := LedgerGraphCompletionGuardResult(input.LedgerGraph); !guard.Empty() {
-				return guard
-			}
+		if ledgerBlocked && validationErrorShouldYieldToLedger(input.ValidationErr) {
+			return ledgerGuard
 		}
 		return validationErrorGuardResult(input.ValidationErr)
+	}
+	if ledgerBlocked && strings.TrimSpace(ledgerDep.Ledger) != string(LedgerFinalProjection) {
+		return ledgerGuard
 	}
 	switch input.OutputGraph.Status {
 	case OutputProjectionStatusIncompleteReference:
@@ -36,15 +38,49 @@ func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
 	}
 }
 
+func completionLedgerGuard(graph LedgerGraph) (GuardResult, LedgerDependency, bool) {
+	dep, ok := FirstIncompleteRequiredLedger(graph)
+	if !ok {
+		return GuardResult{}, LedgerDependency{}, false
+	}
+	guard := LedgerGraphCompletionGuardResult(graph)
+	if guard.Empty() {
+		return GuardResult{}, LedgerDependency{}, false
+	}
+	return guard, dep, true
+}
+
+func validationErrorShouldYieldToLedger(err error) bool {
+	if validationErrorHasCode(err, "missing_required_ledger") {
+		return true
+	}
+	return validationErrorHasAnyCode(err,
+		"unlinked_rule_coverage",
+		"unlinked_source_rule_coverage",
+	)
+}
+
 func validationErrorHasCode(err error, code string) bool {
-	code = strings.TrimSpace(code)
-	if err == nil || code == "" {
+	return validationErrorHasAnyCode(err, code)
+}
+
+func validationErrorHasAnyCode(err error, codes ...string) bool {
+	allowed := map[string]bool{}
+	for _, code := range codes {
+		if code = strings.TrimSpace(code); code != "" {
+			allowed[code] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	if err == nil {
 		return false
 	}
 	var validationErr dataquery.DataValidationError
 	if errors.As(err, &validationErr) {
 		for _, violation := range validationErr.Violations {
-			if strings.TrimSpace(violation.Code) == code {
+			if allowed[strings.TrimSpace(violation.Code)] {
 				return true
 			}
 		}
@@ -52,7 +88,7 @@ func validationErrorHasCode(err error, code string) bool {
 	var resultErr *dataquery.DataResultValidationError
 	if errors.As(err, &resultErr) {
 		for _, violation := range resultErr.Violations {
-			if strings.TrimSpace(violation.Code) == code {
+			if allowed[strings.TrimSpace(violation.Code)] {
 				return true
 			}
 		}

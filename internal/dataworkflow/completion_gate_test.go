@@ -30,6 +30,38 @@ func TestCompletionGateGuardResultUsesLedgerGraph(t *testing.T) {
 	}
 }
 
+func TestCompletionGateGuardResultPrefersMissingLedgerOverRuleLinkSymptom(t *testing.T) {
+	guard := CompletionGateGuardResult(CompletionGateGuardInput{
+		ValidationErr: dataquery.DataValidationError{Violations: []dataquery.DataTaskViolation{{
+			Code:    "unlinked_source_rule_coverage",
+			Summary: "source-backed rules are not linked from item ledgers",
+		}}},
+		LedgerGraph: LedgerGraph{
+			Dependencies: []LedgerDependency{{
+				Ledger:          string(LedgerDecisions),
+				Required:        true,
+				Status:          LedgerStatusMissing,
+				ProducesActions: []string{string(dataquery.DataActionQualifyRecords)},
+			}, {
+				Ledger:               string(LedgerContributions),
+				Required:             true,
+				Status:               LedgerStatusBlockedByPrerequisite,
+				MissingPrerequisites: []string{string(LedgerDecisions)},
+				ProducesActions:      []string{string(dataquery.DataActionComputeContribs)},
+			}},
+		},
+	})
+	if guard.Code != "missing_workflow_ledger" {
+		t.Fatalf("guard=%+v, want missing_workflow_ledger", guard)
+	}
+	if !strings.Contains(guard.ErrorText(), "decisions") {
+		t.Fatalf("message=%q, want first missing ledger detail", guard.ErrorText())
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].ActionKind != string(dataquery.DataActionQualifyRecords) {
+		t.Fatalf("violations=%+v, want decision producer action hint", guard.Violations)
+	}
+}
+
 func TestCompletionGateGuardResultUsesValidationViolation(t *testing.T) {
 	guard := CompletionGateGuardResult(CompletionGateGuardInput{
 		ValidationErr: dataquery.DataValidationError{Violations: []dataquery.DataTaskViolation{{
@@ -43,6 +75,42 @@ func TestCompletionGateGuardResultUsesValidationViolation(t *testing.T) {
 	}
 	if len(guard.Violations) != 1 || guard.Violations[0].RepairActionHints[0] != "inspect missing material" {
 		t.Fatalf("violations=%+v, want repair hint carried", guard.Violations)
+	}
+}
+
+func TestCompletionGateGuardResultKeepsDirectValidationOverLedger(t *testing.T) {
+	guard := CompletionGateGuardResult(CompletionGateGuardInput{
+		ValidationErr: dataquery.DataValidationError{Violations: []dataquery.DataTaskViolation{{
+			Code:    "artifact_schema_incompatible",
+			Summary: "input is not a record artifact",
+		}}},
+		LedgerGraph: LedgerGraph{
+			Dependencies: []LedgerDependency{{
+				Ledger:          string(LedgerContributions),
+				Required:        true,
+				Status:          LedgerStatusMissing,
+				ProducesActions: []string{string(dataquery.DataActionComputeContribs)},
+			}},
+		},
+	})
+	if guard.Code != "artifact_schema_incompatible" {
+		t.Fatalf("guard=%+v, want direct schema validation blocker", guard)
+	}
+}
+
+func TestCompletionGateGuardResultUsesLedgerWithoutValidationError(t *testing.T) {
+	guard := CompletionGateGuardResult(CompletionGateGuardInput{
+		LedgerGraph: LedgerGraph{
+			Dependencies: []LedgerDependency{{
+				Ledger:          string(LedgerContributions),
+				Required:        true,
+				Status:          LedgerStatusMissing,
+				ProducesActions: []string{string(dataquery.DataActionComputeContribs)},
+			}},
+		},
+	})
+	if guard.Code != "missing_workflow_ledger" {
+		t.Fatalf("guard=%+v, want missing workflow ledger", guard)
 	}
 }
 

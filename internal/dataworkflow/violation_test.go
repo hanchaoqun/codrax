@@ -49,6 +49,94 @@ func TestBuildWorkflowViolationsCombinesGuardNoProgressAndAdditional(t *testing.
 	}
 }
 
+func TestActiveGuardViolationsPreserveInitialBlockedSuffix(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "filter_missing",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "filtered.json",
+	}
+	guard := ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "missing_action_inputs",
+		Action:     action,
+		InputAlias: "records.json",
+		Message:    "filter needs records",
+	})
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+		Err:  guard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+			FinalGuard:    guard,
+			FinalGuardErr: guard.ErrorText(),
+		},
+	}}
+	violations := ActiveGuardViolationsFromRecords(records)
+	if len(violations) != 1 || violations[0].Code != "missing_action_inputs" {
+		t.Fatalf("violations=%+v, want active admission guard", violations)
+	}
+}
+
+func TestActiveGuardViolationsDropsGuardsBeforeSuccessfulProgress(t *testing.T) {
+	staleAction := dataquery.DataAction{
+		ID:             "filter_raw_text",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"notes.txt"},
+		OutputArtifact: "filtered.json",
+	}
+	staleGuard := ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "artifact_schema_incompatible",
+		Action:     staleAction,
+		InputAlias: "notes.txt",
+		Message:    "notes.txt is not a record artifact",
+	})
+	activeAction := dataquery.DataAction{
+		ID:             "join_missing",
+		Kind:           dataquery.DataActionJoinRecords,
+		InputPaths:     []string{"left.json", "right.json"},
+		OutputArtifact: "joined.json",
+	}
+	activeGuard := ActionInputContractGuardResult(ActionInputContractGuardInput{
+		Code:       "missing_join_field",
+		Action:     activeAction,
+		InputAlias: "right.json",
+		Message:    "right.json is missing join field",
+	})
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{staleAction}},
+		Err:  staleGuard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{staleAction}},
+			FinalGuard:    staleGuard,
+			FinalGuardErr: staleGuard.ErrorText(),
+		},
+	}, {
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:             "extract_records",
+			Kind:           dataquery.DataActionExtractRecords,
+			OutputArtifact: "records.json",
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "records.json",
+			Kind:    "records",
+			Headers: []string{"id", "status"},
+			Fields:  map[string]string{"id": "string", "status": "string"},
+		}}},
+	}, {
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{activeAction}},
+		Err:  activeGuard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{activeAction}},
+			FinalGuard:    activeGuard,
+			FinalGuardErr: activeGuard.ErrorText(),
+		},
+	}}
+	violations := ActiveGuardViolationsFromRecords(records)
+	if len(violations) != 1 || violations[0].Code != "missing_join_field" {
+		t.Fatalf("violations=%+v, want only guard after latest successful progress", violations)
+	}
+}
+
 func TestBuildWorkflowStateViolationsProjectsTypedIssues(t *testing.T) {
 	state := WorkflowStateView{
 		MaterialCoverageSufficient: true,

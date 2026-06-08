@@ -6072,6 +6072,54 @@ func TestDataTaskWorkflowStateProjectsRejectedAdmissionGuard(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowStateDropsStaleAdmissionGuardAfterProgress(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "filter_raw",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"raw.txt"},
+		OutputArtifact: "filtered.json",
+	}
+	guard := dataworkflow.ActionInputContractGuardResult(dataworkflow.ActionInputContractGuardInput{
+		Code:       "artifact_schema_incompatible",
+		Action:     action,
+		InputAlias: "raw.txt",
+		Message:    "raw.txt is not a record artifact",
+	})
+	decision := dataworkflow.ActionDAGAdmissionDecision{
+		Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+		FinalGuard:    guard,
+		FinalGuardErr: guard.ErrorText(),
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan:      decision.Plan,
+		Err:       guard.ErrorText(),
+		Admission: &decision,
+	}, {
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:             "extract_records",
+			Kind:           dataquery.DataActionExtractRecords,
+			OutputArtifact: "records.json",
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:      "records.json",
+			Kind:    "records",
+			Headers: []string{"id"},
+			Fields:  map[string]string{"id": "string"},
+		}}},
+	}}
+	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	for _, violation := range state.WorkflowViolations {
+		if violation.Code == "artifact_schema_incompatible" && violation.InputAlias == "raw.txt" {
+			t.Fatalf("WorkflowViolations=%+v, stale guard should be audit-only after progress", state.WorkflowViolations)
+		}
+	}
+	for _, node := range state.ActionGraph.Blocked {
+		if node.ID == "filter_raw" {
+			t.Fatalf("ActionGraph.Blocked=%+v, stale blocked action should be audit-only after progress", state.ActionGraph.Blocked)
+		}
+	}
+}
+
 func TestDataTaskWorkflowRecordForGuardProjectsBlockedAction(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:         "compute_missing",
