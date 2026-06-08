@@ -5056,7 +5056,11 @@ type dataTaskWorkflowPlanPreflight = dataworkflow.ActionDAGAdmissionDecision
 const dataTaskPreflightMaxRewrites = 3
 
 func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
-	return dataworkflow.AdmitActionDAGPlan(dataworkflow.ActionDAGAdmissionInput{
+	return dataworkflow.AdmitActionDAGPlan(dataTaskPreflightWorkflowPlanInput(records, plan, protect))
+}
+
+func dataTaskPreflightWorkflowPlanInput(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataworkflow.ActionDAGAdmissionInput {
+	return dataworkflow.ActionDAGAdmissionInput{
 		Plan:        plan,
 		Protect:     protect,
 		MaxRewrites: dataTaskPreflightMaxRewrites,
@@ -5073,7 +5077,7 @@ func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataqu
 		DeterministicFallback: func(current dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
 			return dataTaskWorkflowDeterministicFallback(records, current, guard)
 		},
-	})
+	}
 }
 
 func dataTaskAdmissionDecisionForPlan(decision dataworkflow.ActionDAGAdmissionDecision, plan dataquery.TaskPlan) *dataworkflow.ActionDAGAdmissionDecision {

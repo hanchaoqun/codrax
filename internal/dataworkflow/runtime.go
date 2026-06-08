@@ -34,6 +34,17 @@ type DeferredQueueAdvanceDecision struct {
 	Reason         string                         `json:"reason,omitempty"`
 }
 
+type CandidatePlanAdmissionDecision struct {
+	Admission      ActionDAGAdmissionDecision `json:"admission,omitempty"`
+	Round          int                        `json:"round,omitempty"`
+	Source         string                     `json:"source,omitempty"`
+	Plan           dataquery.TaskPlan         `json:"plan,omitempty"`
+	Accepted       bool                       `json:"accepted,omitempty"`
+	Blocked        bool                       `json:"blocked,omitempty"`
+	Rewritten      bool                       `json:"rewritten,omitempty"`
+	AppendedRecord bool                       `json:"appended_record,omitempty"`
+}
+
 func NewWorkflowRuntime(current dataquery.TaskPlan) *WorkflowRuntime {
 	rt := &WorkflowRuntime{}
 	rt.SetCurrentPlan(current)
@@ -265,6 +276,42 @@ func (rt *WorkflowRuntime) Admission() ActionDAGAdmissionDecision {
 		return ActionDAGAdmissionDecision{}
 	}
 	return cloneAdmissionDecision(rt.admission)
+}
+
+func (rt *WorkflowRuntime) AdmitCandidatePlan(round int, source string, input ActionDAGAdmissionInput) CandidatePlanAdmissionDecision {
+	admission := AdmitActionDAGPlan(input)
+	out := CandidatePlanAdmissionDecision{
+		Admission: cloneAdmissionDecision(admission),
+		Round:     round,
+		Source:    trimRuntimeText(source),
+		Plan:      cloneTaskPlanValue(admission.Plan),
+		Blocked:   trimRuntimeText(admission.FinalGuardErr) != "",
+		Rewritten: admission.Rewritten,
+	}
+	if rt == nil {
+		return out
+	}
+	rt.SetAdmission(admission)
+	transitionSource := out.Source
+	if admission.Rewritten {
+		transitionSource = "continue"
+		rt.AppendRecord(WorkflowRecord{
+			Plan:      admission.Original,
+			Err:       admission.GuardErr,
+			Admission: &admission,
+		})
+		out.AppendedRecord = true
+	}
+	out.Source = transitionSource
+	if out.Blocked {
+		rt.SetCurrentPlan(admission.Plan)
+		out.Plan = rt.CurrentPlan()
+	} else {
+		out.Plan = rt.SwitchCurrentPlan(round, transitionSource, admission.Plan, admission.Reason)
+		out.Accepted = true
+	}
+	out.Admission = rt.Admission()
+	return out
 }
 
 func (rt *WorkflowRuntime) SetRounds(dataRounds, repairRounds int) {

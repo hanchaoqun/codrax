@@ -168,6 +168,61 @@ func TestWorkflowRuntimeAdvancesDeferredQueueLifecycle(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{
+		{ID: "extract", Kind: dataquery.DataActionExtractRecords},
+		{ID: "compute", Kind: dataquery.DataActionComputeContribs},
+	}}
+	decision := rt.AdmitCandidatePlan(3, "repair", ActionDAGAdmissionInput{
+		Plan: candidate,
+		PrefixFallback: func(plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
+			prefix := plan
+			prefix.Actions = append([]dataquery.DataAction(nil), plan.Actions[:1]...)
+			remainder := plan
+			remainder.Actions = append([]dataquery.DataAction(nil), plan.Actions[1:]...)
+			return prefix, remainder, "split rank", true
+		},
+	})
+	if !decision.Accepted || !decision.Rewritten || !decision.AppendedRecord || decision.Source != "continue" {
+		t.Fatalf("decision=%+v, want accepted rewritten transition", decision)
+	}
+	if rt.CurrentPlan().Actions[0].ID != "extract" {
+		t.Fatalf("current plan=%+v, want prefix plan", rt.CurrentPlan())
+	}
+	records := rt.Records()
+	if len(records) != 1 || records[0].Admission == nil || !records[0].Admission.Rewritten {
+		t.Fatalf("records=%+v, want rewritten admission record", records)
+	}
+	transitions := rt.PlanTransitions()
+	if len(transitions) != 1 || transitions[0].Source != "continue" || transitions[0].FirstActionID != "extract" {
+		t.Fatalf("transitions=%+v, want continue transition", transitions)
+	}
+}
+
+func TestWorkflowRuntimeAdmitsCandidatePlanBlocked(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "current", Kind: dataquery.DataActionExtractRecords}}})
+	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "bad", Kind: dataquery.DataActionFilterRecords}}}
+	decision := rt.AdmitCandidatePlan(4, "continue", ActionDAGAdmissionInput{
+		Plan: candidate,
+		Guard: func(dataquery.TaskPlan) GuardResult {
+			return NewGuardResult("field_contract_violation", "error", RepairNeedsTypedAction, "missing field", WorkflowViolation{
+				Code:     "field_contract_violation",
+				ActionID: "bad",
+			})
+		},
+	})
+	if decision.Accepted || !decision.Blocked || decision.Admission.FinalGuard.Code != "field_contract_violation" {
+		t.Fatalf("decision=%+v, want blocked admission", decision)
+	}
+	if rt.CurrentPlan().Actions[0].ID != "bad" {
+		t.Fatalf("current plan=%+v, blocked admission should keep rejected candidate as current audit plan", rt.CurrentPlan())
+	}
+	if len(rt.PlanTransitions()) != 0 {
+		t.Fatalf("transitions=%+v, blocked admission should not add transition", rt.PlanTransitions())
+	}
+}
+
 func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{

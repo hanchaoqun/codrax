@@ -1384,28 +1384,25 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return workflowRuntime.DeferredPlan()
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
-		workflowRuntime.SetAdmission(preflight)
+		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		records = workflowRuntime.Records()
+		preflight := admission.Admission
 		if preflight.Rewritten {
-			appendRecord(dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			emitWorkflowReason("continue", round, preflight.Reason)
-			scope = "continue"
 		}
 		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
 			r.auditDataTaskPlan("rejected", round, preflight.Plan)
-			logging.Info("[repl/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
+			logging.Info("[repl/data] data task candidate plan rejected scope=%s round=%d reason=%q", admission.Source, round, preflight.FinalGuardErr)
 			return preflight.Plan
 		}
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
-		workflowRuntime.SwitchCurrentPlan(round, scope, preflight.Plan, preflight.Reason)
 		r.emitDataTaskPlanAudit(preflight.Plan)
-		r.auditDataTaskPlan(scope, round, preflight.Plan)
-		return preflight.Plan
+		r.auditDataTaskPlan(admission.Source, round, preflight.Plan)
+		return admission.Plan
 	}
 	plan = acceptCandidatePlan("initial", 0, plan)
-	workflowRuntime.SetCurrentPlan(plan)
 	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line, 0, 0); handled {
 		return
 	}

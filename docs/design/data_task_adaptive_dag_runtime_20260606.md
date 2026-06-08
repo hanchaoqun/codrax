@@ -16608,3 +16608,48 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 367: Runtime-Owned Candidate Admission Transitions
+
+Candidate-plan admission already used the package-level `AdmitActionDAGPlan`,
+but CLI and REPL still performed the transition side effects themselves:
+setting the latest admission, appending a rewritten-plan record, switching the
+current plan, and deciding which source label to persist. That left the
+admission decision typed, but the live state transition adapter-owned.
+
+Generic invariant:
+
+- `ActionDAGAdmissionDecision` remains the typed admission result;
+- `WorkflowRuntime` owns how that decision mutates live workflow state;
+- rewritten admissions append the original rejected/trimmed plan as a workflow
+  record from the runtime, not from CLI/REPL;
+- accepted admissions add a plan transition, while blocked admissions keep the
+  rejected candidate as the current audit plan without adding an accepted
+  transition;
+- CLI and REPL only render/audit the already-mutated runtime state and save any
+  deferred remainder.
+
+Changes:
+
+- [x] Added `CandidatePlanAdmissionDecision`.
+- [x] Added `WorkflowRuntime.AdmitCandidatePlan`.
+- [x] Split `dataTaskPreflightWorkflowPlanInput` from the old REPL helper so
+      the runtime can consume the same typed admission callbacks.
+- [x] Rewired CLI candidate-plan acceptance to call the runtime admission
+      transition.
+- [x] Rewired REPL candidate-plan acceptance to call the same runtime admission
+      transition.
+- [x] Removed redundant initial `SetCurrentPlan(plan)` calls after candidate
+      admission.
+- [x] Added runtime regression coverage for rewritten accepted admissions and
+      blocked admissions.
+
+Remaining architecture items:
+
+- [ ] Continue moving ordinary continuation/fallback plan transitions into a
+      reducer-owned transition helper so all `SwitchCurrentPlan` calls pass
+      through one workflow-runtime API with uniform process events.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

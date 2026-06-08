@@ -188,25 +188,23 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		return workflowRuntime.DeferredPlan()
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		preflight := dataTaskPreflightWorkflowPlan(records, candidate, protectPlan)
-		workflowRuntime.SetAdmission(preflight)
+		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		records = workflowRuntime.Records()
+		preflight := admission.Admission
 		if preflight.Rewritten {
-			appendRecord(dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
 			emitWorkflowReason("continue", round, preflight.Reason)
-			scope = "continue"
 		}
 		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "rejected", round, preflight.Plan)
-			logging.Info("[cli/data] data task candidate plan rejected scope=%s round=%d reason=%q", scope, round, preflight.FinalGuardErr)
+			logging.Info("[cli/data] data task candidate plan rejected scope=%s round=%d reason=%q", admission.Source, round, preflight.FinalGuardErr)
 			return preflight.Plan
 		}
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
-		workflowRuntime.SwitchCurrentPlan(round, scope, preflight.Plan, preflight.Reason)
-		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, round, preflight.Plan)
+		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, admission.Source, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
-		return preflight.Plan
+		return admission.Plan
 	}
 	if resumed {
 		plan, err = nextDataTaskPlanFromResumeForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, records, resumeCurrentPlan, currentDeferredPlan())
@@ -219,7 +217,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 	}
 	plan = acceptCandidatePlan("initial", 0, plan)
-	workflowRuntime.SetCurrentPlan(plan)
 
 	repairRoundsMax := normalizeDataTaskMaxRepairRounds(cfg.MaxRepairRounds)
 	dataRoundsMax := normalizeDataTaskMaxDataRounds(cfg.MaxDataRounds)
