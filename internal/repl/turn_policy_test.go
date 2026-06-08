@@ -1477,10 +1477,11 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		eval: dataquery.Evaluation{Status: dataquery.EvalComplete, Reason: "repaired result satisfies strict scalar output", Confidence: "high"},
 	}
 	var progress bytes.Buffer
+	runtimeAnchor := t.TempDir()
 	answer, err := RunDataTaskCLI(context.Background(), "汇总 orders.csv，只输出总额", TurnPolicy{Route: RouteData, NeedsDataAccess: true, Source: "data"}, DataTaskCLIConfig{
 		Planner:         planner,
 		RepoRoot:        root,
-		RuntimeAnchor:   t.TempDir(),
+		RuntimeAnchor:   runtimeAnchor,
 		Language:        "zh",
 		MaxRepairRounds: 2,
 		MaxDataRounds:   4,
@@ -1499,6 +1500,23 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 	for _, want := range []string{"◇ 数据请求 · 已接收", "问题：汇总 orders.csv，只输出总额", "◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 修复第 1 次", "◇ 数据工作流 · 结果第 2 批", "◇ 数据工作流 · 评估第 2 批"} {
 		if !strings.Contains(progressText, want) {
 			t.Fatalf("progress missing %q:\n%s", want, progressText)
+		}
+	}
+	terminalFiles, err := filepath.Glob(filepath.Join(runtimeAnchor, "data-audit", "*-terminal.json"))
+	if err != nil {
+		t.Fatalf("glob terminal audit: %v", err)
+	}
+	if len(terminalFiles) != 1 {
+		t.Fatalf("terminal audit files=%v, want one terminal audit", terminalFiles)
+	}
+	rawTerminal, err := os.ReadFile(terminalFiles[0])
+	if err != nil {
+		t.Fatalf("read terminal audit: %v", err)
+	}
+	terminalText := string(rawTerminal)
+	for _, want := range []string{`"kind": "execute"`, `"kind": "repair"`, `"kind": "result"`, `"kind": "evaluate"`} {
+		if !strings.Contains(terminalText, want) {
+			t.Fatalf("terminal audit missing live process event %q:\n%s", want, terminalText)
 		}
 	}
 }

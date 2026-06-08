@@ -14514,3 +14514,47 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before considering the
       IR process-event/display gap closed.
+
+### Batch 321: Live Process Events In Runtime And Terminal Audit
+
+Batch 316-320 moved data workflow process display away from REPL marker
+strings, but a deeper audit gap remained: CLI/REPL could render typed process
+events while terminal audit snapshots still reconstructed process history from
+records only. That lost explicit system boundaries such as resume, deferred
+queue changes, deterministic continuation, repair/failure context, patch
+decisions, execute/result/evaluate progress, and guard-driven repairs.
+
+This batch connects the live process-event stream to `WorkflowRuntime` at the
+CLI/REPL entrypoints and carries that stream into terminal audit snapshots. The
+renderer remains a consumer of typed events; it does not feed control flow.
+Terminal JSON now preserves the same process event IR that users saw in the
+process output.
+
+Generic invariants:
+
+- process events are runtime workflow state before they are UI lines;
+- CLI and REPL append process events before rendering them;
+- terminal audit snapshots prefer live runtime process events when available;
+- record-derived events remain a fallback for older/static snapshots;
+- process events remain domain-neutral and do not hard-code business roles,
+  field names, material names, or user-intent keywords;
+- stdout remains reserved for final answers in CLI mode.
+
+Changes:
+
+- [x] Added CLI runtime process-event append wrappers around all typed workflow
+      progress rendering.
+- [x] Added REPL runtime process-event append wrappers around all typed workflow
+      progress rendering.
+- [x] Carried CLI runtime process events into terminal audit JSON.
+- [x] Let REPL terminal audit capture the active data workflow runtime process
+      events when a data turn is active.
+- [x] Preserved record-derived event reconstruction for terminal snapshots that
+      do not have a live runtime.
+- [x] Added regression coverage that a CLI repair workflow terminal audit
+      includes live `execute`, `repair`, `result`, and `evaluate` process
+      events.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites before continuing the IR closure audit.

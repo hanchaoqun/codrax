@@ -54,6 +54,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	var records []dataTaskWorkflowRecord
 	var dataRounds int
 	var repairRounds int
+	var workflowRuntime *dataworkflow.WorkflowRuntime
 	defer func() {
 		if len(records) == 0 && dataRounds == 0 && repairRounds == 0 {
 			return
@@ -71,13 +72,18 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		lastErr := dataTaskLatestError(records)
 		resultSummary := dataTaskTerminalResultSummary(resultPtr, records)
+		var processEvents []dataworkflow.WorkflowJournalEvent
+		if workflowRuntime != nil {
+			processEvents = workflowRuntime.ProcessEvents()
+		}
 		terminalPath := writeDataTaskTerminalArtifactFile(cfg.RuntimeAnchor, repoRoot, dataTaskTerminalAudit{
-			Status:       status,
-			Reason:       reason,
-			DataRounds:   dataRounds,
-			RepairRounds: repairRounds,
-			Records:      records,
-			Result:       resultPtr,
+			Status:        status,
+			Reason:        reason,
+			DataRounds:    dataRounds,
+			RepairRounds:  repairRounds,
+			Records:       records,
+			Result:        resultPtr,
+			ProcessEvents: processEvents,
 		}, status, reason, lastErr, resultSummary, "cli")
 		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 			status, dataRounds, repairRounds, len(records), resultSummary,
@@ -88,7 +94,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if err != nil {
 		return "", fmt.Errorf("data task discover files: %w", err)
 	}
-	workflowRuntime := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
+	workflowRuntime = dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
 	setRecords := func(next []dataTaskWorkflowRecord) []dataTaskWorkflowRecord {
 		workflowRuntime.SetRecords(next)
 		records = workflowRuntime.Records()
@@ -106,6 +112,25 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	attachLastError := func(errText string) {
 		records = workflowRuntime.AttachLastError(errText)
 	}
+	emitWorkflowEvent := func(event dataworkflow.WorkflowJournalEvent, opts dataTaskWorkflowEventRenderOptions) {
+		workflowRuntime.AppendProcessEvent(event)
+		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, opts)
+	}
+	emitWorkflowReason := func(kind string, round int, reason string) {
+		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:   strings.TrimSpace(kind),
+			Round:  round,
+			Reason: reason,
+		}), dataTaskWorkflowEventRenderOptions{})
+	}
+	emitWorkflowFailure := func(kind string, round int, reason string) {
+		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+			Kind:   strings.TrimSpace(kind),
+			Round:  round,
+			Status: "failed",
+			Reason: reason,
+		}), dataTaskWorkflowEventRenderOptions{IncludeFailure: true})
+	}
 	var plan dataquery.TaskPlan
 	var resumed bool
 	var resumeCurrentPlan dataquery.TaskPlan
@@ -120,7 +145,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		dataRounds = resume.DataRounds
 		repairRounds = resume.RepairRounds
 		resumed = true
-		dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "resume", dataRounds, fmt.Sprintf("checkpoint %s", resumePath))
+		emitWorkflowReason("resume", dataRounds, fmt.Sprintf("checkpoint %s", resumePath))
 	}
 	if !resumed {
 		plan, err = cfg.Planner.PlanDataTask(ctx, request, repoRoot, policy, candidates)
@@ -141,7 +166,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return
 		}
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", round, remainder)
-		dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, remainder, reason))
+		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, remainder, reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
@@ -149,7 +174,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
 			workflowRuntime.DiscardDeferred(round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(cfg.Language, deferredPlan, reason)
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "deferred", round, detail)
+			emitWorkflowReason("deferred", round, detail)
 			first := deferredPlan.Actions[0]
 			logging.Info("[cli/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, reason)
 			return
@@ -164,7 +189,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		workflowRuntime.SetAdmission(preflight)
 		if preflight.Rewritten {
 			appendRecord(dataTaskWorkflowRecord{Plan: preflight.Original, Err: preflight.GuardErr, Admission: &preflight})
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", round, preflight.Reason)
+			emitWorkflowReason("continue", round, preflight.Reason)
 			scope = "continue"
 		}
 		if strings.TrimSpace(preflight.FinalGuardErr) != "" {
@@ -214,7 +239,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "continue", dataRounds, errText)
+					emitWorkflowFailure("continue", dataRounds, errText)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
 					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
@@ -230,7 +255,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized terminal-completion repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "repair", repairRounds, errText)
+				emitWorkflowFailure("repair", repairRounds, errText)
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
@@ -238,7 +263,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if fallback, reason, ok := dataTaskTerminalWorkflowFallback(records, currentPlan); ok {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+			emitWorkflowReason("continue", dataRounds, reason)
 			fallback = protectPlan(fallback)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -260,7 +285,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
 					Round:        repairRounds,
 					Plan:         currentPlan,
@@ -286,7 +311,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, "missing material coverage before execution"); ok {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch"})
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "missing material coverage converted to atomic coverage batch")
+			emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 			fallback = protectPlan(fallback)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -295,7 +320,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, "broad material custom action requires objective material discovery before execution"); ok {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "broad material custom action converted to material discovery"})
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "broad material custom action converted to material discovery")
+			emitWorkflowReason("continue", dataRounds, "broad material custom action converted to material discovery")
 			fallback = protectPlan(fallback)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -308,7 +333,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+				emitWorkflowReason("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -318,7 +343,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "missing material coverage converted to atomic coverage batch")
+				emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -327,7 +352,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "broad material plan converted to material discovery")
+				emitWorkflowReason("continue", dataRounds, "broad material plan converted to material discovery")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -336,7 +361,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
+				emitWorkflowReason("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -346,7 +371,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, errText); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "converted invalid record action to bounded record extraction")
+				emitWorkflowReason("continue", dataRounds, "converted invalid record action to bounded record extraction")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -355,7 +380,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "materialized historical missing join field from existing artifacts")
+				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -374,7 +399,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
 					Round:        repairRounds,
 					Plan:         currentPlan,
@@ -387,7 +412,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
 		dataRounds++
-		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:  "execute",
 			Round: dataRounds,
 			Plan:  currentPlan,
@@ -403,7 +428,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if err != nil {
 			if patched, ok, _, reason := tryPatchDataTaskResult(ctx, cfg.Planner, request, currentPlan, err, records, cfg.Language); ok {
 				result = patched
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "patch", dataRounds, reason)
+				emitWorkflowReason("patch", dataRounds, reason)
 				err = nil
 			}
 		}
@@ -413,7 +438,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			executionRecord := dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText)
 			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, errText); ok {
 				appendRecord(executionRecord)
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "materialized missing join field from existing artifacts")
+				emitWorkflowReason("continue", dataRounds, "materialized missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -422,7 +447,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan); ok {
 				appendRecord(executionRecord)
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "materialized historical missing join field from existing artifacts")
+				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -433,7 +458,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(recordsWith(executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
 				appendRecord(executionRecord)
 				recordedErr = true
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+				emitWorkflowReason("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -444,7 +469,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				if continuer, ok := cfg.Planner.(DataTaskContinuationPlanner); ok {
 					appendRecord(executionRecord)
 					recordedErr = true
-					dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount))
+					emitWorkflowReason("continue", dataRounds, fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount))
 					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
 					if contErr == nil {
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
@@ -471,7 +496,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "repair", repairRounds, errText)
+				emitWorkflowFailure("repair", repairRounds, errText)
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
@@ -492,7 +517,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 						logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 						repaired = normalized
 					}
-					dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "repair", repairRounds, errText)
+					emitWorkflowFailure("repair", repairRounds, errText)
 					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 					continue
 				}
@@ -503,14 +528,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		auditDataTaskResultForCLI(cfg.RuntimeAnchor, repoRoot, dataRounds, result)
 		writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, records, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "batch result completed", "cli")
 		resultForEvent := result
-		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:   "result",
 			Round:  dataRounds,
 			Plan:   currentPlan,
 			Result: &resultForEvent,
 		}), dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
 		if nextDeferred, updatedQueue, ok := dataTaskPopDeferredQueueActionBatch(records, workflowRuntime.DeferredQueue(), dataRounds+1); ok {
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "continuing deferred typed data action rank")
+			emitWorkflowReason("continue", dataRounds, "continuing deferred typed data action rank")
 			nextDeferred = protectPlan(nextDeferred)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, nextDeferred)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextDeferred)
@@ -519,7 +544,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			remainingDeferred := currentDeferredPlan()
 			if len(remainingDeferred.Actions) > 0 {
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, remainingDeferred)
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(cfg.Language, remainingDeferred, "remaining deferred typed data action rank(s)"))
+				emitWorkflowReason("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(cfg.Language, remainingDeferred, "remaining deferred typed data action rank(s)"))
 			}
 			continue
 		}
@@ -530,7 +555,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			switch decision.Action {
 			case dataworkflow.DeferredQueueLifecycleRetain:
 				workflowRuntime.RetainDeferred(dataRounds, status)
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
+				emitWorkflowReason("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
 				logging.Info("[cli/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
 					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
 			case dataworkflow.DeferredQueueLifecycleDiscard:
@@ -546,7 +571,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "missing material coverage converted to atomic coverage batch")
+			emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 			fallback = protectPlan(fallback)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -554,7 +579,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			continue
 		}
 		if fallback, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, currentPlan, "batch result completed"); ok {
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+			emitWorkflowReason("continue", dataRounds, reason)
 			fallback = protectPlan(fallback)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -567,7 +592,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
 		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(records, currentPlan, workflowRuntime.DeferredQueue())
-		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
 			Round:    dataRounds,
 			Plan:     currentPlan,
@@ -587,7 +612,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "continue", dataRounds, errText)
+					emitWorkflowFailure("continue", dataRounds, errText)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
 					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
@@ -606,7 +631,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 						logging.Info("[cli/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
 						repaired = normalized
 					}
-					dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "repair", repairRounds, errText)
+					emitWorkflowFailure("repair", repairRounds, errText)
 					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 					continue
 				}
@@ -622,7 +647,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, currentPlan, err); ok {
 					fallback = protectPlan(fallback)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-					dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, reason)
+					emitWorkflowReason("continue", dataRounds, reason)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
 					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 					continue
@@ -634,12 +659,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				nextPlan = normalized
 			}
 			nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
-			dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "")
+			emitWorkflowReason("continue", dataRounds, "")
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
 		case dataquery.EvalRepairNode:
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
-				dataTaskCLIWorkflowReasonProgress(cfg.Progress, cfg.Language, "continue", dataRounds, "materialized historical missing join field from existing artifacts")
+				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
@@ -652,7 +677,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			repairRounds++
 			repairReason := dataTaskEvaluationRepairReason(eval)
-			dataTaskCLIWorkflowFailureProgress(cfg.Progress, cfg.Language, "repair", repairRounds, repairReason)
+			emitWorkflowFailure("repair", repairRounds, repairReason)
 			repairedPlan, err := repairer.RepairDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason)
 			if err != nil {
 				return "", fmt.Errorf("repair data task node: %w", err)
