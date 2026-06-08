@@ -79,3 +79,31 @@ func TestActionInputAvailabilityGuardBlocksUnavailableInputs(t *testing.T) {
 		t.Fatalf("violations=%+v, want missing future.json", guard.Violations)
 	}
 }
+
+func TestActionSchemaShapeGuardRejectsNonRecordArtifacts(t *testing.T) {
+	records := []WorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:     "schema_summary",
+			Kind:   string(dataquery.DataActionInspectMaterial),
+			Fields: map[string]string{"json_shape": "object", "count": "3"},
+		}}},
+	}}
+	guard := ActionSchemaShapeGuardResult(ActionSchemaShapeGuardInput{
+		Records: records,
+		Action: dataquery.DataAction{
+			ID:         "filter_schema_summary",
+			Kind:       dataquery.DataActionFilterRecords,
+			InputPaths: []string{"schema_summary"},
+		},
+		ActionIndex: 0,
+	})
+	if guard.Code != "artifact_schema_incompatible" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want artifact_schema_incompatible", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.InputAlias != "schema_summary" ||
+		violation.ActionKind != string(dataquery.DataActionFilterRecords) ||
+		violation.RepairActionHints[0] != string(dataquery.DataActionExtractRecords) {
+		t.Fatalf("violation=%+v, want typed record-shape violation", violation)
+	}
+}

@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -11,6 +12,12 @@ import (
 type ActionInputAvailabilityGuardInput struct {
 	Records     []WorkflowRecord
 	Plan        dataquery.TaskPlan
+	Action      dataquery.DataAction
+	ActionIndex int
+}
+
+type ActionSchemaShapeGuardInput struct {
+	Records     []WorkflowRecord
 	Action      dataquery.DataAction
 	ActionIndex int
 }
@@ -48,6 +55,84 @@ func ActionInputAvailabilityGuardResult(input ActionInputAvailabilityGuardInput)
 		ActionIndex: input.ActionIndex,
 		Missing:     cleanStrings(missing),
 	})
+}
+
+func ActionSchemaShapeGuardResult(input ActionSchemaShapeGuardInput) GuardResult {
+	if !WorkflowHasSuccessfulResult(input.Records) {
+		return GuardResult{}
+	}
+	kind := NormalizeActionKind(input.Action.Kind)
+	if !ActionRequiresRecordInputs(kind) {
+		return GuardResult{}
+	}
+	projections := ProjectArtifactSchemasNewestFirst(ArtifactsNewestFirst(input.Records))
+	if len(projections) == 0 {
+		return GuardResult{}
+	}
+	for _, actionInput := range cleanStrings(input.Action.InputPaths) {
+		projection, ok := ArtifactSchemaByAlias(projections, actionInput)
+		if !ok {
+			continue
+		}
+		if ArtifactSchemaCompatibleRecordInput(projection) {
+			continue
+		}
+		reason := fmt.Sprintf("data planning incomplete: action %d (%s) consumes input %s, but artifact schema projection classifies it as node_class=%s json_shape=%s kind=%s, not a record-shaped artifact for this typed action. Use a record-producing typed action first, choose a record-shaped alias from artifact_graph, or inspect the artifact schema before consuming it.",
+			input.ActionIndex+1,
+			firstNonEmptyGuardText(strings.TrimSpace(input.Action.ID), string(kind)),
+			actionInput,
+			firstNonEmptyGuardText(strings.TrimSpace(projection.NodeClass), "unknown"),
+			firstNonEmptyGuardText(strings.TrimSpace(projection.JSONShape), "unknown"),
+			firstNonEmptyGuardText(strings.TrimSpace(projection.Kind), "unknown"),
+		)
+		violation := NewActionInputViolation(
+			"artifact_schema_incompatible",
+			"error",
+			RepairNeedsTypedAction,
+			input.Action,
+			actionInput,
+			nil,
+			reason,
+			[]string{string(dataquery.DataActionExtractRecords), string(dataquery.DataActionInspectMaterial)},
+		)
+		violation.AvailableFieldSample = append([]string(nil), projection.Fields...)
+		return NewGuardResult("artifact_schema_incompatible", "error", RepairNeedsTypedAction, reason, violation)
+	}
+	return GuardResult{}
+}
+
+func ActionRequiresRecordInputs(kind dataquery.DataActionKind) bool {
+	switch NormalizeActionKind(kind) {
+	case dataquery.DataActionDeriveFields,
+		dataquery.DataActionGroupRecords,
+		dataquery.DataActionExpandRecords,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionValueDistribution,
+		dataquery.DataActionQualifyRecords,
+		dataquery.DataActionMappingCandidate,
+		dataquery.DataActionNormalizeEntities,
+		dataquery.DataActionApplyResolutions,
+		dataquery.DataActionEnrichRecords,
+		dataquery.DataActionJoinRecords,
+		dataquery.DataActionComputeContribs:
+		return true
+	default:
+		return false
+	}
+}
+
+func ArtifactSchemaCompatibleRecordInput(projection ArtifactSchemaProjection) bool {
+	if len(projection.Fields) == 0 {
+		return false
+	}
+	if projection.NodeClass == ArtifactNodeClassDiagnosticChild || projection.NodeClass == ArtifactNodeClassWorkflowLedger {
+		return false
+	}
+	if projection.NodeClass == ArtifactNodeClassRecord {
+		return true
+	}
+	shape := strings.ToLower(strings.TrimSpace(projection.JSONShape))
+	return strings.Contains(shape, "array") || strings.Contains(shape, "records")
 }
 
 func WorkflowHasSuccessfulResult(records []WorkflowRecord) bool {

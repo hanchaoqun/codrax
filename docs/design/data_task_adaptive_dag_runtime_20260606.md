@@ -17076,6 +17076,47 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 380: Workflow-Owned Record Schema Shape Guard
+
+Action input availability now lived in `dataworkflow`, but the guard that
+rejects non-record artifacts for record-oriented typed actions still lived in
+the REPL adapter. That guard is structural: it consumes artifact schema
+projection and action kind, not UI state or business semantics.
+
+Generic invariants:
+
+- typed record actions may consume only record-shaped artifacts/materials;
+- workflow-ledger, diagnostic, inspect, reconcile, and final-projection
+  artifacts must not be treated as ordinary business record rows;
+- compatibility is decided from `ArtifactSchemaProjection` and action
+  capability, never from business labels or prompt prose;
+- REPL/CLI adapters should call the workflow reducer rather than duplicating
+  schema-shape checks.
+
+Changes:
+
+- [x] Added workflow-owned `ActionSchemaShapeGuardResult`.
+- [x] Added workflow-owned `ActionRequiresRecordInputs`.
+- [x] Reused existing `ProjectArtifactSchemasNewestFirst`,
+      `ArtifactsNewestFirst`, and `ArtifactSchemaByAlias`.
+- [x] Preserved the previous record-shape compatibility rule in
+      `ArtifactSchemaCompatibleRecordInput`: record-shaped arrays/records can
+      be consumed, while diagnostic and workflow-ledger nodes cannot.
+- [x] Rewired the REPL schema-shape guard wrapper to call the workflow
+      reducer.
+- [x] Removed REPL-local record-shape compatibility helpers.
+- [x] Added workflow-owned regression coverage for rejecting non-record
+      artifacts consumed by record actions.
+
+Remaining architecture items:
+
+- [ ] Continue migrating field-contract guards from REPL-local helper families
+      into ArtifactGraph/SchemaProjection reducers.
+- [ ] Continue migrating coverage-material set computation from REPL-local
+      helpers into MaterialGraph reducers.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
