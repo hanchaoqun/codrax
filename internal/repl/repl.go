@@ -1923,23 +1923,23 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			Plan:   currentPlan,
 			Result: &resultForEvent,
 		}), dataTaskWorkflowEventRenderOptions{IncludeAudit: true})
-		if nextDeferred, remainder, status, ok := dataTaskPopDeferredActionBatchWithStatus(records, workflowRuntime.DeferredPlan()); ok {
-			emitWorkflowReason("continue", dataRounds, "continuing deferred typed data action rank")
-			nextDeferred = protectPlan(nextDeferred)
+		switch postResultDecision := dataTaskPostResultDecisionWithRepo(r.repoRoot, records, currentPlan, workflowRuntime.DeferredPlan()); postResultDecision.Action {
+		case dataworkflow.PostResultDispatchDeferred:
+			emitWorkflowReason("continue", dataRounds, postResultDecision.Reason)
+			nextDeferred := protectPlan(postResultDecision.Plan)
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
-			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, "continuing deferred typed data action rank")
-			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds+1, nextDeferred, remainder, status, true, "dispatch ready deferred typed data action rank", "")
+			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, postResultDecision.Reason)
+			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds+1, nextDeferred, postResultDecision.Remainder, postResultDecision.DeferredStatus, true, "dispatch ready deferred typed data action rank", "")
 			remainingDeferred := dataworkflow.DeferredQueuePlan(advance.Queue)
 			if len(remainingDeferred.Actions) > 0 {
 				r.auditDataTaskPlan("deferred", dataRounds+1, remainingDeferred)
 				emitWorkflowReason("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(r.language, remainingDeferred, "remaining deferred typed data action rank(s)"))
 			}
 			continue
-		}
-		deferredPlan := currentDeferredPlan()
-		if len(deferredPlan.Actions) > 0 {
-			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+		case dataworkflow.PostResultUpdateDeferred:
+			deferredPlan := postResultDecision.DeferredPlan
+			status := postResultDecision.DeferredStatus
 			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false, "", dataTaskDeferredQueueBlockedSegment(r.language, status))
 			switch advance.Action {
 			case dataworkflow.DeferredQueueTransitionRetain:
@@ -1954,25 +1954,19 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				first := deferredPlan.Actions[0]
 				logging.Info("[repl/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, advance.Reason)
 			}
-		} else {
-			workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{}, false, "", "")
-		}
-		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
-			emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
-			fallback = protectPlan(fallback)
-			r.emitDataTaskPlanAudit(fallback)
-			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch after result")
-			continue
-		}
-		if fallback, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(r.repoRoot, records, currentPlan, "batch result completed"); ok {
+		case dataworkflow.PostResultFallbackPlan:
+			reason := postResultDecision.Reason
+			if postResultDecision.Source == "coverage" {
+				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
+			}
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback = protectPlan(fallback)
+			fallback := protectPlan(postResultDecision.Plan)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
+		default:
+			workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{}, false, "", "")
 		}
 		evaluator, evalOK := r.dataTaskPlanner.(DataTaskEvaluator)
 		continuer, contOK := r.dataTaskPlanner.(DataTaskContinuationPlanner)

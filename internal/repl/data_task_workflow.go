@@ -168,7 +168,7 @@ func dataTaskPreExecutionDecision(records []dataTaskWorkflowRecord, plan dataque
 			{
 				Source:    "coverage",
 				Plan:      coveragePlan,
-				Reason:    "missing material coverage converted to atomic coverage batch",
+				Reason:    "missing material coverage converted to atomic coverage batch after result",
 				Available: coverageOK,
 			},
 			{
@@ -251,6 +251,39 @@ func dataTaskDataRoundBudgetDecisionWithRepo(repoRoot string, records []dataTask
 		CompletionGuard: guard,
 	})
 	return decision, result, hasResult
+}
+
+func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataworkflow.PostResultDecision {
+	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(records, current, "missing material coverage after data batch result")
+	nextStagePlan, nextStageReason, nextStageOK := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "batch result completed")
+	return dataworkflow.DecidePostResult(dataworkflow.PostResultDecisionInput{
+		DeferredDispatchAvailable: deferredReady,
+		DeferredPlan:              firstExecutableTaskPlan(nextDeferred, deferred),
+		DeferredRemainder:         remainder,
+		DeferredStatus:            deferredStatus,
+		Fallbacks: []dataworkflow.PostResultFallbackCandidate{
+			{
+				Source:    "coverage",
+				Plan:      coveragePlan,
+				Reason:    "missing material coverage converted to atomic coverage batch",
+				Available: coverageOK,
+			},
+			{
+				Source:    "next_stage",
+				Plan:      nextStagePlan,
+				Reason:    nextStageReason,
+				Available: nextStageOK,
+			},
+		},
+	})
+}
+
+func firstExecutableTaskPlan(first, fallback dataquery.TaskPlan) dataquery.TaskPlan {
+	if dataTaskPlanHasRuntimeShape(first) || len(first.Actions) > 0 || len(first.InputPaths) > 0 || strings.TrimSpace(first.Script) != "" {
+		return first
+	}
+	return fallback
 }
 
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {

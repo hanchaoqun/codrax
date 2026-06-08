@@ -310,3 +310,62 @@ func TestDecideDataRoundBudgetFailsWithoutResult(t *testing.T) {
 		t.Fatalf("decision=%+v, want failure without result", decision)
 	}
 }
+
+func TestDecidePostResultDispatchesDeferred(t *testing.T) {
+	deferred := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "join",
+		Kind: dataquery.DataActionJoinRecords,
+	}}}
+	remainder := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}
+	decision := DecidePostResult(PostResultDecisionInput{
+		DeferredDispatchAvailable: true,
+		DeferredPlan:              deferred,
+		DeferredRemainder:         remainder,
+		DeferredStatus:            DeferredDispatchStatus{Ready: true, ReadyActions: 1},
+	})
+	if decision.Action != PostResultDispatchDeferred || decision.Plan.Actions[0].ID != "join" || !decision.HasRemainder() {
+		t.Fatalf("decision=%+v, want deferred dispatch", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	decision.Remainder.Actions[0].ID = "mutated-remainder"
+	if deferred.Actions[0].ID != "join" || remainder.Actions[0].ID != "compute" {
+		t.Fatalf("deferred/remainder leaked mutation: %+v / %+v", deferred, remainder)
+	}
+}
+
+func TestDecidePostResultUpdatesDeferredLifecycle(t *testing.T) {
+	deferred := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "join",
+		Kind: dataquery.DataActionJoinRecords,
+	}}}
+	decision := DecidePostResult(PostResultDecisionInput{
+		DeferredPlan:   deferred,
+		DeferredStatus: DeferredDispatchStatus{BlockedActions: 1, Reason: "input missing"},
+	})
+	if decision.Action != PostResultUpdateDeferred || !decision.LifecycleCandidate || decision.DeferredStatus.Reason != "input missing" {
+		t.Fatalf("decision=%+v, want deferred lifecycle update", decision)
+	}
+}
+
+func TestDecidePostResultUsesFallbackBeforeEvaluate(t *testing.T) {
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "assemble",
+		Kind: dataquery.DataActionAssembleAnswer,
+	}}}
+	decision := DecidePostResult(PostResultDecisionInput{
+		Fallbacks: []PostResultFallbackCandidate{{Source: "next_stage", Plan: fallback, Reason: "continue output stage", Available: true}},
+	})
+	if decision.Action != PostResultFallbackPlan || decision.Source != "next_stage" || decision.Plan.Actions[0].ID != "assemble" {
+		t.Fatalf("decision=%+v, want fallback", decision)
+	}
+}
+
+func TestDecidePostResultFallsThroughToEvaluate(t *testing.T) {
+	decision := DecidePostResult(PostResultDecisionInput{})
+	if decision.Action != PostResultEvaluate || decision.HasPlan() {
+		t.Fatalf("decision=%+v, want evaluate", decision)
+	}
+}

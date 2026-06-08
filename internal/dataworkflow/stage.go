@@ -407,6 +407,84 @@ func DecideDataRoundBudget(input DataRoundBudgetDecisionInput) DataRoundBudgetDe
 	}
 }
 
+type PostResultDecisionAction string
+
+const (
+	PostResultDispatchDeferred PostResultDecisionAction = "dispatch_deferred"
+	PostResultUpdateDeferred   PostResultDecisionAction = "update_deferred"
+	PostResultFallbackPlan     PostResultDecisionAction = "fallback_plan"
+	PostResultEvaluate         PostResultDecisionAction = "evaluate"
+)
+
+type PostResultFallbackCandidate struct {
+	Source    string             `json:"source,omitempty"`
+	Plan      dataquery.TaskPlan `json:"plan,omitempty"`
+	Reason    string             `json:"reason,omitempty"`
+	Available bool               `json:"available,omitempty"`
+}
+
+type PostResultDecisionInput struct {
+	DeferredDispatchAvailable bool                          `json:"deferred_dispatch_available,omitempty"`
+	DeferredPlan              dataquery.TaskPlan            `json:"deferred_plan,omitempty"`
+	DeferredStatus            DeferredDispatchStatus        `json:"deferred_status,omitempty"`
+	DeferredRemainder         dataquery.TaskPlan            `json:"deferred_remainder,omitempty"`
+	Fallbacks                 []PostResultFallbackCandidate `json:"fallbacks,omitempty"`
+}
+
+type PostResultDecision struct {
+	Action             PostResultDecisionAction `json:"action,omitempty"`
+	Source             string                   `json:"source,omitempty"`
+	Plan               dataquery.TaskPlan       `json:"plan,omitempty"`
+	Remainder          dataquery.TaskPlan       `json:"remainder,omitempty"`
+	DeferredStatus     DeferredDispatchStatus   `json:"deferred_status,omitempty"`
+	DeferredPlan       dataquery.TaskPlan       `json:"deferred_plan,omitempty"`
+	Reason             string                   `json:"reason,omitempty"`
+	LifecycleCandidate bool                     `json:"lifecycle_candidate,omitempty"`
+}
+
+func (d PostResultDecision) HasPlan() bool {
+	return taskPlanHasExecutableShape(d.Plan)
+}
+
+func (d PostResultDecision) HasRemainder() bool {
+	return taskPlanHasExecutableShape(d.Remainder)
+}
+
+func DecidePostResult(input PostResultDecisionInput) PostResultDecision {
+	if input.DeferredDispatchAvailable && taskPlanHasExecutableShape(input.DeferredPlan) {
+		return PostResultDecision{
+			Action:         PostResultDispatchDeferred,
+			Source:         "deferred_dispatch",
+			Plan:           cloneTaskPlanValue(input.DeferredPlan),
+			Remainder:      cloneTaskPlanValue(input.DeferredRemainder),
+			DeferredStatus: input.DeferredStatus,
+			Reason:         "continuing deferred typed data action rank",
+		}
+	}
+	if taskPlanHasExecutableShape(input.DeferredPlan) {
+		return PostResultDecision{
+			Action:             PostResultUpdateDeferred,
+			Source:             "deferred_lifecycle",
+			DeferredPlan:       cloneTaskPlanValue(input.DeferredPlan),
+			DeferredStatus:     input.DeferredStatus,
+			Reason:             strings.TrimSpace(input.DeferredStatus.Reason),
+			LifecycleCandidate: true,
+		}
+	}
+	for _, candidate := range input.Fallbacks {
+		if !candidate.Available || !taskPlanHasExecutableShape(candidate.Plan) {
+			continue
+		}
+		return PostResultDecision{
+			Action: PostResultFallbackPlan,
+			Source: strings.TrimSpace(candidate.Source),
+			Plan:   cloneTaskPlanValue(candidate.Plan),
+			Reason: strings.TrimSpace(candidate.Reason),
+		}
+	}
+	return PostResultDecision{Action: PostResultEvaluate}
+}
+
 func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
 	return ActionContract{
 		Kind:          string(kind),

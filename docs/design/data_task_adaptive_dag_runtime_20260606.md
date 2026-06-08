@@ -17683,6 +17683,52 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 415: Post-Result Workflow Decision IR
+
+The next duplicated branch happened after a successful data batch. Both CLI and
+REPL repeated the same order: dispatch a ready deferred rank; otherwise update
+deferred lifecycle; otherwise run a deterministic coverage or next-stage
+fallback; otherwise enter evaluator/continuation.
+
+This batch adds a reducer-owned post-result decision for that ordering. Runtime
+queue mutation still stays in `WorkflowRuntime.AdvanceDeferredQueue`; the new
+decision only chooses which typed branch the adapter should execute next.
+
+Generic invariants:
+
+- post-result decisions consume deferred dispatch status, deferred plans, and
+  typed fallback candidates;
+- deferred queue mutation remains runtime-owned;
+- fallback candidates are structural plans from existing graph helpers;
+- adapters render/execute the selected branch but do not own the branch
+  priority;
+- no model prose, user intent keywords, or domain-specific field names control
+  the hard decision;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `PostResultDecisionAction`.
+- [x] Added `PostResultFallbackCandidate`.
+- [x] Added `PostResultDecisionInput`.
+- [x] Added `PostResultDecision`.
+- [x] Added `DecidePostResult`.
+- [x] Added tests for deferred dispatch, deferred lifecycle, fallback, and
+      evaluator fallthrough.
+- [x] Added a REPL compatibility wrapper that builds deferred/fallback
+      candidates from existing typed helpers.
+- [x] Rewired CLI and REPL post-result branches to consume the reducer
+      decision.
+
+Remaining architecture items:
+
+- [ ] Fold evaluator status handling into next-executable decision IR.
+- [ ] Keep shrinking adapter-local execution cursors until the loop consumes a
+      single reducer-owned executable-decision object.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
