@@ -55,6 +55,17 @@ type PostResultRuntimeDecision struct {
 	Applied    bool                         `json:"applied,omitempty"`
 }
 
+type GuardRecoveryRuntimeDecision struct {
+	Recovery       GuardRecoveryDecision        `json:"recovery,omitempty"`
+	Switch         PlanSwitchDecision           `json:"switch,omitempty"`
+	Deferred       DeferredQueueAdvanceDecision `json:"deferred,omitempty"`
+	Plan           dataquery.TaskPlan           `json:"plan,omitempty"`
+	Remainder      dataquery.TaskPlan           `json:"remainder,omitempty"`
+	Reason         string                       `json:"reason,omitempty"`
+	DeferredQueued bool                         `json:"deferred_queued,omitempty"`
+	Applied        bool                         `json:"applied,omitempty"`
+}
+
 type CandidatePlanAdmissionDecision struct {
 	Admission      ActionDAGAdmissionDecision `json:"admission,omitempty"`
 	Round          int                        `json:"round,omitempty"`
@@ -505,11 +516,45 @@ func (rt *WorkflowRuntime) ApplyPostResultDecision(dataRound int, decision PostR
 	return out
 }
 
+func (rt *WorkflowRuntime) ApplyGuardRecoveryDecision(round int, decision GuardRecoveryDecision, protect func(dataquery.TaskPlan) dataquery.TaskPlan) GuardRecoveryRuntimeDecision {
+	out := GuardRecoveryRuntimeDecision{
+		Recovery: cloneGuardRecoveryDecision(decision),
+		Reason:   trimRuntimeText(decision.Reason),
+	}
+	if decision.Action != GuardRecoveryFallbackPlan || !decision.HasPlan() {
+		return out
+	}
+	if protect == nil {
+		protect = func(plan dataquery.TaskPlan) dataquery.TaskPlan { return plan }
+	}
+	fallback := protect(decision.Plan)
+	out.Plan = cloneTaskPlanValue(fallback)
+	out.Switch = rt.SwitchCurrentPlanWithEvents(round, "continue", fallback, out.Reason)
+	if TaskPlanHasRuntimeShape(out.Switch.Plan) {
+		out.Plan = cloneTaskPlanValue(out.Switch.Plan)
+	}
+	if decision.HasRemainder() {
+		out.Remainder = cloneTaskPlanValue(decision.Remainder)
+		out.Deferred = rt.QueueDeferred(round, decision.Remainder, out.Reason)
+		out.DeferredQueued = len(out.Deferred.QueuedPlan.Actions) > 0
+	}
+	out.Applied = true
+	return out
+}
+
 func clonePostResultDecision(decision PostResultDecision) PostResultDecision {
 	out := decision
 	out.Plan = cloneTaskPlanValue(decision.Plan)
 	out.Remainder = cloneTaskPlanValue(decision.Remainder)
 	out.DeferredPlan = cloneTaskPlanValue(decision.DeferredPlan)
+	return out
+}
+
+func cloneGuardRecoveryDecision(decision GuardRecoveryDecision) GuardRecoveryDecision {
+	out := decision
+	out.Plan = cloneTaskPlanValue(decision.Plan)
+	out.Remainder = cloneTaskPlanValue(decision.Remainder)
+	out.Guard = cloneGuardResult(decision.Guard)
 	return out
 }
 

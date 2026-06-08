@@ -1364,14 +1364,6 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
-	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		queued := workflowRuntime.QueueDeferred(round, remainder, reason)
-		if len(queued.QueuedPlan.Actions) == 0 {
-			return
-		}
-		r.auditDataTaskPlan("deferred", round, queued.QueuedPlan)
-		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, queued.QueuedPlan, queued.Reason))
-	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
@@ -1630,15 +1622,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(records, currentPlan, guard); guardRecovery.Action {
 			case dataworkflow.GuardRecoveryFallbackPlan:
-				reason := guardRecovery.Reason
 				appendRecord(guardRecord)
+				guardRuntime := workflowRuntime.ApplyGuardRecoveryDecision(dataRounds+1, guardRecovery, protectPlan)
+				reason := guardRuntime.Reason
 				emitWorkflowReason("continue", dataRounds, reason)
-				fallback := protectPlan(guardRecovery.Plan)
+				fallback := guardRuntime.Plan
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-				if guardRecovery.HasRemainder() {
-					saveDeferredPlan(dataRounds+1, guardRecovery.Remainder, reason)
+				renderAdmissionEvents(guardRuntime.Switch.ProcessEvents)
+				currentPlan = fallback
+				if guardRuntime.DeferredQueued {
+					r.auditDataTaskPlan("deferred", dataRounds+1, guardRuntime.Deferred.QueuedPlan)
+					emitWorkflowReason("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(r.language, guardRuntime.Deferred.QueuedPlan, reason))
 				}
 				continue
 			}

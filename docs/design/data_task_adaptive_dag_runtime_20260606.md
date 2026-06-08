@@ -18584,6 +18584,49 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 434: Runtime-Owned Guard Recovery Application
+
+After continuation acceptance moved behind a shared adapter, the next local
+state mutation was staging-guard recovery. `DecideGuardRecovery` already chose
+the typed fallback plan and optional remainder, but CLI and REPL still each
+performed the mutation sequence: append the guard record, switch the current
+plan, then enqueue the remainder as a deferred DAG suffix.
+
+This batch adds a runtime-owned application step for guard-recovery fallback.
+The recovery decision remains typed and domain-neutral; the runtime now applies
+the resulting graph mutation as one state transition.
+
+Generic invariants:
+
+- guard recovery decisions remain based on typed guard/fallback candidates, not
+  prompt prose;
+- the runtime owns current-plan switching and deferred queue mutation for a
+  guard-recovery fallback;
+- CLI and REPL only render/audit the returned transition and queued plan;
+- source-code analysis, trace/log analysis, operation, write mode, data action
+  execution, and final output rendering are unchanged.
+
+Changes:
+
+- [x] Added `WorkflowRuntime.ApplyGuardRecoveryDecision`.
+- [x] The runtime records the plan transition and queues the fallback
+      remainder when present.
+- [x] Removed now-unused CLI/REPL local `saveDeferredPlan` closures.
+- [x] Rewired CLI staging-guard fallback to use the runtime decision.
+- [x] Rewired REPL staging-guard fallback to use the runtime decision.
+- [x] Added runtime regression coverage for guarded fallback application,
+      deferred enqueue, transition recording, and clone isolation.
+
+Remaining architecture items:
+
+- [ ] Continue migrating validation-failure recovery plan switching into
+      reducer-owned runtime decisions.
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

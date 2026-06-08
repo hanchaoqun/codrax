@@ -167,14 +167,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
 	}
-	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		queued := workflowRuntime.QueueDeferred(round, remainder, reason)
-		if len(queued.QueuedPlan.Actions) == 0 {
-			return
-		}
-		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", round, queued.QueuedPlan)
-		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, queued.QueuedPlan, queued.Reason))
-	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
@@ -402,15 +394,18 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
 			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(records, currentPlan, guard); guardRecovery.Action {
 			case dataworkflow.GuardRecoveryFallbackPlan:
-				reason := guardRecovery.Reason
 				appendRecord(guardRecord)
+				guardRuntime := workflowRuntime.ApplyGuardRecoveryDecision(dataRounds+1, guardRecovery, protectPlan)
+				reason := guardRuntime.Reason
 				emitWorkflowReason("continue", dataRounds, reason)
-				fallback := protectPlan(guardRecovery.Plan)
+				fallback := guardRuntime.Plan
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-				if guardRecovery.HasRemainder() {
-					saveDeferredPlan(dataRounds+1, guardRecovery.Remainder, reason)
+				renderAdmissionEvents(guardRuntime.Switch.ProcessEvents)
+				currentPlan = fallback
+				if guardRuntime.DeferredQueued {
+					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, guardRuntime.Deferred.QueuedPlan)
+					emitWorkflowReason("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(cfg.Language, guardRuntime.Deferred.QueuedPlan, reason))
 				}
 				continue
 			}

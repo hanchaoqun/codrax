@@ -246,6 +246,55 @@ func TestWorkflowRuntimeQueueDeferredReturnsTypedDecision(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeAppliesGuardRecoveryFallbackAndQueuesRemainder(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{Status: "ready"})
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:     "extract",
+		Kind:   dataquery.DataActionExtractRecords,
+		Params: map[string]string{"limit": "100"},
+	}}}
+	remainder := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:     "compute",
+		Kind:   dataquery.DataActionComputeContribs,
+		Params: map[string]string{"value_field": "amount"},
+	}}}
+	decision := GuardRecoveryDecision{
+		Action:    GuardRecoveryFallbackPlan,
+		Source:    "stage_prefix",
+		Plan:      fallback,
+		Remainder: remainder,
+		Guard:     NewGuardResult("stage_guard", "error", RepairNeedsTypedAction, "split graph rank"),
+		Reason:    "trimmed multi-stage data plan to current DAG stage",
+	}
+	applied := rt.ApplyGuardRecoveryDecision(4, decision, func(plan dataquery.TaskPlan) dataquery.TaskPlan {
+		plan.Goal = "protected"
+		return plan
+	})
+	if !applied.Applied || !applied.DeferredQueued {
+		t.Fatalf("applied=%+v, want applied with deferred queue", applied)
+	}
+	if applied.Plan.Goal != "protected" || rt.CurrentPlan().Actions[0].ID != "extract" {
+		t.Fatalf("current=%+v applied=%+v, want protected fallback current plan", rt.CurrentPlan(), applied)
+	}
+	if rt.DeferredPlan().Actions[0].ID != "compute" {
+		t.Fatalf("deferred=%+v, want queued remainder", rt.DeferredPlan())
+	}
+	if events := rt.DeferredQueue().Events; len(events) != 1 || events[0].Action != DeferredQueueTransitionEnqueue || events[0].Round != 4 {
+		t.Fatalf("deferred events=%+v, want enqueue at round 4", events)
+	}
+	transitions := rt.PlanTransitions()
+	if len(transitions) != 1 || transitions[0].Source != "continue" || transitions[0].Round != 4 {
+		t.Fatalf("transitions=%+v, want continue transition at round 4", transitions)
+	}
+	fallback.Actions[0].Params["limit"] = "mutated"
+	remainder.Actions[0].Params["value_field"] = "mutated"
+	decision.Plan.Actions[0].ID = "mutated-decision"
+	applied.Plan.Actions[0].ID = "mutated-applied"
+	if rt.CurrentPlan().Actions[0].Params["limit"] != "100" || rt.DeferredPlan().Actions[0].Params["value_field"] != "amount" {
+		t.Fatalf("runtime leaked guard recovery mutation: current=%+v deferred=%+v", rt.CurrentPlan(), rt.DeferredPlan())
+	}
+}
+
 func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{
