@@ -17230,10 +17230,54 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Migrate `apply_entity_resolutions` role/path/lineage/no-progress guards
-      into `dataworkflow` as a first-class ApplyResolutionContract reducer.
 - [ ] Continue moving deterministic fallback selection out of REPL callbacks
       and into reducer-owned decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
+### Batch 384: Apply Resolution Contract Reducer
+
+The previous batch moved ordinary typed field-reference guards into
+`dataworkflow`, but `apply_entity_resolutions` still had a large REPL-local
+contract: base path selection, resolution/reference role checks, lineage
+compatibility, diagnostic-child rejection, canonical output fields, and
+no-progress detection. That action is more complex than a single-record-set
+field check, so it now has its own workflow reducer instead of being folded
+into generic field refs.
+
+Generic invariants:
+
+- apply-resolution contracts are ActionDAG + ArtifactGraph state, not REPL
+  state;
+- role inference is structural and schema/lineage based, not business-label
+  based;
+- source-record lineage has precedence over noisy mixed source-path ordering;
+- diagnostic child artifacts are not executable mapping inputs;
+- no-progress detection uses target fields and artifact lineage, not model
+  prose;
+- the REPL adapter only converts artifact access views into schema projections
+  and delegates to `dataworkflow`.
+
+Changes:
+
+- [x] Added workflow-owned `ApplyResolutionContractGuardResult`.
+- [x] Moved apply-resolution base/resolution/reference role checks into
+      `dataworkflow`.
+- [x] Moved diagnostic-child rejection, source-lineage compatibility, locator
+      field equivalence, canonical-field checks, and no-progress checks into
+      `dataworkflow`.
+- [x] Rewired REPL apply-resolution field-contract admission to call the
+      workflow reducer.
+- [x] Removed the duplicated REPL-local apply-resolution contract helpers.
+- [x] Added package-level regression coverage for diagnostic resolution input
+      rejection and source-record lineage precedence.
+
+Remaining architecture items:
+
+- [ ] Continue moving deterministic fallback selection out of REPL callbacks
+      and into reducer-owned decisions.
+- [ ] Move repeated-node expansion and field-contract recovery selection into
+      reducer-owned workflow decisions.
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
