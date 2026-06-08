@@ -281,15 +281,26 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
+			transition := dataworkflow.ValidationFailureTransition{
+				Action:    dataworkflow.ValidationFailureNeedsRepair,
+				Reason:    errText,
+				ErrorText: errText,
+				Guard:     guard,
+			}
 			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
-				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-					completionPlan := protectPlan(transition.Plan)
-					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
-					continue
-				}
+				transition = dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
+			}
+			_, repairReady := cfg.Planner.(DataTaskRepairPlanner)
+			recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < repairRoundsMax, errText)
+			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
+				completionPlan := protectPlan(recovery.Plan)
+				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
+				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
+				currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+				continue
+			}
+			if recovery.Action == dataworkflow.FailureRecoveryFail {
+				return "", fmt.Errorf("%s", recovery.Reason)
 			}
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			repairRounds = nextRepairRounds
@@ -674,6 +685,26 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				errText := evalDecision.Reason
 				if !evalDecision.Guard.Empty() {
 					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+				}
+				transition := dataworkflow.ValidationFailureTransition{
+					Action:    dataworkflow.ValidationFailureNeedsRepair,
+					Reason:    errText,
+					ErrorText: errText,
+					Guard:     evalDecision.Guard,
+				}
+				if !evalDecision.Guard.Empty() {
+					transition = dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, evalDecision.Guard)
+				}
+				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairOK, repairRounds < repairRoundsMax, errText)
+				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
+					fallback := protectPlan(recovery.Plan)
+					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, fallback)
+					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+					currentPlan = setCurrentPlan("ledger", dataRounds+1, fallback, recovery.Reason)
+					continue
+				}
+				if recovery.Action == dataworkflow.FailureRecoveryFail {
+					return "", fmt.Errorf("%s", recovery.Reason)
 				}
 				var repaired dataquery.TaskPlan
 				var ok bool

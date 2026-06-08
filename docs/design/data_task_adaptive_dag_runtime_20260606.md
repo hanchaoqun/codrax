@@ -17944,8 +17944,55 @@ Remaining architecture items:
       consumes one reducer-owned "next executable" decision object spanning
       budget, terminal, pre-execution, execution result, post-result, evaluator,
       admission, and repair/continuation planner result handling.
-- [ ] Collapse repeated terminal-completion repair branches into the same
-      failure-recovery decision shape.
+- [x] Collapse repeated terminal-completion repair branches into the same
+      failure-recovery decision shape. Completed in Batch 420.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 420: Terminal Completion Recovery Uses Failure IR
+
+Batch 419 moved ordinary execution failures and result-validation failures to
+`FailureRecoveryDecision`, but the live loops still had terminal-completion
+branches that interpreted completion guards directly. Those branches decided in
+CLI/REPL whether to run a deterministic ledger fallback, call the repair
+planner, or fail after budget exhaustion.
+
+This batch routes those terminal-completion cases through the same validation
+failure transition and failure-recovery decision shape. The adapters still own
+rendering, audit writes, and planner invocation side effects, but the hard
+choice is now reducer-owned.
+
+Generic invariants:
+
+- completion-gate recovery starts from typed `GuardResult` and
+  `ValidationFailureTransition`;
+- when a latest result exists, deterministic ledger/projection fallback is
+  derived before planner repair;
+- repair is allowed only from a precise repair-planner capability boolean and
+  remaining repair budget;
+- no model/user prose selects fallback, repair, or fail;
+- REPL and CLI share the same hard decision shape while preserving their own
+  user-facing rendering and trace behavior;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Rewired CLI terminal-plan completion guard recovery to
+      `DecideValidationFailureRecovery`.
+- [x] Rewired CLI evaluator completion repair recovery to the same decision.
+- [x] Rewired REPL terminal-plan completion guard recovery to the same
+      decision.
+- [x] Rewired REPL evaluator completion repair recovery to the same decision.
+- [x] Preserved completion fallback audit/progress rendering and repair planner
+      trace behavior in the adapters.
+
+Remaining architecture items:
+
+- [ ] Keep shrinking adapter-local execution cursors until the live loop
+      consumes one reducer-owned "next executable" decision object spanning
+      budget, terminal, pre-execution, execution result, post-result, evaluator,
+      admission, and repair/continuation planner result handling.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

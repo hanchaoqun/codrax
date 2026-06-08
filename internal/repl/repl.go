@@ -1471,17 +1471,34 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
-				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-					completionPlan := protectPlan(transition.Plan)
-					r.emitDataTaskPlanAudit(completionPlan)
-					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
-					continue
-				}
+			transition := dataworkflow.ValidationFailureTransition{
+				Action:    dataworkflow.ValidationFailureNeedsRepair,
+				Reason:    errText,
+				ErrorText: errText,
+				Guard:     guard,
 			}
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+			if result, ok := latestDataTaskResult(records); ok {
+				transition = dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
+			}
+			repairer, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
+			recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
+			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
+				completionPlan := protectPlan(recovery.Plan)
+				r.emitDataTaskPlanAudit(completionPlan)
+				r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
+				currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+				continue
+			}
+			if recovery.Action == dataworkflow.FailureRecoveryFail {
+				msg := dataTaskErrorMarkdown(r.language, recovery.Reason)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: recovery.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
+				r.finishDataTaskRouteSpinner("failed")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
+			if repairReady {
 				repairRounds = beginRepairIteration()
 				ctx := r.startTurn()
 				repairView := runtimeView()
@@ -2127,6 +2144,32 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					if len(records) > 0 {
 						attachLastError(errText)
 					}
+				}
+				transition := dataworkflow.ValidationFailureTransition{
+					Action:    dataworkflow.ValidationFailureNeedsRepair,
+					Reason:    errText,
+					ErrorText: errText,
+					Guard:     evalDecision.Guard,
+				}
+				if !evalDecision.Guard.Empty() {
+					transition = dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, evalDecision.Guard)
+				}
+				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairOK, repairRounds < r.dataTaskMaxRepairRounds, errText)
+				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
+					fallback := protectPlan(recovery.Plan)
+					r.emitDataTaskPlanAudit(fallback)
+					r.auditDataTaskPlan("ledger", dataRounds+1, fallback)
+					currentPlan = setCurrentPlan("ledger", dataRounds+1, fallback, recovery.Reason)
+					continue
+				}
+				if recovery.Action == dataworkflow.FailureRecoveryFail {
+					msg := dataTaskErrorMarkdown(r.language, recovery.Reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: recovery.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
 				}
 				repairRounds = beginRepairIteration()
 				ctx := r.startTurn()
