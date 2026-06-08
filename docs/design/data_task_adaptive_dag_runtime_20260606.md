@@ -16939,6 +16939,47 @@ Remaining architecture items:
       implemented or explicitly classified as non-blocking operational/eval
       work.
 
+### Batch 399: Runtime View Boundary For Result Patch Planning
+
+The structural result patch path was the last direct planner call in the data
+execution loop that still built its prompt from `records` plus a current plan.
+That path is intentionally narrow: it may repair JSON-shape drift, but it must
+not change computations or business semantics. Still, its context should be
+the same runtime-view workflow state as continuation and evaluation.
+
+Generic invariants:
+
+- result patch planning receives runtime-view workflow state;
+- the patch prompt may include `workflow_state_json` as structural context,
+  but patch eligibility and patch application remain deterministic validators;
+- old patch-planner interfaces remain compatibility adapters;
+- patch planning still cannot add/remove business records, change answers,
+  reinterpret rules, or alter numeric/source values.
+
+Changes:
+
+- [x] Added a runtime-view result patch planner interface.
+- [x] Implemented runtime-view result patch planning on the built-in LLM data
+      planner.
+- [x] Rewired CLI and REPL patch attempts to pass runtime views.
+- [x] Rewired result patch prompt state JSON through
+      `marshalDataTaskWorkflowStateFromRuntimeView`.
+- [x] Kept legacy result patch calls as adapters for tests and alternate
+      planner implementations.
+- [x] Added compile-time regression coverage for the built-in planner.
+
+Remaining architecture items:
+
+- [ ] Move repair planning onto a runtime-view or snapshot-native context once
+      repair call sites can pass current runtime state without duplicating
+      previous/current plan inputs.
+- [ ] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
+      state.
+- [ ] Keep the real-scenario gate closed until the current IR backlog is
+      implemented or explicitly classified as non-blocking operational/eval
+      work.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

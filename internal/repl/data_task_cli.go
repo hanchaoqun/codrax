@@ -453,7 +453,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			result, err = runner.Run(ctx, currentPlan)
 		}
 		if err != nil {
-			if patched, ok, _, reason := tryPatchDataTaskResult(ctx, cfg.Planner, request, currentPlan, err, records, cfg.Language); ok {
+			if patched, ok, _, reason := tryPatchDataTaskResultWithRuntimeView(ctx, cfg.Planner, request, currentPlan, err, runtimeView(), cfg.Language); ok {
 				result = patched
 				emitWorkflowReason("patch", dataRounds, reason)
 				err = nil
@@ -883,6 +883,13 @@ func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planne
 }
 
 func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, records []dataTaskWorkflowRecord, lang string) (dataquery.Result, bool, bool, string) {
+	return tryPatchDataTaskResultWithRuntimeView(ctx, planner, userLine, currentPlan, err, dataTaskWorkflowRuntimeView{
+		Records:     records,
+		CurrentPlan: currentPlan,
+	}, lang)
+}
+
+func tryPatchDataTaskResultWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Result, bool, bool, string) {
 	patcher, ok := planner.(DataTaskResultPatchPlanner)
 	if !ok || err == nil {
 		return dataquery.Result{}, false, false, ""
@@ -894,7 +901,16 @@ func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLi
 	if !dataTaskPatchCandidate(validationErr.Result, validationErr.Violations) {
 		return dataquery.Result{}, false, false, ""
 	}
-	patchPlan, patchErr := patcher.ProposeDataResultPatch(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, records, lang)
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = currentPlan
+	}
+	var patchPlan dataquery.DataResultPatchPlan
+	var patchErr error
+	if withView, ok := patcher.(dataTaskResultPatchPlannerWithRuntimeView); ok {
+		patchPlan, patchErr = withView.ProposeDataResultPatchWithRuntimeView(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, view, lang)
+	} else {
+		patchPlan, patchErr = patcher.ProposeDataResultPatch(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, view.Records, lang)
+	}
 	if patchErr != nil {
 		logging.Warning("[data] structural patch planning failed: %v", patchErr)
 		return dataquery.Result{}, false, true, ""

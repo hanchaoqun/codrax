@@ -54,6 +54,10 @@ type DataTaskResultPatchPlanner interface {
 	ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error)
 }
 
+type dataTaskResultPatchPlannerWithRuntimeView interface {
+	ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error)
+}
+
 type dataTaskPlannerErrorCode string
 
 const (
@@ -684,13 +688,23 @@ func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, ev
 }
 
 func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
+	return p.ProposeDataResultPatchWithRuntimeView(ctx, userLine, previous, partial, violations, dataTaskWorkflowRuntimeView{
+		Records:     records,
+		CurrentPlan: previous,
+	}, lang)
+}
+
+func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.adapter == nil {
 		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner is not configured")
 	}
-	prompt := dataTaskResultPatchPrompt(userLine, previous, partial, violations, records, lang)
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = previous
+	}
+	prompt := dataTaskResultPatchPromptWithRuntimeView(userLine, previous, partial, violations, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_result_patch_planner",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskResultPatchSystemPrompt},
@@ -1171,6 +1185,13 @@ func marshalDataTaskWorkflowStateFromRuntimeView(view dataTaskWorkflowRuntimeVie
 }
 
 func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) string {
+	return dataTaskResultPatchPromptWithRuntimeView(userLine, previous, partial, violations, dataTaskWorkflowRuntimeView{
+		Records:     records,
+		CurrentPlan: previous,
+	}, lang)
+}
+
+func dataTaskResultPatchPromptWithRuntimeView(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
@@ -1181,7 +1202,10 @@ func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, par
 	resultJSON, _ := json.MarshalIndent(compactDataTaskPatchResult(partial), "", "  ")
 	fmt.Fprintf(&b, "## partial_result_compact_json\n%s\n\n", string(resultJSON))
 	b.WriteString("## recent_data_rounds\n")
-	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
+	}
 	b.WriteString("\n\n## patch_rules\n")
 	b.WriteString("- Emit status=patch only for structural JSON-shape drift in the already-computed result.\n")
 	b.WriteString("- typed_violations[].json_path points to the structured result JSON, not to a script line. Patch only the exact structural field when allowed; use needs_recompute for computation, coverage, or business-rule changes.\n")

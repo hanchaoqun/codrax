@@ -11,6 +11,7 @@ import (
 var (
 	_ dataTaskContinuationPlannerWithRuntimeView = (*llmDataTaskPlanner)(nil)
 	_ dataTaskEvaluatorWithRuntimeView           = (*llmDataTaskPlanner)(nil)
+	_ dataTaskResultPatchPlannerWithRuntimeView  = (*llmDataTaskPlanner)(nil)
 )
 
 func TestDataTaskWorkflowRuntimeViewPrefersRuntimeSnapshot(t *testing.T) {
