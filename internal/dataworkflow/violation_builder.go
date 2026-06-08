@@ -22,6 +22,15 @@ type FieldContractGuardInput struct {
 	Violation   WorkflowViolation
 }
 
+type MissingFieldContractGuardInput struct {
+	Action             dataquery.DataAction
+	ActionIndex        int
+	InputAlias         string
+	MissingFields      []string
+	SchemaProjections  []ArtifactSchemaProjection
+	AllowedNextActions []string
+}
+
 type ActionInputContractGuardInput struct {
 	Code              string
 	Action            dataquery.DataAction
@@ -174,6 +183,30 @@ func FieldContractGuardResult(input FieldContractGuardInput) GuardResult {
 		strings.Join(clampStrings(violation.AvailableFieldSample, 32), ", "),
 		candidateHint)
 	return NewGuardResult("field_contract_violation", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func MissingFieldContractGuardResult(input MissingFieldContractGuardInput) GuardResult {
+	missing := cleanStrings(input.MissingFields)
+	if len(missing) == 0 {
+		return GuardResult{}
+	}
+	projection, ok := ArtifactSchemaByAlias(input.SchemaProjections, input.InputAlias)
+	if !ok || len(projection.Fields) == 0 {
+		return GuardResult{}
+	}
+	violation := NewFieldContractViolation(FieldContractViolationInput{
+		Action:             input.Action,
+		InputAlias:         input.InputAlias,
+		MissingFields:      missing,
+		AvailableFields:    projection.Fields,
+		SchemaProjections:  input.SchemaProjections,
+		AllowedNextActions: input.AllowedNextActions,
+	})
+	return FieldContractGuardResult(FieldContractGuardInput{
+		Action:      input.Action,
+		ActionIndex: input.ActionIndex,
+		Violation:   violation,
+	})
 }
 
 func ActionInputContractGuardResult(input ActionInputContractGuardInput) GuardResult {

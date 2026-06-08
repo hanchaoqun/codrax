@@ -17117,6 +17117,44 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 381: Workflow-Owned Field Contract Guard Construction
+
+Record schema-shape admission moved into workflow IR, but missing-field guard
+construction still had a REPL-local step that looked up artifact fields,
+candidate artifacts, and repair hints before calling the workflow guard. That
+kept a small but important piece of FieldContract IR assembly outside
+`dataworkflow`.
+
+Generic invariants:
+
+- missing field contract guards are built from action identity, input alias,
+  missing fields, and artifact schema projections;
+- candidate artifact hints and available-field samples are derived from
+  `ArtifactSchemaProjection`, not adapter-local prompt structs;
+- REPL/CLI adapters may still compute action-specific missing fields while
+  those field-reference reducers are being migrated, but they should not own
+  the guard/violation shape;
+- no business labels or prompt prose participate in the hard gate.
+
+Changes:
+
+- [x] Added workflow-owned `MissingFieldContractGuardResult`.
+- [x] Rewired REPL missing-field guard construction to pass schema projections
+      into the workflow reducer.
+- [x] Removed REPL-local field-contract violation construction and candidate
+      label helper.
+- [x] Added regression coverage for projection-backed field-contract guard
+      construction.
+
+Remaining architecture items:
+
+- [ ] Continue migrating action-specific field-reference and role-path
+      reducers from REPL-local helpers into dataworkflow.
+- [ ] Continue migrating coverage-material set computation from REPL-local
+      helpers into MaterialGraph reducers.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

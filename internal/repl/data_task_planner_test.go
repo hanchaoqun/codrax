@@ -2743,17 +2743,6 @@ func TestDataTaskMissingFieldGuardProducesTypedViolation(t *testing.T) {
 		Kind:       dataquery.DataActionFilterRecords,
 		InputPaths: []string{"records"},
 	}
-	violation, ok := dataTaskActionMissingFieldContractViolation(action, "records", []string{"status"}, []dataTaskArtifactAccessPrompt{{
-		ID:      "records",
-		Aliases: []string{"records"},
-		Fields:  []string{"id", "amount"},
-	}})
-	if !ok {
-		t.Fatalf("expected typed guard violation")
-	}
-	if violation.Code != "field_contract_violation" || violation.IdempotencyKey == "" || violation.DependencyRank == 0 {
-		t.Fatalf("violation=%+v, want typed field contract guard violation", violation)
-	}
 	guard := dataTaskActionMissingFieldContractGuardResult(action, 0, "records", []string{"status"}, []dataTaskArtifactAccessPrompt{{
 		ID:      "records",
 		Aliases: []string{"records"},
@@ -2761,6 +2750,10 @@ func TestDataTaskMissingFieldGuardProducesTypedViolation(t *testing.T) {
 	}})
 	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want field_contract_violation with typed violation payload", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.Code != "field_contract_violation" || violation.IdempotencyKey == "" || violation.DependencyRank == 0 {
+		t.Fatalf("violation=%+v, want typed field contract guard violation", violation)
 	}
 }
 

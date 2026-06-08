@@ -67,6 +67,40 @@ func TestFieldContractGuardResultUsesTypedViolation(t *testing.T) {
 	}
 }
 
+func TestMissingFieldContractGuardResultBuildsViolationFromProjection(t *testing.T) {
+	guard := MissingFieldContractGuardResult(MissingFieldContractGuardInput{
+		Action: dataquery.DataAction{
+			ID:         "filter_records",
+			Kind:       dataquery.DataActionFilterRecords,
+			InputPaths: []string{"records.json"},
+		},
+		ActionIndex:   1,
+		InputAlias:    "records.json",
+		MissingFields: []string{"status"},
+		SchemaProjections: []ArtifactSchemaProjection{{
+			ID:      "records",
+			Aliases: []string{"records.json"},
+			Fields:  []string{"id", "amount"},
+		}, {
+			ID:      "candidate",
+			Aliases: []string{"candidate.json"},
+			Fields:  []string{"status"},
+		}},
+		AllowedNextActions: []string{string(dataquery.DataActionDeriveFields)},
+	})
+	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want field contract guard", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.InputAlias != "records.json" ||
+		violation.MissingFields[0] != "status" ||
+		violation.AvailableFieldSample[0] != "id" ||
+		len(violation.CandidateArtifacts) != 1 ||
+		violation.RepairActionHints[0] == "" {
+		t.Fatalf("violation=%+v, want projection-backed field contract details", violation)
+	}
+}
+
 func TestActionInputContractGuardResultUsesTypedAction(t *testing.T) {
 	guard := ActionInputContractGuardResult(ActionInputContractGuardInput{
 		Code:          "apply_resolution_contract",

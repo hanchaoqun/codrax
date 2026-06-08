@@ -3718,14 +3718,12 @@ func dataTaskActionMissingFieldContractMessage(action dataquery.DataAction, acti
 }
 
 func dataTaskActionMissingFieldContractGuardResult(action dataquery.DataAction, actionIndex int, input string, missing []string, access []dataTaskArtifactAccessPrompt) dataworkflow.GuardResult {
-	violation, ok := dataTaskActionMissingFieldContractViolation(action, input, missing, access)
-	if !ok {
-		return dataworkflow.GuardResult{}
-	}
-	return dataworkflow.FieldContractGuardResult(dataworkflow.FieldContractGuardInput{
-		Action:      action,
-		ActionIndex: actionIndex,
-		Violation:   violation,
+	return dataworkflow.MissingFieldContractGuardResult(dataworkflow.MissingFieldContractGuardInput{
+		Action:            action,
+		ActionIndex:       actionIndex,
+		InputAlias:        input,
+		MissingFields:     missing,
+		SchemaProjections: dataTaskArtifactAccessSchemaProjection(access),
 	})
 }
 
@@ -3738,28 +3736,6 @@ func dataTaskActionInputContractGuardResult(code string, action dataquery.DataAc
 		Message:           message,
 		RepairActionHints: hints,
 	})
-}
-
-func dataTaskActionMissingFieldContractViolation(action dataquery.DataAction, input string, missing []string, access []dataTaskArtifactAccessPrompt) (dataworkflow.WorkflowViolation, bool) {
-	if len(missing) == 0 {
-		return dataworkflow.WorkflowViolation{}, false
-	}
-	artifact, ok := dataTaskArtifactAccessByAlias(access, input)
-	if !ok || len(artifact.Fields) == 0 {
-		return dataworkflow.WorkflowViolation{}, false
-	}
-	return dataworkflow.NewFieldContractViolation(dataworkflow.FieldContractViolationInput{
-		Action:            action,
-		InputAlias:        input,
-		MissingFields:     missing,
-		AvailableFields:   artifact.Fields,
-		SchemaProjections: dataTaskArtifactAccessSchemaProjection(access),
-	}), true
-}
-
-func dataTaskFieldContractCandidateArtifacts(access []dataTaskArtifactAccessPrompt, input string, missing []string) []string {
-	candidates := dataworkflow.FieldContractCandidateArtifacts(dataTaskArtifactAccessSchemaProjection(access), input, missing, 4)
-	return dataworkflow.FieldContractCandidateLabels(candidates)
 }
 
 func dataTaskMissingFieldsOnArtifact(access []dataTaskArtifactAccessPrompt, alias string, fields []string) []string {
