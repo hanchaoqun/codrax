@@ -16754,6 +16754,68 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
+### Batch 394: Relation-Backed Missing Field Recovery
+
+The next P0 seam was the deterministic recovery path for `join_records` field
+contract failures. Earlier recovery could turn a missing join field into an
+`enrich_records` action by scoring field tokens and mapping-like field names.
+That helped some runs converge, but it made a hard workflow decision from soft
+signals: a field named `source_value` could be paired with an arbitrary base
+text field, and a generic `canonical_id`/`value` field could be treated as the
+missing target. That is exactly the kind of rule pile-up the IR direction is
+meant to avoid.
+
+This batch moves the hard missing-field fallback to a small relation selector
+over ArtifactGraph/SchemaProjection facts. The selector can emit a deterministic
+fallback only when the relation is structurally proven:
+
+- the lookup/reference artifact contains the missing target field exactly;
+- the base artifact and lookup artifact share one or more concrete
+  non-internal key fields;
+- the generated enrichment uses those paired fields with exact matching;
+- diagnostic and workflow-ledger artifacts are not used as lookup inputs;
+- if the structural relation cannot be proven, no fallback is generated and the
+  workflow returns to typed diagnostics/planning instead of guessing.
+
+Generic invariants:
+
+- field-token overlap and name-looking heuristics may remain soft scaffold or
+  prompt guidance, but they do not drive this hard recovery;
+- the system does not infer business semantics such as "this canonical value
+  must be the missing category"; it only materializes a field when the artifact
+  schema already proves that field exists;
+- the fallback is still domain-neutral and applies to any data workflow with a
+  base record artifact, a lookup/reference artifact, and a structurally shared
+  key.
+
+Changes:
+
+- [x] Added `MissingFieldRelationCandidate` as the IR handoff for hard
+      missing-field recovery.
+- [x] Added a structural relation selector that pairs base/lookup fields from
+      exact common schema fields and requires an exact target-value field.
+- [x] Rewired `MissingJoinFieldFallbackPlan` to consume the relation selector
+      instead of `MappingForMissingTarget`/field-token scoring.
+- [x] Kept the wider field-name helpers available only for existing explicit
+      action repair/scaffold paths; they are no longer used by the hard
+      missing-join fallback.
+- [x] Updated regression coverage so deterministic fallback requires exact
+      target fields and structural key relations.
+- [x] Updated REPL regression fixtures that previously encoded the old
+      `source_value`/`canonical_id` guessing behavior.
+
+Remaining architecture items:
+
+- [ ] Migrate the remaining explicit action repair paths that still use
+      field-token helpers onto typed relation candidates once ActionDAG
+      admission exposes source/lookup role evidence uniformly.
+- [ ] Promote relation candidates into live `ArtifactGraphState` so evaluator,
+      scaffold builders, and failure transitions consume the same relation IR.
+- [ ] Replace adapter-level no-tool error text adapters with provider/planner
+      typed error codes.
+- [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
+      `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
+
 ### Batch 391: Reducer-Owned Execution Failure Transition
 
 The next duplicated state seam was the execution-failure path. Both CLI and

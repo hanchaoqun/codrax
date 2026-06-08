@@ -49,6 +49,77 @@ func TestMissingJoinFieldFallbackPlanBuildsEnrichAction(t *testing.T) {
 	if specs[0]["target_field"] != "category_id" || specs[0]["lookup_path"] != "mapping.json" {
 		t.Fatalf("spec=%+v, want target category_id via mapping.json", specs[0])
 	}
+	baseFields, ok := specs[0]["base_fields"].([]any)
+	if !ok || len(baseFields) != 1 || baseFields[0] != "category_name" {
+		t.Fatalf("base_fields=%+v, want exact structural key category_name", specs[0]["base_fields"])
+	}
+	lookupFields, ok := specs[0]["lookup_fields"].([]any)
+	if !ok || len(lookupFields) != 1 || lookupFields[0] != "category_name" {
+		t.Fatalf("lookup_fields=%+v, want exact structural key category_name", specs[0]["lookup_fields"])
+	}
+	if specs[0]["lookup_value_field"] != "category_id" || specs[0]["match_mode"] != "exact" {
+		t.Fatalf("spec=%+v, want exact lookup value category_id", specs[0])
+	}
+}
+
+func TestMissingJoinFieldFallbackPlanRequiresExactTargetField(t *testing.T) {
+	violation := dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionKind:    string(dataquery.DataActionJoinRecords),
+		InputAlias:    "base.json",
+		MissingFields: []string{"category_id"},
+	}
+	_, ok := MissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{
+		Current:   dataquery.TaskPlan{Goal: "finish typed graph"},
+		Violation: violation,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{
+				ID:      "base",
+				Aliases: []string{"base.json"},
+				Kind:    string(dataquery.DataActionFilterRecords),
+				Fields:  []string{"category_name"},
+			},
+			{
+				ID:      "mapping",
+				Aliases: []string{"mapping.json"},
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Fields:  []string{"category_name", "canonical_id"},
+			},
+		},
+	})
+	if ok {
+		t.Fatal("missing-field fallback should not infer a non-exact target value field")
+	}
+}
+
+func TestMissingJoinFieldFallbackPlanRequiresStructuralKeyRelation(t *testing.T) {
+	violation := dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionKind:    string(dataquery.DataActionJoinRecords),
+		InputAlias:    "base.json",
+		MissingFields: []string{"category_id"},
+	}
+	_, ok := MissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{
+		Current:   dataquery.TaskPlan{Goal: "finish typed graph"},
+		Violation: violation,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{
+				ID:      "base",
+				Aliases: []string{"base.json"},
+				Kind:    string(dataquery.DataActionFilterRecords),
+				Fields:  []string{"category_name"},
+			},
+			{
+				ID:      "mapping",
+				Aliases: []string{"mapping.json"},
+				Kind:    string(dataquery.DataActionNormalizeEntities),
+				Fields:  []string{"source_value", "category_id"},
+			},
+		},
+	})
+	if ok {
+		t.Fatal("missing-field fallback should not guess lookup keys without a structural common field")
+	}
 }
 
 func TestHistoricalMissingJoinFieldFallbackPlanSuppressesSeenPlan(t *testing.T) {

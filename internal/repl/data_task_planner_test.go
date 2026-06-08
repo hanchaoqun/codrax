@@ -6502,7 +6502,7 @@ func TestDataTaskMissingJoinFieldFallbackMaterializesEnrichment(t *testing.T) {
 			{
 				ID:      "category_resolutions",
 				Kind:    string(dataquery.DataActionNormalizeEntities),
-				Headers: []string{"source_value", "canonical_id", "canonical_label", "status"},
+				Headers: []string{"po_id", "source_value", "category_code", "canonical_label", "status"},
 				Fields: map[string]string{
 					"artifact_aliases": "category_resolutions.json",
 					"json_shape":       "array[27]",
@@ -6554,7 +6554,7 @@ func TestDataTaskMissingJoinFieldFallbackMaterializesEnrichment(t *testing.T) {
 		t.Fatalf("input_paths=%v", action.InputPaths)
 	}
 	raw := action.Params["lookup_specs_json"]
-	for _, want := range []string{`"target_field":"category_code"`, `"category_raw"`, `"lookup_value_field":"canonical_id"`, `"source_value"`} {
+	for _, want := range []string{`"target_field":"category_code"`, `"po_id"`, `"lookup_value_field":"category_code"`, `"match_mode":"exact"`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("lookup_specs_json missing %s: %s", want, raw)
 		}
@@ -6592,7 +6592,7 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackUsesLaterMappingArtifact(t *t
 			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
 				ID:      "label_resolution",
 				Kind:    string(dataquery.DataActionNormalizeEntities),
-				Headers: []string{"source_value", "canonical_id", "status"},
+				Headers: []string{"order_id", "source_value", "label_code", "status"},
 				Fields: map[string]string{
 					"artifact_aliases": "label_resolution.json",
 					"json_shape":       "array[2]",
@@ -6612,7 +6612,7 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackUsesLaterMappingArtifact(t *t
 		t.Fatalf("input_paths=%v", action.InputPaths)
 	}
 	raw := action.Params["lookup_specs_json"]
-	for _, want := range []string{`"target_field":"label_code"`, `"raw_label"`, `"lookup_value_field":"canonical_id"`, `"source_value"`} {
+	for _, want := range []string{`"target_field":"label_code"`, `"order_id"`, `"lookup_value_field":"label_code"`, `"match_mode":"exact"`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("lookup_specs_json missing %s: %s", want, raw)
 		}
@@ -6647,7 +6647,7 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatExistingOutput(t
 			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
 				ID:      "label_resolution",
 				Kind:    string(dataquery.DataActionNormalizeEntities),
-				Headers: []string{"source_value", "canonical_id", "status"},
+				Headers: []string{"order_id", "source_value", "label_code", "status"},
 				Fields: map[string]string{
 					"artifact_aliases": "label_resolution.json",
 					"json_shape":       "array[2]",
@@ -6700,7 +6700,7 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatSamePlan(t *test
 			Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
 				ID:      "label_resolution",
 				Kind:    string(dataquery.DataActionNormalizeEntities),
-				Headers: []string{"source_value", "canonical_id", "status"},
+				Headers: []string{"order_id", "source_value", "label_code", "status"},
 				Fields: map[string]string{
 					"artifact_aliases": "label_resolution.json",
 					"json_shape":       "array[2]",

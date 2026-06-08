@@ -24,6 +24,15 @@ type InvalidRecordEnrichFallbackInput struct {
 	InputPaths        []string
 }
 
+type MissingFieldRelationCandidate struct {
+	Artifact     ArtifactSchemaProjection
+	ValueField   string
+	BaseFields   []string
+	LookupFields []string
+	MatchMode    string
+	Evidence     []string
+}
+
 func HistoricalMissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquery.TaskPlan, bool) {
 	if len(input.Records) == 0 {
 		return dataquery.TaskPlan{}, false
@@ -71,14 +80,11 @@ func MissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquer
 	if !ok || len(base.Fields) == 0 || ExistingField(base.Fields, missingField) != "" {
 		return dataquery.TaskPlan{}, false
 	}
-	sourceFields := SourceFieldsForMissingTarget(base.Fields, missingField, 6)
-	if len(sourceFields) == 0 {
-		return dataquery.TaskPlan{}, false
-	}
-	mapping, valueField, mappingFields, matchMode, ok := MappingForMissingTarget(projections, base, missingField, 8)
+	relation, ok := StructuralRelationForMissingTarget(projections, base, missingField, 8)
 	if !ok {
 		return dataquery.TaskPlan{}, false
 	}
+	mapping := relation.Artifact
 	mappingAlias := firstArtifactAlias(mapping)
 	if mappingAlias == "" {
 		return dataquery.TaskPlan{}, false
@@ -93,11 +99,11 @@ func MissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquer
 	}
 	specs, err := compactJSON([]map[string]any{{
 		"lookup_path":        mappingAlias,
-		"base_fields":        sourceFields,
-		"lookup_fields":      mappingFields,
-		"lookup_value_field": valueField,
+		"base_fields":        relation.BaseFields,
+		"lookup_fields":      relation.LookupFields,
+		"lookup_value_field": relation.ValueField,
 		"target_field":       missingField,
-		"match_mode":         matchMode,
+		"match_mode":         relation.MatchMode,
 	}})
 	if err != nil {
 		return dataquery.TaskPlan{}, false
@@ -263,6 +269,90 @@ func HistoricalMissingJoinFieldName(records []WorkflowRecord) string {
 		}
 	}
 	return ""
+}
+
+func StructuralRelationForMissingTarget(projections []ArtifactSchemaProjection, base ArtifactSchemaProjection, missingField string, limit int) (MissingFieldRelationCandidate, bool) {
+	if limit <= 0 {
+		limit = len(projections)
+	}
+	baseAlias := firstArtifactAlias(base)
+	if baseAlias == "" || len(base.Fields) == 0 || ExistingField(base.Fields, missingField) != "" {
+		return MissingFieldRelationCandidate{}, false
+	}
+	var best MissingFieldRelationCandidate
+	bestScore := -1
+	for _, artifact := range projections {
+		alias := firstArtifactAlias(artifact)
+		if alias == "" || normalizeAccessPath(alias) == normalizeAccessPath(baseAlias) || len(artifact.Fields) == 0 {
+			continue
+		}
+		if artifact.NodeClass == ArtifactNodeClassDiagnosticChild || artifact.NodeClass == ArtifactNodeClassWorkflowLedger {
+			continue
+		}
+		valueField := ExistingField(artifact.Fields, missingField)
+		if valueField == "" {
+			continue
+		}
+		baseFields, lookupFields := structuralRelationFields(base.Fields, artifact.Fields, valueField, missingField, 6)
+		if len(baseFields) == 0 || len(lookupFields) == 0 {
+			continue
+		}
+		score := len(baseFields)
+		if ArtifactLineageContains(artifact, baseAlias) || ArtifactLineageContains(base, alias) {
+			score += 4
+		}
+		if artifactKindHasPrefix(artifact.Kind, dataquery.DataActionNormalizeEntities, dataquery.DataActionEnrichRecords, dataquery.DataActionApplyResolutions) ||
+			strings.Contains(strings.ToLower(strings.TrimSpace(artifact.Kind)), "entity_resolution") {
+			score += 2
+		}
+		if score > bestScore {
+			bestScore = score
+			best = MissingFieldRelationCandidate{
+				Artifact:     artifact,
+				ValueField:   valueField,
+				BaseFields:   baseFields,
+				LookupFields: lookupFields,
+				MatchMode:    "exact",
+				Evidence: cleanStrings([]string{
+					"target field exists exactly in lookup artifact",
+					"structural common key fields exist between base and lookup",
+				}),
+			}
+		}
+	}
+	if bestScore < 0 {
+		return MissingFieldRelationCandidate{}, false
+	}
+	return best, true
+}
+
+func structuralRelationFields(baseFields, lookupFields []string, valueField, missingField string, limit int) ([]string, []string) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	lookupSet := artifactFieldSet(lookupFields)
+	valueLower := strings.ToLower(strings.TrimSpace(valueField))
+	missingLower := strings.ToLower(strings.TrimSpace(missingField))
+	var baseOut []string
+	var lookupOut []string
+	seen := map[string]bool{}
+	for _, field := range cleanStrings(baseFields) {
+		key := strings.ToLower(strings.TrimSpace(field))
+		if key == "" || seen[key] || key == valueLower || key == missingLower || !FieldUsableForRecordJoin(field) {
+			continue
+		}
+		lookupField := lookupSet[key]
+		if lookupField == "" || !FieldUsableForRecordJoin(lookupField) {
+			continue
+		}
+		seen[key] = true
+		baseOut = append(baseOut, field)
+		lookupOut = append(lookupOut, lookupField)
+		if len(baseOut) >= limit {
+			break
+		}
+	}
+	return baseOut, lookupOut
 }
 
 func MappingForMissingTarget(projections []ArtifactSchemaProjection, base ArtifactSchemaProjection, missingField string, limit int) (ArtifactSchemaProjection, string, []string, string, bool) {
