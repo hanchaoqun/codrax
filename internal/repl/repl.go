@@ -5816,7 +5816,7 @@ func (r *REPL) banner() {
 		focusCount = len(r.multiRepoFocus)
 		capN := r.activeMultiRepoMaxActiveLocked(r.multiRepoMaxActiveOverride)
 		r.multiRepoMu.Unlock()
-		if line := multiRepoBannerLine(r.language, len(r.topology.Repos), focusCount, capN); line != "" {
+		if line := multiRepoBannerLine(r.language, r.multiRepoEnabled, len(r.topology.Repos), focusCount, capN); line != "" {
 			fmt.Fprintf(r.out, "  %s\n",
 				pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
 		}

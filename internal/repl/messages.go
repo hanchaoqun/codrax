@@ -257,9 +257,15 @@ func clampToTermWidth(s string, maxWidth int) string {
 // Style mirrors failureTaxonomyBannerLine / unsettledBanner: dim
 // FgDarkGray clamped at bannerMaxWidth, single line, ASCII-safe
 // (mixed CJK / English fits both --lang=zh and --lang=en operators).
-func multiRepoBannerLine(lang string, subRepoCount int, focusCount int, capN int) string {
+func multiRepoBannerLine(lang string, enabled bool, subRepoCount int, focusCount int, capN int) string {
 	if subRepoCount <= 1 {
 		return ""
+	}
+	if !enabled {
+		if isZh(lang) {
+			return formatN(lang, "🗂  单仓模式:已关闭 multi-repo 路由;已发现 %d 个子仓;/repos 查看拓扑", subRepoCount)
+		}
+		return formatN(lang, "🗂  single-repo mode: multi-repo routing disabled; discovered %d sub-repos; /repos to inspect topology", subRepoCount)
 	}
 	if isZh(lang) {
 		if focusCount > 0 {

@@ -22,13 +22,41 @@ func reposCmdTestREPL(topo *topology.RepoTopology) (*REPL, *bytes.Buffer) {
 		// false; interactive() returns r.in == nil. Set r.in to a
 		// real (empty) reader so the line-oriented branch fires
 		// and the test buffer captures the output.
-		in:             bytes.NewReader(nil),
-		out:            buf,
-		multiRepoFocus: map[string]bool{},
-		multiRepoMu:    sync.Mutex{},
-		topology:       topo,
+		in:               bytes.NewReader(nil),
+		out:              buf,
+		multiRepoFocus:   map[string]bool{},
+		multiRepoMu:      sync.Mutex{},
+		topology:         topo,
+		multiRepoEnabled: true,
 	}
 	return r, buf
+}
+
+func TestReposList_DisabledPostureDoesNotAdvertiseRoutingFold(t *testing.T) {
+	topo := &topology.RepoTopology{
+		ParentRoot: "/workspace",
+		ParentSlug: "workspace-slug",
+		Repos: []topology.SubRepo{
+			{Slug: "slug-a", RootRel: "alpha", FileCount: 10},
+			{Slug: "slug-b", RootRel: "beta", FileCount: 12},
+		},
+	}
+	r, buf := reposCmdTestREPL(topo)
+	r.multiRepoEnabled = false
+
+	r.handleReposCmd("/repos")
+
+	got := buf.String()
+	for _, want := range []string{"single-repo routing", "multi-repo routing disabled", "discovered-sub-repos=2"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("disabled /repos output missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"auto-active", "routing fold"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("disabled /repos output must not advertise %q:\n%s", forbidden, got)
+		}
+	}
 }
 
 func TestReposFocus_AcceptsSlugAndRootRel(t *testing.T) {

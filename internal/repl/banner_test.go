@@ -103,3 +103,34 @@ func TestDegradedEnvHints_LanguageGate(t *testing.T) {
 		}
 	}
 }
+
+func TestMultiRepoBannerLine_DisabledPostureIsSingleRepoPrecise(t *testing.T) {
+	got := multiRepoBannerLine("zh", false, 3, 0, 2)
+	for _, want := range []string{"单仓模式", "已关闭", "3 个子仓", "/repos"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("disabled zh banner missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "active cap") || strings.Contains(got, "focus") {
+		t.Fatalf("disabled banner must not imply active multi-repo routing: %q", got)
+	}
+
+	got = multiRepoBannerLine("en", false, 3, 0, 2)
+	for _, want := range []string{"single-repo mode", "routing disabled", "3 sub-repos", "/repos"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("disabled en banner missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "active cap") || strings.Contains(got, "focus") {
+		t.Fatalf("disabled banner must not imply active multi-repo routing: %q", got)
+	}
+}
+
+func TestMultiRepoBannerLine_EnabledPostureShowsRoutingControls(t *testing.T) {
+	got := multiRepoBannerLine("en", true, 3, 1, 2)
+	for _, want := range []string{"multi-repo", "3 sub-repos", "active cap=2", "focus-pinned"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("enabled banner missing %q: %q", want, got)
+		}
+	}
+}

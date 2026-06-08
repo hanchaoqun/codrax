@@ -141,7 +141,9 @@ func (r *REPL) printReposList() {
 	header := fmt.Sprintf("multi-repo topology — parent=%s slug=%s sub-repos=%d cap=%d",
 		topo.ParentRoot, topo.ParentSlug, len(topo.Repos), cap)
 	if !r.multiRepoEnabled {
-		header += "  [routing disabled — pass --multi-repo=true on the command line, or set multi_repo_enabled: true in codrax.yaml to enable]"
+		header = fmt.Sprintf("single-repo routing — parent=%s slug=%s discovered-sub-repos=%d",
+			topo.ParentRoot, topo.ParentSlug, len(topo.Repos))
+		header += "  [multi-repo routing disabled — pass --multi-repo=true on the command line, or set multi_repo_enabled: true in codrax.yaml to enable]"
 	}
 	r.info(header)
 
@@ -157,13 +159,15 @@ func (r *REPL) printReposList() {
 	colorEnabled := r.interactive()
 	for _, sr := range topo.Repos {
 		state := reposRowStateInactive
-		switch {
-		case r.isFocused(sr.Slug):
-			state = reposRowStatePinned
-		case autoActive[sr.Slug]:
-			state = reposRowStateAutoActive
-		case previewActive && previewSlugs[sr.Slug]:
-			state = reposRowStatePreview
+		if r.multiRepoEnabled {
+			switch {
+			case r.isFocused(sr.Slug):
+				state = reposRowStatePinned
+			case autoActive[sr.Slug]:
+				state = reposRowStateAutoActive
+			case previewActive && previewSlugs[sr.Slug]:
+				state = reposRowStatePreview
+			}
 		}
 		marker, label := reposRowDecor(state, colorEnabled)
 		langs := strings.Join(sr.PrimaryLangs, ",")
@@ -181,7 +185,9 @@ func (r *REPL) printReposList() {
 	}
 
 	// Legend trailer so the markers are self-explanatory.
-	if previewActive {
+	if !r.multiRepoEnabled {
+		r.info("  legend: · discovered only (routing disabled; no active routing set)")
+	} else if previewActive {
 		// Pre-Run path — explain that the `?` marker is a focus
 		// preview, not the actual active set, so the operator does
 		// not assume scanning has started.
@@ -214,7 +220,11 @@ func (r *REPL) printReposList() {
 	}
 
 	if len(focus) > 0 {
-		r.info(fmt.Sprintf("  pinned (focus): %s", strings.Join(focus, ", ")))
+		if r.multiRepoEnabled {
+			r.info(fmt.Sprintf("  pinned (focus): %s", strings.Join(focus, ", ")))
+		} else {
+			r.info(fmt.Sprintf("  pinned (ignored while routing disabled): %s", strings.Join(focus, ", ")))
+		}
 	}
 	if override > 0 {
 		r.info(fmt.Sprintf("  cap override (session): %d (yaml value: %d)", override, r.multiRepoMaxActive))
