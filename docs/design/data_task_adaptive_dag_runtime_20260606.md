@@ -18501,6 +18501,39 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 432: Patch Planner Inputs From Runtime View
+
+The same runtime-view input boundary applied to result patch planning. CLI and
+REPL both called `tryPatchDataTaskResultWithRuntimeView`, but passed the
+adapter-local `currentPlan` before constructing the runtime view argument. If
+the runtime snapshot had newer state, the patch planner could receive a current
+plan from one source and workflow state from another.
+
+This batch constructs the runtime view first and passes `view.CurrentPlan` to
+the patch planner wrapper. The patch candidate detection and patch application
+semantics are unchanged.
+
+Generic invariants:
+
+- one patch-planner turn should use one runtime-view source of truth;
+- patch repair still operates on typed validation errors and typed runtime
+  state, not prose;
+- stdout/final answer behavior, REPL rendering, data execution, source
+  analysis, trace/log analysis, operation, and write mode are unchanged.
+
+Changes:
+
+- [x] Rewired CLI result patch planning to pass `patchView.CurrentPlan`.
+- [x] Rewired REPL result patch planning to pass `patchView.CurrentPlan`.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

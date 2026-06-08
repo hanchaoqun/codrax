@@ -1723,7 +1723,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				var validationErr *dataquery.DataResultValidationError
 				if errors.As(err, &validationErr) && dataTaskPatchCandidate(validationErr.Result, validationErr.Violations) {
 					ctx := r.startTurn()
-					patched, patchedOK, attempted, reason := tryPatchDataTaskResultWithRuntimeView(ctx, r.dataTaskPlanner, line, currentPlan, err, runtimeView(), r.language)
+					patchView := runtimeView()
+					patched, patchedOK, attempted, reason := tryPatchDataTaskResultWithRuntimeView(ctx, r.dataTaskPlanner, line, patchView.CurrentPlan, err, patchView, r.language)
 					r.endTurn()
 					if attempted {
 						r.emitReplLLMTrace(r.dataTaskPlanner, "data_result_patch_planner", types.AgentName("data_planner"), types.PipelineStage("data"))

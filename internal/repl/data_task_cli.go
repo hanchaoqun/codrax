@@ -452,7 +452,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			result, err = runner.Run(ctx, currentPlan)
 		}
 		if err != nil {
-			if patched, ok, _, reason := tryPatchDataTaskResultWithRuntimeView(ctx, cfg.Planner, request, currentPlan, err, runtimeView(), cfg.Language); ok {
+			patchView := runtimeView()
+			if patched, ok, _, reason := tryPatchDataTaskResultWithRuntimeView(ctx, cfg.Planner, request, patchView.CurrentPlan, err, patchView, cfg.Language); ok {
 				result = patched
 				emitWorkflowReason("patch", dataRounds, reason)
 				err = nil
