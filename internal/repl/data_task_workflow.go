@@ -228,8 +228,8 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	if guard := dataTaskWorkflowAllowedNextActionGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	if errText := dataTaskWorkflowStageProgressGuardError(records, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("stage_progress_guard", errText)
+	if guard := dataTaskWorkflowStageProgressGuardResult(records, plan); !guard.Empty() {
+		return guard
 	}
 	if errText := dataTaskWorkflowNumericConstantReuseGuardError(plan); errText != "" {
 		return dataTaskGuardResultFromMessage("numeric_constant_reuse_guard", errText)
@@ -2229,28 +2229,17 @@ func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state data
 }
 
 func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowStageProgressGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskWorkflowStageProgressGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if !state.MaterialCoverageSufficient {
-		return ""
-	}
-	switch state.NextStage {
-	case "normalize_or_enrich_entities", "prepare_contribution_inputs", "compute_contributions", "reconcile_artifacts", "emit_output_contract_answer":
-	default:
-		return ""
-	}
-	missingStages := state.MissingValidationStages()
-	if len(missingStages) <= 1 || !dataTaskPlanHasScriptedCustomTransform(plan) {
-		if len(missingStages) > 1 && dataTaskPlanCrossesTypedActionRanks(plan) {
-			return fmt.Sprintf("data planning incomplete: workflow next_stage=%s action batch crosses multiple dependent DAG ranks while %d validation stage(s) remain: %s. Execute only the first typed action rank now, let it materialize artifacts and field contracts, then plan the next rank from real results.",
-				state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
-		}
-		return ""
-	}
-	if dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan, state) {
-		return ""
-	}
-	return fmt.Sprintf("data planning incomplete: workflow next_stage=%s still has %d unfinished validation stage(s): %s. Do not cross multiple unfinished data DAG stages with one custom_transform. Emit the next atomic stage first (for example derive_fields/normalize_entities/enrich_records/join_records before compute_contributions, compute_contributions before reconcile_artifacts, reconcile_artifacts before the final answer), set continue_after=true, and let the workflow evaluate the reusable artifact before the next batch.",
-		state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
+	return dataworkflow.StageProgressGuardResult(dataworkflow.StageProgressGuardInput{
+		State:                             state,
+		HasScriptedCustomTransform:        dataTaskPlanHasScriptedCustomTransform(plan),
+		CrossesTypedActionRanks:           dataTaskPlanCrossesTypedActionRanks(plan),
+		NarrowSingleIntermediateTransform: dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan, state),
+	})
 }
 
 func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {

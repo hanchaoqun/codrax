@@ -14987,10 +14987,57 @@ Remaining architecture items:
 
 - [x] Allowed-next-action staging now returns typed guard results.
 - [ ] Convert remaining string-only staging checks such as coverage-loop,
-      stage-progress, numeric-constant reuse, and terminal raw-material
-      custom-transform into typed reducer-owned guard results.
+      numeric-constant reuse, and terminal raw-material custom-transform into
+      typed reducer-owned guard results.
 - [ ] Feed allowed-next guard codes into ActionGraph blocked nodes and workflow
       process events instead of only returning them through the repair loop.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 336: Typed Stage-Progress Admission
+
+The next adapter-owned guard was stage progress. REPL rendered string errors
+when a candidate batch crossed multiple dependent DAG ranks or tried to use one
+scripted `custom_transform` to jump across multiple unfinished validation
+stages. Those are workflow-state decisions, not UI decisions.
+
+This batch moves the stage-progress admission result into
+`internal/dataworkflow`. REPL now supplies only structural facts that are still
+adapter-local during the migration: whether the plan has a scripted
+`custom_transform`, whether typed actions cross dependency ranks, and whether a
+single custom transform is narrow and intermediate. The package-level guard
+returns typed violation codes and allowed-action repair hints.
+
+Generic invariants:
+
+- stage-progress admission consumes `WorkflowStateView` and structural action
+  facts only;
+- model prose, prompts, and rendered error text do not decide whether a batch
+  crosses workflow stages;
+- broad custom-transform repair is expressed as a typed violation that asks for
+  the next atomic DAG stage;
+- narrow intermediate transforms remain possible as a fallback when they do not
+  try to finish multiple validation stages in one step;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `StageProgressGuardInput` and `StageProgressGuardResult`.
+- [x] Added typed violations for `action_batch_crosses_dependent_ranks` and
+      `custom_transform_crosses_unfinished_stages`.
+- [x] Rewired REPL workflow staging to consume the typed result directly.
+- [x] Kept the old string function as a renderer over the typed result during
+      the staged migration.
+- [x] Added dataworkflow-level regression coverage for rank crossing and broad
+      custom-transform stage jumps.
+
+Remaining architecture items:
+
+- [x] Stage-progress staging now returns typed guard results.
+- [ ] Convert remaining string-only staging checks such as coverage-loop,
+      numeric-constant reuse, and terminal raw-material custom-transform into
+      typed reducer-owned guard results.
+- [ ] Feed stage-progress guard codes into ActionGraph blocked nodes and
+      workflow process events instead of only returning them through repair.
 - [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations

@@ -138,6 +138,49 @@ func TestAllowedNextActionGuardResultUsesTypedViolation(t *testing.T) {
 	}
 }
 
+func TestStageProgressGuardResultUsesTypedViolationForRankCrossing(t *testing.T) {
+	state := WorkflowStateView{
+		MaterialCoverageSufficient: true,
+		NextStage:                  StagePrepareContributionInputs,
+		WorkflowContract: CoverageContractView{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		AllowedNextActions: []string{string(dataquery.DataActionFilterRecords)},
+	}
+	guard := StageProgressGuardResult(StageProgressGuardInput{
+		State:                   state,
+		CrossesTypedActionRanks: true,
+	})
+	if guard.Code != "action_batch_crosses_dependent_ranks" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed rank-crossing violation", guard)
+	}
+	if got := guard.Violations[0].RepairActionHints; len(got) != 1 || got[0] != string(dataquery.DataActionFilterRecords) {
+		t.Fatalf("repair hints=%v, want allowed next actions", got)
+	}
+}
+
+func TestStageProgressGuardResultUsesTypedViolationForBroadCustomTransform(t *testing.T) {
+	state := WorkflowStateView{
+		MaterialCoverageSufficient: true,
+		NextStage:                  StageComputeContributions,
+		WorkflowContract: CoverageContractView{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	guard := StageProgressGuardResult(StageProgressGuardInput{
+		State:                      state,
+		HasScriptedCustomTransform: true,
+	})
+	if guard.Code != "custom_transform_crosses_unfinished_stages" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed custom-transform stage violation", guard)
+	}
+	if guard.Violations[0].Repairability != RepairNeedsTypedAction {
+		t.Fatalf("repairability=%s, want needs typed action", guard.Violations[0].Repairability)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {

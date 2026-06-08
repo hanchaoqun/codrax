@@ -62,6 +62,13 @@ type AllowedNextActionGuardInput struct {
 	RecordMaterialization       bool
 }
 
+type StageProgressGuardInput struct {
+	State                             WorkflowStateView
+	HasScriptedCustomTransform        bool
+	CrossesTypedActionRanks           bool
+	NarrowSingleIntermediateTransform bool
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -257,6 +264,52 @@ func allowedNextActionGuard(code, message string, action dataquery.DataAction, a
 		Repairability:     RepairNeedsTypedAction,
 		Action:            action,
 		RepairActionHints: cleanStrings(allowed),
+		Reason:            message,
+	})
+	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func StageProgressGuardResult(input StageProgressGuardInput) GuardResult {
+	state := input.State
+	if !state.MaterialCoverageSufficient || !stageProgressGuardApplies(state.NextStage) {
+		return GuardResult{}
+	}
+	missingStages := state.MissingValidationStages()
+	if len(missingStages) <= 1 || !input.HasScriptedCustomTransform {
+		if len(missingStages) > 1 && input.CrossesTypedActionRanks {
+			message := fmt.Sprintf("data planning incomplete: workflow next_stage=%s action batch crosses multiple dependent DAG ranks while %d validation stage(s) remain: %s. Execute only the first typed action rank now, let it materialize artifacts and field contracts, then plan the next rank from real results.",
+				state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
+			return stageProgressGuard("action_batch_crosses_dependent_ranks", message, state)
+		}
+		return GuardResult{}
+	}
+	if input.NarrowSingleIntermediateTransform {
+		return GuardResult{}
+	}
+	message := fmt.Sprintf("data planning incomplete: workflow next_stage=%s still has %d unfinished validation stage(s): %s. Do not cross multiple unfinished data DAG stages with one custom_transform. Emit the next atomic stage first (for example derive_fields/normalize_entities/enrich_records/join_records before compute_contributions, compute_contributions before reconcile_artifacts, reconcile_artifacts before the final answer), set continue_after=true, and let the workflow evaluate the reusable artifact before the next batch.",
+		state.NextStage, len(missingStages), strings.Join(missingStages, ", "))
+	return stageProgressGuard("custom_transform_crosses_unfinished_stages", message, state)
+}
+
+func stageProgressGuardApplies(stage string) bool {
+	switch strings.TrimSpace(stage) {
+	case StageNormalizeOrEnrichEntities,
+		StagePrepareContributionInputs,
+		StageComputeContributions,
+		StageReconcileArtifacts,
+		StageEmitOutputContractAnswer:
+		return true
+	default:
+		return false
+	}
+}
+
+func stageProgressGuard(code, message string, state WorkflowStateView) GuardResult {
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              code,
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		RepairActionHints: cleanStrings(state.AllowedNextActions),
 		Reason:            message,
 	})
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
