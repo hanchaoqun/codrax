@@ -296,6 +296,14 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 	case len(nextActions) == 0:
 		nextActions = cleanStrings(input.AllowedNextActions)
 	}
+	graphBlocked := graphReasonCode != ""
+	if workflowDecisionStatusLooksComplete(status) && (len(violationCodes) > 0 || graphBlocked) {
+		if len(violationCodes) > 0 {
+			status = "blocked"
+		} else {
+			status = "continue"
+		}
+	}
 	if status == "" {
 		switch {
 		case len(violationCodes) > 0:
@@ -325,6 +333,15 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 		Reason:      reason,
 		Violations:  cleanStrings(violationCodes),
 		NextActions: nextActions,
+	}
+}
+
+func workflowDecisionStatusLooksComplete(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "complete", "completed":
+		return true
+	default:
+		return false
 	}
 }
 

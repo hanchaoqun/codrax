@@ -29,6 +29,8 @@ func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
 		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
 	case OutputProjectionStatusMissingProjection:
 		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
+	case OutputProjectionStatusMissingAnswer:
+		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
 	default:
 		return GuardResult{}
 	}
@@ -143,6 +145,8 @@ func outputProjectionCompletionMessage(graph OutputProjectionGraph, gap Referenc
 			graph.AnswerItemCount, candidate.Field, candidate.Path, candidate.KeyCount)
 	case OutputProjectionStatusMissingProjection:
 		return "validate data workflow completion: data output incomplete: output_contract requires final answer projection but result.answer is empty while reconcile groups are available"
+	case OutputProjectionStatusMissingAnswer:
+		return "validate data workflow completion: data output incomplete: workflow has not produced a final answer candidate"
 	default:
 		return outputProjectionDecisionReason(graph)
 	}

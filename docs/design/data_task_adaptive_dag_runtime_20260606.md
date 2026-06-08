@@ -20008,3 +20008,47 @@ Remaining architecture items:
       `WorkflowViolation` objects. Completed in Batch 403.
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
+
+### Batch 371: Terminal Completion Invariant Across Gate, Decision, Journal, And CLI
+
+The next real data run exposed a terminal-state contract gap. The adaptive DAG
+could have a missing ledger graph and a missing final output projection while
+the adapter still returned a non-empty intermediate answer string. The terminal
+audit then recorded `status=complete` because the caller returned without an
+error, even though the typed workflow state still said that decisions,
+contributions, reconciliation, and final projection were incomplete.
+
+This is a generic data-workflow invariant, not a business-domain rule:
+
+- a non-empty string is not necessarily a final answer;
+- artifact summaries, diagnostic summaries, partial material inventories, and
+  intermediate result previews are not terminal answers;
+- `complete` is valid only when the typed completion guard, ledger graph, output
+  projection graph, and final-answer candidate policy all agree;
+- terminal audit and CLI stdout must consume the same typed invariant as the
+  reducer state.
+
+Changes:
+
+- [x] Treat `output_projection_graph.status=missing_answer` as a completion
+      gate blocker, alongside missing projection and incomplete reference
+      projection.
+- [x] Downgrade an explicit `WorkflowDecision.status=complete` when required
+      ledger or output projection blockers are present.
+- [x] Prevent terminal journal construction from overwriting an incomplete IR
+      decision with an adapter-provided `complete` status.
+- [x] Route CLI data answers through a single final-answer guard that rejects
+      non-final candidates before writing stdout successfully.
+- [x] Add regression coverage for missing-answer completion guards, explicit
+      complete downgrades, journal downgrade behavior, and CLI artifact-summary
+      rejection.
+- [x] Run `go test ./internal/dataworkflow ./internal/repl`, `make test`, and
+      `make`.
+
+Remaining architecture items:
+
+- [ ] Continue moving all terminal output paths, including REPL message panels,
+      to consume a shared final-answer adapter instead of directly formatting
+      `dataquery.Result`.
+- [ ] Add a workflow-level metric for rejected terminal candidates so eval logs
+      can report when a model tried to finish with an intermediate artifact.

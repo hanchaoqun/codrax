@@ -282,6 +282,28 @@ func TestWorkflowRuntimeBuildJournalSnapshotPrefersStateSnapshot(t *testing.T) {
 	}
 }
 
+func TestWorkflowJournalDoesNotOverrideIncompleteIRWithCompleteStatus(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	state := WorkflowStateSnapshot{
+		Decision: WorkflowDecision{
+			Status:     "continue",
+			ReasonCode: "output_missing_answer",
+			Reason:     "workflow has not produced a final answer yet",
+		},
+		OutputGraph: OutputProjectionGraph{Status: OutputProjectionStatusMissingAnswer},
+	}
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status: "complete",
+		State:  state,
+	})
+	if snapshot.Status == "complete" || snapshot.Decision.Status == "complete" {
+		t.Fatalf("snapshot=%+v, want complete downgraded by IR decision", snapshot)
+	}
+	if snapshot.Status != "continue" || snapshot.Reason != "workflow has not produced a final answer yet" {
+		t.Fatalf("snapshot status/reason=%q/%q, want IR status and reason", snapshot.Status, snapshot.Reason)
+	}
+}
+
 func TestBuildAdmissionProcessEventSummarizesDecision(t *testing.T) {
 	decision := ActionDAGAdmissionDecision{
 		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
@@ -360,6 +382,32 @@ func TestBuildWorkflowDecisionUsesLedgerGraphBlocker(t *testing.T) {
 	}
 	if strings.Join(decision.NextActions, ",") != string(dataquery.DataActionComputeContribs) {
 		t.Fatalf("decision.NextActions=%v, want graph producer action", decision.NextActions)
+	}
+}
+
+func TestBuildWorkflowDecisionDowngradesExplicitCompleteWithGraphBlocker(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+	})
+	decision := BuildWorkflowDecision(WorkflowDecisionInput{
+		Status:      "complete",
+		NextStage:   StageComplete,
+		LedgerGraph: graph,
+	})
+	if decision.Status == "complete" || decision.ReasonCode != "ledger_missing_contributions" {
+		t.Fatalf("decision=%+v, want non-complete ledger blocker", decision)
+	}
+
+	outputDecision := BuildWorkflowDecision(WorkflowDecisionInput{
+		Status: "complete",
+		OutputGraph: OutputProjectionGraph{
+			Status:          OutputProjectionStatusMissingAnswer,
+			ProducesActions: []string{string(dataquery.DataActionAssembleAnswer)},
+		},
+	})
+	if outputDecision.Status == "complete" || outputDecision.ReasonCode != "output_missing_answer" {
+		t.Fatalf("outputDecision=%+v, want non-complete output blocker", outputDecision)
 	}
 }
 

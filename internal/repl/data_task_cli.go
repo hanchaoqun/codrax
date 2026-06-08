@@ -367,7 +367,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("%s", errText)
 		case dataworkflow.WorkflowPreRunTerminalPlan:
-			if handled, answer, err := terminalDataTaskPlanForCLI(currentPlan, records, cfg.Language); handled {
+			if handled, answer, err := terminalDataTaskPlanForCLI(repoRoot, currentPlan, records, cfg.Language); handled {
 				return answer, err
 			}
 		case dataworkflow.WorkflowPreRunBudgetFail:
@@ -377,7 +377,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("%s", preRunDecision.Reason)
 		case dataworkflow.WorkflowPreRunBudgetReturnResult:
 			if preRunHasResult {
-				return dataTaskAnswerMarkdown(cfg.Language, preRunResult), nil
+				return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, preRunResult, cfg.Language)
 			}
 		case dataworkflow.WorkflowPreRunPreExecutionFallback:
 			reason := preRunDecision.Reason
@@ -637,7 +637,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		evaluator, evalOK := cfg.Planner.(DataTaskEvaluator)
 		continuer, contOK := cfg.Planner.(DataTaskContinuationPlanner)
 		if !evalOK {
-			return dataTaskAnswerMarkdown(cfg.Language, result), nil
+			return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, result, cfg.Language)
 		}
 		view := runtimeView()
 		stateForEvent := dataTaskWorkflowStateFromRuntimeView(view)
@@ -658,7 +658,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		evalDecision := dataTaskEvaluationDecisionWithRepo(repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, repairRoundsMax)
 		switch evalDecision.Action {
 		case dataworkflow.EvaluationDecisionReturnAnswer:
-			return dataTaskAnswerMarkdown(cfg.Language, result), nil
+			return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, result, cfg.Language)
 		case dataworkflow.EvaluationDecisionReturnEvaluation:
 			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil
 		case dataworkflow.EvaluationDecisionFallbackPlan:
@@ -762,12 +762,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("%s", evalDecision.Reason)
 		default:
-			return dataTaskAnswerMarkdown(cfg.Language, result), nil
+			return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, result, cfg.Language)
 		}
 	}
 }
 
-func terminalDataTaskPlanForCLI(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, lang string) (bool, string, error) {
+func terminalDataTaskPlanForCLI(repoRoot string, plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, lang string) (bool, string, error) {
 	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
 	case "needs_clarification":
 		return true, dataTaskClarificationMarkdown(lang, plan), nil
@@ -775,12 +775,50 @@ func terminalDataTaskPlanForCLI(plan dataquery.TaskPlan, records []dataTaskWorkf
 		return true, dataTaskBlockedMarkdown(lang, plan), nil
 	case "complete", "completed", "partial_answer_possible", "budget_exhausted":
 		if result, ok := latestDataTaskResult(records); ok {
-			return true, dataTaskAnswerMarkdown(lang, result), nil
+			answer, err := finalDataTaskAnswerForCLI(repoRoot, records, plan, result, lang)
+			return true, answer, err
 		}
 		return true, "", fmt.Errorf("terminal data task plan ended without a result: %s", strings.TrimSpace(plan.Status))
 	default:
 		return false, "", nil
 	}
+}
+
+func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, lang string) (string, error) {
+	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result); !guard.Empty() {
+		return "", fmt.Errorf("%s", guard.ErrorText())
+	}
+	contract := dataTaskWorkflowCoverageContract(records, current)
+	output := dataTaskWorkflowOutputContract(records, current)
+	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+		guard := dataTaskFinalAnswerCandidateGuardResult(current, result)
+		return "", fmt.Errorf("%s", guard.ErrorText())
+	}
+	return dataTaskAnswerMarkdown(lang, result), nil
+}
+
+func dataTaskFinalAnswerCandidateGuardResult(current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	message := "validate data workflow completion: data output incomplete: latest result is not a final answer candidate for the workflow contract"
+	code := "final_answer_not_candidate"
+	switch {
+	case current.ContinueAfter:
+		code = "final_answer_continue_after"
+		message = "validate data workflow completion: data output incomplete: current plan is marked continue_after and cannot produce the final answer"
+	case !dataworkflow.ResultAnswerPresent(result):
+		code = "output_projection_missing_answer"
+		message = "validate data workflow completion: data output incomplete: workflow has not produced a final answer candidate"
+	case !dataworkflow.PlanMayProduceFinalAnswer(current, result):
+		code = "final_answer_missing_projection_action"
+		message = "validate data workflow completion: data output incomplete: latest action batch produced intermediate artifacts but no terminal projection"
+	}
+	violation := dataworkflow.WorkflowViolation{
+		Code:              code,
+		Severity:          "error",
+		Repairability:     dataworkflow.RepairNeedsTypedAction,
+		Reason:            message,
+		RepairActionHints: []string{string(dataquery.DataActionAssembleAnswer)},
+	}
+	return dataworkflow.NewGuardResult(code, "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 }
 
 func loadDataTaskWorkflowResumeFile(path string) (dataTaskWorkflowResumeState, error) {

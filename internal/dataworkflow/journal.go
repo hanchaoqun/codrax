@@ -148,9 +148,11 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	}
 	summary := firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, state.WorkflowViolationSummary, BuildWorkflowViolationSummary(violations))
 	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, input.LastError, state.DecisionFallbackReasonCode)
+	status := workflowJournalStatus(input.Status, decision)
+	reason := workflowJournalReason(input.Status, input.Reason, decision)
 	return WorkflowJournal{
-		Status:                   strings.TrimSpace(input.Status),
-		Reason:                   strings.TrimSpace(input.Reason),
+		Status:                   status,
+		Reason:                   reason,
 		DataRounds:               input.DataRounds,
 		RepairRounds:             input.RepairRounds,
 		RecordCount:              len(records),
@@ -174,7 +176,9 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 func BuildWorkflowJournalDecision(base WorkflowDecision, status, reason, lastErr, fallbackReasonCode string) WorkflowDecision {
 	decision := base
 	if text := strings.TrimSpace(status); text != "" {
-		decision.Status = text
+		if !workflowJournalShouldPreserveBaseStatus(base.Status, text) {
+			decision.Status = text
+		}
 	}
 	if decision.ReasonCode == "" {
 		decision.ReasonCode = firstNonEmptyJournalText(status, fallbackReasonCode)
@@ -185,6 +189,28 @@ func BuildWorkflowJournalDecision(base WorkflowDecision, status, reason, lastErr
 	decision.Violations = append([]string(nil), base.Violations...)
 	decision.NextActions = append([]string(nil), base.NextActions...)
 	return decision
+}
+
+func workflowJournalShouldPreserveBaseStatus(baseStatus, requestedStatus string) bool {
+	return workflowDecisionStatusLooksComplete(requestedStatus) &&
+		strings.TrimSpace(baseStatus) != "" &&
+		!workflowDecisionStatusLooksComplete(baseStatus)
+}
+
+func workflowJournalStatus(requested string, decision WorkflowDecision) string {
+	status := strings.TrimSpace(requested)
+	if workflowJournalShouldPreserveBaseStatus(decision.Status, status) {
+		return strings.TrimSpace(decision.Status)
+	}
+	return status
+}
+
+func workflowJournalReason(requestedStatus, requestedReason string, decision WorkflowDecision) string {
+	reason := strings.TrimSpace(requestedReason)
+	if reason == "" && workflowJournalShouldPreserveBaseStatus(decision.Status, strings.TrimSpace(requestedStatus)) {
+		return strings.TrimSpace(decision.Reason)
+	}
+	return reason
 }
 
 func BuildWorkflowResumePayload(records []WorkflowRecord, current, deferred dataquery.TaskPlan) *WorkflowResumePayload {

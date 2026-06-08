@@ -61,6 +61,24 @@ func TestCompletionGateGuardResultUsesOutputProjectionGraph(t *testing.T) {
 	}
 }
 
+func TestCompletionGateGuardResultBlocksMissingAnswer(t *testing.T) {
+	guard := CompletionGateGuardResult(CompletionGateGuardInput{
+		OutputGraph: OutputProjectionGraph{
+			Status:          OutputProjectionStatusMissingAnswer,
+			ProducesActions: []string{string(dataquery.DataActionAssembleAnswer)},
+		},
+	})
+	if guard.Code != "output_projection_missing_answer" {
+		t.Fatalf("guard=%+v, want missing answer projection guard", guard)
+	}
+	if !strings.Contains(guard.ErrorText(), "final answer candidate") {
+		t.Fatalf("message=%q, want final answer candidate detail", guard.ErrorText())
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].ActionKind != string(dataquery.DataActionAssembleAnswer) {
+		t.Fatalf("violations=%+v, want assemble_answer repair hint", guard.Violations)
+	}
+}
+
 func TestCompletionGateGuardResultReportsReferenceGap(t *testing.T) {
 	guard := CompletionGateGuardResult(CompletionGateGuardInput{
 		OutputGraph: OutputProjectionGraph{
