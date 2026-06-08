@@ -413,3 +413,24 @@ go test ./internal/repl
 ```
 
 Result: all passed.
+
+### Batch 3 - Eval harness reliability and advisory telemetry
+
+Status: done and pushed in code batch.
+
+Changes:
+
+- Switched convergence-audit snapshot binary to an absolute path and cleared inherited EXIT traps in worker subshells so parallel workers cannot delete the parent sweep binary.
+- Made `eval/run.sh` recover from a missing/non-executable env `CODRAX_BIN` by rebuilding and resetting to `./codrax` before execution.
+- Aggregated every per-run `codrax-*.log` into `run-N.logs.all.log`; metrics and log regex assertions now read the aggregate log, covering data-route multi-log runs.
+- Added advisory convergence flags for answer-contract warnings, renderer auto-repairs, and context pruning.
+- Added a runner contract test that verifies regex assertions and metrics can span multiple logs from the same run.
+
+Validation:
+
+```bash
+bash -n eval/run.sh eval/convergence_audit.sh eval/runner_lib.sh eval/runner_lib_test.sh
+bash eval/runner_lib_test.sh
+```
+
+Result: all passed.

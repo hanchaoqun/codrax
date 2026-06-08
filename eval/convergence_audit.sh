@@ -80,7 +80,7 @@ if [[ ! -x "${CODRAX_BIN:-}" ]]; then
     echo "building codrax..." >&2
     make build >/dev/null || { echo "build failed" >&2; exit 1; }
   fi
-  SWEEP_BIN="./.codrax-convergence-${SWEEP_START}"
+  SWEEP_BIN="$ROOT/.codrax-convergence-${SWEEP_START}"
   cp ./codrax "$SWEEP_BIN" || exit 1
   chmod +x "$SWEEP_BIN" 2>/dev/null || true
   export CODRAX_BIN="$SWEEP_BIN"
@@ -95,6 +95,7 @@ for case_file in "${CASES_LIST[@]}"; do
   fi
   eval_wait_for_slot "$PARALLEL"
   (
+    trap - EXIT
     echo "[$(date +%H:%M:%S)] running $case_file" >&2
     run_case "$case_file" >/dev/null
   ) &
@@ -145,6 +146,9 @@ wait
     fin_reject="$(metric_number "$metrics" finalizer_rejects)"
     fin_rewrite="$(metric_number "$metrics" finalizer_rewrites)"
     sem="$(metric_number "$metrics" semantic_quality_concerns)"
+    mermaid_repair="$(metric_number "$metrics" mermaid_source_repair_applied)"
+    answer_contract="$(metric_number "$metrics" answer_contract_violations)"
+    history_prunes="$(metric_number "$metrics" tool_history_prunes)"
     flags=""
     if [[ "$verdict" != "PASS" ]]; then
       flags="${flags} verdict"
@@ -160,6 +164,15 @@ wait
     fi
     if [[ "$sem" -gt 0 ]]; then
       flags="${flags} semantic"
+    fi
+    if [[ "$answer_contract" -gt 0 ]]; then
+      flags="${flags} contract_warning"
+    fi
+    if [[ "$mermaid_repair" -gt 0 ]]; then
+      flags="${flags} auto_repair"
+    fi
+    if [[ "$history_prunes" -gt 0 ]]; then
+      flags="${flags} context_prune"
     fi
     if [[ "$origin_block" -gt 0 ]]; then
       flags="${flags} lane_wait"
@@ -178,7 +191,7 @@ wait
   echo
   echo "**flagged: $flagged / $total**"
   echo
-  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns."
+  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged advisory violations; \`auto_repair\` = renderer/compat auto-repair was applied; \`context_prune\` = tool history pruning occurred."
 } >"$SUMMARY"
 
 echo "summary written: $SUMMARY" >&2

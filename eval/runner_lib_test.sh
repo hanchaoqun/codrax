@@ -198,8 +198,9 @@ fi
 true_bin="$(command -v true || true)"
 if [[ -n "$true_bin" && -x "$true_bin" ]]; then
   case_file="$tmp/runner_contract.case"
-  cat >"$case_file" <<'CASE'
+cat >"$case_file" <<'CASE'
 ID=runner_contract
+NAME="runner contract"
 QUESTION="runner harness smoke"
 EXPECT_CONTAINS="this-will-not-appear"
 CASE
@@ -212,6 +213,53 @@ CASE
     fail "eval/run.sh did not write under EVAL_RESULTS_ROOT"
   fi
 fi
+
+fake_multilog="$tmp/fake-codrax-multilog"
+cat >"$fake_multilog" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+logdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log-dir)
+      logdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$logdir"
+cat >"$logdir/codrax-20260608-000001-000-1.log" <<'LOG'
+2026-06-08T00:00:01.000 INFO [cmd/route] single-shot turn policy raw_route=data route=data source=repo
+LOG
+cat >"$logdir/codrax-20260608-000002-000-1.log" <<'LOG'
+2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=2 elapsed=1ms
+LOG
+printf 'aggregated-answer\n'
+FAKE
+chmod +x "$fake_multilog"
+case_file="$tmp/runner_multilog.case"
+cat >"$case_file" <<'CASE'
+ID=runner_multilog
+NAME="runner multilog"
+QUESTION="runner harness multilog smoke"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="aggregated-answer"
+EXPECT_LOG_MATCHES_REGEX="route=data
+answer_contract_check"
+CASE
+CODRAX_BIN="$fake_multilog" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$case_file" 1 >/dev/null 2>"$tmp/runner-multilog.err"
+multilog_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_multilog-*' | sort | tail -1)"
+if [[ -z "$multilog_dir" ]]; then
+  fail "eval/run.sh did not write multilog result dir"
+fi
+assert_eq "$(cat "$multilog_dir/run-1.verdict")" "PASS" "multilog verdict should pass across aggregate logs"
+if ! grep -q '^log_file=.*run-1.logs.all.log$' "$multilog_dir/run-1.metrics.txt"; then
+  fail "metrics did not point at aggregate log"
+fi
+assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log answer contract metric"
 
 scenario_dir="$tmp/data-real-scenario"
 mkdir -p "$scenario_dir"

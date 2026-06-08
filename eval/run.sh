@@ -165,11 +165,17 @@ fi
 # binary. Parallel sweeps pass CODRAX_BIN as a private snapshot; in
 # that mode rebuilding per case defeats the snapshot and dirties the
 # working tree under concurrent runs.
+if [[ -n "$CODRAX_BIN_FROM_ENV" && ! -x "$CODRAX_BIN" ]]; then
+  echo "codrax snapshot missing or not executable: $CODRAX_BIN; falling back to ./codrax" >&2
+  CODRAX_BIN_FROM_ENV=""
+  CODRAX_BIN="./codrax"
+fi
 if [[ -n "$CODRAX_BIN_FROM_ENV" && -x "$CODRAX_BIN" ]]; then
   echo "using codrax snapshot: $CODRAX_BIN" >&2
 else
   echo "building codrax..." >&2
   make build >/dev/null || { echo "build failed" >&2; exit 1; }
+  CODRAX_BIN="./codrax"
 fi
 
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -658,12 +664,26 @@ run_one() {
       ;;
   esac
 
-  # Pick the most recent log file in this run's dedicated logdir. For
-  # MODE=apply this is the apply step's log (the plan step's log is
-  # shadowed by filename timestamp — acceptable trade-off; metrics
-  # section is read-mode focused anyway).
+  # Aggregate every log file in this run's dedicated logdir. Data-route
+  # executions can create multiple codrax-*.log files for one logical run; using
+  # only the latest log loses route/result control lines and creates false
+  # no_log_regex failures. MODE=apply also benefits by keeping plan/apply
+  # control logs visible to metrics.
   local log
   log="$(ls -t "$logdir"/codrax-*.log 2>/dev/null | head -1)"
+  if [[ -n "$log" ]]; then
+    local all_log="$OUTDIR/run-$i.logs.all.log"
+    : >"$all_log"
+    local lf
+    for lf in $(ls -tr "$logdir"/codrax-*.log 2>/dev/null); do
+      {
+        echo
+        echo "===== $lf ====="
+        cat "$lf"
+      } >>"$all_log"
+    done
+    log="$all_log"
+  fi
   write_metrics "$i" "$rc" "$log"
 
   # Verdict source bytes selection by MODE.
@@ -903,7 +923,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_lane_block_kind_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
