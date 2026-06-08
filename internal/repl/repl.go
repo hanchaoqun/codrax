@@ -1417,7 +1417,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	dataRounds := 0
 	workflowRuntime.SetRounds(dataRounds, repairRounds)
 	for {
-		if errText := dataTaskTerminalPlanCompletionGateErrorWithRepo(r.repoRoot, records, currentPlan); errText != "" {
+		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
 			if result, ok := latestDataTaskResult(records); ok {
 				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
 				if transition.HasPlan() {
@@ -1535,7 +1536,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if dataRounds >= r.dataTaskMaxDataRounds {
 			if result, ok := latestDataTaskResult(records); ok {
-				if errText := dataTaskWorkflowCompletionGateErrorWithRepo(r.repoRoot, records, currentPlan, result); errText != "" {
+				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
+					errText := guard.ErrorText()
 					reason := "data task workflow budget exhausted before final output: " + errText
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -2015,7 +2017,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		switch eval.Status {
 		case dataquery.EvalComplete:
-			if errText := dataTaskWorkflowCompletionGateErrorWithRepo(r.repoRoot, records, currentPlan, result); errText != "" {
+			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
+				errText := guard.ErrorText()
 				r.auditDataTaskError(dataRounds, errText)
 				if len(records) > 0 {
 					attachLastError(errText)

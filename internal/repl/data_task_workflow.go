@@ -2,7 +2,6 @@ package repl
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -6488,27 +6487,33 @@ func validateDataTaskWorkflowResult(records []dataTaskWorkflowRecord, current da
 }
 
 func dataTaskWorkflowCompletionGateError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
-	return dataTaskWorkflowCompletionGateErrorWithRepo("", records, current, result)
+	return dataTaskWorkflowCompletionGateGuardResultWithRepo("", records, current, result).ErrorText()
 }
 
 func dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
+	return dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result).ErrorText()
+}
+
+func dataTaskWorkflowCompletionGateGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	return dataTaskWorkflowCompletionGateGuardResultWithRepo("", records, current, result)
+}
+
+func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	var validationErr error
 	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
-		if dataTaskValidationErrorHasCode(err, "missing_required_ledger") {
-			if guard := dataTaskWorkflowCompletionLedgerGuardResult(records, current, result); !guard.Empty() {
-				return fmt.Sprintf("validate data workflow completion: %s", guard.ErrorText())
-			}
-		}
-		return fmt.Sprintf("validate data workflow completion: %v", err)
+		validationErr = err
 	}
-	outputGraph := dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result)
-	if candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); ok && outputGraph.Status == dataworkflow.OutputProjectionStatusIncompleteReference {
-		return fmt.Sprintf("validate data workflow completion: data output incomplete: final answer has %d item(s), but reference field %q in %q defines %d output key(s); run assemble_answer with complete_reference=true, reference_path, and reference_key_field to project missing zero/empty values without changing contribution records",
-			answerItems, candidate.Field, candidate.Path, candidate.KeyCount)
+	var gap dataworkflow.ReferenceProjectionGap
+	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	if hasReferenceGap {
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
 	}
-	if outputGraph.Status == dataworkflow.OutputProjectionStatusMissingProjection {
-		return "validate data workflow completion: data output incomplete: output_contract requires final answer projection but result.answer is empty while reconcile groups are available"
-	}
-	return ""
+	return dataworkflow.CompletionGateGuardResult(dataworkflow.CompletionGateGuardInput{
+		ValidationErr: validationErr,
+		LedgerGraph:   dataTaskWorkflowCompletionLedgerGraph(records, current, result),
+		OutputGraph:   dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
+		ReferenceGap:  gap,
+	})
 }
 
 func dataTaskWorkflowCompletionLedgerGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
@@ -6521,30 +6526,6 @@ func dataTaskWorkflowCompletionLedgerGraph(records []dataTaskWorkflowRecord, cur
 	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
 	state := dataTaskWorkflowState(completionRecords, current)
 	return state.LedgerGraph
-}
-
-func dataTaskValidationErrorHasCode(err error, code string) bool {
-	code = strings.TrimSpace(code)
-	if err == nil || code == "" {
-		return false
-	}
-	var validationErr dataquery.DataValidationError
-	if errors.As(err, &validationErr) {
-		for _, violation := range validationErr.Violations {
-			if strings.TrimSpace(violation.Code) == code {
-				return true
-			}
-		}
-	}
-	var resultErr *dataquery.DataResultValidationError
-	if errors.As(err, &resultErr) {
-		for _, violation := range resultErr.Violations {
-			if strings.TrimSpace(violation.Code) == code {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
@@ -6838,15 +6819,23 @@ func dataTaskTerminalPlanCompletionGateError(records []dataTaskWorkflowRecord, c
 }
 
 func dataTaskTerminalPlanCompletionGateErrorWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	return dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, current).ErrorText()
+}
+
+func dataTaskTerminalPlanCompletionGateGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
+	return dataTaskTerminalPlanCompletionGateGuardResultWithRepo("", records, current)
+}
+
+func dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
 	status := strings.ToLower(strings.TrimSpace(current.Status))
 	if status != "complete" && status != "completed" {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	result, ok := latestDataTaskResult(records)
 	if !ok {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
-	return dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot, records, current, result)
+	return dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
 }
 
 func shouldValidateDataTaskWorkflowResult(current dataquery.TaskPlan) bool {

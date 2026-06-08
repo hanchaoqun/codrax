@@ -229,7 +229,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		return workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
 	}
 	for {
-		if errText := dataTaskTerminalPlanCompletionGateErrorWithRepo(repoRoot, records, currentPlan); errText != "" {
+		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
+			errText := guard.ErrorText()
 			if result, ok := latestDataTaskResult(records); ok {
 				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
 				if transition.HasPlan() {
@@ -301,7 +302,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if dataRounds >= dataRoundsMax {
 			if result, ok := latestDataTaskResult(records); ok {
-				if errText := dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot, records, currentPlan, result); errText != "" {
+				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
+					errText := guard.ErrorText()
 					return "", fmt.Errorf("data task workflow budget exhausted before final output: %s", errText)
 				}
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
@@ -610,7 +612,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		switch eval.Status {
 		case dataquery.EvalComplete:
-			if errText := dataTaskWorkflowCompletionGateErrorWithRepo(repoRoot, records, currentPlan, result); errText != "" {
+			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
+				errText := guard.ErrorText()
 				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)

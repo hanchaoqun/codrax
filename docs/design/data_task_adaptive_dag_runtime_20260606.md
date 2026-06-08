@@ -15362,6 +15362,56 @@ Remaining architecture items:
       tests and diagnostics consume typed guard objects directly.
 - [x] Run full build/test before continuing the IR closure audit.
 
+### Batch 344: Typed Completion Gate Guard
+
+The next string-only control point was the terminal completion gate. The system
+already had `LedgerGraph` and `OutputProjectionGraph`, but terminal loops still
+called `dataTaskWorkflowCompletionGateError*` and used a non-empty string to
+decide whether to trigger deterministic completion repair, planner repair, or
+budget-exhausted failure.
+
+This batch adds a package-level typed completion guard. The REPL layer still
+renders the guard text and may pass it as a repair reason, but the hard
+decision now comes from `GuardResult` over typed validation violations,
+`LedgerGraph`, and `OutputProjectionGraph`.
+
+Generic invariants:
+
+- terminal completion blocks are typed `GuardResult` values, not string-only
+  gate errors;
+- missing required ledgers are resolved through `LedgerGraphCompletionGuard`;
+- material/ledger validation failures preserve dataquery violation codes as
+  workflow violations;
+- strict-output and reference-complete projection gaps are represented as
+  output-projection guard codes with `assemble_answer` repair hints;
+- CLI/REPL terminal loops check guard emptiness, while error text remains only
+  for UX, logs, and repair prompts;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `CompletionGateGuardInput` and `CompletionGateGuardResult`.
+- [x] Added typed projection of dataquery validation violations into
+      workflow violations.
+- [x] Added output-projection guard results for missing final projection and
+      incomplete reference projection.
+- [x] Rewired CLI and REPL completion-gate checks to consume typed guards.
+- [x] Kept `dataTaskWorkflowCompletionGateError*` wrappers as display/test
+      adapters over the typed guard.
+- [x] Added dataworkflow regression tests for ledger, validation, strict
+      projection, and reference projection completion guards.
+
+Remaining architecture items:
+
+- [ ] Thread typed completion guard records into WorkflowRuntime journal events
+      so budget-exhausted and repair paths expose the same guard payload in
+      terminal audit.
+- [ ] Convert completion repair transition input from `ErrorText` to
+      `GuardResult` while preserving the guard text as human-readable reason.
+- [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
+      tests and diagnostics consume typed guard objects directly.
+- [x] Run full build/test before continuing the IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch
