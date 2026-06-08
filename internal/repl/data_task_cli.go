@@ -72,18 +72,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		lastErr := dataTaskLatestError(records)
 		resultSummary := dataTaskTerminalResultSummary(resultPtr, records)
-		var processEvents []dataworkflow.WorkflowJournalEvent
-		if workflowRuntime != nil {
-			processEvents = workflowRuntime.ProcessEvents()
-		}
-		terminalPath := writeDataTaskTerminalArtifactFile(cfg.RuntimeAnchor, repoRoot, dataTaskTerminalAudit{
-			Status:        status,
-			Reason:        reason,
-			DataRounds:    dataRounds,
-			RepairRounds:  repairRounds,
-			Records:       records,
-			Result:        resultPtr,
-			ProcessEvents: processEvents,
+		terminalPath := writeDataTaskTerminalArtifactFileWithRuntime(cfg.RuntimeAnchor, repoRoot, workflowRuntime, dataTaskTerminalAudit{
+			Status:       status,
+			Reason:       reason,
+			DataRounds:   dataRounds,
+			RepairRounds: repairRounds,
+			Records:      records,
+			Result:       resultPtr,
 		}, status, reason, lastErr, resultSummary, "cli")
 		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 			status, dataRounds, repairRounds, len(records), resultSummary,

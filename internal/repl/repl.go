@@ -2988,10 +2988,7 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 	reason := strings.TrimSpace(a.Reason)
 	lastErr := dataTaskLatestError(a.Records)
 	resultSummary := dataTaskTerminalResultSummary(a.Result, a.Records)
-	if len(a.ProcessEvents) == 0 && r.activeDataWorkflowRuntime != nil {
-		a.ProcessEvents = r.activeDataWorkflowRuntime.ProcessEvents()
-	}
-	terminalPath := writeDataTaskTerminalArtifactFile(r.runtimeAnchor, r.repoRoot, a, status, reason, lastErr, resultSummary, "repl")
+	terminalPath := writeDataTaskTerminalArtifactFileWithRuntime(r.runtimeAnchor, r.repoRoot, r.activeDataWorkflowRuntime, a, status, reason, lastErr, resultSummary, "repl")
 	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
 		status, a.DataRounds, a.RepairRounds, len(a.Records), resultSummary,
 		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
@@ -3020,21 +3017,38 @@ func (r *REPL) writeDataTaskTerminalArtifact(a dataTaskTerminalAudit, status, re
 }
 
 func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) string {
+	return writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot, nil, a, status, reason, lastErr, resultSummary, logScope)
+}
+
+func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string, workflowRuntime *dataworkflow.WorkflowRuntime, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) string {
 	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
 		return ""
 	}
-	state := dataTaskWorkflowState(a.Records, dataquery.TaskPlan{})
-	var runtime *dataworkflow.WorkflowRuntime
-	snapshot := runtime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
+	records := a.Records
+	current := dataquery.TaskPlan{}
+	deferredQueue := dataworkflow.DeferredQueueState{}
+	deferred := dataquery.TaskPlan{}
+	if workflowRuntime != nil {
+		if len(records) == 0 {
+			records = workflowRuntime.Records()
+		}
+		current = workflowRuntime.CurrentPlan()
+		deferredQueue = workflowRuntime.DeferredQueue()
+		deferred = workflowRuntime.DeferredPlan()
+	}
+	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
+	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
 		Status:        status,
 		Reason:        reason,
 		DataRounds:    a.DataRounds,
 		RepairRounds:  a.RepairRounds,
 		ResultSummary: resultSummary,
 		LastError:     lastErr,
-		Records:       a.Records,
+		Records:       records,
+		CurrentPlan:   current,
+		DeferredPlan:  deferred,
 		ProcessEvents: a.ProcessEvents,
 		State:         dataTaskWorkflowStateSnapshot(state),
 	})

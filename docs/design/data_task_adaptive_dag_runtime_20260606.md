@@ -14558,3 +14558,39 @@ Changes:
 Remaining architecture items:
 
 - [x] Run focused regression suites before continuing the IR closure audit.
+
+### Batch 322: Runtime-Built Terminal Journal Snapshots
+
+Batch 321 carried live process events into terminal audit output, but terminal
+JSON was still assembled by passing records and selected fields into the
+journal builder. That kept another audit seam open: plan transitions, current
+plan, deferred queue, and runtime process events could diverge from the
+terminal snapshot if callers forgot to thread one field.
+
+This batch routes CLI and REPL terminal audit writing through
+`WorkflowRuntime.BuildJournalSnapshot` whenever a live data workflow runtime is
+available. The static writer remains as a compatibility fallback for tests and
+older helper paths that only have records.
+
+Generic invariants:
+
+- terminal audit is a runtime snapshot, not a separate records-only projection;
+- current plan, deferred plan/queue, plan transitions, process events, and
+  state graphs come from the same runtime handle when present;
+- records-only reconstruction remains available for static/offline snapshot
+  helpers;
+- no data-task business semantics or prompt prose participate in hard gates.
+
+Changes:
+
+- [x] Added a terminal audit writer variant that accepts `WorkflowRuntime`.
+- [x] Rewired CLI terminal audit to use the runtime-backed writer.
+- [x] Rewired REPL terminal audit to use the active data workflow runtime.
+- [x] Kept the old records-only writer as a thin fallback wrapper.
+- [x] Extended CLI regression coverage to assert terminal audit includes live
+      process events, `plan_transitions`, a repair transition, and
+      `current_plan`.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites before continuing the IR closure audit.
