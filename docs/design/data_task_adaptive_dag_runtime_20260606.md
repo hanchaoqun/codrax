@@ -16696,10 +16696,67 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Audit historical `Remaining architecture items` and mark stale entries
+- [x] Audit historical `Remaining architecture items` and mark stale entries
       that are now covered by the typed IR batches.
 - [ ] Replace adapter-emitted duplicate transition reason lines with direct
       rendering of runtime transition events once CLI/REPL share one event
       sink.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 369: Historical Backlog Deduplication And Current IR Queue
+
+The design log intentionally keeps chronological `Remaining architecture
+items` inside older batches. That is useful for postmortem audit, but it became
+misleading once later batches closed many of those items without editing every
+historical paragraph. This batch records the current-state audit so future work
+uses one deduplicated queue instead of chasing stale historical checkboxes.
+
+Stale items now covered by later batches:
+
+- `value_distribution` is implemented as a typed data action with runner,
+  schema/prompt guidance, workflow contracts, scaffolds, and tests.
+- `mapping_candidate` is implemented as a typed data action with objective
+  source/reference candidate evidence, workflow contracts, scaffolds, and
+  tests.
+- `ArtifactGraph` and executable artifact schema projection are live workflow
+  state, persisted in journals, and consumed by staging/admission guards.
+- `LedgerGraph` and `OutputProjectionGraph` are first-class IR for validation
+  ledgers and final-answer readiness.
+- `WorkflowDecision` consumes typed violations plus LedgerGraph and
+  OutputProjectionGraph instead of forcing CLI/REPL to infer blockers from
+  prose.
+- Deferred queue storage, lifecycle, dispatch, and executable payload are
+  runtime/journal IR, with CLI/REPL loops acting as adapters.
+- Candidate admission and ordinary current-plan transitions now enter
+  `WorkflowRuntime` with typed events and clone-isolated state.
+- Runtime journals carry process events, plan transitions, records,
+  ActionGraph, ArtifactGraph, LedgerGraph, OutputProjectionGraph, progress,
+  typed violations, decisions, and resume payloads.
+- CLI/REPL process display consumes `WorkflowJournalEvent` through shared
+  package-level display projection.
+
+Current deduplicated IR backlog before real-scenario testing:
+
+- [ ] Replace adapter-emitted duplicate transition reason lines with direct
+      rendering of runtime transition events. The event is now runtime-owned;
+      the remaining work is to stop CLI/REPL from rendering a separate
+      free-form reason line for the same transition.
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      and round counters) so prompt/evaluator/checkpoint inputs are produced
+      from runtime snapshots rather than parallel adapter variables.
+- [ ] Retire legacy error/output recomputation fallbacks only after all direct
+      callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
+      and WorkflowViolation inputs.
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario gate.
+
+Testing rule:
+
+- Do not run the real local procurement-style scenario until the current
+  deduplicated IR backlog above is either implemented or explicitly classified
+  as non-blocking operational/eval work. Historical unchecked items above are
+  chronological notes unless they reappear in this current queue.
