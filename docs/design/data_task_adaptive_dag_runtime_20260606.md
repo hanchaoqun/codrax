@@ -14941,10 +14941,56 @@ Remaining architecture items:
 
 - [x] Top-level action-batch shape guards now return typed guard results.
 - [ ] Convert remaining string-only staging checks such as coverage-loop,
-      allowed-next-action, stage-progress, numeric-constant reuse, and terminal
-      raw-material custom-transform into typed reducer-owned guard results.
+      stage-progress, numeric-constant reuse, and terminal raw-material
+      custom-transform into typed reducer-owned guard results.
 - [ ] Feed admission guard codes into ActionGraph blocked nodes and workflow
       process events.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 335: Typed Allowed-Next Action Admission
+
+The next string-first admission check was the allowed-next-action guard. REPL
+previously computed the current workflow state, rendered an error string when a
+candidate action fell outside `workflow_state_json.allowed_next_actions`, and
+then wrapped that string as a generic guard result. That duplicated workflow
+admission semantics in the adapter and made the repair path depend on prose.
+
+This batch moves the allowed-next-action decision into `internal/dataworkflow`.
+REPL now supplies only objective adapter facts: whether the action is a
+generated-artifact diagnostic and whether it is a record-materialization
+exception. `dataworkflow.AllowedNextActionGuardResult` owns the typed decision,
+including the violation code, action metadata, and allowed-action repair hints.
+
+Generic invariants:
+
+- allowed-next admission consumes typed `WorkflowStateView` and action metadata;
+- adapter-local exceptions are boolean facts, not prose rules;
+- violations expose the allowed action kinds as structured repair hints;
+- coverage-only extraction after material coverage remains blocked unless the
+  action is a typed record-materialization step;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `AllowedNextActionGuardInput` and
+      `AllowedNextActionGuardResult`.
+- [x] Added typed violations for `action_outside_allowed_next_stage` and
+      `extract_records_after_coverage_requires_output`.
+- [x] Rewired the REPL workflow staging path to consume the typed guard result
+      directly.
+- [x] Kept the old string function as a renderer over the typed result for
+      compatibility with existing call sites during the migration.
+- [x] Added dataworkflow-level regression coverage for allowed-next typed
+      violations and repair action hints.
+
+Remaining architecture items:
+
+- [x] Allowed-next-action staging now returns typed guard results.
+- [ ] Convert remaining string-only staging checks such as coverage-loop,
+      stage-progress, numeric-constant reuse, and terminal raw-material
+      custom-transform into typed reducer-owned guard results.
+- [ ] Feed allowed-next guard codes into ActionGraph blocked nodes and workflow
+      process events instead of only returning them through the repair loop.
 - [x] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations

@@ -113,6 +113,31 @@ func TestActionBatchShapeGuardResultUsesTypedViolation(t *testing.T) {
 	}
 }
 
+func TestAllowedNextActionGuardResultUsesTypedViolation(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:             "join_now",
+		Kind:           dataquery.DataActionJoinRecords,
+		InputPaths:     []string{"left", "right"},
+		OutputArtifact: "joined",
+	}
+	guard := AllowedNextActionGuardResult(AllowedNextActionGuardInput{
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			NextStage:                  StagePrepareContributionInputs,
+			AllowedNextActions:         []string{string(dataquery.DataActionFilterRecords)},
+		},
+		Action:      action,
+		ActionIndex: 2,
+	})
+	if guard.Code != "action_outside_allowed_next_stage" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed action_outside_allowed_next_stage", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "join_now" || v.ActionKind != string(dataquery.DataActionJoinRecords) || len(v.RepairActionHints) != 1 || v.RepairActionHints[0] != string(dataquery.DataActionFilterRecords) {
+		t.Fatalf("violation=%+v, want action metadata and allowed-action hint", v)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {

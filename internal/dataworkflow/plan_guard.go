@@ -54,6 +54,14 @@ type ActionBatchShapeGuardInput struct {
 	WorkflowAware                bool
 }
 
+type AllowedNextActionGuardInput struct {
+	State                       WorkflowStateView
+	Action                      dataquery.DataAction
+	ActionIndex                 int
+	GeneratedArtifactDiagnostic bool
+	RecordMaterialization       bool
+}
+
 func PlanShapeGuardResult(input PlanShapeGuardInput) GuardResult {
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status != "" && status != "ready" {
@@ -212,6 +220,44 @@ func actionBatchShapeGuard(code, message string, action dataquery.DataAction) Gu
 		Repairability: RepairNeedsTypedAction,
 		Action:        action,
 		Reason:        message,
+	})
+	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+func AllowedNextActionGuardResult(input AllowedNextActionGuardInput) GuardResult {
+	state := input.State
+	if len(state.AllowedNextActions) == 0 || input.GeneratedArtifactDiagnostic || input.RecordMaterialization {
+		return GuardResult{}
+	}
+	action := input.Action
+	kind := NormalizeActionKind(action.Kind)
+	if kind == dataquery.DataActionExtractRecords && state.MaterialCoverageSufficient {
+		message := fmt.Sprintf("data planning incomplete: workflow next_stage=%s can use extract_records only as record materialization after material coverage is sufficient. Action %d (%s) must declare output_artifact and consume explicit current-batch input paths or generated artifact aliases; do not re-run coverage-only extraction.",
+			state.NextStage, guardActionNumber(input.ActionIndex), guardActionLabel(action))
+		return allowedNextActionGuard("extract_records_after_coverage_requires_output", message, action, state.AllowedNextActions)
+	}
+	for _, allowed := range state.AllowedNextActions {
+		if kind == dataquery.DataActionKind(allowed) {
+			return GuardResult{}
+		}
+	}
+	message := fmt.Sprintf("data planning incomplete: workflow next_stage=%s allows only next actions [%s], but action %d (%s) uses %s. Emit the next bounded DAG batch using workflow_state_json.allowed_next_actions, set continue_after=true when later stages remain, and let the evaluator advance the workflow after this batch.",
+		state.NextStage,
+		strings.Join(cleanStrings(state.AllowedNextActions), ", "),
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(action),
+		kind)
+	return allowedNextActionGuard("action_outside_allowed_next_stage", message, action, state.AllowedNextActions)
+}
+
+func allowedNextActionGuard(code, message string, action dataquery.DataAction, allowed []string) GuardResult {
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              code,
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		Action:            action,
+		RepairActionHints: cleanStrings(allowed),
+		Reason:            message,
 	})
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
 }

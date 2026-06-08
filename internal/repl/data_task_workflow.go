@@ -225,8 +225,8 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	if errText := dataTaskCoverageLoopGuardError(records, plan); errText != "" {
 		return dataTaskGuardResultFromMessage("coverage_loop_guard", errText)
 	}
-	if errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan); errText != "" {
-		return dataTaskGuardResultFromMessage("allowed_next_action_guard", errText)
+	if guard := dataTaskWorkflowAllowedNextActionGuardResult(records, plan); !guard.Empty() {
+		return guard
 	}
 	if errText := dataTaskWorkflowStageProgressGuardError(records, plan); errText != "" {
 		return dataTaskGuardResultFromMessage("stage_progress_guard", errText)
@@ -2136,35 +2136,32 @@ func dataTaskMinInt(a, b int) int {
 }
 
 func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowAllowedNextActionGuardResult(records, plan).ErrorText()
+}
+
+func dataTaskWorkflowAllowedNextActionGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if len(records) == 0 || len(plan.Actions) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	if !dataTaskWorkflowHasSuccessfulResult(records) {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	state := dataTaskWorkflowState(records, plan)
 	if len(state.AllowedNextActions) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	for i, action := range plan.Actions {
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		if dataTaskActionIsGeneratedArtifactDiagnostic(records, action) {
-			continue
+		if guard := dataworkflow.AllowedNextActionGuardResult(dataworkflow.AllowedNextActionGuardInput{
+			State:                       state,
+			Action:                      action,
+			ActionIndex:                 i,
+			GeneratedArtifactDiagnostic: dataTaskActionIsGeneratedArtifactDiagnostic(records, action),
+			RecordMaterialization:       dataTaskActionIsRecordMaterialization(records, action),
+		}); !guard.Empty() {
+			return guard
 		}
-		if dataTaskActionIsRecordMaterialization(records, action) {
-			continue
-		}
-		if kind == dataquery.DataActionExtractRecords && state.MaterialCoverageSufficient {
-			return fmt.Sprintf("data planning incomplete: workflow next_stage=%s can use extract_records only as record materialization after material coverage is sufficient. Action %d (%s) must declare output_artifact and consume explicit current-batch input paths or generated artifact aliases; do not re-run coverage-only extraction.",
-				state.NextStage, i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))))
-		}
-		if dataTaskWorkflowActionKindAllowed(kind, state) {
-			continue
-		}
-		return fmt.Sprintf("data planning incomplete: workflow next_stage=%s allows only next actions [%s], but action %d (%s) uses %s. Emit the next bounded DAG batch using workflow_state_json.allowed_next_actions, set continue_after=true when later stages remain, and let the evaluator advance the workflow after this batch.",
-			state.NextStage, strings.Join(state.AllowedNextActions, ", "), i+1, firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))), kind)
 	}
-	return ""
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskActionIsRecordMaterialization(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
