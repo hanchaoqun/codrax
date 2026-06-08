@@ -5478,98 +5478,11 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 		}
 		guardViolations = append(guardViolations, rec.Admission.FinalGuard.Violations...)
 	}
-	var additional []dataworkflow.WorkflowViolation
-	for _, issue := range state.FieldContractViolations {
-		additional = append(additional, dataworkflow.WorkflowViolation{
-			Code:                 "field_contract_violation",
-			Severity:             "error",
-			Repairability:        dataworkflow.RepairNeedsTypedAction,
-			ActionID:             strings.TrimSpace(issue.ActionID),
-			ActionKind:           strings.TrimSpace(issue.ActionKind),
-			InputAlias:           strings.TrimSpace(issue.InputAlias),
-			InputAliases:         cleanDataTaskStrings(issue.InputAliases),
-			OutputAlias:          strings.TrimSpace(issue.OutputAlias),
-			IdempotencyKey:       strings.TrimSpace(issue.IdempotencyKey),
-			DependencyRank:       issue.DependencyRank,
-			MissingFields:        append([]string(nil), issue.MissingFields...),
-			AvailableFieldSample: append([]string(nil), issue.AvailableFieldSample...),
-			CandidateArtifacts:   append([]string(nil), issue.CandidateArtifacts...),
-			RepairActionHints:    append([]string(nil), issue.RepairActionHints...),
-			Reason:               strings.TrimSpace(issue.Reason),
-		})
-	}
-	for _, issue := range state.ZeroMatchFilterViolations {
-		aliases := dataTaskZeroMatchFilterIssueAliases(issue)
-		input := strings.TrimSpace(issue.InputPath)
-		if input == "" && len(aliases) > 0 {
-			input = aliases[0]
-		}
-		action := dataquery.DataAction{
-			Kind:           dataquery.DataActionFilterRecords,
-			InputPaths:     cleanDataTaskStrings([]string{input}),
-			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
-		}
-		additional = append(additional, dataworkflow.NewActionInputViolation(
-			"zero_match_filter",
-			"warning",
-			dataworkflow.RepairNeedsTypedAction,
-			action,
-			input,
-			issue.FilterFields,
-			issue.Reason,
-			issue.RepairActionHints,
-		))
-	}
-	for _, issue := range state.UnmatchedResolutionViolations {
-		aliases := dataTaskUnmatchedResolutionIssueAliases(issue)
-		input := strings.TrimSpace(issue.BasePath)
-		if input == "" && len(aliases) > 0 {
-			input = aliases[0]
-		}
-		action := dataquery.DataAction{
-			Kind:           dataquery.DataActionApplyResolutions,
-			InputPaths:     cleanDataTaskStrings([]string{input}),
-			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
-		}
-		additional = append(additional, dataworkflow.NewActionInputViolation(
-			"unmatched_resolution",
-			"warning",
-			dataworkflow.RepairNeedsTypedAction,
-			action,
-			input,
-			issue.TargetFields,
-			issue.Reason,
-			issue.RepairActionHints,
-		))
-	}
-	for _, issue := range state.ZeroEligibleViolations {
-		aliases := dataTaskZeroEligibleIssueAliases(issue)
-		input := strings.TrimSpace(issue.InputPath)
-		if input == "" && len(aliases) > 0 {
-			input = aliases[0]
-		}
-		action := dataquery.DataAction{
-			Kind:           dataquery.DataActionQualifyRecords,
-			InputPaths:     cleanDataTaskStrings([]string{input}),
-			OutputArtifact: firstNonEmptyString(issue.ArtifactID, strings.Join(aliases, ",")),
-		}
-		additional = append(additional, dataworkflow.NewActionInputViolation(
-			"zero_eligible_records",
-			"warning",
-			dataworkflow.RepairNeedsTypedAction,
-			action,
-			input,
-			nil,
-			issue.Reason,
-			issue.RepairActionHints,
-		))
-	}
-	return dataworkflow.BuildWorkflowViolations(dataworkflow.WorkflowViolationInput{
-		Facts:               dataTaskWorkflowStageFacts(state),
+	return dataworkflow.BuildWorkflowStateViolations(dataworkflow.WorkflowStateViolationInput{
 		Records:             records,
-		NoProgressThreshold: DefaultDataTaskMaxNodeFailures,
+		State:               state,
 		GuardViolations:     guardViolations,
-		Additional:          additional,
+		NoProgressThreshold: DefaultDataTaskMaxNodeFailures,
 	})
 }
 

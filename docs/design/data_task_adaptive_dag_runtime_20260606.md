@@ -14791,3 +14791,38 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 328: Workflow State Violation Aggregation
+
+Field-contract, zero-match-filter, unmatched-resolution, and zero-eligible
+diagnostics are already typed dataworkflow issues, but the final aggregation
+into `WorkflowViolation` still lived in REPL. That left the evaluator-facing
+repair contract split across layers: dataworkflow discovered the issue shape,
+REPL decided how to project it into unified violations.
+
+This batch moves that projection into `dataworkflow.BuildWorkflowStateViolations`.
+REPL now only collects admission guard violations from live records and passes
+the typed state view through. The aggregation remains structural: it does not
+parse prompt prose, inspect business names, or infer domain meaning.
+
+Generic invariants:
+
+- typed issue-to-violation projection belongs to dataworkflow;
+- field-contract, zero-match, unmatched-resolution, and zero-eligible issues
+  map to unified `WorkflowViolation` values with typed repair hints;
+- admission guard violations are appended as typed inputs, not string-parsed
+  errors;
+- relation no-progress detection still uses typed progress events;
+- no business-domain roles, keywords, or case-specific fields are introduced.
+
+Changes:
+
+- [x] Added `WorkflowStateViolationInput`.
+- [x] Added `BuildWorkflowStateViolations`.
+- [x] Rewired REPL violation aggregation to delegate to dataworkflow.
+- [x] Added regression coverage for all migrated issue classes.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.

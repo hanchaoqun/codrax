@@ -1,5 +1,11 @@
 package dataworkflow
 
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
+
 type ViolationRepairability string
 
 const (
@@ -36,6 +42,111 @@ type WorkflowViolationInput struct {
 	Additional          []WorkflowViolation
 }
 
+type WorkflowStateViolationInput struct {
+	Records             []WorkflowRecord
+	State               WorkflowStateView
+	GuardViolations     []WorkflowViolation
+	NoProgressThreshold int
+}
+
+func BuildWorkflowStateViolations(input WorkflowStateViolationInput) []WorkflowViolation {
+	state := input.State
+	additional := make([]WorkflowViolation, 0,
+		len(state.FieldContractViolations)+
+			len(state.ZeroMatchFilterViolations)+
+			len(state.UnmatchedResolutionViolations)+
+			len(state.ZeroEligibleViolations))
+	for _, issue := range state.FieldContractViolations {
+		additional = append(additional, WorkflowViolation{
+			Code:                 "field_contract_violation",
+			Severity:             "error",
+			Repairability:        RepairNeedsTypedAction,
+			ActionID:             strings.TrimSpace(issue.ActionID),
+			ActionKind:           strings.TrimSpace(issue.ActionKind),
+			InputAlias:           strings.TrimSpace(issue.InputAlias),
+			InputAliases:         cleanStrings(issue.InputAliases),
+			OutputAlias:          strings.TrimSpace(issue.OutputAlias),
+			IdempotencyKey:       strings.TrimSpace(issue.IdempotencyKey),
+			DependencyRank:       issue.DependencyRank,
+			MissingFields:        append([]string(nil), issue.MissingFields...),
+			AvailableFieldSample: append([]string(nil), issue.AvailableFieldSample...),
+			CandidateArtifacts:   append([]string(nil), issue.CandidateArtifacts...),
+			RepairActionHints:    append([]string(nil), issue.RepairActionHints...),
+			Reason:               strings.TrimSpace(issue.Reason),
+		})
+	}
+	for _, issue := range state.ZeroMatchFilterViolations {
+		aliases := diagnosticIssueAliases(issue.Aliases, issue.ArtifactID)
+		inputAlias := strings.TrimSpace(issue.InputPath)
+		if inputAlias == "" && len(aliases) > 0 {
+			inputAlias = aliases[0]
+		}
+		additional = append(additional, NewActionInputViolation(
+			"zero_match_filter",
+			"warning",
+			RepairNeedsTypedAction,
+			dataquery.DataAction{
+				Kind:           dataquery.DataActionFilterRecords,
+				InputPaths:     cleanStrings([]string{inputAlias}),
+				OutputArtifact: firstNonEmpty(issue.ArtifactID, strings.Join(aliases, ",")),
+			},
+			inputAlias,
+			issue.FilterFields,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
+	}
+	for _, issue := range state.UnmatchedResolutionViolations {
+		aliases := diagnosticIssueAliases(issue.Aliases, issue.ArtifactID)
+		inputAlias := strings.TrimSpace(issue.BasePath)
+		if inputAlias == "" && len(aliases) > 0 {
+			inputAlias = aliases[0]
+		}
+		additional = append(additional, NewActionInputViolation(
+			"unmatched_resolution",
+			"warning",
+			RepairNeedsTypedAction,
+			dataquery.DataAction{
+				Kind:           dataquery.DataActionApplyResolutions,
+				InputPaths:     cleanStrings([]string{inputAlias}),
+				OutputArtifact: firstNonEmpty(issue.ArtifactID, strings.Join(aliases, ",")),
+			},
+			inputAlias,
+			issue.TargetFields,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
+	}
+	for _, issue := range state.ZeroEligibleViolations {
+		aliases := diagnosticIssueAliases(issue.Aliases, issue.ArtifactID)
+		inputAlias := strings.TrimSpace(issue.InputPath)
+		if inputAlias == "" && len(aliases) > 0 {
+			inputAlias = aliases[0]
+		}
+		additional = append(additional, NewActionInputViolation(
+			"zero_eligible_records",
+			"warning",
+			RepairNeedsTypedAction,
+			dataquery.DataAction{
+				Kind:           dataquery.DataActionQualifyRecords,
+				InputPaths:     cleanStrings([]string{inputAlias}),
+				OutputArtifact: firstNonEmpty(issue.ArtifactID, strings.Join(aliases, ",")),
+			},
+			inputAlias,
+			nil,
+			issue.Reason,
+			issue.RepairActionHints,
+		))
+	}
+	return BuildWorkflowViolations(WorkflowViolationInput{
+		Facts:               state.Facts(),
+		Records:             input.Records,
+		NoProgressThreshold: input.NoProgressThreshold,
+		GuardViolations:     input.GuardViolations,
+		Additional:          additional,
+	})
+}
+
 func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {
 	out := append([]WorkflowViolation(nil), input.GuardViolations...)
 	events := input.ProgressEvents
@@ -47,4 +158,12 @@ func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {
 	}
 	out = append(out, input.Additional...)
 	return out
+}
+
+func diagnosticIssueAliases(aliases []string, artifactID string) []string {
+	out := append([]string(nil), aliases...)
+	if strings.TrimSpace(artifactID) != "" {
+		out = append(out, artifactID)
+	}
+	return cleanStrings(out)
 }
