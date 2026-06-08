@@ -16128,3 +16128,49 @@ Remaining architecture items:
       assembly errors.
 - [ ] Move evaluator repair decisions to consume typed param blockers directly
       from reducer state.
+
+### Batch 356: Typed Mapping-Spec Parameter Contracts
+
+Batch 355 typed field-spec and join-selector contracts. The next remaining
+parameter gap was in mapping-style actions: `apply_entity_resolutions` and
+`enrich_records`. Both actions accept structurally rich specs: source/base
+paths, mapping/reference paths, key fields, target fields, and optional filters.
+Before this batch, malformed spec JSON, missing mapping paths, conflicting base
+paths, and invalid spec-local filters could still leave the action runner as
+plain prose errors.
+
+This batch keeps the same domain-neutral boundary:
+
+- parameter-shape, missing-parameter, and parameter-conflict failures are
+  `action_param_violation`;
+- field names that are syntactically valid parameters but absent from the
+  executable artifact schema remain `field_contract_violation`;
+- spec-local filters must fail loudly when malformed instead of being ignored;
+- rendered UX may explain the blocker, but evaluator/repair logic consumes the
+  typed violation fields.
+
+Changes:
+
+- [x] Converted malformed `resolution_specs_json` /
+      `apply_specs_json` parsing for `apply_entity_resolutions` to typed action
+      parameter violations.
+- [x] Converted apply-resolution missing base inputs, missing resolution path,
+      conflicting base paths, and missing target field in multi-resolution
+      batches to typed parameter violations.
+- [x] Converted malformed `mapping_specs_json` /
+      `lookup_specs_json` parsing for `enrich_records` to typed action
+      parameter violations.
+- [x] Converted enrich mapping-spec required parameters and top-level or
+      spec-local mapping filters to typed parameter violations.
+- [x] Stopped silently ignoring malformed enrich spec-local filters.
+- [x] Added regression coverage for apply-resolution and enrich mapping-spec
+      parameter classification.
+
+Remaining architecture items:
+
+- [ ] Add typed result-shape repairability for materialization and final-output
+      assembly errors.
+- [ ] Move evaluator repair decisions to consume typed param blockers directly
+      from reducer state.
+- [ ] Continue auditing role-selection and materialization failures for typed
+      IR equivalents before running the real scenario again.

@@ -4475,14 +4475,26 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 		return DataArtifact{}, nil, nil, err
 	}
 	if len(specs) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("apply_entity_resolutions requires at least one resolution spec or resolution_path")
+		return DataArtifact{}, nil, nil, dataActionParamError(
+			DataActionApplyResolutions,
+			"resolution_specs_json/resolution_path",
+			"at least one resolution spec object or a resolution_path",
+			"",
+			errors.New("apply_entity_resolutions requires at least one resolution spec or resolution_path"),
+		)
 	}
 	basePath, err := resolveApplyResolutionBasePath(basePathParam, paths, specs)
 	if err != nil {
 		return DataArtifact{}, nil, nil, err
 	}
 	if basePath == "" {
-		return DataArtifact{}, nil, nil, errors.New("apply_entity_resolutions requires base_path or at least one input_path")
+		return DataArtifact{}, nil, nil, dataActionParamError(
+			DataActionApplyResolutions,
+			"base_path/input_paths",
+			"base_path or at least one input_path",
+			"",
+			errors.New("apply_entity_resolutions requires base_path or at least one input_path"),
+		)
 	}
 	specs, err = finalizeApplyResolutionSpecs(specs, paths, basePath)
 	if err != nil {
@@ -4852,12 +4864,24 @@ func parseApplyResolutionSpecs(action DataAction, paths []string, basePath strin
 	if raw != "" {
 		values, err := parseActionMapListJSON(raw)
 		if err != nil {
-			return nil, fmt.Errorf("parse apply_entity_resolutions resolution_specs_json: %w", err)
+			return nil, dataActionParamError(
+				DataActionApplyResolutions,
+				"resolution_specs_json",
+				"array of resolution spec objects",
+				raw,
+				fmt.Errorf("parse apply_entity_resolutions resolution_specs_json: %w", err),
+			)
 		}
-		for _, value := range values {
+		for i, value := range values {
 			spec, err := applyResolutionSpecFromMap(value)
 			if err != nil {
-				return nil, err
+				return nil, dataActionParamError(
+					DataActionApplyResolutions,
+					"resolution_specs_json",
+					"array of resolution spec objects with valid filter specs",
+					fmt.Sprintf("resolution_specs_json[%d]", i),
+					err,
+				)
 			}
 			if spec.ResolutionPath == "" {
 				spec.ResolutionPath = topLevelResolutionPath
@@ -5037,10 +5061,22 @@ func resolveApplyResolutionBasePath(topLevelBasePath string, paths []string, spe
 			continue
 		}
 		if specBasePath != candidate {
-			return "", fmt.Errorf("apply_entity_resolutions specs use multiple base_path values: %s and %s", specBasePath, candidate)
+			return "", dataActionParamError(
+				DataActionApplyResolutions,
+				"base_path",
+				"one base_path shared by all resolution specs",
+				fmt.Sprintf("%s,%s", specBasePath, candidate),
+				fmt.Errorf("apply_entity_resolutions specs use multiple base_path values: %s and %s", specBasePath, candidate),
+			)
 		}
 		if basePath != "" && basePath != candidate {
-			return "", fmt.Errorf("apply_entity_resolutions spec %d base_path %s conflicts with top-level base_path %s", i+1, candidate, basePath)
+			return "", dataActionParamError(
+				DataActionApplyResolutions,
+				"base_path",
+				"spec base_path must match top-level base_path",
+				fmt.Sprintf("spec=%s top_level=%s", candidate, basePath),
+				fmt.Errorf("apply_entity_resolutions spec %d base_path %s conflicts with top-level base_path %s", i+1, candidate, basePath),
+			)
 		}
 	}
 	if basePath == "" {
@@ -5063,13 +5099,25 @@ func finalizeApplyResolutionSpecs(specs []applyResolutionSpec, paths []string, b
 			specs[i].ResolutionPath = defaultResolutionPaths[i]
 		}
 		if specs[i].ResolutionPath == "" {
-			return nil, fmt.Errorf("apply_entity_resolutions spec %d requires resolution_path", i+1)
+			return nil, dataActionParamError(
+				DataActionApplyResolutions,
+				"resolution_path",
+				"resolution_path/mapping_path/lookup_path or a non-base input_path",
+				fmt.Sprintf("spec=%d", i+1),
+				fmt.Errorf("apply_entity_resolutions spec %d requires resolution_path", i+1),
+			)
 		}
 		if specs[i].TargetIDField == "" {
 			if len(specs) == 1 {
 				specs[i].TargetIDField = "canonical_id"
 			} else {
-				return nil, fmt.Errorf("apply_entity_resolutions spec %d requires target_id_field when multiple resolution sets are applied", i+1)
+				return nil, dataActionParamError(
+					DataActionApplyResolutions,
+					"target_id_field",
+					"target_id_field for each spec when applying multiple resolution sets",
+					fmt.Sprintf("spec=%d", i+1),
+					fmt.Errorf("apply_entity_resolutions spec %d requires target_id_field when multiple resolution sets are applied", i+1),
+				)
 			}
 		}
 		if specs[i].TargetStatusField == "" {
@@ -5659,14 +5707,26 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		basePath = paths[0]
 	}
 	if basePath == "" {
-		return DataArtifact{}, nil, nil, nil, errors.New("enrich_records requires a base_path or at least one input_path")
+		return DataArtifact{}, nil, nil, nil, dataActionParamError(
+			DataActionEnrichRecords,
+			"base_path/input_paths",
+			"base_path or at least one input_path",
+			"",
+			errors.New("enrich_records requires a base_path or at least one input_path"),
+		)
 	}
 	specs, err := parseEnrichRecordSpecs(action, paths, basePath)
 	if err != nil {
 		return DataArtifact{}, nil, nil, nil, err
 	}
 	if len(specs) == 0 {
-		return DataArtifact{}, nil, nil, nil, errors.New("enrich_records requires at least one mapping spec")
+		return DataArtifact{}, nil, nil, nil, dataActionParamError(
+			DataActionEnrichRecords,
+			"mapping_specs_json/mapping_path",
+			"at least one mapping spec object or mapping_path",
+			"",
+			errors.New("enrich_records requires at least one mapping spec"),
+		)
 	}
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
@@ -5871,11 +5931,26 @@ func parseEnrichRecordSpecs(action DataAction, paths []string, basePath string) 
 	)); raw != "" {
 		var values []map[string]any
 		if err := json.Unmarshal([]byte(raw), &values); err != nil {
-			return nil, fmt.Errorf("parse enrich_records mapping_specs_json: %w", err)
+			return nil, dataActionParamError(
+				DataActionEnrichRecords,
+				"mapping_specs_json",
+				"array of mapping spec objects",
+				raw,
+				fmt.Errorf("parse enrich_records mapping_specs_json: %w", err),
+			)
 		}
 		specs := make([]enrichRecordSpec, 0, len(values))
 		for i, value := range values {
-			spec := enrichRecordSpecFromMap(value)
+			spec, err := enrichRecordSpecFromMap(value)
+			if err != nil {
+				return nil, dataActionParamError(
+					DataActionEnrichRecords,
+					"mapping_specs_json",
+					"array of mapping spec objects with valid filter specs",
+					fmt.Sprintf("mapping_specs_json[%d]", i),
+					err,
+				)
+			}
 			if spec.MappingPath == "" {
 				mappingPaths := nonBaseEnrichPaths(paths, basePath)
 				if i < len(mappingPaths) {
@@ -5910,7 +5985,13 @@ func parseEnrichRecordSpecs(action DataAction, paths []string, basePath string) 
 	if raw := strings.TrimSpace(firstNonEmptyString(structuredActionParam(action.Params, "mapping_filters"), action.Params["mapping_filters_json"])); raw != "" {
 		filters, err := parseContributionFilters(DataAction{Params: map[string]string{"filters_json": raw}})
 		if err != nil {
-			return nil, err
+			return nil, dataActionParamError(
+				DataActionEnrichRecords,
+				"mapping_filters_json",
+				"array of filter objects",
+				raw,
+				err,
+			)
 		}
 		spec.MappingFilters = filters
 	}
@@ -5921,7 +6002,7 @@ func parseEnrichRecordSpecs(action DataAction, paths []string, basePath string) 
 	return []enrichRecordSpec{spec}, nil
 }
 
-func enrichRecordSpecFromMap(value map[string]any) enrichRecordSpec {
+func enrichRecordSpecFromMap(value map[string]any) (enrichRecordSpec, error) {
 	getString := func(keys ...string) string {
 		for _, key := range keys {
 			if v, ok := value[key]; ok {
@@ -5952,18 +6033,22 @@ func enrichRecordSpecFromMap(value map[string]any) enrichRecordSpec {
 	if filters, ok := value["mapping_filters"]; ok {
 		if raw, err := json.Marshal(filters); err == nil {
 			parsed, err := parseContributionFilters(DataAction{Params: map[string]string{"filters_json": string(raw)}})
-			if err == nil {
-				spec.MappingFilters = parsed
+			if err != nil {
+				return enrichRecordSpec{}, fmt.Errorf("parse enrich_records mapping_filters: %w", err)
 			}
+			spec.MappingFilters = parsed
+		} else {
+			return enrichRecordSpec{}, fmt.Errorf("parse enrich_records mapping_filters: %w", err)
 		}
 	}
 	if filters, ok := value["mapping_filters_json"]; ok {
 		parsed, err := parseContributionFilters(DataAction{Params: map[string]string{"filters_json": fmt.Sprint(filters)}})
-		if err == nil {
-			spec.MappingFilters = parsed
+		if err != nil {
+			return enrichRecordSpec{}, fmt.Errorf("parse enrich_records mapping_filters_json: %w", err)
 		}
+		spec.MappingFilters = parsed
 	}
-	return spec
+	return spec, nil
 }
 
 func parseActionStringListParamFromAny(value any) []string {
@@ -6018,16 +6103,40 @@ func normalizeEnrichRecordSpec(spec enrichRecordSpec) enrichRecordSpec {
 
 func validateEnrichRecordSpec(spec enrichRecordSpec) error {
 	if spec.MappingPath == "" {
-		return errors.New("enrich_records mapping spec requires mapping_path/reference_path or an additional input_path")
+		return dataActionParamError(
+			DataActionEnrichRecords,
+			"mapping_path",
+			"mapping_path/reference_path/lookup_path or an additional non-base input_path",
+			"",
+			errors.New("enrich_records mapping spec requires mapping_path/reference_path or an additional input_path"),
+		)
 	}
 	if len(spec.SourceFields) == 0 {
-		return errors.New("enrich_records mapping spec requires source_field/base_field or source_fields/base_fields")
+		return dataActionParamError(
+			DataActionEnrichRecords,
+			"source_fields",
+			"source_field/base_field or source_fields/base_fields",
+			"",
+			errors.New("enrich_records mapping spec requires source_field/base_field or source_fields/base_fields"),
+		)
 	}
 	if len(spec.MappingSourceFields) == 0 {
-		return errors.New("enrich_records mapping spec requires mapping_source_field/reference_field")
+		return dataActionParamError(
+			DataActionEnrichRecords,
+			"mapping_source_fields",
+			"mapping_source_field/reference_field or mapping_source_fields/reference_fields",
+			"",
+			errors.New("enrich_records mapping spec requires mapping_source_field/reference_field"),
+		)
 	}
 	if spec.MappingValueField == "" || spec.TargetField == "" {
-		return errors.New("enrich_records mapping spec requires mapping_value_field and target_field")
+		return dataActionParamError(
+			DataActionEnrichRecords,
+			"mapping_value_field/target_field",
+			"mapping_value_field and target_field",
+			"",
+			errors.New("enrich_records mapping spec requires mapping_value_field and target_field"),
+		)
 	}
 	return nil
 }

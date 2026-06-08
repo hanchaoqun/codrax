@@ -369,6 +369,78 @@ func TestActionRunnerJoinFieldCountParamIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerApplyResolutionSpecParamShapeIsTyped(t *testing.T) {
+	root := t.TempDir()
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "apply_bad",
+			Kind:       DataActionApplyResolutions,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"resolution_specs_json": `[{"resolution_path":"resolutions.csv"`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed apply resolution spec param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionApplyResolutions || paramErr.Param != "resolution_specs_json" {
+		t.Fatalf("paramErr=%+v, want apply resolution_specs_json param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "apply_bad" ||
+		violation.ActionKind != string(DataActionApplyResolutions) ||
+		violation.Param != "resolution_specs_json" {
+		t.Fatalf("violation=%+v, want typed apply param violation", violation)
+	}
+}
+
+func TestActionRunnerEnrichMappingSpecParamIsTyped(t *testing.T) {
+	root := t.TempDir()
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "enrich_bad",
+			Kind:       DataActionEnrichRecords,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"base_path": "items.csv",
+				"mapping_specs_json": `[{
+					"source_field":"raw_label",
+					"mapping_source_field":"label",
+					"mapping_value_field":"code",
+					"target_field":"canonical_code"
+				}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed enrich mapping spec param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionEnrichRecords || paramErr.Param != "mapping_path" {
+		t.Fatalf("paramErr=%+v, want enrich mapping_path param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "enrich_bad" ||
+		violation.ActionKind != string(DataActionEnrichRecords) ||
+		violation.Param != "mapping_path" {
+		t.Fatalf("violation=%+v, want typed enrich param violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
