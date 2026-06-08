@@ -193,7 +193,17 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		p.Steps = append(p.Steps, step)
 	}
 
-	if len(p.QueryTerms) > 0 {
+	sourceInventoryFirst := repoMapNavigationNeedsSourceInventory(rm)
+	if sourceInventoryFirst {
+		add(RepoMapNavigationStep{
+			Route:   RepoMapNavigationRouteSourceInventory,
+			Purpose: RepoMapNavigationPurposeInventory,
+			When:    "for scoped member inventories, count/member checklists, routes, config keys, or candidate attributes",
+			Params:  []string{"scope", "scopes", "roles", "include_attributes=false", "attribute_roles after narrowing", "cursor/offset for paging"},
+		})
+	}
+
+	if len(p.QueryTerms) > 0 && !sourceInventoryFirst {
 		add(RepoMapNavigationStep{
 			Route:   RepoMapNavigationRouteTaskMap,
 			Purpose: RepoMapNavigationPurposeOrientation,
@@ -205,15 +215,6 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 			Purpose: RepoMapNavigationPurposeOrientation,
 			When:    "when you need symbols grouped by selected files/directories",
 			Params:  []string{"path", "top_n"},
-		})
-	}
-
-	if repoMapNavigationNeedsSourceInventory(rm) {
-		add(RepoMapNavigationStep{
-			Route:   RepoMapNavigationRouteSourceInventory,
-			Purpose: RepoMapNavigationPurposeInventory,
-			When:    "for scoped member inventories, count/member checklists, routes, config keys, or candidate attributes",
-			Params:  []string{"scope", "scopes", "roles", "include_attributes=false", "attribute_roles after narrowing", "cursor/offset for paging"},
 		})
 	}
 

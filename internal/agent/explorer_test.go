@@ -968,6 +968,48 @@ func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *tes
 	}
 }
 
+func TestBuildInitialInstruction_SourceInventorySuppressesRelationFirstHop(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "compare two sub-repos and list exported entry identifiers",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				PredicateAxis: types.AxisDefine,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsCrossComponent:      true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"repo-a", "repo-b", "EntryPoint"},
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleFunction,
+						types.AnswerCandidateRoleType,
+					},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldSummary,
+					},
+				},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "Typed Repo Map First Hop") {
+		t.Fatalf("source-inventory principal shape should not render relation/call-flow first-hop prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Recommended repo_map lens order") ||
+		!strings.Contains(prompt, `view="source_inventory"`) {
+		t.Fatalf("source-inventory prompt should still render typed route hints:\n%s", prompt)
+	}
+}
+
 func TestBuildInitialInstructionHistoryNarrativeUsesVCSLane(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

@@ -25,6 +25,7 @@ func renderRepoMapTypedNavigationPolicy(ctx *types.AgentContext) string {
 func renderExplorerRepoMapTypedFirstHop(ctx *types.AgentContext) string {
 	policy := repoMapNavigationPolicyForContext(ctx)
 	if policy.Empty() ||
+		repoMapPolicyStartsWithSourceInventory(policy) ||
 		!policy.HasRoute(types.RepoMapNavigationRouteTaskMap) ||
 		!policy.HasRoute(types.RepoMapNavigationRouteRelationMap) {
 		return ""
@@ -39,4 +40,10 @@ func renderExplorerRepoMapTypedFirstHop(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- Keep multi-repo or multi-topic scopes partitioned: choose the active sub-repo as `path`, then keep `sources` and `scope` relative to that selected path.\n\n")
 	return b.String()
+}
+
+func repoMapPolicyStartsWithSourceInventory(policy types.RepoMapNavigationPolicy) bool {
+	return len(policy.Steps) > 0 &&
+		policy.Steps[0].Route == types.RepoMapNavigationRouteSourceInventory &&
+		policy.Steps[0].Purpose == types.RepoMapNavigationPurposeInventory
 }

@@ -297,20 +297,22 @@ Acceptance:
 - Data-route cases can match `route=data` across multi-log runs.
 - PASS summaries show advisory flags when hidden repairs or contract warnings occurred.
 
-#### Batch 5: Scoped multi-repo efficiency
+#### Batch 5: Scoped multi-repo/source-inventory efficiency
 
 Objective: Preserve correctness while lowering broad search cost when exact active repos are already known.
 
 Design:
 
-- Reuse existing focus selector / source inventory outputs as a scoped manifest.
-- Avoid repeated `repo_map` / `list_files` expansion after active subrepos are fixed.
+- Reuse existing focus selector / source inventory typed routes as the scoped navigation manifest.
+- When `source_inventory_profile` is active, make `source_inventory` the first soft repo-map route and suppress relation/call-flow first-hop primer text that comes only from broad enumeration compatibility hints.
+- Avoid repeated `repo_map` / `list_files` expansion after active subrepos are fixed by steering the explorer toward one partitioned source-inventory pass per active subrepo.
 - Keep this as P3 after correctness batches; do not risk broad multi-repo behavior during P1 delivery.
 
 Acceptance:
 
 - `mr_cross_repo_compare` remains PASS.
-- Tool counts decrease or advisory `wide_search` disappears without hiding inactive-scope disclosure.
+- Prompt/tool advisory order favors `source_inventory` for typed inventory shapes.
+- Tool counts decrease or advisory `wide_search`/`contract_warning` is visible without hiding inactive-scope disclosure.
 
 ### Delivery and push protocol
 
@@ -341,7 +343,7 @@ Acceptance:
 | T8 | P2 | Fix convergence audit snapshot lifecycle: use an absolute shared binary path, clean it only in parent, and make worker scripts fail loud or reset `CODRAX_BIN` when env binary is missing. | `eval/convergence_audit.sh`, `eval/run.sh`, `eval/runner_lib.sh` | shell tests plus parallel-2 smoke run |
 | T9 | P2 | Aggregate all per-run logs for EXPECT_LOG_MATCHES and telemetry, especially data route multi-log runs. | `eval/run.sh`, `eval/runner_lib.sh`, `eval/telemetry` | data route case should not falsely report missing `route=data` |
 | T10 | P2/P3 | Add advisory flags for hidden repairs and contract warnings in representative summaries, without converting them to hard failures. | `eval/convergence_audit.sh`, telemetry collectors | PASS rows expose `contract_warning`, `auto_repair`, `context_prune` where applicable |
-| T11 | P3 | Add scoped multi-repo inventory reuse after exact active repos are known. | multi-repo focus selector, repo map/source inventory projection | `mr_cross_repo_compare` remains PASS with lower repo_map/list_files counts |
+| T11 | P3 | Add scoped multi-repo source-inventory first-hop reuse after exact active repos are known. Keep it as typed soft guidance, not a hard gate. | repo map navigation policy, explorer repo-map prompt | `mr_cross_repo_compare` remains PASS; typed inventory prompt starts with `source_inventory` and no relation first-hop primer |
 
 ## Suggested Rerun Matrix
 
@@ -389,6 +391,25 @@ Validation:
 go test ./internal/types
 go test ./internal/orchestrator -run 'TestAcceptedClosureAutoComplete|TestParallel|MixedOrigin|RuntimeCurrentSource'
 go test ./internal/agent -run 'TestAnswerDocumentEvaluator_(MixedRuntimeCurrentSourceDoesNotRenderObservationOnly|CurrentSourceExplanationProfileRendersMixedGuidance|RuntimeObservationOnlySuppressesRepoEnrichment|RuntimeObservationOnly)'
+```
+
+Result: all passed.
+
+### Batch 4 - Scoped source-inventory navigation efficiency
+
+Status: done and pushed in code batch.
+
+Changes:
+
+- Changed typed repo-map navigation policy so active `source_inventory_profile` makes `view="source_inventory"` the first soft route instead of leading with generic `task_map`/`file_map` orientation.
+- Suppressed the relation/call-flow “Typed Repo Map First Hop” primer when the first typed route is a principal source-inventory route. This avoids a broad `task_map` prompt nudge caused by generic enumeration-to-implements compatibility hints.
+- Kept all behavior advisory-only: no evidence gate, answer gate, active-set gate, or user-intent keyword matcher was added.
+
+Validation:
+
+```bash
+go test ./internal/types -run TestCompileRepoMapNavigationPolicy
+go test ./internal/agent -run 'TestBuildInitialInstruction_(CallChainTypedRepoMapOutranksGenericGrep|SourceInventorySuppressesRelationFirstHop)'
 ```
 
 Result: all passed.

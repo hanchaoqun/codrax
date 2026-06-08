@@ -24,6 +24,9 @@ func TestCompileRepoMapNavigationPolicy_SourceInventory(t *testing.T) {
 	if !got.HasRoute(RepoMapNavigationRouteSourceInventory) {
 		t.Fatalf("source inventory request should prefer source_inventory route: %+v", got)
 	}
+	if len(got.Steps) == 0 || got.Steps[0].Route != RepoMapNavigationRouteSourceInventory {
+		t.Fatalf("source inventory request should make source_inventory the first soft route, got %+v", got.Steps)
+	}
 	if !containsRepoMapPolicyTerm(got.QueryTerms, "Kind") {
 		t.Fatalf("query terms should preserve typed entity, got %+v", got.QueryTerms)
 	}
