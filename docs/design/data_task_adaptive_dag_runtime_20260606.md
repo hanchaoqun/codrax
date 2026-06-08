@@ -16999,6 +16999,43 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 378: Workflow-Owned Upstream Ledger Readiness
+
+The canonical dependency code removed one split, but the actual upstream-ledger
+readiness check still lived in the REPL adapter. That meant REPL/CLI could
+continue deciding whether contributions or reconcile were ready from local
+helper functions while `dataworkflow` only rendered the resulting guard.
+
+Generic invariants:
+
+- upstream ledger readiness is workflow IR state, not REPL UI state;
+- readiness may come from executed workflow records or from a previous typed
+  producer action in the current accepted batch;
+- the reducer returns the same canonical `action_dependency_violation` when
+  the required upstream ledger is absent;
+- adapters may pass workflow records and candidate plans in, but they do not
+  implement the ledger readiness rule themselves.
+
+Changes:
+
+- [x] Added `HasUpstreamLedgerProducer` in `dataworkflow`.
+- [x] Added `UpstreamLedgerGuardResult` in `dataworkflow`.
+- [x] Rewired REPL data action dependency guard to call the workflow-owned
+      readiness reducer.
+- [x] Removed REPL-local contribution/reconcile producer helper functions.
+- [x] Added regression coverage for readiness from executed records, readiness
+      from earlier typed actions, and blocking when neither exists.
+
+Remaining architecture items:
+
+- [ ] Continue migrating action input availability and schema/field-contract
+      guards from REPL-local helper families into dataworkflow reducers that
+      consume ArtifactGraph/SchemaProjection state.
+- [ ] Continue moving deterministic fallback selection out of REPL callbacks
+      and into reducer-owned decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

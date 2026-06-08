@@ -350,6 +350,56 @@ func MissingUpstreamLedgerGuardResult(input MissingUpstreamLedgerGuardInput) Gua
 	return NewGuardResult("action_dependency_violation", "error", RepairNeedsTypedAction, message, violation)
 }
 
+func UpstreamLedgerGuardResult(input MissingUpstreamLedgerGuardInput, records []WorkflowRecord, plan dataquery.TaskPlan) GuardResult {
+	if HasUpstreamLedgerProducer(records, plan, input.ActionIndex, input.Ledger) {
+		return GuardResult{}
+	}
+	return MissingUpstreamLedgerGuardResult(input)
+}
+
+func HasUpstreamLedgerProducer(records []WorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int, ledger LedgerKind) bool {
+	for _, rec := range records {
+		if workflowRecordProducedLedger(rec, ledger) {
+			return true
+		}
+	}
+	if beforeActionIndex > len(plan.Actions) {
+		beforeActionIndex = len(plan.Actions)
+	}
+	for i := 0; i < beforeActionIndex; i++ {
+		if plannedActionProducesUpstreamLedger(plan.Actions[i], ledger) {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowRecordProducedLedger(rec WorkflowRecord, ledger LedgerKind) bool {
+	if rec.Result == nil {
+		return false
+	}
+	switch ledger {
+	case LedgerContributions:
+		return len(rec.Result.Contributions) > 0
+	case LedgerReconcile:
+		return rec.Result.Reconcile != nil
+	default:
+		return false
+	}
+}
+
+func plannedActionProducesUpstreamLedger(action dataquery.DataAction, ledger LedgerKind) bool {
+	kind := NormalizeActionKind(action.Kind)
+	switch ledger {
+	case LedgerContributions:
+		return kind == dataquery.DataActionComputeContribs
+	case LedgerReconcile:
+		return kind == dataquery.DataActionReconcile
+	default:
+		return false
+	}
+}
+
 func ZeroMatchFilterGuardResult(input ZeroMatchFilterGuardInput) GuardResult {
 	inputAlias := strings.TrimSpace(input.InputAlias)
 	artifactID := firstNonEmptyGuardText(input.ArtifactID, inputAlias)

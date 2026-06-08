@@ -3394,13 +3394,9 @@ func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan 
 			return dataworkflow.MissingApplyResolutionInputGuardResult(action, actionIndex)
 		}
 	case dataquery.DataActionReconcile:
-		if !dataTaskWorkflowHasContributionProducer(records, plan, actionIndex) {
-			return dataworkflow.MissingUpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerContributions})
-		}
+		return dataworkflow.UpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerContributions}, records, plan)
 	case dataquery.DataActionAssembleAnswer:
-		if !dataTaskWorkflowHasReconcileProducer(records, plan, actionIndex) {
-			return dataworkflow.MissingUpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerReconcile})
-		}
+		return dataworkflow.UpstreamLedgerGuardResult(dataworkflow.MissingUpstreamLedgerGuardInput{Action: action, ActionIndex: actionIndex, Ledger: dataworkflow.LedgerReconcile}, records, plan)
 	}
 	return dataworkflow.GuardResult{}
 }
@@ -4676,40 +4672,6 @@ func dataTaskRecordHasCustomTransformScript(rec dataTaskWorkflowRecord) bool {
 		return true
 	}
 	return dataTaskPlanHasCustomScript(rec.Plan.Actions, len(rec.Plan.Actions))
-}
-
-func dataTaskWorkflowHasContributionProducer(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) bool {
-	for _, rec := range records {
-		if rec.Result != nil && len(rec.Result.Contributions) > 0 {
-			return true
-		}
-	}
-	if beforeActionIndex > len(plan.Actions) {
-		beforeActionIndex = len(plan.Actions)
-	}
-	for i := 0; i < beforeActionIndex; i++ {
-		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) == dataquery.DataActionComputeContribs {
-			return true
-		}
-	}
-	return false
-}
-
-func dataTaskWorkflowHasReconcileProducer(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) bool {
-	for _, rec := range records {
-		if rec.Result != nil && rec.Result.Reconcile != nil {
-			return true
-		}
-	}
-	if beforeActionIndex > len(plan.Actions) {
-		beforeActionIndex = len(plan.Actions)
-	}
-	for i := 0; i < beforeActionIndex; i++ {
-		if normalizeDataActionKindForWorkflow(plan.Actions[i].Kind) == dataquery.DataActionReconcile {
-			return true
-		}
-	}
-	return false
 }
 
 func dataTaskCustomScriptActionCount(actions []dataquery.DataAction) int {

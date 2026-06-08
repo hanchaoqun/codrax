@@ -226,6 +226,45 @@ func TestMissingUpstreamLedgerGuardResult(t *testing.T) {
 	}
 }
 
+func TestUpstreamLedgerGuardResultUsesWorkflowRecordsAndPriorActions(t *testing.T) {
+	reconcileAction := dataquery.DataAction{ID: "reconcile", Kind: dataquery.DataActionReconcile}
+	guard := UpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
+		Action:      reconcileAction,
+		ActionIndex: 0,
+		Ledger:      LedgerContributions,
+	}, []WorkflowRecord{{
+		Result: &dataquery.Result{
+			Contributions: []dataquery.ContributionRecord{{GroupKey: dataquery.LooseText("group"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("1")}},
+		},
+	}}, dataquery.TaskPlan{})
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want no guard when contribution ledger exists in records", guard)
+	}
+
+	assembleAction := dataquery.DataAction{ID: "assemble", Kind: dataquery.DataActionAssembleAnswer}
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "reconcile_first", Kind: dataquery.DataActionReconcile},
+		assembleAction,
+	}}
+	guard = UpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
+		Action:      assembleAction,
+		ActionIndex: 1,
+		Ledger:      LedgerReconcile,
+	}, nil, plan)
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want no guard when a prior typed action produces reconcile", guard)
+	}
+
+	guard = UpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
+		Action:      assembleAction,
+		ActionIndex: 0,
+		Ledger:      LedgerReconcile,
+	}, nil, plan)
+	if guard.Code != "action_dependency_violation" {
+		t.Fatalf("guard=%+v, want dependency guard when no upstream ledger is ready", guard)
+	}
+}
+
 func TestEmptySetDiagnosticGuardResultsAreReducerOwned(t *testing.T) {
 	action := dataquery.DataAction{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"filtered"}}
 
