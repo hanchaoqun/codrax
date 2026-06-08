@@ -490,6 +490,10 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	if errors.As(err, &materializationErr) {
 		return materializationErr.Violation()
 	}
+	var roleErr DataActionRoleSelectionError
+	if errors.As(err, &roleErr) {
+		return roleErr.Violation()
+	}
 	var shapeErr DataResultShapeError
 	if errors.As(err, &shapeErr) {
 		return shapeErr.Violation()

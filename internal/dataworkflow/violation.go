@@ -25,6 +25,7 @@ type WorkflowViolation struct {
 	Field                string                 `json:"field,omitempty"`
 	Operation            string                 `json:"operation,omitempty"`
 	Param                string                 `json:"param,omitempty"`
+	Role                 string                 `json:"role,omitempty"`
 	InputAlias           string                 `json:"input_alias,omitempty"`
 	InputAliases         []string               `json:"input_aliases,omitempty"`
 	OutputAlias          string                 `json:"output_alias,omitempty"`
@@ -54,6 +55,7 @@ type WorkflowViolationSummary struct {
 	FirstField             string                       `json:"first_field,omitempty"`
 	FirstOperation         string                       `json:"first_operation,omitempty"`
 	FirstParam             string                       `json:"first_param,omitempty"`
+	FirstRole              string                       `json:"first_role,omitempty"`
 	FirstMissingFields     []string                     `json:"first_missing_fields,omitempty"`
 	FirstRepairActionHints []string                     `json:"first_repair_action_hints,omitempty"`
 	FirstLimit             int                          `json:"first_limit,omitempty"`
@@ -224,6 +226,9 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 	if strings.TrimSpace(projected.Param) == "" {
 		projected.Param = strings.TrimSpace(violation.Param)
 	}
+	if strings.TrimSpace(projected.Role) == "" {
+		projected.Role = strings.TrimSpace(violation.Role)
+	}
 	if strings.TrimSpace(projected.ActionID) == "" {
 		projected.ActionID = strings.TrimSpace(violation.ActionID)
 	}
@@ -343,6 +348,7 @@ func BuildWorkflowViolationSummary(violations []WorkflowViolation) WorkflowViola
 			summary.FirstField = strings.TrimSpace(violation.Field)
 			summary.FirstOperation = strings.TrimSpace(violation.Operation)
 			summary.FirstParam = strings.TrimSpace(violation.Param)
+			summary.FirstRole = strings.TrimSpace(violation.Role)
 			summary.FirstMissingFields = cleanStrings(violation.MissingFields)
 			summary.FirstRepairActionHints = cleanStrings(violation.RepairActionHints)
 			summary.FirstLimit = violation.Limit

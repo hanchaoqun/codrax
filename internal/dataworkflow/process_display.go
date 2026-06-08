@@ -171,6 +171,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 			return appendProcessDisplayContext("最终答案还没有满足用户要求的输出格式。", input, field, param, operation, zh)
 		case "artifact_materialization_violation":
 			return appendProcessDisplayContext("本步生成的中间产物还不能被系统可靠保存和复用。", input, field, param, operation, zh)
+		case "action_role_selection_violation":
+			return appendProcessDisplayContext("本步还不能明确区分输入材料在动作中的角色。", input, field, param, operation, zh)
 		case "zero_match_filter":
 			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, param, operation, zh)
 		case "unmatched_resolution":
@@ -200,6 +202,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 		return appendProcessDisplayContext("The final answer does not satisfy the requested output format yet.", input, field, param, operation, zh)
 	case "artifact_materialization_violation":
 		return appendProcessDisplayContext("This step produced an intermediate artifact that cannot be reliably saved and reused yet.", input, field, param, operation, zh)
+	case "action_role_selection_violation":
+		return appendProcessDisplayContext("This step cannot unambiguously assign input materials to the action roles yet.", input, field, param, operation, zh)
 	case "zero_match_filter":
 		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, param, operation, zh)
 	case "unmatched_resolution":

@@ -380,6 +380,61 @@ func dataArtifactMaterializationError(action DataAction, artifact DataArtifact, 
 	}
 }
 
+type DataActionRoleSelectionError struct {
+	ActionID      string         `json:"action_id,omitempty"`
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	InputAliases  []string       `json:"input_aliases,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	Cause         error          `json:"-"`
+}
+
+func (e DataActionRoleSelectionError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	role := firstNonEmptyString(strings.TrimSpace(e.Role), "input role")
+	expected := firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "unambiguous action input roles")
+	msg := fmt.Sprintf("data action could not select %s: expected %s", role, expected)
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataActionRoleSelectionError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataActionRoleSelectionError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "action_role_selection_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionID:      strings.TrimSpace(e.ActionID),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Role:          strings.TrimSpace(e.Role),
+		InputAliases:  normalizeMaterialPaths(e.InputAliases),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "unambiguous source/reference/base input roles"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Declare explicit source/base/reference/mapping/resolution paths for this typed action, or split the graph so each role is materialized by a prior node.",
+	}
+}
+
+func dataActionRoleSelectionError(action DataAction, role string, inputs []string, expectedShape, actualSnippet string, cause error) DataActionRoleSelectionError {
+	return DataActionRoleSelectionError{
+		ActionID:      strings.TrimSpace(action.ID),
+		ActionKind:    action.Kind,
+		Role:          strings.TrimSpace(role),
+		InputAliases:  normalizeMaterialPaths(inputs),
+		ExpectedShape: strings.TrimSpace(expectedShape),
+		ActualSnippet: strings.TrimSpace(actualSnippet),
+		Cause:         cause,
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -1556,7 +1611,14 @@ func applyEntityResolutionDefaults(records []EntityResolutionRecord, action Data
 func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []map[string]any, []string, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	if len(paths) < 2 {
-		return DataArtifact{}, nil, nil, errors.New("mapping_candidate requires source and reference input paths")
+		return DataArtifact{}, nil, nil, dataActionRoleSelectionError(
+			action,
+			"source/reference",
+			paths,
+			"distinct source and reference input paths",
+			strings.Join(paths, ","),
+			errors.New("mapping_candidate requires source and reference input paths"),
+		)
 	}
 	explicitSourcePath := firstNonEmptyString(
 		strings.TrimSpace(action.Params["source_path"]),
@@ -1577,7 +1639,14 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 		referencePath = paths[1]
 	}
 	if normalizeMaterialPath(sourcePath) == "" || normalizeMaterialPath(referencePath) == "" || normalizeMaterialPath(sourcePath) == normalizeMaterialPath(referencePath) {
-		return DataArtifact{}, nil, nil, errors.New("mapping_candidate requires distinct source_path and reference_path")
+		return DataArtifact{}, nil, nil, dataActionRoleSelectionError(
+			action,
+			"source/reference",
+			paths,
+			"distinct source_path and reference_path",
+			fmt.Sprintf("source_path=%s reference_path=%s", sourcePath, referencePath),
+			errors.New("mapping_candidate requires distinct source_path and reference_path"),
+		)
 	}
 
 	sourceFields := normalizeEntitySourceFields(action)
@@ -1795,7 +1864,14 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 		return records, consumed, children, err
 	}
 	if actionDeclaresReferenceEntityMode(action, paths) {
-		return nil, nil, nil, fmt.Errorf("normalize_entities declared source/reference mapping inputs but reference mode did not activate; provide source_path/reference_path or input_paths=[source_records, reference_records], source_field/source_fields, reference_name_fields/reference_fields, and canonical_id_field")
+		return nil, nil, nil, dataActionRoleSelectionError(
+			action,
+			"source/reference",
+			paths,
+			"source/reference mapping inputs with source fields, reference fields, and canonical id field",
+			"reference mode did not activate",
+			fmt.Errorf("normalize_entities declared source/reference mapping inputs but reference mode did not activate; provide source_path/reference_path or input_paths=[source_records, reference_records], source_field/source_fields, reference_name_fields/reference_fields, and canonical_id_field"),
+		)
 	}
 	explicitSourceFields := normalizeEntitySourceFields(action)
 	filters, err := parseContributionFilters(action)
@@ -4565,10 +4641,24 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	if applyResolutionRecordsLookLikeResolution(baseFields, baseRecords) {
 		profile, ok, err := r.inferApplyResolutionBaseProfile(paths, baseRel, maxRecords)
 		if err != nil {
-			return DataArtifact{}, nil, nil, err
+			return DataArtifact{}, nil, nil, dataActionRoleSelectionError(
+				action,
+				"base/resolution",
+				paths,
+				"one base record artifact plus one or more entity resolution artifacts",
+				err.Error(),
+				err,
+			)
 		}
 		if !ok {
-			return DataArtifact{}, nil, nil, fmt.Errorf("apply_entity_resolutions base input %s looks like an entity_resolution ledger, but no distinct base record artifact was available; provide input_paths=[base_record_artifact, entity_resolution_artifact...] or set base_path to the base records", baseRel)
+			return DataArtifact{}, nil, nil, dataActionRoleSelectionError(
+				action,
+				"base/resolution",
+				paths,
+				"distinct base record artifact when the selected base input looks like an entity_resolution ledger",
+				baseRel,
+				fmt.Errorf("apply_entity_resolutions base input %s looks like an entity_resolution ledger, but no distinct base record artifact was available; provide input_paths=[base_record_artifact, entity_resolution_artifact...] or set base_path to the base records", baseRel),
+			)
 		}
 		oldBaseRel := baseRel
 		baseRecords, baseHeaders, baseTotal, baseRel, baseFields = profile.Records, profile.Headers, profile.Total, profile.Rel, profile.Fields
@@ -5331,10 +5421,22 @@ func (r ActionRunner) buildApplyResolutionExistingIDIndex(spec applyResolutionSp
 		)
 	}
 	if strings.TrimSpace(spec.ReferencePath) == "" {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_path so the existing canonical value can be verified structurally", spec.ExistingIDField)
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataActionParamError(
+			DataActionApplyResolutions,
+			"reference_path",
+			"reference_path when existing_id_field must be structurally verified",
+			fmt.Sprintf("existing_id_field=%s", spec.ExistingIDField),
+			fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_path so the existing canonical value can be verified structurally", spec.ExistingIDField),
+		)
 	}
 	if strings.TrimSpace(spec.ReferenceIDField) == "" {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_id_field on reference_path %s", spec.ExistingIDField, spec.ReferencePath)
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataActionParamError(
+			DataActionApplyResolutions,
+			"reference_id_field",
+			"reference_id_field/reference_key_field for the reference_path",
+			fmt.Sprintf("existing_id_field=%s reference_path=%s", spec.ExistingIDField, spec.ReferencePath),
+			fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_id_field on reference_path %s", spec.ExistingIDField, spec.ReferencePath),
+		)
 	}
 	records, headers, total, rel, err := r.readActionRecords(spec.ReferencePath, maxRecords)
 	if err != nil {

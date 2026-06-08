@@ -16253,3 +16253,46 @@ Remaining architecture items:
       blockers directly from reducer state.
 - [ ] Audit historical `Remaining architecture items` and mark stale entries
       that are now covered by the typed IR batches.
+
+### Batch 359: Typed Action Role-Selection Violations
+
+Some typed data actions need more than a list of input files. They need
+unambiguous roles: source/reference, base/mapping, or base/resolution. When the
+runtime cannot assign those roles safely, the failure is neither a business
+semantic error nor a missing field. It is a graph-role selection blocker.
+
+Generic invariants:
+
+- ambiguous or invalid action input roles are
+  `action_role_selection_violation`;
+- the violation carries action id/kind, role label, candidate input aliases,
+  expected role shape, and bounded diagnostics;
+- parameter-shape failures remain `action_param_violation`;
+- executable field absence remains `field_contract_violation`;
+- display text may explain role ambiguity, but scheduling/repair consumes typed
+  role violation fields only.
+
+Changes:
+
+- [x] Added `DataActionRoleSelectionError`.
+- [x] Mapped role-selection errors through `ClassifyExecutionFailure`.
+- [x] Converted `mapping_candidate` source/reference role failures to typed
+      role-selection violations.
+- [x] Converted `normalize_entities` source/reference mode activation failure
+      to typed role-selection violation.
+- [x] Converted `apply_entity_resolutions` base/resolution role inference
+      failures to typed role-selection violations.
+- [x] Converted apply-resolution `existing_id_field` verification prerequisites
+      to typed action-parameter violations.
+- [x] Added low-noise process-display labels for role-selection blockers.
+- [x] Added regression coverage for typed role-selection classification and
+      process display.
+
+Remaining architecture items:
+
+- [ ] Move evaluator repair decisions to consume typed role/output/result
+      blockers directly from reducer state.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

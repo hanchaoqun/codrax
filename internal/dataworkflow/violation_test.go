@@ -117,6 +117,7 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 			ActionID:             "join_customers",
 			ActionKind:           string(dataquery.DataActionJoinRecords),
 			InputAlias:           "orders.json",
+			Role:                 "left",
 			MissingFields:        []string{"customer_id"},
 			AvailableFieldSample: []string{"order_id", "amount"},
 			Repairability:        dataquery.RepairabilityNeedsRecompute,
@@ -143,6 +144,9 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 	if len(got.MissingFields) != 1 || got.MissingFields[0] != "customer_id" {
 		t.Fatalf("MissingFields=%v, want customer_id", got.MissingFields)
 	}
+	if got.Role != "left" {
+		t.Fatalf("Role=%q, want preserved role", got.Role)
+	}
 	if len(got.AvailableFieldSample) != 2 || got.AvailableFieldSample[0] != "order_id" {
 		t.Fatalf("AvailableFieldSample=%v, want preserved sample", got.AvailableFieldSample)
 	}
@@ -162,6 +166,7 @@ func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
 			InputAlias:        "records.json",
 			Field:             "amount",
 			Operation:         "numeric_parse",
+			Role:              "target",
 			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
 			Reason:            "amount is not numeric",
 		},
@@ -179,6 +184,7 @@ func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
 		summary.FirstInputAlias != "records.json" ||
 		summary.FirstField != "amount" ||
 		summary.FirstOperation != "numeric_parse" ||
+		summary.FirstRole != "target" ||
 		summary.FirstRepairActionHints[0] != string(dataquery.DataActionDeriveFields) {
 		t.Fatalf("summary=%+v, want first blocker projection", summary)
 	}

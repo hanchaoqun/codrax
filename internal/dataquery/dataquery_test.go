@@ -510,6 +510,41 @@ func TestActionRunnerArtifactMaterializationFailureIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerMappingCandidateRoleSelectionIsTyped(t *testing.T) {
+	root := t.TempDir()
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "candidate_bad_roles",
+			Kind:       DataActionMappingCandidate,
+			InputPaths: []string{"source.csv", "reference.csv"},
+			Params: map[string]string{
+				"source_path":    "source.csv",
+				"reference_path": "source.csv",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed role-selection failure")
+	}
+	var roleErr DataActionRoleSelectionError
+	if !errors.As(err, &roleErr) {
+		t.Fatalf("err=%T %v, want DataActionRoleSelectionError", err, err)
+	}
+	if roleErr.ActionKind != DataActionMappingCandidate || roleErr.Role != "source/reference" {
+		t.Fatalf("roleErr=%+v, want mapping candidate source/reference role", roleErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_role_selection_violation" ||
+		violation.ActionID != "candidate_bad_roles" ||
+		violation.ActionKind != string(DataActionMappingCandidate) ||
+		violation.Role != "source/reference" ||
+		len(violation.InputAliases) != 2 {
+		t.Fatalf("violation=%+v, want typed role-selection violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

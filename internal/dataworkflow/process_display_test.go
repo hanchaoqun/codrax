@@ -158,6 +158,27 @@ func TestBuildWorkflowProcessDisplayRendersArtifactMaterializationBlocker(t *tes
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersRoleSelectionBlocker(t *testing.T) {
+	guard := NewGuardResult("action_role_selection_violation", "error", RepairNeedsTypedAction, "source and reference paths overlap", WorkflowViolation{
+		Code:         "action_role_selection_violation",
+		ActionID:     "candidate",
+		ActionKind:   string(dataquery.DataActionMappingCandidate),
+		Role:         "source/reference",
+		InputAliases: []string{"source.csv", "reference.csv"},
+		Reason:       "source and reference paths overlap",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "action_batch",
+		Round: 1,
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	if !strings.Contains(got, "当前阻塞：本步还不能明确区分输入材料在动作中的角色") {
+		t.Fatalf("details=%q, want role-selection blocker", got)
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {
