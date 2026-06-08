@@ -14101,8 +14101,8 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction and material-set handle projection behind
-      package-level artifact/schema inputs.
+- [ ] Move result prompt compaction behind package-level artifact/schema
+      inputs.
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
@@ -14148,8 +14148,50 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move result prompt compaction and material-set handle projection behind
-      package-level artifact/schema inputs.
+- [ ] Move result prompt compaction behind package-level artifact/schema
+      inputs.
+- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+      issue discovery behind package-level artifact/schema inputs instead of
+      REPL prompt views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 313: Package-Level Material Collection Views
+
+Data result prompts expose objective material collections so the planner can
+see candidate related text evidence and same-directory material groups without
+inventing filesystem traversal. That projection is not REPL workflow logic and
+does not assign business roles. It should be a package-level view over artifact
+metadata.
+
+This batch adds `MaterialCollectionView` in `internal/dataworkflow` and rewires
+the REPL result prompt to delegate material-set handle generation to it. The
+existing `material_set_handles` JSON field remains as a prompt/output shape,
+but the implementation now belongs to the IR layer.
+
+Generic invariants:
+
+- material collection views use objective source paths and artifact fields;
+- related text evidence is surfaced as concrete paths, not business meaning;
+- directory groups are candidate collections, not workflow hard floors;
+- bounded prompt views never promote optional materials into required
+  coverage;
+- no user-intent keyword matching or business-domain classification is added.
+
+Changes:
+
+- [x] Added `MaterialCollectionView`.
+- [x] Added `BuildMaterialCollectionViews`.
+- [x] Rewired REPL `sampleDataTaskMaterialSetHandles` to delegate to
+      `dataworkflow`.
+- [x] Removed the unused REPL-local material-set sorter/helper.
+- [x] Added package-level regression coverage for related text evidence,
+      directory grouping, bounded order, and stable related-first rendering.
+
+Remaining architecture items:
+
+- [ ] Move result prompt compaction behind package-level artifact/schema
+      inputs.
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.

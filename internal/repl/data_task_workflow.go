@@ -5337,14 +5337,7 @@ type dataTaskLedgerProjection struct {
 
 type dataTaskArtifactAccessPrompt = dataworkflow.ArtifactAccessView
 
-type dataTaskMaterialSetHandlePrompt struct {
-	ID                string   `json:"id,omitempty"`
-	Kind              string   `json:"kind,omitempty"`
-	Scope             string   `json:"scope,omitempty"`
-	MemberPaths       []string `json:"member_paths,omitempty"`
-	TextEvidencePaths []string `json:"text_evidence_paths,omitempty"`
-	AccessHint        string   `json:"access_hint,omitempty"`
-}
+type dataTaskMaterialSetHandlePrompt = dataworkflow.MaterialCollectionView
 
 func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 	return renderDataTaskRecordsForPromptWithBudget(records, dataTaskPromptRecordBudget{
@@ -6964,92 +6957,7 @@ func compactDataTaskResultPromptViewWithArtifactLimits(result dataquery.Result, 
 }
 
 func sampleDataTaskMaterialSetHandles(artifacts []dataquery.DataArtifact, limit int) []dataTaskMaterialSetHandlePrompt {
-	if limit <= 0 || len(artifacts) == 0 {
-		return nil
-	}
-	type group struct {
-		kind    string
-		members []string
-	}
-	groups := map[string]*group{}
-	var related []dataTaskMaterialSetHandlePrompt
-	var walk func(dataquery.DataArtifact)
-	walk = func(artifact dataquery.DataArtifact) {
-		for _, p := range cleanDataTaskStrings(artifact.SourcePaths) {
-			dir := path.Dir(p)
-			if dir != "." && dir != "" {
-				g := groups[dir]
-				if g == nil {
-					g = &group{kind: strings.TrimSpace(artifact.Kind)}
-					groups[dir] = g
-				}
-				g.members = append(g.members, p)
-			}
-		}
-		if artifact.Fields != nil {
-			textPaths := cleanDataTaskStrings(strings.Split(strings.TrimSpace(artifact.Fields["text_evidence_paths"]), ","))
-			if len(textPaths) > 0 {
-				related = append(related, dataTaskMaterialSetHandlePrompt{
-					ID:                "related_text:" + strings.TrimSpace(artifact.ID),
-					Kind:              "related_text_evidence",
-					Scope:             strings.TrimSpace(artifact.ID),
-					MemberPaths:       clampDataTaskStringSlice(cleanDataTaskStrings(artifact.SourcePaths), 4),
-					TextEvidencePaths: clampDataTaskStringSlice(textPaths, 8),
-					AccessHint:        "if this source material is relevant to the data goal, add the concrete text_evidence_paths to a bounded coverage/action batch before compute",
-				})
-			}
-		}
-		for _, child := range artifact.Children {
-			walk(child)
-		}
-	}
-	for _, artifact := range artifacts {
-		walk(artifact)
-	}
-	var out []dataTaskMaterialSetHandlePrompt
-	sort.Slice(related, func(i, j int) bool { return related[i].ID < related[j].ID })
-	for _, h := range related {
-		if len(out) >= limit {
-			return out
-		}
-		out = append(out, h)
-	}
-	keys := make([]string, 0, len(groups))
-	for key, g := range groups {
-		g.members = uniqueSortedDataTaskStrings(g.members)
-		if len(g.members) >= 2 {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if len(out) >= limit {
-			break
-		}
-		g := groups[key]
-		out = append(out, dataTaskMaterialSetHandlePrompt{
-			ID:          "dir:" + key,
-			Kind:        firstNonEmptyString(g.kind, "material_group"),
-			Scope:       key,
-			MemberPaths: clampDataTaskStringSlice(g.members, 12),
-			AccessHint:  "candidate file group from inventory/inspection; expand only the concrete members required by the current data goal",
-		})
-	}
-	return out
-}
-
-func uniqueSortedDataTaskStrings(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, item := range cleanDataTaskStrings(in) {
-		if seen[item] {
-			continue
-		}
-		seen[item] = true
-		out = append(out, item)
-	}
-	sort.Strings(out)
-	return out
+	return dataworkflow.BuildMaterialCollectionViews(artifacts, limit)
 }
 
 func sampleDataTaskArtifactAccess(artifacts []dataquery.DataArtifact, limit int) []dataTaskArtifactAccessPrompt {
