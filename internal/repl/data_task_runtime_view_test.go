@@ -8,6 +8,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 )
 
+var (
+	_ dataTaskContinuationPlannerWithRuntimeView = (*llmDataTaskPlanner)(nil)
+	_ dataTaskEvaluatorWithRuntimeView           = (*llmDataTaskPlanner)(nil)
+)
+
 func TestDataTaskWorkflowRuntimeViewPrefersRuntimeSnapshot(t *testing.T) {
 	fallbackRecord := dataTaskWorkflowRecord{Err: "fallback"}
 	fallbackCurrent := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "fallback_current", Kind: dataquery.DataActionInspectMaterial}}}

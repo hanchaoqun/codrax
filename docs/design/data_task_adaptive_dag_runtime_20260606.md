@@ -16897,6 +16897,48 @@ Remaining architecture items:
       implemented or explicitly classified as non-blocking operational/eval
       work.
 
+### Batch 398: View-Native Planner Interfaces
+
+Batch 393 made prompt builders consume `dataTaskWorkflowRuntimeView`, but the
+internal planner/evaluator dispatch still preferred older records/deferred
+interfaces when the planner supported them. That meant the production path
+could still pass through compatibility adapters before building the same
+runtime-view prompt.
+
+Generic invariants:
+
+- runtime-view dispatch is the primary internal planner/evaluator path;
+- records/deferred interfaces remain compatibility adapters for older tests or
+  alternate implementations;
+- the built-in LLM planner implements runtime-view continuation and evaluation
+  directly;
+- no prompt text is promoted into hard control flow, and the model-facing
+  schema remains unchanged.
+
+Changes:
+
+- [x] Added view-native continuation and evaluation planner interfaces.
+- [x] Made production helper dispatch prefer view-native implementations before
+      falling back to deferred/records interfaces.
+- [x] Implemented view-native continuation and evaluation on the built-in LLM
+      data planner.
+- [x] Kept legacy continuation/evaluation methods as adapters into the
+      view-native path.
+- [x] Added compile-time regression coverage that the built-in planner
+      satisfies the view-native interfaces.
+
+Remaining architecture items:
+
+- [ ] Move result patch planning and repair planning onto runtime-view or
+      snapshot-native context once their call sites can pass live workflow
+      state without duplicating records/current-plan inputs.
+- [ ] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
+      state.
+- [ ] Keep the real-scenario gate closed until the current IR backlog is
+      implemented or explicitly classified as non-blocking operational/eval
+      work.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

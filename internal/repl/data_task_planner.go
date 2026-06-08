@@ -34,12 +34,20 @@ type DataTaskEvaluatorWithDeferred interface {
 	EvaluateDataTaskWithDeferred(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error)
 }
 
+type dataTaskEvaluatorWithRuntimeView interface {
+	EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error)
+}
+
 type DataTaskContinuationPlanner interface {
 	ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error)
 }
 
 type DataTaskContinuationPlannerWithDeferred interface {
 	ContinueDataTaskWithDeferred(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, error)
+}
+
+type dataTaskContinuationPlannerWithRuntimeView interface {
+	ContinueDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error)
 }
 
 type DataTaskResultPatchPlanner interface {
@@ -129,6 +137,9 @@ func continueDataTaskWithDeferredIfSupported(ctx context.Context, continuer Data
 }
 
 func continueDataTaskWithRuntimeViewIfSupported(ctx context.Context, continuer DataTaskContinuationPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	if withView, ok := continuer.(dataTaskContinuationPlannerWithRuntimeView); ok {
+		return withView.ContinueDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, view)
+	}
 	return continueDataTaskWithDeferredIfSupported(ctx, continuer, userLine, repoRoot, policy, candidates, view.Records, view.DeferredPlan)
 }
 
@@ -140,6 +151,9 @@ func evaluateDataTaskWithDeferredIfSupported(ctx context.Context, evaluator Data
 }
 
 func evaluateDataTaskWithRuntimeViewIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
+	if withView, ok := evaluator.(dataTaskEvaluatorWithRuntimeView); ok {
+		return withView.EvaluateDataTaskWithRuntimeView(ctx, userLine, view, lang)
+	}
 	return evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, userLine, view.Records, view.DeferredPlan, lang)
 }
 
@@ -511,29 +525,49 @@ func (p *llmDataTaskPlanner) RepairDataTaskWithViolation(ctx context.Context, us
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
-	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPrompt(userLine, repoRoot, policy, candidates, records))
+	return p.ContinueDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, dataTaskWorkflowRuntimeView{Records: records})
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTaskWithDeferred(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, error) {
-	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithDeferred(userLine, repoRoot, policy, candidates, records, deferred))
+	return p.ContinueDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, dataTaskWorkflowRuntimeView{
+		Records:       records,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	})
+}
+
+func (p *llmDataTaskPlanner) ContinueDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot, policy, candidates, view))
 }
 
 func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
-	return p.evaluateDataTask(ctx, userLine, records, dataquery.TaskPlan{}, lang)
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{Records: records}, lang)
 }
 
 func (p *llmDataTaskPlanner) EvaluateDataTaskWithDeferred(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
-	return p.evaluateDataTask(ctx, userLine, records, deferred, lang)
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{
+		Records:       records,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	}, lang)
 }
 
 func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{
+		Records:       records,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	}, lang)
+}
+
+func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.adapter == nil {
 		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator is not configured")
 	}
-	basePrompt := dataTaskEvaluationPromptWithDeferred(userLine, records, deferred, lang)
+	basePrompt := dataTaskEvaluationPromptWithRuntimeView(userLine, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_evaluator",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
@@ -542,7 +576,7 @@ func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine stri
 		[]llm.ToolSchema{dataTaskEvaluationTool},
 	)
 	if err != nil {
-		return fallbackDataTaskEvaluation(records, llm.Response{}), nil
+		return fallbackDataTaskEvaluation(view.Records, llm.Response{}), nil
 	}
 	if len(resp.ToolCalls) == 0 {
 		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, "data_task_evaluator_repair",
@@ -556,7 +590,7 @@ func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine stri
 			resp = retryResp
 		}
 		if retryErr != nil || len(resp.ToolCalls) == 0 {
-			return fallbackDataTaskEvaluation(records, resp), nil
+			return fallbackDataTaskEvaluation(view.Records, resp), nil
 		}
 	}
 	call := resp.ToolCalls[0]
@@ -577,7 +611,7 @@ func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine stri
 			return dataquery.Evaluation{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
 		}
 	}
-	return normalizeDataTaskEvaluationForWorkflow(records, parsed.toEvaluation()), nil
+	return normalizeDataTaskEvaluationForWorkflow(view.Records, parsed.toEvaluation()), nil
 }
 
 func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Response) string {
