@@ -90,6 +90,16 @@ type WorkflowRuntimeViewInput struct {
 	FallbackRepairRounds int
 }
 
+type WorkflowIterationDecision struct {
+	Phase         string             `json:"phase,omitempty"`
+	CurrentPlan   dataquery.TaskPlan `json:"current_plan,omitempty"`
+	DeferredQueue DeferredQueueState `json:"deferred_queue,omitempty"`
+	DeferredPlan  dataquery.TaskPlan `json:"deferred_plan,omitempty"`
+	Records       []WorkflowRecord   `json:"records,omitempty"`
+	DataRounds    int                `json:"data_rounds,omitempty"`
+	RepairRounds  int                `json:"repair_rounds,omitempty"`
+}
+
 // BuildWorkflowRuntimeView is the reducer-owned runtime boundary used by CLI
 // and REPL adapters when they need prompt, evaluator, repair, or checkpoint
 // state. Fallback values support legacy/no-runtime tests, while a live runtime
@@ -533,6 +543,37 @@ func (rt *WorkflowRuntime) SetRounds(dataRounds, repairRounds int) {
 	}
 	rt.dataRounds = dataRounds
 	rt.repairRounds = repairRounds
+}
+
+func (rt *WorkflowRuntime) IterationDecision(phase string) WorkflowIterationDecision {
+	out := WorkflowIterationDecision{Phase: trimRuntimeText(phase)}
+	if rt == nil {
+		return out
+	}
+	snapshot := rt.Snapshot()
+	out.CurrentPlan = snapshot.CurrentPlan
+	out.DeferredQueue = snapshot.DeferredQueue
+	out.DeferredPlan = snapshot.DeferredPlan
+	out.Records = snapshot.Records
+	out.DataRounds = snapshot.DataRounds
+	out.RepairRounds = snapshot.RepairRounds
+	return out
+}
+
+func (rt *WorkflowRuntime) BeginDataIteration() WorkflowIterationDecision {
+	if rt == nil {
+		return WorkflowIterationDecision{Phase: "data"}
+	}
+	rt.IncrementDataRound()
+	return rt.IterationDecision("data")
+}
+
+func (rt *WorkflowRuntime) BeginRepairIteration() WorkflowIterationDecision {
+	if rt == nil {
+		return WorkflowIterationDecision{Phase: "repair"}
+	}
+	rt.IncrementRepairRound()
+	return rt.IterationDecision("repair")
 }
 
 func (rt *WorkflowRuntime) IncrementDataRound() int {

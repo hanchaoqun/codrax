@@ -17403,6 +17403,54 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 409: Runtime-Owned Iteration Round Decisions
+
+Batch 408 removed one event-discovery mirror, but CLI and REPL still allocated
+data/repair rounds by calling raw runtime counters and then maintaining
+parallel local variables. That kept the loop shape harder to audit: the runtime
+owned the counters, but the adapter owned the notion of "this is the next data
+iteration" or "this is the next repair iteration".
+
+This batch adds a small iteration-decision IR. The runtime now exposes
+`BeginDataIteration` and `BeginRepairIteration`, each returning a clone-isolated
+snapshot of the current plan, records, deferred queue, deferred plan, and
+round counters after the allocation. CLI and REPL synchronize their remaining
+local cursors from that decision instead of calling counter mutators directly.
+
+Generic invariants:
+
+- round allocation is reducer-owned;
+- iteration decisions carry dataworkflow/dataquery IR only;
+- adapter-local variables are synchronized from runtime snapshots, not used as
+  an independent source of truth;
+- this does not change action execution, planning, admission, validation,
+  output formatting, source analysis, trace/log analysis, operation, or write
+  mode;
+- returned plans and records are clone-isolated.
+
+Changes:
+
+- [x] Added `WorkflowIterationDecision`.
+- [x] Added `WorkflowRuntime.IterationDecision`.
+- [x] Added `WorkflowRuntime.BeginDataIteration`.
+- [x] Added `WorkflowRuntime.BeginRepairIteration`.
+- [x] Rewired CLI data workflow data-round and direct repair-round allocation
+      through iteration decisions.
+- [x] Rewired REPL data workflow data-round and direct repair-round allocation
+      through the same runtime decisions.
+- [x] Added reducer-level regression coverage for round allocation and clone
+      isolation.
+
+Remaining architecture items:
+
+- [ ] Move helper-level repair round allocation (`repairDataTaskPlanForCLI` and
+      equivalent compatibility paths) behind runtime iteration decisions or a
+      reducer-owned repair-attempt API.
+- [ ] Introduce a fuller live iteration API that returns the next executable
+      decision, not only the allocated round snapshot.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

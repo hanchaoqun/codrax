@@ -333,6 +333,37 @@ func TestWorkflowRuntimeSwitchCurrentPlanWithEventsReturnsDelta(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeIterationDecisionsOwnRoundAllocation(t *testing.T) {
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "filter",
+		Kind: dataquery.DataActionFilterRecords,
+	}}}
+	rt := NewWorkflowRuntime(current)
+	rt.AppendRecord(WorkflowRecord{Plan: current, Result: &dataquery.Result{Answer: "intermediate"}})
+	rt.EnqueueDeferred(1, dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}, "defer next rank")
+
+	dataIter := rt.BeginDataIteration()
+	if dataIter.Phase != "data" || dataIter.DataRounds != 1 || dataIter.RepairRounds != 0 {
+		t.Fatalf("data iteration=%+v, want first data round", dataIter)
+	}
+	if len(dataIter.Records) != 1 || dataIter.CurrentPlan.Actions[0].ID != "filter" || dataIter.DeferredPlan.Actions[0].ID != "compute" {
+		t.Fatalf("data iteration snapshot=%+v, want runtime state", dataIter)
+	}
+
+	repairIter := rt.BeginRepairIteration()
+	if repairIter.Phase != "repair" || repairIter.DataRounds != 1 || repairIter.RepairRounds != 1 {
+		t.Fatalf("repair iteration=%+v, want first repair round after one data round", repairIter)
+	}
+	repairIter.CurrentPlan.Actions[0].ID = "mutated"
+	repairIter.Records[0].Plan.Actions[0].ID = "mutated-record"
+	if rt.CurrentPlan().Actions[0].ID != "filter" || rt.Records()[0].Plan.Actions[0].ID != "filter" {
+		t.Fatalf("runtime state leaked returned iteration mutation: current=%+v records=%+v", rt.CurrentPlan(), rt.Records())
+	}
+}
+
 func TestWorkflowRuntimeRecordsPlanTransitionProcessEvent(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{

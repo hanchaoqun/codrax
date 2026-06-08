@@ -260,6 +260,22 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		repairRounds = view.RepairRounds
 		return view
 	}
+	syncIteration := func(iteration dataworkflow.WorkflowIterationDecision) {
+		records = iteration.Records
+		if dataTaskPlanHasRuntimeShape(iteration.CurrentPlan) {
+			currentPlan = iteration.CurrentPlan
+		}
+		dataRounds = iteration.DataRounds
+		repairRounds = iteration.RepairRounds
+	}
+	beginDataIteration := func() int {
+		syncIteration(workflowRuntime.BeginDataIteration())
+		return dataRounds
+	}
+	beginRepairIteration := func() int {
+		syncIteration(workflowRuntime.BeginRepairIteration())
+		return repairRounds
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -446,7 +462,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
-		dataRounds = workflowRuntime.IncrementDataRound()
+		dataRounds = beginDataIteration()
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:  "execute",
 			Round: dataRounds,
@@ -712,7 +728,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if !repairOK || repairRounds >= repairRoundsMax {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
-			repairRounds = workflowRuntime.IncrementRepairRound()
+			repairRounds = beginRepairIteration()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason), view)

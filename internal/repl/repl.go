@@ -1450,6 +1450,22 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		repairRounds = view.RepairRounds
 		return view
 	}
+	syncIteration := func(iteration dataworkflow.WorkflowIterationDecision) {
+		records = iteration.Records
+		if dataTaskPlanHasRuntimeShape(iteration.CurrentPlan) {
+			currentPlan = iteration.CurrentPlan
+		}
+		dataRounds = iteration.DataRounds
+		repairRounds = iteration.RepairRounds
+	}
+	beginDataIteration := func() int {
+		syncIteration(workflowRuntime.BeginDataIteration())
+		return dataRounds
+	}
+	beginRepairIteration := func() int {
+		syncIteration(workflowRuntime.BeginRepairIteration())
+		return repairRounds
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -1465,7 +1481,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-				repairRounds = workflowRuntime.IncrementRepairRound()
+				repairRounds = beginRepairIteration()
 				ctx := r.startTurn()
 				repairView := runtimeView()
 				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
@@ -1519,7 +1535,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-				repairRounds = workflowRuntime.IncrementRepairRound()
+				repairRounds = beginRepairIteration()
 				appendRecord(guardRecord)
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
@@ -1681,7 +1697,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			appendRecord(guardRecord)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-				repairRounds = workflowRuntime.IncrementRepairRound()
+				repairRounds = beginRepairIteration()
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
 					Round:        repairRounds,
@@ -1730,7 +1746,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if errText := r.prepareDataTaskNonTextMaterials(context.Background(), &candidates, currentPlan); errText != "" {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-				repairRounds = workflowRuntime.IncrementRepairRound()
+				repairRounds = beginRepairIteration()
 				emitWorkflowFailure("repair", repairRounds, errText)
 				ctx := r.startTurn()
 				repairView := runtimeView()
@@ -1770,7 +1786,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		dataRounds = workflowRuntime.IncrementDataRound()
+		dataRounds = beginDataIteration()
 		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:  "execute",
@@ -1847,7 +1863,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				appendRecord(executionRecord)
 			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-				repairRounds = workflowRuntime.IncrementRepairRound()
+				repairRounds = beginRepairIteration()
 				emitWorkflowFailure("repair", repairRounds, errText)
 				ctx := r.startTurn()
 				repairView := runtimeView()
@@ -1905,7 +1921,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-					repairRounds = workflowRuntime.IncrementRepairRound()
+					repairRounds = beginRepairIteration()
 					emitWorkflowFailure("repair", repairRounds, errText)
 					ctx := r.startTurn()
 					repairView := runtimeView()
@@ -2070,7 +2086,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					continue
 				}
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-					repairRounds = workflowRuntime.IncrementRepairRound()
+					repairRounds = beginRepairIteration()
 					ctx := r.startTurn()
 					repairView := runtimeView()
 					repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
@@ -2178,7 +2194,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			repairRounds = workflowRuntime.IncrementRepairRound()
+			repairRounds = beginRepairIteration()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			ctx := r.startTurn()
