@@ -16850,6 +16850,53 @@ Remaining architecture items:
       implemented or explicitly classified as non-blocking operational/eval
       work.
 
+### Batch 393: Runtime View Boundary For Planner And Evaluator Prompts
+
+Batch 392 moved process/audit state assembly behind a runtime-view boundary,
+but continuation/evaluation request builders still accepted parallel
+`records`, `current`, and `deferred` inputs internally. The model-facing
+contract was already structural; the remaining problem was the adapter shape.
+If future reducers own more state, prompt builders should consume the same
+runtime-view object as process/audit rendering rather than reconstructing
+workflow state from separate arguments.
+
+Generic invariants:
+
+- prompt `workflow_state_json` is built from the runtime view;
+- existing planner/evaluator interfaces remain compatible while production
+  call sites pass runtime views;
+- old `records + deferred` helpers become compatibility wrappers, not the
+  primary prompt-state path;
+- no prompt hard gates are introduced, and no business/domain text is parsed
+  for control flow.
+
+Changes:
+
+- [x] Added runtime-view wrappers for continuation and evaluation planner
+      calls.
+- [x] Added runtime-view prompt builders for continuation and evaluation
+      contexts.
+- [x] Rewired CLI and REPL main-loop continuation/evaluation calls to pass
+      runtime views.
+- [x] Rewired the CLI resume continuation path to construct a runtime view
+      even when no live runtime object exists.
+- [x] Rewired workflow-state JSON marshaling through
+      `marshalDataTaskWorkflowStateFromRuntimeView`.
+- [x] Added regression coverage proving runtime-view marshaling carries the
+      ready action graph and deferred queue into `workflow_state_json`.
+
+Remaining architecture items:
+
+- [ ] Move planner/evaluator interfaces themselves to a runtime-view or
+      snapshot-native form once downstream adapters/stubs can be updated in one
+      focused batch.
+- [ ] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
+      state.
+- [ ] Keep the real-scenario gate closed until the current IR backlog is
+      implemented or explicitly classified as non-blocking operational/eval
+      work.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

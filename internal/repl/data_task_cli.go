@@ -482,7 +482,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					appendRecord(executionRecord)
 					recordedErr = true
 					emitWorkflowReason("continue", dataRounds, transition.Reason)
-					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
+					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), runtimeView())
 					if contErr == nil {
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 							logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
@@ -624,7 +624,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			Plan:     view.CurrentPlan,
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
-		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, view.Records, view.DeferredPlan, cfg.Language)
+		eval, err := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, request, view, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
 		}
@@ -670,7 +670,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
 			view = runtimeView()
-			nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.Records, view.DeferredPlan)
+			nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 			if err != nil {
 				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err); ok {
 					fallback = protectPlan(fallback)
@@ -796,7 +796,11 @@ func nextDataTaskPlanFromResumeForCLI(ctx context.Context, planner DataTaskPlann
 		return fallback, nil
 	}
 	if continuer, ok := planner.(DataTaskContinuationPlanner); ok {
-		nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, deferred)
+		nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), dataTaskWorkflowRuntimeView{
+			Records:       records,
+			DeferredPlan:  deferred,
+			DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+		})
 		if err == nil && dataTaskResumePlanHasShape(nextPlan) {
 			return nextPlan, nil
 		}

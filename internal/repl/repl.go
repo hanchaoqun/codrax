@@ -1816,7 +1816,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					recordedErr = true
 					emitWorkflowReason("continue", dataRounds, transition.Reason)
 					ctx := r.startTurn()
-					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
+					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), runtimeView())
 					r.endTurn()
 					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 					if contErr == nil {
@@ -2021,7 +2021,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		ctx := r.startTurn()
-		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, view.Records, view.DeferredPlan, r.language)
+		eval, evalErr := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, line, view, r.language)
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
@@ -2113,7 +2113,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			emitWorkflowReason("continue", dataRounds, "")
 			ctx := r.startTurn()
 			view = runtimeView()
-			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.Records, view.DeferredPlan)
+			nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if contErr != nil {

@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -72,5 +73,28 @@ func TestDataTaskWorkflowStateFromRuntimeViewCarriesDeferredQueue(t *testing.T) 
 	}
 	if state.ActionGraph.DeferredQueue.Actions != 1 || len(state.ActionGraph.Deferred) != 1 || state.ActionGraph.Deferred[0].ID != "compute" {
 		t.Fatalf("deferred graph=%+v, want deferred queue action", state.ActionGraph)
+	}
+}
+
+func TestMarshalDataTaskWorkflowStateFromRuntimeViewCarriesActionGraph(t *testing.T) {
+	view := dataTaskWorkflowRuntimeView{
+		Records: []dataTaskWorkflowRecord{{
+			Result: &dataquery.Result{ConsumedPaths: []string{"records.csv"}},
+		}},
+		CurrentPlan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "derive",
+			Kind: dataquery.DataActionDeriveFields,
+		}}},
+		DeferredQueue: dataworkflow.NewDeferredQueue(dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "join",
+			Kind: dataquery.DataActionJoinRecords,
+		}}}),
+	}
+
+	raw := marshalDataTaskWorkflowStateFromRuntimeView(view)
+	for _, want := range []string{`"action_graph"`, `"derive"`, `"join"`, `"deferred_queue"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("workflow state json=%s, missing %q", raw, want)
+		}
 	}
 }

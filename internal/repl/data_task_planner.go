@@ -128,11 +128,19 @@ func continueDataTaskWithDeferredIfSupported(ctx context.Context, continuer Data
 	return continuer.ContinueDataTask(ctx, userLine, repoRoot, policy, candidates, records)
 }
 
+func continueDataTaskWithRuntimeViewIfSupported(ctx context.Context, continuer DataTaskContinuationPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	return continueDataTaskWithDeferredIfSupported(ctx, continuer, userLine, repoRoot, policy, candidates, view.Records, view.DeferredPlan)
+}
+
 func evaluateDataTaskWithDeferredIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
 	if withDeferred, ok := evaluator.(DataTaskEvaluatorWithDeferred); ok && len(deferred.Actions) > 0 {
 		return withDeferred.EvaluateDataTaskWithDeferred(ctx, userLine, records, deferred, lang)
 	}
 	return evaluator.EvaluateDataTask(ctx, userLine, records, lang)
+}
+
+func evaluateDataTaskWithRuntimeViewIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
+	return evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, userLine, view.Records, view.DeferredPlan, lang)
 }
 
 type llmDataTaskPlanner struct {
@@ -1000,6 +1008,14 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 }
 
 func dataTaskContinuationPromptWithDeferred(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) string {
+	return dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot, policy, candidates, dataTaskWorkflowRuntimeView{
+		Records:       records,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	})
+}
+
+func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## continuation_goal\nThe previous data batch executed. Emit the next bounded emit_data_task_plan, or status=complete/blocked/needs_clarification when appropriate.\n\n")
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
@@ -1007,8 +1023,8 @@ func dataTaskContinuationPromptWithDeferred(userLine, repoRoot string, policy Tu
 	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## previous_data_rounds\n")
-	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
-	if stateJSON := marshalDataTaskWorkflowStateWithDeferred(records, dataquery.TaskPlan{}, deferred); stateJSON != "" {
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## continuation_rules\n")
@@ -1064,12 +1080,20 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 }
 
 func dataTaskEvaluationPromptWithDeferred(userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) string {
+	return dataTaskEvaluationPromptWithRuntimeView(userLine, dataTaskWorkflowRuntimeView{
+		Records:       records,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	}, lang)
+}
+
+func dataTaskEvaluationPromptWithRuntimeView(userLine string, view dataTaskWorkflowRuntimeView, lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	b.WriteString("## data_workflow_rounds\n")
-	b.WriteString(renderCompactDataTaskRecordsForPrompt(records))
-	if stateJSON := marshalDataTaskWorkflowStateWithDeferred(records, dataquery.TaskPlan{}, deferred); stateJSON != "" {
+	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## evaluator_rules\n")
@@ -1096,7 +1120,16 @@ func marshalDataTaskWorkflowState(records []dataTaskWorkflowRecord, current data
 }
 
 func marshalDataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) string {
-	raw, err := json.MarshalIndent(dataTaskWorkflowStateWithDeferred(records, current, deferred), "", "  ")
+	return marshalDataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+		Records:       records,
+		CurrentPlan:   current,
+		DeferredPlan:  deferred,
+		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
+	})
+}
+
+func marshalDataTaskWorkflowStateFromRuntimeView(view dataTaskWorkflowRuntimeView) string {
+	raw, err := json.MarshalIndent(dataTaskWorkflowStateFromRuntimeView(view), "", "  ")
 	if err != nil {
 		return ""
 	}
