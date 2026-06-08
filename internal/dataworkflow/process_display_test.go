@@ -137,6 +137,27 @@ func TestBuildWorkflowProcessDisplayRendersOutputContractBlocker(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersArtifactMaterializationBlocker(t *testing.T) {
+	guard := NewGuardResult("artifact_materialization_violation", "error", RepairNeedsTypedAction, "artifact payload could not be materialized", WorkflowViolation{
+		Code:       "artifact_materialization_violation",
+		ActionID:   "extract",
+		ActionKind: string(dataquery.DataActionExtractRecords),
+		InputAlias: "records",
+		Reason:     "artifact payload could not be materialized",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "action_batch",
+		Round: 1,
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	if !strings.Contains(got, "当前阻塞：本步生成的中间产物还不能被系统可靠保存和复用") ||
+		!strings.Contains(got, "输入 records") {
+		t.Fatalf("details=%q, want materialization blocker", got)
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {

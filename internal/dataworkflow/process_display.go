@@ -169,6 +169,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 			return appendProcessDisplayContext("本步没有产出系统可验证的结构化结果。", input, field, param, operation, zh)
 		case "output_contract_violation":
 			return appendProcessDisplayContext("最终答案还没有满足用户要求的输出格式。", input, field, param, operation, zh)
+		case "artifact_materialization_violation":
+			return appendProcessDisplayContext("本步生成的中间产物还不能被系统可靠保存和复用。", input, field, param, operation, zh)
 		case "zero_match_filter":
 			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, param, operation, zh)
 		case "unmatched_resolution":
@@ -196,6 +198,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 		return appendProcessDisplayContext("This step did not emit a verifiable structured result.", input, field, param, operation, zh)
 	case "output_contract_violation":
 		return appendProcessDisplayContext("The final answer does not satisfy the requested output format yet.", input, field, param, operation, zh)
+	case "artifact_materialization_violation":
+		return appendProcessDisplayContext("This step produced an intermediate artifact that cannot be reliably saved and reused yet.", input, field, param, operation, zh)
 	case "zero_match_filter":
 		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, param, operation, zh)
 	case "unmatched_resolution":

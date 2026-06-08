@@ -327,6 +327,59 @@ func dataActionLimitError(kind DataActionKind, param string, limit, observed int
 	}
 }
 
+type DataArtifactMaterializationError struct {
+	ActionID      string         `json:"action_id,omitempty"`
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	ArtifactID    string         `json:"artifact_id,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	Cause         error          `json:"-"`
+}
+
+func (e DataArtifactMaterializationError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	id := firstNonEmptyString(strings.TrimSpace(e.ArtifactID), strings.TrimSpace(e.ActionID), "artifact")
+	expected := firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "JSON-serializable artifact payload")
+	msg := fmt.Sprintf("data artifact %q could not be materialized as %s", id, expected)
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataArtifactMaterializationError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataArtifactMaterializationError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "artifact_materialization_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		JSONPath:      "/artifacts",
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "JSON-serializable generated artifact payload"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		ActionID:      strings.TrimSpace(e.ActionID),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		InputAlias:    strings.TrimSpace(e.ArtifactID),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Emit a JSON-serializable artifact payload and stable artifact alias, or split the action so generated data can be materialized before later steps consume it.",
+	}
+}
+
+func dataArtifactMaterializationError(action DataAction, artifact DataArtifact, expectedShape, actualSnippet string, cause error) DataArtifactMaterializationError {
+	return DataArtifactMaterializationError{
+		ActionID:      strings.TrimSpace(action.ID),
+		ActionKind:    action.Kind,
+		ArtifactID:    firstNonEmptyString(strings.TrimSpace(artifact.ID), strings.TrimSpace(action.OutputArtifact)),
+		ExpectedShape: strings.TrimSpace(expectedShape),
+		ActualSnippet: strings.TrimSpace(actualSnippet),
+		Cause:         cause,
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -7929,12 +7982,24 @@ func (r ActionRunner) materializeActionArtifact(dir string, action DataAction, a
 	payload = dataActionArtifactPayloadForWrite(artifact, payload)
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return artifact, fmt.Errorf("materialize data action artifact %q: %w", firstNonEmptyString(action.ID, artifact.ID), err)
+		return artifact, dataArtifactMaterializationError(
+			action,
+			artifact,
+			"JSON-serializable artifact payload",
+			fmt.Sprintf("%T", payload),
+			fmt.Errorf("materialize data action artifact %q: %w", firstNonEmptyString(action.ID, artifact.ID), err),
+		)
 	}
 	fileName := safeActionArtifactFileName(firstNonEmptyString(action.OutputArtifact, action.ID, artifact.ID, "artifact")) + ".json"
 	abs := filepath.Join(dir, fileName)
 	if err := os.WriteFile(abs, raw, 0600); err != nil {
-		return artifact, fmt.Errorf("write data action artifact %q: %w", fileName, err)
+		return artifact, dataArtifactMaterializationError(
+			action,
+			artifact,
+			"writable generated artifact file",
+			abs,
+			fmt.Errorf("write data action artifact %q: %w", fileName, err),
+		)
 	}
 	if artifact.Fields == nil {
 		artifact.Fields = map[string]string{}

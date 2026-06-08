@@ -16215,3 +16215,41 @@ Remaining architecture items:
       directly from reducer state.
 - [ ] Continue auditing role-selection failures for typed IR equivalents before
       running the real scenario again.
+
+### Batch 358: Typed Artifact Materialization Violations
+
+The adaptive data DAG depends on intermediate artifacts being reusable by later
+nodes. If an action computes a payload that cannot be serialized, or the runtime
+cannot write the generated artifact file, that is not a business-rule failure
+and should not be recovered by parsing a raw write/marshal error sentence.
+
+Generic invariants:
+
+- artifact materialization failures are `artifact_materialization_violation`;
+- the violation carries action id/kind, artifact handle, expected payload/file
+  shape, and a bounded actual snippet;
+- empty alias/no-alias cases remain non-fatal to preserve existing summary-only
+  artifact behavior;
+- workflow display may explain the materialization blocker, but scheduling and
+  repair logic consume typed violation fields only.
+
+Changes:
+
+- [x] Added `DataArtifactMaterializationError`.
+- [x] Mapped artifact materialization errors through
+      `ClassifyExecutionFailure`.
+- [x] Converted generated artifact JSON marshal and write failures to typed
+      materialization violations.
+- [x] Added low-noise process-display labels for artifact materialization
+      blockers.
+- [x] Added regression coverage for typed materialization classification and
+      process display.
+
+Remaining architecture items:
+
+- [ ] Continue auditing role-selection failures for typed IR equivalents before
+      running the real scenario again.
+- [ ] Move evaluator repair decisions to consume typed output/result/material
+      blockers directly from reducer state.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.

@@ -481,6 +481,35 @@ func TestValidateAnswerOutputContractViolationIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerArtifactMaterializationFailureIsTyped(t *testing.T) {
+	runner := ActionRunner{artifactFiles: map[string]string{}}
+	_, err := runner.materializeActionArtifact(t.TempDir(), DataAction{
+		ID:   "bad_artifact",
+		Kind: DataActionExtractRecords,
+	}, DataArtifact{
+		ID: "bad_artifact",
+	}, map[string]any{
+		"not_json": func() {},
+	})
+	if err == nil {
+		t.Fatal("materializeActionArtifact err=nil, want typed materialization failure")
+	}
+	var materializeErr DataArtifactMaterializationError
+	if !errors.As(err, &materializeErr) {
+		t.Fatalf("err=%T %v, want DataArtifactMaterializationError", err, err)
+	}
+	if materializeErr.ActionID != "bad_artifact" || materializeErr.ActionKind != DataActionExtractRecords {
+		t.Fatalf("materializeErr=%+v, want action identity", materializeErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "artifact_materialization_violation" ||
+		violation.ActionID != "bad_artifact" ||
+		violation.ActionKind != string(DataActionExtractRecords) ||
+		violation.JSONPath != "/artifacts" {
+		t.Fatalf("violation=%+v, want typed artifact materialization violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
