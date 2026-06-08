@@ -17356,6 +17356,48 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 387: ArtifactGraph-Owned Generated Schema Diagnostics
+
+After fallback signatures moved into `dataworkflow`, one non-prefix fallback
+still owned its candidate selection in the REPL adapter: when a typed workflow
+had disabled broad `custom_transform` scripts and a repair nevertheless tried
+one, the adapter selected generated artifacts to inspect before the next typed
+repair. That selection is a graph-state operation, not a UI concern.
+
+Generic invariants:
+
+- generated-artifact schema diagnostics are selected from
+  `ArtifactSchemaProjection`;
+- ranking uses structural signals only: plan input references, artifact kind,
+  record-like shape, field count, and stable graph order;
+- source/material business labels and model prose are not part of the hard
+  decision;
+- the fallback emits a typed `inspect_material` action over generated artifact
+  aliases and is suppressed if the same typed diagnostic plan already appears
+  in workflow history;
+- REPL/CLI adapters provide records and projections, but do not maintain a
+  separate generated-artifact scoring rule.
+
+Changes:
+
+- [x] Added workflow-owned generated schema diagnostic input selection.
+- [x] Added workflow-owned generated schema diagnostic fallback plan builder.
+- [x] Rewired the REPL custom-transform-disabled fallback to call
+      `dataworkflow`.
+- [x] Removed the duplicate REPL-local generated-artifact diagnostic ranking
+      helpers.
+- [x] Added regression coverage for plan-referenced artifact preference and
+      seen-plan suppression.
+
+Remaining architecture items:
+
+- [ ] Move the remaining non-prefix fallback selection paths out of REPL
+      callbacks and into reducer-owned workflow decisions.
+- [ ] Move repeated-node expansion and field-contract recovery selection into
+      reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
