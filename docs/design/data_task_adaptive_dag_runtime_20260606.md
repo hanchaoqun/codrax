@@ -15656,6 +15656,50 @@ Remaining architecture items:
 - [ ] Feed typed execution violation counts into workflow evaluator/process
       events so users see structural blockers without internal jargon.
 
+### Batch 350: Typed Field Contracts For Mapping And Resolution Actions
+
+The previous batch covered the common record-processing actions. A remaining
+field-contract gap lived in the mapping and resolution path: entity candidate
+generation, entity normalization, and applying resolution ledgers still
+returned prose-only errors when declared source/reference/base-key fields did
+not exist in the executable input schema.
+
+This batch moves those objective field failures into the same typed execution
+violation contract. The system still does not decide what a source/reference
+means for the user's business task; it only reports that the model-declared
+field is not present in the structurally available records.
+
+Generic invariants:
+
+- mapping/normalization/resolution actions use the same field-contract IR as
+  filtering, joining, enrichment, and contributions;
+- "could not infer fields" remains a distinct future typed inference problem
+  and is not collapsed into field-missing just because it is nearby;
+- base/reference/source roles are structural action roles, not business roles;
+- existing display text is preserved while hard control consumes typed
+  action/input/field metadata.
+
+Changes:
+
+- [x] Converted `mapping_candidate` source/reference/canonical field misses to
+      `DataFieldContractError`.
+- [x] Converted `normalize_entities` source/canonical reference field misses to
+      `DataFieldContractError`.
+- [x] Converted `apply_entity_resolutions` base-key and verification reference
+      field misses to `DataFieldContractError`.
+- [x] Added regression coverage for mapping-candidate and apply-resolution
+      typed field contracts.
+
+Remaining architecture items:
+
+- [ ] Add a typed `field_inference_violation` for actions that cannot infer
+      required fields from available schema but do not have explicit missing
+      field names.
+- [ ] Promote numeric value-contract failures into typed execution violations
+      with sampled value diagnostics.
+- [ ] Feed typed execution violation counts into workflow evaluator/process
+      events so users see structural blockers without internal jargon.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

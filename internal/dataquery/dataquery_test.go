@@ -145,6 +145,40 @@ func TestActionRunnerMappingCandidateProducesCandidateArtifactOnly(t *testing.T)
 	}
 }
 
+func TestActionRunnerMappingCandidateMissingFieldsAreTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,name\n1,Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("code,label\nA,Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "candidates",
+			Kind:       DataActionMappingCandidate,
+			InputPaths: []string{"items.csv", "reference.csv"},
+			Params: map[string]string{
+				"source_field":          "raw_label",
+				"reference_name_fields": `["label"]`,
+				"canonical_id_field":    "code",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed missing source field")
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionMappingCandidate || fieldErr.Role != "source" || fieldErr.InputAlias != "items.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "raw_label" {
+		t.Fatalf("fieldErr=%+v, want typed mapping source field contract", fieldErr)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -1940,6 +1974,42 @@ func TestActionRunnerNormalizeEntitiesReferenceModeAppliesRepeatedSourceRows(t *
 	}
 	if rows[0]["canonical_code"] != "A1" || rows[1]["canonical_code"] != "A1" || rows[2]["canonical_code"] != "B2" {
 		t.Fatalf("rows=%+v, want repeated Alpha rows both mapped to A1 and beta to B2", rows)
+	}
+}
+
+func TestActionRunnerApplyEntityResolutionsMissingBaseKeyIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,name\n1,Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "resolution.csv"), []byte("item_id,canonical_id,canonical_label,status\nrecords.csv#1:name,A,Alpha,resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "apply",
+			Kind:       DataActionApplyResolutions,
+			InputPaths: []string{"records.csv", "resolution.csv"},
+			Params: map[string]string{
+				"base_path":             "records.csv",
+				"resolution_path":       "resolution.csv",
+				"base_key_fields":       `["missing_key"]`,
+				"resolution_key_fields": `["item_id"]`,
+				"target_id_field":       "canonical_id",
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed missing base key field")
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionApplyResolutions || fieldErr.Role != "base_key" || fieldErr.InputAlias != "records.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "missing_key" {
+		t.Fatalf("fieldErr=%+v, want typed apply-resolution base key field contract", fieldErr)
 	}
 }
 

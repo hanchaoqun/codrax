@@ -1367,13 +1367,34 @@ func (r ActionRunner) runMappingCandidate(action DataAction) (DataArtifact, []ma
 		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate could not infer reference fields for %s; provide reference_fields or reference_name_fields", referenceRel)
 	}
 	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {
-		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", "))
+		return DataArtifact{}, nil, nil, dataFieldContractError(
+			DataActionMappingCandidate,
+			"source",
+			sourceRel,
+			sourceFields,
+			sourceFieldNames,
+			fmt.Sprintf("mapping_candidate source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", ")),
+		)
 	}
 	if !actionRecordFieldExists(referenceFieldNames, canonicalIDField) {
-		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
+		return DataArtifact{}, nil, nil, dataFieldContractError(
+			DataActionMappingCandidate,
+			"canonical_id",
+			referenceRel,
+			[]string{canonicalIDField},
+			referenceFieldNames,
+			fmt.Sprintf("mapping_candidate canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", ")),
+		)
 	}
 	if !actionRecordAnyFieldExists(referenceFieldNames, referenceFields) {
-		return DataArtifact{}, nil, nil, fmt.Errorf("mapping_candidate reference field(s) [%s] were not found in reference input %s fields [%s]", strings.Join(referenceFields, ", "), referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
+		return DataArtifact{}, nil, nil, dataFieldContractError(
+			DataActionMappingCandidate,
+			"reference",
+			referenceRel,
+			referenceFields,
+			referenceFieldNames,
+			fmt.Sprintf("mapping_candidate reference field(s) [%s] were not found in reference input %s fields [%s]", strings.Join(referenceFields, ", "), referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", ")),
+		)
 	}
 	referenceLookup := buildEntityReferenceLookup(referenceRecords, referenceRel, referenceFields, canonicalIDField, canonicalLabelField)
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(sourceRecords)))
@@ -1735,10 +1756,24 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 	}
 	referenceFields = addReferenceCanonicalIDField(referenceFields, referenceFieldNames, canonicalIDField)
 	if !actionRecordAnyFieldExists(sourceFieldNames, sourceFields) {
-		return nil, nil, nil, true, fmt.Errorf("normalize_entities source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", "))
+		return nil, nil, nil, true, dataFieldContractError(
+			DataActionNormalizeEntities,
+			"source",
+			sourceRel,
+			sourceFields,
+			sourceFieldNames,
+			fmt.Sprintf("normalize_entities source field(s) [%s] were not found in source input %s fields [%s]", strings.Join(sourceFields, ", "), sourceRel, strings.Join(clampStringSliceForError(sourceFieldNames, 24), ", ")),
+		)
 	}
 	if !actionRecordFieldExists(referenceFieldNames, canonicalIDField) {
-		return nil, nil, nil, true, fmt.Errorf("normalize_entities canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", "))
+		return nil, nil, nil, true, dataFieldContractError(
+			DataActionNormalizeEntities,
+			"canonical_id",
+			referenceRel,
+			[]string{canonicalIDField},
+			referenceFieldNames,
+			fmt.Sprintf("normalize_entities canonical_id_field %q was not found in reference input %s fields [%s]", canonicalIDField, referenceRel, strings.Join(clampStringSliceForError(referenceFieldNames, 24), ", ")),
+		)
 	}
 	sourceFields = addSourceCanonicalIDField(sourceFields, sourceFieldNames, canonicalIDField)
 
@@ -4263,7 +4298,14 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	}
 	for _, spec := range specs {
 		if len(spec.BaseKeyFields) > 0 && !actionRecordAnyFieldOrVirtualExists(baseFields, spec.BaseKeyFields, applyResolutionVirtualBaseKeyFields()...) {
-			return DataArtifact{}, nil, nil, fmt.Errorf("apply_entity_resolutions base_key_fields [%s] were not found in base input %s fields [%s]", strings.Join(spec.BaseKeyFields, ", "), baseRel, strings.Join(clampStringSliceForError(baseFields, 32), ", "))
+			return DataArtifact{}, nil, nil, dataFieldContractError(
+				DataActionApplyResolutions,
+				"base_key",
+				baseRel,
+				spec.BaseKeyFields,
+				baseFields,
+				fmt.Sprintf("apply_entity_resolutions base_key_fields [%s] were not found in base input %s fields [%s]", strings.Join(spec.BaseKeyFields, ", "), baseRel, strings.Join(clampStringSliceForError(baseFields, 32), ", ")),
+			)
 		}
 	}
 	consumed := []string{baseRel}
@@ -4944,7 +4986,14 @@ func (r ActionRunner) buildApplyResolutionExistingIDIndex(spec applyResolutionSp
 		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", nil
 	}
 	if !actionRecordFieldExists(baseFields, spec.ExistingIDField) {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q was not found in base input fields [%s]", spec.ExistingIDField, strings.Join(clampStringSliceForError(baseFields, 32), ", "))
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataFieldContractError(
+			DataActionApplyResolutions,
+			"existing_id",
+			"",
+			[]string{spec.ExistingIDField},
+			baseFields,
+			fmt.Sprintf("apply_entity_resolutions existing_id_field %q was not found in base input fields [%s]", spec.ExistingIDField, strings.Join(clampStringSliceForError(baseFields, 32), ", ")),
+		)
 	}
 	if strings.TrimSpace(spec.ReferencePath) == "" {
 		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions existing_id_field %q requires reference_path so the existing canonical value can be verified structurally", spec.ExistingIDField)
@@ -4958,13 +5007,34 @@ func (r ActionRunner) buildApplyResolutionExistingIDIndex(spec applyResolutionSp
 	}
 	fields := actionRecordFieldNames(headers, records)
 	if !actionRecordFieldExists(fields, spec.ReferenceIDField) {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_id_field %q was not found in reference input %s fields [%s]", spec.ReferenceIDField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataFieldContractError(
+			DataActionApplyResolutions,
+			"reference_id",
+			rel,
+			[]string{spec.ReferenceIDField},
+			fields,
+			fmt.Sprintf("apply_entity_resolutions reference_id_field %q was not found in reference input %s fields [%s]", spec.ReferenceIDField, rel, strings.Join(clampStringSliceForError(fields, 32), ", ")),
+		)
 	}
 	if spec.ReferenceLabelField != "" && !actionRecordFieldExists(fields, spec.ReferenceLabelField) {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_label_field %q was not found in reference input %s fields [%s]", spec.ReferenceLabelField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataFieldContractError(
+			DataActionApplyResolutions,
+			"reference_label",
+			rel,
+			[]string{spec.ReferenceLabelField},
+			fields,
+			fmt.Sprintf("apply_entity_resolutions reference_label_field %q was not found in reference input %s fields [%s]", spec.ReferenceLabelField, rel, strings.Join(clampStringSliceForError(fields, 32), ", ")),
+		)
 	}
 	if spec.ReferenceStatusField != "" && !actionRecordFieldExists(fields, spec.ReferenceStatusField) {
-		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", fmt.Errorf("apply_entity_resolutions reference_status_field %q was not found in reference input %s fields [%s]", spec.ReferenceStatusField, rel, strings.Join(clampStringSliceForError(fields, 32), ", "))
+		return applyResolutionExistingIDIndex{}, DataArtifact{}, "", dataFieldContractError(
+			DataActionApplyResolutions,
+			"reference_status",
+			rel,
+			[]string{spec.ReferenceStatusField},
+			fields,
+			fmt.Sprintf("apply_entity_resolutions reference_status_field %q was not found in reference input %s fields [%s]", spec.ReferenceStatusField, rel, strings.Join(clampStringSliceForError(fields, 32), ", ")),
+		)
 	}
 	index := applyResolutionExistingIDIndex{
 		Enabled:              true,
