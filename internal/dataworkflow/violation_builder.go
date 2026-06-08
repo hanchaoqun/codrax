@@ -316,21 +316,38 @@ func MissingApplyResolutionInputGuardResult(action dataquery.DataAction, actionI
 
 func MissingUpstreamLedgerGuardResult(input MissingUpstreamLedgerGuardInput) GuardResult {
 	var message string
+	var role string
+	var operation string
+	var hint string
 	switch input.Ledger {
 	case LedgerContributions:
+		role = string(LedgerContributions)
+		operation = "reconcile"
+		hint = string(dataquery.DataActionComputeContribs)
 		message = fmt.Sprintf("data planning incomplete: action %d (%s) requires contribution records, but no prior compute_contributions result or earlier compute_contributions action is available. Add a bounded compute_contributions batch first, let it execute, then reconcile in a later batch or after a previous contribution-producing action.",
 			guardActionNumber(input.ActionIndex), guardActionLabel(input.Action))
 	case LedgerReconcile:
+		role = string(LedgerReconcile)
+		operation = "answer_projection"
+		hint = string(dataquery.DataActionReconcile)
 		message = fmt.Sprintf("data planning incomplete: action %d (%s) requires a prior reconcile report. Add reconcile_artifacts first, let it execute, then assemble the final output in a later batch.",
 			guardActionNumber(input.ActionIndex), guardActionLabel(input.Action))
 	default:
 		return GuardResult{}
 	}
-	return ActionInputContractGuardResult(ActionInputContractGuardInput{
-		Code:    "missing_upstream_ledger",
-		Action:  input.Action,
-		Message: message,
-	})
+	violation := NewActionInputViolation(
+		"action_dependency_violation",
+		"error",
+		RepairNeedsTypedAction,
+		input.Action,
+		"",
+		nil,
+		message,
+		[]string{hint},
+	)
+	violation.Role = role
+	violation.Operation = operation
+	return NewGuardResult("action_dependency_violation", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func ZeroMatchFilterGuardResult(input ZeroMatchFilterGuardInput) GuardResult {

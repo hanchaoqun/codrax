@@ -16960,6 +16960,45 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until the current typed-violation and
       runtime-snapshot backlog is implemented or explicitly marked non-blocking.
 
+### Batch 377: Canonical Action Dependency Code Across Admission And Runner
+
+Batch 376 typed runner-side dependency failures, but admission still used a
+separate `missing_upstream_ledger` code for the same structural condition.
+That split would force evaluator, UX, and repair logic to understand two names
+for one IR fact.
+
+Generic invariants:
+
+- a missing upstream ledger/artifact has one canonical workflow violation code:
+  `action_dependency_violation`;
+- admission and runner paths preserve the same structural details: role,
+  operation, action identity, idempotency, dependency rank, and next typed
+  action hint;
+- user-facing wording remains low-noise and business-neutral;
+- this layer does not infer how to compute the missing ledger, only which
+  typed action family can produce it.
+
+Changes:
+
+- [x] Replaced admission-only `missing_upstream_ledger` guard output with
+      canonical `action_dependency_violation`.
+- [x] Preserved role values such as `contributions` and `reconcile`.
+- [x] Preserved operation values such as `reconcile` and `answer_projection`.
+- [x] Preserved next-action hints such as `compute_contributions` and
+      `reconcile_artifacts`.
+- [x] Updated regression coverage for both reconcile and assemble admission
+      blockers.
+
+Remaining architecture items:
+
+- [ ] Continue moving all dependency-readiness decisions into one ActionDAG
+      admission reducer used by initial, continuation, repair, completion, and
+      deferred dispatch.
+- [ ] Continue converting runner contract families that still return plain
+      error text into typed violations.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

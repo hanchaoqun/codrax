@@ -200,8 +200,14 @@ func TestMissingUpstreamLedgerGuardResult(t *testing.T) {
 		ActionIndex: 0,
 		Ledger:      LedgerContributions,
 	})
-	if reconcile.Code != "missing_upstream_ledger" || !strings.Contains(reconcile.ErrorText(), "compute_contributions") {
+	if reconcile.Code != "action_dependency_violation" || !strings.Contains(reconcile.ErrorText(), "compute_contributions") {
 		t.Fatalf("reconcile=%+v", reconcile)
+	}
+	if len(reconcile.Violations) != 1 ||
+		reconcile.Violations[0].Role != string(LedgerContributions) ||
+		reconcile.Violations[0].Operation != "reconcile" ||
+		reconcile.Violations[0].RepairActionHints[0] != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("reconcile violations=%+v, want typed dependency details", reconcile.Violations)
 	}
 
 	assemble := MissingUpstreamLedgerGuardResult(MissingUpstreamLedgerGuardInput{
@@ -209,8 +215,14 @@ func TestMissingUpstreamLedgerGuardResult(t *testing.T) {
 		ActionIndex: 1,
 		Ledger:      LedgerReconcile,
 	})
-	if assemble.Code != "missing_upstream_ledger" || !strings.Contains(assemble.ErrorText(), "reconcile_artifacts") {
+	if assemble.Code != "action_dependency_violation" || !strings.Contains(assemble.ErrorText(), "reconcile_artifacts") {
 		t.Fatalf("assemble=%+v", assemble)
+	}
+	if len(assemble.Violations) != 1 ||
+		assemble.Violations[0].Role != string(LedgerReconcile) ||
+		assemble.Violations[0].Operation != "answer_projection" ||
+		assemble.Violations[0].RepairActionHints[0] != string(dataquery.DataActionReconcile) {
+		t.Fatalf("assemble violations=%+v, want typed dependency details", assemble.Violations)
 	}
 }
 
