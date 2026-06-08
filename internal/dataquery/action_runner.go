@@ -7808,9 +7808,13 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	}
 	contract = contract.Normalize()
 	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
-	groups = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
+	referenceProjected := false
+	groups, referenceProjected = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
 	valueField := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["value_field"], "actual")))
 	orderBy := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["order_by"], "group_key")))
+	if referenceProjected && (orderBy == "" || orderBy == "group_key") {
+		orderBy = "input"
+	}
 	switch orderBy {
 	case "input", "none", "stable":
 	case "metric":
@@ -7902,6 +7906,18 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	next := *reconcile
 	next.ActualAnswer = LooseText(answer)
 	next.ExpectedAnswer = LooseText(answer)
+	if referenceProjected {
+		next.Groups = append([]ReconcileGroup(nil), reconcile.Groups...)
+		next.Groups = append(next.Groups, ReconcileGroup{
+			GroupKey:   LooseText("final_answer"),
+			Metric:     LooseText("projection"),
+			Scope:      LooseText("final_answer"),
+			Role:       LooseText("output"),
+			Expected:   LooseText(answer),
+			Actual:     LooseText(answer),
+			Difference: LooseText("0"),
+		})
+	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "assembled_answer")
 	return DataArtifact{
 		ID:      id,
@@ -7918,9 +7934,9 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	}, answer, &next, nil
 }
 
-func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) []ReconcileGroup {
+func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) ([]ReconcileGroup, bool) {
 	if !parseBoolActionParam(firstNonEmptyString(action.Params["complete_reference"], strconv.FormatBool(contract.CompleteReference))) {
-		return groups
+		return groups, false
 	}
 	keyField := firstNonEmptyString(
 		strings.TrimSpace(action.Params["reference_key_field"]),
@@ -7930,28 +7946,33 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		strings.TrimSpace(action.Params["group_key"]),
 	)
 	if strings.TrimSpace(keyField) == "" {
-		return groups
+		return groups, false
 	}
 	metric := firstNonEmptyString(strings.TrimSpace(action.Params["metric"]), singleReconcileMetric(groups), "value")
 	referencePaths := assembleReferencePaths(action, contract, artifacts)
 	keys := r.referenceKeysForAssemble(referencePaths, keyField)
 	if len(keys) == 0 {
-		return groups
+		return groups, false
 	}
-	existing := make(map[string]bool, len(groups))
+	existing := make(map[string]ReconcileGroup, len(groups))
 	for _, group := range groups {
 		if strings.TrimSpace(group.Metric.String()) == metric || strings.TrimSpace(group.Metric.String()) == "" {
 			if key := strings.TrimSpace(group.GroupKey.String()); key != "" {
-				existing[key] = true
+				if _, ok := existing[key]; !ok {
+					existing[key] = group
+				}
 			}
 		}
 	}
-	out := append([]ReconcileGroup(nil), groups...)
+	out := make([]ReconcileGroup, 0, len(keys))
 	for _, key := range keys {
-		if key == "" || existing[key] {
+		if key == "" {
 			continue
 		}
-		existing[key] = true
+		if group, ok := existing[key]; ok {
+			out = append(out, group)
+			continue
+		}
 		out = append(out, ReconcileGroup{
 			GroupKey:   LooseText(key),
 			Metric:     LooseText(metric),
@@ -7960,7 +7981,10 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 			Difference: LooseText("0"),
 		})
 	}
-	return out
+	if len(out) == 0 {
+		return groups, false
+	}
+	return out, true
 }
 
 func assembleReferencePaths(action DataAction, contract OutputContract, artifacts []DataArtifact) []string {
@@ -8011,6 +8035,44 @@ func (r ActionRunner) referenceKeysForAssemble(paths []string, keyField string) 
 		return nil
 	}
 	return best
+}
+
+// ReferenceKeyCandidateForPath reads an explicitly declared reference key
+// universe. It is structural metadata only: callers use the row count and order
+// to validate final projection shape without inferring business meaning from
+// field names or values.
+func (r ActionRunner) ReferenceKeyCandidateForPath(path, field string, maxRecords int) (ReferenceKeyCandidate, bool) {
+	path = strings.TrimSpace(path)
+	field = strings.TrimSpace(field)
+	if path == "" || field == "" {
+		return ReferenceKeyCandidate{}, false
+	}
+	if maxRecords <= 0 {
+		maxRecords = 100000
+	}
+	records, headers, _, _, err := r.readActionRecords(path, maxRecords)
+	if err != nil || len(records) == 0 || !actionRecordFieldExistsInRecords(headers, records, field) {
+		return ReferenceKeyCandidate{}, false
+	}
+	seen := map[string]bool{}
+	var keys []string
+	for _, record := range records {
+		key := strings.TrimSpace(recordField(record.Fields, field))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return ReferenceKeyCandidate{}, false
+	}
+	return ReferenceKeyCandidate{
+		Path:     path,
+		Field:    field,
+		KeyCount: len(keys),
+		Keys:     keys,
+	}, true
 }
 
 // InferReferenceKeyCandidate finds a field whose values structurally cover the

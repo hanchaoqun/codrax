@@ -8723,6 +8723,81 @@ func TestActionRunnerAssembleAnswerCompletesReferenceKeysFromOutputContract(t *t
 	}
 }
 
+func TestActionRunnerAssembleAnswerReferenceProjectionDropsNonReferenceGroups(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nX\nC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("row 1"),
+			GroupKey:      LooseText("A"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("17"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-2"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("row 2"),
+			GroupKey:      LooseText("B"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("4"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-3"),
+			Source:        LooseText("records.csv"),
+			SourceLocator: LooseText("row 3"),
+			GroupKey:      LooseText("C"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("5"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+	}}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "target",
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "values",
+					"order_by":   "group_key",
+					"delimiter":  ",",
+				},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17,0,5" {
+		t.Fatalf("Answer=%q, want reference-order values without non-reference group", res.Answer)
+	}
+	if res.Artifacts[len(res.Artifacts)-1].Fields["group_count"] != "3" {
+		t.Fatalf("Assemble fields=%+v, want group_count=3", res.Artifacts[len(res.Artifacts)-1].Fields)
+	}
+}
+
 func TestActionRunnerInfersReferenceKeyCandidateStructurally(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nB\nC\n"), 0600); err != nil {

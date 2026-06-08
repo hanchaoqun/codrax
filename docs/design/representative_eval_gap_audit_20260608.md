@@ -392,3 +392,24 @@ go test ./internal/agent -run 'TestAnswerDocumentEvaluator_(MixedRuntimeCurrentS
 ```
 
 Result: all passed.
+
+### Batch 2 - Reference projection output gate
+
+Status: done and pushed in code batch.
+
+Changes:
+
+- Made `assemble_answer complete_reference` project exactly the declared reference key universe in reference order, filling missing keys with zero and excluding non-reference contribution groups from the user-facing output.
+- Preserved original reconcile groups as audit ledger and added an answer-scoped final projection group so reconcile validation does not confuse reference projection output with the contribution group universe.
+- Added `ActionRunner.ReferenceKeyCandidateForPath()` so completion gates can validate explicit reference contracts without inferring business semantics.
+- Extended data terminal completion logic to reject reference item-count mismatches in both directions, even when a final assemble artifact is present.
+
+Validation:
+
+```bash
+go test ./internal/dataquery
+go test ./internal/dataworkflow
+go test ./internal/repl
+```
+
+Result: all passed.

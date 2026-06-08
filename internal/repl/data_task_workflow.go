@@ -5103,6 +5103,19 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		RepoRoot: strings.TrimSpace(repoRoot),
 		Seed:     result,
 	}
+	if contract.CompleteReference &&
+		strings.TrimSpace(contract.ReferencePath) != "" &&
+		strings.TrimSpace(contract.ReferenceKeyField) != "" {
+		candidate, ok := runner.ReferenceKeyCandidateForPath(contract.ReferencePath, contract.ReferenceKeyField, 100000)
+		if ok {
+			answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
+			if !dataworkflow.ResultAnswerPresent(result) ||
+				dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
+				return candidate, answerItems, true
+			}
+			return dataquery.ReferenceKeyCandidate{}, answerItems, false
+		}
+	}
 	candidate, ok := runner.InferReferenceKeyCandidate(artifacts, groupKeys, candidatePaths, candidateFields, 100000)
 	if !ok || candidate.KeyCount <= len(groupKeys) {
 		return dataquery.ReferenceKeyCandidate{}, 0, false
@@ -5111,10 +5124,20 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if !dataworkflow.ResultAnswerPresent(result) {
 		return candidate, answerItems, true
 	}
-	if answerItems > 0 && answerItems < candidate.KeyCount {
+	if dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
 		return candidate, answerItems, true
 	}
 	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+}
+
+func dataTaskReferenceProjectionItemCountMismatch(answerItems, referenceKeys int) bool {
+	if referenceKeys <= 0 {
+		return false
+	}
+	if referenceKeys == 1 {
+		return answerItems > 1
+	}
+	return answerItems != referenceKeys
 }
 
 func dataTaskReconcileGroupKeys(report *dataquery.ReconcileReport) []string {

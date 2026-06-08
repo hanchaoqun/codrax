@@ -1337,6 +1337,91 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateRejectsReferenceCardinalityMismatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nX\nC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "target",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "17,4,5,0,0,0,0,0",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{
+				ItemID:        dataquery.LooseText("row-1"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:1"),
+				GroupKey:      dataquery.LooseText("A"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("17"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+			{
+				ItemID:        dataquery.LooseText("row-2"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:2"),
+				GroupKey:      dataquery.LooseText("B"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("4"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+			{
+				ItemID:        dataquery.LooseText("row-3"),
+				Source:        dataquery.LooseText("records.csv"),
+				SourceLocator: dataquery.LooseText("line:3"),
+				GroupKey:      dataquery.LooseText("C"),
+				Metric:        dataquery.LooseText("amount"),
+				Value:         dataquery.LooseText("5"),
+				Operation:     dataquery.LooseText("add"),
+				Role:          dataquery.LooseText("target"),
+			},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("A"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("B"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("C"), Metric: dataquery.LooseText("amount"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "8",
+				"projection":  "values",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("reference cardinality mismatch must block terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	if !strings.Contains(guard.ErrorText(), "final answer has 8 item(s)") {
+		t.Fatalf("guard text=%q, want answer/reference item count", guard.ErrorText())
+	}
+}
+
 func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
