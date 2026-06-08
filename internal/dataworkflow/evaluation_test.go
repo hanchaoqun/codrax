@@ -189,3 +189,100 @@ func TestNormalizeEvaluationForWorkflowStateExpandsWhenCustomTransformDisabled(t
 		t.Fatalf("Reason=%q, want typed graph note", eval.Reason)
 	}
 }
+
+func TestDecideEvaluationCompleteUsesCompletionFallback(t *testing.T) {
+	guard := NewGuardResult("missing_contributions", "error", RepairNeedsTypedAction, "contribution ledger missing", WorkflowViolation{Code: "missing_contributions"})
+	fallback := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}},
+	}
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation:      dataquery.Evaluation{Status: dataquery.EvalComplete, Reason: "model says complete"},
+		CompletionGuard: guard,
+		CompletionFallback: EvaluationFallbackCandidate{
+			Source:    "ledger",
+			Plan:      fallback,
+			Reason:    "repair missing ledger",
+			Available: true,
+		},
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionFallbackPlan || decision.Source != "ledger" || !decision.HasPlan() {
+		t.Fatalf("decision=%#v", decision)
+	}
+	if decision.Reason != "repair missing ledger" {
+		t.Fatalf("Reason=%q", decision.Reason)
+	}
+}
+
+func TestDecideEvaluationCompleteRepairsWhenNoFallback(t *testing.T) {
+	guard := NewGuardResult("missing_answer", "error", RepairNeedsTypedAction, "final answer missing", WorkflowViolation{Code: "missing_answer"})
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation:            dataquery.Evaluation{Status: dataquery.EvalComplete},
+		CompletionGuard:       guard,
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionRepairPlan || decision.Source != "completion_gate" || decision.Reason != "final answer missing" {
+		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestDecideEvaluationContinueNeedsPlanner(t *testing.T) {
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation:               dataquery.Evaluation{Status: dataquery.EvalExpandGraph, Reason: "more graph work"},
+		ContinuationPlannerReady: true,
+	})
+	if decision.Action != EvaluationDecisionContinuePlan || decision.Status != "continue" {
+		t.Fatalf("decision=%#v", decision)
+	}
+	decision = DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{Status: dataquery.EvalContinueData, Reason: "need more"},
+	})
+	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "partial_answer_possible" {
+		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestDecideEvaluationRepairUsesFallbackBeforePlanner(t *testing.T) {
+	fallback := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "enrich",
+			Kind: dataquery.DataActionEnrichRecords,
+		}},
+	}
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{Status: dataquery.EvalRepairNode, Reason: "field missing"},
+		RepairFallback: EvaluationFallbackCandidate{
+			Source:    "field_contract",
+			Plan:      fallback,
+			Reason:    "materialize missing field",
+			Available: true,
+		},
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionFallbackPlan || decision.Source != "field_contract" || !decision.HasPlan() {
+		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestEvaluationRepairReasonIncludesTypedLocator(t *testing.T) {
+	reason := EvaluationRepairReason(dataquery.Evaluation{
+		Status:      dataquery.EvalRepairNode,
+		ActionID:    "a1",
+		ActionKind:  string(dataquery.DataActionFilterRecords),
+		RepairLocus: "status",
+		Reason:      "zero match",
+	})
+	for _, want := range []string{"action_id=a1", "action_kind=filter_records", "repair_locus=status", "reason=zero match"} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("reason %q missing %q", reason, want)
+		}
+	}
+}

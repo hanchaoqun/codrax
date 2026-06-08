@@ -602,44 +602,27 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if len(records) > 0 {
 			attachLastEvaluation(eval)
 		}
-		switch eval.Status {
-		case dataquery.EvalComplete:
-			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
-				errText := guard.ErrorText()
-				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-				transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
-				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-					completionPlan := protectPlan(transition.Plan)
-					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
-					continue
-				}
-				var repaired dataquery.TaskPlan
-				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
-				workflowRuntime.SetRounds(dataRounds, repairRounds)
-				if len(records) > 0 {
-					attachLastError(errText)
-				}
-				if err != nil {
-					return "", fmt.Errorf("%s\nrepair data task completion: %w", errText, err)
-				}
-				if ok {
-					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-						logging.Info("[cli/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
-						repaired = normalized
-					}
-					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
-					continue
-				}
-				return "", fmt.Errorf("%s", errText)
-			}
+		repairer, repairOK := cfg.Planner.(DataTaskRepairPlanner)
+		evalDecision := dataTaskEvaluationDecisionWithRepo(repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, repairRoundsMax)
+		switch evalDecision.Action {
+		case dataworkflow.EvaluationDecisionReturnAnswer:
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
-		case dataquery.EvalContinueData, dataquery.EvalExpandGraph, dataquery.EvalContinueTransform:
-			if !contOK {
-				return dataTaskAnswerMarkdown(cfg.Language, result), nil
+		case dataworkflow.EvaluationDecisionReturnEvaluation:
+			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil
+		case dataworkflow.EvaluationDecisionFallbackPlan:
+			if !evalDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
 			}
+			scope := "continue"
+			if evalDecision.Source == "ledger" || evalDecision.Source == "completion_gate" {
+				scope = "ledger"
+			}
+			fallback := protectPlan(evalDecision.Plan)
+			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, dataRounds+1, fallback)
+			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+			currentPlan = setCurrentPlan(scope, dataRounds+1, fallback, evalDecision.Reason)
+			continue
+		case dataworkflow.EvaluationDecisionContinuePlan:
 			view = runtimeView()
 			nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 			if err != nil {
@@ -661,22 +644,35 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			emitWorkflowReason("continue", dataRounds, "")
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
-		case dataquery.EvalRepairNode:
+		case dataworkflow.EvaluationDecisionRepairPlan:
+			if evalDecision.Source == "completion_gate" {
+				errText := evalDecision.Reason
+				if !evalDecision.Guard.Empty() {
+					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+				}
+				var repaired dataquery.TaskPlan
+				var ok bool
+				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+				workflowRuntime.SetRounds(dataRounds, repairRounds)
+				if len(records) > 0 {
+					attachLastError(errText)
+				}
+				if err != nil {
+					return "", fmt.Errorf("%s\nrepair data task completion: %w", errText, err)
+				}
+				if ok {
+					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
+						logging.Info("[cli/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
+						repaired = normalized
+					}
+					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+					continue
+				}
+				return "", fmt.Errorf("%s", errText)
+			}
 			view = runtimeView()
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(view.Records, view.CurrentPlan); ok {
-				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
-				continue
-			}
-			repairer, repairOK := cfg.Planner.(DataTaskRepairPlanner)
-			if !repairOK || repairRounds >= repairRoundsMax {
-				return dataTaskAnswerMarkdown(cfg.Language, result), nil
-			}
 			repairRounds = beginRepairIteration()
-			repairReason := dataTaskEvaluationRepairReason(eval)
+			repairReason := evalDecision.Reason
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason), view)
 			if err != nil {
@@ -689,12 +685,11 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
 			continue
-		case dataquery.EvalNeedsClarification:
-			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil
-		case dataquery.EvalBlocked:
-			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil
-		case dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
-			return dataTaskAnswerMarkdown(cfg.Language, result), nil
+		case dataworkflow.EvaluationDecisionFail:
+			if !evalDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+			}
+			return "", fmt.Errorf("%s", evalDecision.Reason)
 		default:
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}

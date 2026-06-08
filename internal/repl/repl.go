@@ -2013,80 +2013,43 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if len(records) > 0 {
 			attachLastEvaluation(eval)
 		}
-		switch eval.Status {
-		case dataquery.EvalComplete:
-			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
-				errText := guard.ErrorText()
-				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-				r.auditDataTaskError(dataRounds, errText)
-				if len(records) > 0 {
-					attachLastError(errText)
-				}
-				transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
-				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-					completionPlan := protectPlan(transition.Plan)
-					r.emitDataTaskPlanAudit(completionPlan)
-					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
-					continue
-				}
-				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
-					repairRounds = beginRepairIteration()
-					ctx := r.startTurn()
-					repairView := runtimeView()
-					repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
-					r.endTurn()
-					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
-					if repairErr != nil {
-						if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
-							emitWorkflowReason("continue", dataRounds, reason)
-							r.emitDataTaskPlanAudit(fallback)
-							r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-							currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-							continue
-						}
-						reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
-						msg := dataTaskErrorMarkdown(r.language, reason)
-						r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-						r.finishDataTaskRouteSpinner("failed")
-						r.renderBordered(msg)
-						r.lastAnswerOrigin = replAnswerOriginLocal
-						r.recordTurn(display, line, msg, memory.KindPipeline)
-						return
-					}
-					repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
-					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-						logging.Info("[repl/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
-						repairedPlan = normalized
-					}
-					currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
-					continue
-				}
-				msg := dataTaskErrorMarkdown(r.language, errText)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: errText, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-				r.finishDataTaskRouteSpinner("failed")
-				r.renderBordered(msg)
-				r.lastAnswerOrigin = replAnswerOriginLocal
-				r.recordTurn(display, line, msg, memory.KindPipeline)
-				return
-			}
+		repairer, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
+		evalDecision := dataTaskEvaluationDecisionWithRepo(r.repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, r.dataTaskMaxRepairRounds)
+		switch evalDecision.Action {
+		case dataworkflow.EvaluationDecisionReturnAnswer:
 			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("complete")
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: evalDecision.Status, Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+			r.finishDataTaskRouteSpinner(evalDecision.Status)
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
-		case dataquery.EvalContinueData, dataquery.EvalExpandGraph, dataquery.EvalContinueTransform:
-			if !contOK {
-				msg := dataTaskAnswerMarkdown(r.language, result)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task evaluator requested continuation but continuation planner is unavailable: " + eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-				r.finishDataTaskRouteSpinner("partial_answer_possible")
-				r.renderBordered(msg)
-				r.lastAnswerOrigin = replAnswerOriginLocal
-				r.recordTurn(display, line, msg, memory.KindPipeline)
-				return
+		case dataworkflow.EvaluationDecisionReturnEvaluation:
+			msg := dataTaskEvaluationMarkdown(r.language, eval)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: evalDecision.Status, Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+			r.finishDataTaskRouteSpinner(evalDecision.Status)
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		case dataworkflow.EvaluationDecisionFallbackPlan:
+			if !evalDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+				r.auditDataTaskError(dataRounds, evalDecision.Reason)
+				if len(records) > 0 {
+					attachLastError(evalDecision.Reason)
+				}
 			}
+			scope := "continue"
+			if evalDecision.Source == "ledger" || evalDecision.Source == "completion_gate" {
+				scope = "ledger"
+			}
+			fallback := protectPlan(evalDecision.Plan)
+			r.emitDataTaskPlanAudit(fallback)
+			r.auditDataTaskPlan(scope, dataRounds+1, fallback)
+			currentPlan = setCurrentPlan(scope, dataRounds+1, fallback, evalDecision.Reason)
+			continue
+		case dataworkflow.EvaluationDecisionContinuePlan:
 			emitWorkflowReason("continue", dataRounds, "")
 			ctx := r.startTurn()
 			view = runtimeView()
@@ -2118,29 +2081,50 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
-		case dataquery.EvalRepairNode:
-			view = runtimeView()
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(view.Records, view.CurrentPlan); ok {
-				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
+		case dataworkflow.EvaluationDecisionRepairPlan:
+			if evalDecision.Source == "completion_gate" {
+				errText := evalDecision.Reason
+				if !evalDecision.Guard.Empty() {
+					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+					r.auditDataTaskError(dataRounds, errText)
+					if len(records) > 0 {
+						attachLastError(errText)
+					}
+				}
+				repairRounds = beginRepairIteration()
+				ctx := r.startTurn()
+				repairView := runtimeView()
+				repairedPlan, repairErr := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, repairView.Records), repairView.CurrentPlan, errText, dataTaskRepairViolationFromRecords(repairView.Records, errText), repairView)
+				r.endTurn()
+				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+				if repairErr != nil {
+					if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, runtimeView(), repairErr); ok {
+						emitWorkflowReason("continue", dataRounds, reason)
+						r.emitDataTaskPlanAudit(fallback)
+						r.auditDataTaskPlan("continue", dataRounds+1, fallback)
+						currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
+						continue
+					}
+					reason := fmt.Sprintf("%s\nrepair data task completion: %v", errText, repairErr)
+					msg := dataTaskErrorMarkdown(r.language, reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
+				}
+				repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
+				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
+					logging.Info("[repl/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
+					repairedPlan = normalized
+				}
+				currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
 				continue
 			}
-			repairer, repairOK := r.dataTaskPlanner.(DataTaskRepairPlanner)
-			if !repairOK || repairRounds >= r.dataTaskMaxRepairRounds {
-				msg := dataTaskAnswerMarkdown(r.language, result)
-				reason := "data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted: " + eval.Reason
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-				r.finishDataTaskRouteSpinner("partial_answer_possible")
-				r.renderBordered(msg)
-				r.lastAnswerOrigin = replAnswerOriginLocal
-				r.recordTurn(display, line, msg, memory.KindPipeline)
-				return
-			}
+			view = runtimeView()
 			repairRounds = beginRepairIteration()
-			repairReason := dataTaskEvaluationRepairReason(eval)
+			repairReason := evalDecision.Reason
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			ctx := r.startTurn()
 			repairView := runtimeView()
@@ -2171,33 +2155,21 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
 			continue
-		case dataquery.EvalNeedsClarification:
-			msg := dataTaskEvaluationMarkdown(r.language, eval)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "needs_clarification", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("needs_clarification")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
-			return
-		case dataquery.EvalBlocked:
-			msg := dataTaskEvaluationMarkdown(r.language, eval)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("blocked")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
-			return
-		case dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: string(eval.Status), Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner(string(eval.Status))
+		case dataworkflow.EvaluationDecisionFail:
+			if !evalDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
+				r.auditDataTaskError(dataRounds, evalDecision.Reason)
+			}
+			msg := dataTaskErrorMarkdown(r.language, evalDecision.Reason)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+			r.finishDataTaskRouteSpinner("failed")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		default:
 			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task evaluator returned unrecognized status: " + string(eval.Status), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("partial_answer_possible")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -3568,20 +3540,7 @@ func dataTaskRunnerToolDetail(plan dataquery.TaskPlan, lang string) string {
 }
 
 func dataTaskEvaluationRepairReason(eval dataquery.Evaluation) string {
-	parts := []string{"evaluation requested node repair"}
-	if id := strings.TrimSpace(eval.ActionID); id != "" {
-		parts = append(parts, "action_id="+id)
-	}
-	if kind := strings.TrimSpace(eval.ActionKind); kind != "" {
-		parts = append(parts, "action_kind="+kind)
-	}
-	if locus := strings.TrimSpace(eval.RepairLocus); locus != "" {
-		parts = append(parts, "repair_locus="+locus)
-	}
-	if reason := strings.TrimSpace(eval.Reason); reason != "" {
-		parts = append(parts, "reason="+reason)
-	}
-	return strings.Join(parts, "; ")
+	return dataworkflow.EvaluationRepairReason(eval)
 }
 
 func (r *REPL) emitDataTaskWorkflowEvent(event dataworkflow.WorkflowJournalEvent, opts dataTaskWorkflowEventRenderOptions) {

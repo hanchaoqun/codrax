@@ -279,6 +279,45 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	})
 }
 
+func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
+	var guard dataworkflow.GuardResult
+	var completionFallback dataworkflow.EvaluationFallbackCandidate
+	if eval.Status == dataquery.EvalComplete {
+		guard = dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
+		if !guard.Empty() {
+			transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, current, result, guard)
+			if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
+				completionFallback = dataworkflow.EvaluationFallbackCandidate{
+					Source:    "ledger",
+					Plan:      transition.Plan,
+					Reason:    guard.ErrorText(),
+					Available: true,
+				}
+			}
+		}
+	}
+	var repairFallback dataworkflow.EvaluationFallbackCandidate
+	if eval.Status == dataquery.EvalRepairNode {
+		if plan, ok := dataTaskHistoricalMissingJoinFieldFallback(records, current); ok {
+			repairFallback = dataworkflow.EvaluationFallbackCandidate{
+				Source:    "historical_missing_join_field",
+				Plan:      plan,
+				Reason:    "materialized historical missing join field from existing artifacts",
+				Available: true,
+			}
+		}
+	}
+	return dataworkflow.DecideEvaluation(dataworkflow.EvaluationDecisionInput{
+		Evaluation:               eval,
+		CompletionGuard:          guard,
+		CompletionFallback:       completionFallback,
+		RepairFallback:           repairFallback,
+		ContinuationPlannerReady: continuationReady,
+		RepairPlannerReady:       repairReady,
+		RepairBudgetAvailable:    repairRounds < repairRoundsMax,
+	})
+}
+
 func firstExecutableTaskPlan(first, fallback dataquery.TaskPlan) dataquery.TaskPlan {
 	if dataTaskPlanHasRuntimeShape(first) || len(first.Actions) > 0 || len(first.InputPaths) > 0 || strings.TrimSpace(first.Script) != "" {
 		return first

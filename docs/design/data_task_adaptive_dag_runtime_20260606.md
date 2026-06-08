@@ -17723,9 +17723,73 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Fold evaluator status handling into next-executable decision IR.
+- [x] Fold evaluator status handling into next-executable decision IR. Completed
+      in Batch 416.
 - [ ] Keep shrinking adapter-local execution cursors until the loop consumes a
       single reducer-owned executable-decision object.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 416: Evaluator Status Decision IR
+
+After Batch 415, the post-result branch could deterministically choose deferred
+dispatch, deferred lifecycle, structural fallback, or evaluator entry. The next
+duplicated seam was immediately after the evaluator returned. CLI and REPL both
+interpreted the same evaluator statuses, recomputed completion guards, selected
+completion fallback versus repair, preferred historical typed repair fallback,
+and then decided whether to return an answer, return evaluator markdown,
+continue planning, repair planning, or fail.
+
+This batch adds a reducer-owned `EvaluationDecision`. The reducer does not call
+the evaluator, continuation planner, or repair planner. It only maps precise IR
+signals into the next adapter action:
+
+- typed `dataquery.Evaluation.Status`;
+- typed completion guard;
+- typed fallback-plan availability;
+- planner capability booleans;
+- repair budget availability.
+
+Generic invariants:
+
+- evaluator prose and business goal text can explain a reason, but cannot choose
+  the hard branch;
+- completion guards remain authoritative over optimistic `complete`;
+- structural completion fallback is preferred before model repair;
+- structural repair fallback is preferred before model repair;
+- unavailable planners or exhausted repair budget produce partial-answer
+  terminal handling rather than another implicit local branch;
+- CLI and REPL render/log/execute the chosen action, but no longer own the
+  evaluator-status priority order;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `EvaluationDecisionAction`.
+- [x] Added `EvaluationFallbackCandidate`.
+- [x] Added `EvaluationDecisionInput`.
+- [x] Added `EvaluationDecision`.
+- [x] Added `DecideEvaluation`.
+- [x] Moved typed node-repair reason assembly into
+      `dataworkflow.EvaluationRepairReason`.
+- [x] Added reducer tests for completion fallback, completion repair, continue
+      planner availability, repair fallback, and typed repair locator assembly.
+- [x] Added a REPL compatibility wrapper that builds completion and repair
+      fallback candidates from existing typed helpers.
+- [x] Rewired CLI and REPL evaluator branches to consume the reducer decision
+      while preserving local rendering, terminal audit, trace emission, and
+      planner calls.
+
+Remaining architecture items:
+
+- [ ] Keep shrinking adapter-local execution cursors until the live loop
+      consumes one reducer-owned "next executable" decision object spanning
+      budget, terminal, pre-execution, execution result, post-result, and
+      evaluator decisions.
+- [ ] Move continuation-planner result admission and repair-planner result
+      admission behind the same next-executable reducer boundary instead of
+      accepting candidate plans directly in the adapters.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

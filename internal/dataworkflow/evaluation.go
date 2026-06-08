@@ -62,6 +62,164 @@ func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery
 	return eval
 }
 
+type EvaluationDecisionAction string
+
+const (
+	EvaluationDecisionReturnAnswer     EvaluationDecisionAction = "return_answer"
+	EvaluationDecisionReturnEvaluation EvaluationDecisionAction = "return_evaluation"
+	EvaluationDecisionContinuePlan     EvaluationDecisionAction = "continue_plan"
+	EvaluationDecisionRepairPlan       EvaluationDecisionAction = "repair_plan"
+	EvaluationDecisionFallbackPlan     EvaluationDecisionAction = "fallback_plan"
+	EvaluationDecisionFail             EvaluationDecisionAction = "fail"
+)
+
+type EvaluationFallbackCandidate struct {
+	Source    string             `json:"source,omitempty"`
+	Plan      dataquery.TaskPlan `json:"plan,omitempty"`
+	Reason    string             `json:"reason,omitempty"`
+	Available bool               `json:"available,omitempty"`
+}
+
+type EvaluationDecisionInput struct {
+	Evaluation               dataquery.Evaluation        `json:"evaluation,omitempty"`
+	CompletionGuard          GuardResult                 `json:"completion_guard,omitempty"`
+	CompletionFallback       EvaluationFallbackCandidate `json:"completion_fallback,omitempty"`
+	RepairFallback           EvaluationFallbackCandidate `json:"repair_fallback,omitempty"`
+	ContinuationPlannerReady bool                        `json:"continuation_planner_ready,omitempty"`
+	RepairPlannerReady       bool                        `json:"repair_planner_ready,omitempty"`
+	RepairBudgetAvailable    bool                        `json:"repair_budget_available,omitempty"`
+}
+
+type EvaluationDecision struct {
+	Action EvaluationDecisionAction `json:"action,omitempty"`
+	Status string                   `json:"status,omitempty"`
+	Source string                   `json:"source,omitempty"`
+	Plan   dataquery.TaskPlan       `json:"plan,omitempty"`
+	Guard  GuardResult              `json:"guard,omitempty"`
+	Reason string                   `json:"reason,omitempty"`
+}
+
+func (d EvaluationDecision) HasPlan() bool {
+	return taskPlanHasExecutableShape(d.Plan)
+}
+
+func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
+	eval := input.Evaluation
+	switch eval.Status {
+	case dataquery.EvalComplete:
+		if input.CompletionGuard.Empty() {
+			return EvaluationDecision{
+				Action: EvaluationDecisionReturnAnswer,
+				Status: "complete",
+				Reason: strings.TrimSpace(eval.Reason),
+			}
+		}
+		if input.CompletionFallback.Available && taskPlanHasExecutableShape(input.CompletionFallback.Plan) {
+			return EvaluationDecision{
+				Action: EvaluationDecisionFallbackPlan,
+				Status: "continue",
+				Source: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Source), "completion_gate"),
+				Plan:   cloneTaskPlanValue(input.CompletionFallback.Plan),
+				Guard:  input.CompletionGuard,
+				Reason: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Reason), input.CompletionGuard.ErrorText()),
+			}
+		}
+		if input.RepairPlannerReady && input.RepairBudgetAvailable {
+			return EvaluationDecision{
+				Action: EvaluationDecisionRepairPlan,
+				Status: "repair",
+				Source: "completion_gate",
+				Guard:  input.CompletionGuard,
+				Reason: input.CompletionGuard.ErrorText(),
+			}
+		}
+		return EvaluationDecision{
+			Action: EvaluationDecisionFail,
+			Status: "failed",
+			Source: "completion_gate",
+			Guard:  input.CompletionGuard,
+			Reason: input.CompletionGuard.ErrorText(),
+		}
+	case dataquery.EvalContinueData, dataquery.EvalExpandGraph, dataquery.EvalContinueTransform:
+		if input.ContinuationPlannerReady {
+			return EvaluationDecision{
+				Action: EvaluationDecisionContinuePlan,
+				Status: "continue",
+				Reason: strings.TrimSpace(eval.Reason),
+			}
+		}
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnAnswer,
+			Status: "partial_answer_possible",
+			Reason: appendEvaluationReason("data task evaluator requested continuation but continuation planner is unavailable", eval.Reason),
+		}
+	case dataquery.EvalRepairNode:
+		if input.RepairFallback.Available && taskPlanHasExecutableShape(input.RepairFallback.Plan) {
+			return EvaluationDecision{
+				Action: EvaluationDecisionFallbackPlan,
+				Status: "continue",
+				Source: firstNonEmpty(strings.TrimSpace(input.RepairFallback.Source), "repair_fallback"),
+				Plan:   cloneTaskPlanValue(input.RepairFallback.Plan),
+				Reason: strings.TrimSpace(input.RepairFallback.Reason),
+			}
+		}
+		if input.RepairPlannerReady && input.RepairBudgetAvailable {
+			return EvaluationDecision{
+				Action: EvaluationDecisionRepairPlan,
+				Status: "repair",
+				Source: "evaluation_repair_node",
+				Reason: EvaluationRepairReason(eval),
+			}
+		}
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnAnswer,
+			Status: "partial_answer_possible",
+			Reason: appendEvaluationReason("data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted", eval.Reason),
+		}
+	case dataquery.EvalNeedsClarification:
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnEvaluation,
+			Status: "needs_clarification",
+			Reason: strings.TrimSpace(eval.Reason),
+		}
+	case dataquery.EvalBlocked:
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnEvaluation,
+			Status: "blocked",
+			Reason: strings.TrimSpace(eval.Reason),
+		}
+	case dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnAnswer,
+			Status: string(eval.Status),
+			Reason: strings.TrimSpace(eval.Reason),
+		}
+	default:
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnAnswer,
+			Status: "partial_answer_possible",
+			Reason: "data task evaluator returned unrecognized status: " + string(eval.Status),
+		}
+	}
+}
+
+func EvaluationRepairReason(eval dataquery.Evaluation) string {
+	parts := []string{"evaluation requested node repair"}
+	if id := strings.TrimSpace(eval.ActionID); id != "" {
+		parts = append(parts, "action_id="+id)
+	}
+	if kind := strings.TrimSpace(eval.ActionKind); kind != "" {
+		parts = append(parts, "action_kind="+kind)
+	}
+	if locus := strings.TrimSpace(eval.RepairLocus); locus != "" {
+		parts = append(parts, "repair_locus="+locus)
+	}
+	if reason := strings.TrimSpace(eval.Reason); reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // GateEvaluationWithWorkflowViolations makes reducer-owned blockers
 // authoritative over model-produced evaluator statuses.
 func GateEvaluationWithWorkflowViolations(eval dataquery.Evaluation, violations []WorkflowViolation) (dataquery.Evaluation, bool) {
