@@ -17320,6 +17320,42 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 386: Workflow-Owned Fallback Plan Signatures
+
+The next ownership seam was the anti-loop check for deterministic fallback
+plans. Prefix and stage reducers had moved into `dataworkflow`, but the runtime
+still asked a REPL-local function whether a candidate fallback plan had already
+appeared in workflow history. That made fallback idempotency a UI adapter
+concern even though it is an ActionDAG state invariant.
+
+Generic invariants:
+
+- repeated-fallback detection is workflow state, not REPL behavior;
+- signatures use typed action fields: normalized action kind, input paths,
+  output artifact, and structured params;
+- goal, reason, next-step text, and other model prose are intentionally
+  excluded from the hard signature;
+- empty/non-action plans do not participate in fallback loop suppression;
+- REPL/CLI adapters may pass workflow records, but they do not implement the
+  signature rule.
+
+Changes:
+
+- [x] Added workflow-owned plan action signatures.
+- [x] Added workflow-owned "already seen in records" detection.
+- [x] Rewired the REPL fallback duplicate check to call `dataworkflow`.
+- [x] Added regression coverage for empty plans, normalized typed action
+      signatures, and record-history duplicate detection.
+
+Remaining architecture items:
+
+- [ ] Move non-prefix deterministic fallback selection out of REPL callbacks
+      and into reducer-owned decisions.
+- [ ] Move repeated-node expansion and field-contract recovery selection into
+      reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

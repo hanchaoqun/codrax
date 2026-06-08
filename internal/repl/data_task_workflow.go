@@ -2804,44 +2804,11 @@ func dataTaskJoinMissingFieldViolation(record dataTaskWorkflowRecord) (dataquery
 }
 
 func dataTaskFallbackPlanAlreadySeen(records []dataTaskWorkflowRecord, candidate dataquery.TaskPlan) bool {
-	signature := dataTaskFallbackPlanSignature(candidate)
-	if signature == "" {
-		return false
-	}
-	for _, rec := range records {
-		if dataTaskFallbackPlanSignature(rec.Plan) == signature {
-			return true
-		}
-	}
-	return false
+	return dataworkflow.PlanActionSignatureAlreadySeenInRecords(records, candidate)
 }
 
 func dataTaskFallbackPlanSignature(plan dataquery.TaskPlan) string {
-	if len(plan.Actions) == 0 {
-		return ""
-	}
-	type actionSig struct {
-		Kind           string            `json:"kind,omitempty"`
-		InputPaths     []string          `json:"input_paths,omitempty"`
-		OutputArtifact string            `json:"output_artifact,omitempty"`
-		Params         map[string]string `json:"params,omitempty"`
-	}
-	sig := struct {
-		Actions []actionSig `json:"actions,omitempty"`
-	}{Actions: make([]actionSig, 0, len(plan.Actions))}
-	for _, action := range plan.Actions {
-		sig.Actions = append(sig.Actions, actionSig{
-			Kind:           string(normalizeDataActionKindForWorkflow(action.Kind)),
-			InputPaths:     cleanDataTaskStrings(action.InputPaths),
-			OutputArtifact: normalizeDataTaskCoveragePath(action.OutputArtifact),
-			Params:         action.Params,
-		})
-	}
-	raw, err := json.Marshal(sig)
-	if err != nil {
-		return ""
-	}
-	return string(raw)
+	return dataworkflow.PlanActionSignature(plan)
 }
 
 func dataTaskArtifactAccessByAlias(access []dataTaskArtifactAccessPrompt, alias string) (dataTaskArtifactAccessPrompt, bool) {
