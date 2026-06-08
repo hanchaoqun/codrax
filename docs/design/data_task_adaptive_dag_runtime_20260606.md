@@ -18686,6 +18686,96 @@ Remaining architecture items:
       P0 versus non-blocking P1/P2 before treating real-scenario output as a
       release gate.
 
+### Batch 436: Real Scenario Rerun Exposes Terminal And Repair IR Gaps
+
+The latest binary was rebuilt and run against the local real data scenario:
+
+- workspace:
+  `/Users/han/opt/fy/questions_003_005_intranet_20260604/采购数据清洗与汇总`
+- request copy:
+  `.codrax/real-scenario-gates/20260608-194817.request.txt`
+- stdout:
+  `.codrax/real-scenario-gates/20260608-194817-r1.out`
+- stderr/process trace:
+  `.codrax/real-scenario-gates/20260608-194817-r1.err`
+- terminal audit:
+  `.codrax/data-audit/20260608-195906-241675-24531-terminal.json`
+
+Result: the process exited `0`, but the user task failed. Stdout was an
+artifact/audit summary, not the requested comma-separated integer totals. The
+terminal audit marked the workflow `status=complete` even though the typed
+graphs still said:
+
+- `ledger_graph.decisions.status=missing`;
+- `ledger_graph.contributions.status=missing`;
+- `ledger_graph.reconcile.status=blocked_by_prerequisite`;
+- `ledger_graph.final_projection.status=blocked_by_prerequisite`;
+- `output_projection_graph.status=missing_answer`;
+- `decision.reason_code=repair_node` with `next_actions=[extract_records,
+  inspect_material]`;
+- `result_summary` contained `decisions=0 contributions=0 reconcile=""`.
+
+This is a P0 terminal-state invariant bug. Completion must be derived from the
+typed LedgerGraph and OutputProjectionGraph, not from the presence of any
+non-empty `answer`/summary string in an intermediate inspection result.
+
+The run also showed that the IR direction is working but not yet sufficient:
+
+- material inventory, rule coverage, field derivation, vendor/category
+  normalization, deferred ranks, and schema diagnostics all executed as typed
+  actions;
+- repeated failures were structural and inspectable:
+  `action_param_violation`, `artifact_schema_incompatible`,
+  `apply_resolution_lineage_contract`, `custom_transform_disabled`, and
+  `complex_top_level_script`;
+- the workflow repeatedly tried to fall back to `custom_transform`, and the
+  guard correctly blocked it, but that consumed repair budget instead of
+  producing a deterministic typed repair;
+- one evaluator decision leaked a repair hint sentence into
+  `decision_next_actions`, proving typed decision output still needs stricter
+  schema validation/repair;
+- the latest model request grew to roughly 375 KB, showing that prompt context
+  is still carrying too much historical graph detail into local repair.
+
+Generic gaps to close before treating the next real run as a release gate:
+
+- [ ] P0: terminal completion reducer must reject `complete` whenever required
+      ledgers or output projection are missing. It should return a typed
+      workflow violation instead of emitting intermediate summaries as final
+      answers.
+- [ ] P0: enforce a typed `WorkflowDecision` invariant:
+      `status=complete` cannot coexist with `reason_code=repair_node`,
+      non-empty repair `next_actions`, missing required ledgers, or
+      `output_projection_graph.status=missing_answer`.
+- [ ] P0: move action-parameter violations into deterministic typed repair.
+      If a parameter expects an array/object and the model emits a stringified
+      JSON value, the system should normalize or emit a local typed patch before
+      asking for a new full plan. This is structural and domain-neutral.
+- [ ] P0: make ArtifactGraph schema projection choose executable record
+      artifacts over metadata/unknown artifacts for the same alias before
+      admission. Duplicate alias nodes must not make a valid record input look
+      unusable.
+- [ ] P0: add a relation-aware resolution application path. When a resolution
+      artifact maps `source_value -> canonical_id` and a later enriched record
+      still contains the source field, the system should be able to materialize
+      the canonical field through a typed join/enrich action without requiring
+      a free-form script or violating lineage safety.
+- [ ] P1: convert field-contract repair such as "generated category mapping
+      exists but has not been applied to the base record set" into a deterministic
+      typed scaffold (`apply_entity_resolutions`, `enrich_records`, or
+      `join_records`) instead of asking the model to rediscover the action.
+- [ ] P1: compact the repair prompt around the active violation, current
+      executable artifacts, and allowed next actions. Historical graph detail
+      should remain in audit files, not in every repair prompt.
+- [ ] P1: make CLI/REPL terminal UX distinguish "workflow stopped with
+      intermediate audit summary" from "final answer satisfied the user's
+      output contract"; a `complete` badge must never appear for the former.
+
+These gaps are domain-neutral. They apply to any data workflow with generated
+record artifacts, typed joins/enrichment, decision/contribution ledgers, and a
+strict final output contract. They do not require keyword matching, business
+role hardcoding, or changing source/trace/log/write-mode behavior.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
