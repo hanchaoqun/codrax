@@ -78,6 +78,78 @@ func TestSingleRecordSetActionFieldRefsUsesTypedActionContract(t *testing.T) {
 	}
 }
 
+func TestMissingDeriveFieldInputsTracksSequentialDerivedFields(t *testing.T) {
+	projections := []ArtifactSchemaProjection{{
+		ID:      "records",
+		Aliases: []string{"records"},
+		Fields:  []string{"raw_a"},
+	}}
+	action := dataquery.DataAction{
+		Kind:       dataquery.DataActionDeriveFields,
+		InputPaths: []string{"records"},
+		Params: map[string]string{
+			"field_specs": `[
+				{"operation":"constant","target_field":"kind"},
+				{"operation":"coalesce","left_field":"raw_a","right_field":"raw_b","target_field":"merged"},
+				{"source_field":"merged","target_field":"final"},
+				{"source_field":"missing_source","target_field":"missing_derived"}
+			]`,
+		},
+	}
+	if got := strings.Join(MissingDeriveFieldInputs(projections, "records", action), ","); got != "missing_source" {
+		t.Fatalf("missing derive inputs=%q, want missing_source", got)
+	}
+}
+
+func TestActionFieldReferenceGuardResultDetectsJoinMissingField(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "join",
+		Kind:       dataquery.DataActionJoinRecords,
+		InputPaths: []string{"left", "right"},
+		Params: map[string]string{
+			"left_fields":  "id",
+			"right_fields": "id",
+		},
+	}
+	guard := ActionFieldReferenceGuardResult(ActionFieldReferenceGuardInput{
+		Action:      action,
+		ActionIndex: 0,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "left", Aliases: []string{"left"}, Fields: []string{"id"}},
+			{ID: "right", Aliases: []string{"right"}, Fields: []string{"other_id"}},
+		},
+	})
+	if guard.Code != "field_contract_violation" {
+		t.Fatalf("guard=%#v, want field_contract_violation", guard)
+	}
+	if len(guard.Violations) == 0 || strings.Join(guard.Violations[0].MissingFields, ",") != "id" {
+		t.Fatalf("guard violations=%#v, want missing id", guard.Violations)
+	}
+}
+
+func TestActionFieldReferenceGuardResultSwapsImplicitNormalizeRolesBySchema(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "normalize",
+		Kind:       dataquery.DataActionNormalizeEntities,
+		InputPaths: []string{"lookup_like", "source_like"},
+		Params: map[string]string{
+			"source_field":    "raw_name",
+			"reference_field": "lookup_name",
+		},
+	}
+	guard := ActionFieldReferenceGuardResult(ActionFieldReferenceGuardInput{
+		Action:      action,
+		ActionIndex: 0,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "lookup_like", Aliases: []string{"lookup_like"}, Fields: []string{"lookup_name"}},
+			{ID: "source_like", Aliases: []string{"source_like"}, Fields: []string{"raw_name"}},
+		},
+	})
+	if !guard.Empty() {
+		t.Fatalf("guard=%#v, expected implicit role correction to pass", guard)
+	}
+}
+
 func TestJoinActionFieldRequirementsUseRolePathsAndSharedKeys(t *testing.T) {
 	action := dataquery.DataAction{
 		Kind:       dataquery.DataActionJoinRecords,

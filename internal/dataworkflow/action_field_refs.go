@@ -3,6 +3,7 @@ package dataworkflow
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -13,6 +14,12 @@ type ActionFieldRequirement struct {
 	Path     string   `json:"path,omitempty"`
 	Fields   []string `json:"fields,omitempty"`
 	Explicit bool     `json:"explicit,omitempty"`
+}
+
+type ActionFieldReferenceGuardInput struct {
+	Action            dataquery.DataAction
+	ActionIndex       int
+	SchemaProjections []ArtifactSchemaProjection
 }
 
 // SingleRecordSetActionFieldRefs returns the input-field contract for typed
@@ -119,6 +126,135 @@ func ComputeContributionActionFieldRefs(action dataquery.DataAction) []string {
 	fields = append(fields, parseActionStringList(action.Params["group_key_field"])...)
 	fields = append(fields, FilterActionFieldRefs(action)...)
 	return cleanStrings(fields)
+}
+
+func ActionFieldReferenceGuardResult(input ActionFieldReferenceGuardInput) GuardResult {
+	if len(input.SchemaProjections) == 0 {
+		return GuardResult{}
+	}
+	action := input.Action
+	switch NormalizeActionKind(action.Kind) {
+	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingDeriveFieldInputs(input.SchemaProjections, inputs[0], action))
+	case dataquery.DataActionGroupRecords:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingFieldsOnArtifactSchema(input.SchemaProjections, inputs[0], GroupRecordsActionFieldRefs(action)))
+	case dataquery.DataActionExpandRecords:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		fields := parseActionStringList(firstNonEmpty(
+			action.Params["source_field"],
+			action.Params["input_field"],
+			action.Params["field"],
+			action.Params["value_field"],
+		))
+		if len(fields) == 0 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingFieldsOnArtifactSchema(input.SchemaProjections, inputs[0], fields))
+	case dataquery.DataActionFilterRecords:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		fields := FilterActionFieldRefs(action)
+		if len(fields) == 0 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingFieldsOnArtifactSchema(input.SchemaProjections, inputs[0], fields))
+	case dataquery.DataActionQualifyRecords:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		fields := QualifyActionFieldRefs(action)
+		if len(fields) == 0 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingFieldsOnArtifactSchema(input.SchemaProjections, inputs[0], fields))
+	case dataquery.DataActionComputeContribs:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) != 1 {
+			return GuardResult{}
+		}
+		fields := ComputeContributionActionFieldRefs(action)
+		if len(fields) == 0 {
+			return GuardResult{}
+		}
+		return missingFieldReferenceGuard(input, inputs[0], MissingFieldsOnArtifactSchema(input.SchemaProjections, inputs[0], fields))
+	case dataquery.DataActionJoinRecords:
+		for _, req := range JoinActionFieldRequirements(action) {
+			if guard := missingFieldReferenceGuard(input, req.Path, MissingFieldsOnArtifactSchema(input.SchemaProjections, req.Path, req.Fields)); !guard.Empty() {
+				return guard
+			}
+		}
+	case dataquery.DataActionMappingCandidate, dataquery.DataActionNormalizeEntities:
+		return normalizeEntityFieldReferenceGuard(input)
+	case dataquery.DataActionEnrichRecords:
+		for _, req := range EnrichActionFieldRequirements(action) {
+			if guard := missingFieldReferenceGuard(input, req.Path, MissingFieldsOnArtifactSchema(input.SchemaProjections, req.Path, req.Fields)); !guard.Empty() {
+				return guard
+			}
+		}
+	}
+	return GuardResult{}
+}
+
+func missingFieldReferenceGuard(input ActionFieldReferenceGuardInput, alias string, missing []string) GuardResult {
+	return MissingFieldContractGuardResult(MissingFieldContractGuardInput{
+		Action:            input.Action,
+		ActionIndex:       input.ActionIndex,
+		InputAlias:        alias,
+		MissingFields:     missing,
+		SchemaProjections: input.SchemaProjections,
+	})
+}
+
+func normalizeEntityFieldReferenceGuard(input ActionFieldReferenceGuardInput) GuardResult {
+	requirements, skip := NormalizeEntityActionFieldRequirements(input.Action)
+	if skip {
+		return GuardResult{}
+	}
+	sourceReq, sourceOK := actionFieldRequirementByRole(requirements, "source")
+	referenceReq, referenceOK := actionFieldRequirementByRole(requirements, "reference")
+	if !sourceOK {
+		return GuardResult{}
+	}
+	if referenceOK && !sourceReq.Explicit && !referenceReq.Explicit && len(sourceReq.Fields) > 0 {
+		sourceMissing := MissingFieldsOnArtifactSchema(input.SchemaProjections, sourceReq.Path, sourceReq.Fields)
+		referenceCanBeSource := len(MissingFieldsOnArtifactSchema(input.SchemaProjections, referenceReq.Path, sourceReq.Fields)) == 0
+		if len(sourceMissing) > 0 && referenceCanBeSource {
+			sourceReq.Path, referenceReq.Path = referenceReq.Path, sourceReq.Path
+		}
+	}
+	if guard := missingFieldReferenceGuard(input, sourceReq.Path, MissingFieldsOnArtifactSchema(input.SchemaProjections, sourceReq.Path, sourceReq.Fields)); !guard.Empty() {
+		return guard
+	}
+	if referenceOK {
+		if guard := missingFieldReferenceGuard(input, referenceReq.Path, MissingFieldsOnArtifactSchema(input.SchemaProjections, referenceReq.Path, referenceReq.Fields)); !guard.Empty() {
+			return guard
+		}
+	}
+	return GuardResult{}
+}
+
+func actionFieldRequirementByRole(requirements []ActionFieldRequirement, role string) (ActionFieldRequirement, bool) {
+	role = strings.TrimSpace(role)
+	for _, req := range requirements {
+		if strings.TrimSpace(req.Role) == role {
+			return req, true
+		}
+	}
+	return ActionFieldRequirement{}, false
 }
 
 func JoinActionFieldRequirements(action dataquery.DataAction) []ActionFieldRequirement {
@@ -257,6 +393,77 @@ func EnrichActionFieldRequirements(action dataquery.DataAction) []ActionFieldReq
 		requirements = append(requirements, ActionFieldRequirement{Role: "lookup", Path: lookupPath, Fields: lookupFields})
 	}
 	return cleanFieldRequirements(requirements)
+}
+
+func MissingDeriveFieldInputs(projections []ArtifactSchemaProjection, alias string, action dataquery.DataAction) []string {
+	projection, ok := ArtifactSchemaByAlias(projections, alias)
+	if !ok || len(projection.Fields) == 0 {
+		return nil
+	}
+	known := artifactFieldSet(projection.Fields)
+	var missing []string
+	seenMissing := map[string]bool{}
+	specs := actionObjectListParam(action.Params, "field_specs_json", "derive_specs_json", "extract_specs_json", "transforms_json", "field_specs", "derive_specs", "extract_specs", "transforms")
+	for _, spec := range specs {
+		op := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+			mapStringValue(spec, "operation"),
+			mapStringValue(spec, "op"),
+			mapStringValue(spec, "transform"),
+		)))
+		sources := fieldRefsFromSpec(spec, "source_field", "input_field", "field", "value_field")
+		sources = append(sources, fieldRefsFromSpec(spec, "source_fields", "input_fields", "fields")...)
+		if len(sources) == 0 && op != "constant" {
+			sources = append(sources, fieldRefsFromSpec(spec, "left_field", "right_field")...)
+		}
+		cleanSources := cleanStrings(sources)
+		if deriveOperationAllowsPartialSources(op) && len(cleanSources) > 0 {
+			knownCount := 0
+			for _, source := range cleanSources {
+				if known[strings.ToLower(strings.TrimSpace(source))] != "" {
+					knownCount++
+				}
+			}
+			if knownCount > 0 {
+				addDeriveTargetFields(known, spec)
+				continue
+			}
+		}
+		for _, source := range cleanSources {
+			key := strings.ToLower(strings.TrimSpace(source))
+			if key == "" || known[key] != "" {
+				continue
+			}
+			if !seenMissing[key] {
+				missing = append(missing, source)
+				seenMissing[key] = true
+			}
+		}
+		addDeriveTargetFields(known, spec)
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func addDeriveTargetFields(known map[string]string, spec map[string]any) {
+	for _, target := range fieldRefsFromSpec(spec, "target_field", "output_field", "derived_field", "name") {
+		target = strings.TrimSpace(target)
+		if target != "" {
+			known[strings.ToLower(target)] = target
+		}
+	}
+}
+
+func deriveOperationAllowsPartialSources(op string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(op))
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	switch normalized {
+	case "concat", "join", "join_fields", "coalesce", "first_non_empty",
+		"concat/join_fields", "join_fields/concat", "concat/join", "join/concat",
+		"coalesce/first_non_empty", "first_non_empty/coalesce":
+		return true
+	default:
+		return false
+	}
 }
 
 func fieldRefsFromSpec(spec map[string]any, keys ...string) []string {

@@ -17187,7 +17187,51 @@ Changes:
 Remaining architecture items:
 
 - [ ] Continue migrating action-specific field-reference and role-path
-      reducers from REPL-local helpers into dataworkflow.
+      reducers for apply-entity-resolution and other role-heavy actions from
+      REPL-local helpers into dataworkflow.
+- [ ] Continue moving deterministic fallback selection out of REPL callbacks
+      and into reducer-owned decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
+### Batch 383: Workflow-Owned Typed Field Reference Guards
+
+Field-contract guard construction moved into `dataworkflow`, but the
+action-specific field-reference reducers still lived in the REPL adapter. That
+kept the most important hard gate split across two layers: the workflow package
+created typed violations, while the UI adapter still decided which fields a
+typed action requires.
+
+Generic invariants:
+
+- typed action field references are ActionDAG / ArtifactGraph contract state,
+  not REPL state;
+- reducers consume only action kind, structured action params, and artifact
+  schema projections;
+- sequential derived-field specs may reference fields created by earlier specs
+  in the same action;
+- implicit source/reference role correction is schema-driven and limited to
+  structural roles, not business meaning;
+- `apply_entity_resolutions` remains a separate migration because it owns more
+  complex base/resolution/reference lineage contracts.
+
+Changes:
+
+- [x] Added workflow-owned `ActionFieldReferenceGuardResult`.
+- [x] Moved derive/extract, group, expand, filter, qualify, contribution, join,
+      normalize/mapping-candidate, and enrich field-reference guards into
+      `dataworkflow`.
+- [x] Moved sequential derive missing-field analysis into `dataworkflow`.
+- [x] Rewired REPL field-contract admission to delegate these typed action
+      guards to `dataworkflow`.
+- [x] Removed the duplicated REPL-local reducers for those action families.
+- [x] Added regression coverage for sequential derived fields, join field
+      contracts, and schema-driven implicit normalize role correction.
+
+Remaining architecture items:
+
+- [ ] Migrate `apply_entity_resolutions` role/path/lineage/no-progress guards
+      into `dataworkflow` as a first-class ApplyResolutionContract reducer.
 - [ ] Continue moving deterministic fallback selection out of REPL callbacks
       and into reducer-owned decisions.
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
