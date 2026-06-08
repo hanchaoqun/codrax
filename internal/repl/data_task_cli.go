@@ -112,11 +112,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, opts)
 	}
 	emitWorkflowReason := func(kind string, round int, reason string) {
-		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:   strings.TrimSpace(kind),
 			Round:  round,
 			Reason: reason,
-		}), dataTaskWorkflowEventRenderOptions{})
+		})
+		if event.Kind == "continue" {
+			return
+		}
+		emitWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{})
 	}
 	emitWorkflowFailure := func(kind string, round int, reason string) {
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
@@ -230,7 +234,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	currentPlan := plan
 	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {
-		return workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
+		before := len(workflowRuntime.ProcessEvents())
+		current := workflowRuntime.SwitchCurrentPlan(round, source, next, reason)
+		for _, event := range workflowRuntime.ProcessEvents()[before:] {
+			if event.Kind != "plan_transition" {
+				continue
+			}
+			dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
+		}
+		return current
 	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {

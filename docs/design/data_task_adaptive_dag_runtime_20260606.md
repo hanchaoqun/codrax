@@ -16738,7 +16738,7 @@ Stale items now covered by later batches:
 
 Current deduplicated IR backlog before real-scenario testing:
 
-- [ ] Replace adapter-emitted duplicate transition reason lines with direct
+- [x] Replace adapter-emitted duplicate transition reason lines with direct
       rendering of runtime transition events. The event is now runtime-owned;
       the remaining work is to stop CLI/REPL from rendering a separate
       free-form reason line for the same transition.
@@ -16760,3 +16760,52 @@ Testing rule:
   deduplicated IR backlog above is either implemented or explicitly classified
   as non-blocking operational/eval work. Historical unchecked items above are
   chronological notes unless they reappear in this current queue.
+
+### Batch 370: Runtime Transition Events As The Live UX Source
+
+Batch 368 made plan transitions runtime-owned audit events, but CLI/REPL still
+rendered a separate `continue` reason line before many of those same
+transitions. That was transparent for debugging but noisy for users: the
+permanent output repeated internal scheduling words while the business-relevant
+plan intent was available on the actual transition event.
+
+This batch changes live rendering to use the runtime transition event when a
+current-plan switch happens. Adapter-level `continue` reason events are no
+longer rendered as standalone lines; `deferred`, `patch`, `resume`, and failure
+events still render through the shared event path because they are not plan
+switches.
+
+Generic invariants:
+
+- a visible plan switch comes from `WorkflowRuntime.SwitchCurrentPlan` and its
+  `plan_transition` event;
+- the rendered details come from typed plan fields: goal, batch purpose, next
+  step, action summary, and transition audit metadata;
+- adapters do not parse business words or model prose to decide whether to
+  render the transition;
+- CLI remains stderr/progress-only for process lines, preserving stdout for the
+  final answer.
+
+Changes:
+
+- [x] Rewired CLI data workflow plan switches to render the runtime
+      `plan_transition` event.
+- [x] Rewired REPL data workflow plan switches to render the same event.
+- [x] Suppressed adapter-emitted standalone `continue` reason rendering so the
+      live output does not show two lines for one transition.
+- [x] Kept non-transition process events unchanged.
+- [x] Ran focused REPL/dataworkflow regression coverage.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      and round counters) so prompt/evaluator/checkpoint inputs are produced
+      from runtime snapshots rather than parallel adapter variables.
+- [ ] Retire legacy error/output recomputation fallbacks only after all direct
+      callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
+      and WorkflowViolation inputs.
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario gate.
