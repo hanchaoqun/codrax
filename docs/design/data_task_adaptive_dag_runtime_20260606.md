@@ -16754,6 +16754,59 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
+### Batch 372: Typed Transform Contract Violations
+
+The next IR hardening pass closes one common prose-error escape hatch. The
+runtime already has typed field/value/parameter/action-role errors, but bounded
+`custom_transform` contract failures still surfaced primarily as formatted
+error text. That forced evaluators, repair hints, and UX to recover structure
+from a sentence even though the failing condition was objective: an action
+declared a material shape it could not verify, or a script referenced a field
+that does not exist in the executable input schema.
+
+This is a generic data-lane issue, not a domain-specific calculation rule. Any
+data workflow may use a bounded transform as a leaf fallback after typed
+actions have narrowed the input set. The contract failures must therefore enter
+the same typed violation path as joins, filters, contributions, and artifact
+materialization.
+
+Generic invariants:
+
+- action contract failures are represented as typed errors first and prose
+  messages second;
+- material contract failures carry action kind, input alias, expected shape,
+  actual snippet, operation, and repairability;
+- script field contract failures reuse the shared `field_contract_violation`
+  shape and preserve script line, missing field, input aliases, and available
+  field samples;
+- historical text classifiers remain only as fallback for old logs or
+  third-party errors, not as the primary hard gate;
+- no business field names, material roles, or user-intent keyword matching are
+  added to system logic.
+
+Changes:
+
+- [x] Added a generic `DataMaterialContractError`.
+- [x] Extended `DataFieldContractError` to preserve input aliases and script
+      line when a contract failure comes from a bounded transform.
+- [x] Wired material contract errors into `ClassifyExecutionFailure` so direct
+      callers receive `material_contract_violation`.
+- [x] Converted `custom_transform` directory-material rejection from prose
+      text to `DataMaterialContractError`.
+- [x] Converted `custom_transform` missing CSV/TSV field references from prose
+      text to `DataFieldContractError`.
+- [x] Updated regression coverage to assert typed error classification instead
+      of relying on substring classification for the primary path.
+
+Remaining architecture items:
+
+- [ ] Continue converting other action-runner contract families that still
+      return plain errors into typed violations.
+- [ ] Thread typed runner violations through `WorkflowViolation` admission and
+      evaluator state before retiring legacy text classifiers.
+- [ ] Add the focused architecture regression gate for the deduplicated current
+      queue before the next real-scenario run.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

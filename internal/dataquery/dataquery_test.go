@@ -6720,12 +6720,21 @@ emit_result("0", output_contract={"format": "plain_single_line", "explanation_al
 		!strings.Contains(err.Error(), "category_raw") {
 		t.Fatalf("err=%v, want field contract with line and known headers", err)
 	}
-	violation := ClassifyExecutionError(err.Error())
-	if violation.Code != "custom_transform_field_contract" || violation.ScriptLine != 3 {
-		t.Fatalf("top violation=%+v, want custom_transform_field_contract line 3", violation)
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
 	}
-	if nested := ClassifyExecutionError(errors.Unwrap(err).Error()); nested.Code != "custom_transform_field_contract" || nested.ScriptLine != 3 {
-		t.Fatalf("nested violation=%+v, want custom_transform_field_contract line 3", nested)
+	if fieldErr.ActionKind != DataActionCustomTransform || fieldErr.Role != "script_field_reference" || fieldErr.ScriptLine != 3 {
+		t.Fatalf("fieldErr=%+v, want custom_transform script field contract line 3", fieldErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "field_contract_violation" ||
+		violation.ActionID != "bad_fields" ||
+		violation.ActionKind != string(DataActionCustomTransform) ||
+		violation.ScriptLine != 3 ||
+		len(violation.MissingFields) != 1 ||
+		violation.MissingFields[0] != "category_code" {
+		t.Fatalf("violation=%+v, want typed field contract line 3", violation)
 	}
 }
 
@@ -6759,6 +6768,21 @@ func TestActionRunnerCustomTransformRejectsRequiredDirectoryMaterial(t *testing.
 	if !strings.Contains(err.Error(), "custom_transform material contract failed") ||
 		!strings.Contains(err.Error(), "evidence") {
 		t.Fatalf("err=%v, want directory material contract rejection", err)
+	}
+	var materialErr DataMaterialContractError
+	if !errors.As(err, &materialErr) {
+		t.Fatalf("err=%T %v, want DataMaterialContractError", err, err)
+	}
+	if materialErr.ActionKind != DataActionCustomTransform || materialErr.Role != "required_material" || materialErr.InputAlias != "evidence" {
+		t.Fatalf("materialErr=%+v, want required material contract for evidence", materialErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "material_contract_violation" ||
+		violation.ActionID != "bad_directory" ||
+		violation.ActionKind != string(DataActionCustomTransform) ||
+		violation.InputAlias != "evidence" ||
+		violation.ExpectedShape == "" {
+		t.Fatalf("violation=%+v, want typed material contract", violation)
 	}
 }
 

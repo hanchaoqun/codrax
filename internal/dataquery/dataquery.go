@@ -470,6 +470,10 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	if errors.As(err, &fieldErr) {
 		return fieldErr.Violation()
 	}
+	var materialErr DataMaterialContractError
+	if errors.As(err, &materialErr) {
+		return materialErr.Violation()
+	}
 	var valueErr DataValueContractError
 	if errors.As(err, &valueErr) {
 		return valueErr.Violation()

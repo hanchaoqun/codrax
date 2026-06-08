@@ -43,7 +43,9 @@ type DataFieldContractError struct {
 	Field                string         `json:"field,omitempty"`
 	Fields               []string       `json:"fields,omitempty"`
 	InputAlias           string         `json:"input_alias,omitempty"`
+	InputAliases         []string       `json:"input_aliases,omitempty"`
 	AvailableFieldSample []string       `json:"available_field_sample,omitempty"`
+	ScriptLine           int            `json:"script_line,omitempty"`
 	Message              string         `json:"message,omitempty"`
 }
 
@@ -89,9 +91,11 @@ func (e DataFieldContractError) Violation() DataTaskViolation {
 		ActionKind:           strings.TrimSpace(string(e.ActionKind)),
 		ActualSnippet:        strings.TrimSpace(e.InputAlias),
 		InputAlias:           strings.TrimSpace(e.InputAlias),
+		InputAliases:         normalizeMaterialPaths(e.InputAliases),
 		MissingFields:        e.missingFields(),
 		AvailableFieldSample: cleanStringSlice(e.AvailableFieldSample),
 		Role:                 strings.TrimSpace(e.Role),
+		ScriptLine:           e.ScriptLine,
 		Repairability:        RepairabilityNeedsRecompute,
 		RepairHint:           "Use existing fields from the executable artifact schema, or add a typed action that materializes the missing field before retrying this action.",
 	}
@@ -119,6 +123,52 @@ func dataFieldContractError(kind DataActionKind, role, inputAlias string, missin
 		err.Field = missing[0]
 	}
 	return err
+}
+
+type DataMaterialContractError struct {
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	Operation     string         `json:"operation,omitempty"`
+	InputAlias    string         `json:"input_alias,omitempty"`
+	InputAliases  []string       `json:"input_aliases,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+}
+
+func (e DataMaterialContractError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	input := strings.TrimSpace(e.InputAlias)
+	if input == "" {
+		input = "input material"
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "material compatible with the action contract"
+	}
+	return fmt.Sprintf("%s material contract failed for %s: expected %s", kind, input, expected)
+}
+
+func (e DataMaterialContractError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "material_contract_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Operation:     strings.TrimSpace(e.Operation),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		InputAlias:    strings.TrimSpace(e.InputAlias),
+		InputAliases:  normalizeMaterialPaths(e.InputAliases),
+		Role:          strings.TrimSpace(e.Role),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "material compatible with the action contract"),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Use a material consumption mode and action input shape that can be verified structurally, or add typed actions that produce a concrete consumable artifact before terminal computation.",
+	}
 }
 
 type DataValueContractError struct {
@@ -10249,7 +10299,16 @@ func (r ActionRunner) validateCustomTransformRequiredDirectories(plan TaskPlan, 
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		return fmt.Errorf("custom_transform material contract failed: required material %q is a directory with usage_mode=script_consumed; expand/profile concrete child files with typed actions, use text_evidence_consumed for extracted text, or use planner_distilled with distilled_notes before terminal computation", req)
+		return DataMaterialContractError{
+			ActionKind:    DataActionCustomTransform,
+			Role:          "required_material",
+			Operation:     string(MaterialUseScriptConsumed),
+			InputAlias:    req,
+			InputAliases:  []string{req},
+			ExpectedShape: "concrete file input or verifiable non-direct material usage mode",
+			ActualSnippet: "directory",
+			Message:       fmt.Sprintf("custom_transform material contract failed: required material %q is a directory with usage_mode=script_consumed; expand/profile concrete child files with typed actions, use text_evidence_consumed for extracted text, or use planner_distilled with distilled_notes before terminal computation", req),
+		}
 	}
 	return nil
 }
@@ -10308,6 +10367,10 @@ func (r ActionRunner) validateCustomTransformFieldReferences(script string, inpu
 		return missing[i].Field < missing[j].Field
 	})
 	var parts []string
+	var missingFields []string
+	var inputAliases []string
+	var availableFields []string
+	firstLine := 0
 	seen := map[string]bool{}
 	for _, ref := range missing {
 		key := normalizeMaterialPath(ref.Path) + "\x00" + strings.ToLower(strings.TrimSpace(ref.Field)) + "\x00" + fmt.Sprint(ref.Line)
@@ -10316,13 +10379,28 @@ func (r ActionRunner) validateCustomTransformFieldReferences(script string, inpu
 		}
 		seen[key] = true
 		headers := headersByPath[normalizeMaterialPath(ref.Path)]
+		missingFields = append(missingFields, ref.Field)
+		inputAliases = append(inputAliases, ref.Path)
+		availableFields = append(availableFields, headers...)
+		if firstLine == 0 || ref.Line < firstLine {
+			firstLine = ref.Line
+		}
 		parts = append(parts, fmt.Sprintf("%s line %d references missing field %q; available fields: %s",
 			normalizeMaterialPath(ref.Path), ref.Line, ref.Field, strings.Join(headers, ", ")))
 		if len(parts) >= 8 {
 			break
 		}
 	}
-	return fmt.Errorf("custom_transform field contract failed: %s", strings.Join(parts, " | "))
+	return DataFieldContractError{
+		ActionKind:           DataActionCustomTransform,
+		Role:                 "script_field_reference",
+		Fields:               cleanStringSlice(missingFields),
+		InputAlias:           firstNonEmptyString(normalizeMaterialPath(missing[0].Path), normalizeMaterialPath(inputAliases[0])),
+		InputAliases:         normalizeMaterialPaths(inputAliases),
+		AvailableFieldSample: cleanStringSlice(availableFields),
+		ScriptLine:           firstLine,
+		Message:              fmt.Sprintf("custom_transform field contract failed: %s", strings.Join(parts, " | ")),
+	}
 }
 
 func customTransformFieldExists(headers []string, field string) bool {
