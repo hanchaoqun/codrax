@@ -398,6 +398,119 @@ func TestActionRunnerDeriveFieldSpecParamShapeIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerDeriveUnsupportedOperationIsTypedParam(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,text\n1,hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "derive_bad_op",
+			Kind:       DataActionDeriveFields,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"text","target_field":"x","operation":"unsupported_transform"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed derive operation param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionDeriveFields || paramErr.Param != "operation" {
+		t.Fatalf("paramErr=%+v, want derive operation param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "derive_bad_op" ||
+		violation.ActionKind != string(DataActionDeriveFields) ||
+		violation.Param != "operation" ||
+		!strings.Contains(violation.ExpectedShape, "regex_extract") {
+		t.Fatalf("violation=%+v, want typed derive operation violation", violation)
+	}
+}
+
+func TestActionRunnerDeriveMissingSourceFieldIsTypedFieldContract(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,text\n1,hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "derive_missing_field",
+			Kind:       DataActionDeriveFields,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"missing","target_field":"x","operation":"copy"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed field contract failure")
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionDeriveFields || fieldErr.Role != "source" || fieldErr.InputAlias != "items.csv" {
+		t.Fatalf("fieldErr=%+v, want derive source field contract", fieldErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "field_contract_violation" ||
+		violation.ActionID != "derive_missing_field" ||
+		violation.ActionKind != string(DataActionDeriveFields) ||
+		violation.InputAlias != "items.csv" ||
+		len(violation.MissingFields) != 1 ||
+		violation.MissingFields[0] != "missing" {
+		t.Fatalf("violation=%+v, want typed missing source field violation", violation)
+	}
+}
+
+func TestActionRunnerExtractParseNumberAmbiguityIsTypedValueContract(t *testing.T) {
+	root := t.TempDir()
+	longText := "record contains several numeric candidates 10 and 20 and 30 in a long unanchored text field that needs context"
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,text\n1,\""+longText+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "extract_ambiguous_number",
+			Kind:       DataActionExtractFields,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"field_specs_json": `[{"source_field":"text","target_field":"number_value","operation":"parse_number"}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed value contract failure")
+	}
+	var valueErr DataValueContractError
+	if !errors.As(err, &valueErr) {
+		t.Fatalf("err=%T %v, want DataValueContractError", err, err)
+	}
+	if valueErr.ActionKind != DataActionExtractFields || valueErr.Role != "numeric_extraction" || valueErr.Field != "text" {
+		t.Fatalf("valueErr=%+v, want extract numeric value contract", valueErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "value_contract_violation" ||
+		violation.ActionID != "extract_ambiguous_number" ||
+		violation.ActionKind != string(DataActionExtractFields) ||
+		violation.Field != "text" ||
+		!strings.Contains(violation.ExpectedShape, "regex") {
+		t.Fatalf("violation=%+v, want typed numeric ambiguity violation", violation)
+	}
+}
+
 func TestActionRunnerJoinFieldCountParamIsTyped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,kind\n1,A\n"), 0o644); err != nil {
@@ -4715,8 +4828,15 @@ func TestActionRunnerDeriveFieldsRejectsConstantIndexLikeFields(t *testing.T) {
 			},
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "constant spec cannot create locator-like target_field") {
-		t.Fatalf("err=%v, want locator-like constant rejection", err)
+	if err == nil {
+		t.Fatal("Run derive_fields constant locator target succeeded, want typed param error")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionDeriveFields || paramErr.Param != "target_field" || !strings.Contains(paramErr.ExpectedShape, "non-locator") {
+		t.Fatalf("paramErr=%+v, want non-locator target_field contract", paramErr)
 	}
 }
 
@@ -5238,8 +5358,12 @@ func TestActionRunnerDeriveFieldsUnsupportedOperationReportsOperationFirst(t *te
 	if err == nil {
 		t.Fatal("Run derive_fields unsupported operation succeeded, want error")
 	}
-	if !strings.Contains(err.Error(), "unsupported operation") || strings.Contains(err.Error(), "requires source_field") {
-		t.Fatalf("err=%q, want unsupported-operation contract error before source_field guidance", err)
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionDeriveFields || paramErr.Param != "operation" || !strings.Contains(paramErr.ActualSnippet, "not_a_supported_op") {
+		t.Fatalf("paramErr=%+v, want unsupported operation contract before source_field guidance", paramErr)
 	}
 }
 

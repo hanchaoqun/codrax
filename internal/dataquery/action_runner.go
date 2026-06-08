@@ -2747,7 +2747,7 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 			noopReservedCopies = append(noopReservedCopies, spec.TargetField)
 			continue
 		}
-		if err := validateDeriveFieldSpec(spec, knownFields); err != nil {
+		if err := validateDeriveFieldSpec(DataActionDeriveFields, spec, knownFields, rel); err != nil {
 			return DataArtifact{}, nil, nil, err
 		}
 		if target := strings.ToLower(strings.TrimSpace(spec.TargetField)); target != "" {
@@ -2891,7 +2891,7 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 		specs[i] = normalizeExtractFieldSourceAlias(specs[i], knownFields)
 	}
 	for _, spec := range specs {
-		if err := validateDeriveFieldSpec(spec, knownFields); err != nil {
+		if err := validateDeriveFieldSpec(DataActionExtractFields, spec, knownFields, strings.Join(normalizeMaterialPaths(inputPaths), ",")); err != nil {
 			return DataArtifact{}, nil, nil, fmt.Errorf("extract_fields %w", err)
 		}
 		if target := strings.ToLower(strings.TrimSpace(spec.TargetField)); target != "" {
@@ -4208,28 +4208,28 @@ func normalizeDeriveFieldOperation(operation string) string {
 	}
 }
 
-func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) error {
+func validateDeriveFieldSpec(kind DataActionKind, spec deriveFieldSpec, knownFields map[string]bool, inputAlias string) error {
 	if actionReservedSourceField(spec.TargetField) {
-		return fmt.Errorf("derive_fields target_field %q is a reserved source locator field; read it as a source_field instead of overwriting it", spec.TargetField)
+		return dataActionParamError(kind, "target_field", "non-reserved output field name", spec.TargetField, nil)
 	}
 	if !deriveFieldOperationSupported(spec.Operation) {
-		return fmt.Errorf("derive_fields unsupported operation %q; supported operations are %s", spec.Operation, deriveFieldSupportedOperations())
+		return dataActionParamError(kind, "operation", deriveFieldSupportedOperations(), spec.Operation, nil)
 	}
 	switch spec.Operation {
 	case "constant":
 		if spec.TargetField == "" {
-			return errors.New("derive_fields constant spec requires target_field")
+			return dataActionMissingParamError(kind, "target_field", "output field for the constant value", spec.Operation)
 		}
 		if actionIndexLikeField(spec.TargetField) {
-			return fmt.Errorf("derive_fields constant spec cannot create locator-like target_field %q; copy an existing source/index field or derive it from a real record field", spec.TargetField)
+			return dataActionParamError(kind, "target_field", "non-locator output field name", spec.TargetField, nil)
 		}
 		return nil
 	case "concat", "join", "join_fields", "coalesce", "first_non_empty":
 		if spec.TargetField == "" {
-			return fmt.Errorf("derive_fields %s spec requires target_field", spec.Operation)
+			return dataActionMissingParamError(kind, "target_field", "output field for derived value", spec.Operation)
 		}
 		if len(spec.SourceFields) == 0 {
-			return fmt.Errorf("derive_fields %s spec requires source_fields", spec.Operation)
+			return dataActionMissingParamError(kind, "source_fields", "one or more source fields", spec.Operation)
 		}
 		found := 0
 		var missing []string
@@ -4241,26 +4241,40 @@ func validateDeriveFieldSpec(spec deriveFieldSpec, knownFields map[string]bool) 
 			}
 		}
 		if found == 0 {
-			return fmt.Errorf("derive_fields %s source_fields [%s] were not found in input record fields", spec.Operation, strings.Join(missing, ", "))
+			return dataFieldContractError(
+				kind,
+				"source",
+				inputAlias,
+				missing,
+				knownActionFieldNames(knownFields),
+				fmt.Sprintf("%s %s source_fields [%s] were not found in input record fields", kind, spec.Operation, strings.Join(missing, ", ")),
+			)
 		}
 		return nil
 	case "case_when", "case", "conditional", "if_then", "select":
-		return validateDeriveCaseWhenSpec(spec, knownFields)
+		return validateDeriveCaseWhenSpec(kind, spec, knownFields, inputAlias)
 	}
 	if spec.SourceField == "" {
-		return fmt.Errorf("derive_fields %s spec requires source_field", spec.Operation)
+		return dataActionMissingParamError(kind, "source_field", "source field for this operation", spec.Operation)
 	}
 	if spec.TargetField == "" {
-		return fmt.Errorf("derive_fields %s spec requires target_field", spec.Operation)
+		return dataActionMissingParamError(kind, "target_field", "output field for derived value", spec.Operation)
 	}
 	if !knownFields[strings.ToLower(strings.TrimSpace(spec.SourceField))] {
-		return fmt.Errorf("derive_fields source_field %q was not found in input record fields", spec.SourceField)
+		return dataFieldContractError(
+			kind,
+			"source",
+			inputAlias,
+			[]string{spec.SourceField},
+			knownActionFieldNames(knownFields),
+			fmt.Sprintf("%s source_field %q was not found in input record fields", kind, spec.SourceField),
+		)
 	}
 	if (spec.Operation == "regex_extract" || spec.Operation == "regex_replace") && spec.Pattern == "" {
-		return fmt.Errorf("derive_fields %s requires pattern", spec.Operation)
+		return dataActionMissingParamError(kind, "pattern", "regular expression pattern for regex operation", spec.Operation)
 	}
 	if (spec.Operation == "map" || spec.Operation == "lookup") && len(spec.Mapping) == 0 {
-		return fmt.Errorf("derive_fields %s requires mapping/mapping_json", spec.Operation)
+		return dataActionMissingParamError(kind, "mapping/mapping_json", "object mapping source values to target values", spec.Operation)
 	}
 	return nil
 }
@@ -4278,32 +4292,53 @@ func deriveFieldSupportedOperations() string {
 	return "copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, extract_year, concat, coalesce, constant, case_when"
 }
 
-func validateDeriveCaseWhenSpec(spec deriveFieldSpec, knownFields map[string]bool) error {
+func validateDeriveCaseWhenSpec(kind DataActionKind, spec deriveFieldSpec, knownFields map[string]bool, inputAlias string) error {
 	if spec.TargetField == "" {
-		return fmt.Errorf("derive_fields %s spec requires target_field", spec.Operation)
+		return dataActionMissingParamError(kind, "target_field", "output field for case_when result", spec.Operation)
 	}
 	if len(spec.Cases) == 0 {
-		return fmt.Errorf("derive_fields %s spec requires cases: an array of conditions/filters plus value or value_field", spec.Operation)
+		return dataActionMissingParamError(kind, "cases", "array of conditions/filters plus value or value_field", spec.Operation)
 	}
 	for i, c := range spec.Cases {
 		for _, filter := range c.Filters {
 			if filter.Field == "" {
-				return fmt.Errorf("derive_fields %s cases[%d] has empty filter field", spec.Operation, i)
+				return dataActionParamError(kind, "cases.filters.field", "non-empty filter field", fmt.Sprintf("cases[%d]", i), nil)
 			}
 			if !knownFields[strings.ToLower(strings.TrimSpace(filter.Field))] {
-				return fmt.Errorf("derive_fields %s cases[%d] filter field %q was not found in input record fields", spec.Operation, i, filter.Field)
+				return dataFieldContractError(
+					kind,
+					"filter",
+					inputAlias,
+					[]string{filter.Field},
+					knownActionFieldNames(knownFields),
+					fmt.Sprintf("%s %s cases[%d] filter field %q was not found in input record fields", kind, spec.Operation, i, filter.Field),
+				)
 			}
 		}
 		valueField := firstNonEmptyString(c.ValueField, c.SourceField)
 		if strings.TrimSpace(valueField) != "" && !knownFields[strings.ToLower(strings.TrimSpace(valueField))] {
-			return fmt.Errorf("derive_fields %s cases[%d] value_field %q was not found in input record fields", spec.Operation, i, valueField)
+			return dataFieldContractError(
+				kind,
+				"value",
+				inputAlias,
+				[]string{valueField},
+				knownActionFieldNames(knownFields),
+				fmt.Sprintf("%s %s cases[%d] value_field %q was not found in input record fields", kind, spec.Operation, i, valueField),
+			)
 		}
 		if !c.HasValue && strings.TrimSpace(valueField) == "" {
-			return fmt.Errorf("derive_fields %s cases[%d] requires value or value_field", spec.Operation, i)
+			return dataActionParamError(kind, "cases.value/value_field", "literal value or value_field for each case", fmt.Sprintf("cases[%d]", i), nil)
 		}
 	}
 	if spec.DefaultField != "" && !knownFields[strings.ToLower(strings.TrimSpace(spec.DefaultField))] {
-		return fmt.Errorf("derive_fields %s default_field %q was not found in input record fields", spec.Operation, spec.DefaultField)
+		return dataFieldContractError(
+			kind,
+			"default",
+			inputAlias,
+			[]string{spec.DefaultField},
+			knownActionFieldNames(knownFields),
+			fmt.Sprintf("%s %s default_field %q was not found in input record fields", kind, spec.Operation, spec.DefaultField),
+		)
 	}
 	return nil
 }
@@ -4454,8 +4489,18 @@ func ambiguousExtractParseNumberError(spec deriveFieldSpec, fields map[string]st
 	if len(tokens) <= 1 {
 		return nil
 	}
-	return fmt.Errorf("extract_fields parse_number for target_field %q reads source_field %q from %s:%d with %d numeric tokens %v; unanchored parse_number would choose the first token. Use regex_extract with a context pattern/capture group, or first group/split the source so the numeric field has one candidate",
-		spec.TargetField, sourceField, rel, record.Line, len(decimalTokenStrings(source, -1)), tokens)
+	totalTokens := len(decimalTokenStrings(source, -1))
+	return DataValueContractError{
+		ActionKind:    DataActionExtractFields,
+		Role:          "numeric_extraction",
+		Field:         sourceField,
+		Operation:     spec.Operation,
+		InputAlias:    rel,
+		ExpectedShape: "one numeric candidate, or a regex/context pattern that selects the intended numeric value",
+		ActualSnippet: fmt.Sprintf("%s:%d tokens=%v", rel, record.Line, tokens),
+		Message: fmt.Sprintf("extract_fields parse_number for target_field %q reads source_field %q from %s:%d with %d numeric tokens %v; unanchored parse_number would choose the first token. Use regex_extract with a context pattern/capture group, or first group/split the source so the numeric field has one candidate",
+			spec.TargetField, sourceField, rel, record.Line, totalTokens, tokens),
+	}
 }
 
 func extractParseNumberSourceNeedsAnchor(source string) bool {

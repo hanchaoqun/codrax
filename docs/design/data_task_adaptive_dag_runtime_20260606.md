@@ -16349,3 +16349,53 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 361: Typed Field-Spec Internal Contracts
+
+Batch 360 moved action-entry contracts into typed parameter violations. The
+next boundary was inside field-spec actions. `derive_fields` and
+`extract_fields` carry compact transformation specs, and those specs can fail
+for different structural reasons: unsupported operation names, missing
+selector parameters, absent executable source fields, or ambiguous value
+extraction. Treating all of those as prose made repair choose between scripts,
+inspection, and field materialization by parsing error text.
+
+Generic invariants:
+
+- unsupported operation names and missing spec parameters are
+  `action_param_violation`;
+- declared fields that do not exist in the executable input schema are
+  `field_contract_violation`;
+- value-shape hazards such as unanchored numeric extraction from a long text
+  with multiple numeric candidates are `value_contract_violation`;
+- these checks are domain-neutral and do not encode dates, money, procurement,
+  logs, or any business vocabulary;
+- repair may choose a better typed action or a narrower extraction pattern, but
+  must not change business semantics through a structural patch.
+
+Changes:
+
+- [x] Changed derive/extract field-spec validation to receive action kind and
+      input alias so it can emit typed param/field/value violations directly.
+- [x] Converted reserved target fields, unsupported operations, missing target
+      fields, missing source selectors, missing regex patterns, missing
+      mappings, and malformed case specs into typed action parameter
+      violations.
+- [x] Converted absent source/filter/value/default fields inside field specs
+      into typed field-contract violations with available field samples.
+- [x] Converted unanchored `parse_number` ambiguity into a typed value-contract
+      violation with bounded source/line/token diagnostics.
+- [x] Updated legacy tests that asserted prose error text to assert typed
+      contract errors instead.
+- [x] Added regression coverage for unsupported field-spec operation, missing
+      source field, and ambiguous numeric extraction.
+
+Remaining architecture items:
+
+- [ ] Move evaluator repair decisions to consume typed role/output/result/
+      materialization/parameter/field/value blockers directly from reducer
+      state.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.
