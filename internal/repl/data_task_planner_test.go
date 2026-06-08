@@ -132,7 +132,7 @@ func TestDataTaskDeterministicContinuationFallbackDeriveRules(t *testing.T) {
 			ConsumedPaths: []string{"data_rules.md"},
 		},
 	}}
-	plan, reason, ok := dataTaskDeterministicContinuationFallback(records, current, errors.New("data task planner returned no tool_call"))
+	plan, reason, ok := dataTaskDeterministicContinuationFallback(records, current, newDataTaskPlannerNoToolError("data task planner", nil))
 	if !ok {
 		t.Fatalf("fallback ok=false")
 	}
@@ -337,7 +337,7 @@ func TestDataTaskDeterministicContinuationFallbackMaterializesRecords(t *testing
 			}},
 		},
 	}}
-	plan, reason, ok := dataTaskDeterministicContinuationFallback(records, current, errors.New("data task planner returned no tool_call"))
+	plan, reason, ok := dataTaskDeterministicContinuationFallback(records, current, newDataTaskPlannerNoToolError("data task planner", nil))
 	if !ok {
 		t.Fatalf("fallback ok=false")
 	}
@@ -6227,7 +6227,7 @@ func TestDataTaskWorkflowStagingAllowsSequentialDeriveFieldSpecs(t *testing.T) {
 
 func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 	planner := &stubDataTaskPlanner{
-		repairErr: errors.New("data task planner returned no tool_call"),
+		repairErr: newDataTaskPlannerNoToolError("data task planner", nil),
 		continuePlan: dataquery.TaskPlan{
 			Status:        "ready",
 			ContinueAfter: true,
@@ -6266,6 +6266,15 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 	}
 	if len(plan.Actions) != 1 || plan.Actions[0].ID != "derive_next_fields" {
 		t.Fatalf("plan=%+v, want continuation plan", plan)
+	}
+}
+
+func TestDataTaskRepairPlannerContinuationRequiresTypedNoToolError(t *testing.T) {
+	if !dataTaskRepairPlannerErrorAllowsContinuation(newDataTaskPlannerNoToolError("data task planner", nil)) {
+		t.Fatal("typed no-tool planner error should allow deterministic continuation")
+	}
+	if dataTaskRepairPlannerErrorAllowsContinuation(errors.New("data task planner returned no tool_call")) {
+		t.Fatal("plain error text must not drive deterministic continuation")
 	}
 }
 

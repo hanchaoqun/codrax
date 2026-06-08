@@ -16816,6 +16816,54 @@ Remaining architecture items:
 - [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
       `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
 
+### Batch 395: Typed Planner No-Tool Errors For Data Workflow
+
+The repair failure transition already lives in workflow IR, but its
+`NoStructuredRepairPlan` input was still fed by an adapter helper that searched
+error text for phrases such as `returned no tool_call`. That made a hard
+continuation decision depend on a human-readable error string. The same class
+of risk applies to any direct planner: the display text may change, but the
+workflow decision must not.
+
+This batch introduces a typed data-planner error with a stable code. Data
+planning, result-patch planning, and compact tool-param repair now return
+`dataTaskPlannerError{Code: no_tool_call}` for missing structured tool calls
+and `Code: unexpected_tool` for wrong tool calls. The repair/continuation
+adapter reads the typed code with `errors.As`; it no longer searches prose.
+
+Generic invariants:
+
+- user-facing/log error strings remain readable, but they are not hard-gate
+  inputs;
+- continuation after repair failure is allowed only for the typed
+  `no_tool_call` planner error;
+- ordinary errors that happen to contain the same words do not trigger
+  deterministic continuation;
+- no model prompt, data semantics, source-code analysis, trace/log analysis,
+  operation lane, or write-mode flow is changed.
+
+Changes:
+
+- [x] Added typed data planner error codes for `no_tool_call` and
+      `unexpected_tool`.
+- [x] Rewired data task planner, result patch planner, evaluator unexpected
+      tool, and compact tool-param repair failures to return typed planner
+      errors where applicable.
+- [x] Rewired repair-failure continuation allowance to consume the typed error
+      code instead of `strings.Contains` over error text.
+- [x] Added regression coverage proving typed no-tool errors allow
+      continuation while plain text errors do not.
+
+Remaining architecture items:
+
+- [ ] Apply the same typed direct-planner error pattern to operation planner
+      structured tool calls.
+- [ ] Move continuation/planner error handling fully into reducer-owned
+      `WorkflowDecision` once direct planner calls return typed outcomes
+      instead of Go errors at the adapter boundary.
+- [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
+      `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
+
 ### Batch 391: Reducer-Owned Execution Failure Transition
 
 The next duplicated state seam was the execution-failure path. Both CLI and

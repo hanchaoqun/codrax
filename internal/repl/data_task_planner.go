@@ -46,6 +46,81 @@ type DataTaskResultPatchPlanner interface {
 	ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error)
 }
 
+type dataTaskPlannerErrorCode string
+
+const (
+	dataTaskPlannerErrorNoToolCall     dataTaskPlannerErrorCode = "no_tool_call"
+	dataTaskPlannerErrorUnexpectedTool dataTaskPlannerErrorCode = "unexpected_tool"
+)
+
+type dataTaskPlannerError struct {
+	Code   dataTaskPlannerErrorCode
+	Scope  string
+	Tool   string
+	Detail string
+	Cause  error
+}
+
+func (e *dataTaskPlannerError) Error() string {
+	if e == nil {
+		return ""
+	}
+	detail := strings.TrimSpace(e.Detail)
+	if detail == "" {
+		detail = string(e.Code)
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("%v; %s", e.Cause, detail)
+	}
+	return detail
+}
+
+func (e *dataTaskPlannerError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func newDataTaskPlannerNoToolError(scope string, cause error) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "data task planner"
+	}
+	return &dataTaskPlannerError{
+		Code:   dataTaskPlannerErrorNoToolCall,
+		Scope:  scope,
+		Detail: scope + " returned no tool_call",
+		Cause:  cause,
+	}
+}
+
+func newDataTaskPlannerUnexpectedToolError(scope, tool string, cause error) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "data task planner"
+	}
+	tool = strings.TrimSpace(tool)
+	return &dataTaskPlannerError{
+		Code:   dataTaskPlannerErrorUnexpectedTool,
+		Scope:  scope,
+		Tool:   tool,
+		Detail: fmt.Sprintf("%s returned unexpected tool %q", scope, tool),
+		Cause:  cause,
+	}
+}
+
+func dataTaskPlannerErrorHasCode(err error, code dataTaskPlannerErrorCode) bool {
+	if err == nil {
+		return false
+	}
+	var plannerErr *dataTaskPlannerError
+	if !errors.As(err, &plannerErr) || plannerErr == nil {
+		return false
+	}
+	return plannerErr.Code == code
+}
+
 func continueDataTaskWithDeferredIfSupported(ctx context.Context, continuer DataTaskContinuationPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, error) {
 	if withDeferred, ok := continuer.(DataTaskContinuationPlannerWithDeferred); ok && len(deferred.Actions) > 0 {
 		return withDeferred.ContinueDataTaskWithDeferred(ctx, userLine, repoRoot, policy, candidates, records, deferred)
@@ -478,7 +553,7 @@ func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine stri
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != dataTaskEvaluationTool.Name {
-		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator returned unexpected tool %q", call.Name)
+		return dataquery.Evaluation{}, newDataTaskPlannerUnexpectedToolError("data task evaluator", call.Name, nil)
 	}
 	var parsed dataTaskEvaluationDraft
 	if err := unmarshalReplStructuredToolParams(dataTaskEvaluationTool, call.Params, &parsed, "data task evaluator"); err != nil {
@@ -585,11 +660,11 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLin
 		return dataquery.DataResultPatchPlan{}, err
 	}
 	if len(resp.ToolCalls) == 0 {
-		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner returned no tool_call")
+		return dataquery.DataResultPatchPlan{}, newDataTaskPlannerNoToolError("data result patch planner", nil)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != dataTaskResultPatchTool.Name {
-		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner returned unexpected tool %q", call.Name)
+		return dataquery.DataResultPatchPlan{}, newDataTaskPlannerUnexpectedToolError("data result patch planner", call.Name, nil)
 	}
 	var parsed dataTaskResultPatchDraft
 	if err := unmarshalReplStructuredToolParams(dataTaskResultPatchTool, call.Params, &parsed, "data result patch planner"); err != nil {
@@ -626,11 +701,11 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 		return dataquery.TaskPlan{}, err
 	}
 	if len(resp.ToolCalls) == 0 {
-		return dataquery.TaskPlan{}, fmt.Errorf("data task planner returned no tool_call")
+		return dataquery.TaskPlan{}, newDataTaskPlannerNoToolError("data task planner", nil)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != dataTaskPlanTool.Name {
-		return dataquery.TaskPlan{}, fmt.Errorf("data task planner returned unexpected tool %q", call.Name)
+		return dataquery.TaskPlan{}, newDataTaskPlannerUnexpectedToolError("data task planner", call.Name, nil)
 	}
 	var parsed dataTaskPlanDraft
 	if err := unmarshalReplStructuredToolParams(dataTaskPlanTool, call.Params, &parsed, "data task planner"); err != nil {
@@ -676,11 +751,11 @@ func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Cont
 		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return nil, fmt.Errorf("%w; compact tool-param repair returned no tool_call", parseErr)
+		return nil, newDataTaskPlannerNoToolError("compact tool-param repair", parseErr)
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != tool.Name {
-		return nil, fmt.Errorf("%w; compact tool-param repair returned unexpected tool %q", parseErr, call.Name)
+		return nil, newDataTaskPlannerUnexpectedToolError("compact tool-param repair", call.Name, parseErr)
 	}
 	return call.Params, nil
 }

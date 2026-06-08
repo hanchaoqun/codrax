@@ -478,12 +478,7 @@ func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord
 }
 
 func dataTaskRepairPlannerErrorAllowsContinuation(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "data task planner returned no tool_call") ||
-		strings.Contains(text, "compact tool-param repair returned no tool_call")
+	return dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoToolCall)
 }
 
 func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []string) {
