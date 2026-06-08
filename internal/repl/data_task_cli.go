@@ -260,7 +260,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, cfg.Language)...)
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
@@ -368,7 +368,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, cfg.Language)...)
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}

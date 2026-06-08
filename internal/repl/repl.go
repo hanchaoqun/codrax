@@ -1457,7 +1457,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
+				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, r.language)...)
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 				r.endTurn()
@@ -1608,7 +1608,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
-				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
+				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowGuardContextDetails("repair", currentPlan, guard, r.language)...)
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 				r.endTurn()
@@ -3813,7 +3813,24 @@ func dataTaskWorkflowDecisionContextDetails(records []dataTaskWorkflowRecord, cu
 	return dataTaskWorkflowEventBusinessDetails(event, lang, false, true, true, true)
 }
 
+func dataTaskWorkflowGuardContextDetails(kind string, plan dataquery.TaskPlan, guard dataworkflow.GuardResult, lang string) []string {
+	if guard.Empty() {
+		return nil
+	}
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:         strings.TrimSpace(kind),
+		Plan:         plan,
+		AuditDetails: []string{guard.Code},
+		Guard:        &guard,
+	})
+	return dataTaskWorkflowEventDetails(event, lang, false, true, true, true, true, true)
+}
+
 func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEvent, lang string, includeGoal, includeBatch, includeNext, includeActions bool) []string {
+	return dataTaskWorkflowEventDetails(event, lang, includeGoal, includeBatch, includeNext, includeActions, false, false)
+}
+
+func dataTaskWorkflowEventDetails(event dataworkflow.WorkflowJournalEvent, lang string, includeGoal, includeBatch, includeNext, includeActions, includeFailure, includeAudit bool) []string {
 	var segs []string
 	display := dataworkflow.BuildWorkflowProcessDisplay(event, lang)
 	for _, detail := range display.Details {
@@ -3842,7 +3859,15 @@ func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEven
 				}
 			}
 		case "decision":
-			segs = append(segs, dataTaskDecisionDetail(text))
+			segs = append(segs, dataTaskDecisionDetail(firstNonEmptyString(detail.Value, text)))
+		case "failure":
+			if includeFailure {
+				segs = append(segs, dataTaskFailureDetail(firstNonEmptyString(detail.Value, text)))
+			}
+		case "audit":
+			if includeAudit {
+				segs = append(segs, firstNonEmptyString(detail.Value, text))
+			}
 		}
 	}
 	return segs

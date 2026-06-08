@@ -14380,8 +14380,51 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Feed reducer decision reasons and typed guard summaries directly into
+- [x] Feed reducer decision reasons and typed guard summaries directly into
       `WorkflowProcessEventInput` at every CLI/REPL call site instead of
       passing legacy detail strings.
+- [ ] Move the remaining detail-marker compatibility layer out of REPL once
+      all progress callers emit typed process events.
+
+### Batch 318: Typed Guard Context For Process Details
+
+After the runtime process-event sink existed, REPL/CLI still rendered several
+hard-gate repair progress lines by passing a legacy failure detail string. That
+preserved visible output but lost typed guard context at the display boundary:
+guard code, guard severity, repairability, and plan intent had already existed
+as IR, yet the UI bridge only saw clipped prose.
+
+This batch adds a typed guard-context bridge that builds
+`WorkflowProcessEventInput` from the current plan and `GuardResult`, then
+projects it through the shared process display. Terminal and staging workflow
+guards in both REPL and CLI now render repair progress from typed guard events.
+Ordinary execution/runtime errors remain plain failure details until they have
+typed guard objects; the system does not invent structured meaning from error
+text.
+
+Generic invariants:
+
+- typed guard summaries flow through `WorkflowProcessEventInput`;
+- display uses typed detail keys/classes and raw values, not rendered-prefix
+  parsing;
+- guard codes are surfaced as low-noise audit details;
+- plain runtime errors are not upgraded to hard structured facts;
+- no business-domain field names or prompt prose drive control flow.
+
+Changes:
+
+- [x] Added raw `value` to `WorkflowProcessDisplayDetail` so REPL marker
+      compatibility can consume typed values without parsing localized text.
+- [x] Added `dataTaskWorkflowGuardContextDetails`.
+- [x] Rewired REPL terminal/staging guard repair progress to use typed guard
+      context details.
+- [x] Rewired CLI terminal/staging guard repair progress to use typed guard
+      context details.
+- [x] Added regression coverage that typed guard context carries plan intent,
+      guard reason, and guard code without double-prefixing the user-visible
+      reason.
+
+Remaining architecture items:
+
 - [ ] Move the remaining detail-marker compatibility layer out of REPL once
       all progress callers emit typed process events.

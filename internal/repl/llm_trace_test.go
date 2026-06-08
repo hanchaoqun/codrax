@@ -348,6 +348,27 @@ func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) 
 	}
 }
 
+func TestDataTaskWorkflowGuardContextDetailsUseTypedGuard(t *testing.T) {
+	guard := dataworkflow.NewGuardResult("field_contract", "error", dataworkflow.RepairNeedsTypedAction, "missing field amount", dataworkflow.WorkflowViolation{
+		Code:          "field_contract",
+		MissingFields: []string{"amount"},
+	})
+	plan := dataquery.TaskPlan{
+		WhyThisBatch: "校验字段契约",
+		NextBatch:    "补齐缺失字段后继续",
+	}
+	details := dataTaskWorkflowGuardContextDetails("repair", plan, guard, "zh")
+	got := strings.Join(dataTaskWorkflowDetailLines("repair", 1, "zh", details...), "\n")
+	for _, want := range []string{"本批：校验字段契约", "下一步：补齐缺失字段后继续", "原因：missing field amount", "审计：field_contract"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed guard detail missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "原因：原因：") {
+		t.Fatalf("guard reason should not be double-prefixed:\n%s", got)
+	}
+}
+
 func TestEmitDataTaskWorkflowAuditKeepsAuditCountsOutOfTitle(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{
