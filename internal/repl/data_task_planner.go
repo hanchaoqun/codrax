@@ -26,6 +26,10 @@ type DataTaskTypedRepairPlanner interface {
 	RepairDataTaskWithViolation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error)
 }
 
+type dataTaskRepairPlannerWithRuntimeView interface {
+	RepairDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error)
+}
+
 type DataTaskEvaluator interface {
 	EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error)
 }
@@ -521,11 +525,25 @@ func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoo
 }
 
 func (p *llmDataTaskPlanner) RepairDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error) {
-	return p.RepairDataTaskWithViolation(ctx, userLine, repoRoot, policy, candidates, previous, executionError, dataquery.DataTaskViolation{})
+	return p.RepairDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, previous, executionError, dataquery.DataTaskViolation{}, dataTaskWorkflowRuntimeView{
+		CurrentPlan: previous,
+	})
 }
 
 func (p *llmDataTaskPlanner) RepairDataTaskWithViolation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error) {
-	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPromptWithViolation(userLine, repoRoot, policy, candidates, previous, executionError, violation))
+	return p.RepairDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, previous, executionError, violation, dataTaskWorkflowRuntimeView{
+		CurrentPlan: previous,
+	})
+}
+
+func (p *llmDataTaskPlanner) RepairDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = previous
+	}
+	if !dataTaskPlanHasRuntimeShape(previous) {
+		previous = view.CurrentPlan
+	}
+	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPromptWithRuntimeView(userLine, repoRoot, policy, candidates, previous, executionError, violation, view))
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
@@ -881,11 +899,23 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 }
 
 func dataTaskRepairPromptWithViolation(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation) string {
+	return dataTaskRepairPromptWithRuntimeView(userLine, repoRoot, policy, candidates, previous, executionError, violation, dataTaskWorkflowRuntimeView{
+		CurrentPlan: previous,
+	})
+}
+
+func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView) string {
 	var b strings.Builder
 	if strings.TrimSpace(violation.Code) == "" {
 		violation = dataquery.ClassifyExecutionError(executionError)
 	}
-	fmt.Fprintf(&b, "## repair_goal\nThe previous data task script failed at execution time. Emit a corrected emit_data_task_plan.\n\n")
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = previous
+	}
+	if !dataTaskPlanHasRuntimeShape(previous) {
+		previous = view.CurrentPlan
+	}
+	fmt.Fprintf(&b, "## repair_goal\nThe previous data task batch failed or was structurally rejected. Emit a corrected emit_data_task_plan.\n\n")
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	fmt.Fprintf(&b, "## workspace_root\n%s\n\n", strings.TrimSpace(repoRoot))
 	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
@@ -895,9 +925,14 @@ func dataTaskRepairPromptWithViolation(userLine, repoRoot string, policy TurnPol
 	fmt.Fprintf(&b, "## typed_repair_locus\n%s\n\n", string(violationJSON))
 	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContextForViolation(previous, violation), "", "  ")
 	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+		fmt.Fprintf(&b, "## workflow_state_json\n%s\n\n", stateJSON)
+	}
 	b.WriteString("## repair_rules\n")
 	b.WriteString("- typed_repair_locus.script_line is a 1-based line number in the model-authored script. typed_repair_locus.runner_line is the helper wrapper line and is usually not the line to edit. Use previous_plan_compact_json.script_line_excerpt as the primary local context when script_line is present.\n")
 	b.WriteString("- If typed_repair_locus has action_id/action_kind, repair that action/node first. Do not rewrite unrelated graph nodes unless the typed failure proves the graph needs expansion.\n")
+	b.WriteString("- workflow_state_json is the structural runtime context for repair: use action_graph, artifact_graph, ledger_graph, output_projection_graph, allowed_next_actions, workflow_violations, and field_contract_violations to keep the repaired batch inside the current DAG state.\n")
+	b.WriteString("- If workflow_state_json shows a typed violation or missing ledger/output projection, repair that structural gap with a bounded typed action whenever possible; do not replay completed graph edges or create a broad custom script merely because compact result samples are incomplete.\n")
 	b.WriteString("- If script_line is absent, repair from typed_repair_locus.code, repair_hint, JSON path details when present, and the compact previous plan; do not invent unrelated changes.\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
@@ -926,6 +961,19 @@ func repairDataTaskWithViolation(ctx context.Context, repairer DataTaskRepairPla
 		return typed.RepairDataTaskWithViolation(ctx, userLine, repoRoot, policy, candidates, previous, executionError, violation)
 	}
 	return repairer.RepairDataTask(ctx, userLine, repoRoot, policy, candidates, previous, executionError)
+}
+
+func repairDataTaskWithViolationAndRuntimeView(ctx context.Context, repairer DataTaskRepairPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = previous
+	}
+	if !dataTaskPlanHasRuntimeShape(previous) {
+		previous = view.CurrentPlan
+	}
+	if withView, ok := repairer.(dataTaskRepairPlannerWithRuntimeView); ok {
+		return withView.RepairDataTaskWithRuntimeView(ctx, userLine, repoRoot, policy, candidates, previous, executionError, violation, view)
+	}
+	return repairDataTaskWithViolation(ctx, repairer, userLine, repoRoot, policy, candidates, previous, executionError, violation)
 }
 
 type dataTaskRepairContext struct {

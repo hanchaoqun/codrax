@@ -6254,7 +6254,7 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 		nil,
 		dataquery.TaskPlan{Status: "ready"},
 		"data planning incomplete: material coverage is already sufficient",
-		records,
+		dataTaskWorkflowRuntimeView{Records: records, CurrentPlan: dataquery.TaskPlan{Status: "ready"}},
 		0,
 		6,
 	)

@@ -266,7 +266,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					continue
 				}
 			}
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
@@ -296,7 +296,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
@@ -415,7 +415,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			var repaired dataquery.TaskPlan
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if err != nil {
 				return "", err
@@ -496,7 +496,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			var repaired dataquery.TaskPlan
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if !recordedErr {
 				appendRecord(executionRecord)
@@ -532,7 +532,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				var repaired dataquery.TaskPlan
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if err != nil {
@@ -646,7 +646,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				var repaired dataquery.TaskPlan
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
+				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				if len(records) > 0 {
 					attachLastError(errText)
@@ -707,7 +707,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			repairRounds = workflowRuntime.IncrementRepairRound()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
-			repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason))
+			repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason), view)
 			if err != nil {
 				return "", fmt.Errorf("repair data task node: %w", err)
 			}
@@ -839,15 +839,18 @@ func dataTaskResumePlanHasShape(plan dataquery.TaskPlan) bool {
 	return dataTaskPlanStatusLooksTerminal(status) || status == "needs_clarification" || status == "blocked"
 }
 
-func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, records []dataTaskWorkflowRecord, repairRounds, repairRoundsMax int) (dataquery.TaskPlan, int, bool, error) {
+func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView, repairRounds, repairRoundsMax int) (dataquery.TaskPlan, int, bool, error) {
 	repairer, ok := planner.(DataTaskRepairPlanner)
 	if !ok || repairRounds >= repairRoundsMax {
 		return dataquery.TaskPlan{}, repairRounds, false, nil
 	}
+	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
+		view.CurrentPlan = currentPlan
+	}
 	repairRounds++
-	repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText, dataTaskRepairViolationFromRecords(records, errText))
+	repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
 	if err != nil {
-		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, currentPlan, records, err); ok {
+		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", reason)
 			return fallback, repairRounds, true, nil
 		} else if contErr != nil {
@@ -855,15 +858,15 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 		}
 		return dataquery.TaskPlan{}, repairRounds, false, fmt.Errorf("%s\nrepair data task: %w", errText, err)
 	}
-	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, errText)
+	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText)
 	return repairedPlan, repairRounds, true, nil
 }
 
-func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, records []dataTaskWorkflowRecord, repairErr error) (dataquery.TaskPlan, string, bool, error) {
+func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool, error) {
 	continuer, continuationReady := planner.(DataTaskContinuationPlanner)
 	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
-		CurrentPlan:              currentPlan,
-		Records:                  records,
+		CurrentPlan:              view.CurrentPlan,
+		Records:                  view.Records,
 		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
 		ContinuationPlannerReady: continuationReady,
 		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
@@ -871,14 +874,14 @@ func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planne
 	if transition.Action != dataworkflow.RepairFailureNeedsContinuation {
 		return dataquery.TaskPlan{}, "", false, nil
 	}
-	nextPlan, err := continuer.ContinueDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
+	nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
 	if err != nil {
-		if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, currentPlan, err); ok {
+		if fallback, reason, ok := dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err); ok {
 			return fallback, reason, true, nil
 		}
 		return dataquery.TaskPlan{}, "", false, err
 	}
-	nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
+	nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 	return nextPlan, firstNonEmptyString(transition.Reason, "repair planner returned no structured plan; continued from typed workflow state"), true, nil
 }
 

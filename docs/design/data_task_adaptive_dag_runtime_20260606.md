@@ -16970,15 +16970,61 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move repair planning onto a runtime-view or snapshot-native context once
-      repair call sites can pass current runtime state without duplicating
-      previous/current plan inputs.
+- [x] Move repair planning onto a runtime-view context. Completed in Batch 400.
 - [ ] Move terminal/checkpoint journal input assembly fully to
       `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
       state.
 - [ ] Keep the real-scenario gate closed until the current IR backlog is
       implemented or explicitly classified as non-blocking operational/eval
       work.
+
+### Batch 400: Runtime View Boundary For Repair Planning
+
+Repair planning was the remaining data planner path that still mostly saw the
+failed plan plus an execution/error string. That is useful local context, but
+it is not enough for an adaptive DAG: a repair turn must also see the current
+ActionGraph, ArtifactGraph, LedgerGraph, output projection state, deferred
+queue, and typed workflow violations. Otherwise it can over-focus on the last
+script or action and lose the graph state that should naturally constrain the
+next bounded batch.
+
+Generic invariants:
+
+- repair planning consumes `dataTaskWorkflowRuntimeView` just like continuation,
+  evaluation, and result patch planning;
+- `workflow_state_json` is structural repair context, not business evidence and
+  not a prompt-prose hard gate;
+- the built-in LLM planner prefers the view-native repair interface, while old
+  repair interfaces remain adapters for tests and alternate planners;
+- CLI/REPL repair call sites pass one runtime view per repair attempt so action
+  graph, artifact graph, ledger graph, deferred queue, rounds, and current plan
+  stay consistent;
+- repair still cannot bypass deterministic admission, coverage, ledger,
+  reconcile, output-contract, or patch validators.
+
+Changes:
+
+- [x] Added a runtime-view repair planner interface.
+- [x] Implemented runtime-view repair planning on the built-in LLM data planner.
+- [x] Rewired repair prompt generation to include
+      `marshalDataTaskWorkflowStateFromRuntimeView`.
+- [x] Rewired CLI data repair and repair-failure continuation fallback to pass
+      runtime views.
+- [x] Rewired REPL data repair call sites to pass a single runtime view per
+      repair attempt.
+- [x] Kept legacy repair interfaces as compatibility adapters.
+- [x] Added compile-time and prompt-shape regression coverage.
+
+Remaining architecture items:
+
+- [ ] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
+      state.
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario gate.
 
 ### Batch 394: Relation-Backed Missing Field Recovery
 

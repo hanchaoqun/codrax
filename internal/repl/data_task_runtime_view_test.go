@@ -12,6 +12,7 @@ var (
 	_ dataTaskContinuationPlannerWithRuntimeView = (*llmDataTaskPlanner)(nil)
 	_ dataTaskEvaluatorWithRuntimeView           = (*llmDataTaskPlanner)(nil)
 	_ dataTaskResultPatchPlannerWithRuntimeView  = (*llmDataTaskPlanner)(nil)
+	_ dataTaskRepairPlannerWithRuntimeView       = (*llmDataTaskPlanner)(nil)
 )
 
 func TestDataTaskWorkflowRuntimeViewPrefersRuntimeSnapshot(t *testing.T) {
@@ -101,6 +102,43 @@ func TestMarshalDataTaskWorkflowStateFromRuntimeViewCarriesActionGraph(t *testin
 	for _, want := range []string{`"action_graph"`, `"derive"`, `"join"`, `"deferred_queue"`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("workflow state json=%s, missing %q", raw, want)
+		}
+	}
+}
+
+func TestDataTaskRepairPromptWithRuntimeViewCarriesWorkflowState(t *testing.T) {
+	previous := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "derive",
+			Kind: dataquery.DataActionDeriveFields,
+		}},
+	}
+	view := dataTaskWorkflowRuntimeView{
+		Records: []dataTaskWorkflowRecord{{
+			Plan:   previous,
+			Result: &dataquery.Result{ConsumedPaths: []string{"records.csv"}},
+		}},
+		CurrentPlan: previous,
+		DeferredQueue: dataworkflow.NewDeferredQueue(dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "join",
+			Kind: dataquery.DataActionJoinRecords,
+		}}}),
+	}
+
+	prompt := dataTaskRepairPromptWithRuntimeView(
+		"repair a data task",
+		"/repo",
+		TurnPolicy{Route: RouteData},
+		[]dataquery.CandidateFile{{Path: "records.csv", Kind: "csv", Size: 10}},
+		previous,
+		"execute data task: typed action failed",
+		dataquery.DataTaskViolation{Code: "action_param_violation", ActionID: "derive", ActionKind: "derive_fields"},
+		view,
+	)
+	for _, want := range []string{`## workflow_state_json`, `"action_graph"`, `"derive"`, `"join"`, `"deferred_queue"`, "structural runtime context"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, prompt)
 		}
 	}
 }
