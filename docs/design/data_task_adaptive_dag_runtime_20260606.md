@@ -14750,6 +14750,58 @@ Remaining architecture items:
 - [ ] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 331: Workflow Diagnostics Enter The State Builder
+
+`BuildWorkflowStateView` still accepted field-contract and artifact-diagnostic
+issues through the adapter callback. The underlying discovery functions already
+lived in `internal/dataworkflow`; the adapter was only deciding when to include
+them in workflow state. That made diagnostic admission look like UI logic even
+though it is a typed IR reducer decision.
+
+This batch adds a dataworkflow diagnostics builder. REPL supplies objective
+artifact access and artifact diagnostic batches; `dataworkflow` decides which
+field-contract, zero-match-filter, unmatched-resolution, and zero-eligible
+issues should enter `workflow_state_json` for the current typed state. The
+adapter callback is now limited to action scaffolds, which still depend on
+local scaffold helpers and will be migrated separately.
+
+Generic invariants:
+
+- typed diagnostics are workflow-state facts, not REPL UI facts;
+- diagnostic inclusion depends on typed ledger state and contribution progress,
+  not prompt prose or business labels;
+- zero-match and zero-eligible diagnostics are only carried while contribution
+  or reconcile output is still structurally missing;
+- unmatched-resolution diagnostics are only carried when entity resolution is
+  required and downstream contribution/reconcile work still remains;
+- field-contract diagnostics use artifact access and allowed action contracts,
+  not business-specific field names.
+
+Changes:
+
+- [x] Added `BuildWorkflowStateDiagnostics`.
+- [x] Added `WorkflowStateDiagnosticsInput`.
+- [x] Wired `BuildWorkflowStateView` to consume diagnostic artifact access and
+      diagnostic batches directly.
+- [x] Rewired REPL state construction to pass diagnostic inputs into the
+      builder and keep the adapter callback scaffold-only.
+- [x] Removed the unused REPL field-contract state helper.
+- [x] Added regression coverage for field-contract, zero-match,
+      unmatched-resolution, and zero-eligible diagnostic projection.
+- [x] Added regression coverage that downstream zero-row diagnostics are
+      suppressed once contributions already exist.
+
+Remaining architecture items:
+
+- [x] Field-diagnostic discovery is now behind dataworkflow builder inputs.
+- [ ] Move action scaffold generation behind ArtifactGraph-aware dataworkflow
+      builders, then remove the remaining adapter callback.
+- [ ] Replace remaining REPL compatibility wrappers for state facts and
+      snapshot projection once all call sites consume the dataworkflow methods
+      directly.
+- [ ] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

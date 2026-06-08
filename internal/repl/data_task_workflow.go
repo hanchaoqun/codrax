@@ -5391,16 +5391,15 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		ArtifactAvailability:          artifactAvailability,
 		ArtifactAvailabilityCount:     artifactAvailabilityCount,
 		ArtifactAvailabilityTruncated: artifactAvailabilityTruncated,
+		DiagnosticArtifactAccess:      dataTaskWorkflowArtifactContractAccess(records),
+		DiagnosticBatches:             dataTaskArtifactDiagnosticBatches(records),
+		DiagnosticLimit:               4,
 		GuardViolations:               guardViolations,
 		NoProgressThreshold:           DefaultDataTaskMaxNodeFailures,
 		LatestEvaluation:              latestEvaluation,
 		AdapterFacts: func(state dataworkflow.WorkflowStateView) dataworkflow.WorkflowStateAdapterFacts {
 			return dataworkflow.WorkflowStateAdapterFacts{
-				ActionScaffold:                dataTaskWorkflowActionScaffold(records, state),
-				FieldContractViolations:       dataTaskWorkflowFieldContractViolations(records, state, 4),
-				ZeroMatchFilterViolations:     dataTaskWorkflowZeroMatchFilterIssues(records, state, 4),
-				UnmatchedResolutionViolations: dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4),
-				ZeroEligibleViolations:        dataTaskWorkflowZeroEligibleIssues(records, state, 4),
+				ActionScaffold: dataTaskWorkflowActionScaffold(records, state),
 			}
 		},
 		ArtifactLimit:    48,
@@ -5563,22 +5562,6 @@ func dataTaskWorkflowHasMaterialProgress(records []dataTaskWorkflowRecord) bool 
 		}
 	}
 	return false
-}
-
-func dataTaskWorkflowFieldContractViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView, limit int) []dataTaskFieldContractViolation {
-	if limit <= 0 || len(records) == 0 {
-		return nil
-	}
-	access := dataTaskWorkflowArtifactContractAccess(records)
-	if len(access) == 0 {
-		return nil
-	}
-	return dataworkflow.DiscoverFieldContractIssues(dataworkflow.FieldContractIssueInput{
-		Records:            records,
-		ArtifactAccess:     access,
-		AllowedNextActions: state.AllowedNextActions,
-		Limit:              limit,
-	})
 }
 
 func dataTaskFieldContractViolationsFromRecord(round int, rec dataTaskWorkflowRecord, access []dataTaskArtifactAccessPrompt, allowed map[string]bool) []dataTaskFieldContractViolation {

@@ -47,6 +47,9 @@ type WorkflowStateViewBuildInput struct {
 	ArtifactAvailabilityCount     int
 	ArtifactAvailabilityTruncated bool
 	Artifacts                     []ArtifactProjectionSource
+	DiagnosticArtifactAccess      []ArtifactAccessView
+	DiagnosticBatches             []ArtifactDiagnosticBatch
+	DiagnosticLimit               int
 	ProgressEvents                []ProgressEvent
 	GuardViolations               []WorkflowViolation
 	AdditionalViolations          []WorkflowViolation
@@ -115,13 +118,24 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		state.AllowedNextActionContracts = FilterCustomTransformContracts(state.AllowedNextActionContracts)
 	}
 	state.AllowedNextActions = ActionKindsFromContracts(state.AllowedNextActionContracts)
+	diagnostics := BuildWorkflowStateDiagnostics(WorkflowStateDiagnosticsInput{
+		Records:           input.Records,
+		State:             state,
+		ArtifactAccess:    input.DiagnosticArtifactAccess,
+		DiagnosticBatches: input.DiagnosticBatches,
+		Limit:             input.DiagnosticLimit,
+	})
+	state.FieldContractViolations = append([]FieldContractIssue(nil), diagnostics.FieldContractViolations...)
+	state.ZeroMatchFilterViolations = append([]ZeroMatchFilterIssue(nil), diagnostics.ZeroMatchFilterViolations...)
+	state.UnmatchedResolutionViolations = append([]UnmatchedResolutionIssue(nil), diagnostics.UnmatchedResolutionViolations...)
+	state.ZeroEligibleViolations = append([]ZeroEligibleIssue(nil), diagnostics.ZeroEligibleViolations...)
 	if input.AdapterFacts != nil {
 		adapterFacts := input.AdapterFacts(state)
 		state.ActionScaffold = append([]ActionScaffold(nil), adapterFacts.ActionScaffold...)
-		state.FieldContractViolations = append([]FieldContractIssue(nil), adapterFacts.FieldContractViolations...)
-		state.ZeroMatchFilterViolations = append([]ZeroMatchFilterIssue(nil), adapterFacts.ZeroMatchFilterViolations...)
-		state.UnmatchedResolutionViolations = append([]UnmatchedResolutionIssue(nil), adapterFacts.UnmatchedResolutionViolations...)
-		state.ZeroEligibleViolations = append([]ZeroEligibleIssue(nil), adapterFacts.ZeroEligibleViolations...)
+		state.FieldContractViolations = append(state.FieldContractViolations, adapterFacts.FieldContractViolations...)
+		state.ZeroMatchFilterViolations = append(state.ZeroMatchFilterViolations, adapterFacts.ZeroMatchFilterViolations...)
+		state.UnmatchedResolutionViolations = append(state.UnmatchedResolutionViolations, adapterFacts.UnmatchedResolutionViolations...)
+		state.ZeroEligibleViolations = append(state.ZeroEligibleViolations, adapterFacts.ZeroEligibleViolations...)
 	}
 	state.WorkflowViolations = BuildWorkflowStateViolations(WorkflowStateViolationInput{
 		Records:             input.Records,
