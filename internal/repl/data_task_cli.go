@@ -290,7 +290,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					continue
 				}
 			}
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
@@ -320,7 +320,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
@@ -439,7 +439,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			var repaired dataquery.TaskPlan
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if err != nil {
 				return "", err
@@ -520,7 +520,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			var repaired dataquery.TaskPlan
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if !recordedErr {
 				appendRecord(executionRecord)
@@ -556,7 +556,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				var repaired dataquery.TaskPlan
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if err != nil {
@@ -670,7 +670,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				var repaired dataquery.TaskPlan
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax)
+				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				if len(records) > 0 {
 					attachLastError(errText)
@@ -863,7 +863,7 @@ func dataTaskResumePlanHasShape(plan dataquery.TaskPlan) bool {
 	return dataTaskPlanStatusLooksTerminal(status) || status == "needs_clarification" || status == "blocked"
 }
 
-func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView, repairRounds, repairRoundsMax int) (dataquery.TaskPlan, int, bool, error) {
+func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView, repairRounds, repairRoundsMax int, beginRepairIteration func() int) (dataquery.TaskPlan, int, bool, error) {
 	repairer, ok := planner.(DataTaskRepairPlanner)
 	if !ok || repairRounds >= repairRoundsMax {
 		return dataquery.TaskPlan{}, repairRounds, false, nil
@@ -871,7 +871,12 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
 		view.CurrentPlan = currentPlan
 	}
-	repairRounds++
+	if beginRepairIteration != nil {
+		repairRounds = beginRepairIteration()
+	} else {
+		repairRounds++
+	}
+	view.RepairRounds = repairRounds
 	repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
 	if err != nil {
 		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {

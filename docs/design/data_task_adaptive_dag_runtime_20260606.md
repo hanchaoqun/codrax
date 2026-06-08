@@ -17443,11 +17443,55 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move helper-level repair round allocation (`repairDataTaskPlanForCLI` and
+- [x] Move helper-level repair round allocation (`repairDataTaskPlanForCLI` and
       equivalent compatibility paths) behind runtime iteration decisions or a
-      reducer-owned repair-attempt API.
+      reducer-owned repair-attempt API. Completed in Batch 410 for the CLI
+      helper path; remaining REPL repair paths already use
+      `BeginRepairIteration`.
 - [ ] Introduce a fuller live iteration API that returns the next executable
       decision, not only the allocated round snapshot.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 410: Runtime-Owned CLI Repair Attempt Allocation
+
+Batch 409 moved direct CLI/REPL round allocation into runtime iteration
+decisions, but the CLI compatibility helper `repairDataTaskPlanForCLI` still
+incremented its repair counter internally. That left one helper-level mirror:
+callers synchronized the runtime before and after, while the helper allocated
+the repair attempt itself.
+
+This batch threads the runtime repair-iteration allocator into the CLI helper.
+The helper still owns only the planner call and compatibility behavior; the
+repair attempt number comes from `WorkflowRuntime.BeginRepairIteration`, and
+the runtime-view prompt context is updated with that allocated round.
+
+Generic invariants:
+
+- repair attempt allocation is runtime-owned even when the caller uses a
+  compatibility helper;
+- helper-level fallback remains possible for no-runtime tests through a local
+  increment path, but production CLI passes the runtime allocator;
+- prompt/audit context sees the runtime-allocated repair round;
+- no repair prompt wording is promoted into a hard gate;
+- action execution, planner admission, validation, source analysis, trace/log
+  analysis, operation, and write mode are unchanged.
+
+Changes:
+
+- [x] Extended `repairDataTaskPlanForCLI` with an optional repair-iteration
+      allocator.
+- [x] Rewired all production CLI repair-helper call sites to pass
+      `BeginRepairIteration`.
+- [x] Synchronized `view.RepairRounds` after runtime allocation so repair
+      prompts see the current round.
+
+Remaining architecture items:
+
+- [ ] Introduce a fuller live iteration API that returns the next executable
+      decision, not only the allocated round snapshot.
+- [ ] Keep legacy helper local increments only for no-runtime compatibility
+      until those tests/callers can pass a runtime allocator.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

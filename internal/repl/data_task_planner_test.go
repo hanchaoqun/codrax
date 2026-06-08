@@ -6257,6 +6257,7 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 		dataTaskWorkflowRuntimeView{Records: records, CurrentPlan: dataquery.TaskPlan{Status: "ready"}},
 		0,
 		6,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("repairDataTaskPlanForCLI: %v", err)
