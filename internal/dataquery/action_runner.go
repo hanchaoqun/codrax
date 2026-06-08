@@ -2571,7 +2571,7 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 		return DataArtifact{}, nil, nil, err
 	}
 	if len(specs) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("derive_fields requires at least one field spec")
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionDeriveFields, "field_specs_json", "at least one field spec", "", nil)
 	}
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
@@ -2685,7 +2685,7 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 		return DataArtifact{}, nil, nil, err
 	}
 	if len(specs) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("extract_fields requires at least one field spec")
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionExtractFields, "field_specs_json", "at least one field spec", "", nil)
 	}
 	defaultSource := firstNonEmptyString(action.Params["source_field"], action.Params["text_field"], action.Params["input_field"], action.Params["field"])
 	for i := range specs {
@@ -3760,13 +3760,13 @@ func parseDeriveFieldSpecs(action DataAction) ([]deriveFieldSpec, error) {
 	if raw != "" {
 		values, err := parseActionMapListJSON(raw)
 		if err != nil {
-			return nil, fmt.Errorf("parse derive_fields field_specs_json: %w", err)
+			return nil, dataActionParamError(action.Kind, "field_specs_json", "array of field spec objects", raw, err)
 		}
 		specs := make([]deriveFieldSpec, 0, len(values))
 		for i, value := range values {
 			spec, err := deriveFieldSpecFromMap(value)
 			if err != nil {
-				return nil, fmt.Errorf("derive_fields field_specs_json[%d]: %w", i, err)
+				return nil, dataActionParamError(action.Kind, "field_specs_json", "field spec object", fmt.Sprintf("field_specs_json[%d]", i), err)
 			}
 			spec = normalizeDeriveFieldSpec(spec)
 			specs = append(specs, spec)
@@ -3793,7 +3793,7 @@ func parseDeriveFieldSpecs(action DataAction) ([]deriveFieldSpec, error) {
 	if rawMap := strings.TrimSpace(firstNonEmptyString(action.Params["mapping_json"], action.Params["map_json"])); rawMap != "" {
 		mapping, err := parseDeriveFieldMapping(rawMap)
 		if err != nil {
-			return nil, err
+			return nil, dataActionParamError(action.Kind, "mapping_json", "object of source-to-target scalar strings", rawMap, err)
 		}
 		spec.Mapping = mapping
 	}
@@ -6370,10 +6370,10 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 		rightFields = append([]string(nil), leftFields...)
 	}
 	if len(leftFields) == 0 || len(rightFields) == 0 {
-		return DataArtifact{}, nil, nil, errors.New("join_records requires left_fields/right_fields or join_fields params")
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionJoinRecords, "join_fields", "non-empty left/right field selectors or shared join_fields", "", nil)
 	}
 	if len(leftFields) != len(rightFields) {
-		return DataArtifact{}, nil, nil, fmt.Errorf("join_records field count mismatch: left_fields=%d right_fields=%d", len(leftFields), len(rightFields))
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionJoinRecords, "left_fields/right_fields", "arrays with the same number of fields", fmt.Sprintf("left_fields=%d right_fields=%d", len(leftFields), len(rightFields)), nil)
 	}
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
@@ -6385,7 +6385,7 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 		leftPath, rightPath = inferredLeft, inferredRight
 	}
 	if leftPath == "" || rightPath == "" {
-		return DataArtifact{}, nil, nil, errors.New("join_records requires left_path/right_path or at least two input_paths")
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionJoinRecords, "input_paths", "left_path/right_path or at least two input_paths", strings.Join(paths, ","), nil)
 	}
 	leftRecords, leftHeaders, leftTotal, leftRel, err := r.readActionRecords(leftPath, maxRecords)
 	if err != nil {

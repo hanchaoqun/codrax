@@ -292,6 +292,83 @@ func TestActionRunnerFilterOutputLimitIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerDeriveFieldSpecParamShapeIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,text\n1,hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "derive_bad",
+			Kind:       DataActionDeriveFields,
+			InputPaths: []string{"items.csv"},
+			Params: map[string]string{
+				"field_specs_json": `{"source_field":"text"`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed derive field spec param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionDeriveFields || paramErr.Param != "field_specs_json" {
+		t.Fatalf("paramErr=%+v, want derive field_specs_json param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "derive_bad" ||
+		violation.ActionKind != string(DataActionDeriveFields) ||
+		violation.Param != "field_specs_json" {
+		t.Fatalf("violation=%+v, want typed derive param violation", violation)
+	}
+}
+
+func TestActionRunnerJoinFieldCountParamIsTyped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "left.csv"), []byte("id,kind\n1,A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "right.csv"), []byte("id,label\n1,Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:         "join_bad",
+			Kind:       DataActionJoinRecords,
+			InputPaths: []string{"left.csv", "right.csv"},
+			Params: map[string]string{
+				"left_fields":  `["id","kind"]`,
+				"right_fields": `["id"]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed join param failure")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.ActionKind != DataActionJoinRecords || paramErr.Param != "left_fields/right_fields" {
+		t.Fatalf("paramErr=%+v, want join left/right fields param", paramErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.ActionID != "join_bad" ||
+		violation.ActionKind != string(DataActionJoinRecords) ||
+		violation.Param != "left_fields/right_fields" ||
+		!strings.Contains(violation.ActualSnippet, "left_fields=2") {
+		t.Fatalf("violation=%+v, want typed join param violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

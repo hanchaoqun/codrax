@@ -16081,3 +16081,50 @@ Remaining architecture items:
       assembly errors.
 - [ ] Move evaluator repair decisions to consume typed param/limit blockers
       directly from reducer state instead of broad retry reasons.
+
+### Batch 355: Typed Field-Spec And Join-Selector Parameter Contracts
+
+Batch 354 added generic action-parameter violations and wired the first common
+paths. This batch continues the same IR direction by moving two more
+domain-neutral planner contracts out of prose-only failures:
+
+- field-spec JSON for `derive_fields` / `extract_fields`;
+- join key/path selector shape for `join_records`.
+
+These are not business rules. They are executable action contracts: if the
+planner emits malformed field specs, an empty spec list, mismatched left/right
+join key arrays, or missing join inputs, the evaluator should see a typed
+parameter blocker rather than a raw error sentence.
+
+Generic invariants:
+
+- field-spec parser failures are `action_param_violation` with
+  `param=field_specs_json` or `param=mapping_json`;
+- empty derive/extract spec batches are parameter violations instead of generic
+  runtime failures;
+- join field selector mismatches are parameter violations with the exact
+  selector parameter and observed shape;
+- join path selector absence is parameter violation on `input_paths`;
+- existing field-contract errors for join fields that are present in params but
+  absent from the actual artifact schema remain field-contract violations.
+
+Changes:
+
+- [x] Converted malformed `field_specs_json` / structured field-spec objects to
+      typed parameter violations.
+- [x] Converted top-level derive/extract `mapping_json` parser failures to typed
+      parameter violations.
+- [x] Converted empty derive/extract field-spec batches to typed parameter
+      violations.
+- [x] Converted `join_records` missing join selectors, left/right count
+      mismatches, and missing path selectors to typed parameter violations.
+- [x] Added regression coverage for derive field-spec shape and join selector
+      count violations.
+
+Remaining architecture items:
+
+- [ ] Continue converting apply-resolution and enrich mapping spec contracts.
+- [ ] Add typed result-shape repairability for materialization and final-output
+      assembly errors.
+- [ ] Move evaluator repair decisions to consume typed param blockers directly
+      from reducer state.
