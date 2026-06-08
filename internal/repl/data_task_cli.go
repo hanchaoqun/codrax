@@ -257,8 +257,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			errText := guard.ErrorText()
 			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
-				if transition.HasPlan() {
+				transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
+				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
@@ -518,6 +518,18 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if shouldValidateDataTaskWorkflowResult(currentPlan) {
 			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
+				guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result)
+				if !guard.Empty() {
+					transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
+					if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
+						appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
+						completionPlan := protectPlan(transition.Plan)
+						auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
+						dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
+						currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
+						continue
+					}
+				}
 				var repaired dataquery.TaskPlan
 				var ok bool
 				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
@@ -624,8 +636,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
 				errText := guard.ErrorText()
 				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
-				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
-				if transition.HasPlan() {
+				transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
+				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)

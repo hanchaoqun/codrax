@@ -16809,6 +16809,61 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until the remaining P0 IR backlog is
       implemented or explicitly classified as non-blocking.
 
+### Batch 392: Reducer-Owned Validation Failure Transition
+
+After Batch 391, execution failures had one reducer-owned transition, but
+result-validation and completion-gate failures still had adapter-local
+branching. In particular, a successful typed batch could fail validation
+because a required downstream ledger or final projection was missing, and the
+adapters would often go straight to planner repair even when the workflow IR
+already had enough typed state to emit the next deterministic ledger/projection
+action.
+
+This batch creates the validation-side counterpart to execution failure
+transitions. The reducer consumes a `GuardResult`, `LedgerGraph`,
+`OutputProjectionGraph`, reference projection gap, current plan, coverage,
+output contract, and latest result. It returns:
+
+- `fallback_plan`: run a deterministic typed ledger/projection plan;
+- `needs_repair`: call the repair planner with the same typed guard context.
+
+Generic invariants:
+
+- validation-failure policy reads typed guards and graph state only;
+- deterministic completion repair can add ledger/projection actions, but does
+  not change computed business values;
+- result validation and completion gate use the same transition shape;
+- adapters decide only how to render, audit, and call the planner when the
+  reducer says repair is needed;
+- source-code, trace/log, operation, and write-mode pipelines remain
+  untouched.
+
+Changes:
+
+- [x] Added `ValidationFailureTransition` and
+      `BuildValidationFailureTransition` to `internal/dataworkflow`.
+- [x] Reused the existing deterministic completion repair builder under this
+      new transition instead of duplicating ledger/output repair logic.
+- [x] Rewired CLI completion gates to consume validation transitions.
+- [x] Rewired REPL completion gates to consume validation transitions.
+- [x] Rewired CLI/REPL result-validation failures to try deterministic typed
+      ledger/projection repair before invoking planner repair.
+- [x] Added regression coverage for deterministic validation fallback and
+      repair escalation.
+
+Remaining architecture items:
+
+- [ ] Move repair-planner failure handling into reducer-owned transitions so
+      no-tool/parse failures, deterministic continuation fallback, and final
+      repair failure share one typed policy.
+- [ ] Replace remaining field-name scoring helpers with a stronger relation IR
+      over artifact lineage, key coverage, candidate mappings, and evaluator
+      violations.
+- [ ] Continue narrowing live loop mirrors by moving continuation/repair input
+      assembly to consume runtime snapshots directly.
+- [ ] Keep the real-scenario gate closed until the remaining P0 IR backlog is
+      implemented or explicitly classified as non-blocking.
+
 ### Batch 372: Typed Transform Contract Violations
 
 The next IR hardening pass closes one common prose-error escape hatch. The

@@ -4950,12 +4950,20 @@ func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dat
 }
 
 func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.CompletionRepairTransition {
+	return dataworkflow.BuildCompletionRepairTransition(dataTaskCompletionRepairTransitionInputWithRepo(repoRoot, records, current, result, guard))
+}
+
+func dataTaskValidationFailureTransitionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.ValidationFailureTransition {
+	return dataworkflow.BuildValidationFailureTransition(dataTaskCompletionRepairTransitionInputWithRepo(repoRoot, records, current, result, guard))
+}
+
+func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.CompletionRepairTransitionInput {
 	var gap dataworkflow.ReferenceProjectionGap
 	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
 		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
 	}
-	return dataworkflow.BuildCompletionRepairTransition(dataworkflow.CompletionRepairTransitionInput{
+	return dataworkflow.CompletionRepairTransitionInput{
 		Current:                current,
 		Coverage:               dataTaskWorkflowCoverageContract(records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
@@ -4967,7 +4975,7 @@ func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataT
 		Guard:                  guard,
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
-	})
+	}
 }
 
 func dataTaskTerminalWorkflowFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) (dataquery.TaskPlan, string, bool) {

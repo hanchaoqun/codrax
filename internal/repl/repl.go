@@ -1446,8 +1446,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			errText := guard.ErrorText()
 			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
-				if transition.HasPlan() {
+				transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
+				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
@@ -1876,6 +1876,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				r.auditDataTaskError(dataRounds, errText)
+				guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result)
+				if !guard.Empty() {
+					transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
+					if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
+						appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
+						completionPlan := protectPlan(transition.Plan)
+						r.emitDataTaskPlanAudit(completionPlan)
+						r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
+						currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
+						continue
+					}
+				}
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 					repairRounds = workflowRuntime.IncrementRepairRound()
@@ -2033,8 +2045,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				if len(records) > 0 {
 					attachLastError(errText)
 				}
-				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
-				if transition.HasPlan() {
+				transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
+				if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)

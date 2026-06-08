@@ -547,3 +547,44 @@ func TestBuildCompletionRepairTransitionFallsBackToPlanner(t *testing.T) {
 		t.Fatalf("transition=%+v, want planner repair fallback", transition)
 	}
 }
+
+func TestBuildValidationFailureTransitionUsesDeterministicPlan(t *testing.T) {
+	transition := BuildValidationFailureTransition(CompletionRepairTransitionInput{
+		Current:  dataquery.TaskPlan{Goal: "finish validation"},
+		Coverage: dataquery.CoverageContract{ReconcileRequired: true},
+		Result: dataquery.Result{Contributions: []dataquery.ContributionRecord{{
+			ItemID:    dataquery.LooseText("row-1"),
+			GroupKey:  dataquery.LooseText("A"),
+			Metric:    dataquery.LooseText("value"),
+			Value:     dataquery.LooseText("10"),
+			Operation: dataquery.LooseText("add"),
+		}}},
+		LedgerGraph: BuildLedgerGraph(StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			ContributionRecords:        1,
+			ReconcileRequired:          true,
+		}),
+		UseLedgerGraph: true,
+		Guard:          NewGuardResult("missing_workflow_ledger", "error", RepairNeedsTypedAction, "validate data workflow completion: missing reconcile"),
+	})
+	if transition.Action != ValidationFailureFallbackPlan || !transition.Deterministic || !transition.HasPlan() {
+		t.Fatalf("transition=%+v, want deterministic validation fallback", transition)
+	}
+	if transition.Plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("actions=%+v, want reconcile action", transition.Plan.Actions)
+	}
+}
+
+func TestBuildValidationFailureTransitionRequestsRepairWhenNoPlan(t *testing.T) {
+	transition := BuildValidationFailureTransition(CompletionRepairTransitionInput{
+		Current: dataquery.TaskPlan{Goal: "finish validation"},
+		Guard:   NewGuardResult("semantic_check_failed", "error", RepairNeedsTypedAction, "validate data workflow completion: semantic check failed"),
+	})
+	if transition.Action != ValidationFailureNeedsRepair || transition.HasPlan() {
+		t.Fatalf("transition=%+v, want repair request without plan", transition)
+	}
+	if transition.ErrorText == "" || transition.Guard.Code != "semantic_check_failed" {
+		t.Fatalf("transition=%+v, want guard/error context", transition)
+	}
+}

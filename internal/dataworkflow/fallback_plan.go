@@ -74,8 +74,49 @@ type CompletionRepairTransition struct {
 	NeedsPlannerRepair bool               `json:"needs_planner_repair,omitempty"`
 }
 
+type ValidationFailureTransitionAction string
+
+const (
+	ValidationFailureFallbackPlan ValidationFailureTransitionAction = "fallback_plan"
+	ValidationFailureNeedsRepair  ValidationFailureTransitionAction = "needs_repair"
+)
+
+type ValidationFailureTransition struct {
+	Action        ValidationFailureTransitionAction `json:"action,omitempty"`
+	Plan          dataquery.TaskPlan                `json:"plan,omitempty"`
+	Reason        string                            `json:"reason,omitempty"`
+	ErrorText     string                            `json:"error_text,omitempty"`
+	Deterministic bool                              `json:"deterministic,omitempty"`
+	Guard         GuardResult                       `json:"guard,omitempty"`
+}
+
 func (t CompletionRepairTransition) HasPlan() bool {
 	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func (t ValidationFailureTransition) HasPlan() bool {
+	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func BuildValidationFailureTransition(input CompletionRepairTransitionInput) ValidationFailureTransition {
+	repair := BuildCompletionRepairTransition(input)
+	if repair.HasPlan() {
+		return ValidationFailureTransition{
+			Action:        ValidationFailureFallbackPlan,
+			Plan:          repair.Plan,
+			Reason:        repair.Reason,
+			ErrorText:     repair.ErrorText,
+			Deterministic: repair.Deterministic,
+			Guard:         input.Guard,
+		}
+	}
+	errText := firstNonEmpty(repair.ErrorText, input.Guard.ErrorText())
+	return ValidationFailureTransition{
+		Action:    ValidationFailureNeedsRepair,
+		Reason:    firstNonEmpty(repair.Reason, errText),
+		ErrorText: errText,
+		Guard:     input.Guard,
+	}
 }
 
 func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) CompletionRepairTransition {
