@@ -363,6 +363,68 @@ func TestWorkflowRuntimeSnapshotClonesLiveState(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowRuntimeViewPrefersRuntimeSnapshot(t *testing.T) {
+	fallbackRecord := WorkflowRecord{Err: "fallback"}
+	fallbackCurrent := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "fallback_current", Kind: dataquery.DataActionInspectMaterial}}}
+	fallbackDeferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "fallback_deferred", Kind: dataquery.DataActionInspectMaterial}}}
+
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "runtime_current", Kind: dataquery.DataActionExtractRecords}}}
+	rt.SwitchCurrentPlan(3, "continue", current, "runtime current")
+	rt.EnqueueDeferred(3, dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "runtime_deferred", Kind: dataquery.DataActionJoinRecords}}}, "next rank")
+	rt.AppendRecord(WorkflowRecord{Plan: current, Err: "runtime"})
+	rt.SetRounds(4, 2)
+
+	view := BuildWorkflowRuntimeView(WorkflowRuntimeViewInput{
+		Runtime:              rt,
+		FallbackRecords:      []WorkflowRecord{fallbackRecord},
+		FallbackCurrent:      fallbackCurrent,
+		FallbackDeferred:     fallbackDeferred,
+		FallbackDataRounds:   1,
+		FallbackRepairRounds: 1,
+	})
+	if len(view.Records) != 1 || view.Records[0].Err != "runtime" {
+		t.Fatalf("Records=%+v, want runtime records", view.Records)
+	}
+	if len(view.CurrentPlan.Actions) != 1 || view.CurrentPlan.Actions[0].ID != "runtime_current" {
+		t.Fatalf("CurrentPlan=%+v, want runtime current", view.CurrentPlan)
+	}
+	if len(view.DeferredPlan.Actions) != 1 || view.DeferredPlan.Actions[0].ID != "runtime_deferred" || len(view.DeferredQueue.Plan.Actions) != 1 {
+		t.Fatalf("Deferred=%+v queue=%+v, want runtime deferred queue", view.DeferredPlan, view.DeferredQueue)
+	}
+	if view.DataRounds != 4 || view.RepairRounds != 2 {
+		t.Fatalf("rounds=%d/%d, want runtime rounds 4/2", view.DataRounds, view.RepairRounds)
+	}
+	view.Records[0].Err = "mutated"
+	view.CurrentPlan.Actions[0].ID = "mutated"
+	if next := BuildWorkflowRuntimeView(WorkflowRuntimeViewInput{Runtime: rt}); next.Records[0].Err != "runtime" || next.CurrentPlan.Actions[0].ID != "runtime_current" {
+		t.Fatalf("runtime view leaked mutation: %+v", next)
+	}
+}
+
+func TestBuildWorkflowRuntimeViewKeepsFallbackCurrentWhenRuntimeCurrentEmpty(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	fallbackCurrent := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "fallback_current", Kind: dataquery.DataActionComputeContribs}}}
+	fallbackRecords := []WorkflowRecord{{Err: "fallback"}}
+
+	view := BuildWorkflowRuntimeView(WorkflowRuntimeViewInput{
+		Runtime:              rt,
+		FallbackRecords:      fallbackRecords,
+		FallbackCurrent:      fallbackCurrent,
+		FallbackDataRounds:   1,
+		FallbackRepairRounds: 1,
+	})
+	if len(view.CurrentPlan.Actions) != 1 || view.CurrentPlan.Actions[0].ID != "fallback_current" {
+		t.Fatalf("CurrentPlan=%+v, want fallback current", view.CurrentPlan)
+	}
+	if len(view.Records) != 1 || view.Records[0].Err != "fallback" {
+		t.Fatalf("Records=%+v, want fallback records", view.Records)
+	}
+	if view.DataRounds != 1 || view.RepairRounds != 1 {
+		t.Fatalf("rounds=%d/%d, want fallback rounds 1/1", view.DataRounds, view.RepairRounds)
+	}
+}
+
 func TestWorkflowRuntimeAppendsTypedGuardEvent(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{

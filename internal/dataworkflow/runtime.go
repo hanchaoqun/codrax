@@ -62,6 +62,70 @@ type WorkflowRuntimeSnapshot struct {
 	RepairRounds    int                        `json:"repair_rounds,omitempty"`
 }
 
+type WorkflowRuntimeView struct {
+	Records       []WorkflowRecord
+	CurrentPlan   dataquery.TaskPlan
+	DeferredQueue DeferredQueueState
+	DeferredPlan  dataquery.TaskPlan
+	DataRounds    int
+	RepairRounds  int
+}
+
+type WorkflowRuntimeViewInput struct {
+	Runtime              *WorkflowRuntime
+	FallbackRecords      []WorkflowRecord
+	FallbackCurrent      dataquery.TaskPlan
+	FallbackDeferred     dataquery.TaskPlan
+	FallbackDataRounds   int
+	FallbackRepairRounds int
+}
+
+// BuildWorkflowRuntimeView is the reducer-owned runtime boundary used by CLI
+// and REPL adapters when they need prompt, evaluator, repair, or checkpoint
+// state. Fallback values support legacy/no-runtime tests, while a live runtime
+// snapshot is authoritative whenever it carries concrete state.
+func BuildWorkflowRuntimeView(input WorkflowRuntimeViewInput) WorkflowRuntimeView {
+	out := WorkflowRuntimeView{
+		Records:      cloneWorkflowRecords(input.FallbackRecords),
+		CurrentPlan:  cloneTaskPlanValue(input.FallbackCurrent),
+		DeferredPlan: cloneTaskPlanValue(input.FallbackDeferred),
+		DataRounds:   maxRuntimeInt(input.FallbackDataRounds, 0),
+		RepairRounds: maxRuntimeInt(input.FallbackRepairRounds, 0),
+	}
+	if len(input.FallbackDeferred.Actions) > 0 {
+		out.DeferredQueue = NewDeferredQueue(input.FallbackDeferred)
+	}
+	if input.Runtime == nil {
+		return out
+	}
+	snapshot := input.Runtime.Snapshot()
+	if len(snapshot.Records) > 0 {
+		out.Records = cloneWorkflowRecords(snapshot.Records)
+	}
+	if TaskPlanHasRuntimeShape(snapshot.CurrentPlan) {
+		out.CurrentPlan = cloneTaskPlanValue(snapshot.CurrentPlan)
+	}
+	if len(snapshot.DeferredQueue.Plan.Actions) > 0 || len(snapshot.DeferredPlan.Actions) > 0 {
+		out.DeferredQueue = cloneDeferredQueue(snapshot.DeferredQueue)
+		out.DeferredPlan = cloneTaskPlanValue(snapshot.DeferredPlan)
+	}
+	if snapshot.DataRounds > 0 || snapshot.RepairRounds > 0 {
+		out.DataRounds = snapshot.DataRounds
+		out.RepairRounds = snapshot.RepairRounds
+	}
+	return out
+}
+
+func TaskPlanHasRuntimeShape(plan dataquery.TaskPlan) bool {
+	return strings.TrimSpace(plan.Status) != "" ||
+		strings.TrimSpace(plan.Goal) != "" ||
+		strings.TrimSpace(plan.Script) != "" ||
+		len(plan.Actions) > 0 ||
+		len(plan.InputPaths) > 0 ||
+		len(plan.CoverageContract.RequiredMaterials) > 0 ||
+		len(plan.CoverageContract.OptionalMaterials) > 0
+}
+
 func NewWorkflowRuntime(current dataquery.TaskPlan) *WorkflowRuntime {
 	rt := &WorkflowRuntime{}
 	rt.SetCurrentPlan(current)
@@ -696,6 +760,13 @@ trimRight:
 		}
 	}
 	return text
+}
+
+func maxRuntimeInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func cloneTaskPlanValue(plan dataquery.TaskPlan) dataquery.TaskPlan {

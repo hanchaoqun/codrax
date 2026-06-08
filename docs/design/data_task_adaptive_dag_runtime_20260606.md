@@ -16748,7 +16748,9 @@ Current deduplicated IR backlog before real-scenario testing:
       planner prompts already consume runtime views; Batch 404 moved evaluator
       no-tool fallback and repair-failure continuation decisions to runtime
       views / workflow IR. Remaining work is compatibility wrappers and local
-      loop cursors, not a separate hard-decision path.
+      loop cursors, not a separate hard-decision path. Batch 405 moved the
+      runtime-view type and snapshot/fallback merge semantics into
+      `dataworkflow`, leaving REPL/CLI as adapters.
 - [ ] Retire legacy error/output recomputation fallbacks only after all direct
       callers pass typed LedgerGraph, OutputProjectionGraph, WorkflowDecision,
       and WorkflowViolation inputs.
@@ -17205,7 +17207,55 @@ Remaining architecture items:
       to prefer runtime-view interfaces.
 - [ ] Continue shrinking live-loop cursor mirrors after the runtime reducer can
       expose a stable iteration API for batch number, current plan, and
-      candidate artifact view.
+      candidate artifact view. Runtime-view construction itself is now
+      reducer-owned in Batch 405; remaining cursor mirrors are the live loop's
+      execution variables and should be retired only through a focused
+      iteration API.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 405: Workflow-Owned Runtime View Boundary
+
+Batch 404 moved evaluator fallbacks into `dataworkflow`, but the runtime-view
+type used by prompt/evaluator/repair/checkpoint paths still lived in the REPL
+package. That meant the state merge rule was package-local: runtime snapshot
+state should win over fallback mirrors when present, but fallback current plan
+and round counters should survive for legacy/no-runtime tests.
+
+This batch moves the view type and merge semantics into the workflow IR layer.
+REPL keeps a type alias and a thin wrapper for compatibility; it no longer owns
+the structure or the snapshot-vs-fallback precedence.
+
+Generic invariants:
+
+- runtime-view state is dataworkflow/dataquery IR, not REPL or CLI renderer
+  state;
+- a live runtime snapshot is authoritative whenever it has concrete records,
+  current plan, deferred queue, or round counters;
+- fallback values exist only for no-runtime tests and legacy adapters;
+- view construction deep-copies plans, records, deferred queue state, and
+  rounds so prompt builders cannot mutate live reducer state;
+- this is a state-boundary refactor only: no planning, action execution,
+  ledger semantics, source analysis, trace/log analysis, operation, or write
+  mode behavior changes.
+
+Changes:
+
+- [x] Added `dataworkflow.WorkflowRuntimeView`.
+- [x] Added `dataworkflow.WorkflowRuntimeViewInput`.
+- [x] Added `dataworkflow.BuildWorkflowRuntimeView`.
+- [x] Added `dataworkflow.TaskPlanHasRuntimeShape`.
+- [x] Rewired REPL runtime-view construction to delegate to `dataworkflow`.
+- [x] Replaced the REPL-local runtime-view struct with a type alias.
+- [x] Added reducer-level regression coverage for runtime snapshot precedence,
+      fallback preservation, and clone isolation.
+
+Remaining architecture items:
+
+- [ ] Introduce a reducer-owned live iteration API before removing the
+      remaining CLI/REPL `records/currentPlan/dataRounds` execution cursors.
+- [ ] Keep legacy planner/evaluator wrapper interfaces as compatibility shells
+      until alternate adapters can be updated in one focused batch.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
