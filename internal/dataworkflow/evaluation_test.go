@@ -219,6 +219,21 @@ func TestDecideEvaluationCompleteUsesCompletionFallback(t *testing.T) {
 	}
 }
 
+func TestDecideEvaluationCompletionSatisfiedOverridesNoisyRepair(t *testing.T) {
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{
+			Status: dataquery.EvalRepairNode,
+			Reason: "model still sees an older failed node",
+		},
+		CompletionSatisfied:   true,
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "complete" || decision.Source != "completion_gate" {
+		t.Fatalf("decision=%#v, want deterministic completion to return answer", decision)
+	}
+}
+
 func TestDecideEvaluationCompleteRepairsWhenNoFallback(t *testing.T) {
 	guard := NewGuardResult("missing_answer", "error", RepairNeedsTypedAction, "final answer missing", WorkflowViolation{Code: "missing_answer"})
 	decision := DecideEvaluation(EvaluationDecisionInput{
@@ -245,6 +260,31 @@ func TestDecideEvaluationContinueNeedsPlanner(t *testing.T) {
 	})
 	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "partial_answer_possible" {
 		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestDecideEvaluationTerminalStatusUsesWorkflowFallback(t *testing.T) {
+	fallback := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:   "cover",
+			Kind: dataquery.DataActionExtractRecords,
+		}},
+	}
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{Status: dataquery.EvalNeedsClarification, Reason: "missing local material"},
+		WorkflowFallback: EvaluationFallbackCandidate{
+			Source:    "coverage",
+			Plan:      fallback,
+			Reason:    "cover missing local material",
+			Available: true,
+		},
+	})
+	if decision.Action != EvaluationDecisionFallbackPlan || decision.Status != "continue" || decision.Source != "coverage" || !decision.HasPlan() {
+		t.Fatalf("decision=%#v, want workflow fallback", decision)
+	}
+	if decision.Reason != "cover missing local material" {
+		t.Fatalf("Reason=%q", decision.Reason)
 	}
 }
 

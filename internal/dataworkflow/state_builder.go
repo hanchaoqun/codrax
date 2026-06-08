@@ -16,6 +16,7 @@ type WorkflowStateLedgerCounts struct {
 	ContributionRecords     int
 	HasReconcile            bool
 	HasAnswer               bool
+	HasProjectionArtifact   bool
 }
 
 type WorkflowStateDiagnostics struct {
@@ -142,11 +143,12 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 	state.WorkflowViolations = append(state.WorkflowViolations, append([]WorkflowViolation(nil), input.AdditionalViolations...)...)
 	state.WorkflowViolationSummary = BuildWorkflowViolationSummary(state.WorkflowViolations)
 	outputGraphInput := OutputProjectionGraphInput{
-		Output:                 input.OutputContract,
-		Coverage:               workflowContract,
-		AnswerPresent:          state.HasAnswer,
-		ReconcilePresent:       state.HasReconcile,
-		PlanHasCustomTransform: PlanHasActionKind(input.Current, dataquery.DataActionCustomTransform),
+		Output:                    input.OutputContract,
+		Coverage:                  workflowContract,
+		AnswerPresent:             state.HasAnswer,
+		ProjectionArtifactPresent: input.LedgerCounts.HasProjectionArtifact,
+		ReconcilePresent:          state.HasReconcile,
+		PlanHasCustomTransform:    PlanHasActionKind(input.Current, dataquery.DataActionCustomTransform),
 	}
 	decisionInput := WorkflowDecisionInput{
 		NextStage:          state.NextStage,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -2964,6 +2965,96 @@ func TestActionRunnerJoinRecordsInfersSidesFromFieldContracts(t *testing.T) {
 	}
 }
 
+func TestActionRunnerJoinRecordsInfersRowAlignedFieldsBeforeFanout(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "observations.csv"), []byte("_source_index,record_id,raw_label,value,active\n1,r1,A-one,10,true\n2,r2,A-two,7,true\n3,r3,A-one,3,false\n4,r4,Beta,4,true\n5,r5,Gamma alt,5,true\n6,r6,unmapped,11,true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "normalized.csv"), []byte("record_index,source_value,canonical_label,status\n1,A-one,GroupA,resolved\n2,A-two,GroupA,resolved\n3,A-one,GroupA,resolved\n4,Beta,GroupB,resolved\n5,Gamma alt,GroupC,resolved\n6,unmapped,,unresolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "join_obs",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"observations.csv", "normalized.csv"},
+			OutputArtifact: "obs_with_canonical",
+			Params: map[string]string{
+				"left_fields":  `["raw_label"]`,
+				"right_fields": `["source_value"]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run join_records with row-aligned inference: %v", err)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.RowCount != 6 {
+		t.Fatalf("artifact=%+v, want six one-to-one joined rows", artifact)
+	}
+	if artifact.Fields["left_fields"] != "_source_index" ||
+		artifact.Fields["right_fields"] != "record_index" ||
+		artifact.Fields["left_fields_inferred_from"] != "raw_label" ||
+		artifact.Fields["right_fields_inferred_from"] != "source_value" ||
+		artifact.Fields["join_field_inference"] != "value_overlap_row_aligned_fanout" ||
+		artifact.Fields["join_field_inference_fanout"] != "0" {
+		t.Fatalf("join fields=%+v, want row-aligned fanout repair", artifact.Fields)
+	}
+	var rows []map[string]any
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["record_id"] != "r1" ||
+		rows[1]["record_id"] != "r2" ||
+		rows[2]["record_id"] != "r3" ||
+		rows[2]["canonical_label"] != "GroupA" {
+		t.Fatalf("rows=%+v, want row-aligned records without duplicate fanout", rows)
+	}
+}
+
+func TestActionRunnerJoinRecordsDoesNotUseRawSourceIndexForFanoutRepair(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("_source_index,order_id,category\n1,O1,A\n2,O2,A\n3,O3,B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rules.csv"), []byte("_source_index,category,rule\n1,A,R1\n2,A,R2\n3,B,R3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "join_orders_rules",
+			Kind:           DataActionJoinRecords,
+			InputPaths:     []string{"orders.csv", "rules.csv"},
+			OutputArtifact: "orders_with_rules",
+			Params: map[string]string{
+				"left_fields":  `["category"]`,
+				"right_fields": `["category"]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run join_records raw source index guard: %v", err)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Fields["join_field_inference"] != "" {
+		t.Fatalf("join fields=%+v, want no raw _source_index row-alignment inference", artifact.Fields)
+	}
+	if artifact.Fields["left_fields"] != "category" || artifact.Fields["right_fields"] != "category" {
+		t.Fatalf("join fields=%+v, want declared business fields preserved", artifact.Fields)
+	}
+	if artifact.RowCount != 5 {
+		t.Fatalf("artifact=%+v, want declared category fanout preserved", artifact)
+	}
+}
+
 func TestActionRunnerFilterRecordsRepairsConcatenatedFilterArrayShape(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,year,status,amount\n1,2026,paid,10\n2,2025,paid,5\n"), 0o644); err != nil {
@@ -5128,6 +5219,68 @@ func TestActionRunnerEnrichRecordsAcceptsLookupRoleAliases(t *testing.T) {
 	}
 	if got := res.Artifacts[0].Fields["matches_category_code"]; got != "1" {
 		t.Fatalf("matches_category_code=%q, want 1", got)
+	}
+}
+
+func TestActionRunnerEnrichRecordsInfersRelationFieldsFromValueOverlap(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "qualified.csv"), []byte("record_id,raw_label,value,active\nr1,A-one,10,true\nr2,A-two,7,true\nr4,Beta,4,true\nr5,Gamma alt,5,true\nr6,unmapped,11,true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "coverage.csv"), []byte("record_id,raw_label,value,active,canonical_label,target_id\nr1,A-one,10,true,,\nr2,A-two,7,true,,\nr4,Beta,4,true,,\n,A-one,,,GroupA,\n,A-two,,,GroupA,\n,Beta,,,GroupB,\n,Gamma alt,,,GroupC,\n,,,,GroupA,T1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"qualified.csv", "coverage.csv"},
+			OutputArtifact: "qualified_enriched",
+			Params: map[string]string{
+				"base_path": "qualified.csv",
+				"lookup_specs_json": `[{
+					"lookup_path":"coverage.csv",
+					"base_fields":["record_id"],
+					"lookup_fields":["record_id"],
+					"lookup_value_field":"canonical_label",
+					"target_field":"canonical_label"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records with inferred relation fields: %v", err)
+	}
+	artifact := res.Artifacts[0]
+	if got := artifact.Fields["matches_canonical_label"]; got != "4" {
+		t.Fatalf("matches_canonical_label=%q, want 4; artifact=%+v", got, artifact)
+	}
+	if len(artifact.Children) < 2 {
+		t.Fatalf("Children=%+v, want base and mapping children", artifact.Children)
+	}
+	mappingFields := artifact.Children[1].Fields
+	if mappingFields["relation_field_inference"] != "value_overlap" ||
+		mappingFields["source_fields_inferred_from"] != "record_id" ||
+		mappingFields["mapping_source_fields_inferred_from"] != "record_id" ||
+		mappingFields["source_fields"] != "raw_label" ||
+		mappingFields["mapping_source_fields"] != "raw_label" {
+		t.Fatalf("mapping child fields=%+v, want value-overlap field inference", mappingFields)
+	}
+	var rows []map[string]any
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if rows[0]["canonical_label"] != "GroupA" ||
+		rows[1]["canonical_label"] != "GroupA" ||
+		rows[2]["canonical_label"] != "GroupB" ||
+		rows[0]["canonical_label_status"] != "matched" {
+		t.Fatalf("rows=%+v, want inferred relation to populate canonical labels", rows)
 	}
 }
 
@@ -8543,6 +8696,43 @@ func TestActionRunnerComputeContributionsTreatsGroupKeyParamAsFieldWhenItMatches
 	}
 }
 
+func TestActionRunnerComputeContributionsTreatsGroupByFieldsAsGroupKeyFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("query_id,amount\nQ002,7\nQ001,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{ContributionLedgerRequired: true},
+		Actions: []DataAction{{
+			ID:             "contribs",
+			Kind:           DataActionComputeContribs,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "contribs.json",
+			Params: map[string]string{
+				"group_by_fields": `["query_id"]`,
+				"value_field":     "amount",
+				"metric":          "amount",
+				"operation":       "add",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := len(res.Contributions); got != 2 {
+		t.Fatalf("Contributions=%+v, want 2 grouped source contributions", res.Contributions)
+	}
+	keys := []string{res.Contributions[0].GroupKey.String(), res.Contributions[1].GroupKey.String()}
+	sort.Strings(keys)
+	if strings.Join(keys, ",") != "Q001,Q002" {
+		t.Fatalf("group keys=%v, want query_id values", keys)
+	}
+	if res.Artifacts[0].Children[0].Fields["group_key_fields"] != "query_id" {
+		t.Fatalf("artifact fields=%+v, want group_key_fields=query_id", res.Artifacts[0].Children[0].Fields)
+	}
+}
+
 func TestActionRunnerComputeContributionsSkipsReferenceInputsMissingContributionFields(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "facts.csv"), []byte("query_id,amount,status\nQ002,7,done\nQ001,10,done\n"), 0600); err != nil {
@@ -8795,6 +8985,153 @@ func TestActionRunnerAssembleAnswerReferenceProjectionDropsNonReferenceGroups(t 
 	}
 	if res.Artifacts[len(res.Artifacts)-1].Fields["group_count"] != "3" {
 		t.Fatalf("Assemble fields=%+v, want group_count=3", res.Artifacts[len(res.Artifacts)-1].Fields)
+	}
+	fields := res.Artifacts[len(res.Artifacts)-1].Fields
+	if fields["reference_projected"] != "true" ||
+		fields["reference_path"] != "targets.csv" ||
+		fields["reference_key_field"] != "target" ||
+		fields["reference_key_count"] != "3" {
+		t.Fatalf("Assemble fields=%+v, want reference projection metadata", fields)
+	}
+}
+
+func TestActionRunnerAssembleAnswerHonorsExplicitReferencePathBeforeFallbackInputs(t *testing.T) {
+	root := t.TempDir()
+	targetsPath := filepath.Join(root, "targets_records.json")
+	if err := os.WriteFile(targetsPath, []byte(`[
+{"target_id":"T1","canonical_label":"GroupA"},
+{"target_id":"T2","canonical_label":"GroupX"},
+{"target_id":"T3","canonical_label":"GroupC"}
+]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	totalsPath := filepath.Join(root, "canonical_label_totals.json")
+	if err := os.WriteFile(totalsPath, []byte(`[
+{"canonical_label":"GroupA","total_value":"17"},
+{"canonical_label":"GroupB","total_value":"4"},
+{"canonical_label":"GroupC","total_value":"5"},
+{"canonical_label":"all","total_value":"11"},
+{"canonical_label":"unmatched","total_value":"99"}
+]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{
+		Artifacts: []DataArtifact{
+			{
+				ID:      "targets_records",
+				Kind:    string(DataActionExtractRecords),
+				Headers: []string{"target_id", "canonical_label"},
+				Fields: map[string]string{
+					"artifact_path":    targetsPath,
+					"artifact_aliases": "targets_records,targets_records.json",
+				},
+			},
+			{
+				ID:      "canonical_label_totals.json",
+				Kind:    string(DataActionComputeContribs),
+				Headers: []string{"canonical_label", "total_value"},
+				Fields: map[string]string{
+					"artifact_path":    totalsPath,
+					"artifact_aliases": "canonical_label_totals.json,canonical_label_totals",
+				},
+			},
+		},
+		Reconcile: &ReconcileReport{
+			Status: LooseText("pass"),
+			Groups: []ReconcileGroup{
+				{GroupKey: LooseText("GroupA"), Metric: LooseText("total_value"), Expected: LooseText("17"), Actual: LooseText("17")},
+				{GroupKey: LooseText("GroupB"), Metric: LooseText("total_value"), Expected: LooseText("4"), Actual: LooseText("4")},
+				{GroupKey: LooseText("GroupC"), Metric: LooseText("total_value"), Expected: LooseText("5"), Actual: LooseText("5")},
+				{GroupKey: LooseText("all"), Metric: LooseText("total_value"), Expected: LooseText("11"), Actual: LooseText("11")},
+			},
+		},
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		Actions: []DataAction{{
+			ID:         "answer",
+			Kind:       DataActionAssembleAnswer,
+			InputPaths: []string{"canonical_label_totals.json", "targets_records"},
+			Params: map[string]string{
+				"complete_reference":  "true",
+				"reference_path":      "targets_records",
+				"reference_key_field": "canonical_label",
+				"projection":          "values",
+				"delimiter":           ",",
+				"order_by":            "input",
+				"value_field":         "actual",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17,0,5" {
+		t.Fatalf("Answer=%q, want explicit reference universe before wider input artifact", res.Answer)
+	}
+	if res.Artifacts[len(res.Artifacts)-1].Fields["group_count"] != "3" {
+		t.Fatalf("Assemble fields=%+v, want group_count=3 from explicit reference path", res.Artifacts[len(res.Artifacts)-1].Fields)
+	}
+}
+
+func TestActionRunnerAssembleAnswerReplacesStaleFinalProjectionGroup(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{
+		Reconcile: &ReconcileReport{
+			Status: LooseText("pass"),
+			Groups: []ReconcileGroup{
+				{GroupKey: LooseText("GroupA"), Metric: LooseText("value"), Expected: LooseText("17"), Actual: LooseText("17")},
+				{GroupKey: LooseText("GroupB"), Metric: LooseText("value"), Expected: LooseText("4"), Actual: LooseText("4")},
+				{GroupKey: LooseText("GroupC"), Metric: LooseText("value"), Expected: LooseText("5"), Actual: LooseText("5")},
+				{GroupKey: LooseText("final_answer"), Metric: LooseText("projection"), Scope: LooseText("final_answer"), Role: LooseText("output"), Expected: LooseText("0,0,0"), Actual: LooseText("0,0,0")},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		Actions: []DataAction{{
+			ID:   "answer",
+			Kind: DataActionAssembleAnswer,
+			Params: map[string]string{
+				"complete_reference":  "true",
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run assemble stale projection replacement: %v", err)
+	}
+	if res.Answer != "17,0,5" {
+		t.Fatalf("Answer=%q, want fresh reference projection", res.Answer)
+	}
+	if res.Reconcile == nil {
+		t.Fatal("Reconcile nil")
+	}
+	projectionGroups := 0
+	for _, group := range res.Reconcile.Groups {
+		if strings.EqualFold(group.GroupKey.String(), "final_answer") && strings.EqualFold(group.Metric.String(), "projection") {
+			projectionGroups++
+			if group.Expected.String() != "17,0,5" || group.Actual.String() != "17,0,5" {
+				t.Fatalf("projection group=%+v, want fresh answer", group)
+			}
+		}
+	}
+	if projectionGroups != 1 {
+		t.Fatalf("Reconcile groups=%+v, want exactly one final answer projection group", res.Reconcile.Groups)
 	}
 }
 

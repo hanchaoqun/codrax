@@ -9,7 +9,8 @@
 - Parallelism: 每批 2 个 case
 - Initial summary: `eval/results/representative_eval_20260608_summary.md`
 - Rerun summary: `eval/results/representative_eval_20260608_rerun_summary.md`
-- Worktree note: 本次只新增本文档；eval 输出位于 `eval/results/` 和 `.codrax/data-audit/`，由现有 ignore 规则处理。
+- Focused data fix summary: `eval/results/data_reference_projection_20260608_fix4_summary.md`
+- Worktree note: eval 输出位于 `eval/results/` 和 `.codrax/data-audit/`，由现有 ignore 规则处理；代码批次按本文档的 Delivery Status 分批提交。
 
 ## Commands
 
@@ -148,6 +149,9 @@ General gap: output_contract 的 final answer 应当有 machine-checkable shape�
 - every output slot maps to exactly one reference key in reference order
 - reference-missing contribution defaults are applied by typed rule
 - non-reference contribution groups remain audit-only unless explicitly requested
+- explicit `reference_path(s)` are authoritative before fallback action inputs/artifact graph candidates
+- a candidate reference field must have structural value-set overlap with existing reconcile group keys before it can drive deterministic projection repair
+- if contributions were computed at an aggregate grain that cannot support the requested reference projection, projection repair must force typed regrouping/recompute rather than invent per-reference values
 
 Do not fix with: 给模型更多解释 `complete_reference=true` 的 prompt。日志显示模型已经声称要这样做，缺的是完成门的结构校验。
 
@@ -344,6 +348,13 @@ Acceptance:
 | T9 | P2 | Aggregate all per-run logs for EXPECT_LOG_MATCHES and telemetry, especially data route multi-log runs. | `eval/run.sh`, `eval/runner_lib.sh`, `eval/telemetry` | data route case should not falsely report missing `route=data` |
 | T10 | P2/P3 | Add advisory flags for hidden repairs and contract warnings in representative summaries, without converting them to hard failures. | `eval/convergence_audit.sh`, telemetry collectors | PASS rows expose `contract_warning`, `auto_repair`, `context_prune` where applicable |
 | T11 | P3 | Add scoped multi-repo source-inventory first-hop reuse after exact active repos are known. Keep it as typed soft guidance, not a hard gate. | repo map navigation policy, explorer repo-map prompt | `mr_cross_repo_compare` remains PASS; typed inventory prompt starts with `source_inventory` and no relation first-hop primer |
+| T12 | P1 | Harden `assemble_answer complete_reference` so explicit reference paths are priority tier 1 and fallback inputs/artifacts cannot override them by having more rows. | `internal/dataquery/action_runner.go` | generated artifact alias test where wider input artifact shares the key field; output must use explicit reference path order/count |
+| T13 | P1 | Harden data completion repair candidate selection so reference fields are chosen by typed value-set overlap with reconcile group keys; a zero-overlap field with matching cardinality must not terminate completion. | `internal/repl/data_task_workflow.go` | completion gate test with `target_id` and `canonical_label` fields; repair must pick the overlapping field without keyword matching |
+| T14 | P1 | Make data eval verdicts read the latest terminal audit status, not arbitrary stdout snippets. A blocked/repair/continue terminal must fail even if logs contain the expected answer string. | `eval/run.sh`, `eval/runner_lib_test.sh` | fake blocked terminal with expected text in stdout must fail as `data_terminal_status:blocked` |
+| T15 | P1 | Let `compute_contributions` accept typed grouping aliases such as `group_by_fields` without changing its single-record-set contract. | `internal/dataquery/action_runner.go` | contribution test with alias params groups by the intended structural field |
+| T16 | P1 | Add relation-field inference for `enrich_records` and `join_records` based on value overlap, one-to-one/cardinality quality, and generated-index safeguards. | `internal/dataquery/action_runner.go` | zero-match enrich recovers; duplicate-label join chooses row-aligned index only when structurally derived index fields justify it |
+| T17 | P1 | Prevent repeated final projection from overwriting a structurally complete `assemble_answer` result. Completion reducers must recognize typed projection artifacts and let deterministic completion override noisy evaluator repair. | `internal/dataworkflow/state_builder.go`, `internal/dataworkflow/evaluation.go`, `internal/repl/data_task_workflow.go` | post-result/evaluation tests keep completed projection from dispatching a second assemble |
+| T18 | P1 | Detect reference projection gaps when the reference key set is a subset of reconcile groups but contains reference-only keys; rollups and non-reference groups must not satisfy strict target output. | `internal/repl/data_task_workflow.go` | completion gate test with `GroupA,GroupB,GroupC,all` reconcile and `targets.csv=[GroupA,GroupX,GroupC]` repairs to `targets.csv.canonical_label` |
 
 ## Suggested Rerun Matrix
 
@@ -455,3 +466,76 @@ bash eval/runner_lib_test.sh
 ```
 
 Result: all passed.
+
+### Batch 6 - Reference path priority and field-overlap projection hardening
+
+Status: done in current code batch; superseded by Batch 7 final validation.
+
+Follow-up audit:
+
+- A focused rerun after Batch 2 showed deterministic repair correctly detected a reference projection gap, but `assemble_answer` still selected a wider input artifact because fallback paths were pooled with explicit `reference_path`.
+- Another rerun showed a stricter completion gap: a reference table contained multiple fields with the same row count, and the contract's current field had zero value-set overlap with reconcile group keys. Matching cardinality alone allowed a wrong `0,0,0` projection.
+- Both issues are system-level: reference path priority and reference field selection must be typed structural rules, not prompt expectations or field-name keyword matching.
+
+Changes:
+
+- Split assemble reference lookup into explicit and fallback tiers. `reference_path(s)` from action params/output contract are tried first; action inputs and artifact graph aliases are used only if no explicit reference keys can be read.
+- Added `ActionRunner.ReferenceKeyCandidatesForPath()` to enumerate structural key-universe candidates for all readable fields in a reference material.
+- Changed data completion repair selection to annotate candidates with value-set overlap against reconcile group keys, skip zero-overlap candidates, and choose the best overlapping field by deterministic score.
+- Preserved domain neutrality: the code does not look for names like `target_id`, `canonical_label`, `GroupA`, `GroupX`, or case text.
+
+Validation:
+
+```bash
+go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswer(CompletesReferenceKeys|ReferenceProjectionDrops|HonorsExplicitReferencePath|DoesNotCompleteReference)|TestActionRunnerInfersReferenceKeyCandidate'
+go test ./internal/repl -run 'TestDataTaskWorkflowCompletionGate(RequiresReferenceCompleteProjection|RejectsReferenceCardinalityMismatch|InfersReferenceFromAssembleActionInput|ChoosesReferenceFieldByGroupOverlap)|TestDataTaskWorkflowCompletionGateRequiresOutputProjection'
+go test ./internal/dataquery
+go test ./internal/dataworkflow
+go test ./internal/repl
+make
+
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+  CASES='eval/cases/data_multifile_reference_projection.case' \
+  PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+  SUMMARY=eval/results/data_reference_projection_20260608_fix4_summary.md \
+  bash eval/convergence_audit.sh
+```
+
+Result: unit/package tests passed; early focused data eval passed, but later reruns exposed additional relation/final-projection reducer gaps captured in Batch 7.
+
+### Batch 7 - Data relation quality and final projection completion hardening
+
+Status: done in current code batch; pending commit/push after final validation.
+
+Follow-up audit:
+
+- A stricter focused rerun showed `enrich_records` could keep a declared relation field pair that produced zero matches even though another structural field pair had clear value overlap.
+- Another rerun showed `join_records` could repair a zero-match pair into a high-fanout duplicate-label join. The root cause was wrong join grain, not missing dedupe.
+- A later rerun produced the correct `17,0,5`, then a required-output fallback re-assembled over the wrong reference (`target_contributions.group_key`) and overwrote the answer with zeros.
+- The final failing rerun assembled `11,17,4,5`: the reducer saw an `assemble_answer` artifact but output graph did not mark `projection_artifact_present`, and reference-gap detection ignored reference subsets when reconcile groups also contained rollups/non-reference groups.
+
+Changes:
+
+- Added value-overlap relation inference for `enrich_records` when declared fields produce zero matches.
+- Added `join_records` relation-quality inference that can replace zero-match or row-aligned fanout joins with better structural field pairs, while guarding generated `_source_index` use behind derived-index evidence.
+- Added grouping-param aliases for `compute_contributions` so model plans using `group_by_fields` still execute through the typed contribution path.
+- Made `assemble_answer` replace stale final projection reconcile groups instead of preserving older answer-scoped projection rows.
+- Added deterministic completion recognition for typed `assemble_answer` artifacts so post-result fallback and evaluator repair cannot overwrite a structurally complete projection.
+- Extended reference-gap detection to handle reference subsets with reference-only keys, so rollups and non-reference groups do not satisfy strict reference output.
+- Hardened data eval verdicts to read latest terminal audit status and strict final stdout, preventing false PASS from diagnostic text.
+
+Validation:
+
+```bash
+go test ./internal/dataquery ./internal/dataworkflow ./internal/repl
+bash eval/runner_lib_test.sh
+make
+
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+  CASES='eval/cases/data_multifile_reference_projection.case' \
+  PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+  SUMMARY=eval/results/data_reference_projection_20260608_fix12_summary.md \
+  bash eval/convergence_audit.sh
+```
+
+Result: all package tests and harness tests passed. Focused data eval passed with terminal status `complete`, final stdout `17,0,5`, `reconcile=pass`, `projection_artifact_present=true`, and zero advisory flags.

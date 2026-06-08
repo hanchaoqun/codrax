@@ -82,9 +82,11 @@ type EvaluationFallbackCandidate struct {
 
 type EvaluationDecisionInput struct {
 	Evaluation               dataquery.Evaluation        `json:"evaluation,omitempty"`
+	CompletionSatisfied      bool                        `json:"completion_satisfied,omitempty"`
 	CompletionGuard          GuardResult                 `json:"completion_guard,omitempty"`
 	CompletionFallback       EvaluationFallbackCandidate `json:"completion_fallback,omitempty"`
 	RepairFallback           EvaluationFallbackCandidate `json:"repair_fallback,omitempty"`
+	WorkflowFallback         EvaluationFallbackCandidate `json:"workflow_fallback,omitempty"`
 	ContinuationPlannerReady bool                        `json:"continuation_planner_ready,omitempty"`
 	RepairPlannerReady       bool                        `json:"repair_planner_ready,omitempty"`
 	RepairBudgetAvailable    bool                        `json:"repair_budget_available,omitempty"`
@@ -105,6 +107,14 @@ func (d EvaluationDecision) HasPlan() bool {
 
 func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 	eval := input.Evaluation
+	if input.CompletionSatisfied {
+		return EvaluationDecision{
+			Action: EvaluationDecisionReturnAnswer,
+			Status: "complete",
+			Source: "completion_gate",
+			Reason: strings.TrimSpace(eval.Reason),
+		}
+	}
 	switch eval.Status {
 	case dataquery.EvalComplete:
 		if input.CompletionGuard.Empty() {
@@ -177,12 +187,30 @@ func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 			Reason: appendEvaluationReason("data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted", eval.Reason),
 		}
 	case dataquery.EvalNeedsClarification:
+		if input.WorkflowFallback.Available && taskPlanHasExecutableShape(input.WorkflowFallback.Plan) {
+			return EvaluationDecision{
+				Action: EvaluationDecisionFallbackPlan,
+				Status: "continue",
+				Source: firstNonEmpty(strings.TrimSpace(input.WorkflowFallback.Source), "workflow_fallback"),
+				Plan:   cloneTaskPlanValue(input.WorkflowFallback.Plan),
+				Reason: firstNonEmpty(strings.TrimSpace(input.WorkflowFallback.Reason), strings.TrimSpace(eval.Reason)),
+			}
+		}
 		return EvaluationDecision{
 			Action: EvaluationDecisionReturnEvaluation,
 			Status: "needs_clarification",
 			Reason: strings.TrimSpace(eval.Reason),
 		}
 	case dataquery.EvalBlocked:
+		if input.WorkflowFallback.Available && taskPlanHasExecutableShape(input.WorkflowFallback.Plan) {
+			return EvaluationDecision{
+				Action: EvaluationDecisionFallbackPlan,
+				Status: "continue",
+				Source: firstNonEmpty(strings.TrimSpace(input.WorkflowFallback.Source), "workflow_fallback"),
+				Plan:   cloneTaskPlanValue(input.WorkflowFallback.Plan),
+				Reason: firstNonEmpty(strings.TrimSpace(input.WorkflowFallback.Reason), strings.TrimSpace(eval.Reason)),
+			}
+		}
 		return EvaluationDecision{
 			Action: EvaluationDecisionReturnEvaluation,
 			Status: "blocked",

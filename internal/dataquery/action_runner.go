@@ -571,6 +571,13 @@ type ReferenceKeyCandidate struct {
 	MissingKeys        []string `json:"missing_keys,omitempty"`
 }
 
+type assembleReferenceProjection struct {
+	Projected bool
+	Path      string
+	Field     string
+	KeyCount  int
+}
+
 func (e DataActionError) Error() string {
 	if e.Err == nil {
 		return fmt.Sprintf("data action failed action_id=%q action_kind=%q", e.ActionID, e.ActionKind)
@@ -6172,6 +6179,11 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		}
 		effectiveMappingFilters, ignoredMappingFilters := effectiveActionFiltersForRecords(spec.MappingFilters, headers, records)
 		spec.MappingFilters = effectiveMappingFilters
+		fieldInference := enrichRelationFieldInference{}
+		if inferred, info := inferEnrichRelationFieldsByValueOverlap(baseRecords, baseFields, records, mappingFields, rel, spec); info.Changed {
+			spec = inferred
+			fieldInference = info
+		}
 		specs[i] = spec
 		consumed = append(consumed, rel)
 		lookup := buildEnrichLookup(records, rel, spec)
@@ -6184,6 +6196,12 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		}
 		if len(ignoredMappingFilters) > 0 {
 			fields["ignored_filter_fields"] = strings.Join(ignoredMappingFilters, ",")
+		}
+		if fieldInference.Changed {
+			fields["source_fields_inferred_from"] = strings.Join(fieldInference.PreviousSourceFields, ",")
+			fields["mapping_source_fields_inferred_from"] = strings.Join(fieldInference.PreviousMappingSourceFields, ",")
+			fields["relation_field_inference"] = "value_overlap"
+			fields["relation_field_inference_matches"] = fmt.Sprintf("%d", fieldInference.MatchCount)
 		}
 		lookups = append(lookups, lookup)
 		children = append(children, DataArtifact{
@@ -6645,6 +6663,110 @@ func inferEnrichMappingSourceFields(fields []string, valueField, targetField str
 	return out
 }
 
+type enrichRelationFieldInference struct {
+	Changed                     bool
+	PreviousSourceFields        []string
+	PreviousMappingSourceFields []string
+	MatchCount                  int
+}
+
+func inferEnrichRelationFieldsByValueOverlap(baseRecords []actionRecord, baseFields []string, mappingRecords []actionRecord, mappingFields []string, rel string, spec enrichRecordSpec) (enrichRecordSpec, enrichRelationFieldInference) {
+	if len(baseRecords) == 0 || len(mappingRecords) == 0 || len(baseFields) == 0 || len(mappingFields) == 0 {
+		return spec, enrichRelationFieldInference{}
+	}
+	currentMatches := countEnrichMatchesForSpec(baseRecords, mappingRecords, rel, spec)
+	if currentMatches > 0 {
+		return spec, enrichRelationFieldInference{}
+	}
+	sourceCandidates := enrichRelationSelectableFields(baseFields, spec.MappingValueField, spec.TargetField)
+	mappingCandidates := enrichRelationSelectableFields(mappingFields, spec.MappingValueField, spec.TargetField)
+	if len(sourceCandidates) == 0 || len(mappingCandidates) == 0 {
+		return spec, enrichRelationFieldInference{}
+	}
+	type candidate struct {
+		sourceField  string
+		mappingField string
+		matches      int
+		sourceIndex  int
+		mappingIndex int
+	}
+	best := candidate{matches: currentMatches, sourceIndex: len(sourceCandidates), mappingIndex: len(mappingCandidates)}
+	for sourceIndex, sourceField := range sourceCandidates {
+		for mappingIndex, mappingField := range mappingCandidates {
+			candidateSpec := spec
+			candidateSpec.SourceField = sourceField
+			candidateSpec.SourceFields = []string{sourceField}
+			candidateSpec.MappingSourceFields = []string{mappingField}
+			matches := countEnrichMatchesForSpec(baseRecords, mappingRecords, rel, candidateSpec)
+			if matches <= 0 {
+				continue
+			}
+			if matches > best.matches ||
+				(matches == best.matches && sourceIndex < best.sourceIndex) ||
+				(matches == best.matches && sourceIndex == best.sourceIndex && mappingIndex < best.mappingIndex) {
+				best = candidate{
+					sourceField:  sourceField,
+					mappingField: mappingField,
+					matches:      matches,
+					sourceIndex:  sourceIndex,
+					mappingIndex: mappingIndex,
+				}
+			}
+		}
+	}
+	if best.matches <= currentMatches || strings.TrimSpace(best.sourceField) == "" || strings.TrimSpace(best.mappingField) == "" {
+		return spec, enrichRelationFieldInference{}
+	}
+	out := spec
+	out.SourceField = best.sourceField
+	out.SourceFields = []string{best.sourceField}
+	out.MappingSourceFields = []string{best.mappingField}
+	return out, enrichRelationFieldInference{
+		Changed:                     true,
+		PreviousSourceFields:        append([]string(nil), spec.SourceFields...),
+		PreviousMappingSourceFields: append([]string(nil), spec.MappingSourceFields...),
+		MatchCount:                  best.matches,
+	}
+}
+
+func countEnrichMatchesForSpec(baseRecords []actionRecord, mappingRecords []actionRecord, rel string, spec enrichRecordSpec) int {
+	lookup := buildEnrichLookup(mappingRecords, rel, spec)
+	if len(lookup) == 0 {
+		return 0
+	}
+	matches := 0
+	for _, base := range baseRecords {
+		_, status, _ := selectEnrichValueFromRecord(base, lookup, spec)
+		if status == "matched" || status == "matched_ambiguous" {
+			matches++
+		}
+	}
+	return matches
+}
+
+func enrichRelationSelectableFields(fields []string, valueField, targetField string) []string {
+	valueLower := strings.ToLower(strings.TrimSpace(valueField))
+	targetLower := strings.ToLower(strings.TrimSpace(targetField))
+	seen := map[string]bool{}
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		lower := strings.ToLower(field)
+		if field == "" || seen[lower] {
+			continue
+		}
+		if strings.HasPrefix(lower, "_") || lower == valueLower || lower == targetLower {
+			continue
+		}
+		if strings.HasSuffix(lower, "_status") || strings.HasSuffix(lower, "_evidence") || strings.HasSuffix(lower, "_reason") {
+			continue
+		}
+		seen[lower] = true
+		out = append(out, field)
+	}
+	return out
+}
+
 func buildEnrichLookup(records []actionRecord, rel string, spec enrichRecordSpec) map[string][]enrichCandidate {
 	out := map[string][]enrichCandidate{}
 	for _, record := range records {
@@ -6906,6 +7028,12 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 			}
 		}
 	}
+	fieldInference := joinRelationFieldInference{}
+	if inferredLeft, inferredRight, info := inferJoinRelationFieldsByValueOverlap(leftRecords, rightRecords, leftFieldNames, rightFieldNames, leftFields, rightFields); info.Changed {
+		leftFields = inferredLeft
+		rightFields = inferredRight
+		fieldInference = info
+	}
 	rightIndex := map[string][]actionRecord{}
 	for _, rec := range rightRecords {
 		key := joinActionRecordKey(rec.Fields, rightFields)
@@ -6963,6 +7091,29 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 	if processedLeftRows > 0 {
 		matchRate = strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", float64(matchedLeftRows)/float64(processedLeftRows)), "0"), ".")
 	}
+	fields := map[string]string{
+		"left_path":           leftRel,
+		"right_path":          rightRel,
+		"left_rows":           fmt.Sprintf("%d", leftTotal),
+		"right_rows":          fmt.Sprintf("%d", rightTotal),
+		"joined_rows":         fmt.Sprintf("%d", len(rows)),
+		"matches":             fmt.Sprintf("%d", matches),
+		"matched_left_rows":   fmt.Sprintf("%d", matchedLeftRows),
+		"unmatched_left_rows": fmt.Sprintf("%d", unmatchedLeftRows),
+		"match_rate":          matchRate,
+		"zero_matches":        fmt.Sprintf("%t", matches == 0),
+		"join_type":           joinType,
+		"left_fields":         strings.Join(leftFields, ","),
+		"right_fields":        strings.Join(rightFields, ","),
+		"output_headers":      strings.Join(outputHeaders, ","),
+	}
+	if fieldInference.Changed {
+		fields["left_fields_inferred_from"] = strings.Join(fieldInference.PreviousLeftFields, ",")
+		fields["right_fields_inferred_from"] = strings.Join(fieldInference.PreviousRightFields, ",")
+		fields["join_field_inference"] = fieldInference.Reason
+		fields["join_field_inference_matches"] = fmt.Sprintf("%d", fieldInference.Matches)
+		fields["join_field_inference_fanout"] = fmt.Sprintf("%d", fieldInference.Fanout)
+	}
 	return DataArtifact{
 		ID:          id,
 		Kind:        string(DataActionJoinRecords),
@@ -6971,23 +7122,201 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 		RowCount:    len(rows),
 		Summary:     summary,
 		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields: map[string]string{
-			"left_path":           leftRel,
-			"right_path":          rightRel,
-			"left_rows":           fmt.Sprintf("%d", leftTotal),
-			"right_rows":          fmt.Sprintf("%d", rightTotal),
-			"joined_rows":         fmt.Sprintf("%d", len(rows)),
-			"matches":             fmt.Sprintf("%d", matches),
-			"matched_left_rows":   fmt.Sprintf("%d", matchedLeftRows),
-			"unmatched_left_rows": fmt.Sprintf("%d", unmatchedLeftRows),
-			"match_rate":          matchRate,
-			"zero_matches":        fmt.Sprintf("%t", matches == 0),
-			"join_type":           joinType,
-			"left_fields":         strings.Join(leftFields, ","),
-			"right_fields":        strings.Join(rightFields, ","),
-			"output_headers":      strings.Join(outputHeaders, ","),
-		},
+		Fields:      fields,
 	}, rows, normalizeMaterialPaths([]string{leftRel, rightRel}), nil
+}
+
+type joinRelationFieldInference struct {
+	Changed             bool
+	PreviousLeftFields  []string
+	PreviousRightFields []string
+	Matches             int
+	Fanout              int
+	Reason              string
+}
+
+type joinRelationStats struct {
+	Matches           int
+	MatchedLeftRows   int
+	MatchedRightRows  int
+	ProcessedLeftRows int
+	Fanout            int
+}
+
+func inferJoinRelationFieldsByValueOverlap(leftRecords, rightRecords []actionRecord, leftFieldNames, rightFieldNames, leftFields, rightFields []string) ([]string, []string, joinRelationFieldInference) {
+	if len(leftRecords) == 0 || len(rightRecords) == 0 || len(leftFieldNames) == 0 || len(rightFieldNames) == 0 {
+		return leftFields, rightFields, joinRelationFieldInference{}
+	}
+	current := joinRelationStatsForFields(leftRecords, rightRecords, leftFields, rightFields)
+	allowGenerated := joinFieldsContainGeneratedIndexLike(leftFields) || joinFieldsContainGeneratedIndexLike(rightFields)
+	if current.Fanout > 0 && len(leftRecords) == len(rightRecords) {
+		allowGenerated = true
+	}
+	leftCandidates := joinRelationSelectableFields(leftFieldNames, allowGenerated)
+	rightCandidates := joinRelationSelectableFields(rightFieldNames, allowGenerated)
+	if len(leftCandidates) == 0 || len(rightCandidates) == 0 {
+		return leftFields, rightFields, joinRelationFieldInference{}
+	}
+	type candidate struct {
+		leftField  string
+		rightField string
+		stats      joinRelationStats
+		leftIndex  int
+		rightIndex int
+	}
+	bestSet := false
+	best := candidate{}
+	for leftIndex, leftField := range leftCandidates {
+		for rightIndex, rightField := range rightCandidates {
+			stats := joinRelationStatsForFields(leftRecords, rightRecords, []string{leftField}, []string{rightField})
+			if stats.Matches <= 0 {
+				continue
+			}
+			cand := candidate{leftField: leftField, rightField: rightField, stats: stats, leftIndex: leftIndex, rightIndex: rightIndex}
+			if !bestSet || joinRelationCandidateBetter(cand, best) {
+				best = cand
+				bestSet = true
+			}
+		}
+	}
+	if !bestSet {
+		return leftFields, rightFields, joinRelationFieldInference{}
+	}
+	reason := ""
+	switch {
+	case current.Matches == 0 && best.stats.Matches > 0:
+		reason = "value_overlap_zero_match"
+	case current.Fanout > 0 &&
+		len(leftRecords) == len(rightRecords) &&
+		best.stats.Fanout == 0 &&
+		best.stats.Matches == len(leftRecords) &&
+		best.stats.MatchedLeftRows >= current.MatchedLeftRows &&
+		joinRelationRowAlignedCandidateAllowed(best.leftField, best.rightField):
+		reason = "value_overlap_row_aligned_fanout"
+	default:
+		return leftFields, rightFields, joinRelationFieldInference{}
+	}
+	return []string{best.leftField}, []string{best.rightField}, joinRelationFieldInference{
+		Changed:             true,
+		PreviousLeftFields:  append([]string(nil), leftFields...),
+		PreviousRightFields: append([]string(nil), rightFields...),
+		Matches:             best.stats.Matches,
+		Fanout:              best.stats.Fanout,
+		Reason:              reason,
+	}
+}
+
+func joinRelationStatsForFields(leftRecords, rightRecords []actionRecord, leftFields, rightFields []string) joinRelationStats {
+	rightIndex := map[string][]actionRecord{}
+	for _, rec := range rightRecords {
+		key := joinActionRecordKey(rec.Fields, rightFields)
+		if key == "" {
+			continue
+		}
+		rightIndex[key] = append(rightIndex[key], rec)
+	}
+	stats := joinRelationStats{ProcessedLeftRows: len(leftRecords)}
+	matchedRight := map[int]bool{}
+	for _, left := range leftRecords {
+		key := joinActionRecordKey(left.Fields, leftFields)
+		if key == "" {
+			continue
+		}
+		matches := rightIndex[key]
+		if len(matches) == 0 {
+			continue
+		}
+		stats.MatchedLeftRows++
+		stats.Matches += len(matches)
+		for _, right := range matches {
+			matchedRight[right.Index] = true
+		}
+	}
+	stats.MatchedRightRows = len(matchedRight)
+	if stats.Matches > stats.MatchedLeftRows {
+		stats.Fanout = stats.Matches - stats.MatchedLeftRows
+	}
+	return stats
+}
+
+func joinRelationCandidateBetter(a, b struct {
+	leftField  string
+	rightField string
+	stats      joinRelationStats
+	leftIndex  int
+	rightIndex int
+}) bool {
+	if a.stats.MatchedLeftRows != b.stats.MatchedLeftRows {
+		return a.stats.MatchedLeftRows > b.stats.MatchedLeftRows
+	}
+	if a.stats.Fanout != b.stats.Fanout {
+		return a.stats.Fanout < b.stats.Fanout
+	}
+	if a.stats.MatchedRightRows != b.stats.MatchedRightRows {
+		return a.stats.MatchedRightRows > b.stats.MatchedRightRows
+	}
+	if a.stats.Matches != b.stats.Matches {
+		return a.stats.Matches > b.stats.Matches
+	}
+	if a.leftIndex != b.leftIndex {
+		return a.leftIndex < b.leftIndex
+	}
+	return a.rightIndex < b.rightIndex
+}
+
+func joinRelationSelectableFields(fields []string, allowGenerated bool) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		lower := strings.ToLower(field)
+		if field == "" || seen[lower] {
+			continue
+		}
+		generated := joinFieldIsGeneratedIndexLike(field)
+		if strings.HasPrefix(lower, "_") && !generated {
+			continue
+		}
+		if generated && !allowGenerated {
+			continue
+		}
+		if strings.HasSuffix(lower, "_status") || strings.HasSuffix(lower, "_evidence") || strings.HasSuffix(lower, "_reason") {
+			continue
+		}
+		seen[lower] = true
+		out = append(out, field)
+	}
+	return out
+}
+
+func joinFieldsContainGeneratedIndexLike(fields []string) bool {
+	for _, field := range fields {
+		if joinFieldIsGeneratedIndexLike(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func joinFieldIsGeneratedIndexLike(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "_source_index", "_source_line", "source_index", "source_line", "row_index", "record_index", "line":
+		return true
+	default:
+		return false
+	}
+}
+
+func joinRelationRowAlignedCandidateAllowed(leftField, rightField string) bool {
+	if !joinFieldIsGeneratedIndexLike(leftField) || !joinFieldIsGeneratedIndexLike(rightField) {
+		return false
+	}
+	return joinFieldIsDerivedIndexLike(leftField) || joinFieldIsDerivedIndexLike(rightField)
+}
+
+func joinFieldIsDerivedIndexLike(field string) bool {
+	lower := strings.ToLower(strings.TrimSpace(field))
+	return lower == "source_index" || lower == "source_line" || lower == "row_index" || lower == "record_index" || lower == "line"
 }
 
 func cleanActionPathList(in []string) []string {
@@ -7321,14 +7650,14 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	if len(paths) == 0 {
 		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionComputeContribs, "input_paths", "at least one executable record artifact path", action.InputPaths)
 	}
-	groupKeyField := strings.TrimSpace(action.Params["group_key_field"])
+	groupKeyFields := computeContributionGroupKeyFields(action)
 	groupKeyConst := strings.TrimSpace(action.Params["group_key"])
 	valueField := strings.TrimSpace(action.Params["value_field"])
 	rawMetric := strings.TrimSpace(action.Params["metric"])
 	rawOperation := strings.TrimSpace(action.Params["operation"])
 	metric := firstNonEmptyString(rawMetric, valueField, "count")
 	operation := firstNonEmptyString(rawOperation, "add")
-	implicitMaterialCount := valueField == "" && rawOperation == "" && rawMetric == "" && groupKeyField == "" && groupKeyConst == ""
+	implicitMaterialCount := valueField == "" && rawOperation == "" && rawMetric == "" && len(groupKeyFields) == 0 && groupKeyConst == ""
 	if valueField == "" && rawOperation == "" {
 		operation = "count"
 	}
@@ -7370,19 +7699,19 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		if err != nil {
 			return DataArtifact{}, nil, nil, err
 		}
-		effectiveGroupKeyField := groupKeyField
+		effectiveGroupKeyFields := append([]string(nil), groupKeyFields...)
 		effectiveGroupKeyConst := groupKeyConst
-		if effectiveGroupKeyField == "" && effectiveGroupKeyConst != "" && actionRecordFieldExistsInRecords(headers, records, effectiveGroupKeyConst) {
-			effectiveGroupKeyField = effectiveGroupKeyConst
+		if len(effectiveGroupKeyFields) == 0 && effectiveGroupKeyConst != "" && actionRecordFieldExistsInRecords(headers, records, effectiveGroupKeyConst) {
+			effectiveGroupKeyFields = []string{effectiveGroupKeyConst}
 			effectiveGroupKeyConst = ""
-			diagnostics = append(diagnostics, fmt.Sprintf("%s group_key %q matched an input field; treated as group_key_field", rel, effectiveGroupKeyField))
+			diagnostics = append(diagnostics, fmt.Sprintf("%s group_key %q matched an input field; treated as group_key_field", rel, strings.Join(effectiveGroupKeyFields, ",")))
 		}
 		effectiveValueField := valueField
 		if effectiveValueField == "" && rawMetric != "" && operation != "count" && actionRecordFieldExistsInRecords(headers, records, rawMetric) {
 			effectiveValueField = rawMetric
 			diagnostics = append(diagnostics, fmt.Sprintf("%s metric %q matched an input field; treated as value_field", rel, effectiveValueField))
 		}
-		if missing := missingComputeContributionFields(headers, records, effectiveValueField, effectiveGroupKeyField, effectiveGroupKeyConst, operation, filters); len(missing) > 0 && len(paths) > 1 {
+		if missing := missingComputeContributionFields(headers, records, effectiveValueField, effectiveGroupKeyFields, effectiveGroupKeyConst, operation, filters); len(missing) > 0 && len(paths) > 1 {
 			children = append(children, DataArtifact{
 				ID:          rel + "#contributions_skipped",
 				Kind:        "contribution_source_skipped",
@@ -7424,7 +7753,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 					strings.Join(ignoredFilterFields, ", "),
 					rel,
 					strings.Join(clampStringSliceForError(fields, 32), ", "),
-					compactFieldSampleJSON(records, append(append(filterFieldNames(filters), valueField), effectiveGroupKeyField), 8, 3),
+					compactFieldSampleJSON(records, append(append(filterFieldNames(filters), valueField), effectiveGroupKeyFields...), 8, 3),
 					filterDiagnostics,
 				),
 			)
@@ -7472,7 +7801,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			if itemID == "" {
 				itemID = fmt.Sprintf("%s#%d", rel, record.Index)
 			}
-			groupKey := firstNonEmptyString(recordField(record.Fields, effectiveGroupKeyField), effectiveGroupKeyConst, "all")
+			groupKey := firstNonEmptyString(recordCompositeGroupKey(record.Fields, effectiveGroupKeyFields), effectiveGroupKeyConst, "all")
 			sourceLocator := fmt.Sprintf("line:%d", record.Line)
 			contributions = append(contributions, ContributionRecord{
 				ItemID:        LooseText(itemID),
@@ -7519,8 +7848,11 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		if effectiveValueField != "" && valueField == "" && rawMetric != "" && effectiveValueField == rawMetric {
 			fields["value_field_inferred_from"] = "metric"
 		}
-		if effectiveGroupKeyField != "" && groupKeyField == "" && groupKeyConst != "" {
+		if len(effectiveGroupKeyFields) > 0 && len(groupKeyFields) == 0 && groupKeyConst != "" {
 			fields["group_key_field_inferred_from"] = "group_key"
+		}
+		if len(effectiveGroupKeyFields) > 0 {
+			fields["group_key_fields"] = strings.Join(effectiveGroupKeyFields, ",")
 		}
 		if len(ignoredFilterFields) > 0 {
 			fields["ignored_filter_fields"] = strings.Join(ignoredFilterFields, ",")
@@ -7540,11 +7872,11 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			filterMatched,
 			matched,
 			missingValue,
-			compactFieldSampleJSON(records, append(append(filterFieldNames(effectiveFilters), effectiveValueField), effectiveGroupKeyField), 8, 3),
+			compactFieldSampleJSON(records, append(append(filterFieldNames(effectiveFilters), effectiveValueField), effectiveGroupKeyFields...), 8, 3),
 			filterDiagnostics,
 		))
 	}
-	if err := validateComputeContributionFieldContract(action, knownFields, valueField, groupKeyField, groupKeyConst, filterFields); err != nil {
+	if err := validateComputeContributionFieldContract(action, knownFields, valueField, groupKeyFields, groupKeyConst, filterFields); err != nil {
 		return DataArtifact{}, nil, nil, err
 	}
 	if len(contributions) > 0 {
@@ -7612,6 +7944,36 @@ func markKnownActionFields(out map[string]bool, headers []string, records []acti
 	}
 }
 
+func computeContributionGroupKeyFields(action DataAction) []string {
+	if field := strings.TrimSpace(action.Params["group_key_field"]); field != "" {
+		return []string{field}
+	}
+	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
+		action.Params["group_key_fields"],
+		action.Params["group_by_fields"],
+		action.Params["group_fields"],
+		action.Params["group_by"],
+		action.Params["group_field"],
+		action.Params["key_field"],
+	)))
+}
+
+func recordCompositeGroupKey(fields map[string]string, names []string) string {
+	names = cleanStringList(names)
+	if len(names) == 0 {
+		return ""
+	}
+	values := make([]string, 0, len(names))
+	for _, name := range names {
+		value := recordField(fields, name)
+		if strings.TrimSpace(value) == "" {
+			return ""
+		}
+		values = append(values, value)
+	}
+	return strings.Join(values, "/")
+}
+
 func actionRecordFieldExistsInRecords(headers []string, records []actionRecord, name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -7635,7 +7997,7 @@ func actionRecordFieldExistsInRecords(headers []string, records []actionRecord, 
 	return false
 }
 
-func validateComputeContributionFieldContract(action DataAction, knownFields map[string]bool, valueField, groupKeyField, groupKeyConst string, filterFields []string) error {
+func validateComputeContributionFieldContract(action DataAction, knownFields map[string]bool, valueField string, groupKeyFields []string, groupKeyConst string, filterFields []string) error {
 	hasField := func(name string) bool {
 		name = strings.ToLower(strings.TrimSpace(name))
 		return name == "" || knownFields[name]
@@ -7650,15 +8012,20 @@ func validateComputeContributionFieldContract(action DataAction, knownFields map
 			fmt.Sprintf("compute_contributions value_field %q was not found in any input record field; use extract_records/inspect_material first or set value_field to an existing field", valueField),
 		)
 	}
-	if strings.TrimSpace(groupKeyField) != "" && strings.TrimSpace(groupKeyConst) == "" && !hasField(groupKeyField) {
-		return dataFieldContractError(
-			DataActionComputeContribs,
-			"group",
-			"",
-			[]string{groupKeyField},
-			knownActionFieldNames(knownFields),
-			fmt.Sprintf("compute_contributions group_key_field %q was not found in any input record field; use extract_records/inspect_material first or set group_key/group_key_field to an existing field", groupKeyField),
-		)
+	if strings.TrimSpace(groupKeyConst) == "" {
+		for _, field := range cleanStringList(groupKeyFields) {
+			if hasField(field) {
+				continue
+			}
+			return dataFieldContractError(
+				DataActionComputeContribs,
+				"group",
+				"",
+				[]string{field},
+				knownActionFieldNames(knownFields),
+				fmt.Sprintf("compute_contributions group key field %q was not found in any input record field; use extract_records/inspect_material first or set group_key/group_key_field/group_by_fields to existing fields", field),
+			)
+		}
 	}
 	for _, field := range filterFields {
 		if strings.TrimSpace(field) != "" && !hasField(field) {
@@ -7686,13 +8053,17 @@ func knownActionFieldNames(fields map[string]bool) []string {
 	return out
 }
 
-func missingComputeContributionFields(headers []string, records []actionRecord, valueField, groupKeyField, groupKeyConst, operation string, filters []contributionFilter) []string {
+func missingComputeContributionFields(headers []string, records []actionRecord, valueField string, groupKeyFields []string, groupKeyConst, operation string, filters []contributionFilter) []string {
 	var missing []string
 	if strings.TrimSpace(valueField) != "" && operation != "count" && !actionRecordFieldExistsInRecords(headers, records, valueField) {
 		missing = append(missing, valueField)
 	}
-	if strings.TrimSpace(groupKeyField) != "" && strings.TrimSpace(groupKeyConst) == "" && !actionRecordFieldExistsInRecords(headers, records, groupKeyField) {
-		missing = append(missing, groupKeyField)
+	if strings.TrimSpace(groupKeyConst) == "" {
+		for _, field := range cleanStringList(groupKeyFields) {
+			if !actionRecordFieldExistsInRecords(headers, records, field) {
+				missing = append(missing, field)
+			}
+		}
 	}
 	for _, filter := range filters {
 		field := strings.TrimSpace(filter.Field)
@@ -7808,8 +8179,9 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	}
 	contract = contract.Normalize()
 	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
-	referenceProjected := false
-	groups, referenceProjected = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
+	projectionInfo := assembleReferenceProjection{}
+	groups, projectionInfo = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
+	referenceProjected := projectionInfo.Projected
 	valueField := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["value_field"], "actual")))
 	orderBy := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["order_by"], "group_key")))
 	if referenceProjected && (orderBy == "" || orderBy == "group_key") {
@@ -7907,7 +8279,7 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	next.ActualAnswer = LooseText(answer)
 	next.ExpectedAnswer = LooseText(answer)
 	if referenceProjected {
-		next.Groups = append([]ReconcileGroup(nil), reconcile.Groups...)
+		next.Groups = withoutFinalAnswerProjectionGroups(reconcile.Groups)
 		next.Groups = append(next.Groups, ReconcileGroup{
 			GroupKey:   LooseText("final_answer"),
 			Metric:     LooseText("projection"),
@@ -7919,24 +8291,35 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		})
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "assembled_answer")
+	fields := map[string]string{
+		"group_count": fmt.Sprintf("%d", len(groups)),
+		"projection":  projection,
+		"order_by":    orderBy,
+		"value_field": valueField,
+		"delimiter":   delimiter,
+		"answer_len":  fmt.Sprintf("%d", len(answer)),
+	}
+	if referenceProjected {
+		fields["reference_projected"] = "true"
+		fields["reference_key_count"] = fmt.Sprintf("%d", projectionInfo.KeyCount)
+		if strings.TrimSpace(projectionInfo.Path) != "" {
+			fields["reference_path"] = projectionInfo.Path
+		}
+		if strings.TrimSpace(projectionInfo.Field) != "" {
+			fields["reference_key_field"] = projectionInfo.Field
+		}
+	}
 	return DataArtifact{
 		ID:      id,
 		Kind:    string(DataActionAssembleAnswer),
 		Summary: fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
-		Fields: map[string]string{
-			"group_count": fmt.Sprintf("%d", len(groups)),
-			"projection":  projection,
-			"order_by":    orderBy,
-			"value_field": valueField,
-			"delimiter":   delimiter,
-			"answer_len":  fmt.Sprintf("%d", len(answer)),
-		},
+		Fields:  fields,
 	}, answer, &next, nil
 }
 
-func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) ([]ReconcileGroup, bool) {
+func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) ([]ReconcileGroup, assembleReferenceProjection) {
 	if !parseBoolActionParam(firstNonEmptyString(action.Params["complete_reference"], strconv.FormatBool(contract.CompleteReference))) {
-		return groups, false
+		return groups, assembleReferenceProjection{}
 	}
 	keyField := firstNonEmptyString(
 		strings.TrimSpace(action.Params["reference_key_field"]),
@@ -7946,14 +8329,17 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		strings.TrimSpace(action.Params["group_key"]),
 	)
 	if strings.TrimSpace(keyField) == "" {
-		return groups, false
+		return groups, assembleReferenceProjection{}
 	}
 	metric := firstNonEmptyString(strings.TrimSpace(action.Params["metric"]), singleReconcileMetric(groups), "value")
-	referencePaths := assembleReferencePaths(action, contract, artifacts)
-	keys := r.referenceKeysForAssemble(referencePaths, keyField)
-	if len(keys) == 0 {
-		return groups, false
+	candidate, ok := r.referenceCandidateForAssemble(assembleExplicitReferencePaths(action, contract), keyField)
+	if !ok {
+		candidate, ok = r.referenceCandidateForAssemble(assembleReferenceFallbackPaths(action, artifacts), keyField)
 	}
+	if !ok || len(candidate.Keys) == 0 {
+		return groups, assembleReferenceProjection{}
+	}
+	keys := candidate.Keys
 	existing := make(map[string]ReconcileGroup, len(groups))
 	for _, group := range groups {
 		if strings.TrimSpace(group.Metric.String()) == metric || strings.TrimSpace(group.Metric.String()) == "" {
@@ -7982,18 +8368,26 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		})
 	}
 	if len(out) == 0 {
-		return groups, false
+		return groups, assembleReferenceProjection{}
 	}
-	return out, true
+	return out, assembleReferenceProjection{
+		Projected: true,
+		Path:      candidate.Path,
+		Field:     candidate.Field,
+		KeyCount:  candidate.KeyCount,
+	}
 }
 
-func assembleReferencePaths(action DataAction, contract OutputContract, artifacts []DataArtifact) []string {
-	var paths []string
-	paths = append(paths, parseActionStringListParam(firstNonEmptyString(
+func assembleExplicitReferencePaths(action DataAction, contract OutputContract) []string {
+	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
 		action.Params["reference_paths"],
 		action.Params["reference_path"],
 		contract.ReferencePath,
-	))...)
+	)))
+}
+
+func assembleReferenceFallbackPaths(action DataAction, artifacts []DataArtifact) []string {
+	var paths []string
 	paths = append(paths, action.InputPaths...)
 	for _, artifact := range artifacts {
 		if strings.TrimSpace(artifact.ID) != "" {
@@ -8004,13 +8398,13 @@ func assembleReferencePaths(action DataAction, contract OutputContract, artifact
 	return cleanStringList(paths)
 }
 
-func (r ActionRunner) referenceKeysForAssemble(paths []string, keyField string) []string {
+func (r ActionRunner) referenceCandidateForAssemble(paths []string, keyField string) (ReferenceKeyCandidate, bool) {
 	keyField = strings.TrimSpace(keyField)
 	if keyField == "" {
-		return nil
+		return ReferenceKeyCandidate{}, false
 	}
-	var best []string
-	seenBest := map[string]bool{}
+	var best ReferenceKeyCandidate
+	bestSet := false
 	for _, path := range cleanStringList(paths) {
 		records, headers, _, _, err := r.readActionRecords(path, 100000)
 		if err != nil || !actionRecordFieldExistsInRecords(headers, records, keyField) {
@@ -8026,15 +8420,45 @@ func (r ActionRunner) referenceKeysForAssemble(paths []string, keyField string) 
 			seen[key] = true
 			keys = append(keys, key)
 		}
-		if len(keys) > len(best) {
-			best = keys
-			seenBest = seen
+		if len(keys) == 0 {
+			continue
+		}
+		candidate := ReferenceKeyCandidate{
+			Path:     path,
+			Field:    keyField,
+			KeyCount: len(keys),
+			Keys:     keys,
+		}
+		if !bestSet || candidate.KeyCount > best.KeyCount {
+			best = candidate
+			bestSet = true
 		}
 	}
-	if len(best) == 0 || len(seenBest) == 0 {
-		return nil
+	if !bestSet {
+		return ReferenceKeyCandidate{}, false
 	}
-	return best
+	return best, true
+}
+
+func withoutFinalAnswerProjectionGroups(groups []ReconcileGroup) []ReconcileGroup {
+	out := make([]ReconcileGroup, 0, len(groups))
+	for _, group := range groups {
+		if reconcileGroupIsFinalAnswerProjection(group) {
+			continue
+		}
+		out = append(out, group)
+	}
+	return out
+}
+
+func reconcileGroupIsFinalAnswerProjection(group ReconcileGroup) bool {
+	if strings.EqualFold(strings.TrimSpace(group.Scope.String()), "final_answer") &&
+		strings.EqualFold(strings.TrimSpace(group.Role.String()), "output") &&
+		strings.EqualFold(strings.TrimSpace(group.Metric.String()), "projection") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(group.GroupKey.String()), "final_answer") &&
+		strings.EqualFold(strings.TrimSpace(group.Metric.String()), "projection")
 }
 
 // ReferenceKeyCandidateForPath reads an explicitly declared reference key
@@ -8049,6 +8473,9 @@ func (r ActionRunner) ReferenceKeyCandidateForPath(path, field string, maxRecord
 	}
 	if maxRecords <= 0 {
 		maxRecords = 100000
+	}
+	if r.artifactFiles == nil {
+		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts)
 	}
 	records, headers, _, _, err := r.readActionRecords(path, maxRecords)
 	if err != nil || len(records) == 0 || !actionRecordFieldExistsInRecords(headers, records, field) {
@@ -8073,6 +8500,41 @@ func (r ActionRunner) ReferenceKeyCandidateForPath(path, field string, maxRecord
 		KeyCount: len(keys),
 		Keys:     keys,
 	}, true
+}
+
+// ReferenceKeyCandidatesForPath enumerates structural key-universe candidates
+// for every readable field in a declared reference path. It does not infer
+// business meaning from field names; callers score the returned value sets
+// against their typed output state.
+func (r ActionRunner) ReferenceKeyCandidatesForPath(path string, maxRecords int) []ReferenceKeyCandidate {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if maxRecords <= 0 {
+		maxRecords = 100000
+	}
+	if r.artifactFiles == nil {
+		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts)
+	}
+	records, headers, _, _, err := r.readActionRecords(path, maxRecords)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	fields := actionRecordFieldNames(headers, records)
+	var out []ReferenceKeyCandidate
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" || !actionRecordFieldExistsInRecords(headers, records, field) {
+			continue
+		}
+		candidate := referenceCandidateForField(path, field, records, nil)
+		if candidate.KeyCount <= 0 {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 // InferReferenceKeyCandidate finds a field whose values structurally cover the

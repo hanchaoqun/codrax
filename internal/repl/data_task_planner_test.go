@@ -1422,6 +1422,448 @@ func TestDataTaskWorkflowCompletionGateRejectsReferenceCardinalityMismatch(t *te
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateInfersReferenceFromAssembleActionInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("canonical_label\nGroupA\nGroupX\nGroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"reconciliation_result", "targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_final_output",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"reconciliation_result", "targets.csv"},
+			Params: map[string]string{
+				"group_key_field": "canonical_label",
+				"metric":          "total_value",
+				"order_by":        "input",
+				"projection":      "values",
+				"delimiter":       ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "17,4,5,11",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r2"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r3"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:3"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("rollup"), Source: dataquery.LooseText("contribution_ledger"), SourceLocator: dataquery.LooseText("rollup"), GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Rows: []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("11"), Actual: dataquery.LooseText("11"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "4",
+				"projection":  "values",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("assemble input reference set mismatch must block terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic reference-complete projection repair")
+	}
+	if plan.ContinueAfter {
+		t.Fatalf("projection repair must be terminal, plan=%+v", plan)
+	}
+	if !plan.OutputContract.CompleteReference ||
+		plan.OutputContract.ReferencePath != "targets.csv" ||
+		plan.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("OutputContract=%+v, want targets.csv canonical_label reference", plan.OutputContract)
+	}
+}
+
+func TestDataTaskWorkflowCompletionGateAcceptsReferenceProjectionMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"reconciliation_result", "targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_final_output",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"reconciliation_result", "targets.csv"},
+			Params: map[string]string{
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"order_by":            "input",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "17,0,5",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r2"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r3"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:3"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("rollup"), Source: dataquery.LooseText("contribution_ledger"), SourceLocator: dataquery.LooseText("rollup"), GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("11"), Actual: dataquery.LooseText("11"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("final_answer"), Metric: dataquery.LooseText("projection"), Scope: dataquery.LooseText("final_answer"), Role: dataquery.LooseText("output"), Expected: dataquery.LooseText("17,0,5"), Actual: dataquery.LooseText("17,0,5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count":         "3",
+				"projection":          "values",
+				"reference_projected": "true",
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"reference_key_count": "3",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if !guard.Empty() {
+		t.Fatalf("completion guard=%+v, want reference projection metadata accepted", guard)
+	}
+}
+
+func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:             "assemble_csv_output",
+			Kind:           dataquery.DataActionAssembleAnswer,
+			InputPaths:     []string{"target_contributions.json", "targets_artifact"},
+			OutputArtifact: "final_answer.json",
+			Params: map[string]string{
+				"complete_reference":  "true",
+				"reference_path":      "targets_artifact",
+				"reference_key_field": "target_id",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "17,0,5",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv", "target_contributions.json", "targets_artifact"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("T1"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r5"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:5"), GroupKey: dataquery.LooseText("T3"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status:         dataquery.LooseText("pass"),
+			ExpectedAnswer: dataquery.LooseText("17,0,5"),
+			ActualAnswer:   dataquery.LooseText("17,0,5"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("T1"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("T3"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("final_answer"), Metric: dataquery.LooseText("projection"), Scope: dataquery.LooseText("final_answer"), Role: dataquery.LooseText("output"), Expected: dataquery.LooseText("17,0,5"), Actual: dataquery.LooseText("17,0,5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer.json",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count":         "3",
+				"projection":          "values",
+				"reference_projected": "true",
+				"reference_path":      "targets_artifact",
+				"reference_key_field": "target_id",
+				"reference_key_count": "3",
+			},
+		}},
+	}
+	records := []dataTaskWorkflowRecord{{Plan: current, Result: &result}}
+	decision := dataTaskPostResultDecisionWithRepo("", records, current, dataquery.TaskPlan{})
+	if decision.Action != dataworkflow.PostResultEvaluate || decision.HasPlan() {
+		t.Fatalf("decision=%+v, want evaluate without a second assemble_answer fallback", decision)
+	}
+	evalDecision := dataTaskEvaluationDecisionWithRepo("", records, current, result, dataquery.Evaluation{Status: dataquery.EvalRepairNode, Reason: "repair older node"}, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if evalDecision.Action != dataworkflow.EvaluationDecisionReturnAnswer || evalDecision.Status != "complete" {
+		t.Fatalf("evalDecision=%+v, want structurally complete answer returned", evalDecision)
+	}
+}
+
+func TestDataTaskWorkflowCompletionGateRejectsUnprojectedSameCountReferenceAnswer(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"reconciliation_result", "targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_final_output",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"reconciliation_result", "targets.csv"},
+			Params: map[string]string{
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"order_by":            "input",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "27,4,5",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("27"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r4"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:4"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r5"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:5"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("27"), Actual: dataquery.LooseText("27"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "3",
+				"projection":  "values",
+				"order_by":    "group_key",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("same-count answer without reference projection metadata must block terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic reference projection repair")
+	}
+	if plan.OutputContract.ReferencePath != "targets.csv" ||
+		plan.OutputContract.ReferenceKeyField != "canonical_label" ||
+		!plan.OutputContract.CompleteReference {
+		t.Fatalf("OutputContract=%+v, want reference-complete targets.csv/canonical_label projection", plan.OutputContract)
+	}
+}
+
+func TestDataTaskWorkflowCompletionGateDetectsReferenceSubsetWithRollup(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "11,17,4,5",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv", "observations.csv", "labels.csv"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		EntityResolutions: []dataquery.EntityResolutionRecord{
+			{ItemID: dataquery.LooseText("r1"), SourceValue: dataquery.LooseText("A-one"), CanonicalID: dataquery.LooseText("GroupA"), Status: dataquery.LooseText("matched")},
+		},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r4"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:4"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r5"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:5"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("rollup"), Source: dataquery.LooseText("contribution_ledger"), SourceLocator: dataquery.LooseText("rollup"), GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status:       dataquery.LooseText("pass"),
+			ActualAnswer: dataquery.LooseText("11,17,4,5"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("all"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("11"), Actual: dataquery.LooseText("11"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer.json",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "4",
+				"projection":  "values",
+				"order_by":    "group_key",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("reference subset with rollup must block terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic reference projection repair")
+	}
+	if !plan.OutputContract.CompleteReference ||
+		plan.OutputContract.ReferencePath != "targets.csv" ||
+		plan.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("OutputContract=%+v, want targets.csv canonical_label reference", plan.OutputContract)
+	}
+}
+
+func TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "target_id",
+		},
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_final_output",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"targets.csv"},
+			Params: map[string]string{
+				"reference_path":      "targets.csv",
+				"reference_key_field": "target_id",
+				"order_by":            "input",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "0,0,0",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r2"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r3"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:3"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "3",
+				"projection":  "values",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("misaligned reference field must block terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic reference projection repair")
+	}
+	if plan.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("OutputContract=%+v, want overlap-selected canonical_label field", plan.OutputContract)
+	}
+}
+
 func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -8099,6 +8541,56 @@ func TestDataTaskCoverageExpansionFallbackCoversTerminalRequiredMaterials(t *tes
 	}
 	if got := fallback.Actions[1].InputPaths; len(got) != 1 || got[0] != "orders.csv" {
 		t.Fatalf("record InputPaths=%v, want orders.csv", got)
+	}
+}
+
+func TestDataTaskEvaluationTerminalStatusContinuesLocalCoverage(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "observations.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "targets.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			RuleCoverageRequired:       true,
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "inspect_observations",
+			Kind:       dataquery.DataActionInspectMaterial,
+			InputPaths: []string{"observations.csv"},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:        "inspected observations.csv",
+		ConsumedPaths: []string{"observations.csv"},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:          "observations_profile",
+			Kind:        string(dataquery.DataActionInspectMaterial),
+			SourcePaths: []string{"observations.csv"},
+		}},
+	}
+	records := []dataTaskWorkflowRecord{{Plan: current, Result: &result}}
+	eval := dataquery.Evaluation{
+		Status:        dataquery.EvalNeedsClarification,
+		Reason:        "missing required local material",
+		MissingInputs: []string{"targets.csv"},
+	}
+	decision := dataTaskEvaluationDecisionWithRepo("", records, current, result, eval, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if decision.Action != dataworkflow.EvaluationDecisionFallbackPlan || decision.Source != "coverage" || !decision.HasPlan() {
+		t.Fatalf("decision=%+v, want coverage fallback plan", decision)
+	}
+	if len(decision.Plan.Actions) != 1 ||
+		decision.Plan.Actions[0].Kind != dataquery.DataActionExtractRecords ||
+		strings.Join(decision.Plan.Actions[0].InputPaths, ",") != "targets.csv" {
+		t.Fatalf("fallback actions=%+v, want extract_records targets.csv", decision.Plan.Actions)
 	}
 }
 

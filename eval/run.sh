@@ -221,6 +221,24 @@ scope_stdout() {
   printf '%s' "$cleaned"
 }
 
+json_string_field() {
+  local file="$1" field="$2"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C sed -nE 's/^[[:space:]]*"'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$file" | head -1
+}
+
+latest_data_terminal_path() {
+  local log="$1" path=""
+  [[ -n "$log" && -f "$log" ]] || return 1
+  path="$(LC_ALL=C sed -nE 's/.*\[cli\/data\] terminal full path=([^[:space:]]+).*/\1/p' "$log" | tail -1)"
+  [[ -n "$path" ]] || return 1
+  if [[ "$path" = /* ]]; then
+    printf '%s' "$path"
+  else
+    printf '%s/%s' "$ROOT" "$path"
+  fi
+}
+
 # setup_scratch <scratch-dir> — copies $ROOT/$FIXTURE into scratch and
 # initialises it as a git repo with a single seed commit (write mode
 # requires a git worktree). Wipes any prior contents. Uses a detached
@@ -740,6 +758,27 @@ run_one() {
       fi
       if LC_ALL=C grep -aqF '(no result)' <<<"$cleaned"; then
         extra_reasons+=("no_result")
+      fi
+      if [[ -n "$DATA_FIXTURE" ]]; then
+        local terminal_path terminal_status
+        terminal_path="$(latest_data_terminal_path "$log" || true)"
+        if [[ -z "$terminal_path" ]]; then
+          extra_reasons+=("data_terminal_missing")
+        elif [[ ! -f "$terminal_path" ]]; then
+          extra_reasons+=("data_terminal_file_missing:$terminal_path")
+        else
+          terminal_status="$(json_string_field "$terminal_path" "status" || true)"
+          case "$terminal_status" in
+            complete|completed)
+              ;;
+            "")
+              extra_reasons+=("data_terminal_status_missing")
+              ;;
+            *)
+              extra_reasons+=("data_terminal_status:$terminal_status")
+              ;;
+          esac
+        fi
       fi
       ;;
   esac

@@ -261,6 +261,64 @@ if ! grep -q '^log_file=.*run-1.logs.all.log$' "$multilog_dir/run-1.metrics.txt"
 fi
 assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log answer contract metric"
 
+fake_blocked_data="$tmp/fake-codrax-blocked-data"
+cat >"$fake_blocked_data" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+logdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log-dir)
+      logdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$logdir" "$PWD/.codrax/data-audit"
+terminal="$PWD/.codrax/data-audit/fake-blocked-terminal.json"
+cat >"$terminal" <<'JSON'
+{
+  "status": "blocked",
+  "reason": "synthetic blocked data workflow"
+}
+JSON
+cat >"$logdir/codrax-20260608-000003-000-1.log" <<LOG
+2026-06-08T00:00:03.000 INFO [cmd/route] single-shot turn policy raw_route=data route=data source=repo
+2026-06-08T00:00:03.001 INFO [cli/data] data task result contributions=2 reconcile=pass
+2026-06-08T00:00:03.002 INFO [cli/data] terminal full path=$terminal
+LOG
+printf 'working\n━━━\n数据处理已阻止。正确值应该是 17,0,5\n'
+FAKE
+chmod +x "$fake_blocked_data"
+blocked_case="$tmp/runner_blocked_data.case"
+cat >"$blocked_case" <<'CASE'
+ID=runner_blocked_data
+NAME="runner blocked data"
+QUESTION="runner blocked data smoke"
+DATA_FIXTURE="data-multifile-reference"
+MIN_OUTPUT_CHARS=1
+EXPECT_MATCHES_REGEX="(^|[^0-9])17[[:space:]]*,[[:space:]]*0[[:space:]]*,[[:space:]]*5([^0-9]|$)"
+EXPECT_LOG_MATCHES_REGEX="route=data
+\[cli/data\] data task result.*contributions=[1-9].*reconcile=pass
+\[cli/data\] terminal full path=.*terminal\.json"
+CASE
+CODRAX_BIN="$fake_blocked_data" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$blocked_case" 1 >/dev/null 2>"$tmp/runner-blocked-data.err"
+blocked_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_blocked_data-*' | sort | tail -1)"
+if [[ -z "$blocked_dir" ]]; then
+  fail "eval/run.sh did not write blocked data result dir"
+fi
+blocked_verdict="$(cat "$blocked_dir/run-1.verdict")"
+case "$blocked_verdict" in
+  FAIL*data_terminal_status:blocked*)
+    ;;
+  *)
+    fail "blocked terminal should fail even when stdout contains expected regex: $blocked_verdict"
+    ;;
+esac
+
 scenario_dir="$tmp/data-real-scenario"
 mkdir -p "$scenario_dir"
 fake_codrax="$tmp/fake-codrax-data-gate"

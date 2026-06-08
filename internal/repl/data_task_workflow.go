@@ -382,6 +382,13 @@ func dataTaskWorkflowPreRunDecisionWithRepo(repoRoot string, records []dataTaskW
 }
 
 func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataworkflow.PostResultDecision {
+	if latest, ok := latestDataTaskResult(records); ok && dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, current, latest) {
+		return dataworkflow.PostResultDecision{
+			Action: dataworkflow.PostResultEvaluate,
+			Source: "completion_gate",
+			Reason: "latest typed result satisfies the final output contract",
+		}
+	}
 	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
 	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(records, current, "missing material coverage after data batch result")
 	nextStagePlan, nextStageReason, nextStageOK := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "batch result completed")
@@ -410,6 +417,7 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
 	var guard dataworkflow.GuardResult
 	var completionFallback dataworkflow.EvaluationFallbackCandidate
+	completionSatisfied := dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, current, result)
 	if eval.Status == dataquery.EvalComplete {
 		guard = dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
 		if !guard.Empty() {
@@ -435,15 +443,65 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 			}
 		}
 	}
+	var workflowFallback dataworkflow.EvaluationFallbackCandidate
+	if dataTaskEvaluationStatusLooksTerminal(eval.Status) && eval.Status != dataquery.EvalComplete {
+		if plan, ok := dataTaskCoverageExpansionFallbackAfterResult(records, current, "terminal evaluation ended before local material coverage"); ok {
+			workflowFallback = dataworkflow.EvaluationFallbackCandidate{
+				Source:    "coverage",
+				Plan:      plan,
+				Reason:    "terminal evaluation converted to atomic material coverage batch",
+				Available: true,
+			}
+		} else if plan, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "terminal evaluation ended before workflow completion"); ok {
+			workflowFallback = dataworkflow.EvaluationFallbackCandidate{
+				Source:    "next_stage",
+				Plan:      plan,
+				Reason:    reason,
+				Available: true,
+			}
+		}
+	}
 	return dataworkflow.DecideEvaluation(dataworkflow.EvaluationDecisionInput{
 		Evaluation:               eval,
+		CompletionSatisfied:      completionSatisfied,
 		CompletionGuard:          guard,
 		CompletionFallback:       completionFallback,
 		RepairFallback:           repairFallback,
+		WorkflowFallback:         workflowFallback,
 		ContinuationPlannerReady: continuationReady,
 		RepairPlannerReady:       repairReady,
 		RepairBudgetAvailable:    repairRounds < repairRoundsMax,
 	})
+}
+
+func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
+	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+		return false
+	}
+	if !dataworkflow.ResultHasAssembleAnswerArtifact(result) {
+		return false
+	}
+	contract := dataTaskWorkflowCoverageContract(records, current)
+	output := dataTaskWorkflowOutputContract(records, current)
+	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+		return false
+	}
+	if dataTaskResultNeedsOutputProjection(records, current, result) {
+		return false
+	}
+	if _, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); hasReferenceGap {
+		return false
+	}
+	return true
+}
+
+func dataTaskEvaluationStatusLooksTerminal(status dataquery.EvaluationStatus) bool {
+	switch status {
+	case dataquery.EvalNeedsClarification, dataquery.EvalBlocked, dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
+		return true
+	default:
+		return false
+	}
 }
 
 func firstExecutableTaskPlan(first, fallback dataquery.TaskPlan) dataquery.TaskPlan {
@@ -3777,6 +3835,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	var entityResolutionRecords []dataquery.EntityResolutionRecord
 	hasReconcile := false
 	hasAnswer := false
+	hasProjectionArtifact := false
 	for _, rec := range records {
 		if rec.Result == nil {
 			continue
@@ -3790,6 +3849,9 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		}
 		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
 			hasAnswer = true
+		}
+		if dataworkflow.ResultHasAssembleAnswerArtifact(*rec.Result) {
+			hasProjectionArtifact = true
 		}
 	}
 	customTransformFailures, _, _ := dataTaskCustomTransformFailureClassStats(records)
@@ -3819,6 +3881,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 			ContributionRecords:     len(dataquery.DedupeContributionRecords(contributionRecords)),
 			HasReconcile:            hasReconcile,
 			HasAnswer:               hasAnswer,
+			HasProjectionArtifact:   hasProjectionArtifact,
 		},
 		CustomTransformFailures: customTransformFailures,
 		CustomTransformDisabled: dataTaskCustomTransformCooldown(records),
@@ -5096,7 +5159,6 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if len(groupKeys) == 0 {
 		return dataquery.ReferenceKeyCandidate{}, 0, false
 	}
-	artifacts := dataTaskWorkflowArtifacts(records, result)
 	candidatePaths := dataTaskReferenceCandidatePaths(records, current, result, contract)
 	candidateFields := cleanDataTaskStrings([]string{contract.ReferenceKeyField})
 	runner := dataquery.ActionRunner{
@@ -5108,26 +5170,260 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		strings.TrimSpace(contract.ReferenceKeyField) != "" {
 		candidate, ok := runner.ReferenceKeyCandidateForPath(contract.ReferencePath, contract.ReferenceKeyField, 100000)
 		if ok {
+			candidate = dataTaskAnnotateReferenceCandidateOverlap(candidate, groupKeys)
 			answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
-			if !dataworkflow.ResultAnswerPresent(result) ||
-				dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
-				return candidate, answerItems, true
+			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
+				return dataquery.ReferenceKeyCandidate{}, answerItems, false
 			}
-			return dataquery.ReferenceKeyCandidate{}, answerItems, false
+			if candidate.ExistingMatchCount > 0 || len(cleanDataTaskStrings(groupKeys)) == 0 {
+				if !dataworkflow.ResultAnswerPresent(result) ||
+					dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) ||
+					dataTaskReferenceKeySetMismatch(candidate.Keys, groupKeys) {
+					return candidate, answerItems, true
+				}
+				return dataquery.ReferenceKeyCandidate{}, answerItems, false
+			}
 		}
 	}
-	candidate, ok := runner.InferReferenceKeyCandidate(artifacts, groupKeys, candidatePaths, candidateFields, 100000)
-	if !ok || candidate.KeyCount <= len(groupKeys) {
-		return dataquery.ReferenceKeyCandidate{}, 0, false
+	if candidate, answerItems, ok := dataTaskAssembleActionReferenceProjectionGap(runner, current, contract, groupKeys, result); ok {
+		return candidate, answerItems, true
 	}
 	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
+	candidate, ok := dataTaskBestReferenceProjectionGapCandidate(runner, candidatePaths, candidateFields, groupKeys, result, answerItems, contract)
+	if !ok && len(candidateFields) > 0 {
+		candidate, ok = dataTaskBestReferenceProjectionGapCandidate(runner, candidatePaths, nil, groupKeys, result, answerItems, contract)
+	}
+	if !ok {
+		return dataquery.ReferenceKeyCandidate{}, 0, false
+	}
 	if !dataworkflow.ResultAnswerPresent(result) {
 		return candidate, answerItems, true
 	}
-	if dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
+	if dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, true) {
 		return candidate, answerItems, true
 	}
 	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+}
+
+func dataTaskBestReferenceProjectionGapCandidate(runner dataquery.ActionRunner, paths, fields, groupKeys []string, result dataquery.Result, answerItems int, contract dataquery.OutputContract) (dataquery.ReferenceKeyCandidate, bool) {
+	answerPresent := dataworkflow.ResultAnswerPresent(result)
+	var best dataquery.ReferenceKeyCandidate
+	bestSet := false
+	for _, path := range cleanDataTaskStrings(paths) {
+		for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, fields, groupKeys) {
+			if candidate.ExistingMatchCount == 0 && len(cleanDataTaskStrings(groupKeys)) > 0 {
+				continue
+			}
+			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
+				continue
+			}
+			if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
+				continue
+			}
+			if !bestSet || dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+				best = candidate
+				bestSet = true
+			}
+		}
+	}
+	if !bestSet {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	return best, true
+}
+
+func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner, current dataquery.TaskPlan, contract dataquery.OutputContract, groupKeys []string, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool) {
+	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
+	answerPresent := dataworkflow.ResultAnswerPresent(result)
+	var best dataquery.ReferenceKeyCandidate
+	bestSet := false
+	for _, action := range current.Actions {
+		if dataworkflow.NormalizeActionKind(action.Kind) != dataquery.DataActionAssembleAnswer {
+			continue
+		}
+		fields := cleanDataTaskStrings([]string{
+			action.Params["reference_key_field"],
+			contract.ReferenceKeyField,
+			action.Params["group_key_field"],
+			action.Params["key_field"],
+		})
+		if len(fields) == 0 {
+			fields = nil
+		}
+		paths := cleanDataTaskStrings(append(append([]string{}, action.InputPaths...), action.Params["reference_path"], action.Params["reference_paths"]))
+		for _, path := range paths {
+			for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, fields, groupKeys) {
+				if candidate.ExistingMatchCount == 0 && len(cleanDataTaskStrings(groupKeys)) > 0 {
+					continue
+				}
+				if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
+					continue
+				}
+				if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
+					continue
+				}
+				if !bestSet || dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+					best = candidate
+					bestSet = true
+				}
+			}
+			if bestSet {
+				continue
+			}
+			for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, nil, groupKeys) {
+				if candidate.ExistingMatchCount == 0 && len(cleanDataTaskStrings(groupKeys)) > 0 {
+					continue
+				}
+				if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
+					continue
+				}
+				if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
+					continue
+				}
+				if !bestSet || dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+					best = candidate
+					bestSet = true
+				}
+			}
+		}
+	}
+	if bestSet {
+		return best, answerItems, true
+	}
+	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+}
+
+func dataTaskResultHasReferenceProjection(result dataquery.Result, candidate dataquery.ReferenceKeyCandidate, answerItems int, contract dataquery.OutputContract) bool {
+	if candidate.KeyCount <= 0 || !dataworkflow.ResultAnswerPresent(result) {
+		return false
+	}
+	if dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
+		return false
+	}
+	wantPath := normalizeDataTaskCoveragePath(firstNonEmptyString(candidate.Path, contract.ReferencePath))
+	wantField := strings.TrimSpace(firstNonEmptyString(candidate.Field, contract.ReferenceKeyField))
+	for i := len(result.Artifacts) - 1; i >= 0; i-- {
+		artifact := result.Artifacts[i]
+		if strings.TrimSpace(artifact.Kind) != string(dataquery.DataActionAssembleAnswer) {
+			continue
+		}
+		fields := artifact.Fields
+		if !strings.EqualFold(strings.TrimSpace(fields["reference_projected"]), "true") {
+			continue
+		}
+		count, err := strconv.Atoi(strings.TrimSpace(fields["reference_key_count"]))
+		if err != nil || count != candidate.KeyCount {
+			continue
+		}
+		gotPath := normalizeDataTaskCoveragePath(fields["reference_path"])
+		if wantPath != "" && gotPath != wantPath {
+			continue
+		}
+		gotField := strings.TrimSpace(fields["reference_key_field"])
+		if wantField != "" && !strings.EqualFold(gotField, wantField) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func dataTaskReferenceCandidatesForPath(runner dataquery.ActionRunner, path string, fields []string, groupKeys []string) []dataquery.ReferenceKeyCandidate {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	var candidates []dataquery.ReferenceKeyCandidate
+	if len(fields) == 0 {
+		candidates = runner.ReferenceKeyCandidatesForPath(path, 100000)
+	} else {
+		for _, field := range cleanDataTaskStrings(fields) {
+			candidate, ok := runner.ReferenceKeyCandidateForPath(path, field, 100000)
+			if !ok || candidate.KeyCount == 0 {
+				continue
+			}
+			candidates = append(candidates, candidate)
+		}
+	}
+	for i := range candidates {
+		candidates[i] = dataTaskAnnotateReferenceCandidateOverlap(candidates[i], groupKeys)
+	}
+	return candidates
+}
+
+func dataTaskAnnotateReferenceCandidateOverlap(candidate dataquery.ReferenceKeyCandidate, groupKeys []string) dataquery.ReferenceKeyCandidate {
+	groups := cleanDataTaskStrings(groupKeys)
+	groupSet := make(map[string]bool, len(groups))
+	for _, key := range groups {
+		groupSet[key] = true
+	}
+	match := 0
+	for _, key := range cleanDataTaskStrings(candidate.Keys) {
+		if groupSet[key] {
+			match++
+		}
+	}
+	candidate.ExistingMatchCount = match
+	candidate.MissingCount = candidate.KeyCount - match
+	if candidate.MissingCount < 0 {
+		candidate.MissingCount = 0
+	}
+	return candidate
+}
+
+func dataTaskReferenceProjectionCandidateBetter(candidate, current dataquery.ReferenceKeyCandidate) bool {
+	candidateHasReferenceOnly := candidate.MissingCount > 0
+	currentHasReferenceOnly := current.MissingCount > 0
+	if candidateHasReferenceOnly != currentHasReferenceOnly {
+		return candidateHasReferenceOnly
+	}
+	if candidate.ExistingMatchCount != current.ExistingMatchCount {
+		return candidate.ExistingMatchCount > current.ExistingMatchCount
+	}
+	if candidate.MissingCount != current.MissingCount {
+		return candidate.MissingCount < current.MissingCount
+	}
+	if candidate.KeyCount != current.KeyCount {
+		return candidate.KeyCount < current.KeyCount
+	}
+	if candidate.Path != current.Path {
+		return candidate.Path < current.Path
+	}
+	return candidate.Field < current.Field
+}
+
+func dataTaskReferenceCandidateNeedsProjection(candidate dataquery.ReferenceKeyCandidate, groupKeys []string, answerItems int, answerPresent bool) bool {
+	if candidate.KeyCount <= 0 {
+		return false
+	}
+	if !answerPresent {
+		return true
+	}
+	if dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) {
+		return true
+	}
+	return dataTaskReferenceKeySetMismatch(candidate.Keys, groupKeys)
+}
+
+func dataTaskReferenceKeySetMismatch(referenceKeys, groupKeys []string) bool {
+	reference := cleanDataTaskStrings(referenceKeys)
+	groups := cleanDataTaskStrings(groupKeys)
+	if len(reference) != len(groups) {
+		return true
+	}
+	if len(reference) == 0 {
+		return false
+	}
+	groupSet := make(map[string]bool, len(groups))
+	for _, key := range groups {
+		groupSet[key] = true
+	}
+	for _, key := range reference {
+		if !groupSet[key] {
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskReferenceProjectionItemCountMismatch(answerItems, referenceKeys int) bool {

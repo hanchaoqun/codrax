@@ -3,7 +3,7 @@ NAME="data lane — multi-file DAG with reference-complete projection"
 QUESTION="读取当前目录的数据材料，按照 instructions.md 的规则：用 labels.csv 将 observations.csv 的 raw_label 归一为 canonical_label，排除 inactive 记录，按 targets.csv 的顺序输出每个 target 对应 canonical_label 的 total_value；计算过程需要贡献记录和对账，最终只输出逗号分隔数字。"
 DATA_FIXTURE="data-multifile-reference"
 MIN_OUTPUT_CHARS=1
-EXPECT_MATCHES_REGEX="(^|[^0-9])17[[:space:]]*,[[:space:]]*0[[:space:]]*,[[:space:]]*5([^0-9]|$)"
+EXPECT_MATCHES_REGEX="^[[:space:]]*17[[:space:]]*,[[:space:]]*0[[:space:]]*,[[:space:]]*5[[:space:]]*$"
 EXPECT_LOG_MATCHES_REGEX="route=data
 \\[cli/data\\] data task result.*contributions=[1-9].*reconcile=pass
 \\[cli/data\\] terminal full path=.*terminal\\.json"
