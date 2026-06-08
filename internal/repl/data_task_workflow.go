@@ -2331,48 +2331,23 @@ func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan 
 		return dataquery.TaskPlan{}, false
 	}
 	state := dataTaskWorkflowState(records, plan)
-	for _, action := range plan.Actions {
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		if kind != dataquery.DataActionDeriveFields && kind != dataquery.DataActionExtractFields {
-			continue
-		}
-		inputs := cleanDataTaskStrings(action.InputPaths)
-		if len(inputs) == 0 {
-			continue
-		}
-		if len(inputs) <= 1 && dataTaskDeriveFieldsActionHasSpec(action) {
-			continue
-		}
-		if state.MaterialCoverageSufficient && state.NextStage != "cover_required_materials" && state.NextStage != "derive_rules" {
+	if state.MaterialCoverageSufficient && state.NextStage != dataworkflow.StageCoverRequiredMaterials && state.NextStage != dataworkflow.StageDeriveRules {
+		for _, action := range plan.Actions {
+			if !dataworkflow.ActionNeedsRecordMaterialization(action) {
+				continue
+			}
+			inputs := cleanDataTaskStrings(action.InputPaths)
 			if fallback, ok := dataTaskInvalidRecordActionEnrichFallback(records, plan, action, inputs); ok {
 				return fallback, true
 			}
-			continue
 		}
-		out := plan
-		out.Actions = []dataquery.DataAction{{
-			ID:             firstNonEmptyString(strings.TrimSpace(action.ID), "extract_records") + "_records",
-			Kind:           dataquery.DataActionExtractRecords,
-			Purpose:        "materialize record samples for later single-record-set derivation, enrichment, join, or contribution steps",
-			InputPaths:     inputs,
-			OutputArtifact: firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "records"),
-			Params: map[string]string{
-				"limit":       "100000",
-				"max_records": "100000",
-			},
-		}}
-		out.Script = ""
-		out.Status = "ready"
-		out.ContinueAfter = true
-		if strings.TrimSpace(out.WhyThisBatch) == "" {
-			out.WhyThisBatch = fmt.Sprintf("%s was not executable as one single-record-set action; first materialize the declared records as a bounded atomic batch", kind)
-		}
-		if strings.TrimSpace(out.NextBatch) == "" {
-			out.NextBatch = "continue with derive_fields, extract_fields, group_records, enrich_records, join_records, or compute_contributions after record artifacts materialize"
-		}
-		return out, true
+		return dataquery.TaskPlan{}, false
 	}
-	return dataquery.TaskPlan{}, false
+	return dataworkflow.BuildInvalidRecordMaterializationFallbackPlan(dataworkflow.InvalidRecordMaterializationFallbackInput{
+		Current:      plan,
+		State:        state,
+		ExtractLimit: dataTaskExactExtractRecordLimit,
+	})
 }
 
 func dataTaskInvalidRecordActionEnrichFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, inputs []string) (dataquery.TaskPlan, bool) {

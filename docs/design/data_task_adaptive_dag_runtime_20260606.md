@@ -17398,6 +17398,48 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 388: Workflow-Owned Invalid Record Materialization Fallback
+
+The next non-prefix fallback was the structural recovery for invalid
+`derive_fields` / `extract_fields` actions. When a model tried to run a
+single-record-set transformation over multiple inputs, or emitted such an
+action without a field specification, the REPL adapter previously rewrote it
+into an `extract_records` materialization batch. That rewrite belongs to the
+workflow reducer because it depends only on typed action shape and workflow
+stage.
+
+Generic invariants:
+
+- invalid record materialization is triggered by typed action kind, input
+  count, field-spec presence, and workflow stage;
+- action purpose, goal text, and user business terms do not participate in the
+  hard decision;
+- when material coverage is already sufficient and the graph has advanced past
+  coverage/rule derivation, this reducer defers to enrichment or
+  field-contract recovery instead of emitting another source-material extract;
+- the emitted fallback is a bounded typed `extract_records` action and carries
+  no script.
+
+Changes:
+
+- [x] Added workflow-owned `ActionNeedsRecordMaterialization`.
+- [x] Added workflow-owned field-spec detection for derive/extract typed
+      actions.
+- [x] Added workflow-owned invalid-record materialization fallback builder.
+- [x] Rewired the REPL invalid-record fallback to call `dataworkflow` for the
+      structural materialization path while keeping enrichment recovery as the
+      next explicit seam.
+- [x] Added regression coverage for bounded materialization, executable
+      single-input specs, and post-coverage graph-stage deferral.
+
+Remaining architecture items:
+
+- [ ] Move enrichment/field-contract recovery selection into ArtifactGraph
+      reducers.
+- [ ] Move repeated-node expansion into reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
