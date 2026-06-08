@@ -441,6 +441,46 @@ func TestActionRunnerEnrichMappingSpecParamIsTyped(t *testing.T) {
 	}
 }
 
+func TestParseRunnerResultShapeViolationIsTyped(t *testing.T) {
+	_, err := parseRunnerResult([]byte(resultMarker + `{"answer":` + "\n"))
+	if err == nil {
+		t.Fatal("parseRunnerResult err=nil, want typed result shape failure")
+	}
+	var shapeErr DataResultShapeError
+	if !errors.As(err, &shapeErr) {
+		t.Fatalf("err=%T %v, want DataResultShapeError", err, err)
+	}
+	if shapeErr.JSONPath != "/" || !strings.Contains(shapeErr.ExpectedShape, "result JSON") {
+		t.Fatalf("shapeErr=%+v, want root result JSON shape", shapeErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "result_schema_mismatch" ||
+		violation.JSONPath != "/" ||
+		!strings.Contains(violation.ExpectedShape, "result JSON") {
+		t.Fatalf("violation=%+v, want typed result schema violation", violation)
+	}
+}
+
+func TestValidateAnswerOutputContractViolationIsTyped(t *testing.T) {
+	err := ValidateAnswer("one\ntwo", OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false})
+	if err == nil {
+		t.Fatal("ValidateAnswer err=nil, want typed output contract failure")
+	}
+	var outputErr DataOutputContractError
+	if !errors.As(err, &outputErr) {
+		t.Fatalf("err=%T %v, want DataOutputContractError", err, err)
+	}
+	if outputErr.Format != OutputPlainSingleLine || outputErr.JSONPath != "/answer" {
+		t.Fatalf("outputErr=%+v, want plain single-line answer contract", outputErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "output_contract_violation" ||
+		violation.JSONPath != "/answer" ||
+		!strings.Contains(violation.ExpectedShape, "single line") {
+		t.Fatalf("violation=%+v, want typed output contract violation", violation)
+	}
+}
+
 func TestRunnerEmitResultAcceptsStructuredObject(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

@@ -165,6 +165,10 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 			return appendProcessDisplayContext("本步参数结构不符合动作 schema。", input, field, param, operation, zh)
 		case "action_limit_violation":
 			return appendProcessDisplayContext(processDisplayLimitText("本步输出超过当前安全上限，需要拆成更小批次。", violation, summary, zh), input, field, param, operation, zh)
+		case "result_schema_mismatch":
+			return appendProcessDisplayContext("本步没有产出系统可验证的结构化结果。", input, field, param, operation, zh)
+		case "output_contract_violation":
+			return appendProcessDisplayContext("最终答案还没有满足用户要求的输出格式。", input, field, param, operation, zh)
 		case "zero_match_filter":
 			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, param, operation, zh)
 		case "unmatched_resolution":
@@ -188,6 +192,10 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 		return appendProcessDisplayContext("This step has an action parameter that does not match the typed schema.", input, field, param, operation, zh)
 	case "action_limit_violation":
 		return appendProcessDisplayContext(processDisplayLimitText("This step exceeded the current safety limit and needs a smaller batch.", violation, summary, zh), input, field, param, operation, zh)
+	case "result_schema_mismatch":
+		return appendProcessDisplayContext("This step did not emit a verifiable structured result.", input, field, param, operation, zh)
+	case "output_contract_violation":
+		return appendProcessDisplayContext("The final answer does not satisfy the requested output format yet.", input, field, param, operation, zh)
 	case "zero_match_filter":
 		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, param, operation, zh)
 	case "unmatched_resolution":

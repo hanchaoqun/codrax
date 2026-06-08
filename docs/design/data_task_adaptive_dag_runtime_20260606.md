@@ -16174,3 +16174,44 @@ Remaining architecture items:
       from reducer state.
 - [ ] Continue auditing role-selection and materialization failures for typed
       IR equivalents before running the real scenario again.
+
+### Batch 357: Typed Result Shape And Output-Contract Violations
+
+Earlier batches moved action parameters and field contracts into typed IR.
+Another generic gap remained at the result boundary: a script or final
+projection can fail to emit canonical structured result JSON, or can compute
+valid facts but render an answer that violates the user's output contract.
+Those failures should not be recovered by parsing prose error text.
+
+Generic invariants:
+
+- result JSON shape failures are `result_schema_mismatch` with a JSON path,
+  expected shape, and bounded actual snippet;
+- final answer rendering failures are `output_contract_violation` with
+  `/answer`, the expected output shape, and bounded answer snippet;
+- output-contract repair may re-render the computed result, but must not change
+  business semantics, numeric values, rule interpretation, or ledger records;
+- UX renders these blockers as user-visible process facts while workflow logic
+  consumes typed violations only.
+
+Changes:
+
+- [x] Added `DataResultShapeError` for structured-result parse/emit failures.
+- [x] Added `DataOutputContractError` for strict final-answer format failures.
+- [x] Mapped both error types through `ClassifyExecutionFailure` into
+      `DataTaskViolation`.
+- [x] Converted runner result parsing and `ValidateAnswer` to emit typed
+      result/output violations.
+- [x] Added low-noise process-display labels for result-shape and
+      output-contract blockers.
+- [x] Added regression coverage for typed result-shape classification,
+      output-contract classification, and process display.
+
+Remaining architecture items:
+
+- [ ] Continue auditing materialization failures and artifact payload shape
+      errors for typed IR equivalents.
+- [ ] Move evaluator repair decisions to consume typed output/result blockers
+      directly from reducer state.
+- [ ] Continue auditing role-selection failures for typed IR equivalents before
+      running the real scenario again.

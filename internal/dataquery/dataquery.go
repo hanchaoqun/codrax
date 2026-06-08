@@ -350,6 +350,97 @@ func dataValidationError(code, jsonPath, expectedShape, actualSnippet string, re
 	}}}
 }
 
+type DataResultShapeError struct {
+	JSONPath      string `json:"json_path,omitempty"`
+	ExpectedShape string `json:"expected_shape,omitempty"`
+	ActualSnippet string `json:"actual_snippet,omitempty"`
+	Message       string `json:"message,omitempty"`
+	Cause         error  `json:"-"`
+}
+
+func (e DataResultShapeError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "canonical data result JSON"
+	}
+	msg := "data result does not match " + expected
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataResultShapeError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataResultShapeError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "result_schema_mismatch",
+		Summary:       clampViolationText(e.Error(), 500),
+		JSONPath:      firstNonEmptyString(strings.TrimSpace(e.JSONPath), "/"),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "canonical data result JSON object"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Emit a canonical structured data result with answer/output_contract and any required generic ledgers; do not rely on prose stdout.",
+	}
+}
+
+type DataOutputContractError struct {
+	Format        OutputFormat `json:"format,omitempty"`
+	JSONPath      string       `json:"json_path,omitempty"`
+	ExpectedShape string       `json:"expected_shape,omitempty"`
+	ActualSnippet string       `json:"actual_snippet,omitempty"`
+	Message       string       `json:"message,omitempty"`
+	Cause         error        `json:"-"`
+}
+
+func (e DataOutputContractError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "the output contract"
+	}
+	msg := "data answer does not satisfy " + expected
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataOutputContractError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataOutputContractError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "output_contract_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		JSONPath:      firstNonEmptyString(strings.TrimSpace(e.JSONPath), "/answer"),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "answer rendered according to output_contract"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Keep the computed result semantics and re-render the final answer exactly according to output_contract.",
+	}
+}
+
+func dataOutputContractError(contract OutputContract, answer, expectedShape string, cause error) DataOutputContractError {
+	contract = contract.Normalize()
+	return DataOutputContractError{
+		Format:        contract.Format,
+		JSONPath:      "/answer",
+		ExpectedShape: strings.TrimSpace(expectedShape),
+		ActualSnippet: answer,
+		Message:       "",
+		Cause:         cause,
+	}
+}
+
 func ClassifyExecutionFailure(err error) DataTaskViolation {
 	if err == nil {
 		return DataTaskViolation{}
@@ -394,6 +485,14 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	var limitErr DataActionLimitError
 	if errors.As(err, &limitErr) {
 		return limitErr.Violation()
+	}
+	var shapeErr DataResultShapeError
+	if errors.As(err, &shapeErr) {
+		return shapeErr.Violation()
+	}
+	var outputErr DataOutputContractError
+	if errors.As(err, &outputErr) {
+		return outputErr.Violation()
 	}
 	var validationErr DataValidationError
 	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {
@@ -3938,13 +4037,24 @@ func parseRunnerResult(out []byte) (Result, error) {
 		payload := []byte(strings.TrimPrefix(line, resultMarker))
 		var res Result
 		if err := json.Unmarshal(payload, &res); err != nil {
-			return Result{}, fmt.Errorf("parse data task result: %w", err)
+			return Result{}, DataResultShapeError{
+				JSONPath:      "/",
+				ExpectedShape: "canonical data result JSON object",
+				ActualSnippet: string(payload),
+				Message:       fmt.Sprintf("parse data task result: %v", err),
+				Cause:         err,
+			}
 		}
 		res.Artifacts = appendRunnerPayloadArtifact(payload, res.Artifacts)
 		res.Answer = strings.TrimSpace(res.Answer)
 		return res, nil
 	}
-	return Result{}, fmt.Errorf("data task script did not emit a structured result; output=%s", strings.TrimSpace(string(out)))
+	return Result{}, DataResultShapeError{
+		JSONPath:      "/",
+		ExpectedShape: "structured result emitted by emit(obj) or emit_result(...)",
+		ActualSnippet: strings.TrimSpace(string(out)),
+		Message:       fmt.Sprintf("data task script did not emit a structured result; output=%s", strings.TrimSpace(string(out))),
+	}
 }
 
 func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []DataArtifact {
@@ -4009,22 +4119,42 @@ func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []Dat
 func ValidateAnswer(answer string, contract OutputContract) error {
 	contract = contract.Normalize()
 	if strings.TrimSpace(answer) == "" {
-		return errors.New("data task answer is empty")
+		return dataOutputContractError(
+			contract,
+			answer,
+			"non-empty answer",
+			errors.New("data task answer is empty"),
+		)
 	}
 	if !contract.ExplanationAllowed {
 		if strings.Contains(answer, "\n\n") && contract.Format != OutputMarkdown && contract.Format != OutputMarkdownTable {
-			return fmt.Errorf("output contract %s does not allow explanatory paragraphs", contract.Format)
+			return dataOutputContractError(
+				contract,
+				answer,
+				fmt.Sprintf("%s without explanatory paragraphs", contract.Format),
+				fmt.Errorf("output contract %s does not allow explanatory paragraphs", contract.Format),
+			)
 		}
 	}
 	switch contract.Format {
 	case OutputPlainSingleLine, OutputCSVLine:
 		if strings.Contains(answer, "\n") {
-			return fmt.Errorf("output contract %s requires a single line", contract.Format)
+			return dataOutputContractError(
+				contract,
+				answer,
+				fmt.Sprintf("%s as a single line", contract.Format),
+				fmt.Errorf("output contract %s requires a single line", contract.Format),
+			)
 		}
 	case OutputJSONOnly:
 		var v any
 		if err := json.Unmarshal([]byte(answer), &v); err != nil {
-			return fmt.Errorf("output contract json_only requires valid JSON: %w", err)
+			return dataOutputContractError(
+				contract,
+				answer,
+				"json_only answer containing valid JSON",
+				fmt.Errorf("output contract json_only requires valid JSON: %w", err),
+			)
 		}
 	}
 	return nil

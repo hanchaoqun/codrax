@@ -119,6 +119,24 @@ func TestBuildWorkflowProcessDisplayRendersActionLimitBlocker(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersOutputContractBlocker(t *testing.T) {
+	guard := NewGuardResult("output_contract_violation", "error", RepairNeedsTypedAction, "output contract plain_single_line requires a single line", WorkflowViolation{
+		Code:     "output_contract_violation",
+		ActionID: "assemble",
+		Reason:   "output contract plain_single_line requires a single line",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "completion_gate",
+		Round: 1,
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	if !strings.Contains(got, "当前阻塞：最终答案还没有满足用户要求的输出格式") {
+		t.Fatalf("details=%q, want output-contract blocker", got)
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {
