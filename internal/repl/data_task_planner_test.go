@@ -6245,7 +6245,7 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv"}},
 	}}
-	plan, rounds, ok, err := repairDataTaskPlanForCLI(
+	repairResult, rounds, ok, err := repairDataTaskPlanForCLI(
 		context.Background(),
 		planner,
 		"continue data task",
@@ -6265,6 +6265,10 @@ func TestDataTaskCLIRepairNoToolFallsBackToContinuation(t *testing.T) {
 	if !ok || rounds != 1 || planner.repairCalls != 1 || planner.continueCalls != 1 {
 		t.Fatalf("ok=%v rounds=%d repair=%d continue=%d", ok, rounds, planner.repairCalls, planner.continueCalls)
 	}
+	if repairResult.FallbackReason == "" {
+		t.Fatalf("repairResult=%+v, want continuation fallback reason", repairResult)
+	}
+	plan := repairResult.Plan
 	if len(plan.Actions) != 1 || plan.Actions[0].ID != "derive_next_fields" {
 		t.Fatalf("plan=%+v, want continuation plan", plan)
 	}

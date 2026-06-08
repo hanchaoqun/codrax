@@ -2548,11 +2548,6 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
-type dataTaskRepairPlanResult struct {
-	Plan           dataquery.TaskPlan
-	FallbackReason string
-}
-
 func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, errText, normalizeScope string) (dataTaskRepairPlanResult, error) {
 	repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner)
 	if !ok {

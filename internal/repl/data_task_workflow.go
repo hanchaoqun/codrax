@@ -75,6 +75,11 @@ func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowR
 	})
 }
 
+type dataTaskRepairPlanResult struct {
+	Plan           dataquery.TaskPlan
+	FallbackReason string
+}
+
 func dataTaskAcceptPlannerPlan(plan dataquery.TaskPlan, scope string) (dataquery.TaskPlan, error) {
 	scope = strings.TrimSpace(scope)
 	if scope == "" {

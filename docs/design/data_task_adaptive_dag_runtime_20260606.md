@@ -18285,8 +18285,60 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Consolidate CLI direct evaluator-repair handling with the same adapter
+- [x] Consolidate CLI direct evaluator-repair handling with the same adapter
       semantics while preserving stdout/stderr and strict-output behavior.
+      Completed in Batch 427.
+- [ ] Extract a storage-neutral repair-result adapter once REPL and CLI have
+      identical typed inputs/outputs.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 427: CLI Repair Result Adapter Semantics
+
+The CLI data workflow already had a compatibility helper,
+`repairDataTaskPlanForCLI`, but it returned only a `TaskPlan`. That meant a
+continuation fallback selected after repair-planner structural failure could be
+indistinguishable from an ordinary repair plan at the call site. Several
+branches then normalized, displayed, and accepted fallback plans as if they
+were repair outputs.
+
+This batch makes CLI repair result handling match the REPL adapter semantics:
+the repair helper returns a typed `dataTaskRepairPlanResult` carrying either a
+plan or a continuation fallback reason. The CLI loop applies that result
+through one local helper. Fallback plans are displayed and audited as
+continuation; ordinary repaired plans remain repair plans. Stdout remains
+reserved for the final answer, while CLI progress/audit stays on the existing
+progress channel.
+
+Generic invariants:
+
+- repair fallback and repair success are different typed outcomes;
+- a continuation fallback is not accepted or displayed as a repair batch;
+- the distinction is carried by structured adapter output, not by parsing log
+  text or model prose;
+- CLI output contract semantics are unchanged: final answer remains separate
+  from process progress;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Moved `dataTaskRepairPlanResult` into the shared data workflow adapter
+      layer.
+- [x] Changed `repairDataTaskPlanForCLI` to return
+      `dataTaskRepairPlanResult`.
+- [x] Added CLI-local `applyRepairResult` for continuation fallback vs repair
+      plan application.
+- [x] Updated terminal-completion repair, terminal-workflow guard repair,
+      staging guard repair, execution failure repair, validation failure
+      repair, evaluator completion repair, and evaluator node repair call
+      sites.
+- [x] Removed the remaining CLI direct repair planner call outside
+      `repairDataTaskPlanForCLI`.
+- [x] Updated regression assertions for continuation fallback result shape.
+
+Remaining architecture items:
+
 - [ ] Extract a storage-neutral repair-result adapter once REPL and CLI have
       identical typed inputs/outputs.
 - [ ] Do not rerun the real local scenario until this current IR queue is

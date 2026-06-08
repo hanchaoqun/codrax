@@ -277,6 +277,26 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		syncIteration(workflowRuntime.BeginRepairIteration())
 		return repairRounds
 	}
+	applyRepairResult := func(result dataTaskRepairPlanResult, normalizeScope string) {
+		if strings.TrimSpace(result.FallbackReason) != "" {
+			emitWorkflowReason("continue", dataRounds, result.FallbackReason)
+			fallback := protectPlan(result.Plan)
+			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, result.FallbackReason)
+			return
+		}
+		repaired := result.Plan
+		if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
+			normalizeScope = strings.TrimSpace(normalizeScope)
+			if normalizeScope == "" {
+				normalizeScope = "repaired"
+			}
+			logging.Info("[cli/data] normalized %s data task plan: %s", normalizeScope, strings.Join(notes, "; "))
+			repaired = normalized
+		}
+		currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -302,18 +322,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if recovery.Action == dataworkflow.FailureRecoveryFail {
 				return "", fmt.Errorf("%s", recovery.Reason)
 			}
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+			repairResult, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
 				return "", repairErr
 			}
 			if ok {
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-					logging.Info("[cli/data] normalized terminal-completion repaired data task plan: %s", strings.Join(notes, "; "))
-					repaired = normalized
-				}
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+				applyRepairResult(repairResult, "terminal-completion repaired")
 				continue
 			}
 			return "", fmt.Errorf("%s", errText)
@@ -335,7 +351,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
-			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+			repairResult, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			repairRounds = nextRepairRounds
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if repairErr != nil {
@@ -343,18 +359,16 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			appendRecord(guardRecord)
 			if ok {
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-					logging.Info("[cli/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
-					repaired = normalized
+				if strings.TrimSpace(repairResult.FallbackReason) == "" {
+					emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+						Kind:         "repair",
+						Round:        repairRounds,
+						Plan:         currentPlan,
+						AuditDetails: []string{guard.Code},
+						Guard:        &guard,
+					}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				}
-				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
-					Kind:         "repair",
-					Round:        repairRounds,
-					Plan:         currentPlan,
-					AuditDetails: []string{guard.Code},
-					Guard:        &guard,
-				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+				applyRepairResult(repairResult, "terminal-workflow repaired")
 				continue
 			}
 			return "", fmt.Errorf("%s", errText)
@@ -400,27 +414,25 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				continue
 			}
-			var repaired dataquery.TaskPlan
+			var repairResult dataTaskRepairPlanResult
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+			repairResult, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if err != nil {
 				return "", err
 			}
 			appendRecord(guardRecord)
 			if ok {
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-					repaired = normalized
+				if strings.TrimSpace(repairResult.FallbackReason) == "" {
+					emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+						Kind:         "repair",
+						Round:        repairRounds,
+						Plan:         currentPlan,
+						AuditDetails: []string{guard.Code},
+						Guard:        &guard,
+					}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 				}
-				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
-					Kind:         "repair",
-					Round:        repairRounds,
-					Plan:         currentPlan,
-					AuditDetails: []string{guard.Code},
-					Guard:        &guard,
-				}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+				applyRepairResult(repairResult, "repaired")
 				continue
 			}
 			return "", fmt.Errorf("data task planning: %s", errText)
@@ -518,9 +530,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				return "", fmt.Errorf("%s", recovery.Reason)
 			}
-			var repaired dataquery.TaskPlan
+			var repairResult dataTaskRepairPlanResult
 			var ok bool
-			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+			repairResult, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if !recordedErr {
 				appendRecord(executionRecord)
@@ -529,12 +541,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				return "", err
 			}
 			if ok {
-				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-					repaired = normalized
+				if strings.TrimSpace(repairResult.FallbackReason) == "" {
+					emitWorkflowFailure("repair", repairRounds, errText)
 				}
-				emitWorkflowFailure("repair", repairRounds, errText)
-				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+				applyRepairResult(repairResult, "repaired")
 				continue
 			}
 			return "", fmt.Errorf("%s", errText)
@@ -565,21 +575,19 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 					return "", fmt.Errorf("%s", recovery.Reason)
 				}
-				var repaired dataquery.TaskPlan
+				var repairResult dataTaskRepairPlanResult
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+				repairResult, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if err != nil {
 					return "", err
 				}
 				if ok {
-					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-						logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-						repaired = normalized
+					if strings.TrimSpace(repairResult.FallbackReason) == "" {
+						emitWorkflowFailure("repair", repairRounds, errText)
 					}
-					emitWorkflowFailure("repair", repairRounds, errText)
-					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+					applyRepairResult(repairResult, "repaired")
 					continue
 				}
 				return "", fmt.Errorf("%s", errText)
@@ -662,7 +670,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if len(records) > 0 {
 			attachLastEvaluation(eval)
 		}
-		repairer, repairOK := cfg.Planner.(DataTaskRepairPlanner)
+		_, repairOK := cfg.Planner.(DataTaskRepairPlanner)
 		evalDecision := dataTaskEvaluationDecisionWithRepo(repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, repairRoundsMax)
 		switch evalDecision.Action {
 		case dataworkflow.EvaluationDecisionReturnAnswer:
@@ -747,9 +755,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				if recovery.Action == dataworkflow.FailureRecoveryFail {
 					return "", fmt.Errorf("%s", recovery.Reason)
 				}
-				var repaired dataquery.TaskPlan
+				var repairResult dataTaskRepairPlanResult
 				var ok bool
-				repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
+				repairResult, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, runtimeView(), repairRounds, repairRoundsMax, beginRepairIteration)
 				workflowRuntime.SetRounds(dataRounds, repairRounds)
 				if len(records) > 0 {
 					attachLastError(errText)
@@ -758,43 +766,27 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					return "", fmt.Errorf("%s\nrepair data task completion: %w", errText, err)
 				}
 				if ok {
-					if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
-						logging.Info("[cli/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
-						repaired = normalized
-					}
-					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
+					applyRepairResult(repairResult, "completion-repair")
 					continue
 				}
 				return "", fmt.Errorf("%s", errText)
 			}
 			view = runtimeView()
-			repairRounds = beginRepairIteration()
 			repairReason := evalDecision.Reason
-			emitWorkflowFailure("repair", repairRounds, repairReason)
-			repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason), view)
-			if err == nil {
-				repairedPlan, err = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
-			}
+			repairResult, nextRepairRounds, ok, err := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, repairReason, view, repairRounds, repairRoundsMax, beginRepairIteration)
+			repairRounds = nextRepairRounds
+			workflowRuntime.SetRounds(dataRounds, repairRounds)
 			if err != nil {
-				if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, view, err); ok {
-					logging.Info("[cli/data] repair planner failed structurally; %s", reason)
-					fallback = protectPlan(fallback)
-					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-					continue
-				} else if contErr != nil {
-					logging.Warning("[cli/data] repair planner continuation fallback failed: %v", contErr)
-				}
 				return "", fmt.Errorf("repair data task node: %w", err)
 			}
-			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, repairReason)
-			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
-				logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
-				repairedPlan = normalized
+			if ok {
+				if strings.TrimSpace(repairResult.FallbackReason) == "" {
+					emitWorkflowFailure("repair", repairRounds, repairReason)
+				}
+				applyRepairResult(repairResult, "repaired")
+				continue
 			}
-			currentPlan = acceptCandidatePlan("repair", repairRounds, repairedPlan)
-			continue
+			return "", fmt.Errorf("%s", repairReason)
 		case dataworkflow.EvaluationDecisionFail:
 			if !evalDecision.Guard.Empty() {
 				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, evalDecision.Guard)
@@ -915,10 +907,10 @@ func dataTaskResumePlanHasShape(plan dataquery.TaskPlan) bool {
 	return dataTaskPlanStatusLooksTerminal(status) || status == "needs_clarification" || status == "blocked"
 }
 
-func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView, repairRounds, repairRoundsMax int, beginRepairIteration func() int) (dataquery.TaskPlan, int, bool, error) {
+func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, errText string, view dataTaskWorkflowRuntimeView, repairRounds, repairRoundsMax int, beginRepairIteration func() int) (dataTaskRepairPlanResult, int, bool, error) {
 	repairer, ok := planner.(DataTaskRepairPlanner)
 	if !ok || repairRounds >= repairRoundsMax {
-		return dataquery.TaskPlan{}, repairRounds, false, nil
+		return dataTaskRepairPlanResult{}, repairRounds, false, nil
 	}
 	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
 		view.CurrentPlan = currentPlan
@@ -936,14 +928,14 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	if err != nil {
 		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", reason)
-			return fallback, repairRounds, true, nil
+			return dataTaskRepairPlanResult{Plan: fallback, FallbackReason: reason}, repairRounds, true, nil
 		} else if contErr != nil {
 			logging.Warning("[cli/data] repair planner continuation fallback failed: %v", contErr)
 		}
-		return dataquery.TaskPlan{}, repairRounds, false, fmt.Errorf("%s\nrepair data task: %w", errText, err)
+		return dataTaskRepairPlanResult{}, repairRounds, false, fmt.Errorf("%s\nrepair data task: %w", errText, err)
 	}
 	repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText)
-	return repairedPlan, repairRounds, true, nil
+	return dataTaskRepairPlanResult{Plan: repairedPlan}, repairRounds, true, nil
 }
 
 func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool, error) {
