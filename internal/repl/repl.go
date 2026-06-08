@@ -2578,53 +2578,26 @@ func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candida
 }
 
 func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool) {
-	records := view.Records
-	currentPlan := view.CurrentPlan
-	continuer, continuationReady := r.dataTaskPlanner.(DataTaskContinuationPlanner)
-	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
-		CurrentPlan:              currentPlan,
-		Records:                  records,
-		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
-		ContinuationPlannerReady: continuationReady,
-		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
-	})
-	if transition.Action != dataworkflow.RepairFailureNeedsContinuation {
+	if !dataTaskRepairFailureContinuationAvailable(r.dataTaskPlanner, view, repairErr) {
 		return dataquery.TaskPlan{}, "", false
 	}
 	ctx := r.startTurn()
-	nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), view)
+	result, _, ok, contErr := dataTaskRepairFailureContinuationWithRuntimeView(ctx, r.dataTaskPlanner, line, r.repoRoot, policy, candidates, view, repairErr)
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_after_repair_failure", types.AgentName("data_planner"), types.PipelineStage("data"))
-	var errText string
-	var fallback dataquery.TaskPlan
-	var fallbackReason string
-	var fallbackOK bool
 	if contErr != nil {
-		errText = contErr.Error()
-		fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(records, currentPlan, contErr)
-	}
-	plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
-		Plan:              nextPlan,
-		ErrorText:         errText,
-		FallbackPlan:      fallback,
-		FallbackReason:    fallbackReason,
-		FallbackAvailable: fallbackOK,
-		FailurePrefix:     "continue data task",
-	})
-	switch plannerDecision.Action {
-	case dataworkflow.PlannerPlanFallbackPlan:
-		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, plannerDecision.Plan), plannerDecision.Reason, true
-	case dataworkflow.PlannerPlanFail:
-		logging.Warning("[repl/data] repair planner continuation fallback failed: %s", plannerDecision.Reason)
+		logging.Warning("[repl/data] repair planner continuation fallback failed: %v", contErr)
 		return dataquery.TaskPlan{}, "", false
 	}
-	nextPlan = plannerDecision.Plan
-	nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
+	if !ok {
+		return dataquery.TaskPlan{}, "", false
+	}
+	nextPlan := result.Plan
 	if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 		logging.Info("[repl/data] normalized continuation-after-repair data task plan: %s", strings.Join(notes, "; "))
 		nextPlan = normalized
 	}
-	return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, nextPlan), firstNonEmptyString(transition.Reason, "repair planner returned no structured plan; continued from typed workflow state"), true
+	return prepareDataTaskWorkflowPlanForExecution(line, candidates, view.Records, nextPlan), result.FallbackReason, true
 }
 
 func (r *REPL) startDataTaskPlanningSpinner() {

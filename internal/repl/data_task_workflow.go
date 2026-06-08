@@ -113,6 +113,60 @@ func dataTaskRunRepairPlannerWithRuntimeView(ctx context.Context, repairer DataT
 	return preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText), nil
 }
 
+func dataTaskRepairFailureContinuationAvailable(planner DataTaskPlanner, view dataTaskWorkflowRuntimeView, repairErr error) bool {
+	_, continuationReady := planner.(DataTaskContinuationPlanner)
+	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
+		CurrentPlan:              view.CurrentPlan,
+		Records:                  view.Records,
+		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
+		ContinuationPlannerReady: continuationReady,
+		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
+	})
+	return transition.Action == dataworkflow.RepairFailureNeedsContinuation
+}
+
+func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataTaskRepairPlanResult, bool, bool, error) {
+	continuer, continuationReady := planner.(DataTaskContinuationPlanner)
+	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
+		CurrentPlan:              view.CurrentPlan,
+		Records:                  view.Records,
+		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
+		ContinuationPlannerReady: continuationReady,
+		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
+	})
+	if transition.Action != dataworkflow.RepairFailureNeedsContinuation {
+		return dataTaskRepairPlanResult{}, false, false, nil
+	}
+	nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, userLine, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
+	var errText string
+	var fallback dataquery.TaskPlan
+	var fallbackReason string
+	var fallbackOK bool
+	if err != nil {
+		errText = err.Error()
+		fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err)
+	}
+	plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
+		Plan:              nextPlan,
+		ErrorText:         errText,
+		FallbackPlan:      fallback,
+		FallbackReason:    fallbackReason,
+		FallbackAvailable: fallbackOK,
+		FailurePrefix:     "continue data task",
+	})
+	switch plannerDecision.Action {
+	case dataworkflow.PlannerPlanFallbackPlan:
+		return dataTaskRepairPlanResult{Plan: plannerDecision.Plan, FallbackReason: plannerDecision.Reason}, true, true, nil
+	case dataworkflow.PlannerPlanFail:
+		return dataTaskRepairPlanResult{}, true, false, fmt.Errorf("%s", plannerDecision.Reason)
+	}
+	nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, plannerDecision.Plan)
+	return dataTaskRepairPlanResult{
+		Plan:           nextPlan,
+		FallbackReason: firstNonEmptyString(transition.Reason, "repair planner returned no structured plan; continued from typed workflow state"),
+	}, true, true, nil
+}
+
 func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {
 	failureRecord := dataTaskWorkflowRecordWithExecutionViolation(current, result, errText, violation)
 	recordsWithFailure := append(append([]dataTaskWorkflowRecord(nil), records...), failureRecord)

@@ -18378,8 +18378,54 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Extract storage-neutral repair-failure continuation fallback so CLI and
-      REPL share the same typed continuation decision core.
+- [x] Extract storage-neutral repair-failure continuation fallback so CLI and
+      REPL share the same typed continuation decision core. Completed in Batch
+      429.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 429: Storage-Neutral Repair Continuation Fallback
+
+Batch 428 extracted the repair planner core, but repair-planner failure still
+had duplicated continuation fallback logic in CLI and REPL. Both paths made the
+same typed decision: if the repair failure is a structured no-plan/no-tool
+failure and the workflow has enough state, ask the continuation planner for the
+next typed batch or fall back to a deterministic next-stage plan.
+
+This batch extracts that decision into storage-neutral helpers. The shared core
+does not render UI, write audit files, or mutate workflow state. It consumes
+typed planner errors and workflow runtime state, calls the continuation planner
+when structurally allowed, routes the result through `PlannerPlanDecision`, and
+returns a `dataTaskRepairPlanResult` with a continuation reason.
+
+Generic invariants:
+
+- repair-failure continuation is driven by typed planner error codes and
+  workflow state, not by prose error text;
+- continuation planner results use the same planner-result reducer as other
+  continuation paths;
+- REPL starts LLM tracing only when the typed transition actually permits a
+  continuation attempt;
+- CLI keeps stdout/final-answer behavior unchanged and uses the same progress
+  channel as before;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `dataTaskRepairFailureContinuationAvailable`.
+- [x] Added `dataTaskRepairFailureContinuationWithRuntimeView`.
+- [x] Rewired `repairDataTaskPlanForCLI` to consume the shared continuation
+      fallback core.
+- [x] Rewired `REPL.dataTaskRepairFailureContinuationFallback` to consume the
+      shared continuation fallback core.
+- [x] Removed the CLI-specific continuation fallback implementation.
+
+Remaining architecture items:
+
+- [ ] Audit the now-shared repair adapter for whether it should move from
+      `internal/repl` into a dedicated data workflow adapter package once the
+      data lane has a clearer package boundary.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
