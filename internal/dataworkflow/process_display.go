@@ -163,6 +163,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 			return appendProcessDisplayContext("本步引用的字段在输入中不存在。", input, field, param, operation, zh)
 		case "material_contract_violation":
 			return appendProcessDisplayContext("本步选择的材料形态还不能被该动作可靠消费。", input, field, param, operation, zh)
+		case "action_dependency_violation":
+			return appendProcessDisplayContext("本步需要的上游结构化产物还没有就绪。", input, field, param, operation, zh)
 		case "value_contract_violation":
 			return appendProcessDisplayContext("字段值不满足本步操作需要的值类型或形状。", input, field, param, operation, zh)
 		case "field_inference_violation":
@@ -196,6 +198,8 @@ func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSum
 		return appendProcessDisplayContext("This step references fields that do not exist in the selected input.", input, field, param, operation, zh)
 	case "material_contract_violation":
 		return appendProcessDisplayContext("This step selected a material shape that the action cannot reliably consume yet.", input, field, param, operation, zh)
+	case "action_dependency_violation":
+		return appendProcessDisplayContext("This step needs an upstream structured artifact that is not ready yet.", input, field, param, operation, zh)
 	case "value_contract_violation":
 		return appendProcessDisplayContext("Field values do not satisfy the value shape required by this operation.", input, field, param, operation, zh)
 	case "field_inference_violation":

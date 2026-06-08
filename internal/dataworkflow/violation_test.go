@@ -191,6 +191,43 @@ func TestWorkflowViolationsFromRecordExecutionProjectsMaterialContractAsTypedAct
 	}
 }
 
+func TestWorkflowViolationsFromRecordExecutionProjectsActionDependencyAsTypedAction(t *testing.T) {
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "reconcile_now",
+			Kind: dataquery.DataActionReconcile,
+		}}},
+		Violations: []dataquery.DataTaskViolation{{
+			Code:          "action_dependency_violation",
+			Summary:       "reconcile_artifacts requires prior contribution records",
+			ActionID:      "reconcile_now",
+			ActionKind:    string(dataquery.DataActionReconcile),
+			Role:          "contributions",
+			Operation:     "reconcile",
+			ExpectedShape: "non-empty contribution ledger",
+			Repairability: dataquery.RepairabilityNeedsRecompute,
+			RepairHint:    string(dataquery.DataActionComputeContribs),
+		}},
+	}}
+
+	violations := WorkflowViolationsFromRecordExecution(records)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v, want one action dependency violation", violations)
+	}
+	got := violations[0]
+	if got.Code != "action_dependency_violation" ||
+		got.ActionID != "reconcile_now" ||
+		got.ActionKind != string(dataquery.DataActionReconcile) ||
+		got.Role != "contributions" ||
+		got.Operation != "reconcile" ||
+		got.Repairability != RepairNeedsTypedAction {
+		t.Fatalf("violation=%+v, want typed dependency projection", got)
+	}
+	if len(got.RepairActionHints) != 1 || got.RepairActionHints[0] != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("RepairActionHints=%v, want compute_contributions", got.RepairActionHints)
+	}
+}
+
 func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
 	summary := BuildWorkflowViolationSummary([]WorkflowViolation{
 		{

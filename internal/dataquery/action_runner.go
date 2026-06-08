@@ -171,6 +171,49 @@ func (e DataMaterialContractError) Violation() DataTaskViolation {
 	}
 }
 
+type DataActionDependencyError struct {
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	Operation     string         `json:"operation,omitempty"`
+	InputAlias    string         `json:"input_alias,omitempty"`
+	InputAliases  []string       `json:"input_aliases,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	RepairAction  DataActionKind `json:"repair_action,omitempty"`
+	Message       string         `json:"message,omitempty"`
+}
+
+func (e DataActionDependencyError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "required upstream data artifact or ledger"
+	}
+	return fmt.Sprintf("%s dependency contract failed: expected %s", kind, expected)
+}
+
+func (e DataActionDependencyError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "action_dependency_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Operation:     strings.TrimSpace(e.Operation),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		InputAlias:    strings.TrimSpace(e.InputAlias),
+		InputAliases:  normalizeMaterialPaths(e.InputAliases),
+		Role:          strings.TrimSpace(e.Role),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "required upstream data artifact or ledger"),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    strings.TrimSpace(string(e.RepairAction)),
+	}
+}
+
 type DataValueContractError struct {
 	ActionKind    DataActionKind `json:"action_kind,omitempty"`
 	Role          string         `json:"role,omitempty"`
@@ -7592,11 +7635,27 @@ func missingComputeContributionFields(headers []string, records []actionRecord, 
 
 func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []ContributionRecord) (DataArtifact, ReconcileReport, error) {
 	if len(contributions) == 0 {
-		return DataArtifact{}, ReconcileReport{}, errors.New("reconcile_artifacts requires prior contribution records")
+		return DataArtifact{}, ReconcileReport{}, DataActionDependencyError{
+			ActionKind:    DataActionReconcile,
+			Role:          "contributions",
+			Operation:     "reconcile",
+			ExpectedShape: "non-empty contribution ledger produced by an earlier typed action",
+			ActualSnippet: "empty contributions",
+			RepairAction:  DataActionComputeContribs,
+			Message:       "reconcile_artifacts requires prior contribution records",
+		}
 	}
 	sums := sumContributionGroups(contributions)
 	if len(sums) == 0 {
-		return DataArtifact{}, ReconcileReport{}, errors.New("reconcile_artifacts could not compute numeric groups from contribution records")
+		return DataArtifact{}, ReconcileReport{}, DataActionDependencyError{
+			ActionKind:    DataActionReconcile,
+			Role:          "contribution_groups",
+			Operation:     "reconcile",
+			ExpectedShape: "numeric contribution groups with group_key, metric, value, and operation",
+			ActualSnippet: "no numeric contribution groups",
+			RepairAction:  DataActionComputeContribs,
+			Message:       "reconcile_artifacts could not compute numeric groups from contribution records",
+		}
 	}
 	keys := make([]string, 0, len(sums))
 	for key := range sums {
@@ -7656,10 +7715,26 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 
 func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileReport, contract OutputContract, artifacts []DataArtifact) (DataArtifact, string, *ReconcileReport, error) {
 	if reconcile == nil {
-		return DataArtifact{}, "", nil, errors.New("assemble_answer requires prior reconcile report")
+		return DataArtifact{}, "", nil, DataActionDependencyError{
+			ActionKind:    DataActionAssembleAnswer,
+			Role:          "reconcile",
+			Operation:     "answer_projection",
+			ExpectedShape: "prior reconcile report produced by an earlier typed action",
+			ActualSnippet: "missing reconcile report",
+			RepairAction:  DataActionReconcile,
+			Message:       "assemble_answer requires prior reconcile report",
+		}
 	}
 	if len(reconcile.Groups) == 0 {
-		return DataArtifact{}, "", nil, errors.New("assemble_answer requires reconcile groups")
+		return DataArtifact{}, "", nil, DataActionDependencyError{
+			ActionKind:    DataActionAssembleAnswer,
+			Role:          "reconcile_groups",
+			Operation:     "answer_projection",
+			ExpectedShape: "reconcile groups with group_key/metric and expected/actual values",
+			ActualSnippet: "empty reconcile groups",
+			RepairAction:  DataActionReconcile,
+			Message:       "assemble_answer requires reconcile groups",
+		}
 	}
 	contract = contract.Normalize()
 	groups := append([]ReconcileGroup(nil), reconcile.Groups...)

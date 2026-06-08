@@ -16913,6 +16913,53 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until the current deduplicated IR
       backlog is either implemented or explicitly marked non-blocking.
 
+### Batch 376: Typed Action Dependency Violations
+
+The next runner boundary was not a new business rule. It was an IR consistency
+gap: `reconcile_artifacts` and `assemble_answer` already have precise upstream
+requirements, but direct runner failures still surfaced as plain error text
+when contribution ledgers, reconcile reports, or reconcile groups were missing.
+Admission guards could catch some plans before execution, yet direct runner
+callers and fallback paths still had to classify prose.
+
+Generic invariants:
+
+- missing upstream ledgers or artifacts are action dependency violations, not
+  runtime failures;
+- the runner states the missing structural role, expected shape, operation, and
+  next typed action hint;
+- workflow repairability treats dependency violations as typed-action work,
+  so the next batch should produce the missing upstream artifact/ledger instead
+  of rewriting the whole workflow;
+- user-facing process output explains the blocker as an upstream structured
+  artifact not ready yet, while full audit data remains available in typed
+  violations;
+- no business semantics or calculation rules are inferred by this layer.
+
+Changes:
+
+- [x] Added a generic `DataActionDependencyError` with
+      `action_dependency_violation`.
+- [x] Converted missing contribution records, missing numeric contribution
+      groups, missing reconcile reports, and missing reconcile groups in the
+      typed runner to dependency violations.
+- [x] Wired dependency errors through `ClassifyExecutionFailure`.
+- [x] Projected `action_dependency_violation` as `RepairNeedsTypedAction` in
+      workflow IR.
+- [x] Added REPL/CLI process-display wording for dependency blockers.
+- [x] Added regression coverage for runner classification, workflow projection,
+      and process display.
+
+Remaining architecture items:
+
+- [ ] Continue converting runner contract families that still return plain
+      error text into typed violations.
+- [ ] Move dependency readiness checks further into the shared ActionDAG
+      admission entrypoint so initial, continuation, repair, and deferred paths
+      share one source of truth.
+- [ ] Keep the real-scenario gate closed until the current typed-violation and
+      runtime-snapshot backlog is implemented or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

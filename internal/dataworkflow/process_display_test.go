@@ -147,6 +147,34 @@ func TestBuildWorkflowProcessDisplayRendersMaterialContractBlocker(t *testing.T)
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersActionDependencyBlocker(t *testing.T) {
+	guard := NewGuardResult("action_dependency_violation", "error", RepairNeedsTypedAction, "reconcile requires contributions", WorkflowViolation{
+		Code:              "action_dependency_violation",
+		ActionID:          "reconcile_now",
+		ActionKind:        string(dataquery.DataActionReconcile),
+		Role:              "contributions",
+		Operation:         "reconcile",
+		RepairActionHints: []string{string(dataquery.DataActionComputeContribs)},
+		Reason:            "reconcile requires contributions",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:  "action_batch",
+		Round: 2,
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "reconcile_now",
+			Kind: dataquery.DataActionReconcile,
+		}}},
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	for _, want := range []string{"当前阻塞：本步需要的上游结构化产物还没有就绪", "操作 reconcile", "可继续：优先生成下一批结构化动作：计算贡献"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("details=%q, want %q", got, want)
+		}
+	}
+}
+
 func TestBuildWorkflowProcessDisplayRendersOutputContractBlocker(t *testing.T) {
 	guard := NewGuardResult("output_contract_violation", "error", RepairNeedsTypedAction, "output contract plain_single_line requires a single line", WorkflowViolation{
 		Code:     "output_contract_violation",

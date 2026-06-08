@@ -282,7 +282,7 @@ func matchingViolationAction(plan dataquery.TaskPlan, violation dataquery.DataTa
 
 func workflowRepairabilityForDataViolation(violation dataquery.DataTaskViolation) ViolationRepairability {
 	switch strings.TrimSpace(violation.Code) {
-	case "field_contract_violation", "material_contract_violation":
+	case "field_contract_violation", "material_contract_violation", "action_dependency_violation":
 		return RepairNeedsTypedAction
 	}
 	switch violation.Repairability {

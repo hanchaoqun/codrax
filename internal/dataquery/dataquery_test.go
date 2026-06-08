@@ -215,6 +215,66 @@ func TestActionRunnerMappingCandidateFieldInferenceIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerReconcileMissingContributionsIsTypedDependency(t *testing.T) {
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "reconcile_now",
+			Kind: DataActionReconcile,
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed action dependency failure")
+	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) {
+		t.Fatalf("err=%T %v, want DataActionDependencyError", err, err)
+	}
+	if depErr.ActionKind != DataActionReconcile || depErr.Role != "contributions" || depErr.RepairAction != DataActionComputeContribs {
+		t.Fatalf("depErr=%+v, want reconcile contribution dependency", depErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_dependency_violation" ||
+		violation.ActionID != "reconcile_now" ||
+		violation.ActionKind != string(DataActionReconcile) ||
+		violation.Role != "contributions" ||
+		violation.RepairHint != string(DataActionComputeContribs) ||
+		!strings.Contains(violation.ExpectedShape, "contribution ledger") {
+		t.Fatalf("violation=%+v, want typed action dependency violation", violation)
+	}
+}
+
+func TestActionRunnerAssembleMissingReconcileIsTypedDependency(t *testing.T) {
+	plan := TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "assemble_now",
+			Kind: DataActionAssembleAnswer,
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir()}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want typed action dependency failure")
+	}
+	var depErr DataActionDependencyError
+	if !errors.As(err, &depErr) {
+		t.Fatalf("err=%T %v, want DataActionDependencyError", err, err)
+	}
+	if depErr.ActionKind != DataActionAssembleAnswer || depErr.Role != "reconcile" || depErr.RepairAction != DataActionReconcile {
+		t.Fatalf("depErr=%+v, want assemble reconcile dependency", depErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_dependency_violation" ||
+		violation.ActionID != "assemble_now" ||
+		violation.ActionKind != string(DataActionAssembleAnswer) ||
+		violation.Role != "reconcile" ||
+		violation.RepairHint != string(DataActionReconcile) ||
+		!strings.Contains(violation.ExpectedShape, "reconcile report") {
+		t.Fatalf("violation=%+v, want typed action dependency violation", violation)
+	}
+}
+
 func TestActionRunnerFilterParamShapeIsTyped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,status\n1,paid\n"), 0o644); err != nil {
