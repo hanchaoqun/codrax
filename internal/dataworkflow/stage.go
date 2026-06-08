@@ -239,6 +239,67 @@ func normalizeStageActionKind(kind dataquery.DataActionKind) dataquery.DataActio
 	return kind
 }
 
+type PreExecutionDecisionAction string
+
+const (
+	PreExecutionExecute      PreExecutionDecisionAction = "execute"
+	PreExecutionFallbackPlan PreExecutionDecisionAction = "fallback_plan"
+	PreExecutionGuard        PreExecutionDecisionAction = "guard"
+)
+
+type PreExecutionFallbackCandidate struct {
+	Source    string             `json:"source,omitempty"`
+	Plan      dataquery.TaskPlan `json:"plan,omitempty"`
+	Reason    string             `json:"reason,omitempty"`
+	Available bool               `json:"available,omitempty"`
+}
+
+type PreExecutionDecisionInput struct {
+	Fallbacks []PreExecutionFallbackCandidate `json:"fallbacks,omitempty"`
+	Guard     GuardResult                     `json:"guard,omitempty"`
+}
+
+type PreExecutionDecision struct {
+	Action PreExecutionDecisionAction `json:"action,omitempty"`
+	Source string                     `json:"source,omitempty"`
+	Plan   dataquery.TaskPlan         `json:"plan,omitempty"`
+	Guard  GuardResult                `json:"guard,omitempty"`
+	Reason string                     `json:"reason,omitempty"`
+}
+
+func (d PreExecutionDecision) HasPlan() bool {
+	return len(d.Plan.Actions) > 0 || strings.TrimSpace(d.Plan.Status) != "" || len(d.Plan.InputPaths) > 0 || strings.TrimSpace(d.Plan.Script) != ""
+}
+
+func DecidePreExecution(input PreExecutionDecisionInput) PreExecutionDecision {
+	for _, candidate := range input.Fallbacks {
+		if !candidate.Available || !taskPlanHasExecutableShape(candidate.Plan) {
+			continue
+		}
+		return PreExecutionDecision{
+			Action: PreExecutionFallbackPlan,
+			Source: strings.TrimSpace(candidate.Source),
+			Plan:   cloneTaskPlanValue(candidate.Plan),
+			Reason: strings.TrimSpace(candidate.Reason),
+		}
+	}
+	if !input.Guard.Empty() {
+		return PreExecutionDecision{
+			Action: PreExecutionGuard,
+			Guard:  input.Guard,
+			Reason: input.Guard.ErrorText(),
+		}
+	}
+	return PreExecutionDecision{Action: PreExecutionExecute}
+}
+
+func taskPlanHasExecutableShape(plan dataquery.TaskPlan) bool {
+	return len(plan.Actions) > 0 ||
+		strings.TrimSpace(plan.Script) != "" ||
+		len(plan.InputPaths) > 0 ||
+		strings.TrimSpace(plan.Status) != ""
+}
+
 func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
 	return ActionContract{
 		Kind:          string(kind),

@@ -360,25 +360,18 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("data task workflow budget exhausted before producing a result")
 		}
-		if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, "missing material coverage before execution"); ok {
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch"})
-			emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
-			fallback = protectPlan(fallback)
+		switch preExecutionDecision := dataTaskPreExecutionDecision(records, currentPlan); preExecutionDecision.Action {
+		case dataworkflow.PreExecutionFallbackPlan:
+			reason := preExecutionDecision.Reason
+			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
+			emitWorkflowReason("continue", dataRounds, reason)
+			fallback := protectPlan(preExecutionDecision.Plan)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch")
+			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		}
-		if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, "broad material custom action requires objective material discovery before execution"); ok {
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "broad material custom action converted to material discovery"})
-			emitWorkflowReason("continue", dataRounds, "broad material custom action converted to material discovery")
-			fallback = protectPlan(fallback)
-			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "broad material custom action converted to material discovery")
-			continue
-		}
-		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
+		case dataworkflow.PreExecutionGuard:
+			guard := preExecutionDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)

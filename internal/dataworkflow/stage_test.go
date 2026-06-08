@@ -195,3 +195,46 @@ func TestDecideTerminalWorkflowIgnoresNonTerminalStatus(t *testing.T) {
 		t.Fatalf("decision=%+v, want no terminal decision", decision)
 	}
 }
+
+func TestDecidePreExecutionPrefersFirstAvailableFallback(t *testing.T) {
+	first := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "cover",
+		Kind: dataquery.DataActionMaterialInventory,
+	}}}
+	second := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "inspect",
+		Kind: dataquery.DataActionInspectMaterial,
+	}}}
+	decision := DecidePreExecution(PreExecutionDecisionInput{
+		Fallbacks: []PreExecutionFallbackCandidate{
+			{Source: "coverage", Plan: first, Reason: "cover required materials", Available: true},
+			{Source: "material_discovery", Plan: second, Reason: "discover materials", Available: true},
+		},
+		Guard: NewGuardResult("staging", "error", RepairNeedsTypedAction, "blocked", WorkflowViolation{Code: "staging"}),
+	})
+	if decision.Action != PreExecutionFallbackPlan || decision.Source != "coverage" || decision.Plan.Actions[0].ID != "cover" {
+		t.Fatalf("decision=%+v, want first fallback", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	if first.Actions[0].ID != "cover" {
+		t.Fatalf("fallback leaked decision mutation: %+v", first)
+	}
+}
+
+func TestDecidePreExecutionUsesGuardWhenNoFallback(t *testing.T) {
+	guard := NewGuardResult("staging", "error", RepairNeedsTypedAction, "blocked", WorkflowViolation{Code: "staging"})
+	decision := DecidePreExecution(PreExecutionDecisionInput{
+		Fallbacks: []PreExecutionFallbackCandidate{{Source: "coverage", Available: true}},
+		Guard:     guard,
+	})
+	if decision.Action != PreExecutionGuard || decision.Guard.Code != "staging" {
+		t.Fatalf("decision=%+v, want guard", decision)
+	}
+}
+
+func TestDecidePreExecutionFallsThroughToExecute(t *testing.T) {
+	decision := DecidePreExecution(PreExecutionDecisionInput{})
+	if decision.Action != PreExecutionExecute || decision.HasPlan() || !decision.Guard.Empty() {
+		t.Fatalf("decision=%+v, want execute", decision)
+	}
+}

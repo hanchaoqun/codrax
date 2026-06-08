@@ -160,6 +160,28 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 	return dataTaskPlanStagingGuardResult(plan)
 }
 
+func dataTaskPreExecutionDecision(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.PreExecutionDecision {
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(records, plan, "missing material coverage before execution")
+	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(records, plan, "broad material custom action requires objective material discovery before execution")
+	return dataworkflow.DecidePreExecution(dataworkflow.PreExecutionDecisionInput{
+		Fallbacks: []dataworkflow.PreExecutionFallbackCandidate{
+			{
+				Source:    "coverage",
+				Plan:      coveragePlan,
+				Reason:    "missing material coverage converted to atomic coverage batch",
+				Available: coverageOK,
+			},
+			{
+				Source:    "material_discovery",
+				Plan:      materialPlan,
+				Reason:    "broad material custom action converted to material discovery",
+				Available: materialOK,
+			},
+		},
+		Guard: dataTaskWorkflowStagingGuardResult(records, plan),
+	})
+}
+
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,

@@ -17543,6 +17543,52 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 412: Pre-Execution Workflow Decision IR
+
+The next duplicated branch was immediately before action execution. CLI and
+REPL both checked the same sequence: if required material coverage still needed
+an atomic batch, run that fallback; otherwise if broad material discovery was
+needed, run that fallback; otherwise if staging guard blocked the batch, enter
+the guard/repair path; otherwise execute.
+
+This batch introduces a reducer-owned pre-execution decision for that ordering.
+Existing typed helpers still construct the fallback candidates and staging
+guard, but the adapter no longer owns the decision priority between fallback,
+guard, and execute.
+
+Generic invariants:
+
+- pre-execution decisions consume typed fallback availability and typed
+  `GuardResult`;
+- fallback ordering is explicit dataworkflow IR, not duplicated UI logic;
+- fallback candidates are structural plans, not business-specific guesses;
+- guard-specific deterministic repair/fallback paths remain unchanged for this
+  batch;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and final-answer contracts are unchanged.
+
+Changes:
+
+- [x] Added `PreExecutionDecisionAction`.
+- [x] Added `PreExecutionFallbackCandidate`.
+- [x] Added `PreExecutionDecisionInput`.
+- [x] Added `PreExecutionDecision`.
+- [x] Added `DecidePreExecution`.
+- [x] Added tests for fallback priority, guard fallback, and execute fallback.
+- [x] Added a REPL compatibility wrapper that builds the pre-execution
+      decision from existing coverage/material/staging helpers.
+- [x] Rewired CLI and REPL pre-execution coverage/material/staging branches to
+      consume the reducer decision.
+
+Remaining architecture items:
+
+- [ ] Expand next-executable decision IR into the staging-guard inner fallback
+      chain.
+- [ ] Expand next-executable decision IR to budget decisions and post-result
+      continuation decisions.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
