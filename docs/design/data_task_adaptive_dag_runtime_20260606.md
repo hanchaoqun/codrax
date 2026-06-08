@@ -18627,6 +18627,56 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 435: Runtime-Owned Failure Recovery Application
+
+The final P0 entrypoint split before real-scenario rerun was validation-failure
+fallback application. `DecideValidationFailureRecovery` already returned a
+typed `FailureRecoveryDecision`, but CLI and REPL each protected the fallback
+plan, audited it, and switched `currentPlan` locally. These fallback plans are
+central to contribution, reconcile, and final projection convergence, so route
+drift here can make real-scenario failures hard to interpret.
+
+This batch adds a generic runtime application method for `FailureRecoveryDecision`.
+The method is not validation-specific: it applies any typed fallback-plan
+recovery to the live workflow runtime with an explicit transition source. The
+current batch uses source `ledger` for validation/completion recovery.
+
+Generic invariants:
+
+- the recovery decision remains typed and reducer-owned;
+- the runtime owns current-plan switching for failure-recovery fallback plans;
+- callers pass an explicit transition source such as `ledger` or `continue`;
+- CLI and REPL only audit/render the returned plan transition;
+- source-code analysis, trace/log analysis, operation, write mode, data action
+  execution, and final output rendering are unchanged.
+
+Changes:
+
+- [x] Added `WorkflowRuntime.ApplyFailureRecoveryDecision`.
+- [x] Rewired CLI terminal-completion, result-validation, and
+      completion-repair fallback plan switching through the runtime decision.
+- [x] Rewired REPL terminal-completion, result-validation, and
+      completion-repair fallback plan switching through the runtime decision.
+- [x] Added runtime regression coverage for fallback application, transition
+      recording, protect hook use, and clone isolation.
+
+Real-scenario gate update:
+
+- [x] The known P0 entrypoint state split for validation failure fallback is now
+      closed.
+- [ ] Run target tests, full tests, and build for this batch.
+- [ ] If verification passes and no new P0 entrypoint-owned state mutation is
+      found in the final grep, rerun the real local scenario.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
+      round counters) where planner/evaluator/checkpoint inputs still mix
+      local adapter variables with runtime views.
+- [ ] Classify older historical `Remaining architecture items` into blocking
+      P0 versus non-blocking P1/P2 before treating real-scenario output as a
+      release gate.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

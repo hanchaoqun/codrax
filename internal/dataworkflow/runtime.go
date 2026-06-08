@@ -66,6 +66,15 @@ type GuardRecoveryRuntimeDecision struct {
 	Applied        bool                         `json:"applied,omitempty"`
 }
 
+type FailureRecoveryRuntimeDecision struct {
+	Recovery FailureRecoveryDecision `json:"recovery,omitempty"`
+	Switch   PlanSwitchDecision      `json:"switch,omitempty"`
+	Plan     dataquery.TaskPlan      `json:"plan,omitempty"`
+	Source   string                  `json:"source,omitempty"`
+	Reason   string                  `json:"reason,omitempty"`
+	Applied  bool                    `json:"applied,omitempty"`
+}
+
 type CandidatePlanAdmissionDecision struct {
 	Admission      ActionDAGAdmissionDecision `json:"admission,omitempty"`
 	Round          int                        `json:"round,omitempty"`
@@ -542,6 +551,31 @@ func (rt *WorkflowRuntime) ApplyGuardRecoveryDecision(round int, decision GuardR
 	return out
 }
 
+func (rt *WorkflowRuntime) ApplyFailureRecoveryDecision(round int, source string, decision FailureRecoveryDecision, protect func(dataquery.TaskPlan) dataquery.TaskPlan) FailureRecoveryRuntimeDecision {
+	out := FailureRecoveryRuntimeDecision{
+		Recovery: cloneFailureRecoveryDecision(decision),
+		Source:   trimRuntimeText(source),
+		Reason:   trimRuntimeText(decision.Reason),
+	}
+	if out.Source == "" {
+		out.Source = "continue"
+	}
+	if decision.Action != FailureRecoveryFallbackPlan || !decision.HasPlan() {
+		return out
+	}
+	if protect == nil {
+		protect = func(plan dataquery.TaskPlan) dataquery.TaskPlan { return plan }
+	}
+	fallback := protect(decision.Plan)
+	out.Plan = cloneTaskPlanValue(fallback)
+	out.Switch = rt.SwitchCurrentPlanWithEvents(round, out.Source, fallback, out.Reason)
+	if TaskPlanHasRuntimeShape(out.Switch.Plan) {
+		out.Plan = cloneTaskPlanValue(out.Switch.Plan)
+	}
+	out.Applied = true
+	return out
+}
+
 func clonePostResultDecision(decision PostResultDecision) PostResultDecision {
 	out := decision
 	out.Plan = cloneTaskPlanValue(decision.Plan)
@@ -554,6 +588,13 @@ func cloneGuardRecoveryDecision(decision GuardRecoveryDecision) GuardRecoveryDec
 	out := decision
 	out.Plan = cloneTaskPlanValue(decision.Plan)
 	out.Remainder = cloneTaskPlanValue(decision.Remainder)
+	out.Guard = cloneGuardResult(decision.Guard)
+	return out
+}
+
+func cloneFailureRecoveryDecision(decision FailureRecoveryDecision) FailureRecoveryDecision {
+	out := decision
+	out.Plan = cloneTaskPlanValue(decision.Plan)
 	out.Guard = cloneGuardResult(decision.Guard)
 	return out
 }

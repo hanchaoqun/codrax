@@ -1485,10 +1485,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			_, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
 			recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
 			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
-				completionPlan := protectPlan(recovery.Plan)
+				runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+				completionPlan := runtimeRecovery.Plan
 				r.emitDataTaskPlanAudit(completionPlan)
 				r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-				currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+				renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+				currentPlan = completionPlan
 				continue
 			}
 			if recovery.Action == dataworkflow.FailureRecoveryFail {
@@ -1845,10 +1847,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
 				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
 					appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
-					completionPlan := protectPlan(recovery.Plan)
+					runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+					completionPlan := runtimeRecovery.Plan
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+					renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+					currentPlan = completionPlan
 					continue
 				}
 				if recovery.Action == dataworkflow.FailureRecoveryFail {
@@ -2079,10 +2083,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairOK, repairRounds < r.dataTaskMaxRepairRounds, errText)
 				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
-					fallback := protectPlan(recovery.Plan)
+					runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+					fallback := runtimeRecovery.Plan
 					r.emitDataTaskPlanAudit(fallback)
 					r.auditDataTaskPlan("ledger", dataRounds+1, fallback)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, fallback, recovery.Reason)
+					renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+					currentPlan = fallback
 					continue
 				}
 				if recovery.Action == dataworkflow.FailureRecoveryFail {

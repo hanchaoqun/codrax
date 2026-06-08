@@ -295,6 +295,41 @@ func TestWorkflowRuntimeAppliesGuardRecoveryFallbackAndQueuesRemainder(t *testin
 	}
 }
 
+func TestWorkflowRuntimeAppliesFailureRecoveryFallback(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{Status: "ready"})
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:     "assemble",
+		Kind:   dataquery.DataActionAssembleAnswer,
+		Params: map[string]string{"format": "plain_single_line"},
+	}}}
+	recovery := FailureRecoveryDecision{
+		Action: FailureRecoveryFallbackPlan,
+		Plan:   fallback,
+		Reason: "complete missing final projection",
+		Guard:  NewGuardResult("completion_gate", "error", RepairNeedsTypedAction, "missing final projection"),
+	}
+	applied := rt.ApplyFailureRecoveryDecision(7, "ledger", recovery, func(plan dataquery.TaskPlan) dataquery.TaskPlan {
+		plan.Goal = "protected"
+		return plan
+	})
+	if !applied.Applied || applied.Source != "ledger" || applied.Plan.Goal != "protected" {
+		t.Fatalf("applied=%+v, want protected ledger fallback", applied)
+	}
+	if got := rt.CurrentPlan(); got.Actions[0].ID != "assemble" || got.Goal != "protected" {
+		t.Fatalf("current=%+v, want applied fallback current plan", got)
+	}
+	transitions := rt.PlanTransitions()
+	if len(transitions) != 1 || transitions[0].Source != "ledger" || transitions[0].Round != 7 {
+		t.Fatalf("transitions=%+v, want ledger transition at round 7", transitions)
+	}
+	fallback.Actions[0].Params["format"] = "mutated"
+	recovery.Plan.Actions[0].ID = "mutated-decision"
+	applied.Plan.Actions[0].ID = "mutated-applied"
+	if rt.CurrentPlan().Actions[0].Params["format"] != "plain_single_line" {
+		t.Fatalf("runtime leaked failure recovery mutation: current=%+v", rt.CurrentPlan())
+	}
+}
+
 func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{

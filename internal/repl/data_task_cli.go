@@ -305,10 +305,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			_, repairReady := cfg.Planner.(DataTaskRepairPlanner)
 			recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < repairRoundsMax, errText)
 			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
-				completionPlan := protectPlan(recovery.Plan)
+				runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+				completionPlan := runtimeRecovery.Plan
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
-				currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+				renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+				currentPlan = completionPlan
 				continue
 			}
 			if recovery.Action == dataworkflow.FailureRecoveryFail {
@@ -545,10 +547,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < repairRoundsMax, errText)
 				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
 					appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
-					completionPlan := protectPlan(recovery.Plan)
+					runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+					completionPlan := runtimeRecovery.Plan
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+					renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+					currentPlan = completionPlan
 					continue
 				}
 				if recovery.Action == dataworkflow.FailureRecoveryFail {
@@ -709,10 +713,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				}
 				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairOK, repairRounds < repairRoundsMax, errText)
 				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
-					fallback := protectPlan(recovery.Plan)
+					runtimeRecovery := workflowRuntime.ApplyFailureRecoveryDecision(dataRounds+1, "ledger", recovery, protectPlan)
+					fallback := runtimeRecovery.Plan
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, fallback)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-					currentPlan = setCurrentPlan("ledger", dataRounds+1, fallback, recovery.Reason)
+					renderAdmissionEvents(runtimeRecovery.Switch.ProcessEvents)
+					currentPlan = fallback
 					continue
 				}
 				if recovery.Action == dataworkflow.FailureRecoveryFail {
