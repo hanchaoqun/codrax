@@ -4678,46 +4678,7 @@ func dataTaskCustomTransformPrerequisitePaths(plan dataquery.TaskPlan, action da
 }
 
 func dataTaskWorkflowCoveredMaterialPaths(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) map[string]bool {
-	covered := map[string]bool{}
-	mark := func(values []string) {
-		for _, value := range cleanDataTaskStrings(values) {
-			normalized := normalizeDataTaskCoveragePath(value)
-			if normalized != "" {
-				covered[normalized] = true
-			}
-		}
-	}
-	var markArtifact func(dataquery.DataArtifact)
-	markArtifact = func(artifact dataquery.DataArtifact) {
-		mark(artifact.SourcePaths)
-		mark(dataTaskArtifactAliasPaths(artifact))
-		for _, child := range artifact.Children {
-			markArtifact(child)
-		}
-	}
-	for _, rec := range records {
-		if rec.Result != nil {
-			mark(rec.Result.ConsumedPaths)
-			for _, artifact := range rec.Result.Artifacts {
-				markArtifact(artifact)
-			}
-		}
-	}
-	mark(plan.InputPaths)
-	if beforeActionIndex > len(plan.Actions) {
-		beforeActionIndex = len(plan.Actions)
-	}
-	for i := 0; i < beforeActionIndex; i++ {
-		action := plan.Actions[i]
-		switch normalizeDataActionKindForWorkflow(action.Kind) {
-		case dataquery.DataActionCustomTransform, dataquery.DataActionMaterialInventory:
-			continue
-		default:
-			mark(action.InputPaths)
-			mark(dataTaskActionOutputAliases(action))
-		}
-	}
-	return covered
+	return dataworkflow.CoveredMaterialPaths(records, plan, beforeActionIndex)
 }
 
 func dataTaskCoveragePathCovered(covered map[string]bool, required string) bool {

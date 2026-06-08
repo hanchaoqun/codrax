@@ -187,6 +187,48 @@ func AvailableActionInputPaths(records []WorkflowRecord, plan dataquery.TaskPlan
 	return available
 }
 
+func CoveredMaterialPaths(records []WorkflowRecord, plan dataquery.TaskPlan, beforeActionIndex int) map[string]bool {
+	covered := map[string]bool{}
+	mark := func(values []string) {
+		for _, value := range cleanStrings(values) {
+			if normalized := normalizeCoveragePath(value); normalized != "" {
+				covered[normalized] = true
+			}
+		}
+	}
+	var markArtifact func(dataquery.DataArtifact)
+	markArtifact = func(artifact dataquery.DataArtifact) {
+		mark(artifact.SourcePaths)
+		mark(ArtifactAliases(artifact))
+		for _, child := range artifact.Children {
+			markArtifact(child)
+		}
+	}
+	for _, rec := range records {
+		if rec.Result != nil {
+			mark(rec.Result.ConsumedPaths)
+			for _, artifact := range rec.Result.Artifacts {
+				markArtifact(artifact)
+			}
+		}
+	}
+	mark(plan.InputPaths)
+	if beforeActionIndex > len(plan.Actions) {
+		beforeActionIndex = len(plan.Actions)
+	}
+	for i := 0; i < beforeActionIndex; i++ {
+		action := plan.Actions[i]
+		switch NormalizeActionKind(action.Kind) {
+		case dataquery.DataActionCustomTransform, dataquery.DataActionMaterialInventory:
+			continue
+		default:
+			mark(action.InputPaths)
+			mark(ActionOutputAliases(action))
+		}
+	}
+	return covered
+}
+
 func ActionOutputAliases(action dataquery.DataAction) []string {
 	var out []string
 	if id := strings.TrimSpace(action.ID); id != "" {

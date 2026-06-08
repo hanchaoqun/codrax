@@ -17155,6 +17155,44 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 382: Workflow-Owned Material Coverage Set
+
+Available action inputs moved into workflow IR, but coverage-material set
+construction still lived in the REPL adapter. The two sets are intentionally
+different: material coverage tracks what has been covered for the workflow
+contract, while action-input availability tracks what a later typed action can
+execute against.
+
+Generic invariants:
+
+- material coverage is MaterialGraph state, not UI state;
+- coverage may include all top-level plan inputs, executed consumed paths,
+  generated artifact aliases, artifact source paths, and earlier non-terminal
+  typed action outputs;
+- action-input availability remains stricter for top-level logical seeds and
+  only treats external-looking top-level materials as executable;
+- custom transforms and material-inventory actions do not create reusable
+  coverage aliases before execution;
+- no business role is inferred from a path or filename.
+
+Changes:
+
+- [x] Added workflow-owned `CoveredMaterialPaths`.
+- [x] Rewired REPL coverage-material helper to call the workflow reducer.
+- [x] Added regression coverage proving coverage includes top-level logical
+      inputs while action-input availability does not.
+- [x] Added regression coverage for consumed paths, artifact aliases/source
+      paths, and prior typed action outputs.
+
+Remaining architecture items:
+
+- [ ] Continue migrating action-specific field-reference and role-path
+      reducers from REPL-local helpers into dataworkflow.
+- [ ] Continue moving deterministic fallback selection out of REPL callbacks
+      and into reducer-owned decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

@@ -62,6 +62,46 @@ func TestActionInputAvailabilityGuardUsesWorkflowOwnedAvailableSet(t *testing.T)
 	}
 }
 
+func TestCoveredMaterialPathsUsesWorkflowCoverageSemantics(t *testing.T) {
+	records := []WorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"consumed.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:          "records",
+				SourcePaths: []string{"source.csv"},
+				Fields:      map[string]string{"artifact_path": "generated/records.json"},
+			}},
+		},
+	}}
+	plan := dataquery.TaskPlan{
+		InputPaths: []string{"logical_seed"},
+		Actions: []dataquery.DataAction{{
+			ID:             "derive",
+			Kind:           dataquery.DataActionDeriveFields,
+			InputPaths:     []string{"records"},
+			OutputArtifact: "derived.json",
+		}},
+	}
+	covered := CoveredMaterialPaths(records, plan, 1)
+	for _, want := range []string{"consumed.csv", "source.csv", "records", "generated/records.json", "logical_seed", "derived.json"} {
+		if !CoveragePathCovered(covered, want) {
+			t.Fatalf("covered=%v, want %s covered", covered, want)
+		}
+	}
+}
+
+func TestAvailableActionInputPathsKeepsTopLevelLogicalSeedsOut(t *testing.T) {
+	records := []WorkflowRecord{{Result: &dataquery.Result{ConsumedPaths: []string{"consumed.csv"}}}}
+	plan := dataquery.TaskPlan{InputPaths: []string{"logical_seed"}}
+	available := AvailableActionInputPaths(records, plan, 0)
+	if CoveragePathCovered(available, "logical_seed") {
+		t.Fatalf("available=%v, logical seed should not become executable input", available)
+	}
+	if !CoveragePathCovered(available, "consumed.csv") {
+		t.Fatalf("available=%v, consumed.csv should remain executable", available)
+	}
+}
+
 func TestActionInputAvailabilityGuardBlocksUnavailableInputs(t *testing.T) {
 	guard := ActionInputAvailabilityGuardResult(ActionInputAvailabilityGuardInput{
 		Records: []WorkflowRecord{{Result: &dataquery.Result{ConsumedPaths: []string{"orders.csv"}}}},
