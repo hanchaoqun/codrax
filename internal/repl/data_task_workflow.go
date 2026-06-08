@@ -5418,61 +5418,34 @@ type dataTaskPromptRecordBudget struct {
 }
 
 func renderDataTaskRecordsForPromptWithBudget(records []dataTaskWorkflowRecord, budget dataTaskPromptRecordBudget) string {
-	if len(records) == 0 {
-		return "(none)\n"
-	}
-	if budget.MaxRecords <= 0 {
-		budget.MaxRecords = 1
-	}
-	start := len(records) - budget.MaxRecords
-	if start < 0 {
-		start = 0
-	}
-	views := make([]dataTaskWorkflowPromptRecord, 0, len(records)-start)
-	for i := start; i < len(records); i++ {
-		rec := records[i]
-		view := dataTaskWorkflowPromptRecord{
-			Round:               i + 1,
-			PlanStatus:          strings.TrimSpace(rec.Plan.Status),
-			Goal:                strings.TrimSpace(rec.Plan.Goal),
-			Actions:             compactDataTaskActionsForPromptWithParamLimit(rec.Plan.Actions, budget.MaxActions, budget.ActionScriptLimit, budget.ActionParamLimit),
-			InputPaths:          append([]string(nil), rec.Plan.InputPaths...),
-			OutputContract:      rec.Plan.OutputContract.Normalize(),
-			SuccessCriteria:     append([]string(nil), rec.Plan.SuccessCriteria...),
-			MissingObservations: append([]string(nil), rec.Plan.MissingObservations...),
-			NextBatch:           strings.TrimSpace(rec.Plan.NextBatch),
-			WhyThisBatch:        strings.TrimSpace(rec.Plan.WhyThisBatch),
-			ContinueAfter:       rec.Plan.ContinueAfter,
-			ScriptPreview:       clampDataTaskWorkflowText(rec.Plan.Script, budget.ScriptPreviewLimit),
-			Error:               clampDataTaskWorkflowText(rec.Err, budget.ErrorLimit),
-		}
-		if rec.Result != nil {
-			view.Result = compactDataTaskResultPromptViewWithArtifactLimits(*rec.Result,
-				budget.ResultAnswerLimit,
-				budget.ResultAuditLimit,
-				budget.ResultDecisionLimit,
-				budget.ResultRuleLimit,
-				budget.ResultContribLimit,
-				budget.ResultArtifactLimit,
-				budget.ResultAccessLimit,
-				budget.ResultMaterialLimit,
-			)
-		}
-		if rec.Evaluation != nil {
-			eval := *rec.Evaluation
-			eval.Reason = clampDataTaskWorkflowText(eval.Reason, budget.EvalReasonLimit)
-			view.Evaluation = &eval
-		}
-		views = append(views, view)
-	}
-	raw, err := json.MarshalIndent(views, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("render data workflow records failed: %v\n", err)
-	}
-	if start > 0 {
-		return fmt.Sprintf("(omitted %d older data rounds; workflow_state_json is authoritative for cumulative coverage, counts, and next-stage state)\n%s", start, string(raw))
-	}
-	return string(raw)
+	return dataworkflow.RenderWorkflowRecordViewsForPrompt(records, dataworkflow.WorkflowRecordViewBudget{
+		MaxRecords:          budget.MaxRecords,
+		MaxActions:          budget.MaxActions,
+		ActionScriptLimit:   budget.ActionScriptLimit,
+		ActionParamLimit:    budget.ActionParamLimit,
+		ScriptPreviewLimit:  budget.ScriptPreviewLimit,
+		ErrorLimit:          budget.ErrorLimit,
+		EvalReasonLimit:     budget.EvalReasonLimit,
+		ResultAnswerLimit:   budget.ResultAnswerLimit,
+		ResultAuditLimit:    budget.ResultAuditLimit,
+		ResultDecisionLimit: budget.ResultDecisionLimit,
+		ResultRuleLimit:     budget.ResultRuleLimit,
+		ResultContribLimit:  budget.ResultContribLimit,
+		ResultArtifactLimit: budget.ResultArtifactLimit,
+		ResultAccessLimit:   budget.ResultAccessLimit,
+		ResultMaterialLimit: budget.ResultMaterialLimit,
+	}, func(result dataquery.Result, budget dataworkflow.WorkflowRecordViewBudget) any {
+		return compactDataTaskResultPromptViewWithArtifactLimits(result,
+			budget.ResultAnswerLimit,
+			budget.ResultAuditLimit,
+			budget.ResultDecisionLimit,
+			budget.ResultRuleLimit,
+			budget.ResultContribLimit,
+			budget.ResultArtifactLimit,
+			budget.ResultAccessLimit,
+			budget.ResultMaterialLimit,
+		)
+	})
 }
 
 func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataTaskWorkflowStateView {

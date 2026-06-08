@@ -14054,7 +14054,57 @@ Remaining architecture items:
 - [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
       issue discovery behind package-level artifact/schema inputs instead of
       REPL prompt views.
-- [ ] Replace planner/evaluator prompts that consume raw record slices with a
+- [x] Replace planner/evaluator prompts that consume raw record slices with a
       snapshot plus bounded record views.
+- [ ] Convert process rendering to consume runtime/reducer events rather than
+      REPL-local stage summaries.
+
+### Batch 311: Package-Level Bounded Workflow Record Views
+
+Planner and evaluator prompts still need compact recent-round context, but the
+mechanics of choosing the bounded window, clipping action scripts/params,
+clipping errors/evaluation reasons, and emitting stable JSON are not REPL
+logic. Keeping that code in the REPL made prompt input construction look like
+another local workflow state machine.
+
+This batch adds a package-level bounded record-view renderer in
+`internal/dataworkflow`. The REPL keeps the existing data-result compactor for
+now because it still carries artifact-access and material-set prompt views, but
+record slicing and JSON rendering now live behind a package-neutral
+`WorkflowRecordView` boundary.
+
+Generic invariants:
+
+- bounded record views are derived from `WorkflowRecord`, not REPL-private
+  records;
+- action purpose, scripts, params, errors, and evaluation reasons are clipped
+  by explicit budget fields;
+- result detail is supplied through a typed callback so entrypoint-specific
+  prompt views can migrate gradually without changing planner semantics;
+- the omission banner continues to point models at `workflow_state_json` as the
+  authoritative cumulative state instead of compact samples;
+- no prompt prose is used as a hard gate and no business-domain field names are
+  introduced.
+
+Changes:
+
+- [x] Added `WorkflowRecordView`.
+- [x] Added `WorkflowRecordViewBudget`.
+- [x] Added `BuildWorkflowRecordViews` and
+      `RenderWorkflowRecordViewsForPrompt`.
+- [x] Added package-level action/param/text/slice compactors for record views.
+- [x] Rewired REPL `renderDataTaskRecordsForPromptWithBudget` to delegate
+      bounded record rendering to `dataworkflow`, keeping only the existing
+      result-view callback local.
+- [x] Added regression coverage for bounded windows, text clipping, result
+      callback rendering, sorted/truncated params, and omission banners.
+
+Remaining architecture items:
+
+- [ ] Move result prompt compaction, artifact-access view, and material-set
+      handle projection behind package-level artifact/schema inputs.
+- [ ] Move field-contract, zero-match, unmatched-resolution, and zero-eligible
+      issue discovery behind package-level artifact/schema inputs instead of
+      REPL prompt views.
 - [ ] Convert process rendering to consume runtime/reducer events rather than
       REPL-local stage summaries.
