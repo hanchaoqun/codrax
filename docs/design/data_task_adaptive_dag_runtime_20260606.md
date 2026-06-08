@@ -16525,3 +16525,46 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 365: Shared Evaluator Decision Gate In DataWorkflow IR
+
+Batch 364 added the correct behavior but left the selector and evaluation
+rewrite helpers in the REPL planner file. That was still adapter ownership of a
+workflow-state decision. The next IR cleanup moves the evaluator gate into
+`internal/dataworkflow` so CLI, REPL, tests, and future workflow runners can
+consume the same typed decision API.
+
+Generic invariants:
+
+- reducer-owned workflow violations decide whether an evaluator status can be
+  accepted;
+- adapter layers provide model output and workflow records, but do not own the
+  hard gate;
+- warning diagnostics remain soft unless a later reducer contract promotes
+  them to error;
+- under-specified `repair_node` decisions are enriched from typed blocker
+  fields instead of relying on model prose;
+- clarification repairability maps to `needs_clarification` through typed IR.
+
+Changes:
+
+- [x] Added `dataworkflow.GateEvaluationWithWorkflowViolations`.
+- [x] Added `dataworkflow.FirstHardWorkflowViolation` and
+      `dataworkflow.EvaluationFromWorkflowViolation`.
+- [x] Rewired evaluator fallback and normal evaluator normalization to call the
+      shared dataworkflow gate.
+- [x] Deleted the REPL-local hard-violation selector and evaluation rewrite
+      helpers.
+- [x] Added dataworkflow-level tests for optimistic completion, under-specified
+      repair nodes, warning-only diagnostics, and clarification repairability.
+- [x] Kept REPL evaluator tests as integration coverage over the shared API.
+
+Remaining architecture items:
+
+- [ ] Continue moving action admission/deferred lifecycle decisions into
+      WorkflowRuntime methods so CLI and REPL do not duplicate orchestration
+      branches.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

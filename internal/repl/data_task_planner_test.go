@@ -1800,7 +1800,7 @@ func TestDataTaskEvaluatorModelCompleteBlockedByTypedWorkflowViolation(t *testin
 }
 
 func TestDataTaskEvaluatorWarningWorkflowViolationDoesNotBlock(t *testing.T) {
-	if violation, ok := dataTaskFirstWorkflowViolationForEvaluation([]dataworkflow.WorkflowViolation{{
+	if violation, ok := dataworkflow.FirstHardWorkflowViolation([]dataworkflow.WorkflowViolation{{
 		Code:          "zero_match_filter",
 		Severity:      "warning",
 		Repairability: dataworkflow.RepairNeedsTypedAction,

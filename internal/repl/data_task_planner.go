@@ -521,8 +521,12 @@ func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Respo
 		return dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
 	}
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if violation, ok := dataTaskFirstWorkflowViolationForEvaluation(state.WorkflowViolations); ok {
-		return dataTaskEvaluationFromWorkflowViolation(reason, "", violation)
+	if eval, ok := dataworkflow.GateEvaluationWithWorkflowViolations(dataquery.Evaluation{
+		Status:     dataquery.EvalContinueData,
+		Confidence: "low",
+		Reason:     reason,
+	}, state.WorkflowViolations); ok {
+		return eval
 	}
 	last := records[len(records)-1]
 	if strings.TrimSpace(last.Err) != "" {
@@ -542,15 +546,8 @@ func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Respo
 
 func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, eval dataquery.Evaluation) dataquery.Evaluation {
 	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
-	if violation, ok := dataTaskFirstWorkflowViolationForEvaluation(state.WorkflowViolations); ok {
-		if eval.Status != dataquery.EvalRepairNode {
-			return dataTaskEvaluationFromWorkflowViolation(eval.Reason, string(eval.Status), violation)
-		}
-		if strings.TrimSpace(eval.ActionID) == "" && strings.TrimSpace(eval.ActionKind) == "" && strings.TrimSpace(eval.RepairLocus) == "" {
-			fromViolation := dataTaskEvaluationFromWorkflowViolation(eval.Reason, string(eval.Status), violation)
-			fromViolation.Confidence = firstNonEmptyString(eval.Confidence, fromViolation.Confidence)
-			return fromViolation
-		}
+	if gated, ok := dataworkflow.GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
+		return gated
 	}
 	if eval.Status != dataquery.EvalContinueTransform {
 		return eval
@@ -567,47 +564,6 @@ func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, ev
 		eval.Reason = note
 	}
 	return eval
-}
-
-func dataTaskFirstWorkflowViolationForEvaluation(violations []dataworkflow.WorkflowViolation) (dataworkflow.WorkflowViolation, bool) {
-	for _, violation := range violations {
-		if strings.TrimSpace(violation.Code) == "" {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(violation.Severity)) {
-		case "warning", "warn":
-			continue
-		default:
-			return violation, true
-		}
-	}
-	return dataworkflow.WorkflowViolation{}, false
-}
-
-func dataTaskEvaluationFromWorkflowViolation(baseReason, originalStatus string, violation dataworkflow.WorkflowViolation) dataquery.Evaluation {
-	status := dataquery.EvalRepairNode
-	if violation.Repairability == dataworkflow.RepairNeedsClarification {
-		status = dataquery.EvalNeedsClarification
-	}
-	reason := strings.TrimSpace(baseReason)
-	if reason == "" {
-		reason = "deterministic workflow state has a typed blocker"
-	}
-	if originalStatus = strings.TrimSpace(originalStatus); originalStatus != "" {
-		reason += "; original_status=" + originalStatus
-	}
-	reason += "; typed_violation=" + strings.TrimSpace(violation.Code)
-	if strings.TrimSpace(violation.Reason) != "" {
-		reason += "; " + strings.TrimSpace(violation.Reason)
-	}
-	return dataquery.Evaluation{
-		Status:      status,
-		Confidence:  "low",
-		Reason:      reason,
-		ActionID:    strings.TrimSpace(violation.ActionID),
-		ActionKind:  strings.TrimSpace(violation.ActionKind),
-		RepairLocus: firstNonEmptyString(strings.TrimSpace(violation.InputAlias), strings.TrimSpace(violation.Param), strings.TrimSpace(violation.Field), strings.TrimSpace(violation.OutputAlias)),
-	}
 }
 
 func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
