@@ -16754,6 +16754,59 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
+### Batch 391: Relation-Aware Enrichment Scaffolds
+
+The next IR seam was action scaffold generation. `enrich_records` scaffolds
+were still partly built from local field-name candidates: if two record
+artifacts did not share a key, the scaffold layer could still suggest lookup
+fields by choosing plausible-looking source/reference fields. That was useful
+as a hint, but too weak for a hard convergence path because it made the planner
+see relation actions before the ArtifactGraph had proven a relation.
+
+Generic invariants:
+
+- relation actions should be proposed from ArtifactGraph relation IR, not
+  local field guessing;
+- an enrich scaffold needs a structural key pair and lookup value fields from
+  common schema keys or typed relation metadata;
+- typed metadata means durable artifact fields such as source/base field lists,
+  lookup/reference field lists, lineage to the base record artifact, and
+  ledger key/value columns;
+- relation metadata is structural only. It does not decide business meaning,
+  choose canonical values, or infer a user's domain semantics;
+- when a reference table has no structural key relation yet, the workflow
+  should continue through candidate/normalization/diagnostic typed actions
+  rather than presenting enrich as ready.
+
+Changes:
+
+- [x] Extended `ArtifactRelation` construction to consume typed relation
+      metadata from artifact diagnostics plus lineage, while preserving the
+      existing common-key relation path.
+- [x] Rewired `EnrichRecordScaffolds` to consume `ArtifactRelation` instead of
+      using `candidateMatchFields` fallback key selection.
+- [x] Added normalize-entity artifact headers and structural field metadata so
+      later ArtifactGraph turns can recover source/base field contracts without
+      reading model prose.
+- [x] Updated planner/evaluator guidance to surface
+      `workflow_state_json.artifact_graph.relations` as structural key/value
+      hints, not business evidence.
+- [x] Updated regression coverage for typed metadata relations and for enrich
+      scaffolds that avoid non-key guessed fields.
+
+Remaining architecture items:
+
+- [ ] Feed relation confidence, row coverage, and unmatched counts into
+      evaluator decisions as typed ArtifactGraph state rather than prompt-only
+      samples.
+- [ ] Move remaining normalize/mapping scaffold generation onto relation or
+      candidate IR when precise action-role evidence is available.
+- [ ] Continue narrowing prompt/evaluator input assembly to consume
+      `WorkflowRuntimeSnapshot` directly.
+- [ ] Keep the real-scenario gate closed until the current IR backlog is
+      implemented or explicitly classified as non-blocking operational/eval
+      work.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

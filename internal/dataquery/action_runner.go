@@ -1494,7 +1494,8 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 			ReferencePaths:    referencePaths,
 			EvidencePaths:     evidencePaths,
 			Summary:           "normalized 0 entity value(s)",
-			Fields:            map[string]string{"count": "0"},
+			Headers:           entityResolutionArtifactHeaders(),
+			Fields:            entityResolutionArtifactFields(action, 0),
 			Children:          children,
 		}
 		if requireNonEmpty {
@@ -1533,9 +1534,31 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 		ReferencePaths:    referencePaths,
 		EvidencePaths:     evidencePaths,
 		Summary:           fmt.Sprintf("normalized %d entity value(s)", len(records)),
-		Fields:            map[string]string{"count": fmt.Sprintf("%d", len(records))},
+		Headers:           entityResolutionArtifactHeaders(),
+		Fields:            entityResolutionArtifactFields(action, len(records)),
 		Children:          children,
 	}, records, nil
+}
+
+func entityResolutionArtifactHeaders() []string {
+	return []string{"item_id", "source_value", "canonical_id", "canonical_label", "status", "reason"}
+}
+
+func entityResolutionArtifactFields(action DataAction, count int) map[string]string {
+	fields := map[string]string{"count": fmt.Sprintf("%d", count)}
+	if value := firstNonEmptyString(action.Params["source_fields"], action.Params["source_field"], action.Params["name_fields"]); strings.TrimSpace(value) != "" {
+		fields["source_fields"] = value
+	}
+	if value := firstNonEmptyString(action.Params["reference_name_fields"], action.Params["reference_fields"], action.Params["mapping_source_fields"]); strings.TrimSpace(value) != "" {
+		fields["reference_fields"] = value
+	}
+	if value := strings.TrimSpace(action.Params["canonical_id_field"]); value != "" {
+		fields["canonical_id_field"] = value
+	}
+	if value := strings.TrimSpace(action.Params["canonical_label_field"]); value != "" {
+		fields["canonical_label_field"] = value
+	}
+	return fields
 }
 
 func entityResolutionLineageRoles(action DataAction, consumed []string, records []EntityResolutionRecord) ([]string, []string, []string) {

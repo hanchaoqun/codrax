@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -28,7 +29,13 @@ func ArtifactRelationsFromProjections(projections []ArtifactSchemaProjection, li
 			if lookup.NodeClass == ArtifactNodeClassDiagnosticChild || lookup.NodeClass == ArtifactNodeClassWorkflowLedger {
 				continue
 			}
-			baseFields, lookupFields := structuralRelationFields(base.Fields, lookup.Fields, "", "", 4)
+			baseFields, lookupFields, evidence := relationFieldsFromTypedMetadata(base, lookup, 4)
+			score := len(baseFields) + 6
+			if len(baseFields) == 0 || len(lookupFields) == 0 {
+				baseFields, lookupFields = structuralRelationFields(base.Fields, lookup.Fields, "", "", 4)
+				evidence = []string{"common schema key fields"}
+				score = len(baseFields)
+			}
 			if len(baseFields) == 0 || len(lookupFields) == 0 {
 				continue
 			}
@@ -36,8 +43,6 @@ func ArtifactRelationsFromProjections(projections []ArtifactSchemaProjection, li
 			if len(valueFields) == 0 {
 				continue
 			}
-			score := len(baseFields)
-			evidence := []string{"common schema key fields"}
 			if ArtifactLineageContains(lookup, baseAlias) || ArtifactLineageContains(base, lookupAlias) {
 				score += 4
 				evidence = append(evidence, "compatible artifact lineage")
@@ -95,6 +100,75 @@ func relationLookupValueFields(fields, keyFields []string, limit int) []string {
 			continue
 		}
 		seen[key] = true
+		out = append(out, field)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func relationFieldsFromTypedMetadata(base, lookup ArtifactSchemaProjection, limit int) ([]string, []string, []string) {
+	if limit <= 0 || !ArtifactLineageContains(lookup, firstArtifactAlias(base)) {
+		return nil, nil, nil
+	}
+	baseFields := relationMetadataFieldList(lookup, "base_fields", "source_fields", "source_field")
+	if len(baseFields) == 0 {
+		return nil, nil, nil
+	}
+	lookupFields := relationMetadataFieldList(lookup, "lookup_fields", "mapping_source_fields", "reference_fields")
+	if len(lookupFields) == 0 && ExistingField(lookup.Fields, "source_value") != "" {
+		lookupFields = []string{ExistingField(lookup.Fields, "source_value")}
+	}
+	baseFields = relationExistingFields(base.Fields, baseFields, limit)
+	lookupFields = relationExistingFields(lookup.Fields, lookupFields, limit)
+	if len(baseFields) == 0 || len(lookupFields) == 0 {
+		return nil, nil, nil
+	}
+	if len(baseFields) > len(lookupFields) {
+		baseFields = baseFields[:len(lookupFields)]
+	} else if len(lookupFields) > len(baseFields) {
+		lookupFields = lookupFields[:len(baseFields)]
+	}
+	return baseFields, lookupFields, []string{"typed relation metadata"}
+}
+
+func relationMetadataFieldList(projection ArtifactSchemaProjection, keys ...string) []string {
+	for _, key := range keys {
+		if projection.Diagnostics == nil {
+			continue
+		}
+		if fields := parseRelationFieldList(projection.Diagnostics[key]); len(fields) > 0 {
+			return fields
+		}
+	}
+	return nil
+}
+
+func parseRelationFieldList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var values []string
+	if strings.HasPrefix(raw, "[") {
+		if err := json.Unmarshal([]byte(raw), &values); err == nil {
+			return cleanStrings(values)
+		}
+	}
+	return cleanStrings(strings.Split(raw, ","))
+}
+
+func relationExistingFields(available, candidates []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	for _, candidate := range cleanStrings(candidates) {
+		field := ExistingField(available, candidate)
+		if field == "" || !FieldUsableForRecordJoin(field) {
+			continue
+		}
 		out = append(out, field)
 		if len(out) >= limit {
 			break

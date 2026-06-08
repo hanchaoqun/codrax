@@ -534,56 +534,37 @@ func EnrichRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Acti
 		return nil
 	}
 	var out []ActionScaffold
-	for _, base := range records {
-		if !ArtifactUsableForRecordAction(base) {
+	for _, relation := range ArtifactRelationsFromProjections(records, -1) {
+		if len(relation.BaseFields) == 0 || len(relation.LookupFields) == 0 || len(relation.LookupValueFields) == 0 {
 			continue
 		}
-		baseAlias := firstProjectionAlias(base)
-		if baseAlias == "" || len(base.Fields) == 0 {
+		base, ok := ArtifactSchemaByAlias(records, relation.BaseAlias)
+		if !ok {
 			continue
 		}
-		for _, lookup := range records {
-			lookupAlias := firstProjectionAlias(lookup)
-			if lookupAlias == "" || lookupAlias == baseAlias || len(lookup.Fields) == 0 || lookup.NodeClass == ArtifactNodeClassDiagnosticChild {
-				continue
-			}
-			common := commonProjectionFields(base.Fields, lookup.Fields, 4)
-			baseFields := common
-			lookupFields := common
-			if len(baseFields) == 0 {
-				baseFields = candidateMatchFields(base.Fields, 4)
-				lookupFields = candidateMatchFields(lookup.Fields, 4)
-			}
-			if len(baseFields) == 0 || len(lookupFields) == 0 {
-				continue
-			}
-			valueField := firstNonKeyField(lookup.Fields, lookupFields[:1])
-			if valueField == "" {
-				continue
-			}
-			spec := []map[string]any{{
-				"lookup_path":        lookupAlias,
-				"base_fields":        baseFields,
-				"lookup_fields":      lookupFields,
-				"lookup_value_field": valueField,
-				"target_field":       "<new field to materialize on base records>",
-				"match_mode":         "exact|contains|mapping_contains_source|source_contains_mapping",
-			}}
-			out = append(out, ActionScaffold{
-				Kind:       string(dataquery.DataActionEnrichRecords),
-				Executable: false,
-				UseWhen:    "apply lookup/reference values onto base records while preserving base row cardinality",
-				InputPaths: []string{baseAlias, lookupAlias},
-				Fields:     clampStrings(base.Fields, 20),
-				ParamsTemplate: map[string]string{
-					"base_path":    baseAlias,
-					"lookup_specs": mustJSON(spec),
-				},
-				Note: "Use enrich_records when reference values should be added to base rows. Do not use it to decide business semantics; choose fields from observed artifacts.",
-			})
-			if len(out) >= limit {
-				return out
-			}
+		valueField := relation.LookupValueFields[0]
+		spec := []map[string]any{{
+			"lookup_path":        relation.LookupAlias,
+			"base_fields":        relation.BaseFields,
+			"lookup_fields":      relation.LookupFields,
+			"lookup_value_field": valueField,
+			"target_field":       "<new field to materialize on base records>",
+			"match_mode":         firstNonEmpty(relation.MatchMode, "exact"),
+		}}
+		out = append(out, ActionScaffold{
+			Kind:       string(dataquery.DataActionEnrichRecords),
+			Executable: false,
+			UseWhen:    "apply lookup/reference values onto base records while preserving base row cardinality",
+			InputPaths: []string{relation.BaseAlias, relation.LookupAlias},
+			Fields:     clampStrings(base.Fields, 20),
+			ParamsTemplate: map[string]string{
+				"base_path":    relation.BaseAlias,
+				"lookup_specs": mustJSON(spec),
+			},
+			Note: "Use enrich_records when a structural artifact_graph relation already pairs base and lookup key fields. Choose target_field from lookup value fields; do not invent key fields.",
+		})
+		if len(out) >= limit {
+			return out
 		}
 	}
 	return out

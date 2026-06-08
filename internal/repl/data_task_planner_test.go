@@ -7626,12 +7626,14 @@ func TestDataTaskWorkflowStateIncludesEnrichRecordsScaffold(t *testing.T) {
 					},
 				},
 				{
-					ID:      "vendor_map",
-					Kind:    "normalize_entities",
-					Headers: []string{"source_value", "canonical_id", "canonical_label", "status"},
+					ID:                "vendor_map",
+					Kind:              "normalize_entities",
+					SourceRecordPaths: []string{"records"},
+					Headers:           []string{"source_value", "canonical_id", "canonical_label", "status"},
 					Fields: map[string]string{
 						"artifact_aliases": "vendor_map,vendor_map.json",
 						"json_shape":       "array(len=1,item=object(keys=source_value,canonical_id,canonical_label,status))",
+						"source_fields":    "vendor_name",
 					},
 				},
 			},
@@ -7682,10 +7684,10 @@ func TestDataTaskWorkflowStateIncludesReferenceTableEnrichScaffold(t *testing.T)
 				{
 					ID:      "records",
 					Kind:    "derive_fields",
-					Headers: []string{"id", "raw_label", "description", "amount"},
+					Headers: []string{"id", "raw_label", "ref_code", "description", "amount"},
 					Fields: map[string]string{
 						"artifact_aliases": "records",
-						"json_shape":       "array(len=2,item=object(keys=id,raw_label,description,amount))",
+						"json_shape":       "array(len=2,item=object(keys=id,raw_label,ref_code,description,amount))",
 					},
 				},
 				{
@@ -7708,9 +7710,14 @@ func TestDataTaskWorkflowStateIncludesReferenceTableEnrichScaffold(t *testing.T)
 		}
 		sawReferenceEnrich = true
 		spec := scaffold.ParamsTemplate["lookup_specs"]
-		for _, want := range []string{`"base_fields"`, `"lookup_fields"`, "raw_label", "description", "raw_terms", "keywords", "ref_code"} {
+		for _, want := range []string{`"base_fields"`, `"lookup_fields"`, `"ref_code"`, `"ref_name"`} {
 			if !strings.Contains(spec, want) {
 				t.Fatalf("lookup_specs=%q, missing %q", spec, want)
+			}
+		}
+		for _, blocked := range []string{"raw_label", "description", "raw_terms", "keywords"} {
+			if strings.Contains(spec, blocked) {
+				t.Fatalf("lookup_specs=%q, should not include non-key guessed field %q", spec, blocked)
 			}
 		}
 	}
