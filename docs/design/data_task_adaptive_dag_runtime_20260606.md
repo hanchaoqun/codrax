@@ -17992,7 +17992,56 @@ Remaining architecture items:
 - [ ] Keep shrinking adapter-local execution cursors until the live loop
       consumes one reducer-owned "next executable" decision object spanning
       budget, terminal, pre-execution, execution result, post-result, evaluator,
-      admission, and repair/continuation planner result handling.
+      admission, and repair/continuation planner result handling. The pre-run
+      terminal/budget/pre-execution segment was moved into reducer IR in Batch
+      421; the broader post-execution/evaluator/admission portions remain open.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 421: Pre-Run Workflow Decision IR
+
+Batch 420 made completion recovery consume `FailureRecoveryDecision`, but the
+live loops still assembled the next pre-execution step locally. CLI and REPL
+both repeated the same order: terminal-workflow fallback/guard, terminal-plan
+return, data-round budget, pre-execution fallback/guard, then execution.
+
+This batch adds a reducer-owned `WorkflowPreRunDecision` that composes the
+existing precise reducers without inventing new semantics. Repository-specific
+facts are still assembled by the adapter wrapper, but the hard ordering and
+resulting action enum now live in `dataworkflow`.
+
+Generic invariants:
+
+- the pre-run decision consumes only typed sub-decisions:
+  `TerminalWorkflowDecision`, `DataRoundBudgetDecision`, and
+  `PreExecutionDecision`;
+- terminal workflow repair/fallback remains before terminal answer rendering;
+- terminal plan status remains before budget exhaustion;
+- budget exhaustion remains before pre-execution staging;
+- pre-execution staging remains before executing a data batch;
+- adapters keep rendering, checkpoint writing, and planner side effects; they
+  no longer each decide this ordering independently;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `WorkflowPreRunDecisionAction`.
+- [x] Added `WorkflowPreRunDecision`.
+- [x] Added `DecideWorkflowPreRun`.
+- [x] Added reducer regression coverage for terminal-workflow priority,
+      terminal-before-budget, budget-before-pre-execution, guard fallback, and
+      execute fallthrough.
+- [x] Added the REPL/CLI workflow wrapper that assembles existing precise
+      sub-decisions.
+- [x] Rewired CLI pre-run loop dispatch to consume the unified decision.
+- [x] Rewired REPL pre-run loop dispatch to consume the unified decision.
+
+Remaining architecture items:
+
+- [ ] Continue moving post-execution result handling, evaluator decisions,
+      admission decisions, and planner-result repair/continuation handling into
+      a single reducer-owned next-executable decision object.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

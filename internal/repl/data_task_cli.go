@@ -318,18 +318,19 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("%s", errText)
 		}
-		switch terminalDecision := dataTaskTerminalWorkflowDecision(records, currentPlan); terminalDecision.Action {
-		case dataworkflow.TerminalWorkflowFallbackPlan:
-			reason := terminalDecision.Reason
+		preRunDecision, preRunResult, preRunHasResult := dataTaskWorkflowPreRunDecisionWithRepo(repoRoot, records, currentPlan, dataRounds, dataRoundsMax)
+		switch preRunDecision.Action {
+		case dataworkflow.WorkflowPreRunTerminalWorkflowFallback:
+			reason := preRunDecision.Reason
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback := protectPlan(terminalDecision.Plan)
+			fallback := protectPlan(preRunDecision.Plan)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		case dataworkflow.TerminalWorkflowGuard:
-			guard := terminalDecision.Guard
+		case dataworkflow.WorkflowPreRunTerminalWorkflowGuard:
+			guard := preRunDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
@@ -357,33 +358,30 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			return "", fmt.Errorf("%s", errText)
-		}
-		if handled, answer, err := terminalDataTaskPlanForCLI(currentPlan, records, cfg.Language); handled {
-			return answer, err
-		}
-		switch budgetDecision, result, hasResult := dataTaskDataRoundBudgetDecisionWithRepo(repoRoot, records, currentPlan, dataRounds, dataRoundsMax); budgetDecision.Action {
-		case dataworkflow.DataRoundBudgetFail:
-			if !budgetDecision.Guard.Empty() {
-				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, budgetDecision.Guard)
+		case dataworkflow.WorkflowPreRunTerminalPlan:
+			if handled, answer, err := terminalDataTaskPlanForCLI(currentPlan, records, cfg.Language); handled {
+				return answer, err
 			}
-			return "", fmt.Errorf("%s", budgetDecision.Reason)
-		case dataworkflow.DataRoundBudgetReturnResult:
-			if hasResult {
-				return dataTaskAnswerMarkdown(cfg.Language, result), nil
+		case dataworkflow.WorkflowPreRunBudgetFail:
+			if !preRunDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, preRunDecision.Guard)
 			}
-		}
-		switch preExecutionDecision := dataTaskPreExecutionDecision(records, currentPlan); preExecutionDecision.Action {
-		case dataworkflow.PreExecutionFallbackPlan:
-			reason := preExecutionDecision.Reason
+			return "", fmt.Errorf("%s", preRunDecision.Reason)
+		case dataworkflow.WorkflowPreRunBudgetReturnResult:
+			if preRunHasResult {
+				return dataTaskAnswerMarkdown(cfg.Language, preRunResult), nil
+			}
+		case dataworkflow.WorkflowPreRunPreExecutionFallback:
+			reason := preRunDecision.Reason
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback := protectPlan(preExecutionDecision.Plan)
+			fallback := protectPlan(preRunDecision.Plan)
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		case dataworkflow.PreExecutionGuard:
-			guard := preExecutionDecision.Guard
+		case dataworkflow.WorkflowPreRunPreExecutionGuard:
+			guard := preRunDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)

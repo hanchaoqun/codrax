@@ -407,6 +407,102 @@ func DecideDataRoundBudget(input DataRoundBudgetDecisionInput) DataRoundBudgetDe
 	}
 }
 
+type WorkflowPreRunDecisionAction string
+
+const (
+	WorkflowPreRunTerminalWorkflowFallback WorkflowPreRunDecisionAction = "terminal_workflow_fallback"
+	WorkflowPreRunTerminalWorkflowGuard    WorkflowPreRunDecisionAction = "terminal_workflow_guard"
+	WorkflowPreRunTerminalPlan             WorkflowPreRunDecisionAction = "terminal_plan"
+	WorkflowPreRunBudgetFail               WorkflowPreRunDecisionAction = "budget_fail"
+	WorkflowPreRunBudgetReturnResult       WorkflowPreRunDecisionAction = "budget_return_result"
+	WorkflowPreRunPreExecutionFallback     WorkflowPreRunDecisionAction = "pre_execution_fallback"
+	WorkflowPreRunPreExecutionGuard        WorkflowPreRunDecisionAction = "pre_execution_guard"
+	WorkflowPreRunExecute                  WorkflowPreRunDecisionAction = "execute"
+)
+
+type WorkflowPreRunDecisionInput struct {
+	Current          dataquery.TaskPlan       `json:"current,omitempty"`
+	HasResult        bool                     `json:"has_result,omitempty"`
+	TerminalWorkflow TerminalWorkflowDecision `json:"terminal_workflow,omitempty"`
+	Budget           DataRoundBudgetDecision  `json:"budget,omitempty"`
+	PreExecution     PreExecutionDecision     `json:"pre_execution,omitempty"`
+}
+
+type WorkflowPreRunDecision struct {
+	Action         WorkflowPreRunDecisionAction `json:"action,omitempty"`
+	Status         string                       `json:"status,omitempty"`
+	Source         string                       `json:"source,omitempty"`
+	Plan           dataquery.TaskPlan           `json:"plan,omitempty"`
+	Guard          GuardResult                  `json:"guard,omitempty"`
+	Reason         string                       `json:"reason,omitempty"`
+	HasResult      bool                         `json:"has_result,omitempty"`
+	TerminalStatus string                       `json:"terminal_status,omitempty"`
+}
+
+func (d WorkflowPreRunDecision) HasPlan() bool {
+	return taskPlanHasExecutableShape(d.Plan)
+}
+
+func DecideWorkflowPreRun(input WorkflowPreRunDecisionInput) WorkflowPreRunDecision {
+	switch input.TerminalWorkflow.Action {
+	case TerminalWorkflowFallbackPlan:
+		return WorkflowPreRunDecision{
+			Action: WorkflowPreRunTerminalWorkflowFallback,
+			Plan:   cloneTaskPlanValue(input.TerminalWorkflow.Plan),
+			Reason: strings.TrimSpace(input.TerminalWorkflow.Reason),
+		}
+	case TerminalWorkflowGuard:
+		return WorkflowPreRunDecision{
+			Action: WorkflowPreRunTerminalWorkflowGuard,
+			Guard:  input.TerminalWorkflow.Guard,
+			Reason: firstNonEmpty(input.TerminalWorkflow.Reason, input.TerminalWorkflow.Guard.ErrorText()),
+		}
+	}
+	status := strings.ToLower(strings.TrimSpace(input.Current.Status))
+	if PlanStatusLooksTerminal(status) {
+		return WorkflowPreRunDecision{
+			Action:         WorkflowPreRunTerminalPlan,
+			Status:         strings.TrimSpace(input.Current.Status),
+			Reason:         strings.TrimSpace(input.Current.BlockReason),
+			HasResult:      input.HasResult,
+			TerminalStatus: status,
+		}
+	}
+	switch input.Budget.Action {
+	case DataRoundBudgetFail:
+		return WorkflowPreRunDecision{
+			Action:    WorkflowPreRunBudgetFail,
+			Status:    input.Budget.Status,
+			Guard:     input.Budget.Guard,
+			Reason:    strings.TrimSpace(input.Budget.Reason),
+			HasResult: input.HasResult,
+		}
+	case DataRoundBudgetReturnResult:
+		return WorkflowPreRunDecision{
+			Action:    WorkflowPreRunBudgetReturnResult,
+			Status:    input.Budget.Status,
+			Reason:    strings.TrimSpace(input.Budget.Reason),
+			HasResult: input.HasResult,
+		}
+	}
+	switch input.PreExecution.Action {
+	case PreExecutionFallbackPlan:
+		return WorkflowPreRunDecision{
+			Action: WorkflowPreRunPreExecutionFallback,
+			Source: strings.TrimSpace(input.PreExecution.Source),
+			Plan:   cloneTaskPlanValue(input.PreExecution.Plan),
+			Reason: strings.TrimSpace(input.PreExecution.Reason),
+		}
+	case PreExecutionGuard:
+		return WorkflowPreRunDecision{
+			Action: WorkflowPreRunPreExecutionGuard,
+			Guard:  input.PreExecution.Guard,
+			Reason: firstNonEmpty(input.PreExecution.Reason, input.PreExecution.Guard.ErrorText()),
+		}
+	}
+	return WorkflowPreRunDecision{Action: WorkflowPreRunExecute}
+}
+
 type PostResultDecisionAction string
 
 const (

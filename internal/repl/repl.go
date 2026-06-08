@@ -1538,18 +1538,19 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		switch terminalDecision := dataTaskTerminalWorkflowDecision(records, currentPlan); terminalDecision.Action {
-		case dataworkflow.TerminalWorkflowFallbackPlan:
-			reason := terminalDecision.Reason
+		preRunDecision, preRunResult, preRunHasResult := dataTaskWorkflowPreRunDecisionWithRepo(r.repoRoot, records, currentPlan, dataRounds, r.dataTaskMaxDataRounds)
+		switch preRunDecision.Action {
+		case dataworkflow.WorkflowPreRunTerminalWorkflowFallback:
+			reason := preRunDecision.Reason
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback := protectPlan(terminalDecision.Plan)
+			fallback := protectPlan(preRunDecision.Plan)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		case dataworkflow.TerminalWorkflowGuard:
-			guard := terminalDecision.Guard
+		case dataworkflow.WorkflowPreRunTerminalWorkflowGuard:
+			guard := preRunDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
@@ -1601,20 +1602,19 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
-		}
-		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line, dataRounds, repairRounds); handled {
-			return
-		}
-		switch budgetDecision, result, hasResult := dataTaskDataRoundBudgetDecisionWithRepo(r.repoRoot, records, currentPlan, dataRounds, r.dataTaskMaxDataRounds); budgetDecision.Action {
-		case dataworkflow.DataRoundBudgetFail:
-			if !budgetDecision.Guard.Empty() {
-				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, budgetDecision.Guard)
+		case dataworkflow.WorkflowPreRunTerminalPlan:
+			if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line, dataRounds, repairRounds); handled {
+				return
 			}
-			reason := budgetDecision.Reason
+		case dataworkflow.WorkflowPreRunBudgetFail:
+			if !preRunDecision.Guard.Empty() {
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, preRunDecision.Guard)
+			}
+			reason := preRunDecision.Reason
 			msg := dataTaskErrorMarkdown(r.language, reason)
 			var resultPtr *dataquery.Result
-			if hasResult {
-				resultCopy := result
+			if preRunHasResult {
+				resultCopy := preRunResult
 				resultPtr = &resultCopy
 			}
 			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: resultPtr})
@@ -1623,29 +1623,27 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
-		case dataworkflow.DataRoundBudgetReturnResult:
-			if hasResult {
-				msg := dataTaskAnswerMarkdown(r.language, result)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: budgetDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+		case dataworkflow.WorkflowPreRunBudgetReturnResult:
+			if preRunHasResult {
+				msg := dataTaskAnswerMarkdown(r.language, preRunResult)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: preRunDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &preRunResult})
 				r.finishDataTaskRouteSpinner("budget_exhausted")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-		}
-		switch preExecutionDecision := dataTaskPreExecutionDecision(records, currentPlan); preExecutionDecision.Action {
-		case dataworkflow.PreExecutionFallbackPlan:
-			reason := preExecutionDecision.Reason
+		case dataworkflow.WorkflowPreRunPreExecutionFallback:
+			reason := preRunDecision.Reason
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: reason})
 			emitWorkflowReason("continue", dataRounds, reason)
-			fallback := protectPlan(preExecutionDecision.Plan)
+			fallback := protectPlan(preRunDecision.Plan)
 			r.emitDataTaskPlanAudit(fallback)
 			r.auditDataTaskPlan("continue", dataRounds+1, fallback)
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
-		case dataworkflow.PreExecutionGuard:
-			guard := preExecutionDecision.Guard
+		case dataworkflow.WorkflowPreRunPreExecutionGuard:
+			guard := preRunDecision.Guard
 			errText := guard.ErrorText()
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)

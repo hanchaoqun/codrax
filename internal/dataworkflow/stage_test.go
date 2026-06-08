@@ -311,6 +311,70 @@ func TestDecideDataRoundBudgetFailsWithoutResult(t *testing.T) {
 	}
 }
 
+func TestDecideWorkflowPreRunOrdersTerminalWorkflowBeforeTerminalPlan(t *testing.T) {
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}
+	decision := DecideWorkflowPreRun(WorkflowPreRunDecisionInput{
+		Current: dataquery.TaskPlan{Status: "complete"},
+		TerminalWorkflow: TerminalWorkflowDecision{
+			Action: TerminalWorkflowFallbackPlan,
+			Plan:   fallback,
+			Reason: "finish contribution ledger",
+		},
+		Budget: DataRoundBudgetDecision{Action: DataRoundBudgetFail, Reason: "budget"},
+	})
+	if decision.Action != WorkflowPreRunTerminalWorkflowFallback || decision.Plan.Actions[0].ID != "compute" {
+		t.Fatalf("decision=%+v, want terminal workflow fallback before terminal status/budget", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	if fallback.Actions[0].ID != "compute" {
+		t.Fatalf("fallback leaked decision mutation: %+v", fallback)
+	}
+}
+
+func TestDecideWorkflowPreRunReturnsTerminalPlanBeforeBudget(t *testing.T) {
+	decision := DecideWorkflowPreRun(WorkflowPreRunDecisionInput{
+		Current:   dataquery.TaskPlan{Status: "partial_answer_possible", BlockReason: "latest result can be returned"},
+		HasResult: true,
+		Budget:    DataRoundBudgetDecision{Action: DataRoundBudgetFail, Reason: "budget"},
+	})
+	if decision.Action != WorkflowPreRunTerminalPlan || !decision.HasResult || decision.TerminalStatus != "partial_answer_possible" {
+		t.Fatalf("decision=%+v, want terminal plan before budget", decision)
+	}
+}
+
+func TestDecideWorkflowPreRunOrdersBudgetBeforePreExecution(t *testing.T) {
+	pre := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "cover", Kind: dataquery.DataActionMaterialInventory}}}
+	decision := DecideWorkflowPreRun(WorkflowPreRunDecisionInput{
+		Budget:       DataRoundBudgetDecision{Action: DataRoundBudgetReturnResult, Status: "budget_exhausted", Reason: "return latest"},
+		PreExecution: PreExecutionDecision{Action: PreExecutionFallbackPlan, Plan: pre, Reason: "pre"},
+		HasResult:    true,
+	})
+	if decision.Action != WorkflowPreRunBudgetReturnResult || decision.Reason != "return latest" {
+		t.Fatalf("decision=%+v, want budget return before pre-execution", decision)
+	}
+}
+
+func TestDecideWorkflowPreRunFallsThroughToPreExecutionAndExecute(t *testing.T) {
+	guard := NewGuardResult("staging", "error", RepairNeedsTypedAction, "blocked", WorkflowViolation{Code: "staging"})
+	decision := DecideWorkflowPreRun(WorkflowPreRunDecisionInput{
+		Budget:       DataRoundBudgetDecision{Action: DataRoundBudgetContinue},
+		PreExecution: PreExecutionDecision{Action: PreExecutionGuard, Guard: guard},
+	})
+	if decision.Action != WorkflowPreRunPreExecutionGuard || decision.Guard.Code != "staging" {
+		t.Fatalf("decision=%+v, want pre-execution guard", decision)
+	}
+	decision = DecideWorkflowPreRun(WorkflowPreRunDecisionInput{
+		Budget:       DataRoundBudgetDecision{Action: DataRoundBudgetContinue},
+		PreExecution: PreExecutionDecision{Action: PreExecutionExecute},
+	})
+	if decision.Action != WorkflowPreRunExecute {
+		t.Fatalf("decision=%+v, want execute", decision)
+	}
+}
+
 func TestDecidePostResultDispatchesDeferred(t *testing.T) {
 	deferred := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
 		ID:   "join",

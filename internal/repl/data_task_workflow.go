@@ -253,6 +253,17 @@ func dataTaskDataRoundBudgetDecisionWithRepo(repoRoot string, records []dataTask
 	return decision, result, hasResult
 }
 
+func dataTaskWorkflowPreRunDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, dataRounds, maxDataRounds int) (dataworkflow.WorkflowPreRunDecision, dataquery.Result, bool) {
+	budgetDecision, result, hasResult := dataTaskDataRoundBudgetDecisionWithRepo(repoRoot, records, current, dataRounds, maxDataRounds)
+	return dataworkflow.DecideWorkflowPreRun(dataworkflow.WorkflowPreRunDecisionInput{
+		Current:          current,
+		HasResult:        hasResult,
+		TerminalWorkflow: dataTaskTerminalWorkflowDecision(records, current),
+		Budget:           budgetDecision,
+		PreExecution:     dataTaskPreExecutionDecision(records, current),
+	}), result, hasResult
+}
+
 func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataworkflow.PostResultDecision {
 	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
 	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(records, current, "missing material coverage after data batch result")
