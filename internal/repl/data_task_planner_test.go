@@ -3115,8 +3115,8 @@ rows = csv_rows("orders.csv")
 print(rows[:2])
 `,
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want deterministic no-emitter observation fallback")
 	}
@@ -3177,8 +3177,8 @@ func TestDataTaskCustomTransformDisabledFallbackInspectsGeneratedArtifacts(t *te
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated artifact diagnostic")
 	}
@@ -3259,8 +3259,8 @@ func TestDataTaskCustomTransformDisabledFallbackPrefersLatestRecordArtifact(t *t
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated artifact diagnostic")
 	}
@@ -3331,8 +3331,8 @@ func TestDataTaskCustomTransformDisabledFallbackSkipsRuleArtifacts(t *testing.T)
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated record diagnostic")
 	}
@@ -3395,8 +3395,8 @@ func TestDataTaskCustomTransformDisabledFallbackUsesConcreteNormalizeScaffold(t 
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want concrete normalize scaffold fallback")
 	}
@@ -3484,8 +3484,8 @@ func TestDataTaskCustomTransformDisabledFallbackAppliesExistingResolutionScaffol
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want concrete apply_entity_resolutions scaffold fallback")
 	}
@@ -4496,8 +4496,9 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsBeforeScriptedCustomTransform(t
 			},
 		},
 	}
-	errText := "data planning incomplete: workflow next_stage=prepare_contribution_inputs still has unfinished validation stages"
-	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	errText := guard.ErrorText()
+	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, guard)
 	if !ok {
 		state := dataTaskWorkflowState(records, plan)
 		t.Fatalf("expected stage prefix fallback for %q; state=%+v missing=%v", errText, state, state.MissingValidationStages())
@@ -4574,11 +4575,12 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T
 			},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "crosses multiple dependent DAG ranks") {
 		t.Fatalf("errText=%q, want cross-rank guard", errText)
 	}
-	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, errText)
+	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, guard)
 	if !ok {
 		t.Fatalf("expected prefix fallback for cross-rank typed plan")
 	}
@@ -4588,7 +4590,7 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T
 	if !got.ContinueAfter {
 		t.Fatalf("ContinueAfter=false, want true")
 	}
-	prefix, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText)
+	prefix, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
 	if !ok {
 		t.Fatalf("expected prefix fallback with remainder")
 	}
@@ -4982,8 +4984,9 @@ func TestDataTaskDeferredActionResumesApplyResolutionsAfterNormalizeRank(t *test
 			{ID: "A2", Kind: dataquery.DataActionDeriveFields, InputPaths: []string{"po_enriched"}, OutputArtifact: "po_with_year"},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, errText)
+	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	errText := guard.ErrorText()
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
 	if !ok {
 		t.Fatalf("fallback=false errText=%q", errText)
 	}
@@ -5657,11 +5660,12 @@ func TestDataTaskWorkflowStagingSplitsIntraBatchArtifactDependency(t *testing.T)
 		},
 		ContinueAfter: true,
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	guard := dataTaskPlanStagingGuardResult(plan)
+	errText := guard.ErrorText()
 	if !strings.Contains(errText, "consumes prior action output") {
 		t.Fatalf("errText=%q, want intra-batch dependency guard", errText)
 	}
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, errText)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
 	if !ok {
 		t.Fatalf("deterministic fallback not produced")
 	}
@@ -5698,11 +5702,12 @@ func TestDataTaskWorkflowFallbackExecutesValidPrefixAndDropsInvalidSuffix(t *tes
 			},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
+	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "has no field specification") {
 		t.Fatalf("errText=%q, want invalid extract_fields suffix", errText)
 	}
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, errText)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
 	if !ok {
 		t.Fatalf("deterministic fallback not produced")
 	}
@@ -6204,7 +6209,8 @@ func TestDataTaskInvalidRecordActionFallbackMaterializesBadDeriveFields(t *testi
 			OutputArtifact: "derived_all",
 		}},
 	}
-	fallback, ok := dataTaskInvalidRecordActionFallback(nil, plan, "data planning incomplete: derive_fields with 2 input_paths")
+	guard := dataworkflow.NewGuardResult("too_many_action_inputs", "error", dataworkflow.RepairNeedsTypedAction, "data planning incomplete: derive_fields with 2 input_paths")
+	fallback, ok := dataTaskInvalidRecordActionFallback(nil, plan, guard)
 	if !ok {
 		t.Fatalf("fallback not produced")
 	}
@@ -6318,7 +6324,8 @@ func TestDataTaskInvalidRecordActionFallbackConvertsLookupDeriveToEnrich(t *test
 			},
 		}},
 	}
-	fallback, ok := dataTaskInvalidRecordActionFallback(records, plan, "data planning incomplete: derive_fields with 2 input_paths")
+	guard := dataworkflow.NewGuardResult("too_many_action_inputs", "error", dataworkflow.RepairNeedsTypedAction, "data planning incomplete: derive_fields with 2 input_paths")
+	fallback, ok := dataTaskInvalidRecordActionFallback(records, plan, guard)
 	if !ok {
 		t.Fatalf("fallback not generated")
 	}

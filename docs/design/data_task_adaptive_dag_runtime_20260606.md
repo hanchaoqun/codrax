@@ -15304,6 +15304,64 @@ Remaining architecture items:
       records.
 - [x] Run full build/test before continuing the IR closure audit.
 
+### Batch 343: Typed Guard-Driven Deferred And Fallback Admission
+
+After execution-time guard records entered `ActionGraph`, the next gap was the
+fallback and deferred-dispatch entrypoint. The live code already computed typed
+`GuardResult` values, but several continuation paths still passed
+`guard.ErrorText()` into deterministic fallback helpers and deferred queue
+admission. That kept a string-shaped compatibility path in the middle of the
+ActionDAG admission loop: the state was typed, but fallback dispatch could
+still look like it depended on prose.
+
+This batch changes those interfaces to consume typed guards directly. Error
+text is still preserved for logs, repair prompts, and user-readable audit, but
+hard decisions such as rule-coverage completion, custom-transform-disabled
+fallback, stage-prefix trimming, executable-prefix fallback, invalid-record
+fallback, and deferred queue admission now receive `GuardResult` objects and
+guard codes.
+
+Generic invariants:
+
+- deterministic fallback is driven by typed guard codes/violations, not by
+  parsing model or system prose;
+- deferred dispatch rejection carries `guard_code` and the full typed guard
+  payload alongside the human-readable reason;
+- deferred field-contract blocking reports the typed guard code instead of a
+  generic string-only reason;
+- coverage expansion and executable-prefix checks use typed guard emptiness for
+  hard gates;
+- text remains available for audit and prompt repair, but it is no longer the
+  control-plane input;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Changed `dataTaskWorkflowDeterministicFallback` to accept
+      `dataworkflow.GuardResult`.
+- [x] Changed stage-prefix, executable-prefix, invalid-record, and
+      custom-transform-disabled fallback helpers to use typed guards.
+- [x] Added guard-code matching helper over `GuardResult.Code` and
+      `GuardResult.Violations[].Code`.
+- [x] Rewired CLI, REPL, and preflight admission to pass typed guards into
+      deterministic fallback.
+- [x] Replaced deferred dispatch guard errors with typed
+      `dataTaskDeferredDispatchGuardResult`.
+- [x] Added `DeferredDispatchStatus.guard_code` and `guard` so deferred queue
+      admission failures remain auditable as typed IR.
+- [x] Replaced remaining hard fallback checks that only tested error text
+      emptiness with typed guard empty/non-empty checks.
+- [x] Updated regression tests so fallback tests call the typed guard path.
+
+Remaining architecture items:
+
+- [ ] Convert terminal/completion gate errors into typed
+      `OutputProjectionGraph` / `LedgerGraph` guard results instead of
+      string-only gate errors.
+- [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
+      tests and diagnostics consume typed guard objects directly.
+- [x] Run full build/test before continuing the IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

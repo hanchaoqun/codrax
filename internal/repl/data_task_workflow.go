@@ -283,8 +283,9 @@ func dataTaskActionShapeFacts(records []dataTaskWorkflowRecord, plan dataquery.T
 	return out
 }
 
-func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
-	if strings.TrimSpace(dataquery.ClassifyExecutionError(errText).Code) == "text_constraint_rule_coverage_required" {
+func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
+	errText := guard.ErrorText()
+	if dataTaskGuardHasCode(guard, "text_constraint_coverage_required", "text_constraint_rule_coverage_required") {
 		contract := dataTaskWorkflowCoverageContract(records, plan)
 		action := dataworkflow.RuleCoverageCompletionAction(contract)
 		if strings.TrimSpace(action.ID) != "" {
@@ -314,22 +315,44 @@ func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, pla
 	if fb, hit := dataTaskMaterialDiscoveryFallback(records, plan, errText); hit {
 		return fb, dataquery.TaskPlan{}, "broad material plan converted to material discovery", true
 	}
-	if fb, hit := dataTaskCustomTransformDisabledFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskCustomTransformDisabledFallback(records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "custom_transform disabled plan converted to typed workflow fallback", true
 	}
-	if fb, rem, hit := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText); hit {
+	if fb, rem, hit := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard); hit {
 		return fb, rem, "trimmed multi-stage data plan to current DAG stage", true
 	}
-	if fb, hit := dataTaskExecutablePrefixFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskExecutablePrefixFallback(records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "executed valid typed prefix and discarded invalid suffix for replanning", true
 	}
-	if fb, hit := dataTaskInvalidRecordActionFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskInvalidRecordActionFallback(records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "converted invalid record action to bounded record extraction", true
 	}
 	if fb, hit := dataTaskHistoricalMissingJoinFieldFallback(records, plan); hit {
 		return fb, dataquery.TaskPlan{}, "materialized historical missing join field from existing artifacts", true
 	}
 	return dataquery.TaskPlan{}, dataquery.TaskPlan{}, "", false
+}
+
+func dataTaskGuardHasCode(guard dataworkflow.GuardResult, codes ...string) bool {
+	allowed := map[string]bool{}
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code != "" {
+			allowed[code] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	if allowed[strings.TrimSpace(guard.Code)] {
+		return true
+	}
+	for _, violation := range guard.Violations {
+		if allowed[strings.TrimSpace(violation.Code)] {
+			return true
+		}
+	}
+	return false
 }
 
 func dataTaskInitialRankPrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
@@ -1181,7 +1204,7 @@ func dataTaskCoverageExpansionFallbackNeeded(records []dataTaskWorkflowRecord, p
 	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) == "" && len(dataTaskCoverageExpansionMissingPaths(records, plan)) > 0 {
 		return true
 	}
-	if strings.TrimSpace(dataTaskTerminalRequiredMaterialSchedulingError(records, plan)) != "" {
+	if !dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan).Empty() {
 		return true
 	}
 	for i, action := range plan.Actions {
@@ -1591,7 +1614,7 @@ func dataTaskCoverageExpansionMissingPaths(records []dataTaskWorkflowRecord, pla
 		}
 	}
 	requiredContract := dataTaskWorkflowCoverageContract(records, plan)
-	if strings.TrimSpace(dataTaskTerminalRequiredMaterialSchedulingError(records, plan)) != "" {
+	if !dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan).Empty() {
 		requiredContract = plan.CoverageContract
 	}
 	required := cleanDataTaskStrings(requiredContract.RequiredRunnerInputPaths())
@@ -1830,8 +1853,8 @@ func dataTaskWorkflowCustomTransformDisabledGuardResult(records []dataTaskWorkfl
 	})
 }
 
-func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	if len(records) == 0 || strings.TrimSpace(errText) == "" {
+func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	if len(records) == 0 || guard.Empty() || !dataTaskGuardHasCode(guard, "custom_transform_disabled") {
 		return dataquery.TaskPlan{}, false
 	}
 	state := dataTaskWorkflowState(records, plan)
@@ -2194,13 +2217,13 @@ func dataTaskWorkflowStageProgressGuardResult(records []dataTaskWorkflowRecord, 
 	})
 }
 
-func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	prefix, _, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, errText)
+func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	prefix, _, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
 	return prefix, ok
 }
 
-func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
-	if len(records) == 0 || len(plan.Actions) < 2 || strings.TrimSpace(errText) == "" {
+func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	if len(records) == 0 || len(plan.Actions) < 2 || guard.Empty() {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
 	if !dataTaskWorkflowHasSuccessfulResult(records) {
@@ -2231,11 +2254,11 @@ func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflow
 	return out, remainder, true
 }
 
-func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	if len(plan.Actions) < 2 || strings.TrimSpace(errText) == "" {
+func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	if len(plan.Actions) < 2 || guard.Empty() {
 		return dataquery.TaskPlan{}, false
 	}
-	if strings.TrimSpace(dataTaskWorkflowStagingGuardError(records, plan)) == "" {
+	if dataTaskWorkflowStagingGuardResult(records, plan).Empty() {
 		return dataquery.TaskPlan{}, false
 	}
 	for prefixLen := len(plan.Actions) - 1; prefixLen >= 1; prefixLen-- {
@@ -2249,7 +2272,7 @@ func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dat
 		if strings.TrimSpace(out.NextBatch) == "" {
 			out.NextBatch = "continue from the prefix result and replan the invalid suffix against real artifact fields"
 		}
-		if strings.TrimSpace(dataTaskWorkflowStagingGuardError(records, out)) == "" {
+		if dataTaskWorkflowStagingGuardResult(records, out).Empty() {
 			return out, true
 		}
 	}
@@ -2277,10 +2300,12 @@ func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, 
 	if !ok {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
-	if errText := dataTaskDeferredDispatchGuardError(records, deferred, out.Actions); errText != "" {
+	if guard := dataTaskDeferredDispatchGuardResult(records, deferred, out.Actions); !guard.Empty() {
 		status.Ready = false
 		status.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
-		status.Reason = errText
+		status.Reason = guard.ErrorText()
+		status.GuardCode = strings.TrimSpace(guard.Code)
+		status.Guard = &guard
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
 	status.Ready = true
@@ -2300,16 +2325,16 @@ func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataqu
 	return dataquery.DataAction{}, false
 }
 
-func dataTaskDeferredDispatchGuardError(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) string {
+func dataTaskDeferredDispatchGuardResult(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) dataworkflow.GuardResult {
 	if len(actions) == 0 {
-		return ""
+		return dataworkflow.GuardResult{}
 	}
 	candidate := deferred
 	candidate.Status = "ready"
 	candidate.Actions = append([]dataquery.DataAction(nil), actions...)
 	candidate.Script = ""
 	candidate.ContinueAfter = true
-	return dataTaskWorkflowStagingGuardError(records, candidate)
+	return dataTaskWorkflowStagingGuardResult(records, candidate)
 }
 
 type dataTaskDeferredQueueState = dataworkflow.DeferredDispatchStatus
@@ -2324,9 +2349,11 @@ func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred data
 	if !ok {
 		return state
 	}
-	if errText := dataTaskDeferredDispatchGuardError(records, deferred, next.Actions); errText != "" {
-		state.Reason = errText
+	if guard := dataTaskDeferredDispatchGuardResult(records, deferred, next.Actions); !guard.Empty() {
+		state.Reason = guard.ErrorText()
 		state.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
+		state.GuardCode = strings.TrimSpace(guard.Code)
+		state.Guard = &guard
 		state.Ready = false
 		return state
 	}
@@ -2380,8 +2407,8 @@ func dataTaskDeferredActionBlockedStatus(records []dataTaskWorkflowRecord, actio
 				strings.Join(missing, ", "))
 		}
 	}
-	if errText := dataTaskActionFieldContractGuardError(records, dataquery.TaskPlan{}, action, 0); errText != "" {
-		return dataworkflow.DeferredBlockFieldContract, errText
+	if guard := dataTaskActionFieldContractGuardResult(records, dataquery.TaskPlan{}, action, 0); !guard.Empty() {
+		return firstNonEmptyString(strings.TrimSpace(guard.Code), dataworkflow.DeferredBlockFieldContract), guard.ErrorText()
 	}
 	return dataworkflow.DeferredBlockNotReady, ""
 }
@@ -2588,7 +2615,7 @@ func dataTaskDeferredActionInputsReady(records []dataTaskWorkflowRecord, action 
 		}
 		return false
 	}
-	if dataTaskActionFieldContractGuardError(records, dataquery.TaskPlan{}, action, 0) != "" {
+	if !dataTaskActionFieldContractGuardResult(records, dataquery.TaskPlan{}, action, 0).Empty() {
 		return false
 	}
 	return true
@@ -2622,8 +2649,8 @@ func dataTaskSplitActionRankForState(actions []dataquery.DataAction, state dataT
 	return keep, rest
 }
 
-func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	if strings.TrimSpace(errText) == "" || len(plan.Actions) == 0 {
+func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	if guard.Empty() || len(plan.Actions) == 0 {
 		return dataquery.TaskPlan{}, false
 	}
 	state := dataTaskWorkflowState(records, plan)
@@ -5029,7 +5056,7 @@ func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataqu
 			return dataTaskWorkflowStagingGuardResult(records, current)
 		},
 		DeterministicFallback: func(current dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
-			return dataTaskWorkflowDeterministicFallback(records, current, guard.ErrorText())
+			return dataTaskWorkflowDeterministicFallback(records, current, guard)
 		},
 	})
 }

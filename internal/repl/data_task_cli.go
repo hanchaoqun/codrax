@@ -331,7 +331,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
-			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
+			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, guard); ok {
 				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
@@ -359,7 +359,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "broad material plan converted to material discovery")
 				continue
 			}
-			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
+			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, guard); ok {
 				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
 				fallback = protectPlan(fallback)
@@ -369,7 +369,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				saveDeferredPlan(dataRounds+1, remainder, "trimmed multi-stage data plan to current DAG stage")
 				continue
 			}
-			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, errText); ok {
+			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, guard); ok {
 				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "converted invalid record action to bounded record extraction")
 				fallback = protectPlan(fallback)

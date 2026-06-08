@@ -22,14 +22,16 @@ type DeferredDispatchInput struct {
 }
 
 type DeferredDispatchStatus struct {
-	Actions         int    `json:"actions"`
-	ReadyActions    int    `json:"ready_actions,omitempty"`
-	BlockedActions  int    `json:"blocked_actions,omitempty"`
-	FirstActionID   string `json:"first_action_id,omitempty"`
-	FirstActionKind string `json:"first_action_kind,omitempty"`
-	Ready           bool   `json:"ready,omitempty"`
-	ReasonCode      string `json:"reason_code,omitempty"`
-	Reason          string `json:"reason,omitempty"`
+	Actions         int          `json:"actions"`
+	ReadyActions    int          `json:"ready_actions,omitempty"`
+	BlockedActions  int          `json:"blocked_actions,omitempty"`
+	FirstActionID   string       `json:"first_action_id,omitempty"`
+	FirstActionKind string       `json:"first_action_kind,omitempty"`
+	Ready           bool         `json:"ready,omitempty"`
+	ReasonCode      string       `json:"reason_code,omitempty"`
+	Reason          string       `json:"reason,omitempty"`
+	GuardCode       string       `json:"guard_code,omitempty"`
+	Guard           *GuardResult `json:"guard,omitempty"`
 }
 
 const (
