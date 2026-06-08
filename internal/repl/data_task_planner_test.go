@@ -6302,6 +6302,14 @@ func TestDataTaskInvalidRecordActionFallbackConvertsLookupDeriveToEnrich(t *test
 		},
 		{
 			Err: `execute data task: data action failed action_id="join_records" action_kind="join_records": join_records left field "canonical_code" was not found in left input orders.csv`,
+			Violations: []dataquery.DataTaskViolation{{
+				Code:          "field_contract_violation",
+				ActionID:      "join_records",
+				ActionKind:    string(dataquery.DataActionJoinRecords),
+				InputAlias:    "orders.csv",
+				MissingFields: []string{"canonical_code"},
+				Role:          "left",
+			}},
 		},
 	}
 	plan := dataquery.TaskPlan{
@@ -6395,7 +6403,14 @@ func TestDataTaskMissingJoinFieldFallbackMaterializesEnrichment(t *testing.T) {
 			},
 		}},
 	}
-	fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, `execute data task: data action failed action_id="join_po_query" action_kind="join_records": join_records left field "category_code" was not found in left input po_enriched_vendor.json`)
+	fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionID:      "join_po_query",
+		ActionKind:    string(dataquery.DataActionJoinRecords),
+		InputAlias:    "po_enriched_vendor.json",
+		MissingFields: []string{"category_code"},
+		Role:          "left",
+	})
 	if !ok {
 		t.Fatalf("fallback not generated")
 	}
@@ -6434,6 +6449,14 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackUsesLaterMappingArtifact(t *t
 				},
 			}}},
 			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+			Violations: []dataquery.DataTaskViolation{{
+				Code:          "field_contract_violation",
+				ActionID:      "join_orders_ref",
+				ActionKind:    string(dataquery.DataActionJoinRecords),
+				InputAlias:    "orders.json",
+				MissingFields: []string{"label_code"},
+				Role:          "left",
+			}},
 		},
 		{
 			Plan: dataquery.TaskPlan{Status: "ready"},
@@ -6481,6 +6504,14 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatExistingOutput(t
 				},
 			}}},
 			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+			Violations: []dataquery.DataTaskViolation{{
+				Code:          "field_contract_violation",
+				ActionID:      "join_orders_ref",
+				ActionKind:    string(dataquery.DataActionJoinRecords),
+				InputAlias:    "orders.json",
+				MissingFields: []string{"label_code"},
+				Role:          "left",
+			}},
 		},
 		{
 			Plan: dataquery.TaskPlan{Status: "ready"},
@@ -6526,6 +6557,14 @@ func TestDataTaskHistoricalMissingJoinFieldFallbackDoesNotRepeatSamePlan(t *test
 				},
 			}}},
 			Err: `execute data task: data action failed action_id="join_orders_ref" action_kind="join_records": join_records left field "label_code" was not found in left input orders.json`,
+			Violations: []dataquery.DataTaskViolation{{
+				Code:          "field_contract_violation",
+				ActionID:      "join_orders_ref",
+				ActionKind:    string(dataquery.DataActionJoinRecords),
+				InputAlias:    "orders.json",
+				MissingFields: []string{"label_code"},
+				Role:          "left",
+			}},
 		},
 		{
 			Plan: dataquery.TaskPlan{Status: "ready"},

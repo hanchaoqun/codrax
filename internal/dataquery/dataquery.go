@@ -252,17 +252,22 @@ const (
 )
 
 type DataTaskViolation struct {
-	Code          string            `json:"code"`
-	Summary       string            `json:"summary,omitempty"`
-	JSONPath      string            `json:"json_path,omitempty"`
-	ExpectedShape string            `json:"expected_shape,omitempty"`
-	ActualSnippet string            `json:"actual_snippet,omitempty"`
-	ActionID      string            `json:"action_id,omitempty"`
-	ActionKind    string            `json:"action_kind,omitempty"`
-	ScriptLine    int               `json:"script_line,omitempty"`
-	RunnerLine    int               `json:"runner_line,omitempty"`
-	Repairability DataRepairability `json:"repairability,omitempty"`
-	RepairHint    string            `json:"repair_hint,omitempty"`
+	Code                 string            `json:"code"`
+	Summary              string            `json:"summary,omitempty"`
+	JSONPath             string            `json:"json_path,omitempty"`
+	ExpectedShape        string            `json:"expected_shape,omitempty"`
+	ActualSnippet        string            `json:"actual_snippet,omitempty"`
+	ActionID             string            `json:"action_id,omitempty"`
+	ActionKind           string            `json:"action_kind,omitempty"`
+	InputAlias           string            `json:"input_alias,omitempty"`
+	InputAliases         []string          `json:"input_aliases,omitempty"`
+	MissingFields        []string          `json:"missing_fields,omitempty"`
+	AvailableFieldSample []string          `json:"available_field_sample,omitempty"`
+	Role                 string            `json:"role,omitempty"`
+	ScriptLine           int               `json:"script_line,omitempty"`
+	RunnerLine           int               `json:"runner_line,omitempty"`
+	Repairability        DataRepairability `json:"repairability,omitempty"`
+	RepairHint           string            `json:"repair_hint,omitempty"`
 }
 
 type DataValidationError struct {
@@ -338,6 +343,46 @@ func dataValidationError(code, jsonPath, expectedShape, actualSnippet string, re
 		ActualSnippet: clampOneLine(actualSnippet, 300),
 		Repairability: repairability,
 	}}}
+}
+
+func ClassifyExecutionFailure(err error) DataTaskViolation {
+	if err == nil {
+		return DataTaskViolation{}
+	}
+	var actionErr DataActionError
+	if errors.As(err, &actionErr) {
+		violation := classifyExecutionFailureLeaf(actionErr.Err)
+		if strings.TrimSpace(violation.Summary) == "" {
+			violation.Summary = clampViolationText(err.Error(), 500)
+		}
+		if strings.TrimSpace(violation.ActionID) == "" {
+			violation.ActionID = strings.TrimSpace(actionErr.ActionID)
+		}
+		if strings.TrimSpace(violation.ActionKind) == "" {
+			violation.ActionKind = strings.TrimSpace(string(actionErr.ActionKind))
+		}
+		return violation
+	}
+	return classifyExecutionFailureLeaf(err)
+}
+
+func classifyExecutionFailureLeaf(err error) DataTaskViolation {
+	if err == nil {
+		return DataTaskViolation{}
+	}
+	var fieldErr DataFieldContractError
+	if errors.As(err, &fieldErr) {
+		return fieldErr.Violation()
+	}
+	var validationErr DataValidationError
+	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {
+		return validationErr.Violations[0]
+	}
+	var resultErr *DataResultValidationError
+	if errors.As(err, &resultErr) && len(resultErr.Violations) > 0 {
+		return resultErr.Violations[0]
+	}
+	return ClassifyExecutionError(err.Error())
 }
 
 func ClassifyExecutionError(errText string) DataTaskViolation {

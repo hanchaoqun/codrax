@@ -37,6 +37,63 @@ type DataActionError struct {
 	Err        error          `json:"-"`
 }
 
+type DataFieldContractError struct {
+	ActionKind           DataActionKind `json:"action_kind,omitempty"`
+	Role                 string         `json:"role,omitempty"`
+	Field                string         `json:"field,omitempty"`
+	InputAlias           string         `json:"input_alias,omitempty"`
+	AvailableFieldSample []string       `json:"available_field_sample,omitempty"`
+	Message              string         `json:"message,omitempty"`
+}
+
+func (e DataFieldContractError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	role := strings.TrimSpace(e.Role)
+	field := strings.TrimSpace(e.Field)
+	input := strings.TrimSpace(e.InputAlias)
+	var parts []string
+	if role != "" {
+		parts = append(parts, role)
+	}
+	if field != "" {
+		parts = append(parts, fmt.Sprintf("field %q", field))
+	}
+	msg := kind
+	if len(parts) > 0 {
+		msg += " " + strings.Join(parts, " ")
+	}
+	if input != "" {
+		msg += " was not found in input " + input
+	} else {
+		msg += " was not found in input fields"
+	}
+	if len(e.AvailableFieldSample) > 0 {
+		msg += " fields [" + strings.Join(clampStringSliceForError(e.AvailableFieldSample, 32), ", ") + "]"
+	}
+	return msg
+}
+
+func (e DataFieldContractError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:                 "field_contract_violation",
+		Summary:              clampViolationText(e.Error(), 500),
+		ActionKind:           strings.TrimSpace(string(e.ActionKind)),
+		ActualSnippet:        strings.TrimSpace(e.InputAlias),
+		InputAlias:           strings.TrimSpace(e.InputAlias),
+		MissingFields:        cleanStringSlice([]string{e.Field}),
+		AvailableFieldSample: cleanStringSlice(e.AvailableFieldSample),
+		Role:                 strings.TrimSpace(e.Role),
+		Repairability:        RepairabilityNeedsRecompute,
+		RepairHint:           "Use existing fields from the executable artifact schema, or add a typed action that materializes the missing field before retrying this action.",
+	}
+}
+
 // ReferenceKeyCandidate describes a record field that can define the complete
 // output key universe for a final projection. It is structural metadata only:
 // callers must still decide whether the user's output contract requires using
@@ -5945,14 +6002,30 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 	rightKnownFields := map[string]bool{}
 	markKnownActionFields(leftKnownFields, leftHeaders, leftRecords)
 	markKnownActionFields(rightKnownFields, rightHeaders, rightRecords)
+	leftFieldNames := actionRecordFieldNames(leftHeaders, leftRecords)
+	rightFieldNames := actionRecordFieldNames(rightHeaders, rightRecords)
 	for _, field := range leftFields {
 		if !leftKnownFields[strings.ToLower(strings.TrimSpace(field))] {
-			return DataArtifact{}, nil, nil, fmt.Errorf("join_records left field %q was not found in left input %s", field, leftRel)
+			return DataArtifact{}, nil, nil, DataFieldContractError{
+				ActionKind:           DataActionJoinRecords,
+				Role:                 "left",
+				Field:                field,
+				InputAlias:           leftRel,
+				AvailableFieldSample: leftFieldNames,
+				Message:              fmt.Sprintf("join_records left field %q was not found in left input %s", field, leftRel),
+			}
 		}
 	}
 	for _, field := range rightFields {
 		if !rightKnownFields[strings.ToLower(strings.TrimSpace(field))] {
-			return DataArtifact{}, nil, nil, fmt.Errorf("join_records right field %q was not found in right input %s", field, rightRel)
+			return DataArtifact{}, nil, nil, DataFieldContractError{
+				ActionKind:           DataActionJoinRecords,
+				Role:                 "right",
+				Field:                field,
+				InputAlias:           rightRel,
+				AvailableFieldSample: rightFieldNames,
+				Message:              fmt.Sprintf("join_records right field %q was not found in right input %s", field, rightRel),
+			}
 		}
 	}
 	rightIndex := map[string][]actionRecord{}

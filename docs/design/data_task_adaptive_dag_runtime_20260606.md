@@ -15502,6 +15502,62 @@ Remaining architecture items:
 - [ ] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 347: Typed Execution Field-Contract Violations
+
+The next audit found one remaining runtime hard-control path that parsed an
+execution error string: when `join_records` failed because one side lacked a
+declared field, CLI/REPL used a regexp over the error text to decide whether to
+materialize the missing field through an `enrich_records` fallback. That was a
+generic architecture smell: the runner knew the action kind, side/input, and
+missing field, but the workflow adapter recovered those facts from prose.
+
+This batch introduces a typed execution violation path. Field-contract failures
+can now be represented as `DataFieldContractError`, converted into
+`DataTaskViolation`, stored on `WorkflowRecord`, and consumed by workflow
+fallbacks. The user-facing error text is preserved for logs and repair prompts,
+but hard control reads typed fields.
+
+Generic invariants:
+
+- execution failures that have structural fields should expose typed
+  violations, not only error prose;
+- workflow records can persist typed dataquery violations beside the display
+  error string;
+- field-contract fallback consumes `code`, `action_kind`, `input_alias`, and
+  `missing_fields` from typed violations;
+- historical fallback scans record violations, not historical error strings;
+- this first landing connects `join_records`, but the contract is action-neutral
+  and can be reused by enrich/filter/group/contribution field checks.
+
+Changes:
+
+- [x] Added `DataFieldContractError` with input alias, role, missing field, and
+      available-field sample.
+- [x] Added structured field metadata to `DataTaskViolation`.
+- [x] Added `ClassifyExecutionFailure(error)` to prefer typed errors and only
+      fall back to legacy text classification when no typed error exists.
+- [x] Rewired `join_records` missing left/right fields to return
+      `DataFieldContractError` while preserving the old display text.
+- [x] Stored typed execution violations on `WorkflowRecord`.
+- [x] Rewired CLI/REPL execution-error records to persist typed violations.
+- [x] Rewired missing-join-field fallback and historical fallback to consume
+      typed violations instead of regex-parsing error text.
+- [x] Extended completion-gate violation projection to preserve input aliases
+      and missing/available fields from dataquery violations.
+- [x] Added regression coverage for typed field-contract errors, runtime record
+      cloning, and typed missing-join fallback fixtures.
+
+Remaining architecture items:
+
+- [ ] Gradually convert other action field-contract errors to
+      `DataFieldContractError` where they currently emit string-only errors.
+- [ ] Feed record-level execution violations into the unified workflow
+      violation/action-graph projection, not only fallback helpers.
+- [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
+      tests and diagnostics consume typed guard objects directly.
+- [ ] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

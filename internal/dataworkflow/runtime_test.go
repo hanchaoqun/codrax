@@ -227,6 +227,12 @@ func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
 			}},
 		},
 		Evaluation: &dataquery.Evaluation{MissingInputs: []string{"amount"}},
+		Violations: []dataquery.DataTaskViolation{{
+			Code:                 "field_contract_violation",
+			InputAlias:           "records.json",
+			MissingFields:        []string{"amount"},
+			AvailableFieldSample: []string{"status"},
+		}},
 		Admission: &ActionDAGAdmissionDecision{
 			Guard: NewGuardResult("field_contract", "error", RepairNeedsTypedAction, "missing field", WorkflowViolation{
 				MissingFields: []string{"amount"},
@@ -245,6 +251,8 @@ func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
 	record.Result.Reconcile.Groups[0].GroupKey = "mutated"
 	record.Result.ResultPatches[0].Value[0] = 'x'
 	record.Evaluation.MissingInputs[0] = "mutated"
+	record.Violations[0].MissingFields[0] = "mutated"
+	record.Violations[0].AvailableFieldSample[0] = "mutated"
 	record.Admission.Guard.Violations[0].MissingFields[0] = "mutated"
 	records[0].Result.Rows[0].NormalizedFields["status"] = "mutated again"
 
@@ -272,6 +280,9 @@ func TestWorkflowRuntimeOwnsRecords(t *testing.T) {
 	}
 	if got[0].Evaluation.MissingInputs[0] != "amount" {
 		t.Fatalf("evaluation leaked: %#v", got[0].Evaluation)
+	}
+	if got[0].Violations[0].MissingFields[0] != "amount" || got[0].Violations[0].AvailableFieldSample[0] != "status" {
+		t.Fatalf("violations leaked: %#v", got[0].Violations)
 	}
 	if got[0].Admission.Guard.Violations[0].MissingFields[0] != "amount" {
 		t.Fatalf("admission leaked: %#v", got[0].Admission)

@@ -93,13 +93,17 @@ func validationErrorWorkflowViolations(err error) []WorkflowViolation {
 			code = "data_validation_incomplete"
 		}
 		out = append(out, WorkflowViolation{
-			Code:              code,
-			Severity:          "error",
-			Repairability:     RepairNeedsTypedAction,
-			ActionID:          strings.TrimSpace(violation.ActionID),
-			ActionKind:        strings.TrimSpace(violation.ActionKind),
-			RepairActionHints: cleanStrings([]string{violation.RepairHint}),
-			Reason:            strings.TrimSpace(violation.Summary),
+			Code:                 code,
+			Severity:             "error",
+			Repairability:        RepairNeedsTypedAction,
+			ActionID:             strings.TrimSpace(violation.ActionID),
+			ActionKind:           strings.TrimSpace(violation.ActionKind),
+			InputAlias:           strings.TrimSpace(violation.InputAlias),
+			InputAliases:         cleanStrings(violation.InputAliases),
+			RepairActionHints:    cleanStrings([]string{violation.RepairHint}),
+			MissingFields:        cleanStrings(violation.MissingFields),
+			AvailableFieldSample: cleanStrings(violation.AvailableFieldSample),
+			Reason:               strings.TrimSpace(violation.Summary),
 		})
 	}
 	return out

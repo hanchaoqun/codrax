@@ -316,6 +316,7 @@ func cloneWorkflowRecord(in WorkflowRecord) WorkflowRecord {
 		copied := cloneResultValue(*in.Result)
 		out.Result = &copied
 	}
+	out.Violations = cloneDataTaskViolations(in.Violations)
 	if in.Evaluation != nil {
 		copied := *in.Evaluation
 		copied.MissingInputs = append([]string(nil), in.Evaluation.MissingInputs...)
@@ -324,6 +325,18 @@ func cloneWorkflowRecord(in WorkflowRecord) WorkflowRecord {
 	if in.Admission != nil {
 		copied := cloneAdmissionDecision(*in.Admission)
 		out.Admission = &copied
+	}
+	return out
+}
+
+func cloneDataTaskViolations(in []dataquery.DataTaskViolation) []dataquery.DataTaskViolation {
+	out := make([]dataquery.DataTaskViolation, 0, len(in))
+	for _, violation := range in {
+		copied := violation
+		copied.InputAliases = append([]string(nil), violation.InputAliases...)
+		copied.MissingFields = append([]string(nil), violation.MissingFields...)
+		copied.AvailableFieldSample = append([]string(nil), violation.AvailableFieldSample...)
+		out = append(out, copied)
 	}
 	return out
 }

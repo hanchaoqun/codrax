@@ -2111,6 +2111,22 @@ func TestActionRunnerJoinRecordsValidatesLeftAndRightFieldsSeparately(t *testing
 	if err == nil || !strings.Contains(err.Error(), `join_records left field "category_code" was not found in left input left.csv`) {
 		t.Fatalf("err=%v, want side-specific left-field validation", err)
 	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.Role != "left" || fieldErr.Field != "category_code" || fieldErr.InputAlias != "left.csv" {
+		t.Fatalf("fieldErr=%+v, want left/category_code/left.csv", fieldErr)
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "field_contract_violation" ||
+		violation.ActionID != "join" ||
+		violation.ActionKind != string(DataActionJoinRecords) ||
+		violation.InputAlias != "left.csv" ||
+		len(violation.MissingFields) != 1 ||
+		violation.MissingFields[0] != "category_code" {
+		t.Fatalf("violation=%+v, want typed join field contract", violation)
+	}
 }
 
 func TestActionRunnerJoinRecordsInfersSidesFromFieldContracts(t *testing.T) {

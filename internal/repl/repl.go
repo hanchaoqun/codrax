@@ -1775,10 +1775,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
+			violation := dataquery.ClassifyExecutionFailure(err)
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			r.auditDataTaskError(dataRounds, errText)
-			executionRecord := dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText)
-			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, errText); ok {
+			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
+			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, violation); ok {
 				appendRecord(executionRecord)
 				emitWorkflowReason("continue", dataRounds, "materialized missing join field from existing artifacts")
 				fallback = protectPlan(fallback)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -2800,23 +2799,24 @@ func dataTaskInvalidRecordActionEnrichFallback(records []dataTaskWorkflowRecord,
 
 func dataTaskHistoricalMissingJoinFieldName(records []dataTaskWorkflowRecord) string {
 	for i := len(records) - 1; i >= 0; i-- {
-		matches := dataTaskJoinMissingFieldPattern.FindStringSubmatch(strings.TrimSpace(records[i].Err))
-		if len(matches) >= 3 && strings.TrimSpace(matches[2]) != "" {
-			return strings.TrimSpace(matches[2])
+		violation, ok := dataTaskJoinMissingFieldViolation(records[i])
+		if ok && len(violation.MissingFields) > 0 {
+			return strings.TrimSpace(violation.MissingFields[0])
 		}
 	}
 	return ""
 }
 
-var dataTaskJoinMissingFieldPattern = regexp.MustCompile(`join_records\s+(left|right)\s+field\s+"([^"]+)"\s+was\s+not\s+found\s+in\s+(?:left|right)\s+input\s+(\S+)`)
-
-func dataTaskMissingJoinFieldFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	matches := dataTaskJoinMissingFieldPattern.FindStringSubmatch(errText)
-	if len(matches) < 4 {
+func dataTaskMissingJoinFieldFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, bool) {
+	if strings.TrimSpace(violation.Code) != "field_contract_violation" ||
+		strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionJoinRecords) {
 		return dataquery.TaskPlan{}, false
 	}
-	missingField := strings.TrimSpace(matches[2])
-	baseAlias := strings.Trim(strings.TrimSpace(matches[3]), `"'`)
+	missingField := ""
+	if len(violation.MissingFields) > 0 {
+		missingField = strings.TrimSpace(violation.MissingFields[0])
+	}
+	baseAlias := strings.Trim(strings.TrimSpace(violation.InputAlias), `"'`)
 	if missingField == "" || baseAlias == "" {
 		return dataquery.TaskPlan{}, false
 	}
@@ -2887,11 +2887,11 @@ func dataTaskHistoricalMissingJoinFieldFallback(records []dataTaskWorkflowRecord
 		return dataquery.TaskPlan{}, false
 	}
 	for i := len(records) - 1; i >= 0; i-- {
-		errText := strings.TrimSpace(records[i].Err)
-		if errText == "" || !dataTaskJoinMissingFieldPattern.MatchString(errText) {
+		violation, ok := dataTaskJoinMissingFieldViolation(records[i])
+		if !ok {
 			continue
 		}
-		fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, errText)
+		fallback, ok := dataTaskMissingJoinFieldFallback(records, plan, violation)
 		if !ok {
 			continue
 		}
@@ -2907,6 +2907,22 @@ func dataTaskHistoricalMissingJoinFieldFallback(records []dataTaskWorkflowRecord
 		return fallback, true
 	}
 	return dataquery.TaskPlan{}, false
+}
+
+func dataTaskJoinMissingFieldViolation(record dataTaskWorkflowRecord) (dataquery.DataTaskViolation, bool) {
+	for _, violation := range record.Violations {
+		if strings.TrimSpace(violation.Code) != "field_contract_violation" {
+			continue
+		}
+		if strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionJoinRecords) {
+			continue
+		}
+		if strings.TrimSpace(violation.InputAlias) == "" || len(violation.MissingFields) == 0 {
+			continue
+		}
+		return violation, true
+	}
+	return dataquery.DataTaskViolation{}, false
 }
 
 func dataTaskFallbackPlanAlreadySeen(records []dataTaskWorkflowRecord, candidate dataquery.TaskPlan) bool {
@@ -6137,6 +6153,14 @@ func dataTaskWorkflowRecordWithOptionalResult(plan dataquery.TaskPlan, result da
 	rec := dataTaskWorkflowRecord{Plan: plan, Err: errText}
 	if dataTaskResultHasHandoffSignal(result) {
 		rec.Result = &result
+	}
+	return rec
+}
+
+func dataTaskWorkflowRecordWithExecutionViolation(plan dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataTaskWorkflowRecord {
+	rec := dataTaskWorkflowRecordWithOptionalResult(plan, result, errText)
+	if strings.TrimSpace(violation.Code) != "" {
+		rec.Violations = []dataquery.DataTaskViolation{violation}
 	}
 	return rec
 }

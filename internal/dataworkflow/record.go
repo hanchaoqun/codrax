@@ -8,6 +8,7 @@ type WorkflowRecord struct {
 	Plan       dataquery.TaskPlan
 	Result     *dataquery.Result
 	Err        string
+	Violations []dataquery.DataTaskViolation
 	Evaluation *dataquery.Evaluation
 	Admission  *ActionDAGAdmissionDecision
 }
