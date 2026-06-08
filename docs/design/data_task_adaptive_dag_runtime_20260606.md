@@ -17842,8 +17842,57 @@ Remaining architecture items:
       consumes one reducer-owned "next executable" decision object spanning
       budget, terminal, pre-execution, execution result, post-result, evaluator,
       admission, and repair/continuation planner result handling.
-- [ ] Move staging-guard explicit remainder queueing through the same runtime
-      admission/queue boundary where possible.
+- [x] Move staging-guard explicit remainder queueing through the same runtime
+      admission/queue boundary where possible. Completed in Batch 418.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 418: Runtime Deferred Enqueue Decision
+
+Batch 417 moved admission-rewrite remainder queueing into the runtime, but
+staging-guard recovery still used adapter closures that directly called
+`EnqueueDeferred`. The guard recovery decision itself was already reducer-owned;
+the remaining issue was that the queue mutation returned no typed decision, so
+CLI/REPL had to infer what had just been queued from local variables.
+
+This batch adds `WorkflowRuntime.QueueDeferred`. It wraps deferred enqueue as a
+typed runtime decision carrying the queued plan, queue snapshot, action, and
+reason. Admission rewrite now uses the same method internally, and explicit
+staging-guard remainder queueing in CLI/REPL consumes the returned decision for
+audit and display.
+
+Generic invariants:
+
+- the decision to queue a remainder comes from typed reducer output or
+  admission rewrite, not user/model prose;
+- queue mutation and clone isolation stay in `WorkflowRuntime`;
+- adapters only audit/render the returned queued plan and reason;
+- empty remainder plans still produce no user-visible deferred audit;
+- no planner prompts, action execution, source/log/trace/write modes, or output
+  contracts change.
+
+Changes:
+
+- [x] Extended `DeferredQueueAdvanceDecision` with `queued_plan`.
+- [x] Added `WorkflowRuntime.QueueDeferred`.
+- [x] Reused `QueueDeferred` inside
+      `AdmitCandidatePlanAndQueueRemainder`.
+- [x] Rewired CLI explicit deferred save path to consume the runtime enqueue
+      decision.
+- [x] Rewired REPL explicit deferred save path to consume the same runtime
+      enqueue decision.
+- [x] Added regression coverage for clone-isolated queued-plan decisions and
+      enqueue events.
+
+Remaining architecture items:
+
+- [ ] Keep shrinking adapter-local execution cursors until the live loop
+      consumes one reducer-owned "next executable" decision object spanning
+      budget, terminal, pre-execution, execution result, post-result, evaluator,
+      admission, and repair/continuation planner result handling.
+- [ ] Convert execution-failure and result-validation recovery into the same
+      next-executable reducer shape instead of branching locally before repair
+      planner calls.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

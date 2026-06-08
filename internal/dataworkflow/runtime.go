@@ -42,6 +42,7 @@ type DeferredQueueAdvanceDecision struct {
 	Action         string                         `json:"action,omitempty"`
 	Status         DeferredDispatchStatus         `json:"status,omitempty"`
 	Lifecycle      DeferredQueueLifecycleDecision `json:"lifecycle,omitempty"`
+	QueuedPlan     dataquery.TaskPlan             `json:"queued_plan,omitempty"`
 	DispatchedPlan dataquery.TaskPlan             `json:"dispatched_plan,omitempty"`
 	RemainderPlan  dataquery.TaskPlan             `json:"remainder_plan,omitempty"`
 	Queue          DeferredQueueState             `json:"queue,omitempty"`
@@ -400,6 +401,20 @@ func (rt *WorkflowRuntime) EnqueueDeferred(round int, plan dataquery.TaskPlan, r
 	rt.deferredQueue = EnqueueDeferredQueue(rt.deferredQueue, round, plan, reason)
 }
 
+func (rt *WorkflowRuntime) QueueDeferred(round int, plan dataquery.TaskPlan, reason string) DeferredQueueAdvanceDecision {
+	out := DeferredQueueAdvanceDecision{
+		Action:     DeferredQueueTransitionEnqueue,
+		QueuedPlan: cloneTaskPlanValue(plan),
+		Reason:     trimRuntimeText(reason),
+	}
+	if rt == nil {
+		return out
+	}
+	rt.EnqueueDeferred(round, plan, reason)
+	out.Queue = rt.DeferredQueue()
+	return out
+}
+
 func (rt *WorkflowRuntime) DispatchDeferred(round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, reason string) DeferredQueueState {
 	if rt == nil {
 		return DeferredQueueState{}
@@ -530,11 +545,11 @@ func (rt *WorkflowRuntime) AdmitCandidatePlanAndQueueRemainder(round int, source
 		return out
 	}
 	reason := firstNonEmpty(out.Admission.Reason, "deferred remainder from admitted candidate plan")
-	rt.EnqueueDeferred(round, out.Admission.Remainder, reason)
+	queued := rt.QueueDeferred(round, out.Admission.Remainder, reason)
 	out.DeferredQueued = true
-	out.DeferredPlan = cloneTaskPlanValue(out.Admission.Remainder)
-	out.DeferredQueue = rt.DeferredQueue()
-	out.DeferredReason = reason
+	out.DeferredPlan = cloneTaskPlanValue(queued.QueuedPlan)
+	out.DeferredQueue = queued.Queue
+	out.DeferredReason = queued.Reason
 	return out
 }
 

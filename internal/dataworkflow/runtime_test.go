@@ -168,6 +168,27 @@ func TestWorkflowRuntimeAdvancesDeferredQueueLifecycle(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeQueueDeferredReturnsTypedDecision(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	plan := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:     "compute",
+		Kind:   dataquery.DataActionComputeContribs,
+		Params: map[string]string{"value_field": "amount"},
+	}}}
+	decision := rt.QueueDeferred(5, plan, "split next rank")
+	plan.Actions[0].Params["value_field"] = "mutated"
+	decision.QueuedPlan.Actions[0].Params["value_field"] = "mutated again"
+	if decision.Action != DeferredQueueTransitionEnqueue || decision.Reason != "split next rank" {
+		t.Fatalf("decision=%+v, want enqueue decision", decision)
+	}
+	if got := rt.DeferredPlan(); len(got.Actions) != 1 || got.Actions[0].Params["value_field"] != "amount" {
+		t.Fatalf("runtime deferred=%+v, want clone-isolated queued plan", got)
+	}
+	if len(decision.Queue.Events) != 1 || decision.Queue.Events[0].Action != DeferredQueueTransitionEnqueue {
+		t.Fatalf("queue=%+v, want enqueue event", decision.Queue)
+	}
+}
+
 func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	candidate := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{

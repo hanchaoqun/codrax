@@ -1365,12 +1365,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
 	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		workflowRuntime.EnqueueDeferred(round, remainder, reason)
-		if len(remainder.Actions) == 0 {
+		queued := workflowRuntime.QueueDeferred(round, remainder, reason)
+		if len(queued.QueuedPlan.Actions) == 0 {
 			return
 		}
-		r.auditDataTaskPlan("deferred", round, remainder)
-		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, remainder, reason))
+		r.auditDataTaskPlan("deferred", round, queued.QueuedPlan)
+		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(r.language, queued.QueuedPlan, queued.Reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()

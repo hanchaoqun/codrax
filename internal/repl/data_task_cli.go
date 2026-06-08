@@ -168,12 +168,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
 	}
 	saveDeferredPlan := func(round int, remainder dataquery.TaskPlan, reason string) {
-		workflowRuntime.EnqueueDeferred(round, remainder, reason)
-		if len(remainder.Actions) == 0 {
+		queued := workflowRuntime.QueueDeferred(round, remainder, reason)
+		if len(queued.QueuedPlan.Actions) == 0 {
 			return
 		}
-		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", round, remainder)
-		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, remainder, reason))
+		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", round, queued.QueuedPlan)
+		emitWorkflowReason("deferred", round, dataTaskDeferredQueueSavedSegment(cfg.Language, queued.QueuedPlan, queued.Reason))
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
