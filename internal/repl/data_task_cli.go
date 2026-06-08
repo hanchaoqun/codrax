@@ -661,17 +661,34 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		case dataworkflow.EvaluationDecisionContinuePlan:
 			view = runtimeView()
 			nextPlan, err := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
+			var errText string
+			var fallback dataquery.TaskPlan
+			var fallbackReason string
+			var fallbackOK bool
 			if err != nil {
-				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err); ok {
-					fallback = protectPlan(fallback)
-					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-					emitWorkflowReason("continue", dataRounds, reason)
-					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-					continue
-				}
-				return "", fmt.Errorf("continue data task: %w", err)
+				errText = err.Error()
+				fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err)
 			}
+			plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
+				Plan:              nextPlan,
+				ErrorText:         errText,
+				FallbackPlan:      fallback,
+				FallbackReason:    fallbackReason,
+				FallbackAvailable: fallbackOK,
+				FailurePrefix:     "continue data task",
+			})
+			switch plannerDecision.Action {
+			case dataworkflow.PlannerPlanFallbackPlan:
+				fallback = protectPlan(plannerDecision.Plan)
+				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+				emitWorkflowReason("continue", dataRounds, plannerDecision.Reason)
+				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, plannerDecision.Reason)
+				continue
+			case dataworkflow.PlannerPlanFail:
+				return "", fmt.Errorf("%s", plannerDecision.Reason)
+			}
+			nextPlan = plannerDecision.Plan
 			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 				logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 				nextPlan = normalized

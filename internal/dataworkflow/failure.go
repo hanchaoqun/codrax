@@ -130,6 +130,64 @@ func (d FailureRecoveryDecision) HasPlan() bool {
 	return len(d.Plan.Actions) > 0 || strings.TrimSpace(d.Plan.Script) != "" || len(cleanStrings(d.Plan.InputPaths)) > 0
 }
 
+type PlannerPlanDecisionAction string
+
+const (
+	PlannerPlanAccept       PlannerPlanDecisionAction = "accept_plan"
+	PlannerPlanFallbackPlan PlannerPlanDecisionAction = "fallback_plan"
+	PlannerPlanFail         PlannerPlanDecisionAction = "fail"
+)
+
+type PlannerPlanDecisionInput struct {
+	Plan              dataquery.TaskPlan `json:"plan,omitempty"`
+	ErrorText         string             `json:"error_text,omitempty"`
+	FallbackPlan      dataquery.TaskPlan `json:"fallback_plan,omitempty"`
+	FallbackReason    string             `json:"fallback_reason,omitempty"`
+	FallbackAvailable bool               `json:"fallback_available,omitempty"`
+	FailurePrefix     string             `json:"failure_prefix,omitempty"`
+}
+
+type PlannerPlanDecision struct {
+	Action PlannerPlanDecisionAction `json:"action,omitempty"`
+	Plan   dataquery.TaskPlan        `json:"plan,omitempty"`
+	Reason string                    `json:"reason,omitempty"`
+}
+
+func (d PlannerPlanDecision) HasPlan() bool {
+	return len(d.Plan.Actions) > 0 || strings.TrimSpace(d.Plan.Script) != "" || len(cleanStrings(d.Plan.InputPaths)) > 0
+}
+
+func DecidePlannerPlanResult(input PlannerPlanDecisionInput) PlannerPlanDecision {
+	errText := strings.TrimSpace(input.ErrorText)
+	if errText == "" {
+		if taskPlanHasExecutableShape(input.Plan) {
+			return PlannerPlanDecision{
+				Action: PlannerPlanAccept,
+				Plan:   cloneTaskPlanValue(input.Plan),
+			}
+		}
+		return PlannerPlanDecision{
+			Action: PlannerPlanFail,
+			Reason: firstNonEmpty(input.FailurePrefix, "planner returned no executable data plan"),
+		}
+	}
+	if input.FallbackAvailable && taskPlanHasExecutableShape(input.FallbackPlan) {
+		return PlannerPlanDecision{
+			Action: PlannerPlanFallbackPlan,
+			Plan:   cloneTaskPlanValue(input.FallbackPlan),
+			Reason: strings.TrimSpace(input.FallbackReason),
+		}
+	}
+	reason := errText
+	if prefix := strings.TrimSpace(input.FailurePrefix); prefix != "" {
+		reason = prefix + ": " + errText
+	}
+	return PlannerPlanDecision{
+		Action: PlannerPlanFail,
+		Reason: reason,
+	}
+}
+
 func DecideExecutionFailureRecovery(transition ExecutionFailureTransition, continuationReady, repairReady, repairBudgetAvailable bool, fallbackReason string) FailureRecoveryDecision {
 	switch transition.Action {
 	case ExecutionFailureFallbackPlan:

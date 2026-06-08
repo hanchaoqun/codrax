@@ -18087,7 +18087,53 @@ Remaining architecture items:
 
 - [ ] Continue moving evaluator decisions and planner-result
       repair/continuation handling into a single reducer-owned next-executable
-      decision object.
+      decision object. Evaluator continuation planner result handling moved to
+      reducer IR in Batch 423; repair planner result handling remains open.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 423: Planner Plan Result Decision IR
+
+Batch 422 moved post-result deferred queue mutation into runtime. The next
+adapter-local branch was planner-result handling after evaluator requested
+continuation. CLI and REPL both had the same hard branch: if continuation
+planner failed, try deterministic fallback; if no fallback, fail; otherwise
+normalize and accept the returned plan.
+
+This batch adds a generic planner-result reducer. It does not call planners and
+does not inspect planner prose. It consumes only a typed plan, an error string,
+and a deterministic fallback candidate prepared from workflow state.
+
+Generic invariants:
+
+- successful planner output must have executable task-plan shape before it can
+  be accepted;
+- planner errors prefer deterministic typed fallback when one is available;
+- fallback availability is explicit and structural;
+- without an executable planner plan or fallback, the decision is fail;
+- adapters still own LLM calls, progress rendering, normalization,
+  preservation, and plan acceptance;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `PlannerPlanDecisionAction`.
+- [x] Added `PlannerPlanDecision`.
+- [x] Added `DecidePlannerPlanResult`.
+- [x] Added reducer tests for accept, fallback, no-plan failure, and
+      error-without-fallback failure.
+- [x] Rewired CLI evaluator-continuation planner result handling to consume the
+      planner-result decision.
+- [x] Rewired REPL evaluator-continuation planner result handling to consume
+      the planner-result decision.
+
+Remaining architecture items:
+
+- [ ] Reuse planner-result decision for execution-failure continuation planner
+      calls and repair-failure continuation fallback paths.
+- [ ] Continue moving repair planner result handling into reducer-owned
+      next-executable decisions.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

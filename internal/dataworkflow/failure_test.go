@@ -167,6 +167,46 @@ func TestDecideExecutionFailureRecoveryPrioritizesFallback(t *testing.T) {
 	}
 }
 
+func TestDecidePlannerPlanResultAcceptsExecutablePlan(t *testing.T) {
+	plan := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "continue", Kind: dataquery.DataActionFilterRecords}}}
+	decision := DecidePlannerPlanResult(PlannerPlanDecisionInput{Plan: plan})
+	if decision.Action != PlannerPlanAccept || !decision.HasPlan() || decision.Plan.Actions[0].ID != "continue" {
+		t.Fatalf("decision=%+v, want accepted planner plan", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	if plan.Actions[0].ID != "continue" {
+		t.Fatalf("planner plan leaked mutation: %+v", plan)
+	}
+}
+
+func TestDecidePlannerPlanResultUsesFallbackOnPlannerError(t *testing.T) {
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "derive", Kind: dataquery.DataActionDeriveRules}}}
+	decision := DecidePlannerPlanResult(PlannerPlanDecisionInput{
+		ErrorText:         "planner returned no tool call",
+		FallbackPlan:      fallback,
+		FallbackReason:    "continue from typed state",
+		FallbackAvailable: true,
+		FailurePrefix:     "continue data task",
+	})
+	if decision.Action != PlannerPlanFallbackPlan || decision.Reason != "continue from typed state" || decision.Plan.Actions[0].ID != "derive" {
+		t.Fatalf("decision=%+v, want deterministic fallback", decision)
+	}
+}
+
+func TestDecidePlannerPlanResultFailsWithoutExecutablePlanOrFallback(t *testing.T) {
+	decision := DecidePlannerPlanResult(PlannerPlanDecisionInput{FailurePrefix: "continue data task"})
+	if decision.Action != PlannerPlanFail || decision.Reason != "continue data task" {
+		t.Fatalf("decision=%+v, want no-plan failure", decision)
+	}
+	decision = DecidePlannerPlanResult(PlannerPlanDecisionInput{
+		ErrorText:     "planner failed",
+		FailurePrefix: "continue data task",
+	})
+	if decision.Action != PlannerPlanFail || decision.Reason != "continue data task: planner failed" {
+		t.Fatalf("decision=%+v, want prefixed planner failure", decision)
+	}
+}
+
 func TestDecideExecutionFailureRecoveryContinuationFallsBackToRepair(t *testing.T) {
 	decision := DecideExecutionFailureRecovery(ExecutionFailureTransition{
 		Action: ExecutionFailureNeedsContinuation,
