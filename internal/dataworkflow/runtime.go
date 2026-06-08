@@ -24,6 +24,16 @@ type PlanTransitionEvent struct {
 	Reason          string `json:"reason,omitempty"`
 }
 
+type DeferredQueueAdvanceDecision struct {
+	Action         string                         `json:"action,omitempty"`
+	Status         DeferredDispatchStatus         `json:"status,omitempty"`
+	Lifecycle      DeferredQueueLifecycleDecision `json:"lifecycle,omitempty"`
+	DispatchedPlan dataquery.TaskPlan             `json:"dispatched_plan,omitempty"`
+	RemainderPlan  dataquery.TaskPlan             `json:"remainder_plan,omitempty"`
+	Queue          DeferredQueueState             `json:"queue,omitempty"`
+	Reason         string                         `json:"reason,omitempty"`
+}
+
 func NewWorkflowRuntime(current dataquery.TaskPlan) *WorkflowRuntime {
 	rt := &WorkflowRuntime{}
 	rt.SetCurrentPlan(current)
@@ -202,6 +212,45 @@ func (rt *WorkflowRuntime) ClearDeferred(round int, reason string) {
 		return
 	}
 	rt.deferredQueue = ClearDeferredQueue(rt.deferredQueue, round, reason)
+}
+
+func (rt *WorkflowRuntime) AdvanceDeferredQueue(round int, dispatched, remainder dataquery.TaskPlan, status DeferredDispatchStatus, dispatchReady bool, dispatchReason, discardReason string) DeferredQueueAdvanceDecision {
+	out := DeferredQueueAdvanceDecision{
+		Status:         status,
+		DispatchedPlan: cloneTaskPlanValue(dispatched),
+		RemainderPlan:  cloneTaskPlanValue(remainder),
+	}
+	if dispatchReady {
+		out.Action = DeferredQueueTransitionDispatch
+		out.Reason = trimRuntimeText(dispatchReason)
+		out.Queue = rt.DispatchDeferred(round, dispatched, remainder, status, out.Reason)
+		return out
+	}
+	deferredPlan := rt.DeferredPlan()
+	if len(deferredPlan.Actions) == 0 {
+		out.Action = DeferredQueueLifecycleNone
+		out.Lifecycle = DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleNone, ReasonCode: status.ReasonCode, Reason: status.Reason}
+		rt.ClearDeferred(round, status.Reason)
+		out.Queue = rt.DeferredQueue()
+		return out
+	}
+	lifecycle := DecideDeferredQueueLifecycle(status)
+	out.Lifecycle = lifecycle
+	switch lifecycle.Action {
+	case DeferredQueueLifecycleRetain:
+		out.Action = DeferredQueueTransitionRetain
+		rt.RetainDeferred(round, status)
+	case DeferredQueueLifecycleDiscard:
+		out.Action = DeferredQueueTransitionDiscard
+		out.Reason = firstNonEmpty(discardReason, lifecycle.Reason, status.Reason)
+		rt.DiscardDeferred(round, status, out.Reason)
+	default:
+		out.Action = DeferredQueueTransitionClear
+		out.Reason = lifecycle.Reason
+		rt.ClearDeferred(round, out.Reason)
+	}
+	out.Queue = rt.DeferredQueue()
+	return out
 }
 
 func (rt *WorkflowRuntime) SetAdmission(admission ActionDAGAdmissionDecision) {

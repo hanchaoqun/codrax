@@ -108,6 +108,66 @@ func TestWorkflowRuntimeOwnsDeferredQueueAndAdmission(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeAdvancesDeferredQueueDispatch(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "join", Kind: dataquery.DataActionJoinRecords},
+		{ID: "compute", Kind: dataquery.DataActionComputeContribs},
+	}}
+	rt.EnqueueDeferred(1, deferred, "split graph")
+	dispatched := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "join", Kind: dataquery.DataActionJoinRecords}}}
+	remainder := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "compute", Kind: dataquery.DataActionComputeContribs}}}
+
+	advance := rt.AdvanceDeferredQueue(2, dispatched, remainder, DeferredDispatchStatus{Ready: true, ReadyActions: 1}, true, "dispatch ready rank", "")
+	if advance.Action != DeferredQueueTransitionDispatch || len(advance.Queue.Plan.Actions) != 1 {
+		t.Fatalf("advance=%+v, want dispatch with one remaining action", advance)
+	}
+	if rt.DeferredPlan().Actions[0].ID != "compute" {
+		t.Fatalf("runtime deferred plan=%+v, want remaining compute", rt.DeferredPlan())
+	}
+	events := rt.DeferredQueue().Events
+	if len(events) != 2 || events[1].Action != DeferredQueueTransitionDispatch || events[1].RemainingActions != 1 {
+		t.Fatalf("deferred events=%+v, want dispatch transition", events)
+	}
+	remainder.Actions[0].ID = "mutated"
+	if rt.DeferredPlan().Actions[0].ID != "compute" {
+		t.Fatalf("runtime deferred plan leaked remainder mutation: %+v", rt.DeferredPlan())
+	}
+}
+
+func TestWorkflowRuntimeAdvancesDeferredQueueLifecycle(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "join", Kind: dataquery.DataActionJoinRecords}}}
+	rt.EnqueueDeferred(1, deferred, "split graph")
+
+	retained := rt.AdvanceDeferredQueue(2, dataquery.TaskPlan{}, dataquery.TaskPlan{}, DeferredDispatchStatus{
+		Actions:        1,
+		BlockedActions: 1,
+		ReasonCode:     DeferredBlockInputUnavailable,
+		Reason:         "input alias is not available",
+	}, false, "", "")
+	if retained.Action != DeferredQueueTransitionRetain || len(retained.Queue.Plan.Actions) != 1 {
+		t.Fatalf("retained=%+v, want retained queue", retained)
+	}
+	if retained.Lifecycle.Action != DeferredQueueLifecycleRetain {
+		t.Fatalf("lifecycle=%+v, want retain", retained.Lifecycle)
+	}
+
+	discarded := rt.AdvanceDeferredQueue(3, dataquery.TaskPlan{}, dataquery.TaskPlan{}, DeferredDispatchStatus{
+		Actions:        1,
+		BlockedActions: 1,
+		ReasonCode:     DeferredBlockAdmissionRejected,
+		Reason:         "candidate was rejected",
+	}, false, "", "discard rejected queue")
+	if discarded.Action != DeferredQueueTransitionDiscard || len(discarded.Queue.Plan.Actions) != 0 {
+		t.Fatalf("discarded=%+v, want discarded queue", discarded)
+	}
+	events := rt.DeferredQueue().Events
+	if len(events) != 3 || events[1].Action != DeferredQueueTransitionRetain || events[2].Action != DeferredQueueTransitionDiscard {
+		t.Fatalf("deferred events=%+v, want retain then discard", events)
+	}
+}
+
 func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{

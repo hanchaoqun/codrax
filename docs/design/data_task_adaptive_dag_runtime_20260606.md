@@ -16568,3 +16568,43 @@ Remaining architecture items:
       that are now covered by the typed IR batches.
 - [ ] Run focused architecture regression suites before deciding whether the
       real scenario is ready to rerun.
+
+### Batch 366: Runtime-Owned Deferred Queue Lifecycle Advance
+
+Deferred readiness already used typed status and `DeferredQueueState`, but the
+state mutation branch was still duplicated in CLI and REPL: dispatch a ready
+rank, retain a not-yet-ready queue, discard an invalid queue, or clear an empty
+queue. That duplication kept lifecycle ownership in adapters even though the
+queue itself had moved into `WorkflowRuntime`.
+
+Generic invariant:
+
+- readiness/admission status can be computed by adapter-side material/schema
+  views, but applying that status to the live queue is runtime/reducer work;
+- CLI and REPL may render and audit the transition, but they do not directly
+  mutate dispatch/retain/discard/clear branches;
+- the decision records the action, lifecycle status, queue snapshot, dispatched
+  plan, remainder plan, and reason as typed IR;
+- no business vocabulary or prompt text participates in queue mutation.
+
+Changes:
+
+- [x] Added `DeferredQueueAdvanceDecision`.
+- [x] Added `WorkflowRuntime.AdvanceDeferredQueue` to apply ready dispatch,
+      retain, discard, clear, and empty-queue decisions.
+- [x] Rewired CLI deferred dispatch and lifecycle handling to call the runtime
+      advance method.
+- [x] Rewired REPL deferred dispatch and lifecycle handling to call the same
+      runtime advance method.
+- [x] Added runtime regression coverage for dispatch, retain, discard, queue
+      cloning, and transition events.
+
+Remaining architecture items:
+
+- [ ] Continue moving candidate-plan admission transitions into WorkflowRuntime
+      methods so accepted/rejected/rewritten plans share the same reducer-owned
+      event shape.
+- [ ] Audit historical `Remaining architecture items` and mark stale entries
+      that are now covered by the typed IR batches.
+- [ ] Run focused architecture regression suites before deciding whether the
+      real scenario is ready to rerun.

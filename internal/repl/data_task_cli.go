@@ -553,8 +553,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, nextDeferred)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextDeferred)
 			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, "continuing deferred typed data action rank")
-			workflowRuntime.DispatchDeferred(dataRounds+1, nextDeferred, remainder, status, "dispatch ready deferred typed data action rank")
-			remainingDeferred := currentDeferredPlan()
+			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds+1, nextDeferred, remainder, status, true, "dispatch ready deferred typed data action rank", "")
+			remainingDeferred := dataworkflow.DeferredQueuePlan(advance.Queue)
 			if len(remainingDeferred.Actions) > 0 {
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, remainingDeferred)
 				emitWorkflowReason("deferred", dataRounds+1, dataTaskDeferredQueueSavedSegment(cfg.Language, remainingDeferred, "remaining deferred typed data action rank(s)"))
@@ -564,23 +564,22 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		deferredPlan := currentDeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
 			status := dataTaskDeferredQueueStatus(records, deferredPlan)
-			decision := dataworkflow.DecideDeferredQueueLifecycle(status)
-			switch decision.Action {
-			case dataworkflow.DeferredQueueLifecycleRetain:
-				workflowRuntime.RetainDeferred(dataRounds, status)
+			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false, "", dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
+			switch advance.Action {
+			case dataworkflow.DeferredQueueTransitionRetain:
 				emitWorkflowReason("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
 				logging.Info("[cli/data] deferred data action queue retained actions=%d first_action=%s:%s reason_code=%q reason=%q",
-					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, decision.ReasonCode, oneLineClamp(decision.Reason, 500))
-			case dataworkflow.DeferredQueueLifecycleDiscard:
+					len(deferredPlan.Actions), status.FirstActionID, status.FirstActionKind, advance.Lifecycle.ReasonCode, oneLineClamp(advance.Lifecycle.Reason, 500))
+			case dataworkflow.DeferredQueueTransitionDiscard:
 				if strings.TrimSpace(status.Reason) != "" {
 					appendRecord(dataTaskWorkflowRecord{Plan: deferredPlan, Err: status.Reason})
 				}
-				discardDeferredPlan(dataRounds, dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
-			default:
-				workflowRuntime.ClearDeferred(dataRounds, decision.Reason)
+				emitWorkflowReason("deferred", dataRounds, dataTaskDeferredQueueDiscardedSegment(cfg.Language, deferredPlan, advance.Reason))
+				first := deferredPlan.Actions[0]
+				logging.Info("[cli/data] deferred data action queue discarded actions=%d first_action=%s:%s reason=%q", len(deferredPlan.Actions), first.ID, first.Kind, advance.Reason)
 			}
 		} else {
-			workflowRuntime.ClearDeferred(dataRounds, "")
+			workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{}, false, "", "")
 		}
 		if fallback, ok := dataTaskCoverageExpansionFallbackAfterResult(records, currentPlan, "missing material coverage after data batch result"); ok {
 			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: "missing material coverage converted to atomic coverage batch after result"})
