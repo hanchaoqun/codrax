@@ -1778,23 +1778,26 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.auditDataTaskError(dataRounds, errText)
 			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
 			transition := dataTaskExecutionFailureTransition(records, currentPlan, result, errText, violation)
+			_, continuationReady := r.dataTaskPlanner.(DataTaskContinuationPlanner)
+			_, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
+			recovery := dataworkflow.DecideExecutionFailureRecovery(transition, continuationReady, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
 			recordedErr := false
-			if transition.Action == dataworkflow.ExecutionFailureFallbackPlan && transition.HasPlan() {
+			if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
 				appendRecord(executionRecord)
 				recordedErr = true
-				emitWorkflowReason("continue", dataRounds, transition.Reason)
-				fallback := transition.Plan
+				emitWorkflowReason("continue", dataRounds, recovery.Reason)
+				fallback := recovery.Plan
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, transition.Reason)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, recovery.Reason)
 				continue
 			}
-			if transition.Action == dataworkflow.ExecutionFailureNeedsContinuation {
+			if recovery.Action == dataworkflow.FailureRecoveryContinuation {
 				if continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner); ok {
 					appendRecord(executionRecord)
 					recordedErr = true
-					emitWorkflowReason("continue", dataRounds, transition.Reason)
+					emitWorkflowReason("continue", dataRounds, recovery.Reason)
 					ctx := r.startTurn()
 					view := runtimeView()
 					nextPlan, contErr := continueDataTaskWithRuntimeViewIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view)
@@ -1810,6 +1813,22 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 						continue
 					}
 				}
+				recovery = dataworkflow.DecideExecutionFailureRecovery(dataworkflow.ExecutionFailureTransition{
+					Action: dataworkflow.ExecutionFailureNeedsRepair,
+					Reason: errText,
+				}, false, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
+			}
+			if recovery.Action == dataworkflow.FailureRecoveryFail {
+				if !recordedErr {
+					appendRecord(executionRecord)
+				}
+				msg := dataTaskErrorMarkdown(r.language, recovery.Reason)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: recovery.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
+				r.finishDataTaskRouteSpinner("failed")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
 			}
 			if !recordedErr {
 				appendRecord(executionRecord)
@@ -1859,17 +1878,34 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				r.auditDataTaskError(dataRounds, errText)
+				transition := dataworkflow.ValidationFailureTransition{
+					Action:    dataworkflow.ValidationFailureNeedsRepair,
+					Reason:    errText,
+					ErrorText: errText,
+				}
 				guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result)
 				if !guard.Empty() {
-					transition := dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
-					if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-						appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
-						completionPlan := protectPlan(transition.Plan)
-						r.emitDataTaskPlanAudit(completionPlan)
-						r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
-						currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
-						continue
-					}
+					transition = dataTaskValidationFailureTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
+				}
+				_, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
+				recovery := dataworkflow.DecideValidationFailureRecovery(transition, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
+				if recovery.Action == dataworkflow.FailureRecoveryFallbackPlan && recovery.HasPlan() {
+					appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
+					completionPlan := protectPlan(recovery.Plan)
+					r.emitDataTaskPlanAudit(completionPlan)
+					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
+					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, recovery.Reason)
+					continue
+				}
+				if recovery.Action == dataworkflow.FailureRecoveryFail {
+					appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
+					msg := dataTaskErrorMarkdown(r.language, recovery.Reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: recovery.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
 				}
 				appendRecord(dataTaskWorkflowRecordWithOptionalResult(currentPlan, result, errText))
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {

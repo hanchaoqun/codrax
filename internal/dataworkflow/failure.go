@@ -84,6 +84,22 @@ type ExecutionFailureTransition struct {
 	NodeCount int                              `json:"node_count,omitempty"`
 }
 
+type FailureRecoveryDecisionAction string
+
+const (
+	FailureRecoveryFallbackPlan FailureRecoveryDecisionAction = "fallback_plan"
+	FailureRecoveryContinuation FailureRecoveryDecisionAction = "continuation"
+	FailureRecoveryRepair       FailureRecoveryDecisionAction = "repair"
+	FailureRecoveryFail         FailureRecoveryDecisionAction = "fail"
+)
+
+type FailureRecoveryDecision struct {
+	Action FailureRecoveryDecisionAction `json:"action,omitempty"`
+	Plan   dataquery.TaskPlan            `json:"plan,omitempty"`
+	Reason string                        `json:"reason,omitempty"`
+	Guard  GuardResult                   `json:"guard,omitempty"`
+}
+
 type RepairFailureTransitionAction string
 
 const (
@@ -108,6 +124,63 @@ type RepairFailureTransition struct {
 
 func (t ExecutionFailureTransition) HasPlan() bool {
 	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func (d FailureRecoveryDecision) HasPlan() bool {
+	return len(d.Plan.Actions) > 0 || strings.TrimSpace(d.Plan.Script) != "" || len(cleanStrings(d.Plan.InputPaths)) > 0
+}
+
+func DecideExecutionFailureRecovery(transition ExecutionFailureTransition, continuationReady, repairReady, repairBudgetAvailable bool, fallbackReason string) FailureRecoveryDecision {
+	switch transition.Action {
+	case ExecutionFailureFallbackPlan:
+		if transition.HasPlan() {
+			return FailureRecoveryDecision{
+				Action: FailureRecoveryFallbackPlan,
+				Plan:   cloneTaskPlanValue(transition.Plan),
+				Reason: firstNonEmpty(transition.Reason, fallbackReason),
+			}
+		}
+	case ExecutionFailureNeedsContinuation:
+		if continuationReady {
+			return FailureRecoveryDecision{
+				Action: FailureRecoveryContinuation,
+				Reason: firstNonEmpty(transition.Reason, fallbackReason),
+			}
+		}
+	}
+	if repairReady && repairBudgetAvailable {
+		return FailureRecoveryDecision{
+			Action: FailureRecoveryRepair,
+			Reason: firstNonEmpty(transition.Reason, fallbackReason),
+		}
+	}
+	return FailureRecoveryDecision{
+		Action: FailureRecoveryFail,
+		Reason: firstNonEmpty(transition.Reason, fallbackReason),
+	}
+}
+
+func DecideValidationFailureRecovery(transition ValidationFailureTransition, repairReady, repairBudgetAvailable bool, fallbackReason string) FailureRecoveryDecision {
+	if transition.Action == ValidationFailureFallbackPlan && transition.HasPlan() {
+		return FailureRecoveryDecision{
+			Action: FailureRecoveryFallbackPlan,
+			Plan:   cloneTaskPlanValue(transition.Plan),
+			Reason: firstNonEmpty(transition.Reason, transition.ErrorText, fallbackReason),
+			Guard:  transition.Guard,
+		}
+	}
+	if repairReady && repairBudgetAvailable {
+		return FailureRecoveryDecision{
+			Action: FailureRecoveryRepair,
+			Reason: firstNonEmpty(transition.ErrorText, transition.Reason, fallbackReason),
+			Guard:  transition.Guard,
+		}
+	}
+	return FailureRecoveryDecision{
+		Action: FailureRecoveryFail,
+		Reason: firstNonEmpty(transition.ErrorText, transition.Reason, fallbackReason),
+		Guard:  transition.Guard,
+	}
 }
 
 func BuildRepairFailureTransition(input RepairFailureTransitionInput) RepairFailureTransition {

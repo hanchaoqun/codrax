@@ -17890,9 +17890,62 @@ Remaining architecture items:
       consumes one reducer-owned "next executable" decision object spanning
       budget, terminal, pre-execution, execution result, post-result, evaluator,
       admission, and repair/continuation planner result handling.
-- [ ] Convert execution-failure and result-validation recovery into the same
+- [x] Convert execution-failure and result-validation recovery into the same
       next-executable reducer shape instead of branching locally before repair
-      planner calls.
+      planner calls. Completed in Batch 419.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 419: Failure-Recovery Decision IR
+
+After Batch 418, runtime owned both admission-rewrite and explicit deferred
+queue mutation. The next local branch was failure recovery after a data action
+execution error or a terminal result-validation error. Existing reducers already
+produced typed transitions (`ExecutionFailureTransition` and
+`ValidationFailureTransition`), but CLI and REPL still interpreted those
+transitions directly and repeated the priority order: typed fallback,
+continuation, repair, or failure.
+
+This batch adds reducer-owned failure-recovery decisions. The reducers do not
+construct new fallbacks and do not call planners. They consume existing typed
+transitions plus precise capability/budget booleans, then tell adapters which
+class of action to run next.
+
+Generic invariants:
+
+- failure recovery consumes typed transition actions, typed plans, planner
+  availability, and repair budget;
+- model/user prose does not choose the hard branch;
+- typed fallback remains preferred before continuation or repair;
+- continuation is allowed only when the continuation planner is available;
+- if continuation planning later fails at runtime, the adapter re-enters the
+  reducer with a repair transition rather than inventing another local branch;
+- validation failure fallback is preferred before repair; no repair budget means
+  terminal failure;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `FailureRecoveryDecisionAction`.
+- [x] Added `FailureRecoveryDecision`.
+- [x] Added `DecideExecutionFailureRecovery`.
+- [x] Added `DecideValidationFailureRecovery`.
+- [x] Added tests for fallback priority, continuation availability, repair
+      fallback, no-budget failure, and validation fallback/repair/failure.
+- [x] Rewired CLI execution-failure recovery to consume the reducer decision.
+- [x] Rewired CLI result-validation recovery to consume the reducer decision.
+- [x] Rewired REPL execution-failure recovery to consume the reducer decision.
+- [x] Rewired REPL result-validation recovery to consume the reducer decision.
+
+Remaining architecture items:
+
+- [ ] Keep shrinking adapter-local execution cursors until the live loop
+      consumes one reducer-owned "next executable" decision object spanning
+      budget, terminal, pre-execution, execution result, post-result, evaluator,
+      admission, and repair/continuation planner result handling.
+- [ ] Collapse repeated terminal-completion repair branches into the same
+      failure-recovery decision shape.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

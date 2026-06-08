@@ -155,6 +155,77 @@ func TestBuildExecutionFailureTransitionRequestsContinuationWhenRepeatedWithoutF
 	}
 }
 
+func TestDecideExecutionFailureRecoveryPrioritizesFallback(t *testing.T) {
+	plan := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "inspect", Kind: dataquery.DataActionValueDistribution}}}
+	decision := DecideExecutionFailureRecovery(ExecutionFailureTransition{
+		Action: ExecutionFailureFallbackPlan,
+		Plan:   plan,
+		Reason: "typed fallback",
+	}, true, true, true, "error")
+	if decision.Action != FailureRecoveryFallbackPlan || !decision.HasPlan() || decision.Reason != "typed fallback" {
+		t.Fatalf("decision=%+v, want typed fallback", decision)
+	}
+}
+
+func TestDecideExecutionFailureRecoveryContinuationFallsBackToRepair(t *testing.T) {
+	decision := DecideExecutionFailureRecovery(ExecutionFailureTransition{
+		Action: ExecutionFailureNeedsContinuation,
+		Reason: "expand graph",
+	}, true, true, true, "error")
+	if decision.Action != FailureRecoveryContinuation {
+		t.Fatalf("decision=%+v, want continuation", decision)
+	}
+	decision = DecideExecutionFailureRecovery(ExecutionFailureTransition{
+		Action: ExecutionFailureNeedsContinuation,
+		Reason: "expand graph",
+	}, false, true, true, "error")
+	if decision.Action != FailureRecoveryRepair {
+		t.Fatalf("decision=%+v, want repair when continuation unavailable", decision)
+	}
+}
+
+func TestDecideExecutionFailureRecoveryFailsWithoutRepairBudget(t *testing.T) {
+	decision := DecideExecutionFailureRecovery(ExecutionFailureTransition{
+		Action: ExecutionFailureNeedsRepair,
+		Reason: "node failed",
+	}, false, true, false, "error")
+	if decision.Action != FailureRecoveryFail || decision.Reason != "node failed" {
+		t.Fatalf("decision=%+v, want fail without repair budget", decision)
+	}
+}
+
+func TestDecideValidationFailureRecoveryUsesFallbackBeforeRepair(t *testing.T) {
+	guard := NewGuardResult("missing_answer", "error", RepairNeedsTypedAction, "final answer missing", WorkflowViolation{Code: "missing_answer"})
+	plan := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{ID: "assemble", Kind: dataquery.DataActionAssembleAnswer}}}
+	decision := DecideValidationFailureRecovery(ValidationFailureTransition{
+		Action:    ValidationFailureFallbackPlan,
+		Plan:      plan,
+		Reason:    "assemble answer",
+		ErrorText: "validation failed",
+		Guard:     guard,
+	}, true, true, "fallback")
+	if decision.Action != FailureRecoveryFallbackPlan || !decision.HasPlan() || decision.Guard.Code != "missing_answer" {
+		t.Fatalf("decision=%+v, want validation fallback", decision)
+	}
+}
+
+func TestDecideValidationFailureRecoveryRepairsOrFails(t *testing.T) {
+	decision := DecideValidationFailureRecovery(ValidationFailureTransition{
+		Action:    ValidationFailureNeedsRepair,
+		ErrorText: "validation failed",
+	}, true, true, "fallback")
+	if decision.Action != FailureRecoveryRepair || decision.Reason != "validation failed" {
+		t.Fatalf("decision=%+v, want repair", decision)
+	}
+	decision = DecideValidationFailureRecovery(ValidationFailureTransition{
+		Action:    ValidationFailureNeedsRepair,
+		ErrorText: "validation failed",
+	}, true, false, "fallback")
+	if decision.Action != FailureRecoveryFail || decision.Reason != "validation failed" {
+		t.Fatalf("decision=%+v, want fail without repair budget", decision)
+	}
+}
+
 func TestBuildRepairFailureTransitionRequestsContinuationFromTypedState(t *testing.T) {
 	transition := BuildRepairFailureTransition(RepairFailureTransitionInput{
 		Records: []WorkflowRecord{{
