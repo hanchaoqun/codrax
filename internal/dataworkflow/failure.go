@@ -51,6 +51,131 @@ type RepeatedFailureReplacementPlanInput struct {
 	NoProgressStop int
 }
 
+type ExecutionFailureTransitionAction string
+
+const (
+	ExecutionFailureFallbackPlan      ExecutionFailureTransitionAction = "fallback_plan"
+	ExecutionFailureNeedsContinuation ExecutionFailureTransitionAction = "needs_continuation"
+	ExecutionFailureNeedsRepair       ExecutionFailureTransitionAction = "needs_repair"
+)
+
+type ExecutionFailureTransitionInput struct {
+	Current           dataquery.TaskPlan
+	Records           []WorkflowRecord
+	FailureRecord     WorkflowRecord
+	ErrorText         string
+	Violation         dataquery.DataTaskViolation
+	Coverage          dataquery.CoverageContract
+	Output            dataquery.OutputContract
+	State             WorkflowStateView
+	SchemaProjections []ArtifactSchemaProjection
+	PreviousErrors    []string
+	FailureLimit      int
+	SeenActionKeys    map[string]bool
+	ProgressEvents    []ProgressEvent
+	NoProgressStop    int
+}
+
+type ExecutionFailureTransition struct {
+	Action    ExecutionFailureTransitionAction `json:"action,omitempty"`
+	Plan      dataquery.TaskPlan               `json:"plan,omitempty"`
+	Reason    string                           `json:"reason,omitempty"`
+	NodeKey   string                           `json:"node_key,omitempty"`
+	NodeCount int                              `json:"node_count,omitempty"`
+}
+
+func (t ExecutionFailureTransition) HasPlan() bool {
+	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func BuildExecutionFailureTransition(input ExecutionFailureTransitionInput) ExecutionFailureTransition {
+	errText := strings.TrimSpace(input.ErrorText)
+	if errText == "" {
+		errText = strings.TrimSpace(input.FailureRecord.Err)
+	}
+	recordsWithFailure := append([]WorkflowRecord(nil), input.Records...)
+	if strings.TrimSpace(input.FailureRecord.Err) != "" ||
+		len(input.FailureRecord.Violations) > 0 ||
+		len(input.FailureRecord.Plan.Actions) > 0 ||
+		input.FailureRecord.Result != nil {
+		recordsWithFailure = append(recordsWithFailure, input.FailureRecord)
+	}
+	violation := input.Violation
+	if strings.TrimSpace(violation.Code) == "" {
+		for _, v := range input.FailureRecord.Violations {
+			if strings.TrimSpace(v.Code) != "" {
+				violation = v
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(violation.Code) == "" && errText != "" {
+		violation = dataquery.ClassifyExecutionError(errText)
+	}
+	schemas := input.SchemaProjections
+	if len(schemas) == 0 {
+		schemas = ProjectArtifactSchemasNewestFirst(ArtifactsNewestFirst(recordsWithFailure))
+	}
+	if plan, ok := MissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{
+		Current:           input.Current,
+		Records:           recordsWithFailure,
+		SchemaProjections: schemas,
+		Violation:         violation,
+	}); ok {
+		return ExecutionFailureTransition{
+			Action: ExecutionFailureFallbackPlan,
+			Plan:   plan,
+			Reason: "materialized missing join field from existing artifacts",
+		}
+	}
+	if plan, ok := HistoricalMissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{
+		Current:           input.Current,
+		Records:           recordsWithFailure,
+		SchemaProjections: schemas,
+	}); ok {
+		return ExecutionFailureTransition{
+			Action: ExecutionFailureFallbackPlan,
+			Plan:   plan,
+			Reason: "materialized historical missing join field from existing artifacts",
+		}
+	}
+	state := input.State
+	if len(state.ActionScaffold) > 0 && len(state.AllowedNextActions) > 0 {
+		if plan, reason, ok := BuildRepeatedFailureReplacementPlan(RepeatedFailureReplacementPlanInput{
+			Current:        input.Current,
+			Coverage:       input.Coverage,
+			Output:         input.Output,
+			Scaffolds:      state.ActionScaffold,
+			Facts:          state.Facts(),
+			PreviousErrors: input.PreviousErrors,
+			CurrentError:   errText,
+			FailureLimit:   input.FailureLimit,
+			SeenActionKeys: input.SeenActionKeys,
+			ProgressEvents: input.ProgressEvents,
+			NoProgressStop: input.NoProgressStop,
+		}); ok {
+			return ExecutionFailureTransition{
+				Action: ExecutionFailureFallbackPlan,
+				Plan:   plan,
+				Reason: reason,
+			}
+		}
+	}
+	nodeKey, nodeCount, repeated := RepeatedNodeFailureFromErrors(input.PreviousErrors, errText, input.FailureLimit)
+	if repeated {
+		return ExecutionFailureTransition{
+			Action:    ExecutionFailureNeedsContinuation,
+			Reason:    fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount),
+			NodeKey:   nodeKey,
+			NodeCount: nodeCount,
+		}
+	}
+	return ExecutionFailureTransition{
+		Action: ExecutionFailureNeedsRepair,
+		Reason: errText,
+	}
+}
+
 func BuildRepeatedFailureReplacementPlan(input RepeatedFailureReplacementPlanInput) (dataquery.TaskPlan, string, bool) {
 	nodeKey, nodeCount, repeated := RepeatedNodeFailureFromErrors(input.PreviousErrors, input.CurrentError, input.FailureLimit)
 	if !repeated {

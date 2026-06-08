@@ -1796,41 +1796,24 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			r.auditDataTaskError(dataRounds, errText)
 			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
-			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, violation); ok {
-				appendRecord(executionRecord)
-				emitWorkflowReason("continue", dataRounds, "materialized missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized missing join field from existing artifacts")
-				continue
-			}
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan); ok {
-				appendRecord(executionRecord)
-				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
-				continue
-			}
+			transition := dataTaskExecutionFailureTransition(records, currentPlan, result, errText, violation)
 			recordedErr := false
-			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(recordsWith(executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
+			if transition.Action == dataworkflow.ExecutionFailureFallbackPlan && transition.HasPlan() {
 				appendRecord(executionRecord)
 				recordedErr = true
-				emitWorkflowReason("continue", dataRounds, reason)
+				emitWorkflowReason("continue", dataRounds, transition.Reason)
+				fallback := transition.Plan
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, transition.Reason)
 				continue
 			}
-			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
+			if transition.Action == dataworkflow.ExecutionFailureNeedsContinuation {
 				if continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner); ok {
 					appendRecord(executionRecord)
 					recordedErr = true
-					detail := fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount)
-					emitWorkflowReason("continue", dataRounds, detail)
+					emitWorkflowReason("continue", dataRounds, transition.Reason)
 					ctx := r.startTurn()
 					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
 					r.endTurn()

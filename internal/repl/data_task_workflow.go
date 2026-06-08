@@ -75,6 +75,28 @@ func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowR
 	})
 }
 
+func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {
+	failureRecord := dataTaskWorkflowRecordWithExecutionViolation(current, result, errText, violation)
+	recordsWithFailure := append(append([]dataTaskWorkflowRecord(nil), records...), failureRecord)
+	state := dataTaskWorkflowState(recordsWithFailure, current)
+	return dataworkflow.BuildExecutionFailureTransition(dataworkflow.ExecutionFailureTransitionInput{
+		Current:           current,
+		Records:           records,
+		FailureRecord:     failureRecord,
+		ErrorText:         errText,
+		Violation:         violation,
+		Coverage:          dataTaskWorkflowCoverageContract(recordsWithFailure, current),
+		Output:            dataTaskWorkflowOutputContract(recordsWithFailure, current),
+		State:             state,
+		SchemaProjections: dataTaskWorkflowArtifactSchemaProjections(recordsWithFailure),
+		PreviousErrors:    dataTaskWorkflowErrorTexts(records),
+		FailureLimit:      DefaultDataTaskMaxNodeFailures,
+		SeenActionKeys:    dataTaskWorkflowSeenActionKeys(recordsWithFailure),
+		ProgressEvents:    dataTaskWorkflowProgressEvents(recordsWithFailure),
+		NoProgressStop:    DefaultDataTaskMaxNodeFailures,
+	})
+}
+
 func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	return dataTaskPlanStagingGuardResult(plan).ErrorText()
 }

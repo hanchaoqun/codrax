@@ -464,40 +464,24 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			violation := dataquery.ClassifyExecutionFailure(err)
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
-			if fallback, ok := dataTaskMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan, violation); ok {
-				appendRecord(executionRecord)
-				emitWorkflowReason("continue", dataRounds, "materialized missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized missing join field from existing artifacts")
-				continue
-			}
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(recordsWith(executionRecord), currentPlan); ok {
-				appendRecord(executionRecord)
-				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
-				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
-				continue
-			}
+			transition := dataTaskExecutionFailureTransition(records, currentPlan, result, errText, violation)
 			recordedErr := false
-			if fallback, reason, ok := dataTaskRepeatedFailureReplacementFallback(recordsWith(executionRecord), dataTaskWorkflowErrorTexts(records), currentPlan, errText); ok {
+			if transition.Action == dataworkflow.ExecutionFailureFallbackPlan && transition.HasPlan() {
 				appendRecord(executionRecord)
 				recordedErr = true
-				emitWorkflowReason("continue", dataRounds, reason)
+				emitWorkflowReason("continue", dataRounds, transition.Reason)
+				fallback := transition.Plan
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
+				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, transition.Reason)
 				continue
 			}
-			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
+			if transition.Action == dataworkflow.ExecutionFailureNeedsContinuation {
 				if continuer, ok := cfg.Planner.(DataTaskContinuationPlanner); ok {
 					appendRecord(executionRecord)
 					recordedErr = true
-					emitWorkflowReason("continue", dataRounds, fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount))
+					emitWorkflowReason("continue", dataRounds, transition.Reason)
 					nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
 					if contErr == nil {
 						if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {

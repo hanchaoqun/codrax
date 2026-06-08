@@ -16754,6 +16754,61 @@ Current deduplicated IR backlog before real-scenario testing:
 - [ ] Add focused architecture regression for the deduplicated current queue
       before the next real-scenario gate.
 
+### Batch 391: Reducer-Owned Execution Failure Transition
+
+The next duplicated state seam was the execution-failure path. Both CLI and
+REPL handled a failed data action by locally trying several recovery branches:
+missing-field enrichment, historical missing-field recovery, repeated-node
+replacement, repeated-node continuation, and finally planner repair. The
+branches were already mostly typed, but their ordering and lifecycle lived in
+the adapters, so future fixes could keep accumulating as UI-loop conditionals.
+
+This batch moves the decision into the workflow IR. The reducer now receives
+the current plan, execution record, typed `DataTaskViolation`, workflow state,
+artifact schema projections, previous errors, idempotency keys, and progress
+events. It returns one structural transition:
+
+- `fallback_plan`: execute a deterministic typed fallback plan;
+- `needs_continuation`: ask the continuation planner because the repeated
+  node needs graph expansion and no safe deterministic replacement exists;
+- `needs_repair`: use ordinary repair planning.
+
+Generic invariants:
+
+- execution-failure policy reads typed violations, action id/kind, artifact
+  schema projections, workflow facts, seen action signatures, and progress
+  events;
+- the reducer does not call LLMs, render UI, or inspect model prose;
+- deterministic fallbacks still emit typed actions only;
+- missing-field recovery, repeated-node replacement, and repeated-node
+  continuation use the same ordering in CLI and REPL;
+- no source-code, trace/log, operation, or write-mode flow is touched.
+
+Changes:
+
+- [x] Added `ExecutionFailureTransition` and
+      `BuildExecutionFailureTransition` to `internal/dataworkflow`.
+- [x] Reused existing typed missing-field recovery and repeated-node fallback
+      builders inside that reducer-owned transition.
+- [x] Rewired CLI execution failures to consume the transition instead of
+      manually trying each fallback branch.
+- [x] Rewired REPL execution failures to consume the same transition.
+- [x] Added regression coverage for typed missing-field fallback, repeated
+      node replacement, and repeated node continuation escalation.
+
+Remaining architecture items:
+
+- [ ] Move validation-failure transitions into the same reducer-owned shape so
+      result validation, completion repair, and execution repair stop using
+      parallel adapter branches.
+- [ ] Replace remaining field-name scoring helpers with a stronger relation IR
+      over artifact lineage, key coverage, candidate mappings, and evaluator
+      violations.
+- [ ] Continue narrowing live loop mirrors by moving continuation/repair input
+      assembly to consume runtime snapshots directly.
+- [ ] Keep the real-scenario gate closed until the remaining P0 IR backlog is
+      implemented or explicitly classified as non-blocking.
+
 ### Batch 372: Typed Transform Contract Violations
 
 The next IR hardening pass closes one common prose-error escape hatch. The
