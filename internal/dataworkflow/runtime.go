@@ -107,6 +107,15 @@ func (rt *WorkflowRuntime) AppendProcessEventFromInput(input WorkflowProcessEven
 	return rt.AppendProcessEvent(BuildWorkflowProcessEvent(input))
 }
 
+func (rt *WorkflowRuntime) AppendGuardEvent(kind string, round int, plan dataquery.TaskPlan, guard GuardResult, auditDetails ...string) WorkflowJournalEvent {
+	event := BuildGuardProcessEvent(kind, round, plan, guard, auditDetails...)
+	if event.Guard == nil || event.Guard.Empty() {
+		return WorkflowJournalEvent{}
+	}
+	rt.AppendProcessEvent(event)
+	return event
+}
+
 func (rt *WorkflowRuntime) ProcessEvents() []WorkflowJournalEvent {
 	if rt == nil {
 		return nil

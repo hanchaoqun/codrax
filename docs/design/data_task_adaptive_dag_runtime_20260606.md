@@ -15403,9 +15403,9 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Thread typed completion guard records into WorkflowRuntime journal events
+- [x] Thread typed completion guard records into WorkflowRuntime journal events
       so budget-exhausted and repair paths expose the same guard payload in
-      terminal audit.
+      terminal audit. Completed in Batch 346.
 - [x] Convert completion repair transition input from `ErrorText` to
       `GuardResult` while preserving the guard text as human-readable reason.
 - [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
@@ -15445,12 +15445,62 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Thread typed completion guard records into WorkflowRuntime journal events
+- [x] Thread typed completion guard records into WorkflowRuntime journal events
       so budget-exhausted and repair paths expose the same guard payload in
-      terminal audit.
+      terminal audit. Completed in Batch 346.
 - [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
       tests and diagnostics consume typed guard objects directly.
 - [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 346: Completion Guards Enter Runtime Journal
+
+Batch 345 made completion repair transition consume typed guards, but the live
+runtime/journal path still treated some terminal completion failures as local
+caller state. Budget exhaustion, terminal-complete prechecks, and evaluator
+complete checks could trigger the right typed repair logic while terminal audit
+snapshots still relied mostly on the final error string.
+
+This batch moves completion guard observability into `WorkflowRuntime` process
+events. A completion gate now emits the same `GuardResult` payload that drives
+repair, and terminal journal snapshots promote guard-event violations into the
+top-level `workflow_violations` list with de-duplication. CLI and REPL render a
+low-noise "completion gate" process line while preserving the full typed guard
+payload in audit JSON.
+
+Generic invariants:
+
+- completion-gate audit is driven by `GuardResult`, not by parsing the final
+  error string;
+- runtime process events are the shared sink for CLI, REPL, checkpoint, and
+  terminal audit visibility;
+- top-level journal violations can be derived from process-event guards without
+  duplicating equivalent input guards;
+- user-facing process text uses model plan intent and typed guard reason, while
+  hard control remains structural;
+- source-code, trace/log, operation, and write-mode flows are untouched.
+
+Changes:
+
+- [x] Added `BuildGuardProcessEvent` for domain-neutral typed guard events.
+- [x] Added `WorkflowRuntime.AppendGuardEvent`.
+- [x] Let journal snapshots promote guard payloads from live process events
+      into top-level `workflow_violations`.
+- [x] Added de-duplication for equivalent journal workflow violations.
+- [x] Rewired CLI completion-gate paths to emit runtime guard events before
+      deterministic repair, planner repair, or terminal failure.
+- [x] Rewired REPL completion-gate paths the same way.
+- [x] Added low-noise process display labels for completion-gate events.
+- [x] Added regression coverage for runtime guard event cloning, journal guard
+      promotion/deduplication, and completion-gate display naming.
+
+Remaining architecture items:
+
+- [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
+      tests and diagnostics consume typed guard objects directly.
+- [ ] Continue moving reducer/process-event decisions out of REPL adapters and
+      into storage-neutral dataworkflow IR.
+- [ ] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 

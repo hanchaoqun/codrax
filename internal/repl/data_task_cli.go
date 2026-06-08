@@ -126,6 +126,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			Reason: reason,
 		}), dataTaskWorkflowEventRenderOptions{IncludeFailure: true})
 	}
+	emitWorkflowGuard := func(kind string, round int, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) {
+		event := workflowRuntime.AppendGuardEvent(kind, round, plan, guard)
+		if event.Guard == nil {
+			return
+		}
+		dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
+	}
 	var plan dataquery.TaskPlan
 	var resumed bool
 	var resumeCurrentPlan dataquery.TaskPlan
@@ -231,12 +238,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
+			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 			if result, ok := latestDataTaskResult(records); ok {
 				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					emitWorkflowFailure("continue", dataRounds, errText)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
 					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
@@ -253,7 +260,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 					logging.Info("[cli/data] normalized terminal-completion repaired data task plan: %s", strings.Join(notes, "; "))
 					repaired = normalized
 				}
-				emitWorkflowFailure("repair", repairRounds, errText)
 				currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 				continue
 			}
@@ -304,6 +310,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if result, ok := latestDataTaskResult(records); ok {
 				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
 					errText := guard.ErrorText()
+					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 					return "", fmt.Errorf("data task workflow budget exhausted before final output: %s", errText)
 				}
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
@@ -614,11 +621,11 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		case dataquery.EvalComplete:
 			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
 				errText := guard.ErrorText()
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
-					emitWorkflowFailure("continue", dataRounds, errText)
 					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, completionPlan)
 					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
 					continue
@@ -638,7 +645,6 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 						logging.Info("[cli/data] normalized completion-repair data task plan: %s", strings.Join(notes, "; "))
 						repaired = normalized
 					}
-					emitWorkflowFailure("repair", repairRounds, errText)
 					currentPlan = acceptCandidatePlan("repair", repairRounds, repaired)
 					continue
 				}

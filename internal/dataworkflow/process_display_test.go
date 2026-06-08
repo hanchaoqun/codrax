@@ -50,6 +50,16 @@ func TestBuildWorkflowProcessDisplayProvidesDefaultProcessDetail(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayNamesCompletionGate(t *testing.T) {
+	display := BuildWorkflowProcessDisplay(WorkflowJournalEvent{Kind: "completion_gate", Round: 0}, "zh")
+	if got := strings.Join(display.Segments, " · "); !strings.Contains(got, "终态校验第 1 批") {
+		t.Fatalf("segments=%q, want completion gate title", got)
+	}
+	if got := processDisplayDetailText(display); !strings.Contains(got, "终态校验：检查最终答案") {
+		t.Fatalf("details=%q, want completion gate fallback", got)
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {

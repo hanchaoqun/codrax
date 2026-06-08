@@ -123,11 +123,12 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	if stateProvided || input.WorkflowViolations == nil {
 		violations = cloneWorkflowViolations(state.WorkflowViolations)
 	}
+	violations = appendWorkflowViolationsUnique(violations, workflowViolationsFromProcessEvents(processEvents)...)
 	for _, guard := range input.Guards {
 		if guard.Empty() {
 			continue
 		}
-		violations = append(violations, cloneWorkflowViolations(guard.Violations)...)
+		violations = appendWorkflowViolationsUnique(violations, guard.Violations...)
 		copied := guard
 		processEvents = append(processEvents, BuildWorkflowProcessEvent(WorkflowProcessEventInput{
 			Kind:         "guard",
@@ -272,6 +273,50 @@ func cloneWorkflowJournalEvent(event WorkflowJournalEvent) WorkflowJournalEvent 
 
 func cloneWorkflowViolations(in []WorkflowViolation) []WorkflowViolation {
 	return cloneGuardResult(GuardResult{Violations: in}).Violations
+}
+
+func workflowViolationsFromProcessEvents(events []WorkflowJournalEvent) []WorkflowViolation {
+	var out []WorkflowViolation
+	for _, event := range events {
+		if event.Guard == nil || event.Guard.Empty() {
+			continue
+		}
+		out = append(out, event.Guard.Violations...)
+	}
+	return cloneWorkflowViolations(out)
+}
+
+func appendWorkflowViolationsUnique(base []WorkflowViolation, extra ...WorkflowViolation) []WorkflowViolation {
+	out := cloneWorkflowViolations(base)
+	seen := make(map[string]bool, len(out)+len(extra))
+	for _, violation := range out {
+		seen[workflowViolationJournalKey(violation)] = true
+	}
+	for _, violation := range cloneWorkflowViolations(extra) {
+		key := workflowViolationJournalKey(violation)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, violation)
+	}
+	return out
+}
+
+func workflowViolationJournalKey(violation WorkflowViolation) string {
+	return strings.Join([]string{
+		strings.TrimSpace(violation.Code),
+		strings.TrimSpace(violation.Severity),
+		string(violation.Repairability),
+		strings.TrimSpace(violation.ActionID),
+		strings.TrimSpace(violation.ActionKind),
+		strings.TrimSpace(violation.InputAlias),
+		strings.Join(cleanJournalStrings(violation.InputAliases), ","),
+		strings.TrimSpace(violation.OutputAlias),
+		strings.TrimSpace(violation.IdempotencyKey),
+		strings.Join(cleanJournalStrings(violation.MissingFields), ","),
+		strings.TrimSpace(violation.Reason),
+	}, "\x1f")
 }
 
 func cleanJournalStrings(in []string) []string {

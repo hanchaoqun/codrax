@@ -47,6 +47,8 @@ func processDisplaySegments(event WorkflowJournalEvent, zh bool) []string {
 			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
 		case "patch":
 			segs = append(segs, fmt.Sprintf("结构修复第 %d 批", round))
+		case "completion_gate":
+			segs = append(segs, fmt.Sprintf("终态校验第 %d 批", maxProcessRound(round)))
 		case "result":
 			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
 		case "evaluate":
@@ -68,6 +70,8 @@ func processDisplaySegments(event WorkflowJournalEvent, zh bool) []string {
 		segs = append(segs, fmt.Sprintf("repair %d", round))
 	case "patch":
 		segs = append(segs, fmt.Sprintf("structural patch batch %d", round))
+	case "completion_gate":
+		segs = append(segs, fmt.Sprintf("completion gate batch %d", maxProcessRound(round)))
 	case "result":
 		segs = append(segs, fmt.Sprintf("result batch %d", round))
 	case "evaluate":
@@ -163,6 +167,9 @@ func processDisplayDefaultDetails(event WorkflowJournalEvent, zh bool, hasDetail
 		case "patch":
 			detail.Value = "对无歧义的结果结构漂移做安全补丁，业务语义仍由重新计算承担。"
 			detail.Text = "结构修复：对无歧义的结果结构漂移做安全补丁，业务语义仍由重新计算承担。"
+		case "completion_gate":
+			detail.Value = "检查最终答案是否已经满足材料、结构化记录、对账和输出契约。"
+			detail.Text = "终态校验：检查最终答案是否已经满足材料、结构化记录、对账和输出契约。"
 		default:
 			return nil
 		}
@@ -190,6 +197,9 @@ func processDisplayDefaultDetails(event WorkflowJournalEvent, zh bool, hasDetail
 	case "patch":
 		detail.Value = "Applying safe structural result patches; semantic changes still require recompute."
 		detail.Text = "Patch: Applying safe structural result patches; semantic changes still require recompute."
+	case "completion_gate":
+		detail.Value = "Checking whether the final answer satisfies material, ledger, reconcile, and output contracts."
+		detail.Text = "Completion gate: Checking whether the final answer satisfies material, ledger, reconcile, and output contracts."
 	default:
 		return nil
 	}

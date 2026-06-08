@@ -166,6 +166,7 @@ type dataTaskTerminalAudit struct {
 	Records       []dataTaskWorkflowRecord
 	Result        *dataquery.Result
 	ProcessEvents []dataworkflow.WorkflowJournalEvent
+	Guards        []dataworkflow.GuardResult
 }
 
 type dataTaskTerminalAuditSnapshot = dataworkflow.WorkflowJournal
@@ -1348,6 +1349,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			Reason: reason,
 		}), dataTaskWorkflowEventRenderOptions{IncludeFailure: true})
 	}
+	emitWorkflowGuard := func(kind string, round int, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) {
+		event := workflowRuntime.AppendGuardEvent(kind, round, plan, guard)
+		if event.Guard == nil {
+			return
+		}
+		r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
+	}
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
 		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
 	}
@@ -1419,11 +1427,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
+			emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 			if result, ok := latestDataTaskResult(records); ok {
 				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
-					emitWorkflowFailure("continue", dataRounds, errText)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
 					currentPlan = setCurrentPlan("ledger", dataRounds+1, completionPlan, errText)
@@ -1432,7 +1440,6 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = workflowRuntime.IncrementRepairRound()
-				emitWorkflowFailure("repair", repairRounds, errText)
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 				r.endTurn()
@@ -1538,6 +1545,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			if result, ok := latestDataTaskResult(records); ok {
 				if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
 					errText := guard.ErrorText()
+					emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 					reason := "data task workflow budget exhausted before final output: " + errText
 					msg := dataTaskErrorMarkdown(r.language, reason)
 					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
@@ -2019,13 +2027,13 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		case dataquery.EvalComplete:
 			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan, result); !guard.Empty() {
 				errText := guard.ErrorText()
+				emitWorkflowGuard("completion_gate", dataRounds, currentPlan, guard)
 				r.auditDataTaskError(dataRounds, errText)
 				if len(records) > 0 {
 					attachLastError(errText)
 				}
 				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
-					emitWorkflowFailure("continue", dataRounds, errText)
 					completionPlan := protectPlan(transition.Plan)
 					r.emitDataTaskPlanAudit(completionPlan)
 					r.auditDataTaskPlan("ledger", dataRounds+1, completionPlan)
@@ -2034,7 +2042,6 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 					repairRounds = workflowRuntime.IncrementRepairRound()
-					emitWorkflowFailure("repair", repairRounds, errText)
 					ctx := r.startTurn()
 					repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, errText)
 					r.endTurn()
@@ -3057,6 +3064,8 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 		DeferredPlan:  deferred,
 		ProcessEvents: a.ProcessEvents,
 		State:         state.Snapshot(),
+		Guards:        a.Guards,
+		GuardRound:    a.DataRounds,
 	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

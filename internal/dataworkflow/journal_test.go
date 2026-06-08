@@ -174,6 +174,35 @@ func TestWorkflowRuntimeBuildJournalSnapshotPrefersLiveProcessEvents(t *testing.
 	}
 }
 
+func TestWorkflowRuntimeBuildJournalSnapshotPromotesProcessEventGuards(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	guard := NewGuardResult("missing_required_ledger", "error", RepairNeedsTypedAction, "contributions missing", WorkflowViolation{
+		Code:       "missing_required_ledger",
+		ActionKind: string(dataquery.DataActionComputeContribs),
+		Reason:     "contributions missing",
+	})
+	rt.AppendGuardEvent("completion_gate", 3, dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}, guard)
+
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status: "failed",
+		Guards: []GuardResult{NewGuardResult("missing_required_ledger", "error", RepairNeedsTypedAction, "contributions missing", WorkflowViolation{
+			Code:       "missing_required_ledger",
+			ActionKind: string(dataquery.DataActionComputeContribs),
+			Reason:     "contributions missing",
+		})},
+		GuardRound: 3,
+	})
+	if len(snapshot.WorkflowViolations) != 1 || snapshot.WorkflowViolations[0].Code != "missing_required_ledger" {
+		t.Fatalf("WorkflowViolations=%+v, want deduped process-event guard violation", snapshot.WorkflowViolations)
+	}
+	if len(snapshot.ProcessEvents) != 2 || snapshot.ProcessEvents[0].Kind != "completion_gate" || snapshot.ProcessEvents[0].Guard == nil {
+		t.Fatalf("ProcessEvents=%+v, want live completion guard plus input guard event", snapshot.ProcessEvents)
+	}
+}
+
 func TestWorkflowRuntimeBuildJournalSnapshotPrefersStateSnapshot(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{

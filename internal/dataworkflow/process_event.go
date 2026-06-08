@@ -61,6 +61,26 @@ func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalE
 	return event
 }
 
+func BuildGuardProcessEvent(kind string, round int, plan dataquery.TaskPlan, guard GuardResult, auditDetails ...string) WorkflowJournalEvent {
+	if guard.Empty() {
+		return WorkflowJournalEvent{}
+	}
+	copied := cloneGuardResult(guard)
+	eventKind := strings.TrimSpace(kind)
+	if eventKind == "" {
+		eventKind = "guard"
+	}
+	return BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:         eventKind,
+		Round:        round,
+		Status:       firstNonEmptyProcessText(copied.Severity, "blocked"),
+		Reason:       copied.ErrorText(),
+		Plan:         plan,
+		AuditDetails: append(cleanStrings(auditDetails), copied.Code),
+		Guard:        &copied,
+	})
+}
+
 func workflowDecisionEmpty(decision WorkflowDecision) bool {
 	return strings.TrimSpace(decision.Status) == "" &&
 		strings.TrimSpace(decision.ReasonCode) == "" &&

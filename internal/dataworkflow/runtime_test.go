@@ -136,6 +136,37 @@ func TestWorkflowRuntimeRecordsPlanTransitions(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeAppendsTypedGuardEvent(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	plan := dataquery.TaskPlan{
+		Goal:         "compute final output",
+		WhyThisBatch: "assemble answer",
+		Actions: []dataquery.DataAction{{
+			ID:      "assemble",
+			Kind:    dataquery.DataActionAssembleAnswer,
+			Purpose: "assemble final answer",
+		}},
+	}
+	guard := NewGuardResult("output_missing_projection", "error", RepairNeedsTypedAction, "missing final projection", WorkflowViolation{
+		Code:       "output_missing_projection",
+		ActionKind: string(dataquery.DataActionAssembleAnswer),
+		Reason:     "missing final projection",
+	})
+
+	event := rt.AppendGuardEvent("completion_gate", 4, plan, guard)
+	if event.Kind != "completion_gate" || event.Guard == nil || event.Guard.Code != "output_missing_projection" {
+		t.Fatalf("event=%+v, want typed guard event", event)
+	}
+	events := rt.ProcessEvents()
+	if len(events) != 1 || events[0].Guard == nil || events[0].Goal != "compute final output" {
+		t.Fatalf("runtime events=%+v, want persisted guard event with plan intent", events)
+	}
+	guard.Violations[0].Reason = "mutated"
+	if rt.ProcessEvents()[0].Guard.Violations[0].Reason != "missing final projection" {
+		t.Fatalf("runtime guard event leaked mutation: %+v", rt.ProcessEvents()[0].Guard)
+	}
+}
+
 func TestWorkflowRuntimeOwnsRoundCounters(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	rt.SetRounds(-3, -4)
