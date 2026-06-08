@@ -42,3 +42,47 @@ func TestBuildOutputProjectionGraphReportsReferenceIncomplete(t *testing.T) {
 		t.Fatalf("graph=%+v, want reference/answer counts", graph)
 	}
 }
+
+func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
+	contract := dataquery.CoverageContract{ContributionLedgerRequired: true}
+	expected := dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine}
+	artifactSummary := dataquery.Result{
+		Answer:         "4 artifact(s)",
+		OutputContract: expected,
+		Contributions:  []dataquery.ContributionRecord{{GroupKey: dataquery.LooseText("g"), Value: dataquery.LooseText("1")}},
+	}
+	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, artifactSummary, contract, expected) {
+		t.Fatalf("artifact summary answer should not be a final answer candidate")
+	}
+	missingLedger := dataquery.Result{
+		Answer:         "42",
+		OutputContract: expected,
+	}
+	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, missingLedger, contract, expected) {
+		t.Fatalf("answer without required contribution ledger should not be final")
+	}
+	ready := dataquery.Result{
+		Answer:         "42",
+		OutputContract: expected,
+		Contributions:  []dataquery.ContributionRecord{{GroupKey: dataquery.LooseText("g"), Value: dataquery.LooseText("42")}},
+	}
+	if !ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, ready, contract, expected) {
+		t.Fatalf("typed answer with required contribution ledger should be final")
+	}
+	continuePlan := dataquery.TaskPlan{ContinueAfter: true}
+	if ResultIsFinalAnswerCandidate(continuePlan, ready, contract, expected) {
+		t.Fatalf("continue_after plan should not be terminal final answer")
+	}
+}
+
+func TestPlanMayProduceFinalAnswerAllowsReconcileAction(t *testing.T) {
+	result := dataquery.Result{Reconcile: &dataquery.ReconcileReport{
+		ActualAnswer: dataquery.LooseText("42"),
+	}}
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		Kind: dataquery.DataActionReconcile,
+	}}}
+	if !PlanMayProduceFinalAnswer(plan, result) {
+		t.Fatalf("reconcile action with reconcile answer should be able to produce final answer")
+	}
+}

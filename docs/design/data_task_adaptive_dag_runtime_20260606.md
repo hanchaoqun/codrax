@@ -14702,6 +14702,54 @@ Remaining architecture items:
 - [ ] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 330: Output Projection Owns Final Answer Candidacy
+
+`BuildWorkflowStateView` still needed REPL to decide whether an accumulated
+`dataquery.Result.Answer` was durable enough to set `HasAnswer`. That decision
+is part of the output projection contract, not UI behavior. It depends on typed
+facts only: result answer presence, artifact-summary filtering, `continue_after`,
+action capability, output format compatibility, and required validation ledgers.
+
+This batch moves that policy into `internal/dataworkflow`. REPL now calls the
+dataworkflow output projection helper when reducing workflow records. The same
+helper also replaces local answer-present checks in completion projection and
+fallback-planning code, so "real answer vs intermediate artifact summary" has
+one typed definition.
+
+Generic invariants:
+
+- `HasAnswer` is derived by output projection policy, not REPL adapter logic;
+- artifact-count summaries and other generated-artifact previews are not final
+  answers;
+- required rule, decision, entity-resolution, contribution, and reconcile
+  ledgers must exist before a result can satisfy the final answer contract;
+- plans marked `continue_after` cannot satisfy final output;
+- no business-domain keywords, filenames, or prompt prose are used.
+
+Changes:
+
+- [x] Added `dataworkflow.ResultAnswerPresent`.
+- [x] Added `dataworkflow.ResultIsFinalAnswerCandidate`.
+- [x] Added `dataworkflow.PlanMayProduceFinalAnswer`.
+- [x] Rewired REPL workflow-state reduction to use
+      `ResultIsFinalAnswerCandidate`.
+- [x] Rewired completion projection and output fallback checks to use
+      `ResultAnswerPresent`.
+- [x] Removed REPL-local final-answer candidacy helpers.
+- [x] Added regression coverage for artifact summaries, missing required
+      ledgers, valid typed answers, `continue_after`, and reconcile actions.
+
+Remaining architecture items:
+
+- [x] Final-answer candidacy projection is now in dataworkflow.
+- [ ] Move artifact scaffold generation and field-diagnostic discovery behind
+      ArtifactGraph-aware builder inputs, then remove the adapter callback.
+- [ ] Replace remaining REPL compatibility wrappers for state facts and
+      snapshot projection once all call sites consume the dataworkflow methods
+      directly.
+- [ ] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

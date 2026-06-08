@@ -5351,7 +5351,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		if rec.Result.Reconcile != nil {
 			hasReconcile = true
 		}
-		if dataTaskResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
+		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
 			hasAnswer = true
 		}
 	}
@@ -6274,64 +6274,6 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 	return false
 }
 
-func dataTaskResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
-	if strings.TrimSpace(result.Answer) == "" {
-		return false
-	}
-	if dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
-		return false
-	}
-	if plan.ContinueAfter {
-		return false
-	}
-	if !dataTaskPlanMayProduceFinalAnswer(plan, result) {
-		return false
-	}
-	if expected.Format != "" {
-		actual := result.OutputContract.Normalize()
-		want := expected.Normalize()
-		if actual.Format == dataquery.OutputFreeform && want.Format != dataquery.OutputFreeform {
-			return false
-		}
-	}
-	if contract.RuleCoverageRequired && len(result.RuleCoverage) == 0 {
-		return false
-	}
-	if contract.DecisionRecordsRequired && len(result.Rows) == 0 {
-		return false
-	}
-	if contract.EntityResolutionRequired && len(result.EntityResolutions) == 0 {
-		return false
-	}
-	if contract.ContributionLedgerRequired && len(result.Contributions) == 0 {
-		return false
-	}
-	if contract.ReconcileRequired && result.Reconcile == nil {
-		return false
-	}
-	return true
-}
-
-func dataTaskPlanMayProduceFinalAnswer(plan dataquery.TaskPlan, result dataquery.Result) bool {
-	if len(plan.Actions) == 0 {
-		return true
-	}
-	if result.Reconcile != nil && (strings.TrimSpace(result.Reconcile.ActualAnswer.String()) != "" || strings.TrimSpace(result.Reconcile.ExpectedAnswer.String()) != "") {
-		return true
-	}
-	for _, action := range plan.Actions {
-		switch normalizeDataActionKindForWorkflow(action.Kind) {
-		case dataquery.DataActionCustomTransform:
-			if strings.TrimSpace(action.Script) != "" {
-				return true
-			}
-		case dataquery.DataActionReconcile:
-			return true
-		}
-	}
-	return false
-}
-
 func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.OutputContract {
 	var values []dataquery.OutputContract
 	for _, rec := range records {
@@ -6581,7 +6523,7 @@ func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result
 			reconcile := *result.Reconcile
 			out.Reconcile = &reconcile
 		}
-		if strings.TrimSpace(result.Answer) != "" && (!dataquery.AnswerLooksLikeArtifactSummary(result.Answer) || strings.TrimSpace(out.Answer) == "" || dataquery.AnswerLooksLikeArtifactSummary(out.Answer)) {
+		if strings.TrimSpace(result.Answer) != "" && (dataworkflow.ResultAnswerPresent(result) || strings.TrimSpace(out.Answer) == "" || !dataworkflow.ResultAnswerPresent(out)) {
 			out.Answer = result.Answer
 		}
 		if result.OutputContract.Format != "" {
@@ -7047,7 +6989,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []
 	return dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
 		Output:                    firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
 		Coverage:                  dataTaskWorkflowCoverageContract(records, current),
-		AnswerPresent:             strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer),
+		AnswerPresent:             dataworkflow.ResultAnswerPresent(result),
 		ProjectionArtifactPresent: dataworkflow.ResultHasAssembleAnswerArtifact(result),
 		ReconcilePresent:          result.Reconcile != nil,
 		ReconcileGroups:           reconcileGroups,
@@ -7082,7 +7024,7 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		return dataquery.ReferenceKeyCandidate{}, 0, false
 	}
 	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
-	if strings.TrimSpace(result.Answer) == "" || dataquery.AnswerLooksLikeArtifactSummary(result.Answer) {
+	if !dataworkflow.ResultAnswerPresent(result) {
 		return candidate, answerItems, true
 	}
 	if answerItems > 0 && answerItems < candidate.KeyCount {

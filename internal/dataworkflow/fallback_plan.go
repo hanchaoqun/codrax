@@ -531,7 +531,7 @@ func ResultNeedsOutputProjection(input ResultProjectionNeedInput) bool {
 		!input.PlanHasCustomTransform {
 		return true
 	}
-	if strings.TrimSpace(input.Result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(input.Result.Answer) {
+	if ResultAnswerPresent(input.Result) {
 		return false
 	}
 	if input.Result.Reconcile == nil || len(input.Result.Reconcile.Groups) == 0 {

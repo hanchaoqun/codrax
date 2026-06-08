@@ -1,6 +1,10 @@
 package dataworkflow
 
-import "github.com/hanchaoqun/codrax/internal/dataquery"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/dataquery"
+)
 
 const (
 	OutputProjectionStatusSatisfied           = "satisfied"
@@ -69,6 +73,65 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 		ProducesActions:           cleanStrings([]string{string(dataquery.DataActionAssembleAnswer)}),
 		MissingPrerequisites:      cleanStrings(missing),
 	}
+}
+
+func ResultAnswerPresent(result dataquery.Result) bool {
+	return strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer)
+}
+
+func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
+	if !ResultAnswerPresent(result) {
+		return false
+	}
+	if plan.ContinueAfter {
+		return false
+	}
+	if !PlanMayProduceFinalAnswer(plan, result) {
+		return false
+	}
+	if expected.Format != "" {
+		actual := result.OutputContract.Normalize()
+		want := expected.Normalize()
+		if actual.Format == dataquery.OutputFreeform && want.Format != dataquery.OutputFreeform {
+			return false
+		}
+	}
+	if contract.RuleCoverageRequired && len(result.RuleCoverage) == 0 {
+		return false
+	}
+	if contract.DecisionRecordsRequired && len(result.Rows) == 0 {
+		return false
+	}
+	if contract.EntityResolutionRequired && len(result.EntityResolutions) == 0 {
+		return false
+	}
+	if contract.ContributionLedgerRequired && len(result.Contributions) == 0 {
+		return false
+	}
+	if contract.ReconcileRequired && result.Reconcile == nil {
+		return false
+	}
+	return true
+}
+
+func PlanMayProduceFinalAnswer(plan dataquery.TaskPlan, result dataquery.Result) bool {
+	if len(plan.Actions) == 0 {
+		return true
+	}
+	if result.Reconcile != nil && (strings.TrimSpace(result.Reconcile.ActualAnswer.String()) != "" || strings.TrimSpace(result.Reconcile.ExpectedAnswer.String()) != "") {
+		return true
+	}
+	for _, action := range plan.Actions {
+		switch NormalizeActionKind(action.Kind) {
+		case dataquery.DataActionCustomTransform:
+			if strings.TrimSpace(action.Script) != "" {
+				return true
+			}
+		case dataquery.DataActionReconcile:
+			return true
+		}
+	}
+	return false
 }
 
 func outputProjectionNeedsAssembly(input OutputProjectionGraphInput, strict, reconcilePresent bool) bool {
