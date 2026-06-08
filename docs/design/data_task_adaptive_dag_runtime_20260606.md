@@ -16842,6 +16842,45 @@ Remaining architecture items:
 - [ ] Add the focused architecture regression gate for the deduplicated current
       queue before the next real-scenario run.
 
+### Batch 374: Runtime Snapshot View For Critical Planner Entrypoints
+
+The next ownership seam is the adapter mirror around `records`, `currentPlan`,
+`deferred`, and round counters. The planner/evaluator interfaces still accept
+record slices because they also serve tests and direct LLM prompt rendering, so
+this batch does not churn every signature. Instead it introduces a shared
+runtime-view boundary and wires the highest-risk live path: after a data batch
+has executed and before evaluator, continuation planner, or node-repair planner
+calls.
+
+Generic invariants:
+
+- CLI and REPL synchronize critical planner inputs from
+  `WorkflowRuntime.Snapshot` before evaluator/continuation/repair calls;
+- runtime records, current plan, deferred queue, deferred plan, and round
+  counters take precedence when present;
+- fallback local values remain only for bootstrap or empty-runtime cases;
+- no planner prompt, business rule, or action admission semantics change.
+
+Changes:
+
+- [x] Added a shared `dataTaskWorkflowRuntimeView` adapter boundary.
+- [x] Added a structural `dataTaskPlanHasRuntimeShape` helper so empty runtime
+      plans do not erase a valid fallback current plan.
+- [x] Rewired CLI post-batch evaluation, continuation, deterministic
+      continuation fallback, and node-repair calls to use the runtime view.
+- [x] Rewired the matching REPL post-batch path to the same runtime view.
+- [x] Added regression coverage proving runtime snapshots win and empty
+      runtime current plans preserve fallback current plans.
+
+Remaining architecture items:
+
+- [ ] Continue narrowing preflight/guard helpers that still accept local
+      mirrors directly.
+- [ ] Move planner prompt assembly toward an explicit runtime-view object once
+      the existing interfaces can be retired safely.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario run.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input

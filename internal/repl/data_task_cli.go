@@ -244,6 +244,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		return current
 	}
+	runtimeView := func() dataTaskWorkflowRuntimeView {
+		view := dataTaskWorkflowRuntimeViewFrom(workflowRuntime, records, currentPlan, currentDeferredPlan(), dataRounds, repairRounds)
+		records = view.Records
+		currentPlan = view.CurrentPlan
+		dataRounds = view.DataRounds
+		repairRounds = view.RepairRounds
+		return view
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -612,14 +620,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
-		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(records, currentPlan, workflowRuntime.DeferredQueue())
+		view := runtimeView()
+		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
-			Round:    dataRounds,
-			Plan:     currentPlan,
+			Round:    view.DataRounds,
+			Plan:     view.CurrentPlan,
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
-		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, records, currentDeferredPlan(), cfg.Language)
+		eval, err := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, request, view.Records, view.DeferredPlan, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
 		}
@@ -664,9 +673,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if !contOK {
 				return dataTaskAnswerMarkdown(cfg.Language, result), nil
 			}
-			nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
+			view = runtimeView()
+			nextPlan, err := continueDataTaskWithDeferredIfSupported(ctx, continuer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.Records, view.DeferredPlan)
 			if err != nil {
-				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, currentPlan, err); ok {
+				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err); ok {
 					fallback = protectPlan(fallback)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
 					emitWorkflowReason("continue", dataRounds, reason)
@@ -680,12 +690,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				logging.Info("[cli/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 				nextPlan = normalized
 			}
-			nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
+			nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 			emitWorkflowReason("continue", dataRounds, "")
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
 		case dataquery.EvalRepairNode:
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
+			view = runtimeView()
+			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(view.Records, view.CurrentPlan); ok {
 				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -700,11 +711,11 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			repairRounds = workflowRuntime.IncrementRepairRound()
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
-			repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason, dataTaskRepairViolationFromRecords(records, repairReason))
+			repairedPlan, err := repairDataTaskWithViolation(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason))
 			if err != nil {
 				return "", fmt.Errorf("repair data task node: %w", err)
 			}
-			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, repairReason)
+			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, repairReason)
 			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
 				logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 				repairedPlan = normalized

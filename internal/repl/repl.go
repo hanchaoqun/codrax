@@ -1433,6 +1433,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	repairRounds := 0
 	dataRounds := 0
 	workflowRuntime.SetRounds(dataRounds, repairRounds)
+	runtimeView := func() dataTaskWorkflowRuntimeView {
+		view := dataTaskWorkflowRuntimeViewFrom(workflowRuntime, records, currentPlan, currentDeferredPlan(), dataRounds, repairRounds)
+		records = view.Records
+		currentPlan = view.CurrentPlan
+		dataRounds = view.DataRounds
+		repairRounds = view.RepairRounds
+		return view
+	}
 	for {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
@@ -2008,15 +2016,16 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(records, currentPlan, workflowRuntime.DeferredQueue())
+		view := runtimeView()
+		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
-			Round:    dataRounds,
-			Plan:     currentPlan,
+			Round:    view.DataRounds,
+			Plan:     view.CurrentPlan,
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		ctx := r.startTurn()
-		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, records, currentDeferredPlan(), r.language)
+		eval, evalErr := evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, line, view.Records, view.DeferredPlan, r.language)
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
@@ -2107,11 +2116,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			}
 			emitWorkflowReason("continue", dataRounds, "")
 			ctx := r.startTurn()
-			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records, currentDeferredPlan())
+			view = runtimeView()
+			nextPlan, contErr := continueDataTaskWithDeferredIfSupported(ctx, continuer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.Records, view.DeferredPlan)
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if contErr != nil {
-				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, currentPlan, contErr); ok {
+				if fallback, reason, ok := dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, contErr); ok {
 					emitWorkflowReason("continue", dataRounds, reason)
 					fallback = protectPlan(fallback)
 					r.emitDataTaskPlanAudit(fallback)
@@ -2132,11 +2142,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				logging.Info("[repl/data] normalized continuation data task plan: %s", strings.Join(notes, "; "))
 				nextPlan = normalized
 			}
-			nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
+			nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
 			currentPlan = acceptCandidatePlan("continue", dataRounds+1, nextPlan)
 			continue
 		case dataquery.EvalRepairNode:
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
+			view = runtimeView()
+			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(view.Records, view.CurrentPlan); ok {
 				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -2159,7 +2170,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			repairReason := dataTaskEvaluationRepairReason(eval)
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			ctx := r.startTurn()
-			repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), currentPlan, repairReason, dataTaskRepairViolationFromRecords(records, repairReason))
+			repairedPlan, repairErr := repairDataTaskWithViolation(ctx, repairer, line, r.repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason))
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if repairErr != nil {
@@ -2179,7 +2190,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(records, currentPlan, repairedPlan, repairReason)
+			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, repairReason)
 			if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repairedPlan, policy); len(notes) > 0 {
 				logging.Info("[repl/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))
 				repairedPlan = normalized

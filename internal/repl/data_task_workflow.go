@@ -5262,6 +5262,57 @@ func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.T
 	return dataTaskWorkflowStateWithDeferred(records, current, dataquery.TaskPlan{})
 }
 
+type dataTaskWorkflowRuntimeView struct {
+	Records       []dataTaskWorkflowRecord
+	CurrentPlan   dataquery.TaskPlan
+	DeferredQueue dataworkflow.DeferredQueueState
+	DeferredPlan  dataquery.TaskPlan
+	DataRounds    int
+	RepairRounds  int
+}
+
+func dataTaskWorkflowRuntimeViewFrom(rt *dataworkflow.WorkflowRuntime, fallbackRecords []dataTaskWorkflowRecord, fallbackCurrent, fallbackDeferred dataquery.TaskPlan, fallbackDataRounds, fallbackRepairRounds int) dataTaskWorkflowRuntimeView {
+	out := dataTaskWorkflowRuntimeView{
+		Records:      append([]dataTaskWorkflowRecord(nil), fallbackRecords...),
+		CurrentPlan:  fallbackCurrent,
+		DeferredPlan: fallbackDeferred,
+		DataRounds:   maxInt(fallbackDataRounds, 0),
+		RepairRounds: maxInt(fallbackRepairRounds, 0),
+	}
+	if len(fallbackDeferred.Actions) > 0 {
+		out.DeferredQueue = dataworkflow.NewDeferredQueue(fallbackDeferred)
+	}
+	if rt == nil {
+		return out
+	}
+	snapshot := rt.Snapshot()
+	if len(snapshot.Records) > 0 {
+		out.Records = append([]dataTaskWorkflowRecord(nil), snapshot.Records...)
+	}
+	if dataTaskPlanHasRuntimeShape(snapshot.CurrentPlan) {
+		out.CurrentPlan = snapshot.CurrentPlan
+	}
+	if len(snapshot.DeferredQueue.Plan.Actions) > 0 || len(snapshot.DeferredPlan.Actions) > 0 {
+		out.DeferredQueue = snapshot.DeferredQueue
+		out.DeferredPlan = snapshot.DeferredPlan
+	}
+	if snapshot.DataRounds > 0 || snapshot.RepairRounds > 0 {
+		out.DataRounds = snapshot.DataRounds
+		out.RepairRounds = snapshot.RepairRounds
+	}
+	return out
+}
+
+func dataTaskPlanHasRuntimeShape(plan dataquery.TaskPlan) bool {
+	return strings.TrimSpace(plan.Status) != "" ||
+		strings.TrimSpace(plan.Goal) != "" ||
+		strings.TrimSpace(plan.Script) != "" ||
+		len(plan.Actions) > 0 ||
+		len(plan.InputPaths) > 0 ||
+		len(plan.CoverageContract.RequiredMaterials) > 0 ||
+		len(plan.CoverageContract.OptionalMaterials) > 0
+}
+
 func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataTaskWorkflowStateView {
 	return dataTaskWorkflowStateWithDeferredQueue(records, current, dataworkflow.NewDeferredQueue(deferred))
 }
