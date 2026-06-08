@@ -3468,53 +3468,16 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 	if r.renderer == nil {
 		return
 	}
-	label := "数据工作流"
-	segs := []string{}
-	if isZh(r.language) {
-		switch kind {
-		case "execute":
-			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
-		case "repair":
-			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
-		case "patch":
-			segs = append(segs, fmt.Sprintf("结构修复第 %d 批", round))
-		case "result":
-			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
-		case "evaluate":
-			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
-		case "continue":
-			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
-		case "resume":
-			segs = append(segs, fmt.Sprintf("恢复第 %d 批", maxInt(round, 1)))
-		default:
-			segs = append(segs, kind)
+	display := dataworkflow.BuildWorkflowProcessDisplay(dataworkflow.WorkflowJournalEvent{Kind: strings.TrimSpace(kind), Round: round}, r.language)
+	segs := append([]string{}, display.Segments...)
+	if inline := dataTaskWorkflowInlineSegments(kind, r.language, details...); len(inline) > 0 {
+		insertAt := len(segs)
+		if insertAt > 0 {
+			insertAt--
 		}
-		segs = append(segs, dataTaskWorkflowInlineSegments(kind, r.language, details...)...)
-		segs = append(segs, "未读源码")
-	} else {
-		label = "data workflow"
-		switch kind {
-		case "execute":
-			segs = append(segs, fmt.Sprintf("execute batch %d", round))
-		case "repair":
-			segs = append(segs, fmt.Sprintf("repair %d", round))
-		case "patch":
-			segs = append(segs, fmt.Sprintf("structural patch batch %d", round))
-		case "result":
-			segs = append(segs, fmt.Sprintf("result batch %d", round))
-		case "evaluate":
-			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
-		case "continue":
-			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
-		case "resume":
-			segs = append(segs, fmt.Sprintf("resume batch %d", maxInt(round, 1)))
-		default:
-			segs = append(segs, kind)
-		}
-		segs = append(segs, dataTaskWorkflowInlineSegments(kind, r.language, details...)...)
-		segs = append(segs, "no source read")
+		segs = append(segs[:insertAt], append(inline, segs[insertAt:]...)...)
 	}
-	r.renderer.EmitLightRouteSummary(label, segs)
+	r.renderer.EmitLightRouteSummary(display.Label, segs)
 	if lines := dataTaskWorkflowDetailLines(kind, round, r.language, details...); len(lines) > 0 {
 		r.renderBorderedDataProcessCompact(strings.Join(lines, "\n"))
 	}
@@ -3672,48 +3635,10 @@ func dataTaskWorkflowDetailLines(kind string, round int, lang string, details ..
 		lines = append(lines, businessDetails...)
 	}
 	if !showBusinessDetails || len(businessDetails) == 0 {
-		switch kind {
-		case "execute":
-			if zh {
-				add("动作：", "执行当前有界数据动作批次，生成可复用产物和结构化审计后再评估下一步。")
-			} else {
-				add("Action: ", "Executing this bounded data action batch; reusable artifacts and structured audit feed the next evaluation.")
-			}
-		case "result":
-			if zh {
-				add("结果：", "本批完成，已记录材料消费、生成产物和校验信号。")
-			} else {
-				add("Result: ", "Batch completed; material use, artifacts, and validation signals were recorded.")
-			}
-		case "evaluate":
-			if zh {
-				add("评估：", "根据目标、材料覆盖、产物字段、贡献记录和对账状态判断继续、修复或输出。")
-			} else {
-				add("Evaluate: ", "Checking goal progress, material coverage, artifact fields, contributions, and reconcile state.")
-			}
-		case "continue":
-			if zh {
-				add("继续：", "上一批仍不足以达成目标，继续规划下一批原子动作。")
-			} else {
-				add("Continue: ", "The previous batch is not enough yet; planning the next atomic batch.")
-			}
-		case "resume":
-			if zh {
-				add("恢复：", "从显式指定的 workflow checkpoint 载入已验证状态，再选择下一批原子动作。")
-			} else {
-				add("Resume: ", "Loaded the explicitly supplied workflow checkpoint, then selected the next atomic batch.")
-			}
-		case "repair":
-			if zh {
-				add("修复：", "根据结构化失败原因生成下一批修复动作。")
-			} else {
-				add("Repair: ", "Planning the next repair batch from the structured failure reason.")
-			}
-		case "patch":
-			if zh {
-				add("结构修复：", "对无歧义的结果结构漂移做安全补丁，业务语义仍由重新计算承担。")
-			} else {
-				add("Patch: ", "Applying safe structural result patches; semantic changes still require recompute.")
+		display := dataworkflow.BuildWorkflowProcessDisplay(dataworkflow.WorkflowJournalEvent{Kind: strings.TrimSpace(kind), Round: round}, lang)
+		for _, detail := range display.Details {
+			if text := strings.TrimSpace(detail.Text); text != "" {
+				lines = append(lines, oneLineClamp(text, 180))
 			}
 		}
 	}
@@ -3890,46 +3815,34 @@ func dataTaskWorkflowDecisionContextDetails(records []dataTaskWorkflowRecord, cu
 
 func dataTaskWorkflowEventBusinessDetails(event dataworkflow.WorkflowJournalEvent, lang string, includeGoal, includeBatch, includeNext, includeActions bool) []string {
 	var segs []string
-	zh := isZh(lang)
-	if includeGoal {
-		if goal := strings.TrimSpace(event.Goal); goal != "" {
-			if zh {
-				segs = append(segs, dataTaskBusinessDetail("目标："+oneLineClamp(goal, 180)))
-			} else {
-				segs = append(segs, dataTaskBusinessDetail("Goal: "+oneLineClamp(goal, 180)))
-			}
+	display := dataworkflow.BuildWorkflowProcessDisplay(event, lang)
+	for _, detail := range display.Details {
+		text := strings.TrimSpace(detail.Text)
+		if text == "" {
+			continue
 		}
-	}
-	if includeBatch {
-		if batch := strings.TrimSpace(event.BatchPurpose); batch != "" {
-			if zh {
-				segs = append(segs, dataTaskBusinessDetail("本批："+oneLineClamp(batch, 180)))
-			} else {
-				segs = append(segs, dataTaskBusinessDetail("Batch: "+oneLineClamp(batch, 180)))
+		switch strings.TrimSpace(detail.Class) {
+		case "business":
+			switch strings.TrimSpace(detail.Key) {
+			case "goal":
+				if includeGoal {
+					segs = append(segs, dataTaskBusinessDetail(text))
+				}
+			case "batch":
+				if includeBatch {
+					segs = append(segs, dataTaskBusinessDetail(text))
+				}
+			case "next":
+				if includeNext {
+					segs = append(segs, dataTaskBusinessDetail(text))
+				}
+			case "actions":
+				if includeActions {
+					segs = append(segs, dataTaskBusinessDetail(text))
+				}
 			}
-		}
-	}
-	if includeNext {
-		if next := strings.TrimSpace(event.NextStep); next != "" {
-			if zh {
-				segs = append(segs, dataTaskBusinessDetail("下一步："+oneLineClamp(next, 180)))
-			} else {
-				segs = append(segs, dataTaskBusinessDetail("Next: "+oneLineClamp(next, 180)))
-			}
-		}
-	}
-	if event.Decision != nil {
-		if reason := strings.TrimSpace(event.Decision.Reason); reason != "" {
-			segs = append(segs, dataTaskDecisionDetail(oneLineClamp(reason, 180)))
-		}
-	}
-	if includeActions {
-		if summary := strings.TrimSpace(event.ActionSummary); summary != "" {
-			if zh {
-				segs = append(segs, dataTaskBusinessDetail("动作："+oneLineClamp(summary, 180)))
-			} else {
-				segs = append(segs, dataTaskBusinessDetail("Actions: "+oneLineClamp(summary, 180)))
-			}
+		case "decision":
+			segs = append(segs, dataTaskDecisionDetail(text))
 		}
 	}
 	return segs

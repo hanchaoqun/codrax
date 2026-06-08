@@ -966,55 +966,16 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 	if w == nil {
 		return
 	}
-	label := "数据工作流"
-	segs := []string{}
-	if isZh(lang) {
-		switch kind {
-		case "execute":
-			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
-		case "repair":
-			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
-		case "patch":
-			segs = append(segs, fmt.Sprintf("结构修复第 %d 批", round))
-		case "result":
-			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
-		case "evaluate":
-			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
-		case "continue":
-			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
-		case "resume":
-			segs = append(segs, fmt.Sprintf("恢复第 %d 批", maxInt(round, 1)))
-		default:
-			segs = append(segs, strings.TrimSpace(kind))
+	display := dataworkflow.BuildWorkflowProcessDisplay(dataworkflow.WorkflowJournalEvent{Kind: strings.TrimSpace(kind), Round: round}, lang)
+	segs := append([]string{}, display.Segments...)
+	if inline := dataTaskWorkflowInlineSegments(kind, lang, details...); len(inline) > 0 {
+		insertAt := len(segs)
+		if insertAt > 0 {
+			insertAt--
 		}
-	} else {
-		label = "data workflow"
-		switch kind {
-		case "execute":
-			segs = append(segs, fmt.Sprintf("execute batch %d", round))
-		case "repair":
-			segs = append(segs, fmt.Sprintf("repair %d", round))
-		case "patch":
-			segs = append(segs, fmt.Sprintf("structural patch batch %d", round))
-		case "result":
-			segs = append(segs, fmt.Sprintf("result batch %d", round))
-		case "evaluate":
-			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
-		case "continue":
-			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
-		case "resume":
-			segs = append(segs, fmt.Sprintf("resume batch %d", maxInt(round, 1)))
-		default:
-			segs = append(segs, strings.TrimSpace(kind))
-		}
+		segs = append(segs[:insertAt], append(inline, segs[insertAt:]...)...)
 	}
-	segs = append(segs, dataTaskWorkflowInlineSegments(kind, lang, details...)...)
-	if isZh(lang) {
-		segs = append(segs, "未读源码")
-	} else {
-		segs = append(segs, "no source read")
-	}
-	cliLightRouteSummary(w, label, segs)
+	cliLightRouteSummary(w, display.Label, segs)
 	cliLightRouteDetails(w, dataTaskWorkflowDetailLines(kind, round, lang, details...))
 }
 

@@ -14282,5 +14282,58 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert process rendering to consume runtime/reducer events rather than
+- [x] Convert process rendering to consume runtime/reducer events rather than
       REPL-local stage summaries.
+
+### Batch 316: Package-Level Process Display Projection
+
+Data workflow process lines had one remaining duplicated surface: REPL and CLI
+both rendered workflow stage titles, source-lane hints, default explanations,
+and model-authored goal/batch/next-step details from local string switches.
+That kept user-facing progress close to UI-specific control flow even though
+the runtime already emits typed `WorkflowJournalEvent` records.
+
+This batch adds `WorkflowProcessDisplay` as a package-level projection over
+typed process events. The data workflow package now owns the stable display
+shape: label, deterministic title segments, and low-noise detail lines. REPL
+and CLI only choose how to render the projection: bordered permanent lines for
+REPL and stderr progress lines for CLI. The projection is intentionally
+domain-neutral: it uses model-authored goal, batch purpose, next step, action
+summary, typed decisions, guard failures, and audit details; it does not encode
+business roles, file names, field names, or intent keywords.
+
+Generic invariants:
+
+- process display is a projection of typed workflow events, not a hard gate;
+- deterministic stage/source indicators stay in the title line;
+- business-facing goal, batch, next-step, action, decision, failure, and audit
+  details stay in low-noise detail lines with typed display keys;
+- REPL and CLI share the same display projection and cannot drift by copying
+  stage-label switches;
+- stdout remains reserved for final answers in CLI data mode.
+
+Changes:
+
+- [x] Added `WorkflowProcessDisplay`.
+- [x] Added `WorkflowProcessDisplayDetail` with typed display keys.
+- [x] Added `BuildWorkflowProcessDisplay` over `WorkflowJournalEvent`.
+- [x] Moved workflow stage title segments and source-lane hints into
+      `dataworkflow`.
+- [x] Moved default process explanations into the package-level display
+      projection.
+- [x] Rewired REPL workflow progress to render the shared display projection.
+- [x] Rewired CLI workflow progress to render the shared display projection on
+      the existing stderr progress sink.
+- [x] Added package-level regression coverage for stable title segments,
+      model-authored process intent, and default process details.
+
+Remaining architecture items:
+
+- [ ] Append live process events through the runtime journal sink at each
+      execution/admission/evaluation boundary, so process histories no longer
+      need to be reconstructed from records after the fact.
+- [ ] Feed reducer decision reasons and typed guard summaries directly into
+      `WorkflowProcessEventInput` at every CLI/REPL call site instead of
+      passing legacy detail strings.
+- [ ] Move the remaining detail-marker compatibility layer out of REPL once
+      all progress callers emit typed process events.
