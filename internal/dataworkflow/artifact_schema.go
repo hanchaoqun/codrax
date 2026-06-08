@@ -202,6 +202,14 @@ func ArtifactGraphStateFromProjections(projections []ArtifactSchemaProjection, l
 		Truncated: limit > 0 && len(projections) > limit,
 		Nodes:     make([]ArtifactGraphNode, 0, nodeLimit),
 	}
+	relationLimit := relationLimitForArtifactGraph(nodeLimit, len(projections))
+	relations := ArtifactRelationsFromProjections(projections, relationLimit+1)
+	if relationLimit > 0 && len(relations) > relationLimit {
+		state.RelationsTruncated = true
+		relations = relations[:relationLimit]
+	}
+	state.Relations = relations
+	state.RelationCount = len(relations)
 	seenAlias := map[string]bool{}
 	seenExecutable := map[string]bool{}
 	for i := 0; i < nodeLimit; i++ {

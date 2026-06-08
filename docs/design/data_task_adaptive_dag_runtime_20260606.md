@@ -16809,10 +16809,57 @@ Remaining architecture items:
 - [ ] Migrate the remaining explicit action repair paths that still use
       field-token helpers onto typed relation candidates once ActionDAG
       admission exposes source/lookup role evidence uniformly.
-- [ ] Promote relation candidates into live `ArtifactGraphState` so evaluator,
+- [x] Promote relation candidates into live `ArtifactGraphState` so evaluator,
       scaffold builders, and failure transitions consume the same relation IR.
 - [ ] Replace adapter-level no-tool error text adapters with provider/planner
       typed error codes.
+- [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
+      `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
+
+### Batch 397: ArtifactGraph Relation IR
+
+Batch 394 made hard missing-field recovery require structural relations, but
+the relation candidate still lived inside that fallback path. That was safer
+than field-name scoring, yet it still meant other workflow stages could not see
+the same relation evidence. This batch promotes relation candidates into
+`ArtifactGraphState`.
+
+The new relation IR is domain-neutral:
+
+- base artifact alias and lookup artifact alias;
+- paired base/lookup fields derived from exact common schema fields;
+- lookup value fields that could be materialized onto base rows;
+- exact match mode;
+- structural evidence such as common schema keys, compatible lineage, and
+  relation-producing action kind;
+- bounded relation count and truncation signal.
+
+The system still does not assign business roles such as invoice, contract,
+vendor, category, or amount. The relation only says that two artifacts have a
+structural key relationship and that the lookup side has additional fields. The
+model or later typed actions decide whether those fields are meaningful for the
+current user goal.
+
+Changes:
+
+- [x] Added `ArtifactRelation` to `ArtifactGraphState`.
+- [x] Added bounded structural relation extraction from
+      `ArtifactSchemaProjection` pairs.
+- [x] Rewired missing-field fallback to consume the shared relation IR instead
+      of maintaining a private selector.
+- [x] Added regression coverage for relation exposure and diagnostic artifact
+      exclusion.
+- [x] Preserved the hard boundary that diagnostic/workflow-ledger artifacts do
+      not become lookup relations.
+
+Remaining architecture items:
+
+- [ ] Feed `ArtifactGraphState.Relations` into action scaffold ranking and
+      evaluator continuation prompts so planner repair sees relation evidence
+      before inventing field mappings.
+- [ ] Migrate remaining explicit action repair paths that still use field-token
+      helpers onto typed relation candidates once ActionDAG admission exposes
+      source/lookup role evidence uniformly.
 - [ ] Continue narrowing prompt/evaluator/checkpoint inputs to consume
       `WorkflowRuntimeSnapshot` rather than parallel adapter mirrors.
 

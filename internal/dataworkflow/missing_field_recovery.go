@@ -279,44 +279,43 @@ func StructuralRelationForMissingTarget(projections []ArtifactSchemaProjection, 
 	if baseAlias == "" || len(base.Fields) == 0 || ExistingField(base.Fields, missingField) != "" {
 		return MissingFieldRelationCandidate{}, false
 	}
+	artifactsByAlias := map[string]ArtifactSchemaProjection{}
+	for _, projection := range projections {
+		for _, alias := range artifactSchemaAliases(projection) {
+			if key := normalizeAccessPath(alias); key != "" {
+				artifactsByAlias[key] = projection
+			}
+		}
+	}
 	var best MissingFieldRelationCandidate
 	bestScore := -1
-	for _, artifact := range projections {
-		alias := firstArtifactAlias(artifact)
-		if alias == "" || normalizeAccessPath(alias) == normalizeAccessPath(baseAlias) || len(artifact.Fields) == 0 {
+	for _, relation := range ArtifactRelationsFromProjections(projections, -1) {
+		if normalizeAccessPath(relation.BaseAlias) != normalizeAccessPath(baseAlias) {
 			continue
 		}
-		if artifact.NodeClass == ArtifactNodeClassDiagnosticChild || artifact.NodeClass == ArtifactNodeClassWorkflowLedger {
+		if ExistingField(relation.LookupValueFields, missingField) == "" {
+			continue
+		}
+		artifact, ok := artifactsByAlias[normalizeAccessPath(relation.LookupAlias)]
+		if !ok {
 			continue
 		}
 		valueField := ExistingField(artifact.Fields, missingField)
 		if valueField == "" {
 			continue
 		}
-		baseFields, lookupFields := structuralRelationFields(base.Fields, artifact.Fields, valueField, missingField, 6)
-		if len(baseFields) == 0 || len(lookupFields) == 0 {
-			continue
-		}
-		score := len(baseFields)
-		if ArtifactLineageContains(artifact, baseAlias) || ArtifactLineageContains(base, alias) {
-			score += 4
-		}
-		if artifactKindHasPrefix(artifact.Kind, dataquery.DataActionNormalizeEntities, dataquery.DataActionEnrichRecords, dataquery.DataActionApplyResolutions) ||
-			strings.Contains(strings.ToLower(strings.TrimSpace(artifact.Kind)), "entity_resolution") {
-			score += 2
-		}
+		score := relation.Score
 		if score > bestScore {
 			bestScore = score
 			best = MissingFieldRelationCandidate{
 				Artifact:     artifact,
 				ValueField:   valueField,
-				BaseFields:   baseFields,
-				LookupFields: lookupFields,
-				MatchMode:    "exact",
-				Evidence: cleanStrings([]string{
+				BaseFields:   append([]string(nil), relation.BaseFields...),
+				LookupFields: append([]string(nil), relation.LookupFields...),
+				MatchMode:    firstNonEmpty(relation.MatchMode, "exact"),
+				Evidence: append(cleanStrings([]string{
 					"target field exists exactly in lookup artifact",
-					"structural common key fields exist between base and lookup",
-				}),
+				}), relation.Evidence...),
 			}
 		}
 	}

@@ -413,6 +413,9 @@ type ArtifactGraphState struct {
 	Truncated               bool                   `json:"truncated,omitempty"`
 	AliasIndex              []ArtifactAliasBinding `json:"alias_index,omitempty"`
 	ExecutableRecordAliases []string               `json:"executable_record_aliases,omitempty"`
+	Relations               []ArtifactRelation     `json:"relations,omitempty"`
+	RelationCount           int                    `json:"relation_count,omitempty"`
+	RelationsTruncated      bool                   `json:"relations_truncated,omitempty"`
 }
 
 type ArtifactGraphNode struct {
@@ -436,6 +439,19 @@ type ArtifactLineage struct {
 	SourceRecordPaths []string `json:"source_record_paths,omitempty"`
 	ReferencePaths    []string `json:"reference_paths,omitempty"`
 	EvidencePaths     []string `json:"evidence_paths,omitempty"`
+}
+
+type ArtifactRelation struct {
+	BaseAlias         string   `json:"base_alias,omitempty"`
+	LookupAlias       string   `json:"lookup_alias,omitempty"`
+	BaseNodeID        string   `json:"base_node_id,omitempty"`
+	LookupNodeID      string   `json:"lookup_node_id,omitempty"`
+	BaseFields        []string `json:"base_fields,omitempty"`
+	LookupFields      []string `json:"lookup_fields,omitempty"`
+	LookupValueFields []string `json:"lookup_value_fields,omitempty"`
+	MatchMode         string   `json:"match_mode,omitempty"`
+	Evidence          []string `json:"evidence,omitempty"`
+	Score             int      `json:"score,omitempty"`
 }
 
 type ArtifactAliasBinding struct {

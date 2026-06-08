@@ -130,7 +130,7 @@ func TestHistoricalMissingJoinFieldFallbackPlanSuppressesSeenPlan(t *testing.T) 
 		MissingFields: []string{"category_id"},
 	}
 	projections := []ArtifactSchemaProjection{
-		{ID: "base", Aliases: []string{"base.json"}, Fields: []string{"category_name"}},
+		{ID: "base", Kind: string(dataquery.DataActionFilterRecords), NodeClass: ArtifactNodeClassRecord, Aliases: []string{"base.json"}, Fields: []string{"category_name"}},
 		{ID: "mapping", Aliases: []string{"mapping.json"}, Kind: string(dataquery.DataActionNormalizeEntities), Fields: []string{"category_name", "category_id"}},
 	}
 	first, ok := HistoricalMissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{

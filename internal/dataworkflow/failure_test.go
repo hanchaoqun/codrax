@@ -88,8 +88,8 @@ func TestBuildExecutionFailureTransitionUsesTypedMissingFieldFallback(t *testing
 		},
 		Violation: violation,
 		SchemaProjections: []ArtifactSchemaProjection{
-			{ID: "orders", Aliases: []string{"orders.json"}, Fields: []string{"vendor_name", "amount"}},
-			{ID: "mapping", Aliases: []string{"mapping.json"}, Fields: []string{"vendor_name", "canonical_code"}},
+			{ID: "orders", Kind: string(dataquery.DataActionFilterRecords), NodeClass: ArtifactNodeClassRecord, Aliases: []string{"orders.json"}, Fields: []string{"vendor_name", "amount"}},
+			{ID: "mapping", Kind: string(dataquery.DataActionNormalizeEntities), Aliases: []string{"mapping.json"}, Fields: []string{"vendor_name", "canonical_code"}},
 		},
 	})
 	if transition.Action != ExecutionFailureFallbackPlan || !transition.HasPlan() {
