@@ -6274,8 +6274,21 @@ func TestDataTaskRepairPlannerContinuationRequiresTypedNoToolError(t *testing.T)
 	if !dataTaskRepairPlannerErrorAllowsContinuation(newDataTaskPlannerNoToolError("data task planner", nil)) {
 		t.Fatal("typed no-tool planner error should allow deterministic continuation")
 	}
+	if !dataTaskRepairPlannerErrorAllowsContinuation(newDataTaskPlannerNoPlanShapeError("data task repair planner", "")) {
+		t.Fatal("typed no-plan-shape planner error should allow deterministic continuation")
+	}
 	if dataTaskRepairPlannerErrorAllowsContinuation(errors.New("data task planner returned no tool_call")) {
 		t.Fatal("plain error text must not drive deterministic continuation")
+	}
+}
+
+func TestDataTaskAcceptPlannerPlanRejectsEmptyShapeWithTypedError(t *testing.T) {
+	_, err := dataTaskAcceptPlannerPlan(dataquery.TaskPlan{}, "data task repair planner")
+	if err == nil {
+		t.Fatal("empty planner plan should be rejected")
+	}
+	if !dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoPlanShape) {
+		t.Fatalf("err=%T %[1]v, want typed no-plan-shape error", err)
 	}
 }
 

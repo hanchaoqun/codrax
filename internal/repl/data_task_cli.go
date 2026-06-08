@@ -772,7 +772,20 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			repairReason := evalDecision.Reason
 			emitWorkflowFailure("repair", repairRounds, repairReason)
 			repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, repairReason, dataTaskRepairViolationFromRecords(view.Records, repairReason), view)
+			if err == nil {
+				repairedPlan, err = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
+			}
 			if err != nil {
+				if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, view, err); ok {
+					logging.Info("[cli/data] repair planner failed structurally; %s", reason)
+					fallback = protectPlan(fallback)
+					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+					dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
+					currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
+					continue
+				} else if contErr != nil {
+					logging.Warning("[cli/data] repair planner continuation fallback failed: %v", contErr)
+				}
 				return "", fmt.Errorf("repair data task node: %w", err)
 			}
 			repairedPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, repairReason)
@@ -917,6 +930,9 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	}
 	view.RepairRounds = repairRounds
 	repairedPlan, err := repairDataTaskWithViolationAndRuntimeView(ctx, repairer, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, view.Records), view.CurrentPlan, errText, dataTaskRepairViolationFromRecords(view.Records, errText), view)
+	if err == nil {
+		repairedPlan, err = dataTaskAcceptPlannerPlan(repairedPlan, "data task repair planner")
+	}
 	if err != nil {
 		if fallback, reason, ok, contErr := dataTaskRepairFailureContinuationFallbackForCLI(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", reason)

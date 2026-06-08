@@ -75,6 +75,21 @@ func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowR
 	})
 }
 
+func dataTaskAcceptPlannerPlan(plan dataquery.TaskPlan, scope string) (dataquery.TaskPlan, error) {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "data task planner"
+	}
+	decision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
+		Plan:          plan,
+		FailurePrefix: scope + " returned no executable data plan",
+	})
+	if decision.Action == dataworkflow.PlannerPlanAccept {
+		return decision.Plan, nil
+	}
+	return dataquery.TaskPlan{}, newDataTaskPlannerNoPlanShapeError(scope, decision.Reason)
+}
+
 func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {
 	failureRecord := dataTaskWorkflowRecordWithExecutionViolation(current, result, errText, violation)
 	recordsWithFailure := append(append([]dataTaskWorkflowRecord(nil), records...), failureRecord)
@@ -654,7 +669,8 @@ func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord
 }
 
 func dataTaskRepairPlannerErrorAllowsContinuation(err error) bool {
-	return dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoToolCall)
+	return dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoToolCall) ||
+		dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoPlanShape)
 }
 
 func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []string) {

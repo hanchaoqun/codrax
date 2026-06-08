@@ -18177,8 +18177,63 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Continue moving repair planner success/accept handling into
-      reducer-owned next-executable decisions.
+- [x] Continue moving repair planner success/accept handling into
+      reducer-owned next-executable decisions. Completed in Batch 425.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 425: Repair Planner Accept Decisions Through IR
+
+Batch 423 and Batch 424 moved continuation planner results through
+`PlannerPlanDecision`, but successful repair planner results still had one
+adapter-owned assumption: if the repair call returned no Go error, REPL/CLI
+accepted the returned plan and only later discovered whether it had a usable
+runtime shape. That left a subtle convergence gap. A repair planner can return
+a structurally empty or non-executable payload without raising a provider/tool
+parse error; the workflow should treat that as a typed planner-result failure,
+not as a valid next node.
+
+This batch routes repair planner success acceptance through the same
+planner-result reducer used by continuation. The adapter still owns the LLM
+call, trace rendering, normalization, material-coverage preservation, and
+plan acceptance. The reducer decides only whether the returned typed plan is
+acceptable. If the plan has no acceptable shape, the adapter receives a typed
+`no_plan_shape` planner error. Existing repair-failure continuation logic can
+then continue from workflow state when that is structurally available.
+
+Generic invariants:
+
+- a repair planner result is not accepted merely because the LLM call returned
+  successfully;
+- the accept decision consumes typed plan structure only, not model prose or
+  business text;
+- failed repair acceptance is represented as a typed planner error, not a
+  string to be parsed later;
+- repair-failure continuation remains driven by typed error codes and workflow
+  state;
+- adapters still own user-visible progress, logs, audit files, normalization,
+  and final acceptance of a protected plan;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added typed data planner error code `no_plan_shape`.
+- [x] Added shared `dataTaskAcceptPlannerPlan` adapter helper backed by
+      `DecidePlannerPlanResult`.
+- [x] Rewired CLI repair planner success paths to validate accepted plan shape
+      before normalization and execution.
+- [x] Rewired REPL repair planner success paths to validate accepted plan shape
+      before normalization and execution.
+- [x] Let typed `no_plan_shape` repair failures reuse the existing
+      repair-failure continuation path.
+- [x] Added regression coverage for typed no-plan-shape repair failure.
+
+Remaining architecture items:
+
+- [ ] Continue migrating direct repair call sites toward a shared
+      repair-result adapter that bundles trace emission, accept decision,
+      continuation fallback, normalization, and audit emission.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

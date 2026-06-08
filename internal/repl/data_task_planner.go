@@ -67,6 +67,7 @@ type dataTaskPlannerErrorCode string
 const (
 	dataTaskPlannerErrorNoToolCall     dataTaskPlannerErrorCode = "no_tool_call"
 	dataTaskPlannerErrorUnexpectedTool dataTaskPlannerErrorCode = "unexpected_tool"
+	dataTaskPlannerErrorNoPlanShape    dataTaskPlannerErrorCode = "no_plan_shape"
 )
 
 type dataTaskPlannerError struct {
@@ -123,6 +124,22 @@ func newDataTaskPlannerUnexpectedToolError(scope, tool string, cause error) erro
 		Tool:   tool,
 		Detail: fmt.Sprintf("%s returned unexpected tool %q", scope, tool),
 		Cause:  cause,
+	}
+}
+
+func newDataTaskPlannerNoPlanShapeError(scope, detail string) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "data task planner"
+	}
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		detail = scope + " returned no executable data plan"
+	}
+	return &dataTaskPlannerError{
+		Code:   dataTaskPlannerErrorNoPlanShape,
+		Scope:  scope,
+		Detail: detail,
 	}
 }
 
