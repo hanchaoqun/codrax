@@ -238,3 +238,41 @@ func TestDecidePreExecutionFallsThroughToExecute(t *testing.T) {
 		t.Fatalf("decision=%+v, want execute", decision)
 	}
 }
+
+func TestDecideGuardRecoveryPrefersFirstAvailableFallback(t *testing.T) {
+	guard := NewGuardResult("staging", "error", RepairNeedsTypedAction, "blocked", WorkflowViolation{Code: "staging"})
+	fallback := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "extract",
+		Kind: dataquery.DataActionExtractRecords,
+	}}}
+	remainder := dataquery.TaskPlan{Status: "ready", Actions: []dataquery.DataAction{{
+		ID:   "compute",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}
+	decision := DecideGuardRecovery(GuardRecoveryDecisionInput{
+		Guard: guard,
+		Candidates: []GuardRecoveryFallbackCandidate{
+			{Source: "empty", Available: true},
+			{Source: "prefix", Plan: fallback, Remainder: remainder, Reason: "run first rank", Available: true},
+		},
+	})
+	if decision.Action != GuardRecoveryFallbackPlan || decision.Source != "prefix" || !decision.HasRemainder() {
+		t.Fatalf("decision=%+v, want prefix fallback with remainder", decision)
+	}
+	decision.Plan.Actions[0].ID = "mutated"
+	decision.Remainder.Actions[0].ID = "mutated-remainder"
+	if fallback.Actions[0].ID != "extract" || remainder.Actions[0].ID != "compute" {
+		t.Fatalf("fallback/remainder leaked decision mutation: %+v / %+v", fallback, remainder)
+	}
+}
+
+func TestDecideGuardRecoveryFallsBackToRepair(t *testing.T) {
+	guard := NewGuardResult("staging", "error", RepairNeedsTypedAction, "blocked", WorkflowViolation{Code: "staging"})
+	decision := DecideGuardRecovery(GuardRecoveryDecisionInput{
+		Guard:      guard,
+		Candidates: []GuardRecoveryFallbackCandidate{{Source: "empty", Available: true}},
+	})
+	if decision.Action != GuardRecoveryRepair || decision.Guard.Code != "staging" || decision.HasPlan() {
+		t.Fatalf("decision=%+v, want repair", decision)
+	}
+}

@@ -1634,60 +1634,18 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
-			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, guard); ok {
+			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(records, currentPlan, guard); guardRecovery.Action {
+			case dataworkflow.GuardRecoveryFallbackPlan:
+				reason := guardRecovery.Reason
 				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, reason)
-				fallback = protectPlan(fallback)
+				fallback := protectPlan(guardRecovery.Plan)
 				r.emitDataTaskPlanAudit(fallback)
 				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
 				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
-				saveDeferredPlan(dataRounds+1, remainder, reason)
-				continue
-			}
-			if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, errText); ok {
-				appendRecord(guardRecord)
-				emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "missing material coverage converted to atomic coverage batch")
-				continue
-			}
-			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
-				appendRecord(guardRecord)
-				emitWorkflowReason("continue", dataRounds, "broad material plan converted to material discovery")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "broad material plan converted to material discovery")
-				continue
-			}
-			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, guard); ok {
-				appendRecord(guardRecord)
-				emitWorkflowReason("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "trimmed multi-stage data plan to current DAG stage")
-				saveDeferredPlan(dataRounds+1, remainder, "trimmed multi-stage data plan to current DAG stage")
-				continue
-			}
-			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, guard); ok {
-				appendRecord(guardRecord)
-				emitWorkflowReason("continue", dataRounds, "converted invalid record action to bounded record extraction")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "converted invalid record action to bounded record extraction")
-				continue
-			}
-			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
-				appendRecord(guardRecord)
-				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
-				fallback = protectPlan(fallback)
-				r.emitDataTaskPlanAudit(fallback)
-				r.auditDataTaskPlan("continue", dataRounds+1, fallback)
-				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
+				if guardRecovery.HasRemainder() {
+					saveDeferredPlan(dataRounds+1, guardRecovery.Remainder, reason)
+				}
 				continue
 			}
 			appendRecord(guardRecord)

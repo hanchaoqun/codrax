@@ -300,6 +300,64 @@ func taskPlanHasExecutableShape(plan dataquery.TaskPlan) bool {
 		strings.TrimSpace(plan.Status) != ""
 }
 
+type GuardRecoveryDecisionAction string
+
+const (
+	GuardRecoveryRepair       GuardRecoveryDecisionAction = "repair"
+	GuardRecoveryFallbackPlan GuardRecoveryDecisionAction = "fallback_plan"
+)
+
+type GuardRecoveryFallbackCandidate struct {
+	Source    string             `json:"source,omitempty"`
+	Plan      dataquery.TaskPlan `json:"plan,omitempty"`
+	Remainder dataquery.TaskPlan `json:"remainder,omitempty"`
+	Reason    string             `json:"reason,omitempty"`
+	Available bool               `json:"available,omitempty"`
+}
+
+type GuardRecoveryDecisionInput struct {
+	Guard      GuardResult                      `json:"guard,omitempty"`
+	Candidates []GuardRecoveryFallbackCandidate `json:"candidates,omitempty"`
+}
+
+type GuardRecoveryDecision struct {
+	Action    GuardRecoveryDecisionAction `json:"action,omitempty"`
+	Source    string                      `json:"source,omitempty"`
+	Plan      dataquery.TaskPlan          `json:"plan,omitempty"`
+	Remainder dataquery.TaskPlan          `json:"remainder,omitempty"`
+	Guard     GuardResult                 `json:"guard,omitempty"`
+	Reason    string                      `json:"reason,omitempty"`
+}
+
+func (d GuardRecoveryDecision) HasPlan() bool {
+	return taskPlanHasExecutableShape(d.Plan)
+}
+
+func (d GuardRecoveryDecision) HasRemainder() bool {
+	return taskPlanHasExecutableShape(d.Remainder)
+}
+
+func DecideGuardRecovery(input GuardRecoveryDecisionInput) GuardRecoveryDecision {
+	for _, candidate := range input.Candidates {
+		if !candidate.Available || !taskPlanHasExecutableShape(candidate.Plan) {
+			continue
+		}
+		return GuardRecoveryDecision{
+			Action:    GuardRecoveryFallbackPlan,
+			Source:    strings.TrimSpace(candidate.Source),
+			Plan:      cloneTaskPlanValue(candidate.Plan),
+			Remainder: cloneTaskPlanValue(candidate.Remainder),
+			Guard:     input.Guard,
+			Reason:    strings.TrimSpace(candidate.Reason),
+		}
+	}
+	return GuardRecoveryDecision{
+		Action: GuardRecoveryRepair,
+		Guard:  input.Guard,
+		Reason: input.Guard.ErrorText(),
+	}
+}
+
 func actionContract(kind dataquery.DataActionKind, boundary, useWhen, output string) ActionContract {
 	return ActionContract{
 		Kind:          string(kind),

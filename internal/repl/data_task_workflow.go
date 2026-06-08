@@ -182,6 +182,59 @@ func dataTaskPreExecutionDecision(records []dataTaskWorkflowRecord, plan dataque
 	})
 }
 
+func dataTaskStagingGuardRecoveryDecision(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) dataworkflow.GuardRecoveryDecision {
+	errText := guard.ErrorText()
+	deterministicPlan, deterministicRemainder, deterministicReason, deterministicOK := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(records, plan, errText)
+	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(records, plan, errText)
+	stagePrefixPlan, stagePrefixRemainder, stagePrefixOK := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
+	invalidRecordPlan, invalidRecordOK := dataTaskInvalidRecordActionFallback(records, plan, guard)
+	missingJoinPlan, missingJoinOK := dataTaskHistoricalMissingJoinFieldFallback(records, plan)
+	return dataworkflow.DecideGuardRecovery(dataworkflow.GuardRecoveryDecisionInput{
+		Guard: guard,
+		Candidates: []dataworkflow.GuardRecoveryFallbackCandidate{
+			{
+				Source:    "deterministic",
+				Plan:      deterministicPlan,
+				Remainder: deterministicRemainder,
+				Reason:    deterministicReason,
+				Available: deterministicOK,
+			},
+			{
+				Source:    "coverage",
+				Plan:      coveragePlan,
+				Reason:    "missing material coverage converted to atomic coverage batch",
+				Available: coverageOK,
+			},
+			{
+				Source:    "material_discovery",
+				Plan:      materialPlan,
+				Reason:    "broad material plan converted to material discovery",
+				Available: materialOK,
+			},
+			{
+				Source:    "stage_prefix",
+				Plan:      stagePrefixPlan,
+				Remainder: stagePrefixRemainder,
+				Reason:    "trimmed multi-stage data plan to current DAG stage",
+				Available: stagePrefixOK,
+			},
+			{
+				Source:    "invalid_record_action",
+				Plan:      invalidRecordPlan,
+				Reason:    "converted invalid record action to bounded record extraction",
+				Available: invalidRecordOK,
+			},
+			{
+				Source:    "historical_missing_join_field",
+				Plan:      missingJoinPlan,
+				Reason:    "materialized historical missing join field from existing artifacts",
+				Available: missingJoinOK,
+			},
+		},
+	})
+}
+
 func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,

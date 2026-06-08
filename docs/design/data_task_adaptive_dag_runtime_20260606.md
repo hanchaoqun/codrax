@@ -17589,6 +17589,55 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 413: Staging Guard Recovery Decision IR
+
+Batch 412 moved the top-level pre-execution branch into reducer IR, but once a
+staging guard fired, CLI and REPL still duplicated a long fallback chain:
+deterministic fallback, coverage fallback, material discovery fallback, stage
+prefix split, invalid-record extraction, historical missing-field recovery, and
+only then repair planning. That was a classic "guard pile" smell even though
+each individual fallback was already typed.
+
+This batch adds a reducer-owned guard recovery decision. Existing helpers still
+construct each typed candidate from ActionGraph/ArtifactGraph/LedgerGraph
+state, but the adapter no longer owns the priority order. If a candidate plan
+is available, the decision returns it with an optional deferred remainder;
+otherwise it returns `repair`.
+
+Generic invariants:
+
+- recovery candidates are typed plans plus optional typed remainders;
+- priority order is explicit reducer IR, not repeated CLI/REPL conditionals;
+- candidate construction remains structural and domain-neutral;
+- no fallback is selected from model prose or user intent keywords;
+- repair planning remains the fallback when no deterministic candidate is
+  executable;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `GuardRecoveryDecisionAction`.
+- [x] Added `GuardRecoveryFallbackCandidate`.
+- [x] Added `GuardRecoveryDecisionInput`.
+- [x] Added `GuardRecoveryDecision`.
+- [x] Added `DecideGuardRecovery`.
+- [x] Added tests for first executable candidate selection, deferred remainder
+      cloning, and repair fallback.
+- [x] Added a REPL compatibility wrapper that builds recovery candidates from
+      existing typed fallback helpers.
+- [x] Rewired CLI and REPL staging-guard fallback chains to consume the reducer
+      recovery decision.
+
+Remaining architecture items:
+
+- [ ] Expand next-executable decision IR to budget decisions and post-result
+      continuation decisions.
+- [ ] Keep shrinking adapter-local execution cursors until the loop consumes a
+      single reducer-owned executable-decision object.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field
