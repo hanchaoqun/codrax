@@ -745,6 +745,68 @@ func TestDataTaskTerminalAuditWritesGraphSnapshot(t *testing.T) {
 	}
 }
 
+func TestDataTaskTerminalAuditWithRuntimeUsesRuntimeSnapshot(t *testing.T) {
+	anchor := t.TempDir()
+	runtimePlan := dataquery.TaskPlan{
+		Goal: "runtime terminal goal",
+		Actions: []dataquery.DataAction{{
+			ID:             "runtime_terminal_extract",
+			Kind:           dataquery.DataActionExtractRecords,
+			InputPaths:     []string{"runtime.csv"},
+			OutputArtifact: "runtime.json",
+		}},
+	}
+	rt := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.SwitchCurrentPlan(4, "continue", runtimePlan, "runtime terminal plan")
+	rt.AppendRecord(dataTaskWorkflowRecord{
+		Plan: runtimePlan,
+		Result: &dataquery.Result{
+			Answer:        "runtime-terminal-answer",
+			ConsumedPaths: []string{"runtime.csv"},
+		},
+	})
+	rt.SetRounds(4, 1)
+
+	path := writeDataTaskTerminalArtifactFileWithRuntime(
+		anchor,
+		t.TempDir(),
+		rt,
+		dataTaskTerminalAudit{
+			Status:       "failed",
+			Reason:       "terminal runtime",
+			DataRounds:   99,
+			RepairRounds: 99,
+			Records: []dataTaskWorkflowRecord{{
+				Plan: dataquery.TaskPlan{Goal: "preview terminal goal"},
+				Err:  "preview terminal error",
+			}},
+		},
+		"failed",
+		"terminal runtime",
+		"preview terminal error",
+		"preview terminal summary",
+		"test",
+	)
+	if path == "" {
+		t.Fatal("terminal audit path empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read terminal audit: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"data_rounds": 4`, `"repair_rounds": 1`, "runtime terminal goal", "runtime-terminal-answer"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("runtime terminal audit missing %q:\n%s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"preview terminal goal", "preview terminal error", "preview terminal summary"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("runtime terminal audit leaked preview value %q:\n%s", forbidden, text)
+		}
+	}
+}
+
 func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 	anchor := t.TempDir()
 	records := []dataTaskWorkflowRecord{{
@@ -783,6 +845,71 @@ func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 	for _, want := range []string{`"status": "checkpoint"`, `"action_events"`, `"action_graph"`, `"artifact_graph"`, `"progress"`, `"process_events"`, `"resume"`, `"records"`, `"current_plan"`, `"deferred_plan"`, `"compute requested total"`, `"batch_purpose"`, `"next_step"`, `"action_summary"`, `"audit_details"`, `"materialize source rows"`, `"guard"`, `"missing_executable_body"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("checkpoint missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestDataTaskWorkflowCheckpointWithRuntimeUsesRuntimeSnapshot(t *testing.T) {
+	anchor := t.TempDir()
+	runtimePlan := dataquery.TaskPlan{
+		Goal: "runtime goal",
+		Actions: []dataquery.DataAction{{
+			ID:             "runtime_extract",
+			Kind:           dataquery.DataActionExtractRecords,
+			InputPaths:     []string{"runtime.csv"},
+			OutputArtifact: "runtime.json",
+		}},
+	}
+	rt := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.SwitchCurrentPlan(3, "continue", runtimePlan, "runtime plan")
+	rt.AppendRecord(dataTaskWorkflowRecord{
+		Plan: runtimePlan,
+		Result: &dataquery.Result{
+			Answer:        "runtime-answer",
+			ConsumedPaths: []string{"runtime.csv"},
+		},
+	})
+	rt.EnqueueDeferred(3, dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "runtime_deferred",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}, "runtime deferred")
+	rt.SetRounds(3, 2)
+
+	previewRecords := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Goal: "preview goal"},
+		Err:  "preview should not enter runtime journal",
+	}}
+	path := writeDataTaskWorkflowCheckpointFileWithDeferredQueue(
+		anchor,
+		t.TempDir(),
+		rt,
+		previewRecords,
+		dataquery.TaskPlan{Goal: "preview current"},
+		dataworkflow.NewDeferredQueue(dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "preview_deferred",
+			Kind: dataquery.DataActionFilterRecords,
+		}}}),
+		99,
+		99,
+		"runtime checkpoint",
+		"test",
+	)
+	if path == "" {
+		t.Fatal("checkpoint path empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read checkpoint: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"data_rounds": 3`, `"repair_rounds": 2`, "runtime goal", "runtime-answer", "runtime_deferred"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("runtime checkpoint missing %q:\n%s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"preview goal", "preview current", "preview_deferred", "preview should not enter runtime journal"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("runtime checkpoint leaked preview value %q:\n%s", forbidden, text)
 		}
 	}
 }

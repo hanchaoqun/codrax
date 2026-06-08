@@ -16843,9 +16843,8 @@ Remaining architecture items:
 - [ ] Move prompt/evaluator request builders to accept
       `dataTaskWorkflowRuntimeView` or `WorkflowRuntimeSnapshot` directly
       instead of separate records/current/deferred arguments.
-- [ ] Move terminal/checkpoint journal input assembly fully to
-      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
-      state.
+- [x] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot`. Completed in Batch 401.
 - [ ] Keep the real-scenario gate closed until the current IR backlog is
       implemented or explicitly classified as non-blocking operational/eval
       work.
@@ -17017,9 +17016,51 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Move terminal/checkpoint journal input assembly fully to
-      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
-      state.
+- [x] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot`. Completed in Batch 401.
+- [ ] Keep converting remaining typed action contract failures that still
+      surface only as runner error text into `DataTaskViolation` /
+      `WorkflowViolation` objects.
+- [ ] Add focused architecture regression for the deduplicated current queue
+      before the next real-scenario gate.
+
+### Batch 401: Runtime Snapshot Authority For Journals
+
+Terminal and checkpoint journal writers already accepted a `WorkflowRuntime`,
+but they still allowed non-empty adapter-local records/current/deferred/rounds
+to override the runtime snapshot. That kept a mirror-state path alive: a caller
+could pass preview records for a guard or terminal error, and the journal would
+mix them with runtime process events and graph state.
+
+Generic invariants:
+
+- when a live `WorkflowRuntime` is supplied, terminal and checkpoint journals
+  assemble records, current plan, deferred queue, deferred plan, and rounds from
+  `WorkflowRuntimeSnapshot`;
+- explicit writer arguments remain only for legacy/no-runtime tests and
+  adapters;
+- guard details still enter journals through typed guard inputs, not preview
+  records;
+- terminal reason stays explicit, while `last_error` and result summary come
+  from runtime records/results when runtime exists;
+- this changes journal assembly only. It does not alter action admission,
+  planning, repair, source analysis, trace/log analysis, operation, or write
+  mode.
+
+Changes:
+
+- [x] Made terminal audit writer use runtime snapshot records/current/deferred
+      and rounds whenever a runtime is present.
+- [x] Made checkpoint writer use runtime snapshot records/current/deferred and
+      rounds whenever a runtime is present.
+- [x] Preserved no-runtime compatibility path for legacy tests and callers.
+- [x] Added terminal audit regression proving preview inputs cannot override a
+      runtime snapshot.
+- [x] Added checkpoint regression proving preview records/current/deferred and
+      rounds cannot override a runtime snapshot.
+
+Remaining architecture items:
+
 - [ ] Keep converting remaining typed action contract failures that still
       surface only as runner error text into `DataTaskViolation` /
       `WorkflowViolation` objects.

@@ -3073,18 +3073,18 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 	deferred := dataquery.TaskPlan{}
 	if workflowRuntime != nil {
 		runtimeSnapshot := workflowRuntime.Snapshot()
-		if len(records) == 0 {
-			records = runtimeSnapshot.Records
-		}
-		if a.DataRounds == 0 && runtimeSnapshot.DataRounds > 0 {
+		records = runtimeSnapshot.Records
+		if runtimeSnapshot.DataRounds > 0 {
 			a.DataRounds = runtimeSnapshot.DataRounds
 		}
-		if a.RepairRounds == 0 && runtimeSnapshot.RepairRounds > 0 {
+		if runtimeSnapshot.RepairRounds > 0 {
 			a.RepairRounds = runtimeSnapshot.RepairRounds
 		}
 		current = runtimeSnapshot.CurrentPlan
 		deferredQueue = runtimeSnapshot.DeferredQueue
 		deferred = runtimeSnapshot.DeferredPlan
+		lastErr = dataTaskLatestError(records)
+		resultSummary = dataTaskTerminalResultSummary(a.Result, records)
 	}
 	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
 		Records:       records,
@@ -3136,14 +3136,12 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 	}
 	if workflowRuntime != nil {
 		runtimeSnapshot := workflowRuntime.Snapshot()
-		if len(records) == 0 {
-			records = runtimeSnapshot.Records
-		}
+		records = runtimeSnapshot.Records
 		current = runtimeSnapshot.CurrentPlan
-		if dataRounds == 0 && runtimeSnapshot.DataRounds > 0 {
+		if runtimeSnapshot.DataRounds > 0 {
 			dataRounds = runtimeSnapshot.DataRounds
 		}
-		if repairRounds == 0 && runtimeSnapshot.RepairRounds > 0 {
+		if runtimeSnapshot.RepairRounds > 0 {
 			repairRounds = runtimeSnapshot.RepairRounds
 		}
 		deferredQueue = runtimeSnapshot.DeferredQueue
