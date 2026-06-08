@@ -203,10 +203,14 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 	if code == "" {
 		return WorkflowViolation{}
 	}
+	severity := "error"
+	if strings.TrimSpace(violation.Source) == dataquery.DataViolationSourceErrorText && code == "runtime_failure" {
+		severity = "warning"
+	}
 	inputAliases := cleanActionAliases(violation.InputAliases)
 	projected := NewGenericViolation(GenericViolationInput{
 		Code:               code,
-		Severity:           "error",
+		Severity:           severity,
 		Repairability:      workflowRepairabilityForDataViolation(violation),
 		Action:             action,
 		InputAlias:         strings.TrimSpace(violation.InputAlias),

@@ -251,8 +251,14 @@ const (
 	RepairabilityNeedsClarification DataRepairability = "needs_clarification"
 )
 
+const (
+	DataViolationSourceTypedContract = "typed_contract"
+	DataViolationSourceErrorText     = "error_text_fallback"
+)
+
 type DataTaskViolation struct {
 	Code                 string            `json:"code"`
+	Source               string            `json:"source,omitempty"`
 	Summary              string            `json:"summary,omitempty"`
 	JSONPath             string            `json:"json_path,omitempty"`
 	ExpectedShape        string            `json:"expected_shape,omitempty"`
@@ -468,57 +474,64 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	}
 	var fieldErr DataFieldContractError
 	if errors.As(err, &fieldErr) {
-		return fieldErr.Violation()
+		return markTypedDataTaskViolation(fieldErr.Violation())
 	}
 	var materialErr DataMaterialContractError
 	if errors.As(err, &materialErr) {
-		return materialErr.Violation()
+		return markTypedDataTaskViolation(materialErr.Violation())
 	}
 	var dependencyErr DataActionDependencyError
 	if errors.As(err, &dependencyErr) {
-		return dependencyErr.Violation()
+		return markTypedDataTaskViolation(dependencyErr.Violation())
 	}
 	var valueErr DataValueContractError
 	if errors.As(err, &valueErr) {
-		return valueErr.Violation()
+		return markTypedDataTaskViolation(valueErr.Violation())
 	}
 	var inferenceErr DataFieldInferenceError
 	if errors.As(err, &inferenceErr) {
-		return inferenceErr.Violation()
+		return markTypedDataTaskViolation(inferenceErr.Violation())
 	}
 	var paramErr DataActionParamError
 	if errors.As(err, &paramErr) {
-		return paramErr.Violation()
+		return markTypedDataTaskViolation(paramErr.Violation())
 	}
 	var limitErr DataActionLimitError
 	if errors.As(err, &limitErr) {
-		return limitErr.Violation()
+		return markTypedDataTaskViolation(limitErr.Violation())
 	}
 	var materializationErr DataArtifactMaterializationError
 	if errors.As(err, &materializationErr) {
-		return materializationErr.Violation()
+		return markTypedDataTaskViolation(materializationErr.Violation())
 	}
 	var roleErr DataActionRoleSelectionError
 	if errors.As(err, &roleErr) {
-		return roleErr.Violation()
+		return markTypedDataTaskViolation(roleErr.Violation())
 	}
 	var shapeErr DataResultShapeError
 	if errors.As(err, &shapeErr) {
-		return shapeErr.Violation()
+		return markTypedDataTaskViolation(shapeErr.Violation())
 	}
 	var outputErr DataOutputContractError
 	if errors.As(err, &outputErr) {
-		return outputErr.Violation()
+		return markTypedDataTaskViolation(outputErr.Violation())
 	}
 	var validationErr DataValidationError
 	if errors.As(err, &validationErr) && len(validationErr.Violations) > 0 {
-		return validationErr.Violations[0]
+		return markTypedDataTaskViolation(validationErr.Violations[0])
 	}
 	var resultErr *DataResultValidationError
 	if errors.As(err, &resultErr) && len(resultErr.Violations) > 0 {
-		return resultErr.Violations[0]
+		return markTypedDataTaskViolation(resultErr.Violations[0])
 	}
 	return ClassifyExecutionError(err.Error())
+}
+
+func markTypedDataTaskViolation(violation DataTaskViolation) DataTaskViolation {
+	if strings.TrimSpace(violation.Source) == "" {
+		violation.Source = DataViolationSourceTypedContract
+	}
+	return violation
 }
 
 func ClassifyExecutionError(errText string) DataTaskViolation {
@@ -528,6 +541,7 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	missingName, hasMissingName := parsePythonNameErrorMissingName(text)
 	v := DataTaskViolation{
 		Code:       "runtime_failure",
+		Source:     DataViolationSourceErrorText,
 		Summary:    clampViolationText(text, 500),
 		ScriptLine: scriptLine,
 		RunnerLine: runnerLine,

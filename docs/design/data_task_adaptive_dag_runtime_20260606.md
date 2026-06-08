@@ -17308,6 +17308,59 @@ Remaining architecture items:
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
+### Batch 407: Violation Source Boundary For Text Runtime Diagnostics
+
+The next seam was not a new action rule. It was the boundary between typed
+runner contracts and legacy text-error diagnostics. `ClassifyExecutionFailure`
+now handles many runner and validator failures through concrete Go error
+types, but `ClassifyExecutionError` still exists for historical tracebacks,
+script exceptions, and older error strings. Treating every fallback text error
+as an equally hard workflow violation risks reintroducing the old loop: a vague
+runtime traceback can block the DAG even when the reducer lacks a typed action,
+parameter, material, or artifact contract to repair.
+
+This batch makes the source of every data-task violation explicit. Typed
+contracts remain hard. Unknown runtime failures produced only by text fallback
+become diagnostic warnings in the workflow layer, so they can inform audit and
+repair prompts without becoming reducer-owned stage gates.
+
+Generic invariants:
+
+- typed runner/validator errors mark `source=typed_contract`;
+- legacy text fallback marks `source=error_text_fallback`;
+- unknown text fallback `runtime_failure` projects to a workflow warning, not
+  a hard blocker;
+- deterministic text fallback classifications that identify precise known
+  contract codes still carry their code/line/hint for repair context;
+- hard gates do not inspect user prose or model prose; this boundary only
+  classifies local runner/validator failure artifacts.
+
+Changes:
+
+- [x] Added `DataTaskViolation.Source`.
+- [x] Added source constants for typed-contract and error-text fallback
+      violations.
+- [x] Marked all concrete typed runner/validator error projections as
+      `source=typed_contract`.
+- [x] Marked legacy `ClassifyExecutionError` results as
+      `source=error_text_fallback`.
+- [x] Downgraded unknown text-fallback `runtime_failure` projections to
+      workflow warnings while preserving typed contract violations as errors.
+- [x] Added regression coverage for both source tagging paths and the workflow
+      warning projection.
+
+Remaining architecture items:
+
+- [ ] Continue converting runner and validator failures that still surface only
+      as text into concrete typed errors.
+- [ ] Reduce `ClassifyExecutionError` toward a diagnostic/audit compatibility
+      layer once direct callers consistently pass typed `DataTaskViolation` and
+      `WorkflowViolation` values.
+- [ ] Introduce a reducer-owned live iteration API before removing the
+      remaining CLI/REPL execution cursors.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

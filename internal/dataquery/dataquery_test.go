@@ -7175,6 +7175,9 @@ func TestClassifyExecutionError(t *testing.T) {
 		if got := ClassifyExecutionError(text).Code; got != want {
 			t.Fatalf("ClassifyExecutionError(%q)=%q, want %q", text, got, want)
 		}
+		if got := ClassifyExecutionError(text).Source; got != DataViolationSourceErrorText {
+			t.Fatalf("ClassifyExecutionError(%q).Source=%q, want error_text_fallback", text, got)
+		}
 	}
 	v := ClassifyExecutionError(`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`)
 	if v.ActualSnippet != "text_evidence/invoices/ATT-00006.txt" || !strings.Contains(v.RepairHint, "atomic action") {
@@ -7187,6 +7190,17 @@ func TestClassifyExecutionError(t *testing.T) {
 	v = ClassifyExecutionError(`execute data task: data action failed action_id="transform_1" action_kind="custom_transform": ValueError: path was not declared as an input: extra.csv`)
 	if v.Code != "undeclared_input_path" || v.ActionID != "transform_1" || v.ActionKind != "custom_transform" || v.ActualSnippet != "extra.csv" {
 		t.Fatalf("wrapped undeclared path violation=%+v", v)
+	}
+}
+
+func TestClassifyExecutionFailureMarksTypedViolationSource(t *testing.T) {
+	err := dataActionParamError(DataActionDeriveFields, "operation", "supported derive operation", "bad", fmt.Errorf("unsupported"))
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "action_param_violation" ||
+		violation.Source != DataViolationSourceTypedContract ||
+		violation.ActionKind != string(DataActionDeriveFields) ||
+		violation.Param != "operation" {
+		t.Fatalf("violation=%+v, want typed source and param contract", violation)
 	}
 }
 

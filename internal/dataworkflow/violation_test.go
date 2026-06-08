@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -135,6 +136,7 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 		got.ActionKind != string(dataquery.DataActionJoinRecords) ||
 		got.InputAlias != "orders.json" ||
 		got.OutputAlias != "joined.json" ||
+		got.Severity != "error" ||
 		got.Repairability != RepairNeedsTypedAction {
 		t.Fatalf("violation=%+v, want typed workflow action/input shape", got)
 	}
@@ -152,6 +154,29 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 	}
 	if len(got.RepairActionHints) != 1 || got.RepairActionHints[0] != string(dataquery.DataActionDeriveFields) {
 		t.Fatalf("RepairActionHints=%v, want derive_fields", got.RepairActionHints)
+	}
+}
+
+func TestWorkflowViolationsFromRecordExecutionProjectsUnknownTextRuntimeFailureAsWarning(t *testing.T) {
+	records := []WorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "script_1",
+			Kind: dataquery.DataActionCustomTransform,
+		}}},
+		Violations: []dataquery.DataTaskViolation{dataquery.ClassifyExecutionError(`Traceback:
+  File "<string>", line 4, in <module>
+NameError: name 'status' is not defined`)},
+	}}
+
+	violations := WorkflowViolationsFromRecordExecution(records)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v, want one diagnostic violation", violations)
+	}
+	got := violations[0]
+	if got.Code != "runtime_failure" ||
+		got.Severity != "warning" ||
+		!strings.Contains(got.Reason, "NameError") {
+		t.Fatalf("violation=%+v, want text fallback runtime diagnostic warning", got)
 	}
 }
 
