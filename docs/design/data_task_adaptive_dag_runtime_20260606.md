@@ -16809,6 +16809,54 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until the remaining P0 IR backlog is
       implemented or explicitly classified as non-blocking.
 
+### Batch 393: Reducer-Owned Repair Failure Continuation Decision
+
+The next branch after execution and validation transitions was repair-planner
+failure handling. CLI and REPL both had local helpers that checked whether the
+repair planner failed to emit a structured plan, then optionally asked the
+continuation planner to proceed from typed workflow state. The behavior was
+useful, but the decision belonged to workflow policy rather than UI adapters.
+
+This batch introduces a reducer-owned repair-failure transition. The adapter
+still provides a legacy boolean that says whether the planner failure was a
+no-structured-plan class; the reducer only consumes that precise boolean,
+continuation availability, and recorded workflow state. It does not parse
+planner prose or make business decisions.
+
+Generic invariants:
+
+- no-tool/parse repair failures should continue from typed workflow state only
+  when workflow records exist and a continuation planner is available;
+- the reducer returns `needs_continuation` or `needs_failure`;
+- adapters remain responsible for making the actual LLM continuation call and
+  for rendering/auditing;
+- deterministic continuation fallback after a continuation-planner failure
+  remains typed and unchanged;
+- no source-code, trace/log, operation, or write-mode path is touched.
+
+Changes:
+
+- [x] Added `RepairFailureTransition` and
+      `BuildRepairFailureTransition` to `internal/dataworkflow`.
+- [x] Rewired CLI repair-planner failure handling to consume this transition.
+- [x] Rewired REPL repair-planner failure handling to consume the same
+      transition.
+- [x] Added regression coverage for continuation escalation and failure
+      fall-through.
+
+Remaining architecture items:
+
+- [ ] Replace the adapter-level legacy no-tool text check with a typed planner
+      error code once direct data planner calls return structured failure
+      metadata.
+- [ ] Replace remaining field-name scoring helpers with a stronger relation IR
+      over artifact lineage, key coverage, candidate mappings, and evaluator
+      violations.
+- [ ] Continue narrowing live loop mirrors by moving continuation/repair input
+      assembly to consume runtime snapshots directly.
+- [ ] Keep the real-scenario gate closed until the remaining P0 IR backlog is
+      implemented or explicitly classified as non-blocking.
+
 ### Batch 392: Reducer-Owned Validation Failure Transition
 
 After Batch 391, execution failures had one reducer-owned transition, but

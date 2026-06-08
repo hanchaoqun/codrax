@@ -2587,11 +2587,15 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 }
 
 func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, records []dataTaskWorkflowRecord, repairErr error) (dataquery.TaskPlan, string, bool) {
-	if !dataTaskRepairPlannerErrorAllowsContinuation(repairErr) || len(records) == 0 {
-		return dataquery.TaskPlan{}, "", false
-	}
-	continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner)
-	if !ok {
+	continuer, continuationReady := r.dataTaskPlanner.(DataTaskContinuationPlanner)
+	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
+		CurrentPlan:              currentPlan,
+		Records:                  records,
+		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
+		ContinuationPlannerReady: continuationReady,
+		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
+	})
+	if transition.Action != dataworkflow.RepairFailureNeedsContinuation {
 		return dataquery.TaskPlan{}, "", false
 	}
 	ctx := r.startTurn()
@@ -2610,7 +2614,7 @@ func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy Tur
 		logging.Info("[repl/data] normalized continuation-after-repair data task plan: %s", strings.Join(notes, "; "))
 		nextPlan = normalized
 	}
-	return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, nextPlan), "repair planner returned no structured plan; continued from typed workflow state", true
+	return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, nextPlan), firstNonEmptyString(transition.Reason, "repair planner returned no structured plan; continued from typed workflow state"), true
 }
 
 func (r *REPL) startDataTaskPlanningSpinner() {

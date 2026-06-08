@@ -155,6 +155,34 @@ func TestBuildExecutionFailureTransitionRequestsContinuationWhenRepeatedWithoutF
 	}
 }
 
+func TestBuildRepairFailureTransitionRequestsContinuationFromTypedState(t *testing.T) {
+	transition := BuildRepairFailureTransition(RepairFailureTransitionInput{
+		Records: []WorkflowRecord{{
+			Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "extract", Kind: dataquery.DataActionExtractRecords}}},
+		}},
+		NoStructuredRepairPlan:   true,
+		ContinuationPlannerReady: true,
+		RepairFailureReasonCode:  "repair_planner_no_tool",
+	})
+	if transition.Action != RepairFailureNeedsContinuation {
+		t.Fatalf("transition=%+v, want continuation", transition)
+	}
+	if transition.ReasonCode != "repair_planner_no_tool" || transition.Reason == "" {
+		t.Fatalf("transition=%+v, want typed reason", transition)
+	}
+}
+
+func TestBuildRepairFailureTransitionFallsThroughWhenContinuationUnavailable(t *testing.T) {
+	transition := BuildRepairFailureTransition(RepairFailureTransitionInput{
+		Records:                  []WorkflowRecord{{Plan: dataquery.TaskPlan{Status: "ready"}}},
+		NoStructuredRepairPlan:   true,
+		ContinuationPlannerReady: false,
+	})
+	if transition.Action != RepairFailureNeedsFailure {
+		t.Fatalf("transition=%+v, want terminal failure", transition)
+	}
+}
+
 func TestRepeatedCustomTransformGuardResultReturnsTypedViolation(t *testing.T) {
 	errText := `execute data task: data action failed action_id="clean" action_kind="custom_transform": custom_transform field contract failed: line 3 references missing field "x"`
 	result := RepeatedCustomTransformGuardResult(

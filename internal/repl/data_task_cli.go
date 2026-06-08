@@ -856,11 +856,15 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 }
 
 func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, currentPlan dataquery.TaskPlan, records []dataTaskWorkflowRecord, repairErr error) (dataquery.TaskPlan, string, bool, error) {
-	if !dataTaskRepairPlannerErrorAllowsContinuation(repairErr) || len(records) == 0 {
-		return dataquery.TaskPlan{}, "", false, nil
-	}
-	continuer, ok := planner.(DataTaskContinuationPlanner)
-	if !ok {
+	continuer, continuationReady := planner.(DataTaskContinuationPlanner)
+	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
+		CurrentPlan:              currentPlan,
+		Records:                  records,
+		NoStructuredRepairPlan:   dataTaskRepairPlannerErrorAllowsContinuation(repairErr),
+		ContinuationPlannerReady: continuationReady,
+		RepairFailureReasonCode:  "repair_planner_no_structured_plan",
+	})
+	if transition.Action != dataworkflow.RepairFailureNeedsContinuation {
 		return dataquery.TaskPlan{}, "", false, nil
 	}
 	nextPlan, err := continuer.ContinueDataTask(ctx, request, repoRoot, policy, dataTaskCandidatesWithWorkflowArtifacts(candidates, records), records)
@@ -871,7 +875,7 @@ func dataTaskRepairFailureContinuationFallbackForCLI(ctx context.Context, planne
 		return dataquery.TaskPlan{}, "", false, err
 	}
 	nextPlan = preserveDataTaskWorkflowMaterialCoverage(records, currentPlan, nextPlan)
-	return nextPlan, "repair planner returned no structured plan; continued from typed workflow state", true, nil
+	return nextPlan, firstNonEmptyString(transition.Reason, "repair planner returned no structured plan; continued from typed workflow state"), true, nil
 }
 
 func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, records []dataTaskWorkflowRecord, lang string) (dataquery.Result, bool, bool, string) {

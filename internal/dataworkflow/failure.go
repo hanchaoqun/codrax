@@ -84,8 +84,53 @@ type ExecutionFailureTransition struct {
 	NodeCount int                              `json:"node_count,omitempty"`
 }
 
+type RepairFailureTransitionAction string
+
+const (
+	RepairFailureNeedsContinuation RepairFailureTransitionAction = "needs_continuation"
+	RepairFailureNeedsFailure      RepairFailureTransitionAction = "needs_failure"
+)
+
+type RepairFailureTransitionInput struct {
+	CurrentPlan              dataquery.TaskPlan
+	Records                  []WorkflowRecord
+	NoStructuredRepairPlan   bool
+	ContinuationPlannerReady bool
+	RepairFailureReasonCode  string
+	RepairFailureDescription string
+}
+
+type RepairFailureTransition struct {
+	Action     RepairFailureTransitionAction `json:"action,omitempty"`
+	Reason     string                        `json:"reason,omitempty"`
+	ReasonCode string                        `json:"reason_code,omitempty"`
+}
+
 func (t ExecutionFailureTransition) HasPlan() bool {
 	return len(t.Plan.Actions) > 0 || strings.TrimSpace(t.Plan.Script) != "" || len(cleanStrings(t.Plan.InputPaths)) > 0
+}
+
+func BuildRepairFailureTransition(input RepairFailureTransitionInput) RepairFailureTransition {
+	reasonCode := strings.TrimSpace(input.RepairFailureReasonCode)
+	if reasonCode == "" && input.NoStructuredRepairPlan {
+		reasonCode = "repair_planner_no_structured_plan"
+	}
+	reason := strings.TrimSpace(input.RepairFailureDescription)
+	if reason == "" && reasonCode != "" {
+		reason = reasonCode
+	}
+	if input.NoStructuredRepairPlan && input.ContinuationPlannerReady && len(input.Records) > 0 {
+		return RepairFailureTransition{
+			Action:     RepairFailureNeedsContinuation,
+			Reason:     firstNonEmpty(reason, "repair planner returned no structured plan; continue from typed workflow state"),
+			ReasonCode: reasonCode,
+		}
+	}
+	return RepairFailureTransition{
+		Action:     RepairFailureNeedsFailure,
+		Reason:     reason,
+		ReasonCode: reasonCode,
+	}
 }
 
 func BuildExecutionFailureTransition(input ExecutionFailureTransitionInput) ExecutionFailureTransition {
