@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -26,6 +27,37 @@ func TestWorkflowStateSnapshotDerivesStageAndAllowedActions(t *testing.T) {
 	} {
 		if !strings.Contains(kinds, want) {
 			t.Fatalf("AllowedNextActions=%q, want %q", kinds, want)
+		}
+	}
+}
+
+func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
+	view := WorkflowStateView{
+		MaterialCoverageSufficient: true,
+		WorkflowContract: CoverageContractView{
+			Layer:                    CoverageLayerWorkflow,
+			RequiredRunnerInputPaths: []string{"input.csv"},
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
+		AllowedNextActions: []string{
+			string(dataquery.DataActionFilterRecords),
+		},
+		ActionScaffold: []ActionScaffold{{
+			Kind:       string(dataquery.DataActionFilterRecords),
+			Executable: true,
+		}},
+		WorkflowViolations: []WorkflowViolation{{
+			Code: "field_contract_violation",
+		}},
+	}
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("marshal workflow state view: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{"material_coverage_sufficient", "workflow_contract", "output_contract", "allowed_next_actions", "action_scaffold", "workflow_violations"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("workflow state view JSON missing %q: %s", want, text)
 		}
 	}
 }

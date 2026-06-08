@@ -18,6 +18,57 @@ type WorkflowState struct {
 	Decision  WorkflowDecision      `json:"decision,omitempty"`
 }
 
+// WorkflowStateView is the workflow_state_json view consumed by data planners,
+// evaluators, journals, and adapters. It is a data-workflow IR object: REPL and
+// CLI may populate adapter-specific fields around it, but should not own the
+// state schema itself.
+type WorkflowStateView struct {
+	MaterialCoverageSufficient    bool                       `json:"material_coverage_sufficient"`
+	MaterialCoverageAuthoritative bool                       `json:"material_coverage_authoritative"`
+	WorkflowContract              CoverageContractView       `json:"workflow_contract,omitempty"`
+	CurrentBatchContract          CoverageContractView       `json:"current_batch_contract,omitempty"`
+	ActionGraph                   ActionGraph                `json:"action_graph,omitempty"`
+	RequiredMaterialCount         int                        `json:"required_material_count"`
+	RequiredMaterials             []string                   `json:"required_materials,omitempty"`
+	CoveredRequiredMaterials      []string                   `json:"covered_required_materials,omitempty"`
+	MissingRequiredMaterialCount  int                        `json:"missing_required_material_count"`
+	MissingRequiredMaterials      []string                   `json:"missing_required_materials,omitempty"`
+	CoverageNote                  string                     `json:"coverage_note,omitempty"`
+	OutputContract                dataquery.OutputContract   `json:"output_contract,omitempty"`
+	RuleCoverageRequired          bool                       `json:"rule_coverage_required,omitempty"`
+	RuleCoverageRecords           int                        `json:"rule_coverage_records,omitempty"`
+	DecisionRecordsRequired       bool                       `json:"decision_records_required,omitempty"`
+	DecisionRecords               int                        `json:"decision_records,omitempty"`
+	EntityResolutionRequired      bool                       `json:"entity_resolution_required,omitempty"`
+	EntityResolutionRecords       int                        `json:"entity_resolution_records,omitempty"`
+	EntityStageMaterialized       bool                       `json:"entity_stage_materialized,omitempty"`
+	ContributionLedgerRequired    bool                       `json:"contribution_ledger_required,omitempty"`
+	ContributionRecords           int                        `json:"contribution_records,omitempty"`
+	ReconcileRequired             bool                       `json:"reconcile_required,omitempty"`
+	HasReconcile                  bool                       `json:"has_reconcile,omitempty"`
+	HasAnswer                     bool                       `json:"has_answer,omitempty"`
+	LedgerGraph                   LedgerGraph                `json:"ledger_graph,omitempty"`
+	OutputProjectionGraph         OutputProjectionGraph      `json:"output_projection_graph,omitempty"`
+	NextStage                     string                     `json:"next_stage,omitempty"`
+	CustomTransformFailures       int                        `json:"custom_transform_failures,omitempty"`
+	CustomTransformDisabled       bool                       `json:"custom_transform_disabled,omitempty"`
+	CustomTransformDisabledNote   string                     `json:"custom_transform_disabled_note,omitempty"`
+	ArtifactGraph                 ArtifactGraphState         `json:"artifact_graph,omitempty"`
+	ArtifactAvailabilityCount     int                        `json:"artifact_availability_count,omitempty"`
+	ArtifactAvailabilityTruncated bool                       `json:"artifact_availability_truncated,omitempty"`
+	ArtifactAvailability          []ArtifactAccessView       `json:"artifact_availability,omitempty"`
+	AllowedNextActions            []string                   `json:"allowed_next_actions,omitempty"`
+	AllowedNextActionContracts    []ActionContract           `json:"allowed_next_action_contracts,omitempty"`
+	ProgressSignatures            ProgressWindow             `json:"progress_signatures,omitempty"`
+	Decision                      WorkflowDecision           `json:"decision,omitempty"`
+	ActionScaffold                []ActionScaffold           `json:"action_scaffold,omitempty"`
+	FieldContractViolations       []FieldContractIssue       `json:"field_contract_violations,omitempty"`
+	ZeroMatchFilterViolations     []ZeroMatchFilterIssue     `json:"zero_match_filter_violations,omitempty"`
+	UnmatchedResolutionViolations []UnmatchedResolutionIssue `json:"unmatched_resolution_violations,omitempty"`
+	ZeroEligibleViolations        []ZeroEligibleIssue        `json:"zero_eligible_qualification_violations,omitempty"`
+	WorkflowViolations            []WorkflowViolation        `json:"workflow_violations,omitempty"`
+}
+
 type MaterialGraph struct {
 	WorkflowRequired []MaterialNode `json:"workflow_required,omitempty"`
 	CurrentInputs    []MaterialNode `json:"current_inputs,omitempty"`

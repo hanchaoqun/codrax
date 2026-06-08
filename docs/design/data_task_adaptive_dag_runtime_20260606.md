@@ -14680,3 +14680,41 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 325: Workflow State View Type Ownership
+
+The live workflow loop still has adapter code, but the `workflow_state_json`
+schema is no longer an adapter concern. Before this batch,
+`dataTaskWorkflowStateView` was a large REPL-local struct even though it carried
+the core state consumed by planners, evaluators, process events, journal
+snapshots, and tests. That made the architectural boundary misleading: the
+state looked like REPL UI data, while it was actually data-workflow IR.
+
+This batch moves the workflow-state JSON schema into `internal/dataworkflow` as
+`WorkflowStateView`. REPL keeps a type alias while construction helpers are
+migrated in smaller steps. The runtime behavior and prompt semantics are
+unchanged; only ownership of the schema moves to the workflow package.
+
+Generic invariants:
+
+- `workflow_state_json` is a data-workflow IR schema, not a REPL-owned struct;
+- REPL/CLI may adapt and populate the schema, but they do not define it;
+- the view remains domain-neutral: it carries materials, action graph, ledger
+  graph, artifact graph, progress, scaffold, typed violations, and output
+  contract state without business-specific roles;
+- moving the type does not alter hard gates, prompts, or current action
+  semantics.
+
+Changes:
+
+- [x] Added `dataworkflow.WorkflowStateView` with the existing
+      `workflow_state_json` schema.
+- [x] Replaced the REPL-local `dataTaskWorkflowStateView` struct with a type
+      alias to `dataworkflow.WorkflowStateView`.
+- [x] Added dataworkflow-level schema coverage for key workflow-state JSON
+      fields.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
