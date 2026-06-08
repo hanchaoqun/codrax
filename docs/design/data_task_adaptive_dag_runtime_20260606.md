@@ -18130,10 +18130,55 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Reuse planner-result decision for execution-failure continuation planner
-      calls and repair-failure continuation fallback paths.
-- [ ] Continue moving repair planner result handling into reducer-owned
-      next-executable decisions.
+- [x] Reuse planner-result decision for execution-failure continuation planner
+      calls and repair-failure continuation fallback paths. Completed in Batch
+      424.
+- [ ] Continue moving repair planner success/accept handling into
+      reducer-owned next-executable decisions.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 424: Reuse Planner Result IR For Failure Continuations
+
+Batch 423 introduced `PlannerPlanDecision` for evaluator-requested
+continuation planner results. Two similar branches remained: execution-failure
+continuation and repair-failure continuation fallback. Both called the same
+planner class and then decided locally whether to accept the plan, use a
+deterministic fallback, or fail/re-enter repair.
+
+This batch reuses the planner-result reducer for those branches. The
+surrounding failure-recovery reducer still decides whether execution failure
+should attempt continuation or repair; this batch only removes local branching
+after the continuation planner returns.
+
+Generic invariants:
+
+- planner-result recovery consumes typed plan shape, error text, and
+  deterministic fallback candidate only;
+- execution-failure continuation failure still re-enters
+  `DecideExecutionFailureRecovery` for repair/fail selection;
+- repair-failure continuation fallback still returns a typed fallback plan only
+  when the reducer accepts or falls back structurally;
+- adapters still own LLM calls, trace rendering, normalization, preservation,
+  and plan acceptance;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Rewired CLI execution-failure continuation planner result handling to
+      `DecidePlannerPlanResult`.
+- [x] Rewired REPL execution-failure continuation planner result handling to
+      `DecidePlannerPlanResult`.
+- [x] Rewired CLI repair-failure continuation fallback result handling to
+      `DecidePlannerPlanResult`.
+- [x] Rewired REPL repair-failure continuation fallback result handling to
+      `DecidePlannerPlanResult`.
+
+Remaining architecture items:
+
+- [ ] Continue moving repair planner success/accept handling into
+      reducer-owned next-executable decisions.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 
