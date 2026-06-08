@@ -67,6 +67,90 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	}
 }
 
+func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
+	scaffolds := BuildActionScaffolds(ActionScaffoldBuildInput{
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			EntityStageMaterialized:    true,
+			NextStage:                  StagePrepareContributionInputs,
+			AllowedNextActions: []string{
+				string(dataquery.DataActionDeriveFields),
+				string(dataquery.DataActionExtractFields),
+				string(dataquery.DataActionFilterRecords),
+				string(dataquery.DataActionValueDistribution),
+				string(dataquery.DataActionComputeContribs),
+			},
+		},
+		Artifacts: []ArtifactSchemaProjection{{
+			ID:        "records",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"records.json"},
+			JSONShape: "array(len=2,item=object(keys=id,text,status,amount))",
+			Fields:    []string{"id", "text", "status", "amount"},
+		}},
+		Limit: 10,
+	})
+	var kinds []string
+	for _, scaffold := range scaffolds {
+		kinds = append(kinds, scaffold.Kind)
+		if scaffold.InputPath == "" && len(scaffold.InputPaths) == 0 {
+			t.Fatalf("scaffold=%+v, want concrete input path hints", scaffold)
+		}
+	}
+	for _, want := range []string{
+		string(dataquery.DataActionDeriveFields),
+		string(dataquery.DataActionExtractFields),
+		string(dataquery.DataActionFilterRecords),
+		string(dataquery.DataActionValueDistribution),
+		string(dataquery.DataActionComputeContribs),
+	} {
+		if !slices.Contains(kinds, want) {
+			t.Fatalf("scaffold kinds=%v, want %s", kinds, want)
+		}
+	}
+}
+
+func TestBuildActionScaffoldsSkipsCompletedStage(t *testing.T) {
+	got := BuildActionScaffolds(ActionScaffoldBuildInput{
+		State: WorkflowStateView{
+			NextStage:          StageComplete,
+			AllowedNextActions: []string{string(dataquery.DataActionFilterRecords)},
+		},
+		Artifacts: []ArtifactSchemaProjection{{
+			ID:      "records",
+			Aliases: []string{"records.json"},
+			Fields:  []string{"id"},
+		}},
+	})
+	if len(got) != 0 {
+		t.Fatalf("scaffolds=%+v, want none for completed stage", got)
+	}
+}
+
+func TestBuildActionScaffoldsSkipsUncontractedHistory(t *testing.T) {
+	got := BuildActionScaffolds(ActionScaffoldBuildInput{
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			NextStage:                  StageComputeContributions,
+			AllowedNextActions:         []string{string(dataquery.DataActionFilterRecords)},
+		},
+		Artifacts: []ArtifactSchemaProjection{{
+			ID:        "records",
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"records"},
+			JSONShape: "array(len=1,item=object(keys=id,status))",
+			Fields:    []string{"id", "status"},
+		}},
+		Limit: 10,
+	})
+	if len(got) != 0 {
+		t.Fatalf("scaffolds=%+v, want none without ledger/output contract or typed violations", got)
+	}
+}
+
 func TestJoinRecordScaffoldsIgnoreInternalLineageFields(t *testing.T) {
 	projections := []ArtifactSchemaProjection{
 		{

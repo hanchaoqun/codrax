@@ -14802,6 +14802,60 @@ Remaining architecture items:
 - [ ] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 332: Action Scaffold Generation Moves Behind Workflow IR
+
+The last callback in `BuildWorkflowStateView` was action scaffold generation.
+It still lived in REPL even though the inputs are workflow IR: current stage,
+allowed action contracts, and artifact schema projections. That left the
+planner-facing "next legal action templates" split across packages and kept a
+large REPL helper alive solely to generate typed hints.
+
+This batch moves scaffold generation into `internal/dataworkflow`. The builder
+now accepts artifact schema projections and produces `action_scaffold` directly
+from typed state. REPL only passes the projections it already computes for the
+artifact graph. The old REPL scaffold helper and thin wrapper types were
+removed.
+
+Generic invariants:
+
+- action scaffolds are soft planner guidance derived from typed state and
+  artifact schemas;
+- scaffolds do not decide user intent, do not classify business roles, and do
+  not participate in hard gates;
+- text-like field cues remain soft template hints only;
+- model-authored business semantics stay in plans/actions, while the system
+  only exposes compatible input boundaries and concrete artifact fields;
+- source-code, trace/log, operation, and write-mode chains are untouched.
+
+Changes:
+
+- [x] Added `ActionScaffoldBuildInput`.
+- [x] Added `BuildActionScaffolds`.
+- [x] Moved generic scaffold builders for derive_fields, group_records,
+      extract_fields, expand_records, filter_records, value_distribution,
+      qualify_records, and compute_contributions into dataworkflow.
+- [x] Reused existing dataworkflow relation scaffold builders for
+      mapping_candidate, normalize_entities, apply_entity_resolutions,
+      enrich_records, and join_records through the new unified builder.
+- [x] Wired `BuildWorkflowStateView` to build `ActionScaffold` from artifact
+      schema projections.
+- [x] Rewired REPL state construction to pass `ActionScaffoldArtifacts` and
+      removed the scaffold adapter callback.
+- [x] Removed the old REPL action-scaffold generator and unused wrapper alias.
+- [x] Added dataworkflow-level scaffold builder tests and kept REPL
+      workflow-state scaffold regressions passing.
+
+Remaining architecture items:
+
+- [x] Action scaffold generation is now behind dataworkflow builder inputs.
+- [ ] Replace remaining REPL compatibility wrappers for state facts and
+      snapshot projection once all call sites consume the dataworkflow methods
+      directly.
+- [ ] Audit historical "Remaining architecture items" sections and mark stale
+      items as historical or closed only where code/tests prove closure.
+- [x] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

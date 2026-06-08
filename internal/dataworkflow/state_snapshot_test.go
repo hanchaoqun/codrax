@@ -149,8 +149,11 @@ func TestBuildWorkflowStateViewCentralizesCoverageStageAndDecision(t *testing.T)
 		}},
 		ContributionLedgerRequired: true,
 	}
-	adapterCalled := false
 	view := BuildWorkflowStateView(WorkflowStateViewBuildInput{
+		Records: []WorkflowRecord{{
+			Plan: current,
+			Err:  `data planning incomplete: action 1 (filter) references field(s) [status] that are not present on input records.json fields [id]. Use an existing artifact.`,
+		}},
 		Current:              current,
 		WorkflowContract:     contract,
 		CurrentBatchContract: contract,
@@ -166,29 +169,14 @@ func TestBuildWorkflowStateViewCentralizesCoverageStageAndDecision(t *testing.T)
 			}
 			return true
 		},
-		AdapterFacts: func(state WorkflowStateView) WorkflowStateAdapterFacts {
-			adapterCalled = true
-			if !stringSliceContains(state.AllowedNextActions, string(dataquery.DataActionFilterRecords)) {
-				t.Fatalf("adapter allowed_next_actions=%v, want filter_records", state.AllowedNextActions)
-			}
-			return WorkflowStateAdapterFacts{
-				FieldContractViolations: []FieldContractIssue{{
-					ActionID:          "filter",
-					ActionKind:        string(dataquery.DataActionFilterRecords),
-					InputAlias:        "records.json",
-					MissingFields:     []string{"status"},
-					RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
-					Reason:            "missing typed field",
-				}},
-			}
+		DiagnosticArtifactAccess: []ArtifactAccessView{
+			{ID: "records", Aliases: []string{"records.json"}, Fields: []string{"id"}},
+			{ID: "enriched", Aliases: []string{"enriched.json"}, Fields: []string{"id", "status"}},
 		},
 		ArtifactLimit:    8,
 		ProgressLimit:    4,
 		ActionEventLimit: 8,
 	})
-	if !adapterCalled {
-		t.Fatalf("adapter facts callback was not called")
-	}
 	if !view.MaterialCoverageSufficient || view.MissingRequiredMaterialCount != 0 || len(view.CoveredRequiredMaterials) != 1 {
 		t.Fatalf("coverage view=%+v, want covered material floor", view)
 	}
@@ -198,8 +186,8 @@ func TestBuildWorkflowStateViewCentralizesCoverageStageAndDecision(t *testing.T)
 	if stringSliceContains(view.AllowedNextActions, string(dataquery.DataActionCustomTransform)) {
 		t.Fatalf("AllowedNextActions=%v, custom_transform should be filtered by state callback", view.AllowedNextActions)
 	}
-	if len(view.ActionGraph.Ready) != 1 || view.ActionGraph.Ready[0].ID != "filter" {
-		t.Fatalf("action graph ready=%+v, want current filter action", view.ActionGraph.Ready)
+	if len(view.ActionGraph.Blocked) == 0 || view.ActionGraph.Blocked[0].ID != "filter" {
+		t.Fatalf("action graph blocked=%+v, want blocked filter action", view.ActionGraph.Blocked)
 	}
 	if len(view.WorkflowViolations) == 0 || view.WorkflowViolations[0].Code != "field_contract_violation" {
 		t.Fatalf("workflow violations=%+v, want field contract violation", view.WorkflowViolations)

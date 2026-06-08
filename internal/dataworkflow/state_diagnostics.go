@@ -8,10 +8,10 @@ type WorkflowStateDiagnosticsInput struct {
 	Limit             int
 }
 
-func BuildWorkflowStateDiagnostics(input WorkflowStateDiagnosticsInput) WorkflowStateAdapterFacts {
+func BuildWorkflowStateDiagnostics(input WorkflowStateDiagnosticsInput) WorkflowStateDiagnostics {
 	limit := defaultPositive(input.Limit, 4)
 	state := input.State
-	out := WorkflowStateAdapterFacts{}
+	out := WorkflowStateDiagnostics{}
 	if limit <= 0 {
 		return out
 	}

@@ -5214,8 +5214,6 @@ type dataTaskWorkflowStateView = dataworkflow.WorkflowStateView
 
 type dataTaskActionContract = dataworkflow.ActionContract
 
-type dataTaskActionScaffold = dataworkflow.ActionScaffold
-
 type dataTaskFieldContractViolation = dataworkflow.FieldContractIssue
 
 type dataTaskZeroMatchFilterIssue = dataworkflow.ZeroMatchFilterIssue
@@ -5391,20 +5389,17 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		ArtifactAvailability:          artifactAvailability,
 		ArtifactAvailabilityCount:     artifactAvailabilityCount,
 		ArtifactAvailabilityTruncated: artifactAvailabilityTruncated,
+		ActionScaffoldArtifacts:       dataTaskWorkflowArtifactSchemaProjections(records),
+		ActionScaffoldLimit:           10,
 		DiagnosticArtifactAccess:      dataTaskWorkflowArtifactContractAccess(records),
 		DiagnosticBatches:             dataTaskArtifactDiagnosticBatches(records),
 		DiagnosticLimit:               4,
 		GuardViolations:               guardViolations,
 		NoProgressThreshold:           DefaultDataTaskMaxNodeFailures,
 		LatestEvaluation:              latestEvaluation,
-		AdapterFacts: func(state dataworkflow.WorkflowStateView) dataworkflow.WorkflowStateAdapterFacts {
-			return dataworkflow.WorkflowStateAdapterFacts{
-				ActionScaffold: dataTaskWorkflowActionScaffold(records, state),
-			}
-		},
-		ArtifactLimit:    48,
-		ProgressLimit:    6,
-		ActionEventLimit: 48,
+		ArtifactLimit:                 48,
+		ProgressLimit:                 6,
+		ActionEventLimit:              48,
 	})
 }
 
@@ -5658,279 +5653,6 @@ func dataTaskArtifactMaterializesEntityStage(artifact dataquery.DataArtifact) bo
 	return false
 }
 
-func dataTaskWorkflowActionScaffold(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataTaskActionScaffold {
-	if state.NextStage != "prepare_contribution_inputs" && state.NextStage != "compute_contributions" && state.NextStage != "normalize_or_enrich_entities" {
-		return nil
-	}
-	access := dataTaskWorkflowArtifactContractAccess(records)
-	if len(access) == 0 {
-		access = dataTaskWorkflowArtifactAccess(records, 10)
-	}
-	if len(access) == 0 {
-		return nil
-	}
-	recordAccess := dataTaskWorkflowRecordActionArtifacts(access)
-	if len(recordAccess) == 0 {
-		return nil
-	}
-	allowed := map[string]bool{}
-	for _, action := range state.AllowedNextActions {
-		allowed[action] = true
-	}
-	var out []dataTaskActionScaffold
-	if allowed[string(dataquery.DataActionDeriveFields)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 6 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			if !dataTaskArtifactHasTextExtractionField(artifact.Fields) {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionDeriveFields),
-				UseWhen:   "materialize a derived field on one existing record artifact before filtering, joining, or aggregating",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
-				ParamsTemplate: map[string]string{
-					"field_specs_json": `[{"source_field":"<existing field from fields>","source_fields":["<existing field A>","<existing field B>"],"target_field":"<new field>","operation":"parse_number|extract_year|lower|upper|trim|map|regex_extract|concat|coalesce|constant|case_when","separator":" ","cases":[{"filters":[{"field":"<existing field>","op":"eq|in|gt|gte|lt|lte|not_empty","value":"<expected value>"}],"value_field":"<existing field to copy>"}],"default_field":"<optional existing fallback field>","default":"<optional fallback value>"}]`,
-				},
-				Note: "Use only field names present in fields. concat/coalesce use source_fields; case_when uses existing-field filters plus value/value_field/default. The system executes conditions but does not choose business semantics.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionGroupRecords)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 8 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 || !dataTaskArtifactHasTextExtractionField(artifact.Fields) {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionGroupRecords),
-				UseWhen:   "one logical record is split across multiple rows/spans and later extraction needs neighboring text from the same group",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
-				ParamsTemplate: map[string]string{
-					"group_field":  "<existing key field from fields, such as a document/page/message/block id>",
-					"text_fields":  `["<existing text-like field from fields>"]`,
-					"target_field": "<new grouped text field>",
-					"separator":    `\n`,
-				},
-				Note: "Use only existing group/text fields. The system groups rows and concatenates text; it does not decide business semantics.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionExtractFields)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 8 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionExtractFields),
-				UseWhen:   "materialize structured fields from text or mixed record fields before filtering, joining, or aggregating",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
-				ParamsTemplate: map[string]string{
-					"field_specs":     `[{"source_field":"<existing text/source field from fields>","target_field":"<new field>","operation":"regex_extract|parse_number|copy|trim","pattern":"<regex when operation is regex_extract>","group":1}]`,
-					"required_fields": `["<new field that must be non-empty for output rows>"]`,
-				},
-				Note: "Use only existing source_field names from fields. If the source text has multiple numeric tokens, use regex_extract with a context pattern instead of unanchored parse_number. The model supplies the regex or parse specs from observed material shape; the system only executes extraction and preserves source locators.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionExpandRecords)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 8 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionExpandRecords),
-				UseWhen:   "turn one multi-value field on one record artifact into multiple records before enrichment, join, or contribution calculation",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 16),
-				ParamsTemplate: map[string]string{
-					"source_field":   "<existing multi-value field from fields>",
-					"target_field":   "<expanded value field>",
-					"delimiter":      "auto",
-					"original_field": "<optional field to preserve the unsplit source value>",
-				},
-				Note: "Use this for delimited values such as aliases, tags, labels, roles, categories, ids, terms, or other lists. It changes row cardinality; derive_fields does not.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionEnrichRecords)] {
-		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.EnrichRecordScaffolds(dataTaskArtifactAccessSchemaProjection(access), 4)) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionMappingCandidate)] {
-		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.MappingCandidateScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionJoinRecords)] {
-		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.JoinRecordScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionNormalizeEntities)] {
-		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.NormalizeEntityScaffolds(dataTaskArtifactAccessSchemaProjection(recordAccess), 4)) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionApplyResolutions)] {
-		for _, scaffold := range dataTaskWorkflowActionScaffoldViews(dataworkflow.ApplyResolutionScaffolds(dataTaskArtifactAccessSchemaProjection(access), 4)) {
-			if len(out) >= 8 {
-				return out
-			}
-			out = append(out, scaffold)
-		}
-	}
-	if allowed[string(dataquery.DataActionFilterRecords)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 10 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionFilterRecords),
-				UseWhen:   "select a smaller reusable record set using fields that already exist on one artifact",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 18),
-				ParamsTemplate: map[string]string{
-					"filters_json": `[{"field":"<existing field from fields>","op":"eq|ne|in|not_in|contains|not_contains|empty|not_empty|gt|gte|lt|lte","value":"<value>"}]`,
-				},
-				Note: "Use only filter field names present in fields. If the desired filter field is missing, first use derive_fields, enrich_records, or join_records to materialize it.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionValueDistribution)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 10 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:       string(dataquery.DataActionValueDistribution),
-				Executable: true,
-				UseWhen:    "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
-				InputPath:  alias,
-				Fields:     clampDataTaskStringSlice(artifact.Fields, 20),
-				ParamsTemplate: map[string]string{
-					"fields":      `["<existing field from fields>"]`,
-					"top_n":       "8",
-					"max_records": "100000",
-				},
-				Note: "Use this when field names exist but compact samples are not enough to choose typed params. It returns top/distinct/empty counts and does not change rows.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionQualifyRecords)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 10 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionQualifyRecords),
-				UseWhen:   "turn rule/evidence eligibility into auditable include/exclude rows before contribution calculation",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
-				ParamsTemplate: map[string]string{
-					"filters":         `[{"field":"<existing field that must pass>","op":"eq|in|not_empty|exists","value":"<value>"}]`,
-					"reject_filters":  `[{"field":"<existing field that excludes a row>","op":"eq|in|contains","value":"<value>"}]`,
-					"required_fields": `["<existing field that must be non-empty>"]`,
-					"evidence_fields": `["<existing evidence/provenance field if the current rules require it>"]`,
-					"status_fields":   `["<generated *_status field if relevant>"]`,
-					"output_mode":     "filter",
-					"item_id_field":   "<existing stable row id field if available>",
-				},
-				Note: "Use this when records need explicit eligibility decisions before compute_contributions. The model chooses conditions from the current rules; the system only executes typed field/filter/status/evidence checks and emits decision rows.",
-			})
-		}
-	}
-	if allowed[string(dataquery.DataActionComputeContribs)] {
-		for _, artifact := range recordAccess {
-			if len(out) >= 10 {
-				return out
-			}
-			alias := firstDataTaskArtifactAlias(artifact)
-			if alias == "" || len(artifact.Fields) == 0 {
-				continue
-			}
-			out = append(out, dataTaskActionScaffold{
-				Kind:      string(dataquery.DataActionComputeContribs),
-				UseWhen:   "compute a generic contribution ledger from one eligible artifact that already contains the value/group/filter fields",
-				InputPath: alias,
-				Fields:    clampDataTaskStringSlice(artifact.Fields, 20),
-				ParamsTemplate: map[string]string{
-					"value_field":     "<existing numeric value field, or omit for count>",
-					"group_key_field": "<existing grouping field, or use group_key for a constant group>",
-					"filters_json":    `[{"field":"<existing field from fields>","op":"eq|in|not_in|contains|exists","value":"<value>"}]`,
-					"operation":       "add|count",
-					"metric":          "<metric name>",
-					"item_id_field":   "<existing stable row id field if available>",
-				},
-				Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
-			})
-		}
-	}
-	return out
-}
-
-func dataTaskWorkflowActionScaffoldViews(scaffolds []dataworkflow.ActionScaffold) []dataTaskActionScaffold {
-	return append([]dataTaskActionScaffold(nil), scaffolds...)
-}
-
-func dataTaskWorkflowRecordActionArtifacts(access []dataTaskArtifactAccessPrompt) []dataTaskArtifactAccessPrompt {
-	var out []dataTaskArtifactAccessPrompt
-	for _, artifact := range access {
-		if dataTaskArtifactUsableForRecordAction(artifact) {
-			out = append(out, artifact)
-		}
-	}
-	return out
-}
-
-func dataTaskArtifactUsableForRecordAction(artifact dataTaskArtifactAccessPrompt) bool {
-	return dataworkflow.ArtifactUsableForRecordAction(dataTaskArtifactAccessToSchemaProjection(artifact))
-}
-
 func dataTaskArtifactAccessToSchemaProjection(artifact dataTaskArtifactAccessPrompt) dataworkflow.ArtifactSchemaProjection {
 	return dataworkflow.ArtifactSchemaProjection{
 		ID:                strings.TrimSpace(artifact.ID),
@@ -5945,24 +5667,6 @@ func dataTaskArtifactAccessToSchemaProjection(artifact dataTaskArtifactAccessPro
 		ReferencePaths:    cleanDataTaskStrings(artifact.ReferencePaths),
 		EvidencePaths:     cleanDataTaskStrings(artifact.EvidencePaths),
 	}
-}
-
-func dataTaskArtifactHasTextExtractionField(fields []string) bool {
-	for _, field := range fields {
-		lower := strings.ToLower(strings.TrimSpace(field))
-		if lower == "" || strings.HasPrefix(lower, "_") {
-			continue
-		}
-		switch {
-		case lower == "text" || lower == "content" || lower == "body" || lower == "message" || lower == "line":
-			return true
-		case strings.Contains(lower, "text") || strings.Contains(lower, "content") || strings.Contains(lower, "message") || strings.Contains(lower, "description"):
-			return true
-		case strings.HasSuffix(lower, "_raw") || lower == "raw":
-			return true
-		}
-	}
-	return false
 }
 
 func dataTaskArtifactIsDiagnosticChild(artifact dataTaskArtifactAccessPrompt) bool {

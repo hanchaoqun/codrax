@@ -20,6 +20,78 @@ type ActionScaffold struct {
 	Note           string            `json:"note,omitempty"`
 }
 
+type ActionScaffoldBuildInput struct {
+	State     WorkflowStateView
+	Artifacts []ArtifactSchemaProjection
+	Limit     int
+}
+
+func BuildActionScaffolds(input ActionScaffoldBuildInput) []ActionScaffold {
+	stage := strings.TrimSpace(input.State.NextStage)
+	if stage == "" {
+		stage = input.State.ComputedNextStage()
+	}
+	if !workflowStateNeedsActionScaffold(input.State) {
+		return nil
+	}
+	if stage != StagePrepareContributionInputs && stage != StageComputeContributions && stage != StageNormalizeOrEnrichEntities {
+		return nil
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	records := recordActionProjections(input.Artifacts)
+	if len(records) == 0 {
+		return nil
+	}
+	allowed := allowedActionSet(input.State.AllowedNextActions)
+	var out []ActionScaffold
+	appendAllowed := func(kind dataquery.DataActionKind, scaffolds []ActionScaffold) {
+		if len(out) >= limit || !allowed[string(kind)] {
+			return
+		}
+		for _, scaffold := range scaffolds {
+			out = append(out, scaffold)
+			if len(out) >= limit {
+				return
+			}
+		}
+	}
+	appendAllowed(dataquery.DataActionDeriveFields, DeriveFieldScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionGroupRecords, GroupRecordScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionExtractFields, ExtractFieldScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionExpandRecords, ExpandRecordScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionEnrichRecords, EnrichRecordScaffolds(input.Artifacts, limit-len(out)))
+	appendAllowed(dataquery.DataActionMappingCandidate, MappingCandidateScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionJoinRecords, JoinRecordScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionNormalizeEntities, NormalizeEntityScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionApplyResolutions, ApplyResolutionScaffolds(input.Artifacts, limit-len(out)))
+	appendAllowed(dataquery.DataActionFilterRecords, FilterRecordScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionValueDistribution, ValueDistributionScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionQualifyRecords, QualifyRecordScaffolds(records, limit-len(out)))
+	appendAllowed(dataquery.DataActionComputeContribs, ComputeContributionScaffolds(records, limit-len(out)))
+	return out
+}
+
+func workflowStateNeedsActionScaffold(state WorkflowStateView) bool {
+	facts := state.Facts()
+	if facts.RuleCoverageRequired ||
+		facts.DecisionRecordsRequired ||
+		facts.EntityResolutionRequired ||
+		facts.ContributionLedgerRequired ||
+		facts.ReconcileRequired {
+		return true
+	}
+	if strings.TrimSpace(string(state.OutputContract.Format)) != "" && !facts.HasAnswer {
+		return true
+	}
+	return len(state.FieldContractViolations) > 0 ||
+		len(state.ZeroMatchFilterViolations) > 0 ||
+		len(state.UnmatchedResolutionViolations) > 0 ||
+		len(state.ZeroEligibleViolations) > 0
+}
+
 func RelationActionScaffolds(projections []ArtifactSchemaProjection, allowedActions []string, limit int) []ActionScaffold {
 	if limit <= 0 {
 		return nil
@@ -299,6 +371,121 @@ func cleanIdentifier(value string) string {
 	return out
 }
 
+func DeriveFieldScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 || !artifactHasTextExtractionField(artifact.Fields) {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionDeriveFields),
+			UseWhen:   "materialize a derived field on one existing record artifact before filtering, joining, or aggregating",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 16),
+			ParamsTemplate: map[string]string{
+				"field_specs_json": `[{"source_field":"<existing field from fields>","source_fields":["<existing field A>","<existing field B>"],"target_field":"<new field>","operation":"parse_number|extract_year|lower|upper|trim|map|regex_extract|concat|coalesce|constant|case_when","separator":" ","cases":[{"filters":[{"field":"<existing field>","op":"eq|in|gt|gte|lt|lte|not_empty","value":"<expected value>"}],"value_field":"<existing field to copy>"}],"default_field":"<optional existing fallback field>","default":"<optional fallback value>"}]`,
+			},
+			Note: "Use only field names present in fields. concat/coalesce use source_fields; case_when uses existing-field filters plus value/value_field/default. The system executes conditions but does not choose business semantics.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func GroupRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 || !artifactHasTextExtractionField(artifact.Fields) {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionGroupRecords),
+			UseWhen:   "one logical record is split across multiple rows/spans and later extraction needs neighboring text from the same group",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 16),
+			ParamsTemplate: map[string]string{
+				"group_field":  "<existing key field from fields, such as a document/page/message/block id>",
+				"text_fields":  `["<existing text-like field from fields>"]`,
+				"target_field": "<new grouped text field>",
+				"separator":    `\n`,
+			},
+			Note: "Use only existing group/text fields. The system groups rows and concatenates text; it does not decide business semantics.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func ExtractFieldScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionExtractFields),
+			UseWhen:   "materialize structured fields from text or mixed record fields before filtering, joining, or aggregating",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 16),
+			ParamsTemplate: map[string]string{
+				"field_specs":     `[{"source_field":"<existing text/source field from fields>","target_field":"<new field>","operation":"regex_extract|parse_number|copy|trim","pattern":"<regex when operation is regex_extract>","group":1}]`,
+				"required_fields": `["<new field that must be non-empty for output rows>"]`,
+			},
+			Note: "Use only existing source_field names from fields. If the source text has multiple numeric tokens, use regex_extract with a context pattern instead of unanchored parse_number. The model supplies the regex or parse specs from observed material shape; the system only executes extraction and preserves source locators.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func ExpandRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionExpandRecords),
+			UseWhen:   "turn one multi-value field on one record artifact into multiple records before enrichment, join, or contribution calculation",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 16),
+			ParamsTemplate: map[string]string{
+				"source_field":   "<existing multi-value field from fields>",
+				"target_field":   "<expanded value field>",
+				"delimiter":      "auto",
+				"original_field": "<optional field to preserve the unsplit source value>",
+			},
+			Note: "Use this for delimited values such as aliases, tags, labels, roles, categories, ids, terms, or other lists. It changes row cardinality; derive_fields does not.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
 func JoinRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
 	if limit <= 0 {
 		return nil
@@ -569,6 +756,128 @@ func ApplyResolutionScaffolds(projections []ArtifactSchemaProjection, limit int)
 	return out
 }
 
+func FilterRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionFilterRecords),
+			UseWhen:   "select a smaller reusable record set using fields that already exist on one artifact",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 18),
+			ParamsTemplate: map[string]string{
+				"filters_json": `[{"field":"<existing field from fields>","op":"eq|ne|in|not_in|contains|not_contains|empty|not_empty|gt|gte|lt|lte","value":"<value>"}]`,
+			},
+			Note: "Use only filter field names present in fields. If the desired filter field is missing, first use derive_fields, enrich_records, or join_records to materialize it.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func ValueDistributionScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:       string(dataquery.DataActionValueDistribution),
+			Executable: true,
+			UseWhen:    "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
+			InputPath:  alias,
+			Fields:     clampStrings(artifact.Fields, 20),
+			ParamsTemplate: map[string]string{
+				"fields":      `["<existing field from fields>"]`,
+				"top_n":       "8",
+				"max_records": "100000",
+			},
+			Note: "Use this when field names exist but compact samples are not enough to choose typed params. It returns top/distinct/empty counts and does not change rows.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func QualifyRecordScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionQualifyRecords),
+			UseWhen:   "turn rule/evidence eligibility into auditable include/exclude rows before contribution calculation",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 20),
+			ParamsTemplate: map[string]string{
+				"filters":         `[{"field":"<existing field that must pass>","op":"eq|in|not_empty|exists","value":"<value>"}]`,
+				"reject_filters":  `[{"field":"<existing field that excludes a row>","op":"eq|in|contains","value":"<value>"}]`,
+				"required_fields": `["<existing field that must be non-empty>"]`,
+				"evidence_fields": `["<existing evidence/provenance field if the current rules require it>"]`,
+				"status_fields":   `["<generated *_status field if relevant>"]`,
+				"output_mode":     "filter",
+				"item_id_field":   "<existing stable row id field if available>",
+			},
+			Note: "Use this when records need explicit eligibility decisions before compute_contributions. The model chooses conditions from the current rules; the system only executes typed field/filter/status/evidence checks and emits decision rows.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func ComputeContributionScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range records {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:      string(dataquery.DataActionComputeContribs),
+			UseWhen:   "compute a generic contribution ledger from one eligible artifact that already contains the value/group/filter fields",
+			InputPath: alias,
+			Fields:    clampStrings(artifact.Fields, 20),
+			ParamsTemplate: map[string]string{
+				"value_field":     "<existing numeric value field, or omit for count>",
+				"group_key_field": "<existing grouping field, or use group_key for a constant group>",
+				"filters_json":    `[{"field":"<existing field from fields>","op":"eq|in|not_in|contains|exists","value":"<value>"}]`,
+				"operation":       "add|count",
+				"metric":          "<metric name>",
+				"item_id_field":   "<existing stable row id field if available>",
+			},
+			Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
 func applyResolutionBaseCompatibleWithLedger(base, ledger ArtifactSchemaProjection) bool {
 	return ArtifactResolutionLineageCompatible(base, ledger)
 }
@@ -776,6 +1085,24 @@ func resolutionTargetFieldPrefix(alias string) string {
 		return "resolved_entity"
 	}
 	return value
+}
+
+func artifactHasTextExtractionField(fields []string) bool {
+	for _, field := range fields {
+		lower := strings.ToLower(strings.TrimSpace(field))
+		if lower == "" || strings.HasPrefix(lower, "_") {
+			continue
+		}
+		switch {
+		case lower == "text" || lower == "content" || lower == "body" || lower == "message" || lower == "line":
+			return true
+		case strings.Contains(lower, "text") || strings.Contains(lower, "content") || strings.Contains(lower, "message") || strings.Contains(lower, "description"):
+			return true
+		case strings.HasSuffix(lower, "_raw") || lower == "raw":
+			return true
+		}
+	}
+	return false
 }
 
 func recordActionProjections(projections []ArtifactSchemaProjection) []ArtifactSchemaProjection {
