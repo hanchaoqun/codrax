@@ -2013,19 +2013,6 @@ func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, 
 	return out, remainder, status, true
 }
 
-func dataTaskDeferredReadyAction(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
-	if narrowed, ok := dataTaskNarrowSingleRecordSetActionForExecution(records, action); ok {
-		action = narrowed
-	}
-	if dataTaskDeferredActionInputsReady(records, action) {
-		return action, true
-	}
-	if rewritten, ok := dataTaskRewriteDeferredActionFirstInputToCompatibleArtifact(records, action); ok && dataTaskDeferredActionInputsReady(records, rewritten) {
-		return rewritten, true
-	}
-	return dataquery.DataAction{}, false
-}
-
 func dataTaskDeferredDispatchGuardResult(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) dataworkflow.GuardResult {
 	if len(actions) == 0 {
 		return dataworkflow.GuardResult{}
@@ -2063,55 +2050,11 @@ func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred data
 }
 
 func dataTaskDeferredActionCandidates(records []dataTaskWorkflowRecord, actions []dataquery.DataAction) []dataworkflow.DeferredActionCandidate {
-	out := make([]dataworkflow.DeferredActionCandidate, 0, len(actions))
-	for i, action := range actions {
-		readyAction, ok := dataTaskDeferredReadyAction(records, action)
-		candidate := dataworkflow.DeferredActionCandidate{
-			Index:  i,
-			Action: action,
-			Ready:  ok,
-		}
-		if ok {
-			candidate.Action = readyAction
-		} else {
-			candidate.BlockedCode, candidate.BlockedReason = dataTaskDeferredActionBlockedStatus(records, action)
-		}
-		out = append(out, candidate)
-	}
-	return out
-}
-
-func dataTaskDeferredActionBlockedReason(records []dataTaskWorkflowRecord, action dataquery.DataAction) string {
-	_, reason := dataTaskDeferredActionBlockedStatus(records, action)
-	return reason
-}
-
-func dataTaskDeferredActionBlockedStatus(records []dataTaskWorkflowRecord, action dataquery.DataAction) (string, string) {
-	inputs := cleanDataTaskStrings(action.InputPaths)
-	if len(inputs) > 0 {
-		covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
-		artifacts, _, _ := dataTaskWorkflowArtifactAvailability(records, 256)
-		var missing []string
-		for _, input := range inputs {
-			if dataTaskCoveragePathCovered(covered, input) {
-				continue
-			}
-			if _, ok := dataTaskArtifactAccessByAlias(artifacts, input); ok {
-				continue
-			}
-			missing = append(missing, input)
-		}
-		if len(missing) > 0 {
-			return dataworkflow.DeferredBlockInputUnavailable, fmt.Sprintf("deferred action %s:%s waits for unavailable input alias/material [%s]",
-				firstNonEmptyString(strings.TrimSpace(action.ID), strings.TrimSpace(string(action.Kind))),
-				normalizeDataActionKindForWorkflow(action.Kind),
-				strings.Join(missing, ", "))
-		}
-	}
-	if guard := dataTaskActionFieldContractGuardResult(records, dataquery.TaskPlan{}, action, 0); !guard.Empty() {
-		return firstNonEmptyString(strings.TrimSpace(guard.Code), dataworkflow.DeferredBlockFieldContract), guard.ErrorText()
-	}
-	return dataworkflow.DeferredBlockNotReady, ""
+	return dataworkflow.BuildDeferredActionCandidates(dataworkflow.DeferredActionCandidatesInput{
+		Records:           records,
+		Actions:           actions,
+		SchemaProjections: dataTaskWorkflowArtifactSchemaProjections(records),
+	})
 }
 
 func dataTaskDeferredQueueSavedSegment(lang string, deferred dataquery.TaskPlan, reason string) string {
@@ -2206,120 +2149,6 @@ func dataTaskDeferredQueueBlockedSegment(lang string, state dataTaskDeferredQueu
 	}
 	return fmt.Sprintf("deferred queue not dispatched: first %s is not ready; ready=%d blocked=%d; %s",
 		action, state.ReadyActions, state.BlockedActions, reason)
-}
-
-func dataTaskSplitDeferredActionsByReadyInputs(records []dataTaskWorkflowRecord, actions []dataquery.DataAction) ([]dataquery.DataAction, []dataquery.DataAction) {
-	var ready []dataquery.DataAction
-	for i, action := range actions {
-		if !dataTaskDeferredActionInputsReady(records, action) {
-			return ready, append([]dataquery.DataAction(nil), actions[i:]...)
-		}
-		ready = append(ready, action)
-	}
-	return ready, nil
-}
-
-func dataTaskRewriteDeferredActionFirstInputToCompatibleArtifact(records []dataTaskWorkflowRecord, action dataquery.DataAction) (dataquery.DataAction, bool) {
-	input, fields, explicitSource := dataTaskActionFirstInputFieldContract(action)
-	if input == "" || len(fields) == 0 {
-		return dataquery.DataAction{}, false
-	}
-	access := dataTaskWorkflowArtifactContractAccess(records)
-	if len(access) == 0 {
-		return dataquery.DataAction{}, false
-	}
-	missing := dataTaskMissingFieldsOnArtifact(access, input, fields)
-	if len(missing) == 0 {
-		return dataquery.DataAction{}, false
-	}
-	candidate, ok := dataTaskBestArtifactAliasWithFields(access, input, missing)
-	if !ok {
-		return dataquery.DataAction{}, false
-	}
-	rewritten := action
-	if explicitSource {
-		if rewritten.Params == nil {
-			rewritten.Params = map[string]string{}
-		} else {
-			next := make(map[string]string, len(rewritten.Params)+1)
-			for k, v := range rewritten.Params {
-				next[k] = v
-			}
-			rewritten.Params = next
-		}
-		rewritten.Params["source_path"] = candidate
-		return rewritten, true
-	}
-	inputs := append([]string(nil), rewritten.InputPaths...)
-	if len(inputs) == 0 {
-		return dataquery.DataAction{}, false
-	}
-	inputs[0] = candidate
-	rewritten.InputPaths = inputs
-	return rewritten, true
-}
-
-func dataTaskActionFirstInputFieldContract(action dataquery.DataAction) (input string, fields []string, explicitSource bool) {
-	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	switch kind {
-	case dataquery.DataActionNormalizeEntities:
-		input = firstNonEmptyString(
-			strings.TrimSpace(action.Params["source_path"]),
-			strings.TrimSpace(action.Params["base_path"]),
-			strings.TrimSpace(action.Params["record_path"]),
-		)
-		explicitSource = input != ""
-		if input == "" {
-			input = firstDataTaskActionInput(action, 0)
-		}
-		fields = cleanDataTaskStrings(append(
-			parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_fields"], action.Params["source_fields_json"], action.Params["source_names"], action.Params["source_names_json"])),
-			parseDataTaskActionStringListParam(firstNonEmptyString(action.Params["source_field"], action.Params["source_name"]))...,
-		))
-		fields = cleanDataTaskStrings(append(fields, dataTaskFilterActionFieldRefs(action)...))
-	default:
-		return "", nil, false
-	}
-	return strings.TrimSpace(input), cleanDataTaskStrings(fields), explicitSource
-}
-
-func dataTaskBestArtifactAliasWithFields(access []dataTaskArtifactAccessPrompt, current string, fields []string) (string, bool) {
-	currentKey := strings.ToLower(strings.TrimSpace(current))
-	for _, artifact := range access {
-		alias := firstDataTaskArtifactAlias(artifact)
-		if alias == "" {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(alias), currentKey) || strings.EqualFold(strings.TrimSpace(artifact.ID), currentKey) {
-			continue
-		}
-		if len(dataTaskMissingFieldsOnArtifact(access, alias, fields)) == 0 {
-			return alias, true
-		}
-	}
-	return "", false
-}
-
-func dataTaskDeferredActionInputsReady(records []dataTaskWorkflowRecord, action dataquery.DataAction) bool {
-	inputs := cleanDataTaskStrings(action.InputPaths)
-	if len(inputs) == 0 {
-		return true
-	}
-	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
-	artifacts, _, _ := dataTaskWorkflowArtifactAvailability(records, 256)
-	for _, input := range inputs {
-		if dataTaskCoveragePathCovered(covered, input) {
-			continue
-		}
-		if _, ok := dataTaskArtifactAccessByAlias(artifacts, input); ok {
-			continue
-		}
-		return false
-	}
-	if !dataTaskActionFieldContractGuardResult(records, dataquery.TaskPlan{}, action, 0).Empty() {
-		return false
-	}
-	return true
 }
 
 func dataTaskSplitActionRankForState(actions []dataquery.DataAction, state dataTaskWorkflowStateView) ([]dataquery.DataAction, []dataquery.DataAction) {

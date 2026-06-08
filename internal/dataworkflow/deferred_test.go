@@ -75,6 +75,77 @@ func TestBuildDeferredDispatchPlanReportsBlockedQueue(t *testing.T) {
 	}
 }
 
+func TestBuildDeferredActionCandidatesNarrowsSingleRecordSetAction(t *testing.T) {
+	actions := []dataquery.DataAction{{
+		ID:         "filter_ready",
+		Kind:       dataquery.DataActionFilterRecords,
+		InputPaths: []string{"raw.json", "ready.json"},
+		Params: map[string]string{
+			"filters_json": `[{"field":"status","op":"eq","value":"ready"}]`,
+		},
+	}}
+	candidates := BuildDeferredActionCandidates(DeferredActionCandidatesInput{
+		Actions: actions,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "raw", Aliases: []string{"raw.json"}, Fields: []string{"id"}},
+			{ID: "ready", Aliases: []string{"ready.json"}, Fields: []string{"id", "status"}},
+		},
+	})
+	if len(candidates) != 1 || !candidates[0].Ready {
+		t.Fatalf("candidates=%+v, want ready narrowed action", candidates)
+	}
+	if got := candidates[0].Action.InputPaths; len(got) != 1 || got[0] != "ready.json" {
+		t.Fatalf("narrowed inputs=%+v, want ready.json", got)
+	}
+}
+
+func TestBuildDeferredActionCandidatesRewritesNormalizeSourceToCompatibleArtifact(t *testing.T) {
+	actions := []dataquery.DataAction{{
+		ID:         "normalize",
+		Kind:       dataquery.DataActionNormalizeEntities,
+		InputPaths: []string{"raw.json"},
+		Params: map[string]string{
+			"source_fields": `["name"]`,
+		},
+	}}
+	candidates := BuildDeferredActionCandidates(DeferredActionCandidatesInput{
+		Actions: actions,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "raw", Aliases: []string{"raw.json"}, Fields: []string{"id"}},
+			{ID: "names", Aliases: []string{"names.json"}, Fields: []string{"id", "name"}},
+		},
+	})
+	if len(candidates) != 1 || !candidates[0].Ready {
+		t.Fatalf("candidates=%+v, want ready rewritten action", candidates)
+	}
+	if got := candidates[0].Action.InputPaths; len(got) != 1 || got[0] != "names.json" {
+		t.Fatalf("rewritten inputs=%+v, want names.json", got)
+	}
+}
+
+func TestDeferredActionBlockedStatusReportsMissingInput(t *testing.T) {
+	_, reason := DeferredActionBlockedStatus(DeferredActionReadinessInput{
+		Action: dataquery.DataAction{
+			ID:         "join",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"missing.json"},
+		},
+	})
+	if reason == "" {
+		t.Fatal("blocked reason is empty, want missing input reason")
+	}
+	code, _ := DeferredActionBlockedStatus(DeferredActionReadinessInput{
+		Action: dataquery.DataAction{
+			ID:         "join",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"missing.json"},
+		},
+	})
+	if code != DeferredBlockInputUnavailable {
+		t.Fatalf("code=%q, want %q", code, DeferredBlockInputUnavailable)
+	}
+}
+
 func TestDecideDeferredQueueLifecycleDiscardsAdmissionRejectedQueue(t *testing.T) {
 	status := DeferredDispatchStatus{
 		Actions:    1,

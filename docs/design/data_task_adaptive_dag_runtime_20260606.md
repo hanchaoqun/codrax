@@ -17440,6 +17440,48 @@ Remaining architecture items:
 - [ ] Keep the real-scenario gate closed until this IR backlog is implemented
       or explicitly marked non-blocking.
 
+### Batch 389: Workflow-Owned Deferred Readiness Candidates
+
+Deferred queue dispatch already selected ready ranks inside `dataworkflow`, but
+the candidate readiness list still came from the REPL adapter. That meant the
+UI layer decided whether a deferred action's inputs existed, whether its field
+contract was satisfied, and whether a single-record-set action could be
+narrowed or rewritten to a compatible artifact.
+
+Generic invariants:
+
+- deferred action readiness is ActionDAG + ArtifactGraph state, not REPL
+  behavior;
+- availability is computed from workflow records and the current
+  `ArtifactSchemaProjection` catalog;
+- field-contract checks use typed action params and artifact fields only;
+- single-record-set narrowing chooses a unique compatible artifact by field
+  contract, not by business labels;
+- normalize-source rewrites are structural compatibility repairs and do not
+  invent values or reinterpret business semantics.
+
+Changes:
+
+- [x] Added workflow-owned deferred action candidate generation.
+- [x] Added workflow-owned deferred input availability and blocked-status
+      classification.
+- [x] Added workflow-owned single-record-set input narrowing for deferred
+      actions.
+- [x] Added workflow-owned normalize-source rewrite to a field-compatible
+      artifact.
+- [x] Rewired REPL deferred queue dispatch to consume reducer candidates
+      instead of local ready/blocked/rewrite helpers.
+- [x] Added regression coverage for narrowed deferred actions, compatible
+      normalize-source rewrites, and missing-input blocked status.
+
+Remaining architecture items:
+
+- [ ] Move enrichment/field-contract recovery selection into ArtifactGraph
+      reducers.
+- [ ] Move repeated-node expansion into reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
 ### Batch 371: Runtime Snapshot Boundary For Audit Writers
 
 The next state-ownership seam was not an execution rule but an audit input
