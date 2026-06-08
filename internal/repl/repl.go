@@ -2013,7 +2013,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		view := runtimeView()
-		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
+		stateForEvent := dataTaskWorkflowStateFromRuntimeView(view)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
 			Round:    view.DataRounds,
@@ -3078,7 +3078,14 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 		deferredQueue = runtimeSnapshot.DeferredQueue
 		deferred = runtimeSnapshot.DeferredPlan
 	}
-	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
+	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+		Records:       records,
+		CurrentPlan:   current,
+		DeferredQueue: deferredQueue,
+		DeferredPlan:  deferred,
+		DataRounds:    a.DataRounds,
+		RepairRounds:  a.RepairRounds,
+	})
 	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
 		Status:        status,
 		Reason:        reason,
@@ -3134,7 +3141,14 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		deferredQueue = runtimeSnapshot.DeferredQueue
 	}
 	deferred := dataworkflow.DeferredQueuePlan(deferredQueue)
-	state := dataTaskWorkflowStateWithDeferredQueue(records, current, deferredQueue)
+	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+		Records:       records,
+		CurrentPlan:   current,
+		DeferredQueue: deferredQueue,
+		DeferredPlan:  deferred,
+		DataRounds:    dataRounds,
+		RepairRounds:  repairRounds,
+	})
 	if len(deferred.Actions) > 0 {
 		status := dataTaskDeferredQueueStatus(records, deferred)
 		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))

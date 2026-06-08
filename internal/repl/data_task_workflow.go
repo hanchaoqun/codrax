@@ -3488,6 +3488,10 @@ func dataTaskWorkflowRuntimeViewFrom(rt *dataworkflow.WorkflowRuntime, fallbackR
 	return out
 }
 
+func dataTaskWorkflowStateFromRuntimeView(view dataTaskWorkflowRuntimeView) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
+}
+
 func dataTaskPlanHasRuntimeShape(plan dataquery.TaskPlan) bool {
 	return strings.TrimSpace(plan.Status) != "" ||
 		strings.TrimSpace(plan.Goal) != "" ||

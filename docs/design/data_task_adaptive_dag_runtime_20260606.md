@@ -16807,6 +16807,49 @@ Remaining architecture items:
       implemented or explicitly classified as non-blocking operational/eval
       work.
 
+### Batch 392: Runtime View Boundary For Workflow State Assembly
+
+The next local-mirror seam was workflow-state assembly for process events and
+audit files. Runtime state already had `WorkflowRuntimeSnapshot`, but several
+production entrypoints still built `workflow_state_json` by passing parallel
+`records`, `currentPlan`, and deferred queue variables directly into the state
+builder. That did not change behavior, but it kept multiple entry shapes alive
+and made later reducer extraction harder to reason about.
+
+Generic invariants:
+
+- production process/audit state should enter through one runtime-view
+  boundary;
+- the view carries records, current plan, deferred queue/plan, and round
+  counters as dataworkflow/dataquery IR only;
+- tests may still call the lower-level builder directly for focused fixtures,
+  but CLI/REPL runtime paths should not assemble state from scattered mirrors;
+- no planning, execution, admission, evaluator, or business semantics change.
+
+Changes:
+
+- [x] Added `dataTaskWorkflowStateFromRuntimeView`.
+- [x] Rewired CLI data workflow evaluation process events to build state from
+      the runtime view.
+- [x] Rewired REPL data workflow evaluation process events to build state from
+      the runtime view.
+- [x] Rewired terminal and checkpoint audit state assembly to pass through the
+      same runtime-view boundary.
+- [x] Confirmed remaining direct `dataTaskWorkflowStateWithDeferredQueue`
+      calls are test fixtures or the boundary helper itself.
+
+Remaining architecture items:
+
+- [ ] Move prompt/evaluator request builders to accept
+      `dataTaskWorkflowRuntimeView` or `WorkflowRuntimeSnapshot` directly
+      instead of separate records/current/deferred arguments.
+- [ ] Move terminal/checkpoint journal input assembly fully to
+      `WorkflowRuntimeSnapshot` once all direct callers provide live runtime
+      state.
+- [ ] Keep the real-scenario gate closed until the current IR backlog is
+      implemented or explicitly classified as non-blocking operational/eval
+      work.
+
 ### Batch 394: Relation-Backed Missing Field Recovery
 
 The next P0 seam was the deterministic recovery path for `join_records` field

@@ -50,3 +50,27 @@ func TestDataTaskWorkflowRuntimeViewKeepsFallbackCurrentWhenRuntimeCurrentEmpty(
 		t.Fatalf("rounds=%d/%d, want fallback rounds 1/1", view.DataRounds, view.RepairRounds)
 	}
 }
+
+func TestDataTaskWorkflowStateFromRuntimeViewCarriesDeferredQueue(t *testing.T) {
+	view := dataTaskWorkflowRuntimeView{
+		Records: []dataTaskWorkflowRecord{{
+			Result: &dataquery.Result{ConsumedPaths: []string{"records.csv"}},
+		}},
+		CurrentPlan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true},
+			Actions:          []dataquery.DataAction{{ID: "filter", Kind: dataquery.DataActionFilterRecords}},
+		},
+		DeferredQueue: dataworkflow.NewDeferredQueue(dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}}}),
+	}
+
+	state := dataTaskWorkflowStateFromRuntimeView(view)
+	if len(state.ActionGraph.Ready) != 1 || state.ActionGraph.Ready[0].ID != "filter" {
+		t.Fatalf("ready=%+v, want current runtime action", state.ActionGraph.Ready)
+	}
+	if state.ActionGraph.DeferredQueue.Actions != 1 || len(state.ActionGraph.Deferred) != 1 || state.ActionGraph.Deferred[0].ID != "compute" {
+		t.Fatalf("deferred graph=%+v, want deferred queue action", state.ActionGraph)
+	}
+}

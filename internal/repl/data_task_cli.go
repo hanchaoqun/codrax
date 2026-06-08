@@ -617,7 +617,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
 		view := runtimeView()
-		stateForEvent := dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
+		stateForEvent := dataTaskWorkflowStateFromRuntimeView(view)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
 			Round:    view.DataRounds,
