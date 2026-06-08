@@ -18664,15 +18664,24 @@ Real-scenario gate update:
 
 - [x] The known P0 entrypoint state split for validation failure fallback is now
       closed.
-- [ ] Run target tests, full tests, and build for this batch.
-- [ ] If verification passes and no new P0 entrypoint-owned state mutation is
-      found in the final grep, rerun the real local scenario.
+- [x] Target runtime tests, full `make test`, and `make` completed for this
+      batch before commit.
+- [x] Final grep no longer shows validation/guard/failure-recovery P0 state
+      application owned by CLI/REPL entrypoints. Remaining direct plan switches
+      are transition adapters around `WorkflowRuntime.SwitchCurrentPlanWithEvents`
+      or non-blocking P1 cleanup candidates.
+- [x] The real local scenario may now be rerun as a workflow-convergence
+      validation pass. Treat the result as evidence for the next architecture
+      batch, not as a release gate until the remaining P1/P2 items are
+      classified.
 
 Remaining architecture items:
 
 - [ ] Continue narrowing entrypoint-local mirrors (`records`, `currentPlan`,
       round counters) where planner/evaluator/checkpoint inputs still mix
-      local adapter variables with runtime views.
+      local adapter variables with runtime views. This is non-blocking for the
+      next real-scenario validation pass because the currently known P0
+      recovery application paths are runtime-owned.
 - [ ] Classify older historical `Remaining architecture items` into blocking
       P0 versus non-blocking P1/P2 before treating real-scenario output as a
       release gate.
