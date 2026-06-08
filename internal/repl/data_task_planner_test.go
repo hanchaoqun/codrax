@@ -1215,11 +1215,12 @@ func TestDataTaskWorkflowCompletionGateRequiresOutputProjection(t *testing.T) {
 			},
 		},
 	}
-	errText := dataTaskWorkflowCompletionGateError(nil, current, result)
+	guard := dataTaskWorkflowCompletionGateGuardResult(nil, current, result)
+	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "final answer projection") {
 		t.Fatalf("completion gate err=%q, want missing projection", errText)
 	}
-	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, errText)
+	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, guard)
 	if !ok {
 		t.Fatal("expected deterministic output projection plan")
 	}
@@ -1316,11 +1317,12 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 			},
 		},
 	}
-	errText := dataTaskWorkflowCompletionGateErrorWithRepo(root, nil, current, result)
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "reference field") {
 		t.Fatalf("completion gate err=%q, want reference universe gap", errText)
 	}
-	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, errText)
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
 	if !ok {
 		t.Fatal("expected deterministic reference-complete projection plan")
 	}

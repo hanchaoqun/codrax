@@ -1850,8 +1850,8 @@ func TestDataTaskRequiredLedgerCompletionPlanDoesNotInventEntityNode(t *testing.
 			ItemID: "row-1", Source: "entities.csv", SourceLocator: "line:2", GroupKey: "all", Metric: "amount", Value: "42", Operation: "add", Reason: "seed",
 		}},
 	}
-	errText := `validate data workflow completion: data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty`
-	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, errText)
+	guard := dataTaskWorkflowCompletionGateGuardResult(nil, current, result)
+	plan, ok := dataTaskRequiredLedgerCompletionPlan(nil, current, result, guard)
 	if ok {
 		t.Fatalf("plan=%+v, deterministic completion must not invent entity_resolution semantics without field contracts", plan)
 	}

@@ -1420,7 +1420,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(r.repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
+				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					emitWorkflowFailure("continue", dataRounds, errText)
@@ -2023,7 +2023,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				if len(records) > 0 {
 					attachLastError(errText)
 				}
-				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, errText)
+				transition := dataTaskCompletionRepairTransitionWithRepo(r.repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					emitWorkflowFailure("continue", dataRounds, errText)
 					completionPlan := protectPlan(transition.Plan)

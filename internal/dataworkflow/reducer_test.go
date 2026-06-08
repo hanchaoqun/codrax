@@ -361,7 +361,13 @@ func TestBuildRequiredLedgerCompletionPlanCompletesReconcileFromContributions(t 
 			Value:     dataquery.LooseText("10"),
 			Operation: dataquery.LooseText("add"),
 		}}},
-		ErrorText: `validate data workflow completion: data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty`,
+		LedgerGraph: BuildLedgerGraph(StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			ContributionRecords:        1,
+			ReconcileRequired:          true,
+		}),
+		UseLedgerGraph: true,
 	})
 	if !ok {
 		t.Fatal("BuildRequiredLedgerCompletionPlan ok=false")
@@ -394,7 +400,6 @@ func TestBuildRequiredLedgerCompletionPlanUsesLedgerGraph(t *testing.T) {
 		Result:         result,
 		LedgerGraph:    graph,
 		UseLedgerGraph: true,
-		ErrorText:      "typed ledger guard without a dataquery json path",
 	})
 	if !ok {
 		t.Fatal("BuildRequiredLedgerCompletionPlan ok=false, want graph-driven reconcile")
@@ -414,7 +419,6 @@ func TestBuildRequiredLedgerCompletionPlanDoesNotSkipEarlierLedgerGraphGap(t *te
 		Coverage:       dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
 		LedgerGraph:    graph,
 		UseLedgerGraph: true,
-		ErrorText:      "typed ledger guard without a dataquery json path",
 	})
 	if ok || len(plan.Actions) > 0 {
 		t.Fatalf("plan=%+v, ok=%t; missing contributions must not jump to reconcile", plan, ok)
@@ -517,7 +521,14 @@ func TestBuildCompletionRepairTransitionUsesDeterministicLedgerPlan(t *testing.T
 			Value:     dataquery.LooseText("10"),
 			Operation: dataquery.LooseText("add"),
 		}}},
-		ErrorText: `validate data workflow completion: data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty`,
+		LedgerGraph: BuildLedgerGraph(StageFacts{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			ContributionRecords:        1,
+			ReconcileRequired:          true,
+		}),
+		UseLedgerGraph: true,
+		Guard:          NewGuardResult("missing_workflow_ledger", "error", RepairNeedsTypedAction, "validate data workflow completion: missing reconcile"),
 	})
 	if !transition.Deterministic || transition.NeedsPlannerRepair || !transition.HasPlan() {
 		t.Fatalf("transition=%+v, want deterministic plan", transition)
@@ -529,8 +540,8 @@ func TestBuildCompletionRepairTransitionUsesDeterministicLedgerPlan(t *testing.T
 
 func TestBuildCompletionRepairTransitionFallsBackToPlanner(t *testing.T) {
 	transition := BuildCompletionRepairTransition(CompletionRepairTransitionInput{
-		Current:   dataquery.TaskPlan{Goal: "finish validation"},
-		ErrorText: "validate data workflow completion: semantic check failed",
+		Current: dataquery.TaskPlan{Goal: "finish validation"},
+		Guard:   NewGuardResult("semantic_check_failed", "error", RepairNeedsTypedAction, "validate data workflow completion: semantic check failed"),
 	})
 	if transition.Deterministic || !transition.NeedsPlannerRepair || transition.HasPlan() {
 		t.Fatalf("transition=%+v, want planner repair fallback", transition)

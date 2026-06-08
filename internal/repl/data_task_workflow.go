@@ -6673,19 +6673,19 @@ func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dat
 	})
 }
 
-func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
-	return dataTaskRequiredLedgerCompletionPlanWithRepo("", records, current, result, errText)
+func dataTaskRequiredLedgerCompletionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	return dataTaskRequiredLedgerCompletionPlanWithRepo("", records, current, result, guard)
 }
 
-func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) (dataquery.TaskPlan, bool) {
-	transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, current, result, errText)
+func dataTaskRequiredLedgerCompletionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, current, result, guard)
 	if transition.HasPlan() {
 		return transition.Plan, true
 	}
 	return dataquery.TaskPlan{}, false
 }
 
-func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string) dataworkflow.CompletionRepairTransition {
+func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.CompletionRepairTransition {
 	var gap dataworkflow.ReferenceProjectionGap
 	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
@@ -6700,7 +6700,7 @@ func dataTaskCompletionRepairTransitionWithRepo(repoRoot string, records []dataT
 		UseLedgerGraph:         true,
 		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
 		UseOutputGraph:         true,
-		ErrorText:              errText,
+		Guard:                  guard,
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
 	})

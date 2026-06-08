@@ -15406,8 +15406,48 @@ Remaining architecture items:
 - [ ] Thread typed completion guard records into WorkflowRuntime journal events
       so budget-exhausted and repair paths expose the same guard payload in
       terminal audit.
-- [ ] Convert completion repair transition input from `ErrorText` to
+- [x] Convert completion repair transition input from `ErrorText` to
       `GuardResult` while preserving the guard text as human-readable reason.
+- [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
+      tests and diagnostics consume typed guard objects directly.
+- [x] Run full build/test before continuing the IR closure audit.
+
+### Batch 345: Guard-Based Completion Repair Transition
+
+After Batch 344, terminal completion gates were typed, but deterministic repair
+transition still accepted `ErrorText`. That meant the caller decided the gate
+was typed, then immediately converted it back into prose before asking the
+reducer whether a deterministic completion batch could be built.
+
+This batch moves completion repair transition onto typed guards. The transition
+still stores `ErrorText` in its output for audit and user-facing repair reason,
+but its input is now `GuardResult`. `RequiredLedgerCompletionPlanInput` also no
+longer has an error-text fallback; deterministic ledger completion is driven by
+`LedgerGraph`.
+
+Generic invariants:
+
+- completion repair transition starts from `GuardResult`;
+- deterministic ledger repair is graph-driven, not parsed from a validation
+  error string or JSONPath in prose;
+- output text remains available only as a reason/audit payload;
+- planner fallback still works for typed guards that cannot be repaired by a
+  deterministic graph plan;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Replaced `CompletionRepairTransitionInput.ErrorText` with
+      `CompletionRepairTransitionInput.Guard`.
+- [x] Removed the error-text fallback from `RequiredLedgerCompletionPlanInput`.
+- [x] Rewired CLI/REPL completion repair calls to pass typed completion guards.
+- [x] Updated reducer and REPL tests to construct typed completion guards.
+
+Remaining architecture items:
+
+- [ ] Thread typed completion guard records into WorkflowRuntime journal events
+      so budget-exhausted and repair paths expose the same guard payload in
+      terminal audit.
 - [ ] Keep auditing historical `*GuardError` helpers; remove wrappers once
       tests and diagnostics consume typed guard objects directly.
 - [x] Run full build/test before continuing the IR closure audit.

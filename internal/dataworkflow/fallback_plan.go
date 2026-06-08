@@ -61,7 +61,7 @@ type CompletionRepairTransitionInput struct {
 	UseLedgerGraph         bool
 	OutputGraph            OutputProjectionGraph
 	UseOutputGraph         bool
-	ErrorText              string
+	Guard                  GuardResult
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
 }
@@ -79,7 +79,7 @@ func (t CompletionRepairTransition) HasPlan() bool {
 }
 
 func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) CompletionRepairTransition {
-	errText := strings.TrimSpace(input.ErrorText)
+	errText := strings.TrimSpace(input.Guard.ErrorText())
 	if errText == "" {
 		return CompletionRepairTransition{}
 	}
@@ -92,7 +92,6 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 		UseLedgerGraph:         input.UseLedgerGraph,
 		OutputGraph:            input.OutputGraph,
 		UseOutputGraph:         input.UseOutputGraph,
-		ErrorText:              errText,
 		ReferenceGap:           input.ReferenceGap,
 		PlanHasCustomTransform: input.PlanHasCustomTransform,
 	}); ok {
@@ -572,7 +571,6 @@ type RequiredLedgerCompletionPlanInput struct {
 	UseLedgerGraph         bool
 	OutputGraph            OutputProjectionGraph
 	UseOutputGraph         bool
-	ErrorText              string
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
 }
@@ -593,38 +591,7 @@ func BuildRequiredLedgerCompletionPlan(input RequiredLedgerCompletionPlanInput) 
 	if input.UseLedgerGraph {
 		return buildRequiredLedgerCompletionPlanFromGraph(input)
 	}
-	violation := dataquery.ClassifyExecutionError(input.ErrorText)
-	if strings.TrimSpace(violation.Code) != "missing_required_ledger" {
-		return dataquery.TaskPlan{}, false
-	}
-	plan := requiredLedgerCompletionBasePlan(input)
-	switch strings.TrimSpace(violation.JSONPath) {
-	case "/rule_coverage":
-		action := RuleCoverageCompletionAction(input.Coverage)
-		if strings.TrimSpace(action.ID) == "" {
-			return dataquery.TaskPlan{}, false
-		}
-		plan.Actions = []dataquery.DataAction{action}
-		plan.InputPaths = mergeActionInputPaths(plan.InputPaths, action.InputPaths)
-		plan.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
-		return plan, true
-	case "/entity_resolutions":
-		return dataquery.TaskPlan{}, false
-	case "/reconcile":
-		if len(input.Result.Contributions) == 0 {
-			return dataquery.TaskPlan{}, false
-		}
-		plan.Actions = []dataquery.DataAction{{
-			ID:             "complete_reconcile",
-			Kind:           dataquery.DataActionReconcile,
-			Purpose:        "complete missing reconcile ledger from existing contribution records",
-			OutputArtifact: "reconcile_result.json",
-		}}
-		plan.WhyThisBatch = "complete missing reconcile ledger from existing contribution records"
-		return plan, true
-	default:
-		return dataquery.TaskPlan{}, false
-	}
+	return dataquery.TaskPlan{}, false
 }
 
 func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPlanInput) (dataquery.TaskPlan, bool) {

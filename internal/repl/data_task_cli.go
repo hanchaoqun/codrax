@@ -232,7 +232,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if guard := dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
 			if result, ok := latestDataTaskResult(records); ok {
-				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
+				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
@@ -614,7 +614,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		case dataquery.EvalComplete:
 			if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, currentPlan, result); !guard.Empty() {
 				errText := guard.ErrorText()
-				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, errText)
+				transition := dataTaskCompletionRepairTransitionWithRepo(repoRoot, records, currentPlan, result, guard)
 				if transition.HasPlan() {
 					completionPlan := protectPlan(transition.Plan)
 					auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "ledger", dataRounds+1, completionPlan)
