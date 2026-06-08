@@ -60,6 +60,36 @@ func TestBuildWorkflowProcessDisplayNamesCompletionGate(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowProcessDisplayRendersTypedBlockerSummary(t *testing.T) {
+	guard := NewGuardResult("value_contract_violation", "error", RepairNeedsTypedAction, "amount is not numeric", WorkflowViolation{
+		Code:              "value_contract_violation",
+		ActionID:          "compute",
+		ActionKind:        string(dataquery.DataActionComputeContribs),
+		InputAlias:        "records.json",
+		Field:             "amount",
+		Operation:         "numeric_parse",
+		RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+		Reason:            "amount is not numeric",
+	})
+	event := BuildWorkflowProcessEvent(WorkflowProcessEventInput{
+		Kind:   "action_batch",
+		Round:  3,
+		Status: "failed",
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "compute",
+			Kind: dataquery.DataActionComputeContribs,
+		}}},
+		Guard: &guard,
+	})
+	display := BuildWorkflowProcessDisplay(event, "zh")
+	got := processDisplayDetailText(display)
+	for _, want := range []string{"当前阻塞：字段值不满足本步操作需要的值类型或形状", "输入 records.json", "字段 amount", "操作 numeric_parse", "可继续：优先生成下一批结构化动作：补齐或派生字段", "原因：amount is not numeric"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("details=%q, want %q", got, want)
+		}
+	}
+}
+
 func processDisplayDetailText(display WorkflowProcessDisplay) string {
 	var lines []string
 	for _, detail := range display.Details {

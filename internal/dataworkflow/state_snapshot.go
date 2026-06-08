@@ -6,15 +6,16 @@ import "github.com/hanchaoqun/codrax/internal/dataquery"
 // and reducers. It carries structural workflow state only; prompt-only samples
 // and UI adapter fields stay outside this IR.
 type WorkflowStateSnapshot struct {
-	StageFacts                 StageFacts            `json:"stage_facts,omitempty"`
-	ActionGraph                ActionGraph           `json:"action_graph,omitempty"`
-	LedgerGraph                LedgerGraph           `json:"ledger_graph,omitempty"`
-	OutputGraph                OutputProjectionGraph `json:"output_projection_graph,omitempty"`
-	ArtifactGraph              ArtifactGraphState    `json:"artifact_graph,omitempty"`
-	Progress                   ProgressWindow        `json:"progress,omitempty"`
-	WorkflowViolations         []WorkflowViolation   `json:"workflow_violations,omitempty"`
-	Decision                   WorkflowDecision      `json:"decision,omitempty"`
-	DecisionFallbackReasonCode string                `json:"decision_fallback_reason_code,omitempty"`
+	StageFacts                 StageFacts               `json:"stage_facts,omitempty"`
+	ActionGraph                ActionGraph              `json:"action_graph,omitempty"`
+	LedgerGraph                LedgerGraph              `json:"ledger_graph,omitempty"`
+	OutputGraph                OutputProjectionGraph    `json:"output_projection_graph,omitempty"`
+	ArtifactGraph              ArtifactGraphState       `json:"artifact_graph,omitempty"`
+	Progress                   ProgressWindow           `json:"progress,omitempty"`
+	WorkflowViolations         []WorkflowViolation      `json:"workflow_violations,omitempty"`
+	WorkflowViolationSummary   WorkflowViolationSummary `json:"workflow_violation_summary,omitempty"`
+	Decision                   WorkflowDecision         `json:"decision,omitempty"`
+	DecisionFallbackReasonCode string                   `json:"decision_fallback_reason_code,omitempty"`
 }
 
 type WorkflowStateSnapshotInput struct {
@@ -26,6 +27,7 @@ type WorkflowStateSnapshotInput struct {
 	ProgressEvents             []ProgressEvent
 	ProgressLimit              int
 	WorkflowViolations         []WorkflowViolation
+	WorkflowViolationSummary   WorkflowViolationSummary
 	Decision                   WorkflowDecisionInput
 	DecisionFallbackReasonCode string
 }
@@ -41,6 +43,7 @@ type WorkflowReducerInput struct {
 	ProgressEvents             []ProgressEvent
 	ProgressLimit              int
 	WorkflowViolations         []WorkflowViolation
+	WorkflowViolationSummary   WorkflowViolationSummary
 	Decision                   WorkflowDecisionInput
 	DecisionFallbackReasonCode string
 	ActionEventLimit           int
@@ -77,6 +80,7 @@ func BuildWorkflowReducerSnapshot(input WorkflowReducerInput) WorkflowStateSnaps
 		ProgressEvents:             progressEvents,
 		ProgressLimit:              input.ProgressLimit,
 		WorkflowViolations:         input.WorkflowViolations,
+		WorkflowViolationSummary:   input.WorkflowViolationSummary,
 		Decision:                   input.Decision,
 		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
 	})
@@ -118,6 +122,7 @@ func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateS
 		ArtifactGraph:              BuildArtifactGraphState(input.Artifacts, input.ArtifactLimit),
 		Progress:                   BuildProgressWindow(input.ProgressEvents, progressLimit),
 		WorkflowViolations:         append([]WorkflowViolation(nil), input.WorkflowViolations...),
+		WorkflowViolationSummary:   CloneWorkflowViolationSummary(firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, BuildWorkflowViolationSummary(input.WorkflowViolations))),
 		Decision:                   BuildWorkflowDecision(decisionInput),
 		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
 	}
@@ -141,6 +146,7 @@ func (s WorkflowStateSnapshot) IsZero() bool {
 		s.Progress.LatestSignature == "" &&
 		len(s.Progress.Recent) == 0 &&
 		len(s.WorkflowViolations) == 0 &&
+		s.WorkflowViolationSummary.Total == 0 &&
 		s.Decision.Status == "" &&
 		s.Decision.ReasonCode == "" &&
 		s.Decision.Reason == "" &&

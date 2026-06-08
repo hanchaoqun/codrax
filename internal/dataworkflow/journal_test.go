@@ -174,6 +174,43 @@ func TestWorkflowRuntimeBuildJournalSnapshotPrefersLiveProcessEvents(t *testing.
 	}
 }
 
+func TestWorkflowJournalEventsPromoteRecordExecutionViolations(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:             "filter_paid",
+			Kind:           dataquery.DataActionFilterRecords,
+			InputPaths:     []string{"records.json"},
+			OutputArtifact: "paid.json",
+		}}},
+		Err: "filter failed",
+		Violations: []dataquery.DataTaskViolation{{
+			Code:          "field_contract_violation",
+			Summary:       "status is missing",
+			ActionID:      "filter_paid",
+			ActionKind:    string(dataquery.DataActionFilterRecords),
+			InputAlias:    "records.json",
+			MissingFields: []string{"status"},
+			RepairHint:    string(dataquery.DataActionDeriveFields),
+		}},
+	})
+
+	events := rt.ProcessEvents()
+	if len(events) != 1 || events[0].Guard == nil || events[0].ViolationSummary.Total != 1 {
+		t.Fatalf("events=%+v, want record execution guard with violation summary", events)
+	}
+	if events[0].Guard.Code != "field_contract_violation" || events[0].ViolationSummary.FirstActionID != "filter_paid" {
+		t.Fatalf("event guard/summary=%+v / %+v", events[0].Guard, events[0].ViolationSummary)
+	}
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{Status: "failed"})
+	if len(snapshot.WorkflowViolations) != 1 || snapshot.WorkflowViolations[0].Code != "field_contract_violation" {
+		t.Fatalf("WorkflowViolations=%+v, want process-event violation promoted", snapshot.WorkflowViolations)
+	}
+	if snapshot.WorkflowViolationSummary.Total != 1 || snapshot.WorkflowViolationSummary.FirstInputAlias != "records.json" {
+		t.Fatalf("WorkflowViolationSummary=%+v, want journal terminal summary", snapshot.WorkflowViolationSummary)
+	}
+}
+
 func TestWorkflowRuntimeBuildJournalSnapshotPromotesProcessEventGuards(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	guard := NewGuardResult("missing_required_ledger", "error", RepairNeedsTypedAction, "contributions missing", WorkflowViolation{

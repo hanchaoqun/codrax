@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -33,6 +34,30 @@ type WorkflowViolation struct {
 	CandidateArtifacts   []string               `json:"candidate_artifacts,omitempty"`
 	RepairActionHints    []string               `json:"repair_action_hints,omitempty"`
 	Reason               string                 `json:"reason,omitempty"`
+}
+
+type WorkflowViolationSummary struct {
+	Total                  int                          `json:"total,omitempty"`
+	ErrorCount             int                          `json:"error_count,omitempty"`
+	WarningCount           int                          `json:"warning_count,omitempty"`
+	ByCode                 []WorkflowViolationCodeCount `json:"by_code,omitempty"`
+	FirstCode              string                       `json:"first_code,omitempty"`
+	FirstSeverity          string                       `json:"first_severity,omitempty"`
+	FirstRepairability     ViolationRepairability       `json:"first_repairability,omitempty"`
+	FirstActionID          string                       `json:"first_action_id,omitempty"`
+	FirstActionKind        string                       `json:"first_action_kind,omitempty"`
+	FirstInputAlias        string                       `json:"first_input_alias,omitempty"`
+	FirstOutputAlias       string                       `json:"first_output_alias,omitempty"`
+	FirstField             string                       `json:"first_field,omitempty"`
+	FirstOperation         string                       `json:"first_operation,omitempty"`
+	FirstMissingFields     []string                     `json:"first_missing_fields,omitempty"`
+	FirstRepairActionHints []string                     `json:"first_repair_action_hints,omitempty"`
+	FirstReason            string                       `json:"first_reason,omitempty"`
+}
+
+type WorkflowViolationCodeCount struct {
+	Code  string `json:"code,omitempty"`
+	Count int    `json:"count,omitempty"`
 }
 
 type WorkflowViolationInput struct {
@@ -271,6 +296,71 @@ func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {
 	}
 	out = append(out, input.Additional...)
 	return out
+}
+
+func BuildWorkflowViolationSummary(violations []WorkflowViolation) WorkflowViolationSummary {
+	if len(violations) == 0 {
+		return WorkflowViolationSummary{}
+	}
+	counts := map[string]int{}
+	summary := WorkflowViolationSummary{}
+	for _, violation := range violations {
+		code := strings.TrimSpace(violation.Code)
+		if code == "" {
+			continue
+		}
+		summary.Total++
+		counts[code]++
+		switch strings.ToLower(strings.TrimSpace(violation.Severity)) {
+		case "warning", "warn":
+			summary.WarningCount++
+		default:
+			summary.ErrorCount++
+		}
+		if summary.FirstCode == "" {
+			summary.FirstCode = code
+			summary.FirstSeverity = strings.TrimSpace(violation.Severity)
+			summary.FirstRepairability = violation.Repairability
+			summary.FirstActionID = strings.TrimSpace(violation.ActionID)
+			summary.FirstActionKind = strings.TrimSpace(violation.ActionKind)
+			summary.FirstInputAlias = strings.TrimSpace(violation.InputAlias)
+			summary.FirstOutputAlias = strings.TrimSpace(violation.OutputAlias)
+			summary.FirstField = strings.TrimSpace(violation.Field)
+			summary.FirstOperation = strings.TrimSpace(violation.Operation)
+			summary.FirstMissingFields = cleanStrings(violation.MissingFields)
+			summary.FirstRepairActionHints = cleanStrings(violation.RepairActionHints)
+			summary.FirstReason = strings.TrimSpace(violation.Reason)
+		}
+	}
+	if summary.Total == 0 {
+		return WorkflowViolationSummary{}
+	}
+	codes := make([]string, 0, len(counts))
+	for code := range counts {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	for _, code := range codes {
+		summary.ByCode = append(summary.ByCode, WorkflowViolationCodeCount{Code: code, Count: counts[code]})
+	}
+	return summary
+}
+
+func CloneWorkflowViolationSummary(in WorkflowViolationSummary) WorkflowViolationSummary {
+	out := in
+	out.ByCode = append([]WorkflowViolationCodeCount(nil), in.ByCode...)
+	out.FirstMissingFields = append([]string(nil), in.FirstMissingFields...)
+	out.FirstRepairActionHints = append([]string(nil), in.FirstRepairActionHints...)
+	return out
+}
+
+func firstNonEmptyWorkflowViolationSummary(values ...WorkflowViolationSummary) WorkflowViolationSummary {
+	for _, value := range values {
+		if value.Total > 0 {
+			return CloneWorkflowViolationSummary(value)
+		}
+	}
+	return WorkflowViolationSummary{}
 }
 
 func diagnosticIssueAliases(aliases []string, artifactID string) []string {

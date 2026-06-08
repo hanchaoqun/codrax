@@ -140,6 +140,7 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		NoProgressThreshold: input.NoProgressThreshold,
 	})
 	state.WorkflowViolations = append(state.WorkflowViolations, append([]WorkflowViolation(nil), input.AdditionalViolations...)...)
+	state.WorkflowViolationSummary = BuildWorkflowViolationSummary(state.WorkflowViolations)
 	outputGraphInput := OutputProjectionGraphInput{
 		Output:                 input.OutputContract,
 		Coverage:               workflowContract,
@@ -170,6 +171,7 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		ProgressEvents:             input.ProgressEvents,
 		ProgressLimit:              defaultPositive(input.ProgressLimit, 6),
 		WorkflowViolations:         state.WorkflowViolations,
+		WorkflowViolationSummary:   state.WorkflowViolationSummary,
 		Decision:                   decisionInput,
 		DecisionFallbackReasonCode: state.NextStage,
 		ActionEventLimit:           defaultPositive(input.ActionEventLimit, 48),

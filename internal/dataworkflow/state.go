@@ -67,6 +67,7 @@ type WorkflowStateView struct {
 	UnmatchedResolutionViolations []UnmatchedResolutionIssue `json:"unmatched_resolution_violations,omitempty"`
 	ZeroEligibleViolations        []ZeroEligibleIssue        `json:"zero_eligible_qualification_violations,omitempty"`
 	WorkflowViolations            []WorkflowViolation        `json:"workflow_violations,omitempty"`
+	WorkflowViolationSummary      WorkflowViolationSummary   `json:"workflow_violation_summary,omitempty"`
 }
 
 func (view WorkflowStateView) Facts() StageFacts {
@@ -124,6 +125,7 @@ func (view WorkflowStateView) Snapshot() WorkflowStateSnapshot {
 		ArtifactGraph:              view.ArtifactGraph,
 		Progress:                   view.ProgressSignatures,
 		WorkflowViolations:         append([]WorkflowViolation(nil), view.WorkflowViolations...),
+		WorkflowViolationSummary:   CloneWorkflowViolationSummary(view.WorkflowViolationSummary),
 		Decision:                   view.Decision,
 		DecisionFallbackReasonCode: nextStage,
 	}

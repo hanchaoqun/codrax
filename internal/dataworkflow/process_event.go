@@ -51,6 +51,7 @@ func BuildWorkflowProcessEvent(input WorkflowProcessEventInput) WorkflowJournalE
 	if input.Guard != nil && !input.Guard.Empty() {
 		copied := *input.Guard
 		event.Guard = &copied
+		event.ViolationSummary = BuildWorkflowViolationSummary(copied.Violations)
 		if event.Status == "" {
 			event.Status = firstNonEmptyProcessText(input.Guard.Severity, "blocked")
 		}

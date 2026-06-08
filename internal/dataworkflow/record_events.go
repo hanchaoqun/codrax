@@ -27,9 +27,10 @@ func BuildWorkflowJournalEventsForRecord(round int, rec WorkflowRecord) []Workfl
 		strings.TrimSpace(rec.Plan.NextBatch),
 		strings.TrimSpace(rec.Plan.Goal),
 	)
-	if strings.TrimSpace(rec.Err) != "" {
+	guard := workflowRecordExecutionGuard(rec)
+	if strings.TrimSpace(rec.Err) != "" || guard != nil {
 		status = "failed"
-		reason = firstNonEmptyProcessText(clampWorkflowRecordText(rec.Err, 240), reason)
+		reason = firstNonEmptyProcessText(clampWorkflowRecordText(rec.Err, 240), guardErrorText(guard), reason)
 	}
 	events = append(events, BuildWorkflowProcessEvent(WorkflowProcessEventInput{
 		Kind:   kind,
@@ -38,8 +39,37 @@ func BuildWorkflowJournalEventsForRecord(round int, rec WorkflowRecord) []Workfl
 		Reason: reason,
 		Plan:   rec.Plan,
 		Result: rec.Result,
+		Guard:  guard,
 	}))
 	return events
+}
+
+func workflowRecordExecutionGuard(rec WorkflowRecord) *GuardResult {
+	violations := WorkflowViolationsFromRecordExecution([]WorkflowRecord{rec})
+	if len(violations) == 0 {
+		return nil
+	}
+	code := "execution_violation"
+	if len(violations) == 1 && strings.TrimSpace(violations[0].Code) != "" {
+		code = strings.TrimSpace(violations[0].Code)
+	}
+	repairability := RepairNeedsTypedAction
+	for _, violation := range violations {
+		if violation.Repairability != "" {
+			repairability = violation.Repairability
+			break
+		}
+	}
+	message := firstNonEmptyProcessText(clampWorkflowRecordText(rec.Err, 240), violations[0].Reason, code)
+	guard := NewGuardResult(code, "error", repairability, message, violations...)
+	return &guard
+}
+
+func guardErrorText(guard *GuardResult) string {
+	if guard == nil {
+		return ""
+	}
+	return guard.ErrorText()
 }
 
 func clampWorkflowRecordText(text string, limit int) string {

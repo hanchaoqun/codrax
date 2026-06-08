@@ -151,6 +151,45 @@ func TestWorkflowViolationsFromRecordExecutionProjectsDataTaskViolation(t *testi
 	}
 }
 
+func TestBuildWorkflowViolationSummaryCountsTypedBlockers(t *testing.T) {
+	summary := BuildWorkflowViolationSummary([]WorkflowViolation{
+		{
+			Code:              "value_contract_violation",
+			Severity:          "error",
+			Repairability:     RepairNeedsTypedAction,
+			ActionID:          "compute",
+			ActionKind:        string(dataquery.DataActionComputeContribs),
+			InputAlias:        "records.json",
+			Field:             "amount",
+			Operation:         "numeric_parse",
+			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+			Reason:            "amount is not numeric",
+		},
+		{Code: "zero_match_filter", Severity: "warning"},
+		{Code: "value_contract_violation", Severity: "error"},
+	})
+	if summary.Total != 3 || summary.ErrorCount != 2 || summary.WarningCount != 1 {
+		t.Fatalf("summary=%+v, want total/error/warning counts", summary)
+	}
+	if len(summary.ByCode) != 2 || summary.ByCode[0].Code != "value_contract_violation" || summary.ByCode[0].Count != 2 || summary.ByCode[1].Code != "zero_match_filter" {
+		t.Fatalf("ByCode=%+v, want sorted code counts", summary.ByCode)
+	}
+	if summary.FirstActionID != "compute" ||
+		summary.FirstActionKind != string(dataquery.DataActionComputeContribs) ||
+		summary.FirstInputAlias != "records.json" ||
+		summary.FirstField != "amount" ||
+		summary.FirstOperation != "numeric_parse" ||
+		summary.FirstRepairActionHints[0] != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("summary=%+v, want first blocker projection", summary)
+	}
+	clone := CloneWorkflowViolationSummary(summary)
+	clone.ByCode[0].Code = "mutated"
+	clone.FirstRepairActionHints[0] = "mutated"
+	if summary.ByCode[0].Code != "value_contract_violation" || summary.FirstRepairActionHints[0] != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("summary clone leaked mutation: %+v", summary)
+	}
+}
+
 func TestBuildWorkflowStateViewProjectsRecordExecutionViolationIntoActionGraph(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:             "filter_paid",
@@ -195,5 +234,15 @@ func TestBuildWorkflowStateViewProjectsRecordExecutionViolationIntoActionGraph(t
 	}
 	if len(state.ActionGraph.Ready) != 0 {
 		t.Fatalf("ActionGraph.Ready=%+v, want current failed action suppressed", state.ActionGraph.Ready)
+	}
+	if state.WorkflowViolationSummary.Total != 1 ||
+		state.WorkflowViolationSummary.FirstCode != "field_contract_violation" ||
+		state.WorkflowViolationSummary.FirstActionID != "filter_paid" {
+		t.Fatalf("WorkflowViolationSummary=%+v, want projected execution violation summary", state.WorkflowViolationSummary)
+	}
+	snapshot := state.Snapshot()
+	state.WorkflowViolationSummary.FirstActionID = "mutated"
+	if snapshot.WorkflowViolationSummary.FirstActionID != "filter_paid" {
+		t.Fatalf("snapshot summary leaked mutation: %+v", snapshot.WorkflowViolationSummary)
 	}
 }

@@ -15980,3 +15980,53 @@ Remaining architecture items:
 
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 353: Typed Execution Blocker Summary In State And Process Events
+
+Batch 347 through Batch 352 moved execution-time field, value-shape, and
+field-inference failures into typed `DataTaskViolation` and `WorkflowViolation`
+records. One gap remained: the user-facing process stream and terminal journal
+still had to rely mostly on the raw execution error text to explain what was
+blocked. That made the UX less transparent and kept one adapter-facing seam for
+future evaluator work.
+
+This batch adds a compact violation summary to the workflow IR and projects
+execution-record violations into process events as typed guard payloads. The
+summary is structural only: counts by code, first blocker action/input/field,
+repairability, and typed repair-action hints. It does not interpret business
+roles, does not parse prompt prose, and does not participate in hard gates.
+
+Generic invariants:
+
+- execution records with typed violations produce process events with typed
+  guards even when the raw error text is truncated;
+- `WorkflowStateView`, reducer snapshots, and terminal journals carry the same
+  compact violation summary;
+- REPL/CLI display renders field/value/inference blockers from typed codes and
+  structural fields, not from user-intent keywords or model prose;
+- raw action kinds remain in audit JSON while the visible Chinese UX maps common
+  typed actions to low-noise generic labels such as "补齐或派生字段" and
+  "查看字段取值分布";
+- the change is data-lane scoped and does not alter source, trace, log, or write
+  mode control flow.
+
+Changes:
+
+- [x] Added `WorkflowViolationSummary` and deterministic code-count/first-blocker
+      construction.
+- [x] Added violation summaries to `WorkflowStateView`, reducer snapshots, and
+      terminal workflow journals.
+- [x] Promoted record execution violations into process-event guard payloads and
+      event-level summaries.
+- [x] Rendered typed blocker/repair summaries in process display without parsing
+      error strings.
+- [x] Added regression coverage for summary counting, state snapshot cloning,
+      journal promotion, and process-display UX.
+
+Remaining architecture items:
+
+- [ ] Continue auditing non-field execution failures for typed equivalents:
+      max-output caps, ambiguous role selection, invalid action parameter
+      shapes, and result-shape repairability.
+- [ ] Move more evaluator decisions to consume the summary from reducer state
+      once remaining guard paths are typed.

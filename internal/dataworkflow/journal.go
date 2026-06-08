@@ -8,24 +8,25 @@ import (
 )
 
 type WorkflowJournal struct {
-	Status             string                 `json:"status,omitempty"`
-	Reason             string                 `json:"reason,omitempty"`
-	DataRounds         int                    `json:"data_rounds,omitempty"`
-	RepairRounds       int                    `json:"repair_rounds,omitempty"`
-	RecordCount        int                    `json:"record_count,omitempty"`
-	ResultSummary      string                 `json:"result_summary,omitempty"`
-	LastError          string                 `json:"last_error,omitempty"`
-	ActionEvents       []ActionEvent          `json:"action_events,omitempty"`
-	ActionGraph        ActionGraph            `json:"action_graph,omitempty"`
-	LedgerGraph        LedgerGraph            `json:"ledger_graph,omitempty"`
-	OutputGraph        OutputProjectionGraph  `json:"output_projection_graph,omitempty"`
-	ArtifactGraph      ArtifactGraphState     `json:"artifact_graph,omitempty"`
-	Progress           ProgressWindow         `json:"progress,omitempty"`
-	WorkflowViolations []WorkflowViolation    `json:"workflow_violations,omitempty"`
-	Decision           WorkflowDecision       `json:"decision,omitempty"`
-	ProcessEvents      []WorkflowJournalEvent `json:"process_events,omitempty"`
-	PlanTransitions    []PlanTransitionEvent  `json:"plan_transitions,omitempty"`
-	Resume             *WorkflowResumePayload `json:"resume,omitempty"`
+	Status                   string                   `json:"status,omitempty"`
+	Reason                   string                   `json:"reason,omitempty"`
+	DataRounds               int                      `json:"data_rounds,omitempty"`
+	RepairRounds             int                      `json:"repair_rounds,omitempty"`
+	RecordCount              int                      `json:"record_count,omitempty"`
+	ResultSummary            string                   `json:"result_summary,omitempty"`
+	LastError                string                   `json:"last_error,omitempty"`
+	ActionEvents             []ActionEvent            `json:"action_events,omitempty"`
+	ActionGraph              ActionGraph              `json:"action_graph,omitempty"`
+	LedgerGraph              LedgerGraph              `json:"ledger_graph,omitempty"`
+	OutputGraph              OutputProjectionGraph    `json:"output_projection_graph,omitempty"`
+	ArtifactGraph            ArtifactGraphState       `json:"artifact_graph,omitempty"`
+	Progress                 ProgressWindow           `json:"progress,omitempty"`
+	WorkflowViolations       []WorkflowViolation      `json:"workflow_violations,omitempty"`
+	WorkflowViolationSummary WorkflowViolationSummary `json:"workflow_violation_summary,omitempty"`
+	Decision                 WorkflowDecision         `json:"decision,omitempty"`
+	ProcessEvents            []WorkflowJournalEvent   `json:"process_events,omitempty"`
+	PlanTransitions          []PlanTransitionEvent    `json:"plan_transitions,omitempty"`
+	Resume                   *WorkflowResumePayload   `json:"resume,omitempty"`
 }
 
 type WorkflowResumePayload struct {
@@ -35,18 +36,19 @@ type WorkflowResumePayload struct {
 }
 
 type WorkflowJournalEvent struct {
-	Kind          string                     `json:"kind,omitempty"`
-	Round         int                        `json:"round,omitempty"`
-	Status        string                     `json:"status,omitempty"`
-	Reason        string                     `json:"reason,omitempty"`
-	Goal          string                     `json:"goal,omitempty"`
-	BatchPurpose  string                     `json:"batch_purpose,omitempty"`
-	NextStep      string                     `json:"next_step,omitempty"`
-	ActionSummary string                     `json:"action_summary,omitempty"`
-	AuditDetails  []string                   `json:"audit_details,omitempty"`
-	Guard         *GuardResult               `json:"guard,omitempty"`
-	Admission     *ActionDAGAdmissionSummary `json:"admission,omitempty"`
-	Decision      *WorkflowDecision          `json:"decision,omitempty"`
+	Kind             string                     `json:"kind,omitempty"`
+	Round            int                        `json:"round,omitempty"`
+	Status           string                     `json:"status,omitempty"`
+	Reason           string                     `json:"reason,omitempty"`
+	Goal             string                     `json:"goal,omitempty"`
+	BatchPurpose     string                     `json:"batch_purpose,omitempty"`
+	NextStep         string                     `json:"next_step,omitempty"`
+	ActionSummary    string                     `json:"action_summary,omitempty"`
+	AuditDetails     []string                   `json:"audit_details,omitempty"`
+	Guard            *GuardResult               `json:"guard,omitempty"`
+	ViolationSummary WorkflowViolationSummary   `json:"violation_summary,omitempty"`
+	Admission        *ActionDAGAdmissionSummary `json:"admission,omitempty"`
+	Decision         *WorkflowDecision          `json:"decision,omitempty"`
 }
 
 type ActionDAGAdmissionSummary struct {
@@ -77,6 +79,7 @@ type WorkflowJournalBuildInput struct {
 	ArtifactGraph              ArtifactGraphState
 	Progress                   ProgressWindow
 	WorkflowViolations         []WorkflowViolation
+	WorkflowViolationSummary   WorkflowViolationSummary
 	Decision                   WorkflowDecision
 	DecisionFallbackReasonCode string
 	ProcessEvents              []WorkflowJournalEvent
@@ -115,6 +118,7 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 			ArtifactGraph:              input.ArtifactGraph,
 			Progress:                   input.Progress,
 			WorkflowViolations:         input.WorkflowViolations,
+			WorkflowViolationSummary:   input.WorkflowViolationSummary,
 			Decision:                   input.Decision,
 			DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
 		}
@@ -141,26 +145,28 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 			Decision:     state.Decision,
 		}))
 	}
+	summary := firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, state.WorkflowViolationSummary, BuildWorkflowViolationSummary(violations))
 	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, input.LastError, state.DecisionFallbackReasonCode)
 	return WorkflowJournal{
-		Status:             strings.TrimSpace(input.Status),
-		Reason:             strings.TrimSpace(input.Reason),
-		DataRounds:         input.DataRounds,
-		RepairRounds:       input.RepairRounds,
-		RecordCount:        len(records),
-		ResultSummary:      input.ResultSummary,
-		LastError:          input.LastError,
-		ActionEvents:       actionEvents,
-		ActionGraph:        state.ActionGraph,
-		LedgerGraph:        state.LedgerGraph,
-		OutputGraph:        state.OutputGraph,
-		ArtifactGraph:      state.ArtifactGraph,
-		Progress:           state.Progress,
-		WorkflowViolations: violations,
-		Decision:           decision,
-		ProcessEvents:      processEvents,
-		PlanTransitions:    rtPlanTransitions(rt),
-		Resume:             BuildWorkflowResumePayload(records, current, deferred),
+		Status:                   strings.TrimSpace(input.Status),
+		Reason:                   strings.TrimSpace(input.Reason),
+		DataRounds:               input.DataRounds,
+		RepairRounds:             input.RepairRounds,
+		RecordCount:              len(records),
+		ResultSummary:            input.ResultSummary,
+		LastError:                input.LastError,
+		ActionEvents:             actionEvents,
+		ActionGraph:              state.ActionGraph,
+		LedgerGraph:              state.LedgerGraph,
+		OutputGraph:              state.OutputGraph,
+		ArtifactGraph:            state.ArtifactGraph,
+		Progress:                 state.Progress,
+		WorkflowViolations:       violations,
+		WorkflowViolationSummary: summary,
+		Decision:                 decision,
+		ProcessEvents:            processEvents,
+		PlanTransitions:          rtPlanTransitions(rt),
+		Resume:                   BuildWorkflowResumePayload(records, current, deferred),
 	}
 }
 
@@ -258,6 +264,7 @@ func cloneWorkflowJournalEvent(event WorkflowJournalEvent) WorkflowJournalEvent 
 		guard := cloneGuardResult(*event.Guard)
 		copied.Guard = &guard
 	}
+	copied.ViolationSummary = CloneWorkflowViolationSummary(event.ViolationSummary)
 	if event.Admission != nil {
 		admission := *event.Admission
 		copied.Admission = &admission

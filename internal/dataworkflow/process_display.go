@@ -111,6 +111,8 @@ func processDisplayDetails(event WorkflowJournalEvent, zh bool) []WorkflowProces
 			add("decision", "decision", "", event.Decision.Reason)
 		}
 		if event.Guard != nil && !event.Guard.Empty() {
+			add("blocker", "business", "当前阻塞：", processDisplayGuardBlocker(event.Guard, event.ViolationSummary, zh))
+			add("repair", "decision", "可继续：", processDisplayGuardRepair(event.Guard, event.ViolationSummary, zh))
 			add("failure", "failure", "原因：", event.Guard.ErrorText())
 		} else if event.Decision == nil {
 			add(processDisplayReasonKey(event), processDisplayReasonClass(event), processDisplayReasonPrefix(event, zh), event.Reason)
@@ -128,6 +130,8 @@ func processDisplayDetails(event WorkflowJournalEvent, zh bool) []WorkflowProces
 		add("decision", "decision", "", event.Decision.Reason)
 	}
 	if event.Guard != nil && !event.Guard.Empty() {
+		add("blocker", "business", "Blocked: ", processDisplayGuardBlocker(event.Guard, event.ViolationSummary, zh))
+		add("repair", "decision", "Next: ", processDisplayGuardRepair(event.Guard, event.ViolationSummary, zh))
 		add("failure", "failure", "Reason: ", event.Guard.ErrorText())
 	} else if event.Decision == nil {
 		add(processDisplayReasonKey(event), processDisplayReasonClass(event), processDisplayReasonPrefix(event, zh), event.Reason)
@@ -136,6 +140,173 @@ func processDisplayDetails(event WorkflowJournalEvent, zh bool) []WorkflowProces
 		add("audit", "audit", "Audit: ", detail)
 	}
 	return append(details, processDisplayDefaultDetails(event, zh, len(details) > 0)...)
+}
+
+func processDisplayGuardBlocker(guard *GuardResult, summary WorkflowViolationSummary, zh bool) string {
+	violation := processDisplayFirstViolation(guard, summary)
+	code := strings.TrimSpace(violation.Code)
+	if code == "" {
+		code = strings.TrimSpace(summary.FirstCode)
+	}
+	input := firstNonEmptyProcessText(violation.InputAlias, summary.FirstInputAlias)
+	field := firstNonEmptyProcessText(violation.Field, summary.FirstField, strings.Join(cleanStrings(violation.MissingFields), ", "), strings.Join(summary.FirstMissingFields, ", "))
+	operation := firstNonEmptyProcessText(violation.Operation, summary.FirstOperation)
+	reason := firstNonEmptyProcessText(violation.Reason, summary.FirstReason, guardErrorText(guard), code)
+	if zh {
+		switch code {
+		case "field_contract_violation":
+			return appendProcessDisplayContext("本步引用的字段在输入中不存在。", input, field, operation, zh)
+		case "value_contract_violation":
+			return appendProcessDisplayContext("字段值不满足本步操作需要的值类型或形状。", input, field, operation, zh)
+		case "field_inference_violation":
+			return appendProcessDisplayContext("本步还没有足够结构信息来确定应使用哪些字段。", input, field, operation, zh)
+		case "zero_match_filter":
+			return appendProcessDisplayContext("当前过滤条件没有匹配到可进入下一步的记录。", input, field, operation, zh)
+		case "unmatched_resolution":
+			return appendProcessDisplayContext("当前记录与参考/映射产物没有形成有效匹配。", input, field, operation, zh)
+		case "zero_eligible_records":
+			return appendProcessDisplayContext("当前批次没有得到符合下一步条件的记录。", input, field, operation, zh)
+		case ViolationStageNoProgress:
+			return "连续批次没有推进结构化进展，需要调整下一批原子动作。"
+		default:
+			return reason
+		}
+	}
+	switch code {
+	case "field_contract_violation":
+		return appendProcessDisplayContext("This step references fields that do not exist in the selected input.", input, field, operation, zh)
+	case "value_contract_violation":
+		return appendProcessDisplayContext("Field values do not satisfy the value shape required by this operation.", input, field, operation, zh)
+	case "field_inference_violation":
+		return appendProcessDisplayContext("This step does not have enough structural information to infer the fields to use.", input, field, operation, zh)
+	case "zero_match_filter":
+		return appendProcessDisplayContext("The current filters matched no records for the next step.", input, field, operation, zh)
+	case "unmatched_resolution":
+		return appendProcessDisplayContext("The current records did not match the reference or mapping artifact.", input, field, operation, zh)
+	case "zero_eligible_records":
+		return appendProcessDisplayContext("The current batch produced no records eligible for the next step.", input, field, operation, zh)
+	case ViolationStageNoProgress:
+		return "Repeated batches did not advance structured workflow progress; the next atomic action needs adjustment."
+	default:
+		return reason
+	}
+}
+
+func processDisplayGuardRepair(guard *GuardResult, summary WorkflowViolationSummary, zh bool) string {
+	violation := processDisplayFirstViolation(guard, summary)
+	hints := cleanStrings(append(append([]string(nil), violation.RepairActionHints...), summary.FirstRepairActionHints...))
+	if len(hints) == 0 {
+		return ""
+	}
+	if zh {
+		return "优先生成下一批结构化动作：" + strings.Join(processDisplayActionHintLabels(hints, zh), "、")
+	}
+	return "Prefer the next typed action batch: " + strings.Join(processDisplayActionHintLabels(hints, zh), ", ")
+}
+
+func processDisplayFirstViolation(guard *GuardResult, summary WorkflowViolationSummary) WorkflowViolation {
+	if guard != nil {
+		for _, violation := range guard.Violations {
+			if strings.TrimSpace(violation.Code) != "" {
+				return violation
+			}
+		}
+	}
+	return WorkflowViolation{
+		Code:              summary.FirstCode,
+		Severity:          summary.FirstSeverity,
+		Repairability:     summary.FirstRepairability,
+		ActionID:          summary.FirstActionID,
+		ActionKind:        summary.FirstActionKind,
+		InputAlias:        summary.FirstInputAlias,
+		OutputAlias:       summary.FirstOutputAlias,
+		Field:             summary.FirstField,
+		Operation:         summary.FirstOperation,
+		MissingFields:     append([]string(nil), summary.FirstMissingFields...),
+		RepairActionHints: append([]string(nil), summary.FirstRepairActionHints...),
+		Reason:            summary.FirstReason,
+	}
+}
+
+func appendProcessDisplayContext(base, input, field, operation string, zh bool) string {
+	var parts []string
+	if input != "" {
+		if zh {
+			parts = append(parts, "输入 "+input)
+		} else {
+			parts = append(parts, "input "+input)
+		}
+	}
+	if field != "" {
+		if zh {
+			parts = append(parts, "字段 "+field)
+		} else {
+			parts = append(parts, "field "+field)
+		}
+	}
+	if operation != "" {
+		if zh {
+			parts = append(parts, "操作 "+operation)
+		} else {
+			parts = append(parts, "operation "+operation)
+		}
+	}
+	if len(parts) == 0 {
+		return base
+	}
+	return base + "（" + strings.Join(parts, " · ") + "）"
+}
+
+func processDisplayActionHintLabels(hints []string, zh bool) []string {
+	hints = cleanStrings(hints)
+	out := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		if zh {
+			switch strings.TrimSpace(hint) {
+			case "inspect_material":
+				out = append(out, "检查材料或产物")
+			case "extract_records":
+				out = append(out, "抽取记录")
+			case "derive_rules":
+				out = append(out, "抽取规则")
+			case "derive_fields":
+				out = append(out, "补齐或派生字段")
+			case "filter_records":
+				out = append(out, "筛选记录")
+			case "value_distribution":
+				out = append(out, "查看字段取值分布")
+			case "join_records":
+				out = append(out, "关联记录")
+			case "enrich_records":
+				out = append(out, "应用参考信息")
+			case "coverage_diff":
+				out = append(out, "检查覆盖差异")
+			case "mapping_candidate":
+				out = append(out, "生成匹配候选")
+			case "normalize_entities":
+				out = append(out, "归一记录")
+			case "apply_entity_resolutions":
+				out = append(out, "应用匹配结果")
+			case "qualify_records":
+				out = append(out, "标记可用记录")
+			case "expand_records":
+				out = append(out, "展开记录")
+			case "group_records":
+				out = append(out, "分组汇总")
+			case "compute_contributions":
+				out = append(out, "计算贡献")
+			case "reconcile_artifacts":
+				out = append(out, "对账校验")
+			case "assemble_answer":
+				out = append(out, "生成最终输出")
+			default:
+				out = append(out, hint)
+			}
+			continue
+		}
+		out = append(out, hint)
+	}
+	return out
 }
 
 func processDisplayDefaultDetails(event WorkflowJournalEvent, zh bool, hasDetails bool) []WorkflowProcessDisplayDetail {
