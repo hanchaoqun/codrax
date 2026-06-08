@@ -14638,6 +14638,70 @@ Remaining architecture items:
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
+### Batch 329: Workflow State Builder Ownership
+
+After violation aggregation moved into `internal/dataworkflow`, the largest
+remaining adapter-owned block was the `workflow_state_json` assembly itself.
+REPL still computed required/covered/missing material sets, stage facts,
+allowed actions, custom-transform filtering, graph reducers, decision state,
+and typed violation aggregation in one local helper. That was the exact shape
+we want to retire: adapters should supply objective observations, not own the
+workflow reducer.
+
+This batch introduces a package-level `BuildWorkflowStateView` builder. REPL
+now computes only the adapter facts that are still tied to existing local
+helpers: final-answer candidacy, artifact/scaffold projections, and typed
+diagnostic discovery. The builder owns the structural state assembly:
+material coverage sets, stage facts, allowed next action contracts, custom
+transform contract filtering, reducer snapshot, ledger/output graphs, progress,
+decision, and unified workflow violations.
+
+Generic invariants:
+
+- `workflow_state_json` construction is a dataworkflow IR operation, not REPL
+  UI logic;
+- hard coverage and stage decisions use typed contracts, counters, records,
+  action graphs, and violations only;
+- adapter callbacks may provide typed facts, but they do not decide stage,
+  allowed actions, reducer graphs, or workflow decision status;
+- material coverage path matching remains domain-neutral: normalized exact
+  paths match directly, and directory-like requirements can be satisfied by
+  covered descendants;
+- no business-domain filenames, field names, regexes, or prompt prose are used
+  for hard workflow gates.
+
+Changes:
+
+- [x] Added `dataworkflow.BuildWorkflowStateView`.
+- [x] Added `WorkflowStateViewBuildInput`, `WorkflowStateLedgerCounts`, and
+      adapter-fact callback types for typed scaffold/diagnostic inputs.
+- [x] Moved material coverage set derivation into dataworkflow with
+      `MaterialCoverageSets` and `CoveragePathCovered`.
+- [x] Moved state-level custom-transform action filtering, reducer snapshot,
+      ledger/output/progress graph assignment, decision construction, and
+      workflow violation aggregation behind the builder.
+- [x] Rewired REPL state construction to call the builder instead of assembling
+      the full view locally.
+- [x] Removed obsolete REPL wrappers for action-kind extraction,
+      custom-transform contract filtering, and local typed-violation
+      aggregation.
+- [x] Added regression coverage proving the builder centralizes material
+      coverage, stage selection, adapter diagnostics, custom-transform
+      filtering, action graph readiness, and decision blocking.
+
+Remaining architecture items:
+
+- [ ] Move final-answer candidacy projection into a dataworkflow output
+      projection policy so REPL no longer decides whether an answer is durable
+      enough for `HasAnswer`.
+- [ ] Move artifact scaffold generation and field-diagnostic discovery behind
+      ArtifactGraph-aware builder inputs, then remove the adapter callback.
+- [ ] Replace remaining REPL compatibility wrappers for state facts and
+      snapshot projection once all call sites consume the dataworkflow methods
+      directly.
+- [ ] Run focused regression suites and full build/test before continuing the
+      IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

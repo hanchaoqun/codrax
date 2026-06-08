@@ -5333,50 +5333,13 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	currentBatchContract, currentBatchLayer := dataTaskWorkflowCurrentBatchContract(records, current, contract)
 	outputContract := dataTaskWorkflowOutputContract(records, current)
-	required := cleanDataTaskStrings(contract.RequiredRunnerInputPaths())
 	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
-	var missing []string
-	var coveredRequired []string
-	for _, p := range required {
-		if p == "" {
-			continue
-		}
-		if dataTaskCoveragePathCovered(covered, p) {
-			coveredRequired = append(coveredRequired, p)
-		} else {
-			missing = append(missing, p)
-		}
-	}
-	sort.Strings(required)
-	sort.Strings(coveredRequired)
-	sort.Strings(missing)
-	materialCoverageSufficient := len(required) > 0 && len(missing) == 0
-	if len(required) == 0 && dataTaskWorkflowHasMaterialProgress(records) {
-		materialCoverageSufficient = true
-	}
-	state := dataTaskWorkflowStateView{
-		MaterialCoverageAuthoritative: true,
-		WorkflowContract:              dataworkflow.CoverageContractViewFor(dataworkflow.CoverageLayerWorkflow, contract),
-		CurrentBatchContract:          dataworkflow.CoverageContractViewFor(currentBatchLayer, currentBatchContract),
-		ActionGraph:                   dataTaskWorkflowActionGraphWithDeferredQueue(records, current, deferredQueue, 48),
-		RequiredMaterialCount:         len(required),
-		RequiredMaterials:             required,
-		CoveredRequiredMaterials:      coveredRequired,
-		MissingRequiredMaterialCount:  len(missing),
-		MissingRequiredMaterials:      missing,
-		CoverageNote:                  "required/covered/missing material fields are deterministic workflow truth; compact result.artifact_access and previous_data_rounds are samples, not coverage authority",
-		OutputContract:                outputContract,
-		MaterialCoverageSufficient:    materialCoverageSufficient,
-		RuleCoverageRequired:          contract.RuleCoverageRequired,
-		DecisionRecordsRequired:       contract.DecisionRecordsRequired,
-		EntityResolutionRequired:      contract.EntityResolutionRequired,
-		ContributionLedgerRequired:    contract.ContributionLedgerRequired,
-		ReconcileRequired:             contract.ReconcileRequired,
-	}
 	var decisionRecords []dataquery.RowDecision
 	var ruleCoverageRecords []dataquery.RuleCoverageRecord
 	var contributionRecords []dataquery.ContributionRecord
 	var entityResolutionRecords []dataquery.EntityResolutionRecord
+	hasReconcile := false
+	hasAnswer := false
 	for _, rec := range records {
 		if rec.Result == nil {
 			continue
@@ -5386,91 +5349,71 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		entityResolutionRecords = append(entityResolutionRecords, rec.Result.EntityResolutions...)
 		contributionRecords = append(contributionRecords, rec.Result.Contributions...)
 		if rec.Result.Reconcile != nil {
-			state.HasReconcile = true
+			hasReconcile = true
 		}
 		if dataTaskResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
-			state.HasAnswer = true
+			hasAnswer = true
 		}
 	}
-	state.RuleCoverageRecords = len(dataquery.DedupeRuleCoverageRecords(ruleCoverageRecords))
-	state.DecisionRecords = len(dataquery.DedupeRowDecisionRecords(decisionRecords))
-	state.EntityResolutionRecords = len(dataquery.DedupeEntityResolutionRecords(entityResolutionRecords))
-	state.ContributionRecords = len(dataquery.DedupeContributionRecords(contributionRecords))
-	state.EntityStageMaterialized = state.EntityResolutionRecords > 0 || dataTaskWorkflowEntityStageMaterialized(records)
-	facts := dataTaskWorkflowStageFacts(state)
-	outputGraphInput := dataworkflow.OutputProjectionGraphInput{
-		Output:                 outputContract,
-		Coverage:               contract,
-		AnswerPresent:          state.HasAnswer,
-		ReconcilePresent:       state.HasReconcile,
-		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
-	}
-	state.CustomTransformFailures, _, _ = dataTaskCustomTransformFailureClassStats(records)
-	state.LedgerGraph = dataworkflow.BuildLedgerGraph(facts)
-	state.OutputProjectionGraph = dataworkflow.BuildOutputProjectionGraph(outputGraphInput)
-	state.NextStage = dataworkflow.NextStage(facts)
-	state.CustomTransformDisabled = dataTaskCustomTransformCooldownForState(records, state)
-	state.AllowedNextActionContracts = dataTaskWorkflowAllowedNextActionContracts(state)
-	if state.CustomTransformDisabled {
-		state.CustomTransformDisabledNote = "free-form custom_transform scripts are disabled after workflow/script risk; typed actions remain executable and are the preferred path"
-		state.AllowedNextActionContracts = dataTaskFilterCustomTransformContracts(state.AllowedNextActionContracts)
-	}
-	state.ArtifactGraph = dataworkflow.BuildArtifactGraphState(dataTaskWorkflowArtifactsNewestFirst(records), 48)
-	state.ArtifactAvailability, state.ArtifactAvailabilityCount, state.ArtifactAvailabilityTruncated = dataTaskWorkflowArtifactAvailability(records, 48)
-	state.AllowedNextActions = dataTaskActionKindsFromContracts(state.AllowedNextActionContracts)
-	state.ProgressSignatures = dataworkflow.BuildProgressWindow(dataTaskWorkflowProgressEvents(records), 6)
-	state.ActionScaffold = dataTaskWorkflowActionScaffold(records, state)
-	state.FieldContractViolations = dataTaskWorkflowFieldContractViolations(records, state, 4)
-	state.ZeroMatchFilterViolations = dataTaskWorkflowZeroMatchFilterIssues(records, state, 4)
-	state.UnmatchedResolutionViolations = dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4)
-	state.ZeroEligibleViolations = dataTaskWorkflowZeroEligibleIssues(records, state, 4)
-	state.WorkflowViolations = dataTaskWorkflowTypedViolations(records, state)
-	decisionInput := dataworkflow.WorkflowDecisionInput{
-		NextStage:          state.NextStage,
-		AllowedNextActions: state.AllowedNextActions,
-		Violations:         state.WorkflowViolations,
-		LedgerGraph:        state.LedgerGraph,
-		OutputGraph:        state.OutputProjectionGraph,
-	}
+	customTransformFailures, _, _ := dataTaskCustomTransformFailureClassStats(records)
+	artifactAvailability, artifactAvailabilityCount, artifactAvailabilityTruncated := dataTaskWorkflowArtifactAvailability(records, 48)
+	dedupedEntityResolutions := dataquery.DedupeEntityResolutionRecords(entityResolutionRecords)
+	var latestEvaluation *dataquery.Evaluation
 	if eval, ok := latestDataTaskEvaluation(records); ok {
-		decisionInput = dataworkflow.WorkflowDecisionInput{
-			Status:             string(eval.Status),
-			ReasonCode:         string(eval.Status),
-			Reason:             eval.Reason,
-			NextStage:          state.NextStage,
-			AllowedNextActions: state.AllowedNextActions,
-			Violations:         state.WorkflowViolations,
-			LedgerGraph:        state.LedgerGraph,
-			OutputGraph:        state.OutputProjectionGraph,
-		}
+		copied := eval
+		latestEvaluation = &copied
 	}
-	snapshot := dataworkflow.BuildWorkflowReducerSnapshot(dataworkflow.WorkflowReducerInput{
-		Records:                    records,
-		Current:                    current,
-		DeferredQueue:              deferredQueue,
-		StageFacts:                 facts,
-		OutputGraph:                outputGraphInput,
-		ArtifactLimit:              48,
-		ProgressLimit:              6,
-		WorkflowViolations:         state.WorkflowViolations,
-		Decision:                   decisionInput,
-		DecisionFallbackReasonCode: state.NextStage,
-		ActionEventLimit:           48,
+	guardViolations := dataTaskWorkflowGuardViolations(records)
+	return dataworkflow.BuildWorkflowStateView(dataworkflow.WorkflowStateViewBuildInput{
+		Records:              records,
+		Current:              current,
+		DeferredQueue:        deferredQueue,
+		WorkflowContract:     contract,
+		CurrentBatchContract: currentBatchContract,
+		CurrentBatchLayer:    currentBatchLayer,
+		OutputContract:       outputContract,
+		CoveredMaterialPaths: covered,
+		HasMaterialProgress:  dataTaskWorkflowHasMaterialProgress(records),
+		LedgerCounts: dataworkflow.WorkflowStateLedgerCounts{
+			RuleCoverageRecords:     len(dataquery.DedupeRuleCoverageRecords(ruleCoverageRecords)),
+			DecisionRecords:         len(dataquery.DedupeRowDecisionRecords(decisionRecords)),
+			EntityResolutionRecords: len(dedupedEntityResolutions),
+			EntityStageMaterialized: len(dedupedEntityResolutions) > 0 || dataTaskWorkflowEntityStageMaterialized(records),
+			ContributionRecords:     len(dataquery.DedupeContributionRecords(contributionRecords)),
+			HasReconcile:            hasReconcile,
+			HasAnswer:               hasAnswer,
+		},
+		CustomTransformFailures: customTransformFailures,
+		CustomTransformDisabled: dataTaskCustomTransformCooldown(records),
+		CustomTransformDisabledFunc: func(state dataworkflow.WorkflowStateView) bool {
+			return dataTaskCustomTransformCooldownForState(records, state)
+		},
+		ArtifactAvailability:          artifactAvailability,
+		ArtifactAvailabilityCount:     artifactAvailabilityCount,
+		ArtifactAvailabilityTruncated: artifactAvailabilityTruncated,
+		GuardViolations:               guardViolations,
+		NoProgressThreshold:           DefaultDataTaskMaxNodeFailures,
+		LatestEvaluation:              latestEvaluation,
+		AdapterFacts: func(state dataworkflow.WorkflowStateView) dataworkflow.WorkflowStateAdapterFacts {
+			return dataworkflow.WorkflowStateAdapterFacts{
+				ActionScaffold:                dataTaskWorkflowActionScaffold(records, state),
+				FieldContractViolations:       dataTaskWorkflowFieldContractViolations(records, state, 4),
+				ZeroMatchFilterViolations:     dataTaskWorkflowZeroMatchFilterIssues(records, state, 4),
+				UnmatchedResolutionViolations: dataTaskWorkflowUnmatchedResolutionIssues(records, state, 4),
+				ZeroEligibleViolations:        dataTaskWorkflowZeroEligibleIssues(records, state, 4),
+			}
+		},
+		ArtifactLimit:    48,
+		ProgressLimit:    6,
+		ActionEventLimit: 48,
 	})
-	state.ActionGraph = snapshot.ActionGraph
-	state.LedgerGraph = snapshot.LedgerGraph
-	state.OutputProjectionGraph = snapshot.OutputGraph
-	state.ArtifactGraph = snapshot.ArtifactGraph
-	state.ProgressSignatures = snapshot.Progress
-	state.Decision = snapshot.Decision
-	return state
 }
 
 func dataTaskWorkflowStateSnapshot(state dataTaskWorkflowStateView) dataworkflow.WorkflowStateSnapshot {
 	return state.Snapshot()
 }
 
-func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dataTaskWorkflowStateView) []dataworkflow.WorkflowViolation {
+func dataTaskWorkflowGuardViolations(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowViolation {
 	var guardViolations []dataworkflow.WorkflowViolation
 	for _, rec := range records {
 		if rec.Admission == nil || rec.Admission.FinalGuard.Empty() {
@@ -5478,12 +5421,7 @@ func dataTaskWorkflowTypedViolations(records []dataTaskWorkflowRecord, state dat
 		}
 		guardViolations = append(guardViolations, rec.Admission.FinalGuard.Violations...)
 	}
-	return dataworkflow.BuildWorkflowStateViolations(dataworkflow.WorkflowStateViolationInput{
-		Records:             records,
-		State:               state,
-		GuardViolations:     guardViolations,
-		NoProgressThreshold: DefaultDataTaskMaxNodeFailures,
-	})
+	return guardViolations
 }
 
 func dataTaskRecentJoinNoProgressCount(records []dataTaskWorkflowRecord) int {
@@ -6249,14 +6187,6 @@ func dataTaskFieldSet(fields []string) map[string]string {
 		}
 	}
 	return out
-}
-
-func dataTaskActionKindsFromContracts(contracts []dataTaskActionContract) []string {
-	return dataworkflow.ActionKindsFromContracts(contracts)
-}
-
-func dataTaskFilterCustomTransformContracts(contracts []dataTaskActionContract) []dataTaskActionContract {
-	return dataworkflow.FilterCustomTransformContracts(contracts)
 }
 
 func dataTaskCustomTransformCooldown(records []dataTaskWorkflowRecord) bool {

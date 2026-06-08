@@ -134,6 +134,78 @@ func TestBuildWorkflowStateSnapshotReducesGraphsAndDecision(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowStateViewCentralizesCoverageStageAndDecision(t *testing.T) {
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:             "filter",
+		Kind:           dataquery.DataActionFilterRecords,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "filtered.json",
+	}}}
+	contract := dataquery.CoverageContract{
+		RequiredMaterials: []dataquery.CoverageMaterial{{
+			Path:      "input.csv",
+			Required:  true,
+			UsageMode: dataquery.MaterialUseScriptConsumed,
+		}},
+		ContributionLedgerRequired: true,
+	}
+	adapterCalled := false
+	view := BuildWorkflowStateView(WorkflowStateViewBuildInput{
+		Current:              current,
+		WorkflowContract:     contract,
+		CurrentBatchContract: contract,
+		CurrentBatchLayer:    CoverageLayerCurrentBatch,
+		OutputContract:       dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine},
+		CoveredMaterialPaths: map[string]bool{"./input.csv": true},
+		LedgerCounts: WorkflowStateLedgerCounts{
+			EntityStageMaterialized: true,
+		},
+		CustomTransformDisabledFunc: func(state WorkflowStateView) bool {
+			if state.NextStage != StagePrepareContributionInputs {
+				t.Fatalf("adapter saw NextStage=%q, want %q", state.NextStage, StagePrepareContributionInputs)
+			}
+			return true
+		},
+		AdapterFacts: func(state WorkflowStateView) WorkflowStateAdapterFacts {
+			adapterCalled = true
+			if !stringSliceContains(state.AllowedNextActions, string(dataquery.DataActionFilterRecords)) {
+				t.Fatalf("adapter allowed_next_actions=%v, want filter_records", state.AllowedNextActions)
+			}
+			return WorkflowStateAdapterFacts{
+				FieldContractViolations: []FieldContractIssue{{
+					ActionID:          "filter",
+					ActionKind:        string(dataquery.DataActionFilterRecords),
+					InputAlias:        "records.json",
+					MissingFields:     []string{"status"},
+					RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+					Reason:            "missing typed field",
+				}},
+			}
+		},
+		ArtifactLimit:    8,
+		ProgressLimit:    4,
+		ActionEventLimit: 8,
+	})
+	if !adapterCalled {
+		t.Fatalf("adapter facts callback was not called")
+	}
+	if !view.MaterialCoverageSufficient || view.MissingRequiredMaterialCount != 0 || len(view.CoveredRequiredMaterials) != 1 {
+		t.Fatalf("coverage view=%+v, want covered material floor", view)
+	}
+	if view.NextStage != StagePrepareContributionInputs || view.Decision.Status != "blocked" {
+		t.Fatalf("stage/decision=%q/%+v, want blocked contribution stage", view.NextStage, view.Decision)
+	}
+	if stringSliceContains(view.AllowedNextActions, string(dataquery.DataActionCustomTransform)) {
+		t.Fatalf("AllowedNextActions=%v, custom_transform should be filtered by state callback", view.AllowedNextActions)
+	}
+	if len(view.ActionGraph.Ready) != 1 || view.ActionGraph.Ready[0].ID != "filter" {
+		t.Fatalf("action graph ready=%+v, want current filter action", view.ActionGraph.Ready)
+	}
+	if len(view.WorkflowViolations) == 0 || view.WorkflowViolations[0].Code != "field_contract_violation" {
+		t.Fatalf("workflow violations=%+v, want field contract violation", view.WorkflowViolations)
+	}
+}
+
 func TestBuildWorkflowReducerSnapshotDerivesRecordInputs(t *testing.T) {
 	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
 		ID:             "next",
@@ -181,4 +253,13 @@ func TestBuildWorkflowReducerSnapshotDerivesRecordInputs(t *testing.T) {
 	if snapshot.ArtifactGraph.NodeCount != 1 || snapshot.Progress.Latest.ArtifactRows != 3 || snapshot.Progress.Latest.DecisionRecords != 1 {
 		t.Fatalf("snapshot artifacts/progress=%+v / %+v, want record-derived state", snapshot.ArtifactGraph, snapshot.Progress)
 	}
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
