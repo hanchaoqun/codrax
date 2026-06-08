@@ -1602,6 +1602,13 @@ func TestActionRunnerFilterRecordsUsesActualJSONRecordFields(t *testing.T) {
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
 	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionFilterRecords || fieldErr.InputAlias != "wrapped.json" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "predicted_only" {
+		t.Fatalf("fieldErr=%+v, want typed filter field contract", fieldErr)
+	}
 }
 
 func TestActionRunnerSeedAliasPrefersRecordArtifactOverMetadata(t *testing.T) {
@@ -4397,6 +4404,13 @@ func TestActionRunnerEnrichRecordsRejectsMissingBaseSourceField(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `enrich_records source_fields [category_raw] were not found in base input category_mapping.csv fields`) {
 		t.Fatalf("err=%v, want missing base source-field validation", err)
 	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionEnrichRecords || fieldErr.Role != "base" || fieldErr.InputAlias != "category_mapping.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "category_raw" {
+		t.Fatalf("fieldErr=%+v, want typed enrich base field contract", fieldErr)
+	}
 }
 
 func TestActionRunnerEnrichRecordsRejectsMissingMappingFields(t *testing.T) {
@@ -4428,6 +4442,13 @@ func TestActionRunnerEnrichRecordsRejectsMissingMappingFields(t *testing.T) {
 	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), `enrich_records mapping_value_field "canonical_id" was not found in mapping input category_mapping.csv fields`) {
 		t.Fatalf("err=%v, want missing mapping value-field validation", err)
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionEnrichRecords || fieldErr.Role != "mapping_value" || fieldErr.InputAlias != "category_mapping.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "canonical_id" {
+		t.Fatalf("fieldErr=%+v, want typed enrich mapping field contract", fieldErr)
 	}
 }
 
@@ -4983,6 +5004,13 @@ func TestActionRunnerComputeContributionsRejectsUnknownFields(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "value_field") || !strings.Contains(err.Error(), "amount") {
 		t.Fatalf("Run err=%v, want missing value_field diagnostic", err)
 	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionComputeContribs || fieldErr.Role != "value" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "amount" {
+		t.Fatalf("fieldErr=%+v, want typed contribution value field contract", fieldErr)
+	}
 }
 
 func TestActionRunnerComputeContributionsRejectsUnknownFilterField(t *testing.T) {
@@ -5018,6 +5046,13 @@ func TestActionRunnerComputeContributionsRejectsUnknownFilterField(t *testing.T)
 		if !strings.Contains(text, want) {
 			t.Fatalf("Run err=%q, want substring %q", text, want)
 		}
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionComputeContribs || fieldErr.Role != "filter" || fieldErr.InputAlias != "orders.csv" || len(fieldErr.missingFields()) != 1 || fieldErr.missingFields()[0] != "status_flag" {
+		t.Fatalf("fieldErr=%+v, want typed contribution filter field contract", fieldErr)
 	}
 }
 

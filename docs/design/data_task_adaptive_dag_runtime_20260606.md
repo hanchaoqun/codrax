@@ -15609,6 +15609,53 @@ Remaining architecture items:
 - [ ] Add reducer-level metrics for blocked-node sources: admission guard,
       completion guard, execution violation, and diagnostic violation.
 
+### Batch 349: Broader Typed Field Contracts For Atomic Actions
+
+After record execution violations entered workflow state, the next generic
+gap was coverage breadth. `join_records` emitted typed field-contract errors,
+but several other atomic actions still returned string-only field failures.
+That meant the shared state path existed but many reusable data operations
+could still fall back to prose-only repair context.
+
+This batch expands the same typed contract to common, domain-neutral actions:
+grouping, expansion, filtering, value distribution, qualification, enrichment,
+and contribution computation. The user-facing error messages remain unchanged
+for logs and repair prompts; the execution layer now additionally carries
+action kind, role, failed input alias, missing field(s), and available-field
+samples.
+
+Generic invariants:
+
+- every reusable atomic action should expose structural field failures as
+  typed dataquery violations when the failure has objective fields;
+- missing fields can be single or plural without changing the violation shape;
+- multi-input contribution actions may still skip non-contribution/reference
+  inputs as before; only hard failures become typed violations;
+- the runner does not infer business meaning from field names, values, or
+  task prose;
+- CLI/REPL and evaluator state benefit through the existing record-violation
+  projection without adding local fallback rules.
+
+Changes:
+
+- [x] Extended `DataFieldContractError` to carry multiple missing fields.
+- [x] Added a shared constructor for typed data field-contract errors.
+- [x] Converted field-contract failures in `group_records`,
+      `expand_records`, `filter_records`, `value_distribution`,
+      `qualify_records`, `enrich_records`, and `compute_contributions`.
+- [x] Preserved existing display error text for audit continuity.
+- [x] Extended existing dataquery regression tests to assert typed error shape
+      for filter, enrich, and contribution failures.
+
+Remaining architecture items:
+
+- [ ] Convert remaining normalize/mapping/apply-resolution field-contract
+      failures to typed execution violations.
+- [ ] Promote numeric value-contract failures into typed execution violations
+      with objective sampled-value diagnostics.
+- [ ] Feed typed execution violation counts into workflow evaluator/process
+      events so users see structural blockers without internal jargon.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

@@ -41,6 +41,7 @@ type DataFieldContractError struct {
 	ActionKind           DataActionKind `json:"action_kind,omitempty"`
 	Role                 string         `json:"role,omitempty"`
 	Field                string         `json:"field,omitempty"`
+	Fields               []string       `json:"fields,omitempty"`
 	InputAlias           string         `json:"input_alias,omitempty"`
 	AvailableFieldSample []string       `json:"available_field_sample,omitempty"`
 	Message              string         `json:"message,omitempty"`
@@ -55,14 +56,16 @@ func (e DataFieldContractError) Error() string {
 		kind = "data action"
 	}
 	role := strings.TrimSpace(e.Role)
-	field := strings.TrimSpace(e.Field)
+	fields := e.missingFields()
 	input := strings.TrimSpace(e.InputAlias)
 	var parts []string
 	if role != "" {
 		parts = append(parts, role)
 	}
-	if field != "" {
-		parts = append(parts, fmt.Sprintf("field %q", field))
+	if len(fields) == 1 {
+		parts = append(parts, fmt.Sprintf("field %q", fields[0]))
+	} else if len(fields) > 1 {
+		parts = append(parts, fmt.Sprintf("field(s) [%s]", strings.Join(fields, ", ")))
 	}
 	msg := kind
 	if len(parts) > 0 {
@@ -86,12 +89,36 @@ func (e DataFieldContractError) Violation() DataTaskViolation {
 		ActionKind:           strings.TrimSpace(string(e.ActionKind)),
 		ActualSnippet:        strings.TrimSpace(e.InputAlias),
 		InputAlias:           strings.TrimSpace(e.InputAlias),
-		MissingFields:        cleanStringSlice([]string{e.Field}),
+		MissingFields:        e.missingFields(),
 		AvailableFieldSample: cleanStringSlice(e.AvailableFieldSample),
 		Role:                 strings.TrimSpace(e.Role),
 		Repairability:        RepairabilityNeedsRecompute,
 		RepairHint:           "Use existing fields from the executable artifact schema, or add a typed action that materializes the missing field before retrying this action.",
 	}
+}
+
+func (e DataFieldContractError) missingFields() []string {
+	fields := cleanStringSlice(e.Fields)
+	if len(fields) == 0 {
+		fields = cleanStringSlice([]string{e.Field})
+	}
+	return fields
+}
+
+func dataFieldContractError(kind DataActionKind, role, inputAlias string, missingFields, availableFields []string, message string) DataFieldContractError {
+	missing := cleanStringSlice(missingFields)
+	err := DataFieldContractError{
+		ActionKind:           kind,
+		Role:                 strings.TrimSpace(role),
+		Fields:               missing,
+		InputAlias:           strings.TrimSpace(inputAlias),
+		AvailableFieldSample: cleanStringSlice(availableFields),
+		Message:              strings.TrimSpace(message),
+	}
+	if len(missing) == 1 {
+		err.Field = missing[0]
+	}
+	return err
 }
 
 // ReferenceKeyCandidate describes a record field that can define the complete
@@ -2655,7 +2682,15 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 			continue
 		}
 		if !knownFields[strings.ToLower(strings.TrimSpace(field))] {
-			return DataArtifact{}, nil, nil, fmt.Errorf("group_records field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(actionRecordFieldNames(headers, records), 32), ", "))
+			fieldNames := actionRecordFieldNames(headers, records)
+			return DataArtifact{}, nil, nil, dataFieldContractError(
+				DataActionGroupRecords,
+				"group",
+				rel,
+				[]string{field},
+				fieldNames,
+				fmt.Sprintf("group_records field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(fieldNames, 32), ", ")),
+			)
 		}
 	}
 	separator := decodeActionSeparator(firstNonEmptyString(action.Params["separator"], action.Params["join_separator"], "\n"))
@@ -2852,7 +2887,14 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 	knownFields := map[string]bool{}
 	markKnownActionFields(knownFields, headers, records)
 	if !knownFields[strings.ToLower(strings.TrimSpace(sourceField))] {
-		return DataArtifact{}, nil, nil, fmt.Errorf("expand_records source_field %q was not found in input %s", sourceField, rel)
+		return DataArtifact{}, nil, nil, dataFieldContractError(
+			DataActionExpandRecords,
+			"source",
+			rel,
+			[]string{sourceField},
+			actionRecordFieldNames(headers, records),
+			fmt.Sprintf("expand_records source_field %q was not found in input %s", sourceField, rel),
+		)
 	}
 	var rows []map[string]any
 	expandedRows := 0
@@ -2952,12 +2994,19 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 	filterDiagnostics := filterDiagnosticsJSON(records, effectiveFilters, 8, 4)
 	if len(ignoredFilterFields) > 0 {
 		fields := actionRecordFilterFieldNames(headers, records)
-		return DataArtifact{}, nil, nil, fmt.Errorf("filter_records field(s) [%s] were not found in input %s fields [%s]; field_samples=%s; filter_diagnostics=%s",
-			strings.Join(ignoredFilterFields, ", "),
+		return DataArtifact{}, nil, nil, dataFieldContractError(
+			DataActionFilterRecords,
+			"filter",
 			rel,
-			strings.Join(clampStringSliceForError(fields, 32), ", "),
-			compactFieldSampleJSON(records, filterFieldNames(filters), 8, 3),
-			filterDiagnostics,
+			ignoredFilterFields,
+			fields,
+			fmt.Sprintf("filter_records field(s) [%s] were not found in input %s fields [%s]; field_samples=%s; filter_diagnostics=%s",
+				strings.Join(ignoredFilterFields, ", "),
+				rel,
+				strings.Join(clampStringSliceForError(fields, 32), ", "),
+				compactFieldSampleJSON(records, filterFieldNames(filters), 8, 3),
+				filterDiagnostics,
+			),
 		)
 	}
 	if errText := numericFilterContractError(rel, records, effectiveFilters); errText != "" {
@@ -3049,10 +3098,17 @@ func (r ActionRunner) runValueDistribution(action DataAction) (DataArtifact, []s
 	available := actionRecordFieldNames(headers, records)
 	missing := missingActionFields(available, fields)
 	if len(missing) > 0 {
-		return DataArtifact{}, nil, fmt.Errorf("value_distribution field(s) [%s] were not found in input %s fields [%s]",
-			strings.Join(missing, ", "),
+		return DataArtifact{}, nil, dataFieldContractError(
+			DataActionValueDistribution,
+			"value_distribution",
 			rel,
-			strings.Join(clampStringSliceForError(available, 32), ", "),
+			missing,
+			available,
+			fmt.Sprintf("value_distribution field(s) [%s] were not found in input %s fields [%s]",
+				strings.Join(missing, ", "),
+				rel,
+				strings.Join(clampStringSliceForError(available, 32), ", "),
+			),
 		)
 	}
 	children := make([]DataArtifact, 0, len(fields)+1)
@@ -3241,7 +3297,15 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 			continue
 		}
 		if !knownFields[strings.ToLower(strings.TrimSpace(field))] {
-			return DataArtifact{}, nil, nil, nil, fmt.Errorf("qualify_records field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(actionRecordFieldNames(headers, records), 32), ", "))
+			fieldNames := actionRecordFieldNames(headers, records)
+			return DataArtifact{}, nil, nil, nil, dataFieldContractError(
+				DataActionQualifyRecords,
+				"condition",
+				rel,
+				[]string{field},
+				fieldNames,
+				fmt.Sprintf("qualify_records field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(fieldNames, 32), ", ")),
+			)
 		}
 	}
 	if len(statusFields) == 0 && autoStatusFields {
@@ -3250,7 +3314,15 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 	statusFields = cleanStringSlice(statusFields)
 	for _, field := range statusFields {
 		if !knownFields[strings.ToLower(strings.TrimSpace(field))] {
-			return DataArtifact{}, nil, nil, nil, fmt.Errorf("qualify_records status_field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(actionRecordFieldNames(headers, records), 32), ", "))
+			fieldNames := actionRecordFieldNames(headers, records)
+			return DataArtifact{}, nil, nil, nil, dataFieldContractError(
+				DataActionQualifyRecords,
+				"status",
+				rel,
+				[]string{field},
+				fieldNames,
+				fmt.Sprintf("qualify_records status_field %q was not found in input %s fields [%s]", field, rel, strings.Join(clampStringSliceForError(fieldNames, 32), ", ")),
+			)
 		}
 	}
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(records)))
@@ -5322,7 +5394,14 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 				}
 			}
 			if !actionRecordAnyFieldExists(baseFields, spec.SourceFields) {
-				return DataArtifact{}, nil, nil, nil, fmt.Errorf("enrich_records source_fields [%s] were not found in base input %s fields [%s]", strings.Join(spec.SourceFields, ", "), baseRel, strings.Join(clampStringSliceForError(baseFields, 24), ", "))
+				return DataArtifact{}, nil, nil, nil, dataFieldContractError(
+					DataActionEnrichRecords,
+					"base",
+					baseRel,
+					spec.SourceFields,
+					baseFields,
+					fmt.Sprintf("enrich_records source_fields [%s] were not found in base input %s fields [%s]", strings.Join(spec.SourceFields, ", "), baseRel, strings.Join(clampStringSliceForError(baseFields, 24), ", ")),
+				)
 			}
 		}
 		if len(mappingFields) > 0 && !actionRecordFieldExists(mappingFields, spec.MappingValueField) {
@@ -5330,7 +5409,14 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 				spec.MappingValueField = inferred
 			}
 			if !actionRecordFieldExists(mappingFields, spec.MappingValueField) {
-				return DataArtifact{}, nil, nil, nil, fmt.Errorf("enrich_records mapping_value_field %q was not found in mapping input %s fields [%s]", spec.MappingValueField, rel, strings.Join(clampStringSliceForError(mappingFields, 24), ", "))
+				return DataArtifact{}, nil, nil, nil, dataFieldContractError(
+					DataActionEnrichRecords,
+					"mapping_value",
+					rel,
+					[]string{spec.MappingValueField},
+					mappingFields,
+					fmt.Sprintf("enrich_records mapping_value_field %q was not found in mapping input %s fields [%s]", spec.MappingValueField, rel, strings.Join(clampStringSliceForError(mappingFields, 24), ", ")),
+				)
 			}
 		}
 		if len(mappingFields) > 0 && !actionRecordAnyFieldExists(mappingFields, spec.MappingSourceFields) {
@@ -5338,7 +5424,14 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 				spec.MappingSourceFields = inferred
 			}
 			if !actionRecordAnyFieldExists(mappingFields, spec.MappingSourceFields) {
-				return DataArtifact{}, nil, nil, nil, fmt.Errorf("enrich_records mapping_source_fields [%s] were not found in mapping input %s fields [%s]", strings.Join(spec.MappingSourceFields, ", "), rel, strings.Join(clampStringSliceForError(mappingFields, 24), ", "))
+				return DataArtifact{}, nil, nil, nil, dataFieldContractError(
+					DataActionEnrichRecords,
+					"mapping_source",
+					rel,
+					spec.MappingSourceFields,
+					mappingFields,
+					fmt.Sprintf("enrich_records mapping_source_fields [%s] were not found in mapping input %s fields [%s]", strings.Join(spec.MappingSourceFields, ", "), rel, strings.Join(clampStringSliceForError(mappingFields, 24), ", ")),
+				)
 			}
 		}
 		effectiveMappingFilters, ignoredMappingFilters := effectiveActionFiltersForRecords(spec.MappingFilters, headers, records)
@@ -6536,12 +6629,19 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		blockedStatusValues := defaultGeneratedBlockingStatusValues()
 		if len(ignoredFilterFields) > 0 {
 			fields := actionRecordFilterFieldNames(headers, records)
-			return DataArtifact{}, nil, nil, fmt.Errorf("compute_contributions filter field(s) [%s] were not found in input %s fields [%s]; field_samples=%s; filter_diagnostics=%s",
-				strings.Join(ignoredFilterFields, ", "),
+			return DataArtifact{}, nil, nil, dataFieldContractError(
+				DataActionComputeContribs,
+				"filter",
 				rel,
-				strings.Join(clampStringSliceForError(fields, 32), ", "),
-				compactFieldSampleJSON(records, append(append(filterFieldNames(filters), valueField), effectiveGroupKeyField), 8, 3),
-				filterDiagnostics,
+				ignoredFilterFields,
+				fields,
+				fmt.Sprintf("compute_contributions filter field(s) [%s] were not found in input %s fields [%s]; field_samples=%s; filter_diagnostics=%s",
+					strings.Join(ignoredFilterFields, ", "),
+					rel,
+					strings.Join(clampStringSliceForError(fields, 32), ", "),
+					compactFieldSampleJSON(records, append(append(filterFieldNames(filters), valueField), effectiveGroupKeyField), 8, 3),
+					filterDiagnostics,
+				),
 			)
 		}
 		for _, filter := range effectiveFilters {
@@ -6736,17 +6836,49 @@ func validateComputeContributionFieldContract(action DataAction, knownFields map
 		return name == "" || knownFields[name]
 	}
 	if strings.TrimSpace(valueField) != "" && !hasField(valueField) {
-		return fmt.Errorf("compute_contributions value_field %q was not found in any input record field; use extract_records/inspect_material first or set value_field to an existing field", valueField)
+		return dataFieldContractError(
+			DataActionComputeContribs,
+			"value",
+			"",
+			[]string{valueField},
+			knownActionFieldNames(knownFields),
+			fmt.Sprintf("compute_contributions value_field %q was not found in any input record field; use extract_records/inspect_material first or set value_field to an existing field", valueField),
+		)
 	}
 	if strings.TrimSpace(groupKeyField) != "" && strings.TrimSpace(groupKeyConst) == "" && !hasField(groupKeyField) {
-		return fmt.Errorf("compute_contributions group_key_field %q was not found in any input record field; use extract_records/inspect_material first or set group_key/group_key_field to an existing field", groupKeyField)
+		return dataFieldContractError(
+			DataActionComputeContribs,
+			"group",
+			"",
+			[]string{groupKeyField},
+			knownActionFieldNames(knownFields),
+			fmt.Sprintf("compute_contributions group_key_field %q was not found in any input record field; use extract_records/inspect_material first or set group_key/group_key_field to an existing field", groupKeyField),
+		)
 	}
 	for _, field := range filterFields {
 		if strings.TrimSpace(field) != "" && !hasField(field) {
-			return fmt.Errorf("compute_contributions filter field %q was not found in any input record field; use extract_records/inspect_material first or set filters_json to existing fields", field)
+			return dataFieldContractError(
+				DataActionComputeContribs,
+				"filter",
+				"",
+				[]string{field},
+				knownActionFieldNames(knownFields),
+				fmt.Sprintf("compute_contributions filter field %q was not found in any input record field; use extract_records/inspect_material first or set filters_json to existing fields", field),
+			)
 		}
 	}
 	return nil
+}
+
+func knownActionFieldNames(fields map[string]bool) []string {
+	out := make([]string, 0, len(fields))
+	for field, ok := range fields {
+		if ok && strings.TrimSpace(field) != "" {
+			out = append(out, field)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func missingComputeContributionFields(headers []string, records []actionRecord, valueField, groupKeyField, groupKeyConst, operation string, filters []contributionFilter) []string {
