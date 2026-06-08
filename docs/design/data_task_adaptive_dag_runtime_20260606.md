@@ -17274,7 +17274,46 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Continue moving deterministic fallback selection out of REPL callbacks
+- [ ] Continue moving non-prefix deterministic fallback selection out of REPL
+      callbacks and into reducer-owned decisions.
+- [ ] Move repeated-node expansion and field-contract recovery selection into
+      reducer-owned workflow decisions.
+- [ ] Keep the real-scenario gate closed until this IR backlog is implemented
+      or explicitly marked non-blocking.
+
+### Batch 385: Workflow-Owned Prefix Fallback Reducers
+
+ActionDAG admission already lived in `dataworkflow`, but the callbacks that
+split model-emitted action batches still held REPL-local scheduling rules. That
+kept the runtime dependent on UI-layer decisions for a core graph operation:
+when to execute only the first ready rank and defer the rest.
+
+Generic invariants:
+
+- action-prefix splitting is ActionDAG scheduling, not REPL behavior;
+- dependency-rank splits use typed action capabilities and output aliases;
+- intra-batch producer/consumer splits use generated artifact aliases, not
+  prompt text;
+- stage-prefix splits use `WorkflowStateView` and allowed typed actions;
+- executable-prefix fallback still accepts a staging-guard callback because the
+  full admission guard has not yet been reduced into one pure workflow entry
+  point.
+
+Changes:
+
+- [x] Added workflow-owned `InitialRankPrefixFallback`.
+- [x] Added workflow-owned `IntraBatchDependencyPrefixFallback` and
+      `FirstIntraBatchDependency`.
+- [x] Added workflow-owned `StagePrefixFallbackWithRemainder` and
+      `SplitActionRankForState`.
+- [x] Added workflow-owned `ExecutablePrefixFallback`.
+- [x] Rewired the REPL fallback wrappers to call these reducers.
+- [x] Added regression coverage for producer/consumer splitting,
+      stage-aware rank splitting, and executable-prefix selection.
+
+Remaining architecture items:
+
+- [ ] Move non-prefix deterministic fallback selection out of REPL callbacks
       and into reducer-owned decisions.
 - [ ] Move repeated-node expansion and field-contract recovery selection into
       reducer-owned workflow decisions.

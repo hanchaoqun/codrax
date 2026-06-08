@@ -353,72 +353,18 @@ func dataTaskGuardHasCode(guard dataworkflow.GuardResult, codes ...string) bool 
 }
 
 func dataTaskInitialRankPrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
-	if len(plan.Actions) < 2 || dataTaskWorkflowHasSuccessfulResult(records) {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	prefix, rest, split := dataworkflow.SplitInitialDiscoveryDependencyRank(plan.Actions)
-	if !split || len(prefix) == 0 || len(rest) == 0 {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	out := plan
-	out.Actions = prefix
-	out.Script = ""
-	out.ContinueAfter = true
-	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = "execute the first typed data action rank before downstream graph stages"
-	}
-	if strings.TrimSpace(out.NextBatch) == "" {
-		out.NextBatch = "continue with the deferred typed data action ranks after this batch materializes artifacts"
-	}
-	remainder := plan
-	remainder.Actions = rest
-	remainder.Script = ""
-	remainder.ContinueAfter = true
-	return out, remainder, true
+	return dataworkflow.InitialRankPrefixFallback(dataworkflow.InitialRankPrefixFallbackInput{
+		Plan:                plan,
+		HasSuccessfulResult: dataTaskWorkflowHasSuccessfulResult(records),
+	})
 }
 
 func dataTaskIntraBatchDependencyPrefixFallback(plan dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
-	dependencyIndex, _, _, ok := dataTaskFirstIntraBatchDependency(plan.Actions)
-	if !ok || dependencyIndex <= 0 || dependencyIndex >= len(plan.Actions) {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	out := plan
-	out.Actions = append([]dataquery.DataAction(nil), plan.Actions[:dependencyIndex]...)
-	out.Script = ""
-	out.ContinueAfter = true
-	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = "execute the producer action rank before consuming its generated artifact"
-	}
-	if strings.TrimSpace(out.NextBatch) == "" {
-		out.NextBatch = "continue with the deferred dependent action after real artifact fields are available"
-	}
-	remainder := plan
-	remainder.Actions = append([]dataquery.DataAction(nil), plan.Actions[dependencyIndex:]...)
-	remainder.Script = ""
-	remainder.ContinueAfter = true
-	return out, remainder, true
+	return dataworkflow.IntraBatchDependencyPrefixFallback(plan)
 }
 
 func dataTaskFirstIntraBatchDependency(actions []dataquery.DataAction) (int, string, dataquery.DataAction, bool) {
-	produced := map[string]dataquery.DataAction{}
-	for i, action := range actions {
-		for _, input := range cleanDataTaskStrings(action.InputPaths) {
-			key := normalizeDataTaskCoveragePath(input)
-			if key == "" {
-				continue
-			}
-			if producer, ok := produced[key]; ok {
-				return i, input, producer, true
-			}
-		}
-		for _, alias := range dataTaskActionOutputAliases(action) {
-			key := normalizeDataTaskCoveragePath(alias)
-			if key != "" {
-				produced[key] = action
-			}
-		}
-	}
-	return 0, "", dataquery.DataAction{}, false
+	return dataworkflow.FirstIntraBatchDependency(actions)
 }
 
 func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
@@ -2192,12 +2138,7 @@ func dataTaskActionIsGeneratedArtifactDiagnostic(records []dataTaskWorkflowRecor
 }
 
 func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state dataTaskWorkflowStateView) bool {
-	for _, action := range state.AllowedNextActions {
-		if kind == dataquery.DataActionKind(action) {
-			return true
-		}
-	}
-	return false
+	return dataworkflow.WorkflowActionKindAllowed(kind, state)
 }
 
 func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
@@ -2220,60 +2161,22 @@ func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan 
 }
 
 func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
-	if len(records) == 0 || len(plan.Actions) < 2 || guard.Empty() {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	if !dataTaskWorkflowHasSuccessfulResult(records) {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	state := dataTaskWorkflowState(records, plan)
-	if len(state.AllowedNextActions) == 0 || len(state.MissingValidationStages()) <= 1 {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	keep, rest := dataTaskSplitActionRankForState(plan.Actions, state)
-	if len(keep) == 0 || len(keep) == len(plan.Actions) {
-		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
-	}
-	out := plan
-	out.Actions = keep
-	out.Script = ""
-	out.ContinueAfter = true
-	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = "execute the typed action prefix for the current data workflow stage"
-	}
-	if strings.TrimSpace(out.NextBatch) == "" {
-		out.NextBatch = "continue with the remaining data workflow stages after this prefix produces reusable artifacts"
-	}
-	remainder := plan
-	remainder.Actions = rest
-	remainder.Script = ""
-	remainder.ContinueAfter = true
-	return out, remainder, true
+	return dataworkflow.StagePrefixFallbackWithRemainder(dataworkflow.StagePrefixFallbackInput{
+		Plan:                plan,
+		State:               dataTaskWorkflowState(records, plan),
+		Guard:               guard,
+		HasSuccessfulResult: dataTaskWorkflowHasSuccessfulResult(records),
+	})
 }
 
 func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
-	if len(plan.Actions) < 2 || guard.Empty() {
-		return dataquery.TaskPlan{}, false
-	}
-	if dataTaskWorkflowStagingGuardResult(records, plan).Empty() {
-		return dataquery.TaskPlan{}, false
-	}
-	for prefixLen := len(plan.Actions) - 1; prefixLen >= 1; prefixLen-- {
-		out := plan
-		out.Actions = append([]dataquery.DataAction(nil), plan.Actions[:prefixLen]...)
-		out.Script = ""
-		out.ContinueAfter = true
-		if strings.TrimSpace(out.WhyThisBatch) == "" {
-			out.WhyThisBatch = "execute the valid typed data action prefix before repairing the rejected suffix"
-		}
-		if strings.TrimSpace(out.NextBatch) == "" {
-			out.NextBatch = "continue from the prefix result and replan the invalid suffix against real artifact fields"
-		}
-		if dataTaskWorkflowStagingGuardResult(records, out).Empty() {
-			return out, true
-		}
-	}
-	return dataquery.TaskPlan{}, false
+	return dataworkflow.ExecutablePrefixFallback(dataworkflow.ExecutablePrefixFallbackInput{
+		Plan:  plan,
+		Guard: guard,
+		StagingGuard: func(candidate dataquery.TaskPlan) dataworkflow.GuardResult {
+			return dataTaskWorkflowStagingGuardResult(records, candidate)
+		},
+	})
 }
 
 func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
@@ -2619,31 +2522,7 @@ func dataTaskDeferredActionInputsReady(records []dataTaskWorkflowRecord, action 
 }
 
 func dataTaskSplitActionRankForState(actions []dataquery.DataAction, state dataTaskWorkflowStateView) ([]dataquery.DataAction, []dataquery.DataAction) {
-	keep := make([]dataquery.DataAction, 0, len(actions))
-	firstRank := 0
-	for _, action := range actions {
-		kind := normalizeDataActionKindForWorkflow(action.Kind)
-		if !dataTaskWorkflowActionKindAllowed(kind, state) {
-			break
-		}
-		if kind == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
-			break
-		}
-		rank := dataTaskActionDependencyRank(kind)
-		if rank > 0 {
-			if firstRank == 0 {
-				firstRank = rank
-			} else if rank != firstRank {
-				break
-			}
-		}
-		keep = append(keep, action)
-	}
-	if len(keep) == 0 {
-		return nil, append([]dataquery.DataAction(nil), actions...)
-	}
-	rest := append([]dataquery.DataAction(nil), actions[len(keep):]...)
-	return keep, rest
+	return dataworkflow.SplitActionRankForState(actions, state)
 }
 
 func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
