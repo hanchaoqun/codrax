@@ -330,7 +330,16 @@ func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) 
 		renderer: render.New(&out, true),
 		language: "zh",
 	}
-	r.emitDataTaskWorkflowAudit("repair", 1, dataTaskBusinessDetail("目标：计算业务指标"), dataTaskFailureDetail("上次失败 execute data task"))
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:   "repair",
+		Round:  1,
+		Status: "failed",
+		Reason: "上次失败 execute data task",
+		Plan: dataquery.TaskPlan{
+			Goal: "计算业务指标",
+		},
+	})
+	r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeGoal: true, IncludeFailure: true})
 
 	got := stripANSIOnly(out.String())
 	want := "数据工作流 · 修复第 1 次 · 未读源码"
@@ -357,8 +366,14 @@ func TestDataTaskWorkflowGuardContextDetailsUseTypedGuard(t *testing.T) {
 		WhyThisBatch: "校验字段契约",
 		NextBatch:    "补齐缺失字段后继续",
 	}
-	details := dataTaskWorkflowGuardContextDetails("repair", plan, guard, "zh")
-	got := strings.Join(dataTaskWorkflowDetailLines("repair", 1, "zh", details...), "\n")
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:         "repair",
+		Round:        1,
+		Plan:         plan,
+		AuditDetails: []string{guard.Code},
+		Guard:        &guard,
+	})
+	got := strings.Join(dataTaskWorkflowEventDetailLines(event, "zh", dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeFailure: true, IncludeAudit: true}), "\n")
 	for _, want := range []string{"本批：校验字段契约", "下一步：补齐缺失字段后继续", "原因：missing field amount", "审计：field_contract"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed guard detail missing %q:\n%s", want, got)
@@ -375,7 +390,13 @@ func TestEmitDataTaskWorkflowAuditKeepsAuditCountsOutOfTitle(t *testing.T) {
 		renderer: render.New(&out, true),
 		language: "zh",
 	}
-	r.emitDataTaskWorkflowAudit("result", 3, "消费材料 12 · 规则覆盖 9", dataTaskBusinessDetail("目标：计算业务指标"))
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:         "result",
+		Round:        3,
+		Plan:         dataquery.TaskPlan{Goal: "计算业务指标"},
+		AuditDetails: []string{"消费材料 12 · 规则覆盖 9"},
+	})
+	r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeGoal: true, IncludeAudit: true})
 
 	got := stripANSIOnly(out.String())
 	if strings.Contains(got, "数据工作流 · 结果第 3 批 · 消费材料") {
@@ -397,7 +418,16 @@ func TestEmitDataTaskWorkflowAuditDoesNotRepeatPlanDetailsOnEvaluate(t *testing.
 		renderer: render.New(&out, true),
 		language: "zh",
 	}
-	r.emitDataTaskWorkflowAudit("evaluate", 4, dataTaskBusinessDetail("目标：计算业务指标"), dataTaskBusinessDetail("本批：抽取字段"), dataTaskBusinessDetail("下一步：汇总输出"))
+	event := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
+		Kind:  "evaluate",
+		Round: 4,
+		Plan: dataquery.TaskPlan{
+			Goal:         "计算业务指标",
+			WhyThisBatch: "抽取字段",
+			NextBatch:    "汇总输出",
+		},
+	})
+	r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeGoal: true, IncludeBatch: true, IncludeNext: true})
 
 	got := stripANSIOnly(out.String())
 	if strings.Contains(got, "目标：计算业务指标") || strings.Contains(got, "本批：抽取字段") || strings.Contains(got, "下一步：汇总输出") {
@@ -460,7 +490,7 @@ func TestDataTaskPlanAuditSplitsTypedIntentIntoDetails(t *testing.T) {
 	if strings.Contains(got, "目标 ") || strings.Contains(got, "本批 ") || strings.Contains(got, "下一步 ") {
 		t.Fatalf("plan summary should not inline long typed intent details:\n%s", got)
 	}
-	details := strings.Join(dataTaskPlanAuditDetails(dataquery.TaskPlan{
+	details := strings.Join(dataTaskPlanAuditDetailLines(dataquery.TaskPlan{
 		Status:        "ready",
 		InputPaths:    []string{"orders.csv"},
 		Goal:          "计算用户要求的聚合结果",
@@ -481,7 +511,7 @@ func TestDataTaskPlanAuditSplitsTypedIntentIntoDetails(t *testing.T) {
 	}
 }
 
-func TestDataTaskWorkflowDetailsUseTypedMarkers(t *testing.T) {
+func TestDataTaskWorkflowDetailsUseTypedEvents(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:        "ready",
 		Goal:          "计算用户要求的聚合结果",
@@ -494,19 +524,19 @@ func TestDataTaskWorkflowDetailsUseTypedMarkers(t *testing.T) {
 			Purpose: "抽取基础记录",
 		}},
 	}
-	planDetails := dataTaskDisplayDetailLines(dataTaskPlanAuditDetails(plan, "zh"))
-	joinedPlan := strings.Join(planDetails, "\n")
-	if strings.Contains(joinedPlan, dataTaskDetailBusinessMarker) || !strings.Contains(joinedPlan, "动作：抽取基础记录") {
-		t.Fatalf("display details should strip internal markers and show action purpose:\n%s", joinedPlan)
+	joinedPlan := strings.Join(dataTaskPlanAuditDetailLines(plan, "zh"), "\n")
+	if !strings.Contains(joinedPlan, "动作：抽取基础记录") {
+		t.Fatalf("display details should show action purpose:\n%s", joinedPlan)
 	}
 
-	executeLines := strings.Join(dataTaskWorkflowDetailLines("execute", 1, "zh", dataTaskWorkflowPlanContextDetails("execute", plan, "zh")...), "\n")
+	executeEvent := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{Kind: "execute", Round: 1, Plan: plan})
+	executeLines := strings.Join(dataTaskWorkflowEventDetailLines(executeEvent, "zh", dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true}), "\n")
 	if strings.Contains(executeLines, "目标：") || !strings.Contains(executeLines, "本批：抽取基础记录") || !strings.Contains(executeLines, "下一步：根据抽取结果继续归一和汇总") {
 		t.Fatalf("execute workflow lines should show batch context without repeating goal:\n%s", executeLines)
 	}
 
-	resultDetails := append([]string{"消费材料 2"}, dataTaskWorkflowPlanContextDetails("result", plan, "zh")...)
-	resultLines := strings.Join(dataTaskWorkflowDetailLines("result", 1, "zh", resultDetails...), "\n")
+	resultEvent := dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{Kind: "result", Round: 1, Plan: plan, AuditDetails: []string{"消费材料 2"}})
+	resultLines := strings.Join(dataTaskWorkflowEventDetailLines(resultEvent, "zh", dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeActions: true, IncludeAudit: true}), "\n")
 	if strings.Contains(resultLines, "目标：") || strings.Contains(resultLines, "本批：") || !strings.Contains(resultLines, "审计：消费材料 2") {
 		t.Fatalf("result workflow lines should keep audit low-noise without repeated business intent:\n%s", resultLines)
 	}

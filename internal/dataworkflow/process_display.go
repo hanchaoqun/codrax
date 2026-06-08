@@ -108,6 +108,8 @@ func processDisplayDetails(event WorkflowJournalEvent, zh bool) []WorkflowProces
 		}
 		if event.Guard != nil && !event.Guard.Empty() {
 			add("failure", "failure", "原因：", event.Guard.ErrorText())
+		} else if event.Decision == nil {
+			add(processDisplayReasonKey(event), processDisplayReasonClass(event), processDisplayReasonPrefix(event, zh), event.Reason)
 		}
 		for _, detail := range event.AuditDetails {
 			add("audit", "audit", "审计：", detail)
@@ -123,6 +125,8 @@ func processDisplayDetails(event WorkflowJournalEvent, zh bool) []WorkflowProces
 	}
 	if event.Guard != nil && !event.Guard.Empty() {
 		add("failure", "failure", "Reason: ", event.Guard.ErrorText())
+	} else if event.Decision == nil {
+		add(processDisplayReasonKey(event), processDisplayReasonClass(event), processDisplayReasonPrefix(event, zh), event.Reason)
 	}
 	for _, detail := range event.AuditDetails {
 		add("audit", "audit", "Audit: ", detail)
@@ -190,6 +194,39 @@ func processDisplayDefaultDetails(event WorkflowJournalEvent, zh bool, hasDetail
 		return nil
 	}
 	return []WorkflowProcessDisplayDetail{detail}
+}
+
+func processDisplayReasonKey(event WorkflowJournalEvent) string {
+	if processDisplayStatusLooksFailure(event.Status) {
+		return "failure"
+	}
+	return "reason"
+}
+
+func processDisplayReasonClass(event WorkflowJournalEvent) string {
+	if processDisplayStatusLooksFailure(event.Status) {
+		return "failure"
+	}
+	return "decision"
+}
+
+func processDisplayReasonPrefix(event WorkflowJournalEvent, zh bool) string {
+	if processDisplayStatusLooksFailure(event.Status) {
+		if zh {
+			return "原因："
+		}
+		return "Reason: "
+	}
+	return ""
+}
+
+func processDisplayStatusLooksFailure(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "failure", "error", "blocked", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func maxProcessRound(round int) int {

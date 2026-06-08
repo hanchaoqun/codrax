@@ -14467,7 +14467,50 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Convert raw continuation/fallback/retry reasons into typed
+- [x] Convert raw continuation/fallback/retry reasons into typed
       `WorkflowProcessEventInput` where they are system decisions.
-- [ ] Remove the legacy detail-marker compatibility functions after all
+- [x] Remove the legacy detail-marker compatibility functions after all
       remaining raw-string progress callers have typed event inputs.
+
+### Batch 320: Remove REPL Detail Marker Compatibility
+
+After typed event rendering landed, raw continuation/fallback/retry progress
+still passed system decision reasons through the old detail-string path. That
+kept marker parsing alive even though the underlying facts were no longer
+model prose: they were system decisions such as deferred dispatch, deterministic
+fallback, structural patch, or repair/failure status.
+
+This batch converts those decisions into typed process events. The shared
+process display now renders `WorkflowJournalEvent.Reason` as a decision detail
+or, when the event status is failed/blocked/rejected, as a failure reason.
+REPL and CLI progress no longer call the legacy marker path. The old marker
+constants, marker constructors, marker parser, old audit/progress functions,
+and marker-based tests were removed.
+
+Generic invariants:
+
+- system decisions use typed process event fields;
+- failed/blocked/rejected statuses render reason as failure context;
+- non-failure continuation/fallback reasons render as decision context;
+- no raw progress caller parses localized display text;
+- CLI still writes progress to the progress writer/stderr path, not stdout;
+- no business-domain roles or field names are introduced.
+
+Changes:
+
+- [x] Added process-display support for `WorkflowJournalEvent.Reason`.
+- [x] Added REPL reason/failure process event helpers.
+- [x] Added CLI reason/failure process event helpers.
+- [x] Rewired REPL continuation, deferred, patch, repair, and fallback
+      progress to typed events.
+- [x] Rewired CLI continuation, deferred, patch, repair, resume, and fallback
+      progress to typed events.
+- [x] Rewired plan progress details to typed event detail lines.
+- [x] Removed legacy REPL detail-marker functions and the old string parser.
+- [x] Updated UX regression tests to assert typed event rendering instead of
+      marker stripping.
+
+Remaining architecture items:
+
+- [x] Run focused regression suites and full build/test before considering the
+      IR process-event/display gap closed.
