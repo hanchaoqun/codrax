@@ -578,7 +578,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, nextDeferred)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextDeferred)
 			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, postResultDecision.Reason)
-			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds+1, nextDeferred, postResultDecision.Remainder, postResultDecision.DeferredStatus, true, "dispatch ready deferred typed data action rank", "")
+			runtimePostResultDecision := postResultDecision
+			runtimePostResultDecision.Plan = nextDeferred
+			advance := workflowRuntime.ApplyPostResultDecision(dataRounds, runtimePostResultDecision).Advance
 			remainingDeferred := dataworkflow.DeferredQueuePlan(advance.Queue)
 			if len(remainingDeferred.Actions) > 0 {
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "deferred", dataRounds+1, remainingDeferred)
@@ -588,7 +590,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		case dataworkflow.PostResultUpdateDeferred:
 			deferredPlan := postResultDecision.DeferredPlan
 			status := postResultDecision.DeferredStatus
-			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false, "", dataTaskDeferredQueueBlockedSegment(cfg.Language, status))
+			advance := workflowRuntime.ApplyPostResultDecision(dataRounds, postResultDecision).Advance
 			switch advance.Action {
 			case dataworkflow.DeferredQueueTransitionRetain:
 				emitWorkflowReason("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(cfg.Language, status))
@@ -614,7 +616,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
 		default:
-			workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{}, false, "", "")
+			workflowRuntime.ApplyPostResultDecision(dataRounds, postResultDecision)
 		}
 		evaluator, evalOK := cfg.Planner.(DataTaskEvaluator)
 		continuer, contOK := cfg.Planner.(DataTaskContinuationPlanner)

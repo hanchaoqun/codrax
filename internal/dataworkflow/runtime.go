@@ -49,6 +49,12 @@ type DeferredQueueAdvanceDecision struct {
 	Reason         string                         `json:"reason,omitempty"`
 }
 
+type PostResultRuntimeDecision struct {
+	PostResult PostResultDecision           `json:"post_result,omitempty"`
+	Advance    DeferredQueueAdvanceDecision `json:"advance,omitempty"`
+	Applied    bool                         `json:"applied,omitempty"`
+}
+
 type CandidatePlanAdmissionDecision struct {
 	Admission      ActionDAGAdmissionDecision `json:"admission,omitempty"`
 	Round          int                        `json:"round,omitempty"`
@@ -480,6 +486,30 @@ func (rt *WorkflowRuntime) AdvanceDeferredQueue(round int, dispatched, remainder
 		rt.ClearDeferred(round, out.Reason)
 	}
 	out.Queue = rt.DeferredQueue()
+	return out
+}
+
+func (rt *WorkflowRuntime) ApplyPostResultDecision(dataRound int, decision PostResultDecision) PostResultRuntimeDecision {
+	out := PostResultRuntimeDecision{PostResult: clonePostResultDecision(decision)}
+	switch decision.Action {
+	case PostResultDispatchDeferred:
+		out.Advance = rt.AdvanceDeferredQueue(dataRound+1, decision.Plan, decision.Remainder, decision.DeferredStatus, true, "dispatch ready deferred typed data action rank", "")
+		out.Applied = true
+	case PostResultUpdateDeferred:
+		out.Advance = rt.AdvanceDeferredQueue(dataRound, dataquery.TaskPlan{}, dataquery.TaskPlan{}, decision.DeferredStatus, false, "", "")
+		out.Applied = true
+	case PostResultEvaluate:
+		out.Advance = rt.AdvanceDeferredQueue(dataRound, dataquery.TaskPlan{}, dataquery.TaskPlan{}, DeferredDispatchStatus{}, false, "", "")
+		out.Applied = true
+	}
+	return out
+}
+
+func clonePostResultDecision(decision PostResultDecision) PostResultDecision {
+	out := decision
+	out.Plan = cloneTaskPlanValue(decision.Plan)
+	out.Remainder = cloneTaskPlanValue(decision.Remainder)
+	out.DeferredPlan = cloneTaskPlanValue(decision.DeferredPlan)
 	return out
 }
 

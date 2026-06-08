@@ -18041,7 +18041,53 @@ Remaining architecture items:
 
 - [ ] Continue moving post-execution result handling, evaluator decisions,
       admission decisions, and planner-result repair/continuation handling into
-      a single reducer-owned next-executable decision object.
+      a single reducer-owned next-executable decision object. Post-result
+      deferred queue mutation moved into runtime IR in Batch 422; evaluator and
+      planner-result handling remain open.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 422: Runtime-Owned Post-Result Deferred Apply
+
+Batch 421 unified the pre-run terminal/budget/pre-execution ordering. The next
+post-execution seam was deferred queue mutation after a successful data batch.
+`DecidePostResult` already selected whether to dispatch a ready deferred rank,
+update a blocked deferred queue, run a deterministic fallback, or evaluate, but
+CLI and REPL still called `AdvanceDeferredQueue` directly and repeated the
+dispatch/update/evaluate queue lifecycle.
+
+This batch adds runtime-owned application of post-result decisions. UI adapters
+still render retained/discarded/remaining queue messages and audit paths, but
+the queue mutation itself now consumes one typed `PostResultDecision`.
+
+Generic invariants:
+
+- post-result queue changes consume `PostResultDecision`, not adapter prose;
+- dispatch advances to `dataRound+1` and records the protected plan the adapter
+  is about to run;
+- update applies deferred lifecycle from `DeferredDispatchStatus`;
+- evaluate clears empty/obsolete queue state through the same runtime boundary;
+- fallback plans remain adapter-rendered plan switches and do not mutate the
+  deferred queue unless a later accepted plan explicitly queues work;
+- source analysis, trace/log analysis, operation, write mode, action execution,
+  planner prompts, and output contracts are unchanged.
+
+Changes:
+
+- [x] Added `PostResultRuntimeDecision`.
+- [x] Added `WorkflowRuntime.ApplyPostResultDecision`.
+- [x] Added regression coverage for dispatch, lifecycle retain/discard, empty
+      evaluate queue handling, and clone isolation.
+- [x] Rewired CLI post-result deferred dispatch/update/evaluate queue mutation
+      to the runtime method.
+- [x] Rewired REPL post-result deferred dispatch/update/evaluate queue mutation
+      to the runtime method.
+
+Remaining architecture items:
+
+- [ ] Continue moving evaluator decisions and planner-result
+      repair/continuation handling into a single reducer-owned next-executable
+      decision object.
 - [ ] Do not rerun the real local scenario until this current IR queue is
       either implemented or explicitly classified as non-blocking.
 

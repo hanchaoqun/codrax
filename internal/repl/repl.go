@@ -1982,7 +1982,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.emitDataTaskPlanAudit(nextDeferred)
 			r.auditDataTaskPlan("continue", dataRounds+1, nextDeferred)
 			currentPlan = setCurrentPlan("deferred_dispatch", dataRounds+1, nextDeferred, postResultDecision.Reason)
-			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds+1, nextDeferred, postResultDecision.Remainder, postResultDecision.DeferredStatus, true, "dispatch ready deferred typed data action rank", "")
+			runtimePostResultDecision := postResultDecision
+			runtimePostResultDecision.Plan = nextDeferred
+			advance := workflowRuntime.ApplyPostResultDecision(dataRounds, runtimePostResultDecision).Advance
 			remainingDeferred := dataworkflow.DeferredQueuePlan(advance.Queue)
 			if len(remainingDeferred.Actions) > 0 {
 				r.auditDataTaskPlan("deferred", dataRounds+1, remainingDeferred)
@@ -1992,7 +1994,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		case dataworkflow.PostResultUpdateDeferred:
 			deferredPlan := postResultDecision.DeferredPlan
 			status := postResultDecision.DeferredStatus
-			advance := workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false, "", dataTaskDeferredQueueBlockedSegment(r.language, status))
+			advance := workflowRuntime.ApplyPostResultDecision(dataRounds, postResultDecision).Advance
 			switch advance.Action {
 			case dataworkflow.DeferredQueueTransitionRetain:
 				emitWorkflowReason("deferred", dataRounds, dataTaskDeferredQueueRetainedSegment(r.language, status))
@@ -2018,7 +2020,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, reason)
 			continue
 		default:
-			workflowRuntime.AdvanceDeferredQueue(dataRounds, dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{}, false, "", "")
+			workflowRuntime.ApplyPostResultDecision(dataRounds, postResultDecision)
 		}
 		evaluator, evalOK := r.dataTaskPlanner.(DataTaskEvaluator)
 		continuer, contOK := r.dataTaskPlanner.(DataTaskContinuationPlanner)
