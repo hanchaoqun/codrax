@@ -1480,11 +1480,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
+			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "repl", guard)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = workflowRuntime.IncrementRepairRound()
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 					Kind:         "repair",
 					Round:        repairRounds,
@@ -1581,10 +1582,11 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
+			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1594,7 +1596,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1603,7 +1605,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "broad material plan converted to material discovery")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1612,7 +1614,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1622,7 +1624,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "converted invalid record action to bounded record extraction")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1631,7 +1633,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				r.emitDataTaskPlanAudit(fallback)
@@ -1639,7 +1641,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, "materialized historical missing join field from existing artifacts")
 				continue
 			}
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			appendRecord(guardRecord)
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds = workflowRuntime.IncrementRepairRound()
 				emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{

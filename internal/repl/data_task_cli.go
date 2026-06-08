@@ -269,7 +269,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if guard := dataTaskTerminalWorkflowGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
+			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "terminal workflow guard blocked current plan", "cli", guard)
 			repaired, nextRepairRounds, ok, repairErr := repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
 			repairRounds = nextRepairRounds
@@ -277,7 +278,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if repairErr != nil {
 				return "", repairErr
 			}
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			appendRecord(guardRecord)
 			if ok {
 				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
 					logging.Info("[cli/data] normalized terminal-workflow repaired data task plan: %s", strings.Join(notes, "; "))
@@ -327,10 +328,11 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if guard := dataTaskWorkflowStagingGuardResult(records, currentPlan); !guard.Empty() {
 			errText := guard.ErrorText()
-			guardRecords := recordsWith(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
+			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
 			if fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, reason)
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -340,7 +342,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			if fallback, ok := dataTaskCoverageExpansionFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "missing material coverage converted to atomic coverage batch")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -349,7 +351,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			if fallback, ok := dataTaskMaterialDiscoveryFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "broad material plan converted to material discovery")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -358,7 +360,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			if fallback, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "trimmed multi-stage data plan to current DAG stage")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -368,7 +370,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			if fallback, ok := dataTaskInvalidRecordActionFallback(records, currentPlan, errText); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "converted invalid record action to bounded record extraction")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -377,7 +379,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				continue
 			}
 			if fallback, ok := dataTaskHistoricalMissingJoinFieldFallback(records, currentPlan); ok {
-				appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+				appendRecord(guardRecord)
 				emitWorkflowReason("continue", dataRounds, "materialized historical missing join field from existing artifacts")
 				fallback = protectPlan(fallback)
 				auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
@@ -392,7 +394,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if err != nil {
 				return "", err
 			}
-			appendRecord(dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			appendRecord(guardRecord)
 			if ok {
 				if normalized, notes := normalizeDataTaskPlanShapeForPolicy(repaired, policy); len(notes) > 0 {
 					logging.Info("[cli/data] normalized repaired data task plan: %s", strings.Join(notes, "; "))

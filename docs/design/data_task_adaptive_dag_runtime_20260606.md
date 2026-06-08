@@ -15262,6 +15262,48 @@ Remaining architecture items:
       data staging hard gates.
 - [x] Run full build/test before continuing the IR closure audit.
 
+### Batch 342: Project Execution-Time Guards Into ActionGraph
+
+Candidate-plan admission already preserved rejected guard results as typed
+admission records. A residual gap remained in the execution-time staging guard:
+when a current batch was rechecked before execution and blocked, CLI/REPL
+recorded only `Err` text. The checkpoint carried the typed guard, but the live
+workflow history did not, so later `WorkflowStateView.WorkflowViolations` and
+`ActionGraph.Blocked` could miss the blocked action unless the candidate had
+failed during initial admission.
+
+This batch adds a shared record/admission helper for execution-time guard
+blocks and uses it in both CLI and REPL. A guard-blocked current plan now
+records the same `FinalGuard` shape as a rejected candidate admission.
+
+Generic invariants:
+
+- every hard staging guard that blocks a candidate or current executable batch
+  is represented as typed admission state;
+- ActionGraph blocked nodes are derived from typed guard violations, not from
+  parsing error prose;
+- CLI and REPL use the same record helper for execution-time guard blocks;
+- checkpoint files, process events, and repair prompts still receive the
+  original guard text for UX, but hard state consumes typed guard objects;
+- source-code, trace/log, operation, and write-mode paths are untouched.
+
+Changes:
+
+- [x] Added `dataTaskWorkflowRecordForGuard` and
+      `dataTaskAdmissionDecisionForGuard`.
+- [x] Rewired CLI terminal/staging guard blocks to append guard records with
+      typed `FinalGuard`.
+- [x] Rewired REPL terminal/staging guard blocks to append guard records with
+      typed `FinalGuard`.
+- [x] Added regression coverage proving execution-time guard records project
+      into `WorkflowStateView.ActionGraph.Blocked`.
+
+Remaining architecture items:
+
+- [x] Execution-time data guards now enter workflow state as typed admission
+      records.
+- [x] Run full build/test before continuing the IR closure audit.
+
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
 The deferred queue had already moved into `WorkflowRuntime`, but ready dispatch

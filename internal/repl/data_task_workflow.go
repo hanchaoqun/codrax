@@ -5042,6 +5042,31 @@ func dataTaskAdmissionDecisionForPlan(decision dataworkflow.ActionDAGAdmissionDe
 	return &copied
 }
 
+func dataTaskWorkflowRecordForGuard(plan dataquery.TaskPlan, guard dataworkflow.GuardResult) dataTaskWorkflowRecord {
+	errText := guard.ErrorText()
+	return dataTaskWorkflowRecord{
+		Plan:      plan,
+		Err:       errText,
+		Admission: dataTaskAdmissionDecisionForGuard(plan, guard),
+	}
+}
+
+func dataTaskAdmissionDecisionForGuard(plan dataquery.TaskPlan, guard dataworkflow.GuardResult) *dataworkflow.ActionDAGAdmissionDecision {
+	if guard.Empty() {
+		return nil
+	}
+	copiedPlan := plan
+	decision := dataworkflow.ActionDAGAdmissionDecision{
+		Plan:          copiedPlan,
+		Original:      copiedPlan,
+		Guard:         guard,
+		FinalGuard:    guard,
+		GuardErr:      guard.ErrorText(),
+		FinalGuardErr: guard.ErrorText(),
+	}
+	return &decision
+}
+
 func dataTaskAdmissionPlanMatches(a, b dataquery.TaskPlan) bool {
 	if len(a.Actions) != len(b.Actions) {
 		return false

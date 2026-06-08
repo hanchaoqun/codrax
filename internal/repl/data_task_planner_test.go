@@ -5936,6 +5936,28 @@ func TestDataTaskWorkflowStateProjectsRejectedAdmissionGuard(t *testing.T) {
 	}
 }
 
+func TestDataTaskWorkflowRecordForGuardProjectsBlockedAction(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "compute_missing",
+		Kind:       dataquery.DataActionComputeContribs,
+		InputPaths: []string{"records.json"},
+	}
+	guard := dataworkflow.ActionInputContractGuardResult(dataworkflow.ActionInputContractGuardInput{
+		Code:       "missing_action_inputs",
+		Action:     action,
+		InputAlias: "records.json",
+		Message:    "compute needs input records",
+	})
+	record := dataTaskWorkflowRecordForGuard(dataquery.TaskPlan{Actions: []dataquery.DataAction{action}}, guard)
+	if record.Admission == nil || record.Admission.FinalGuard.Code != "missing_action_inputs" {
+		t.Fatalf("record.Admission=%+v, want final guard preserved", record.Admission)
+	}
+	state := dataTaskWorkflowState([]dataTaskWorkflowRecord{record}, dataquery.TaskPlan{})
+	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].ID != "compute_missing" {
+		t.Fatalf("ActionGraph.Blocked=%+v, want guard projected as blocked action", state.ActionGraph.Blocked)
+	}
+}
+
 func TestDataTaskStagingGuardRejectsNonRecordArtifactInput(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
