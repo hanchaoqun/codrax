@@ -1599,12 +1599,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		case dataworkflow.WorkflowPreRunBudgetReturnResult:
 			if preRunHasResult {
-				msg := dataTaskAnswerMarkdown(r.language, preRunResult)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: preRunDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &preRunResult})
-				r.finishDataTaskRouteSpinner("budget_exhausted")
-				r.renderBordered(msg)
-				r.lastAnswerOrigin = replAnswerOriginLocal
-				r.recordTurn(display, line, msg, memory.KindPipeline)
+				r.finishDataTaskWithFinalResult("budget_exhausted", preRunDecision.Reason, records, currentPlan, preRunResult, display, line, dataRounds, repairRounds)
 				return
 			}
 		case dataworkflow.WorkflowPreRunPreExecutionFallback:
@@ -1954,20 +1949,10 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		continuer, contOK := r.dataTaskPlanner.(DataTaskContinuationPlanner)
 		if !evalOK {
 			if !currentPlan.ContinueAfter {
-				msg := dataTaskAnswerMarkdown(r.language, result)
-				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: "data task result completed without evaluator", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-				r.finishDataTaskRouteSpinner("complete")
-				r.renderBordered(msg)
-				r.lastAnswerOrigin = replAnswerOriginLocal
-				r.recordTurn(display, line, msg, memory.KindPipeline)
+				r.finishDataTaskWithFinalResult("complete", "data task result completed without evaluator", records, currentPlan, result, display, line, dataRounds, repairRounds)
 				return
 			}
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task produced a result but requested continuation and evaluator is unavailable", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("partial_answer_possible")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
+			r.finishDataTaskWithFinalResult("partial_answer_possible", "data task produced a result but requested continuation and evaluator is unavailable", records, currentPlan, result, display, line, dataRounds, repairRounds)
 			return
 		}
 		view := runtimeView()
@@ -1999,12 +1984,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		evalDecision := dataTaskEvaluationDecisionWithRepo(r.repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, r.dataTaskMaxRepairRounds)
 		switch evalDecision.Action {
 		case dataworkflow.EvaluationDecisionReturnAnswer:
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: evalDecision.Status, Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner(evalDecision.Status)
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
+			r.finishDataTaskWithFinalResult(evalDecision.Status, evalDecision.Reason, records, currentPlan, result, display, line, dataRounds, repairRounds)
 			return
 		case dataworkflow.EvaluationDecisionReturnEvaluation:
 			msg := dataTaskEvaluationMarkdown(r.language, eval)
@@ -2147,12 +2127,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		default:
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: evalDecision.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("partial_answer_possible")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
+			r.finishDataTaskWithFinalResult("partial_answer_possible", evalDecision.Reason, records, currentPlan, result, display, line, dataRounds, repairRounds)
 			return
 		}
 	}
@@ -3696,12 +3671,7 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 		return true
 	case "complete":
 		if result, ok := latestDataTaskResult(records); ok {
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: firstNonEmptyString(plan.BlockReason, "terminal data plan completed with latest result"), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner("complete")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
+			r.finishDataTaskWithFinalResult("complete", firstNonEmptyString(plan.BlockReason, "terminal data plan completed with latest result"), records, plan, result, display, line, dataRounds, repairRounds)
 			return true
 		}
 		reason := firstNonEmptyString(plan.BlockReason, "data workflow completed without a computed result")
@@ -3714,12 +3684,7 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 		return true
 	case "budget_exhausted", "partial_answer_possible":
 		if result, ok := latestDataTaskResult(records); ok {
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: plan.Status, Reason: firstNonEmptyString(plan.BlockReason, "terminal data plan ended with latest result"), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
-			r.finishDataTaskRouteSpinner(plan.Status)
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
+			r.finishDataTaskWithFinalResult(plan.Status, firstNonEmptyString(plan.BlockReason, "terminal data plan ended with latest result"), records, plan, result, display, line, dataRounds, repairRounds)
 			return true
 		}
 		reason := firstNonEmptyString(plan.BlockReason, "data workflow ended before producing a computed result")
@@ -3733,6 +3698,22 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 	default:
 		return false
 	}
+}
+
+func (r *REPL) finishDataTaskWithFinalResult(status, reason string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, display, line string, dataRounds, repairRounds int) {
+	msg, err := finalDataTaskAnswerForCLI(r.repoRoot, records, current, result, r.language)
+	finalStatus := firstNonEmptyString(strings.TrimSpace(status), "complete")
+	finalReason := strings.TrimSpace(reason)
+	if err != nil {
+		finalStatus = "failed"
+		finalReason = err.Error()
+		msg = dataTaskErrorMarkdown(r.language, finalReason)
+	}
+	r.logDataTaskTerminal(dataTaskTerminalAudit{Status: finalStatus, Reason: finalReason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
+	r.finishDataTaskRouteSpinner(finalStatus)
+	r.renderBordered(msg)
+	r.lastAnswerOrigin = replAnswerOriginLocal
+	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
 func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []string) {

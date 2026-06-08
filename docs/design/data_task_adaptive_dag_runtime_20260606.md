@@ -20047,8 +20047,41 @@ Changes:
 
 Remaining architecture items:
 
-- [ ] Continue moving all terminal output paths, including REPL message panels,
+- [x] Continue moving all terminal output paths, including REPL message panels,
       to consume a shared final-answer adapter instead of directly formatting
-      `dataquery.Result`.
+      `dataquery.Result`. Completed in Batch 372.
+- [ ] Add a workflow-level metric for rejected terminal candidates so eval logs
+      can report when a model tried to finish with an intermediate artifact.
+
+### Batch 372: REPL Terminal Rendering Uses The Shared Final-Answer Adapter
+
+Batch 371 guarded the CLI terminal exits, but REPL still had several direct
+`dataquery.Result` formatting paths for terminal plans, evaluator return-answer
+decisions, no-evaluator fallbacks, and budget-return paths. That left a split
+contract: CLI could reject an intermediate artifact summary while REPL could
+still render it as a permanent answer panel.
+
+Generic invariant:
+
+- CLI stdout and REPL answer panels must use the same final-answer candidate
+  policy;
+- terminal audit status must be `failed` when the final-answer adapter rejects
+  a candidate;
+- REPL may still render clarification, blocked, and evaluation-only responses
+  without a final answer candidate, because those are not data-result answers.
+
+Changes:
+
+- [x] Added a REPL terminal rendering helper that calls the shared final-answer
+      adapter before rendering or recording a data result answer.
+- [x] Rewired REPL terminal plan, budget result, no-evaluator result,
+      evaluator return-answer, and default partial-answer paths to use that
+      helper.
+- [x] Removed direct `dataTaskAnswerMarkdown(r.language, ...)` result-answer
+      rendering from REPL data workflow paths.
+- [x] Ran `go test ./internal/repl`.
+
+Remaining architecture items:
+
 - [ ] Add a workflow-level metric for rejected terminal candidates so eval logs
       can report when a model tried to finish with an intermediate artifact.
