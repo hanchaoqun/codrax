@@ -44,6 +44,7 @@ type CandidatePlanAdmissionDecision struct {
 	Round          int                        `json:"round,omitempty"`
 	Source         string                     `json:"source,omitempty"`
 	Plan           dataquery.TaskPlan         `json:"plan,omitempty"`
+	ProcessEvents  []WorkflowJournalEvent     `json:"process_events,omitempty"`
 	Accepted       bool                       `json:"accepted,omitempty"`
 	Blocked        bool                       `json:"blocked,omitempty"`
 	Rewritten      bool                       `json:"rewritten,omitempty"`
@@ -442,7 +443,9 @@ func (rt *WorkflowRuntime) Admission() ActionDAGAdmissionDecision {
 }
 
 func (rt *WorkflowRuntime) AdmitCandidatePlan(round int, source string, input ActionDAGAdmissionInput) CandidatePlanAdmissionDecision {
+	processEventStart := 0
 	if rt != nil {
+		processEventStart = len(rt.processEvents)
 		input.BlockedIdempotencyKeys = mergeIdempotencyKeys(input.BlockedIdempotencyKeys, blockedIdempotencyKeysFromRecords(rt.records))
 	}
 	admission := AdmitActionDAGPlan(input)
@@ -477,7 +480,19 @@ func (rt *WorkflowRuntime) AdmitCandidatePlan(round int, source string, input Ac
 		out.Accepted = true
 	}
 	out.Admission = rt.Admission()
+	out.ProcessEvents = rt.processEventsSince(processEventStart)
 	return out
+}
+
+func (rt *WorkflowRuntime) processEventsSince(start int) []WorkflowJournalEvent {
+	if rt == nil {
+		return nil
+	}
+	events := rt.ProcessEvents()
+	if start < 0 || start > len(events) {
+		start = 0
+	}
+	return cloneWorkflowJournalEvents(events[start:])
 }
 
 func (rt *WorkflowRuntime) SetRounds(dataRounds, repairRounds int) {

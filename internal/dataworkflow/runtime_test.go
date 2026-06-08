@@ -198,6 +198,18 @@ func TestWorkflowRuntimeAdmitsCandidatePlanTransition(t *testing.T) {
 	if len(transitions) != 1 || transitions[0].Source != "continue" || transitions[0].FirstActionID != "extract" {
 		t.Fatalf("transitions=%+v, want continue transition", transitions)
 	}
+	var transitionEvents int
+	for _, event := range decision.ProcessEvents {
+		if event.Kind == "plan_transition" {
+			transitionEvents++
+			if event.Round != 3 || event.Status != "continue" || !stringSliceContains(event.AuditDetails, "transition_first_action=extract") {
+				t.Fatalf("transition event=%+v, want runtime plan transition", event)
+			}
+		}
+	}
+	if transitionEvents != 1 {
+		t.Fatalf("process_events=%+v, want one plan transition event", decision.ProcessEvents)
+	}
 }
 
 func TestWorkflowRuntimeAdmitsCandidatePlanBlocked(t *testing.T) {
@@ -220,6 +232,11 @@ func TestWorkflowRuntimeAdmitsCandidatePlanBlocked(t *testing.T) {
 	}
 	if len(rt.PlanTransitions()) != 0 {
 		t.Fatalf("transitions=%+v, blocked admission should not add transition", rt.PlanTransitions())
+	}
+	for _, event := range decision.ProcessEvents {
+		if event.Kind == "plan_transition" {
+			t.Fatalf("process_events=%+v, blocked admission should not emit plan transition", decision.ProcessEvents)
+		}
 	}
 }
 

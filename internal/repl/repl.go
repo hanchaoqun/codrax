@@ -1388,6 +1388,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	currentDeferredPlan := func() dataquery.TaskPlan {
 		return workflowRuntime.DeferredPlan()
 	}
+	renderAdmissionEvents := func(events []dataworkflow.WorkflowJournalEvent) {
+		for _, event := range events {
+			if event.Kind != "plan_transition" {
+				continue
+			}
+			r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
+		}
+	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
 		records = workflowRuntime.Records()
@@ -1403,6 +1411,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
+		renderAdmissionEvents(admission.ProcessEvents)
 		r.emitDataTaskPlanAudit(preflight.Plan)
 		r.auditDataTaskPlan(admission.Source, round, preflight.Plan)
 		return admission.Plan

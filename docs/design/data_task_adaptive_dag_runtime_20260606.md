@@ -17254,6 +17254,55 @@ Remaining architecture items:
 
 - [ ] Introduce a reducer-owned live iteration API before removing the
       remaining CLI/REPL `records/currentPlan/dataRounds` execution cursors.
+      Batch 406 moved candidate-plan transition event deltas into
+      `CandidatePlanAdmissionDecision`, so adapters no longer need to scan
+      runtime internals to render accepted plan transitions.
+- [ ] Keep legacy planner/evaluator wrapper interfaces as compatibility shells
+      until alternate adapters can be updated in one focused batch.
+- [ ] Do not rerun the real local scenario until this current IR queue is
+      either implemented or explicitly classified as non-blocking.
+
+### Batch 406: Admission-Owned Transition Event Delta
+
+`WorkflowRuntime.AdmitCandidatePlan` already owned candidate admission,
+rewrites, duplicate-edge blocking, and current-plan transitions. CLI and REPL
+still had to infer which new runtime process events to render after admission,
+or fall back to separate plan summaries. That kept one more UI/runtime seam
+open: the reducer wrote the transition, but adapters did not receive a typed
+delta from the admission decision.
+
+This batch makes admission return the process events it created. Adapters render
+only `plan_transition` events from that delta, while audit and checkpoint state
+remain runtime-owned.
+
+Generic invariants:
+
+- candidate plan admission returns state changes and process-event deltas as
+  typed IR;
+- adapters do not scan runtime internals or parse transition prose to find
+  plan switches;
+- blocked admissions do not emit plan-transition events;
+- rewritten admissions may still append an admission record, but live UI only
+  renders the transition event relevant to the accepted current plan;
+- final stdout/output contracts remain unchanged; these are process events for
+  stderr/REPL panels and audit logs.
+
+Changes:
+
+- [x] Added `CandidatePlanAdmissionDecision.ProcessEvents`.
+- [x] Captured process-event deltas inside
+      `WorkflowRuntime.AdmitCandidatePlan`.
+- [x] Rewired CLI candidate-plan admission rendering to consume
+      reducer-returned transition events.
+- [x] Rewired REPL candidate-plan admission rendering to consume the same event
+      delta.
+- [x] Added regression coverage proving accepted admissions return a
+      `plan_transition` event and blocked admissions do not.
+
+Remaining architecture items:
+
+- [ ] Introduce a reducer-owned live iteration API before removing the
+      remaining CLI/REPL execution cursors.
 - [ ] Keep legacy planner/evaluator wrapper interfaces as compatibility shells
       until alternate adapters can be updated in one focused batch.
 - [ ] Do not rerun the real local scenario until this current IR queue is

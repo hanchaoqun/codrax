@@ -191,6 +191,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	currentDeferredPlan := func() dataquery.TaskPlan {
 		return workflowRuntime.DeferredPlan()
 	}
+	renderAdmissionEvents := func(events []dataworkflow.WorkflowJournalEvent) {
+		for _, event := range events {
+			if event.Kind != "plan_transition" {
+				continue
+			}
+			dataTaskCLIWorkflowEventProgress(cfg.Progress, cfg.Language, event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
+		}
+	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
 		admission := workflowRuntime.AdmitCandidatePlan(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
 		records = workflowRuntime.Records()
@@ -206,6 +214,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if preflight.Rewritten {
 			saveDeferredPlan(round, preflight.Remainder, preflight.Reason)
 		}
+		renderAdmissionEvents(admission.ProcessEvents)
 		auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, admission.Source, round, preflight.Plan)
 		dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, preflight.Plan)
 		return admission.Plan
