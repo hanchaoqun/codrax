@@ -68,7 +68,7 @@ func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowR
 		Coverage:       dataTaskWorkflowCoverageContract(stateRecords, current),
 		Output:         dataTaskWorkflowOutputContract(stateRecords, current),
 		Scaffolds:      state.ActionScaffold,
-		Facts:          dataTaskWorkflowStageFacts(state),
+		Facts:          state.Facts(),
 		PreviousErrors: previousErrors,
 		CurrentError:   errText,
 		FailureLimit:   DefaultDataTaskMaxNodeFailures,
@@ -1989,7 +1989,7 @@ func dataTaskConcreteScaffoldFallback(records []dataTaskWorkflowRecord, current 
 		Coverage:       dataTaskWorkflowCoverageContract(records, current),
 		Output:         dataTaskWorkflowOutputContract(records, current),
 		Scaffolds:      state.ActionScaffold,
-		Facts:          dataTaskWorkflowStageFacts(state),
+		Facts:          state.Facts(),
 		ReasonPrefix:   reasonPrefix,
 		SeenActionKeys: dataTaskWorkflowSeenActionKeys(records),
 	})
@@ -2289,7 +2289,7 @@ func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, p
 	default:
 		return ""
 	}
-	missingStages := dataTaskWorkflowMissingValidationStages(state)
+	missingStages := state.MissingValidationStages()
 	if len(missingStages) <= 1 || !dataTaskPlanHasScriptedCustomTransform(plan) {
 		if len(missingStages) > 1 && dataTaskPlanCrossesTypedActionRanks(plan) {
 			return fmt.Sprintf("data planning incomplete: workflow next_stage=%s action batch crosses multiple dependent DAG ranks while %d validation stage(s) remain: %s. Execute only the first typed action rank now, let it materialize artifacts and field contracts, then plan the next rank from real results.",
@@ -2317,7 +2317,7 @@ func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflow
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
 	state := dataTaskWorkflowState(records, plan)
-	if len(state.AllowedNextActions) == 0 || len(dataTaskWorkflowMissingValidationStages(state)) <= 1 {
+	if len(state.AllowedNextActions) == 0 || len(state.MissingValidationStages()) <= 1 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
 	keep, rest := dataTaskSplitActionRankForState(plan.Actions, state)
@@ -3276,10 +3276,6 @@ func dataTaskActionDependencyRank(kind dataquery.DataActionKind) int {
 	return dataworkflow.DependencyRank(normalizeDataActionKindForWorkflow(kind))
 }
 
-func dataTaskWorkflowMissingValidationStages(state dataTaskWorkflowStateView) []string {
-	return state.MissingValidationStages()
-}
-
 func dataTaskPlanHasScriptedCustomTransform(plan dataquery.TaskPlan) bool {
 	for _, action := range plan.Actions {
 		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
@@ -3312,7 +3308,7 @@ func dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan dataquery.TaskPl
 	if dataTaskValidationLedgerCount(plan.CoverageContract) >= 2 {
 		return false
 	}
-	if (state.NextStage == "prepare_contribution_inputs" || state.NextStage == "compute_contributions") && len(dataTaskWorkflowMissingValidationStages(state)) > 1 {
+	if (state.NextStage == "prepare_contribution_inputs" || state.NextStage == "compute_contributions") && len(state.MissingValidationStages()) > 1 {
 		return false
 	}
 	return true
@@ -5403,10 +5399,6 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	})
 }
 
-func dataTaskWorkflowStateSnapshot(state dataTaskWorkflowStateView) dataworkflow.WorkflowStateSnapshot {
-	return state.Snapshot()
-}
-
 func dataTaskWorkflowGuardViolations(records []dataTaskWorkflowRecord) []dataworkflow.WorkflowViolation {
 	var guardViolations []dataworkflow.WorkflowViolation
 	for _, rec := range records {
@@ -5909,7 +5901,7 @@ func dataTaskCustomTransformCooldownForState(records []dataTaskWorkflowRecord, s
 	// projection remains. A later successful typed node is progress, but it
 	// should not reopen the same broad-script escape hatch while contribution
 	// or reconcile ledgers are still structurally missing.
-	for _, missing := range dataTaskWorkflowMissingValidationStages(state) {
+	for _, missing := range state.MissingValidationStages() {
 		if missing != "final_answer" {
 			return true
 		}
@@ -5924,7 +5916,7 @@ func dataTaskWorkflowShouldPreferTypedActions(state dataTaskWorkflowStateView) b
 	if !(state.DecisionRecordsRequired || state.EntityResolutionRequired || state.ContributionLedgerRequired || state.ReconcileRequired) {
 		return false
 	}
-	for _, missing := range dataTaskWorkflowMissingValidationStages(state) {
+	for _, missing := range state.MissingValidationStages() {
 		if missing != "final_answer" {
 			return true
 		}
@@ -5971,22 +5963,6 @@ func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current da
 	}
 	values = append(values, current.OutputContract)
 	return firstNonEmptyOutputContract(values...)
-}
-
-func dataTaskWorkflowNextStage(state dataTaskWorkflowStateView) string {
-	return state.ComputedNextStage()
-}
-
-func dataTaskWorkflowStageFacts(state dataTaskWorkflowStateView) dataworkflow.StageFacts {
-	return state.Facts()
-}
-
-func dataTaskWorkflowAllowedNextActions(state dataTaskWorkflowStateView) []string {
-	return state.ComputedAllowedNextActions()
-}
-
-func dataTaskWorkflowAllowedNextActionContracts(state dataTaskWorkflowStateView) []dataTaskActionContract {
-	return state.ComputedAllowedNextActionContracts()
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
@@ -6874,7 +6850,7 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 		Current:                current,
 		Coverage:               contract,
 		Output:                 output,
-		Facts:                  dataTaskWorkflowStageFacts(state),
+		Facts:                  state.Facts(),
 		AllowedNextActions:     state.AllowedNextActions,
 		Artifacts:              dataTaskArtifactAccessSchemaProjection(access),
 		ExtraScaffolds:         state.ActionScaffold,
@@ -6891,7 +6867,7 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 
 func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
 	state := dataTaskWorkflowState(records, current)
-	return dataworkflow.TerminalWorkflowGuardResult(current.Status, dataTaskWorkflowStageFacts(state), state.AllowedNextActions)
+	return dataworkflow.TerminalWorkflowGuardResult(current.Status, state.Facts(), state.AllowedNextActions)
 }
 
 func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {

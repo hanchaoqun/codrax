@@ -4500,7 +4500,7 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsBeforeScriptedCustomTransform(t
 	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, errText)
 	if !ok {
 		state := dataTaskWorkflowState(records, plan)
-		t.Fatalf("expected stage prefix fallback for %q; state=%+v missing=%v", errText, state, dataTaskWorkflowMissingValidationStages(state))
+		t.Fatalf("expected stage prefix fallback for %q; state=%+v missing=%v", errText, state, state.MissingValidationStages())
 	}
 	if len(got.Actions) != 1 || got.Actions[0].ID != "derive_amount" {
 		t.Fatalf("actions=%+v, want only typed prefix", got.Actions)

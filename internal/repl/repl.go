@@ -3051,7 +3051,7 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 		CurrentPlan:   current,
 		DeferredPlan:  deferred,
 		ProcessEvents: a.ProcessEvents,
-		State:         dataTaskWorkflowStateSnapshot(state),
+		State:         state.Snapshot(),
 	})
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -3094,7 +3094,7 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		Records:       records,
 		CurrentPlan:   current,
 		DeferredPlan:  deferred,
-		State:         dataTaskWorkflowStateSnapshot(state),
+		State:         state.Snapshot(),
 		Guards:        guards,
 		GuardRound:    dataRounds,
 	})

@@ -14794,12 +14794,12 @@ Changes:
 Remaining architecture items:
 
 - [x] Field-diagnostic discovery is now behind dataworkflow builder inputs.
-- [ ] Move action scaffold generation behind ArtifactGraph-aware dataworkflow
+- [x] Move action scaffold generation behind ArtifactGraph-aware dataworkflow
       builders, then remove the remaining adapter callback.
-- [ ] Replace remaining REPL compatibility wrappers for state facts and
+- [x] Replace remaining REPL compatibility wrappers for state facts and
       snapshot projection once all call sites consume the dataworkflow methods
       directly.
-- [ ] Run focused regression suites and full build/test before continuing the
+- [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
 
 ### Batch 332: Action Scaffold Generation Moves Behind Workflow IR
@@ -14848,13 +14848,53 @@ Changes:
 Remaining architecture items:
 
 - [x] Action scaffold generation is now behind dataworkflow builder inputs.
-- [ ] Replace remaining REPL compatibility wrappers for state facts and
+- [x] Replace remaining REPL compatibility wrappers for state facts and
       snapshot projection once all call sites consume the dataworkflow methods
       directly.
 - [ ] Audit historical "Remaining architecture items" sections and mark stale
       items as historical or closed only where code/tests prove closure.
 - [x] Run focused regression suites and full build/test before continuing the
       IR closure audit.
+
+### Batch 333: Remove REPL State-Method Compatibility Wrappers
+
+After the state builder, diagnostics, answer policy, and action scaffolds moved
+behind the `dataworkflow` IR, REPL still carried thin wrapper functions for
+state facts, missing validation stages, allowed actions, next stage, and journal
+snapshot projection. They no longer contained business logic, but they made the
+call sites look like REPL owned workflow-state decisions.
+
+This batch removes those wrappers and calls `WorkflowStateView` methods
+directly: `Facts`, `MissingValidationStages`, `Snapshot`, and related computed
+state methods. The REPL still owns the adapter step that converts local
+`WorkflowRecord` slices into `WorkflowStateViewBuildInput`; it no longer wraps
+dataworkflow state decisions once the IR view exists.
+
+Generic invariants:
+
+- `WorkflowStateView` is the state-method boundary for facts, stage-derived
+  state, validation gaps, and journal snapshots;
+- REPL/CLI adapters may assemble builder inputs, but should not expose their own
+  names for IR decisions;
+- this change is mechanical and does not alter admission, fallback, cooldown,
+  source-code, trace/log, operation, or write-mode behavior.
+
+Changes:
+
+- [x] Replaced facts wrapper calls with `state.Facts()`.
+- [x] Replaced missing-stage wrapper calls with
+      `state.MissingValidationStages()`.
+- [x] Replaced journal snapshot wrapper calls with `state.Snapshot()`.
+- [x] Removed unused wrappers for next stage, allowed actions, allowed action
+      contracts, state facts, missing stages, and snapshots.
+- [x] Added residual-reference scans and focused REPL regression coverage.
+
+Remaining architecture items:
+
+- [x] State-method compatibility wrappers are removed.
+- [ ] Audit historical "Remaining architecture items" sections and mark stale
+      items as historical or closed only where code/tests prove closure.
+- [ ] Run full build/test before continuing the IR closure audit.
 
 ### Batch 324: Runtime-Owned Deferred Dispatch Mutations
 
