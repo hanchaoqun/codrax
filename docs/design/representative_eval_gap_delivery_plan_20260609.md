@@ -295,3 +295,193 @@ Commercial acceptance criteria:
 - Trace PASS answer has no vague generic warning section.
 - Multi-repo answer remains bucketed and excludes unrelated repo content.
 - No implementation depends on case-specific values, prompt-only policy, or keyword matching of model prose.
+
+## Current Delivery Delta - 2026-06-09 11:30 CST
+
+The current representative rerun shows all four selected cases passing after commits through `22709693`. The remaining work is no longer about the original semantic failures; it is about commercial-grade robustness, operator clarity, and typed handoff quality. These tasks extend the same system-level principles and must not add case-specific constants, user-intent keyword matching, or model-output prose matching.
+
+### Delta D11. Complete Terminal Status Must Not Carry Stale Final Errors
+
+Typed behavior:
+
+- `status=complete` means the final state has no actionable final error.
+- Prior errors remain auditable through bounded lineage metadata.
+- Terminal JSON and CLI logs use the same typed resolver.
+- Eval tooling should read final-state errors and prior repair lineage separately.
+
+### Delta D12. Data Action Plans Need Structural Pre-Admission
+
+Typed behavior:
+
+- Batch dependency rank boundaries are validated before executing any action.
+- Action parameters are checked against artifact schemas before execution.
+- Missing fields and dependent-rank crossings emit typed repair hints.
+- Execution history should not accumulate avoidable failed actions that were structurally invalid before runtime.
+
+### Delta D13. Accepted Evidence IDs Are Backend Handoff Anchors
+
+Typed behavior:
+
+- Extractor verdict tools receive the accepted evidence-ID ledger as a first-class grounding option.
+- Validators resolve accepted IDs to citations deterministically.
+- Unknown IDs and unsupported citations still fail loud.
+- The implementation consumes typed evidence state, not model-authored explanation text.
+
+### Delta D14. Answer Supplements Are Rendered Only When Typed Coverage Needs Them
+
+Typed behavior:
+
+- Authored blocks, tables, and item rows are normalized into typed carrier coverage.
+- Member/citation/location compatibility decides whether principal rows are already covered.
+- Supplements render only when they add missing typed rows or repair an incomplete structured surface.
+- Visible answer quality is improved without parsing user intent keywords or free-form model rationale.
+
+### Delta D15. Multi-Repo Active Scope Must Survive Tool Handoff
+
+Typed behavior:
+
+- Focus-selector output becomes typed active-subrepo scope available to analyzer and explorer tool contexts.
+- Explicit subrepo inventory resolves against exact `root_rel`.
+- Parent/primary compatibility fallback is not used for explicit active subrepos that exist.
+- Inactive subrepos remain excluded unless the request or focus policy includes them.
+
+### Delta D16. Data Artifact Aliases Should Be Canonicalized For Backend Actions
+
+Typed behavior:
+
+- Action params carry canonical artifact paths.
+- Alias variants remain in lineage metadata for debug/audit.
+- Backend actions consume canonical aliases plus lineage rather than very long duplicate `input_paths`.
+
+## Current Delta Delivery Batches
+
+### Batch G - Terminal Error Lineage
+
+Tasks:
+
+1. Add terminal error lineage fields and resolver helpers.
+   - Complete terminal: empty final `last_error` unless final-state degraded.
+   - Non-complete terminal: preserve actionable final error.
+   - Prior errors: preserve latest bounded lineage entries with round/action/reason metadata.
+
+2. Update terminal JSON and CLI logging.
+   - Use the resolver in the data CLI terminal writer.
+   - Keep log `last_error` aligned with terminal JSON final-state error.
+
+3. Add tests.
+   - Earlier rejected/deferred action followed by complete result does not leave stale final `last_error`.
+   - Blocked/repair terminal still exposes final actionable error.
+
+Validation:
+
+```bash
+go test ./internal/repl -run 'DataTask|Terminal|LastError|Lineage'
+```
+
+### Batch H - Data Action Pre-Admission
+
+Tasks:
+
+1. Add batch-rank validation.
+   - Use workflow/action graph dependency metadata.
+   - Reject cross-rank batches before action execution.
+
+2. Add field-contract validation.
+   - Use artifact schema field sets.
+   - Validate `status_fields`, explicit group fields, join keys, value fields, and reference key fields.
+
+3. Add tests.
+   - Invalid cross-rank batch is rejected without execution.
+   - Missing field params produce typed repair hints.
+
+Validation:
+
+```bash
+go test ./internal/dataworkflow ./internal/repl -run 'Admission|Rank|FieldContract|DataTask'
+```
+
+### Batch I - Evidence-ID Verdict Handoff
+
+Tasks:
+
+1. Extend extractor verdict context with accepted evidence IDs.
+2. Ensure `emit_hypothesis_verdict` resolves accepted IDs to citations without a repair retry.
+3. Add tests for accepted and unknown IDs.
+
+Validation:
+
+```bash
+go test ./internal/tool ./internal/orchestrator -run 'Hypothesis|EvidenceID|Verdict|Ground'
+```
+
+### Batch J - Answer Carrier Coverage
+
+Tasks:
+
+1. Normalize answer blocks into typed carrier rows.
+2. Suppress supplements when authored carriers already cover required typed member rows.
+3. Add tests for read-mode stage answers and multi-repo comparison answers.
+
+Validation:
+
+```bash
+go test ./internal/tool ./internal/orchestrator -run 'Supplement|Carrier|Principal|AnswerDocument'
+```
+
+### Batch K - Multi-Repo Scope Handoff
+
+Tasks:
+
+1. Persist active subrepo focus in typed context.
+2. Resolve scoped inventory through exact active `root_rel`.
+3. Add tests that scoped inventory cannot return files from a sibling subrepo.
+
+Validation:
+
+```bash
+go test ./internal/multigraph ./internal/tool ./internal/orchestrator -run 'MultiRepo|Scope|Inventory|Focus'
+```
+
+### Batch L - Alias Normalization
+
+Tasks:
+
+1. Canonicalize data action `input_paths`.
+2. Preserve alias lineage separately.
+3. Add tests that backend actions consume canonical aliases while terminal artifacts stay compact.
+
+Validation:
+
+```bash
+go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -run 'Alias|Lineage|Assemble|Artifact'
+```
+
+### Batch M - Representative Verification
+
+Tasks:
+
+1. Run focused unit tests for all implemented batches.
+2. Rebuild with `make`.
+3. Re-run the representative eval sweep with `PARALLEL=2`.
+4. Manually audit final answers and logs.
+
+Representative command:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_final_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Final commercial acceptance criteria:
+
+- all four representative cases PASS;
+- data complete terminals have no stale final `last_error`;
+- prior repair errors remain auditable in lineage;
+- structurally invalid data action plans are rejected before execution;
+- accepted evidence IDs can ground extractor verdicts without retry;
+- answer supplements do not duplicate already complete typed authored carriers;
+- explicit multi-repo scoped inventory does not cross into sibling subrepos;
+- code and docs contain no case-specific constants, prompt-redline workarounds, keyword intent gates, or model-prose hard gates.

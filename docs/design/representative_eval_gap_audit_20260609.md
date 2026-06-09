@@ -358,3 +358,156 @@ The fix is only commercially acceptable when:
 - upstream aggregate facts, evidence summaries, support refs, and artifact lineage remain available to backend compilers/validators;
 - all changes are covered by structural tests and representative eval;
 - no task uses domain-specific constants, target names, keyword intent matching, or model prose as a hard gate.
+
+## Current Rerun Audit - 2026-06-09 11:30 CST
+
+This rerun validates the code after the delivery commits through `22709693 ux: highlight multi-repo startup guardrails`.
+
+Initial sandbox run failed all four cases with environment errors only: DNS lookup for `api.minimaxi.com` failed, and the sandbox could not write the user-level repomap cache. The same command was then rerun with approved escalation so provider access and cache writes were available.
+
+Run command:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_current_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Summary path: `eval/results/representative_eval_20260609_current_summary.md`
+
+| case | verdict | data status | notable flags | manual audit |
+|---|---|---|---|---|
+| `qf_architecture` | PASS | - | `contract_warning auto_repair` | Answer now names `log_triage`, `perf_triage`, and `analyze -> explore -> extract -> finalize`, and cites `internal/types/stage_binding.go`. PASS is credible. |
+| `read_combo_trace_current_source_explanation` | PASS | - | `contract_warning context_prune` | Answer correctly explains trace parsing, `PerfFrameBudget60HzMs=16.67`, `86.111ms`, and the external-source evidence boundary. PASS is credible. |
+| `data_multifile_reference_projection` | PASS | `complete` | none | Final output is `17,0,5`; terminal JSON reports complete, `data_rounds=8`, `repair_rounds=0`, `answer_len=6`. Prior final-reference and value-binding bugs are closed for this fixture. |
+| `mr_cross_repo_compare` | PASS | - | `wide_search contract_warning` | Answer separates `repo-greet-go` and `repo-tools-py`, excludes the Rust fixture, and is semantically correct. PASS is credible. |
+
+### Verified Closed Gaps
+
+- G1/G2/G9: final reference authority, projection pass, and value binding are now working for the representative data fixture. The final `assemble_answer` uses `targets.csv` plus `canonical_label`, and the answer is projected in target order.
+- G4/G7: the eval summary now carries data-lane status, rounds, repair rounds, answer length, and structured `route=data` logs.
+- G10: read-mode topology authority reaches the answer. The architecture answer no longer drifts to dataworkflow stages.
+- G11: explicit contribution grouping no longer collapses this fixture to a synthetic aggregate.
+- G6: the old vague generic caveat is not present in the current trace final answer; the remaining caveat is specific to the external trace/source boundary.
+
+### Current Manual Audit Notes
+
+`qf_architecture` is semantically correct, but the final answer still appends a system supplement table after the model already covers stage bindings. This is not a correctness failure; it is an answer-surface necessity gap. System supplements should be rendered only when they repair or complete a typed surface that the authored answer did not already cover.
+
+`read_combo_trace_current_source_explanation` needed an extractor retry. The first `emit_hypothesis_verdict` used file:line citations and was rejected as not grounded in the accepted investigation snapshot; the second attempt used `evidence_id` and succeeded. The final answer is good, but accepted evidence IDs should be a first-class backend handoff channel so extractor verdicts do not pay an avoidable retry.
+
+`data_multifile_reference_projection` is correct, but the complete terminal log still includes an old nonterminal `last_error` about a prior dependency-rank violation. This makes complete terminal artifacts look partially failed and can mislead audit tooling. The same run also shows early rejected/deferred actions for cross-rank batches and invalid field references before deterministic recovery.
+
+`mr_cross_repo_compare` is correct, but logs show scope efficiency issues: the analyzer first requested `source_inventory` where unavailable, a multi-repo parent graph compatibility fallback was used, and one source-inventory result appeared ambiguous enough that the model called `list_files` to verify subrepo contents. The final answer also repeats the same identifiers in prose, item rows, and a comparison table.
+
+## Current System-Level Gaps
+
+### G12. Complete Terminal Artifacts Retain Stale Nonterminal Errors
+
+The data lane can finish with `status=complete` while `last_error` still points to a prior planning repair such as a dependency-rank violation. That error is useful history, but as a top-level `last_error` on a complete terminal it reads like the final state failed.
+
+Generic fix direction: terminal status should expose final-state error separately from prior repair lineage. For complete terminals, `last_error` should be empty unless the final state itself is degraded; historical errors belong in a bounded `prior_errors` or `last_nonterminal_error` field with round/action metadata.
+
+### G13. Data Action Admission Allows Avoidable Cross-Rank And Field-Contract Attempts
+
+The data workflow recovered deterministically, but it still admitted candidate plans that crossed dependent DAG ranks or referenced fields not present on the selected artifact. These are typed structural issues detectable before execution.
+
+Generic fix direction: add a deterministic action pre-admission layer that validates batch rank boundaries and artifact field contracts from the action graph and artifact schema. Invalid plans should be rejected before execution with repair hints, not executed and then rediscovered from model text.
+
+### G14. Evidence-ID Handoff Is Not Preferred For Verdict Grounding
+
+Accepted investigation evidence already carried stable `evidence_id` anchors, but the extractor first tried file:line citations that were outside the accepted snapshot contract. The backend repaired this, but at the cost of one extra LLM turn.
+
+Generic fix direction: expose accepted evidence IDs as the preferred verdict grounding channel when the prior snapshot contains them, and let validators resolve IDs to citations deterministically. This is typed handoff, not prompt-only advice and not parsing answer prose.
+
+### G15. Answer Supplement Necessity And Carrier Coverage Are Too Coarse
+
+PASS answers can duplicate facts by combining authored prose, item rows, comparison tables, and system supplements. The issue is not semantic correctness; it is commercial answer quality and cognitive load.
+
+Generic fix direction: answer-document compilers should compute typed carrier coverage over member rows, citation refs, locations, and facet IDs. Supplements should render only for missing or repaired typed coverage. Model prose may remain the visible surface, but hard coverage decisions must use structured row/citation compatibility, not user keywords or free-form model intent.
+
+### G16. Multi-Repo Scoped Inventory Still Falls Back Too Broadly
+
+The multi-repo run selected the correct two subrepos, but later `repo_map`/inventory flow still emitted parent-graph fallback and an ambiguous scoped inventory path. This increases `wide_search` cost and risks cross-subrepo contamination on larger fixtures.
+
+Generic fix direction: preserve focus-selector results as typed active-subrepo scope throughout analyzer/explorer tool contexts. Scoped inventory calls should resolve against the exact active `root_rel` and should avoid primary-subrepo compatibility fallback when the requested subrepo is explicit and present.
+
+### G17. Final Assembly Handoff Contains Excess Alias Fanout
+
+The successful data `assemble_answer` retained a very large `input_paths` set with many alias variants. This preserves evidence but makes terminal artifacts and backend consumption noisy.
+
+Generic fix direction: normalize data artifact aliases into canonical handoff paths while retaining lineage in machine-readable metadata. Backend actions should consume canonical aliases plus lineage, not long duplicate path lists.
+
+## Current Executable Task List
+
+### Batch G - Terminal Error Lineage
+
+1. Add typed terminal error lineage fields.
+   - Preserve final `status`, final `reason`, and final-state `last_error`.
+   - Move previous nonterminal errors into bounded lineage metadata.
+   - Keep terminal JSON and CLI log synchronized.
+
+2. Add regression tests.
+   - Complete terminal after earlier rejected/deferred plan has empty final `last_error`.
+   - Non-complete terminal still exposes the actionable final error.
+
+### Batch H - Data Action Pre-Admission
+
+3. Add structural batch rank validation before executing data actions.
+   - Reject batches that cross dependent DAG ranks while required validation stages remain.
+   - Emit typed repair hints for the next executable rank.
+
+4. Add field-contract validation before executing action batches.
+   - Use artifact schema fields, not model prose.
+   - Reject missing `status_fields`, explicit group fields, and value fields before action execution.
+
+### Batch I - Evidence-ID Handoff
+
+5. Surface accepted evidence IDs as preferred verdict anchors.
+   - Build a typed snapshot of evidence IDs available to extractor.
+   - Allow `emit_hypothesis_verdict` to resolve IDs deterministically to citations.
+
+6. Add verdict grounding tests.
+   - Confirmed verdicts with accepted evidence IDs pass without a repair retry.
+   - Unknown evidence IDs remain rejected.
+
+### Batch J - Answer Carrier Coverage
+
+7. Add typed carrier coverage for authored answer blocks.
+   - Compare member labels, roles, citations, and locations across prose/list/table carriers.
+   - Suppress duplicate supplements when typed coverage is already complete.
+
+8. Add regression tests for architecture and multi-repo answers.
+   - Stage-binding supplement is omitted when authored blocks already cover all required stage rows.
+   - Multi-repo comparison keeps bucketed content without repeating the same identifier set unnecessarily.
+
+### Batch K - Multi-Repo Scope Handoff
+
+9. Persist active subrepo focus as typed scope metadata for analyzer/explorer tools.
+   - Require exact explicit `root_rel` resolution for scoped inventory.
+   - Avoid parent/primary compatibility fallback when an explicit active subrepo exists.
+
+10. Add scoped inventory tests.
+    - `repo-tools-py` inventory cannot return `repo-greet-go` files.
+    - Explicit two-subrepo comparison excludes inactive third subrepo unless requested.
+
+### Batch L - Alias Normalization
+
+11. Normalize data action handoff aliases.
+    - Keep canonical artifact paths in action params.
+    - Preserve duplicate aliases in lineage metadata for audit/debug only.
+
+12. Add alias handoff tests.
+    - `assemble_answer` can consume canonical reference/reconcile/contribution aliases.
+    - Terminal artifacts stay compact while lineage remains available.
+
+### Batch M - Final Verification
+
+13. Run focused unit tests after each implementation batch.
+14. Rebuild `codrax`.
+15. Re-run the same four representative eval cases with `PARALLEL=2`.
+16. Manually audit final answers and terminal logs again.
+
+Commercial acceptance for this delta requires all current representative cases to remain PASS, data terminal `last_error` to reflect only final-state errors, no avoidable data action execution for typed rank/field violations, extractor verdicts to prefer accepted evidence IDs without a repair retry, and no duplicate answer supplements when typed authored coverage is complete.
