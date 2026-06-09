@@ -304,6 +304,18 @@ func BuildExecutionFailureTransition(input ExecutionFailureTransitionInput) Exec
 			Reason: "materialized missing join field from existing artifacts",
 		}
 	}
+	if plan, ok := MissingComputeGroupFieldFallbackPlan(MissingComputeGroupFieldFallbackInput{
+		Current:           input.Current,
+		Records:           recordsWithFailure,
+		SchemaProjections: schemas,
+		Violation:         violation,
+	}); ok {
+		return ExecutionFailureTransition{
+			Action: ExecutionFailureFallbackPlan,
+			Plan:   plan,
+			Reason: "materialized missing contribution group field from existing artifacts",
+		}
+	}
 	if plan, ok := HistoricalMissingJoinFieldFallbackPlan(MissingJoinFieldFallbackInput{
 		Current:           input.Current,
 		Records:           recordsWithFailure,
@@ -313,6 +325,17 @@ func BuildExecutionFailureTransition(input ExecutionFailureTransitionInput) Exec
 			Action: ExecutionFailureFallbackPlan,
 			Plan:   plan,
 			Reason: "materialized historical missing join field from existing artifacts",
+		}
+	}
+	if plan, ok := HistoricalMissingComputeGroupFieldFallbackPlan(MissingComputeGroupFieldFallbackInput{
+		Current:           input.Current,
+		Records:           recordsWithFailure,
+		SchemaProjections: schemas,
+	}); ok {
+		return ExecutionFailureTransition{
+			Action: ExecutionFailureFallbackPlan,
+			Plan:   plan,
+			Reason: "materialized historical missing contribution group field from existing artifacts",
 		}
 	}
 	state := input.State

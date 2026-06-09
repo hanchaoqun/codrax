@@ -2148,6 +2148,103 @@ func TestActionRunnerComputeContributionsRejectsUnqualifiedGeneratedStatus(t *te
 	}
 }
 
+func TestActionRunnerComputeContributionsRejectsEmptyExplicitGroupField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "coverage.csv"), []byte("id,active,raw_label,canonical_label,value\nr1,true,A-one,,10\nr2,true,A-two,,7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "sum_by_canonical",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"coverage.csv"},
+			Params: map[string]string{
+				"group_key_field": "canonical_label",
+				"metric":          "value",
+				"value_field":     "value",
+				"operation":       "sum",
+				"item_id_field":   "id",
+				"filters_json":    `[{"field":"active","op":"eq","value":true}]`,
+			},
+		}},
+	}
+	_, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want explicit group field contract failure")
+	}
+	var fieldErr DataFieldContractError
+	if !errors.As(err, &fieldErr) {
+		t.Fatalf("err=%T %v, want DataFieldContractError", err, err)
+	}
+	if fieldErr.ActionKind != DataActionComputeContribs || fieldErr.Role != "contribution_group_key" {
+		t.Fatalf("fieldErr=%+v, want compute contribution group key field contract", fieldErr)
+	}
+	if !strings.Contains(err.Error(), "cannot fall back to synthetic group") ||
+		!strings.Contains(err.Error(), "canonical_label") ||
+		!strings.Contains(err.Error(), "line:2") {
+		t.Fatalf("err=%q, want group field samples and no aggregate fallback", err.Error())
+	}
+	violation := ClassifyExecutionFailure(err)
+	if violation.Code != "field_contract_violation" ||
+		violation.ActionID != "sum_by_canonical" ||
+		violation.ActionKind != string(DataActionComputeContribs) ||
+		violation.Role != "contribution_group_key" ||
+		violation.RepairHint != string(DataActionEnrichRecords) ||
+		!strings.Contains(violation.ActualSnippet, "line:2") {
+		t.Fatalf("violation=%+v, want typed contribution group-key field violation", violation)
+	}
+}
+
+func TestActionRunnerComputeContributionsAllowsPartialUnmappedExplicitGroupRows(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "joined.csv"), []byte("id,active,raw_label,canonical_label,value\nr1,true,A-one,GroupA,10\nr2,true,A-two,GroupA,7\nr3,true,unmapped,,11\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "sum_by_canonical",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"joined.csv"},
+			Params: map[string]string{
+				"group_key_field": "canonical_label",
+				"metric":          "value",
+				"value_field":     "value",
+				"operation":       "sum",
+				"item_id_field":   "id",
+				"filters_json":    `[{"field":"active","op":"eq","value":true}]`,
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run grouped contributions: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want two mapped contribution rows", res.Contributions)
+	}
+	for _, contribution := range res.Contributions {
+		if string(contribution.GroupKey) != "GroupA" {
+			t.Fatalf("Contributions=%+v, explicit group rows must not collapse to all", res.Contributions)
+		}
+	}
+	if len(res.Artifacts) == 0 || len(res.Artifacts[0].Children) == 0 {
+		t.Fatalf("Artifacts=%+v, want contribution source diagnostics", res.Artifacts)
+	}
+	if got := res.Artifacts[0].Children[0].Fields["missing_group_key"]; got != "1" {
+		t.Fatalf("missing_group_key=%q, want 1", got)
+	}
+}
+
 func TestActionRunnerComputeContributionsRejectsOpenStatusAfterIncompleteFilter(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,resolution_status,amount\n1,resolved,10\n2,unmatched,5\n"), 0o644); err != nil {

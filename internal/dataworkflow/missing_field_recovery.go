@@ -16,6 +16,13 @@ type MissingJoinFieldFallbackInput struct {
 	Violation         dataquery.DataTaskViolation
 }
 
+type MissingComputeGroupFieldFallbackInput struct {
+	Current           dataquery.TaskPlan
+	Records           []WorkflowRecord
+	SchemaProjections []ArtifactSchemaProjection
+	Violation         dataquery.DataTaskViolation
+}
+
 type InvalidRecordEnrichFallbackInput struct {
 	Current           dataquery.TaskPlan
 	Records           []WorkflowRecord
@@ -84,9 +91,94 @@ func MissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquer
 	if !ok {
 		return dataquery.TaskPlan{}, false
 	}
+	return missingFieldEnrichPlan(
+		input.Current,
+		input.Records,
+		projections,
+		base,
+		baseAlias,
+		missingField,
+		relation,
+		fmt.Sprintf("join_records failed because %s did not contain field %s; materialize that field first from existing mapping/reference rows", baseAlias, missingField),
+		"retry the join_records stage using the newly enriched artifact, then continue to compute_contributions",
+	)
+}
+
+func HistoricalMissingComputeGroupFieldFallbackPlan(input MissingComputeGroupFieldFallbackInput) (dataquery.TaskPlan, bool) {
+	if len(input.Records) == 0 {
+		return dataquery.TaskPlan{}, false
+	}
+	for i := len(input.Records) - 1; i >= 0; i-- {
+		violation, ok := ComputeGroupMissingFieldViolation(input.Records[i])
+		if !ok {
+			continue
+		}
+		input.Violation = violation
+		fallback, ok := MissingComputeGroupFieldFallbackPlan(input)
+		if !ok {
+			continue
+		}
+		if PlanActionSignatureAlreadySeenInRecords(input.Records, fallback) {
+			continue
+		}
+		if strings.TrimSpace(fallback.WhyThisBatch) == "" {
+			fallback.WhyThisBatch = "a previous compute_contributions action found that contribution rows lacked an explicit group field; materialize that field before retrying the grouped contribution"
+		}
+		if strings.TrimSpace(fallback.NextBatch) == "" {
+			fallback.NextBatch = "retry compute_contributions using the enriched grouped contribution input, then reconcile and assemble the final projection"
+		}
+		return fallback, true
+	}
+	return dataquery.TaskPlan{}, false
+}
+
+func MissingComputeGroupFieldFallbackPlan(input MissingComputeGroupFieldFallbackInput) (dataquery.TaskPlan, bool) {
+	violation := input.Violation
+	if strings.TrimSpace(violation.Code) != "field_contract_violation" ||
+		strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionComputeContribs) ||
+		strings.TrimSpace(violation.Role) != "contribution_group_key" {
+		return dataquery.TaskPlan{}, false
+	}
+	missingField := firstNonEmpty(violation.MissingFields...)
+	if missingField == "" {
+		return dataquery.TaskPlan{}, false
+	}
+	projections := input.SchemaProjections
+	if len(projections) == 0 {
+		projections = ProjectArtifactSchemasNewestFirst(ArtifactsNewestFirst(input.Records))
+	}
+	action, ok := computeGroupFallbackAction(input.Current, violation)
+	if !ok {
+		return dataquery.TaskPlan{}, false
+	}
+	inputAliases := computeGroupFallbackInputAliases(action, violation)
+	base, ok := computeGroupFallbackBaseArtifact(projections, action, missingField, inputAliases)
+	if !ok {
+		return dataquery.TaskPlan{}, false
+	}
+	relation, ok := computeGroupFallbackRelation(projections, base, missingField, inputAliases)
+	if !ok {
+		return dataquery.TaskPlan{}, false
+	}
+	baseAlias := firstArtifactAlias(base)
+	return missingFieldEnrichPlan(
+		input.Current,
+		input.Records,
+		projections,
+		base,
+		"",
+		missingField,
+		relation,
+		fmt.Sprintf("compute_contributions could not preserve explicit group field %s on matched contribution rows from %s; materialize that field before grouped aggregation", missingField, baseAlias),
+		"retry compute_contributions using the enriched grouped contribution input, then reconcile and assemble the final projection",
+	)
+}
+
+func missingFieldEnrichPlan(current dataquery.TaskPlan, records []WorkflowRecord, projections []ArtifactSchemaProjection, base ArtifactSchemaProjection, baseAliasOverride, missingField string, relation MissingFieldRelationCandidate, why, next string) (dataquery.TaskPlan, bool) {
+	baseAlias := firstNonEmpty(strings.TrimSpace(baseAliasOverride), firstArtifactAlias(base))
 	mapping := relation.Artifact
 	mappingAlias := firstArtifactAlias(mapping)
-	if mappingAlias == "" {
+	if baseAlias == "" || mappingAlias == "" || missingField == "" {
 		return dataquery.TaskPlan{}, false
 	}
 	outputArtifact := MissingFieldOutputArtifact(baseAlias, missingField)
@@ -108,7 +200,7 @@ func MissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquer
 	if err != nil {
 		return dataquery.TaskPlan{}, false
 	}
-	out := input.Current
+	out := current
 	out.Status = "ready"
 	out.Script = ""
 	out.ContinueAfter = true
@@ -124,15 +216,217 @@ func MissingJoinFieldFallbackPlan(input MissingJoinFieldFallbackInput) (dataquer
 		},
 	}}
 	if strings.TrimSpace(out.WhyThisBatch) == "" {
-		out.WhyThisBatch = fmt.Sprintf("join_records failed because %s did not contain field %s; materialize that field first from existing mapping/reference rows", baseAlias, missingField)
+		out.WhyThisBatch = strings.TrimSpace(why)
 	}
 	if strings.TrimSpace(out.NextBatch) == "" {
-		out.NextBatch = "retry the join_records stage using the newly enriched artifact, then continue to compute_contributions"
+		out.NextBatch = strings.TrimSpace(next)
 	}
-	if PlanActionSignatureAlreadySeenInRecords(input.Records, out) {
+	if PlanActionSignatureAlreadySeenInRecords(records, out) {
 		return dataquery.TaskPlan{}, false
 	}
 	return out, true
+}
+
+func computeGroupFallbackAction(current dataquery.TaskPlan, violation dataquery.DataTaskViolation) (dataquery.DataAction, bool) {
+	actionID := strings.TrimSpace(violation.ActionID)
+	var fallback dataquery.DataAction
+	found := false
+	for _, action := range current.Actions {
+		if action.Kind != dataquery.DataActionComputeContribs {
+			continue
+		}
+		if actionID != "" && strings.TrimSpace(action.ID) != actionID {
+			continue
+		}
+		return action, true
+	}
+	if actionID != "" {
+		return dataquery.DataAction{}, false
+	}
+	for _, action := range current.Actions {
+		if action.Kind != dataquery.DataActionComputeContribs {
+			continue
+		}
+		if found {
+			return dataquery.DataAction{}, false
+		}
+		fallback = action
+		found = true
+	}
+	return fallback, found
+}
+
+func computeGroupFallbackBaseArtifact(projections []ArtifactSchemaProjection, action dataquery.DataAction, missingField string, inputAliases map[string]bool) (ArtifactSchemaProjection, bool) {
+	if len(projections) == 0 || strings.TrimSpace(missingField) == "" {
+		return ArtifactSchemaProjection{}, false
+	}
+	valueField := strings.TrimSpace(action.Params["value_field"])
+	itemField := strings.TrimSpace(action.Params["item_id_field"])
+	filterFields := computeGroupFallbackFilterFields(action)
+	var best ArtifactSchemaProjection
+	bestScore := -1
+	for _, projection := range projections {
+		alias := firstArtifactAlias(projection)
+		if alias == "" || !ArtifactUsableForRecordAction(projection) || len(projection.Fields) == 0 {
+			continue
+		}
+		if ExistingField(projection.Fields, missingField) != "" {
+			continue
+		}
+		relation, ok := computeGroupFallbackRelation(projections, projection, missingField, inputAliases)
+		if !ok || firstArtifactAlias(relation.Artifact) == "" {
+			continue
+		}
+		score := relationScore(relation)
+		if inputAliases[normalizeAccessPath(alias)] {
+			score += 4
+		}
+		if ExistingField(projection.Fields, valueField) != "" {
+			score += 8
+		}
+		if ExistingField(projection.Fields, itemField) != "" {
+			score += 2
+		}
+		for _, field := range filterFields {
+			if ExistingField(projection.Fields, field) != "" {
+				score++
+			}
+		}
+		if artifactKindHasPrefix(projection.Kind, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords, dataquery.DataActionEnrichRecords, dataquery.DataActionJoinRecords) {
+			score += 4
+		} else if artifactKindHasPrefix(projection.Kind, dataquery.DataActionExtractRecords, dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields) {
+			score += 2
+		}
+		if projection.RowCount > 0 {
+			score++
+		}
+		if score > bestScore {
+			bestScore = score
+			best = projection
+		}
+	}
+	if bestScore < 0 {
+		return ArtifactSchemaProjection{}, false
+	}
+	return best, true
+}
+
+func computeGroupFallbackInputAliases(action dataquery.DataAction, violation dataquery.DataTaskViolation) map[string]bool {
+	out := map[string]bool{}
+	for _, alias := range cleanStrings(append(append([]string{}, action.InputPaths...), violation.InputAliases...)) {
+		if key := normalizeAccessPath(alias); key != "" {
+			out[key] = true
+		}
+	}
+	if alias := strings.TrimSpace(violation.InputAlias); alias != "" {
+		if key := normalizeAccessPath(alias); key != "" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func computeGroupFallbackRelation(projections []ArtifactSchemaProjection, base ArtifactSchemaProjection, missingField string, inputAliases map[string]bool) (MissingFieldRelationCandidate, bool) {
+	baseAlias := firstArtifactAlias(base)
+	if baseAlias == "" || len(base.Fields) == 0 || ExistingField(base.Fields, missingField) != "" {
+		return MissingFieldRelationCandidate{}, false
+	}
+	artifactsByAlias := map[string]ArtifactSchemaProjection{}
+	for _, projection := range projections {
+		for _, alias := range artifactSchemaAliases(projection) {
+			if key := normalizeAccessPath(alias); key != "" {
+				artifactsByAlias[key] = projection
+			}
+		}
+	}
+	var best MissingFieldRelationCandidate
+	bestScore := -1
+	for _, relation := range ArtifactRelationsFromProjections(projections, -1) {
+		if normalizeAccessPath(relation.BaseAlias) != normalizeAccessPath(baseAlias) {
+			continue
+		}
+		if ExistingField(relation.LookupValueFields, missingField) == "" {
+			continue
+		}
+		lookupKey := normalizeAccessPath(relation.LookupAlias)
+		artifact, ok := artifactsByAlias[lookupKey]
+		if !ok {
+			continue
+		}
+		valueField := ExistingField(artifact.Fields, missingField)
+		if valueField == "" {
+			continue
+		}
+		score := relation.Score + relationScore(MissingFieldRelationCandidate{
+			ValueField:   valueField,
+			BaseFields:   relation.BaseFields,
+			LookupFields: relation.LookupFields,
+			Evidence:     relation.Evidence,
+		})
+		if ArtifactLooksLikeMappingProjection(artifact) {
+			score += 10
+		}
+		if inputAliases[lookupKey] {
+			score -= 12
+		}
+		if len(artifact.Fields) <= len(relation.LookupFields)+2 {
+			score += 6
+		}
+		score -= len(artifact.Fields)
+		if score > bestScore {
+			bestScore = score
+			best = MissingFieldRelationCandidate{
+				Artifact:     artifact,
+				ValueField:   valueField,
+				BaseFields:   append([]string(nil), relation.BaseFields...),
+				LookupFields: append([]string(nil), relation.LookupFields...),
+				MatchMode:    firstNonEmpty(relation.MatchMode, "exact"),
+				Evidence: append(cleanStrings([]string{
+					"target field exists exactly in lookup artifact",
+				}), relation.Evidence...),
+			}
+		}
+	}
+	if bestScore < 0 {
+		return MissingFieldRelationCandidate{}, false
+	}
+	return best, true
+}
+
+func computeGroupFallbackFilterFields(action dataquery.DataAction) []string {
+	raw := strings.TrimSpace(firstNonEmpty(action.Params["filters_json"], action.Params["filters"]))
+	if raw == "" {
+		return nil
+	}
+	var filters []map[string]any
+	if err := json.Unmarshal([]byte(raw), &filters); err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, filter := range filters {
+		value, ok := filter["field"]
+		if !ok {
+			continue
+		}
+		field := strings.TrimSpace(fmt.Sprint(value))
+		key := strings.ToLower(field)
+		if field == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, field)
+	}
+	return out
+}
+
+func relationScore(relation MissingFieldRelationCandidate) int {
+	score := len(relation.BaseFields) + len(relation.LookupFields)
+	if strings.TrimSpace(relation.ValueField) != "" {
+		score += 4
+	}
+	score += len(relation.Evidence)
+	return score
 }
 
 func InvalidRecordEnrichFallbackPlan(input InvalidRecordEnrichFallbackInput) (dataquery.TaskPlan, bool) {
@@ -254,6 +548,25 @@ func JoinMissingFieldViolation(record WorkflowRecord) (dataquery.DataTaskViolati
 			continue
 		}
 		if strings.TrimSpace(violation.InputAlias) == "" || len(violation.MissingFields) == 0 {
+			continue
+		}
+		return violation, true
+	}
+	return dataquery.DataTaskViolation{}, false
+}
+
+func ComputeGroupMissingFieldViolation(record WorkflowRecord) (dataquery.DataTaskViolation, bool) {
+	for _, violation := range record.Violations {
+		if strings.TrimSpace(violation.Code) != "field_contract_violation" {
+			continue
+		}
+		if strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionComputeContribs) {
+			continue
+		}
+		if strings.TrimSpace(violation.Role) != "contribution_group_key" {
+			continue
+		}
+		if len(violation.MissingFields) == 0 {
 			continue
 		}
 		return violation, true

@@ -103,6 +103,54 @@ func TestBuildExecutionFailureTransitionUsesTypedMissingFieldFallback(t *testing
 	}
 }
 
+func TestBuildExecutionFailureTransitionUsesComputeGroupFieldFallback(t *testing.T) {
+	violation := dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionID:      "compute_target_contributions",
+		ActionKind:    string(dataquery.DataActionComputeContribs),
+		Role:          "contribution_group_key",
+		InputAlias:    "coverage_records.json",
+		MissingFields: []string{"canonical_label"},
+	}
+	transition := BuildExecutionFailureTransition(ExecutionFailureTransitionInput{
+		Current: dataquery.TaskPlan{
+			Status: "ready",
+			Actions: []dataquery.DataAction{{
+				ID:         "compute_target_contributions",
+				Kind:       dataquery.DataActionComputeContribs,
+				InputPaths: []string{"coverage_records.json"},
+				Params: map[string]string{
+					"group_key_field": "canonical_label",
+					"value_field":     "value",
+					"filters_json":    `[{"field":"active","op":"eq","value":true}]`,
+				},
+			}},
+		},
+		FailureRecord: WorkflowRecord{
+			Err:        "execute data task: compute grouped contributions failed",
+			Violations: []dataquery.DataTaskViolation{violation},
+		},
+		Violation: violation,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "coverage", Kind: string(dataquery.DataActionExtractRecords), NodeClass: ArtifactNodeClassRecord, Aliases: []string{"coverage_records.json"}, Fields: []string{"active", "raw_label", "value", "canonical_label"}},
+			{ID: "qualified", Kind: string(dataquery.DataActionFilterRecords), NodeClass: ArtifactNodeClassRecord, Aliases: []string{"qualified_observations.json"}, Fields: []string{"active", "raw_label", "value"}},
+			{ID: "labels", Kind: string(dataquery.DataActionExtractRecords), NodeClass: ArtifactNodeClassRecord, Aliases: []string{"labels.csv#records"}, Fields: []string{"raw_label", "canonical_label"}},
+		},
+	})
+	if transition.Action != ExecutionFailureFallbackPlan || !transition.HasPlan() {
+		t.Fatalf("transition=%+v, want fallback plan", transition)
+	}
+	if len(transition.Plan.Actions) != 1 || transition.Plan.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("plan actions=%+v, want enrich_records fallback", transition.Plan.Actions)
+	}
+	if transition.Plan.Actions[0].Params["base_path"] != "qualified_observations.json" {
+		t.Fatalf("base_path=%q, want focused grouped contribution base", transition.Plan.Actions[0].Params["base_path"])
+	}
+	if !strings.Contains(transition.Reason, "contribution group field") {
+		t.Fatalf("reason=%q, want contribution group field context", transition.Reason)
+	}
+}
+
 func TestBuildExecutionFailureTransitionReplacesRepeatedNodeWithScaffold(t *testing.T) {
 	errText := `execute data task: data action failed action_id="filter_1" action_kind="filter_records": zero rows`
 	transition := BuildExecutionFailureTransition(ExecutionFailureTransitionInput{

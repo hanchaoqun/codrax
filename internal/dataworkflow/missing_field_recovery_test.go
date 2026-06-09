@@ -152,6 +152,84 @@ func TestHistoricalMissingJoinFieldFallbackPlanSuppressesSeenPlan(t *testing.T) 
 	}
 }
 
+func TestMissingComputeGroupFieldFallbackPlanUsesFocusedContributionBase(t *testing.T) {
+	violation := dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionID:      "compute_target_contributions",
+		ActionKind:    string(dataquery.DataActionComputeContribs),
+		Role:          "contribution_group_key",
+		InputAlias:    "coverage_records.json",
+		MissingFields: []string{"canonical_label"},
+	}
+	plan, ok := MissingComputeGroupFieldFallbackPlan(MissingComputeGroupFieldFallbackInput{
+		Current: dataquery.TaskPlan{
+			Goal: "finish grouped contribution projection",
+			Actions: []dataquery.DataAction{{
+				ID:         "compute_target_contributions",
+				Kind:       dataquery.DataActionComputeContribs,
+				InputPaths: []string{"coverage_records.json"},
+				Params: map[string]string{
+					"group_key_field": "canonical_label",
+					"value_field":     "value",
+					"item_id_field":   "record_id",
+					"filters_json":    `[{"field":"active","op":"eq","value":true}]`,
+				},
+			}},
+		},
+		Violation: violation,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{
+				ID:      "coverage",
+				Aliases: []string{"coverage_records.json"},
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Fields:  []string{"active", "raw_label", "record_id", "value", "canonical_label"},
+			},
+			{
+				ID:        "qualified",
+				Aliases:   []string{"qualified_observations.json"},
+				Kind:      string(dataquery.DataActionQualifyRecords),
+				NodeClass: ArtifactNodeClassRecord,
+				Fields:    []string{"active", "raw_label", "record_id", "value"},
+				RowCount:  5,
+			},
+			{
+				ID:        "labels",
+				Aliases:   []string{"labels.csv#records"},
+				Kind:      string(dataquery.DataActionExtractRecords),
+				NodeClass: ArtifactNodeClassRecord,
+				Fields:    []string{"raw_label", "canonical_label"},
+				RowCount:  4,
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("MissingComputeGroupFieldFallbackPlan ok=false")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("actions=%+v, want enrich_records", plan.Actions)
+	}
+	action := plan.Actions[0]
+	if action.Params["base_path"] != "qualified_observations.json" {
+		t.Fatalf("base_path=%q, want focused qualified observations artifact", action.Params["base_path"])
+	}
+	if action.OutputArtifact != "qualified_observations_with_canonical_label.json" {
+		t.Fatalf("OutputArtifact=%q, want qualified_observations_with_canonical_label.json", action.OutputArtifact)
+	}
+	var specs []map[string]any
+	if err := json.Unmarshal([]byte(action.Params["lookup_specs_json"]), &specs); err != nil || len(specs) != 1 {
+		t.Fatalf("lookup_specs_json=%q err=%v", action.Params["lookup_specs_json"], err)
+	}
+	if specs[0]["lookup_path"] != "labels.csv#records" ||
+		specs[0]["target_field"] != "canonical_label" ||
+		specs[0]["lookup_value_field"] != "canonical_label" {
+		t.Fatalf("spec=%+v, want labels canonical lookup", specs[0])
+	}
+	baseFields, ok := specs[0]["base_fields"].([]any)
+	if !ok || len(baseFields) != 1 || baseFields[0] != "raw_label" {
+		t.Fatalf("base_fields=%+v, want raw_label", specs[0]["base_fields"])
+	}
+}
+
 func TestInvalidRecordEnrichFallbackPlanBuildsLookupFromMultiInputDerive(t *testing.T) {
 	plan, ok := InvalidRecordEnrichFallbackPlan(InvalidRecordEnrichFallbackInput{
 		Current: dataquery.TaskPlan{Goal: "continue"},

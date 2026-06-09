@@ -45,6 +45,8 @@ type DataFieldContractError struct {
 	InputAlias           string         `json:"input_alias,omitempty"`
 	InputAliases         []string       `json:"input_aliases,omitempty"`
 	AvailableFieldSample []string       `json:"available_field_sample,omitempty"`
+	ActualSnippet        string         `json:"actual_snippet,omitempty"`
+	RepairHint           string         `json:"repair_hint,omitempty"`
 	ScriptLine           int            `json:"script_line,omitempty"`
 	Message              string         `json:"message,omitempty"`
 }
@@ -89,7 +91,7 @@ func (e DataFieldContractError) Violation() DataTaskViolation {
 		Code:                 "field_contract_violation",
 		Summary:              clampViolationText(e.Error(), 500),
 		ActionKind:           strings.TrimSpace(string(e.ActionKind)),
-		ActualSnippet:        strings.TrimSpace(e.InputAlias),
+		ActualSnippet:        firstNonEmptyString(strings.TrimSpace(e.ActualSnippet), strings.TrimSpace(e.InputAlias)),
 		InputAlias:           strings.TrimSpace(e.InputAlias),
 		InputAliases:         normalizeMaterialPaths(e.InputAliases),
 		MissingFields:        e.missingFields(),
@@ -97,7 +99,7 @@ func (e DataFieldContractError) Violation() DataTaskViolation {
 		Role:                 strings.TrimSpace(e.Role),
 		ScriptLine:           e.ScriptLine,
 		Repairability:        RepairabilityNeedsRecompute,
-		RepairHint:           "Use existing fields from the executable artifact schema, or add a typed action that materializes the missing field before retrying this action.",
+		RepairHint:           firstNonEmptyString(strings.TrimSpace(e.RepairHint), "Use existing fields from the executable artifact schema, or add a typed action that materializes the missing field before retrying this action."),
 	}
 }
 
@@ -7792,7 +7794,10 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		matched := 0
 		filterMatched := 0
 		missingValue := 0
+		groupCandidateRows := 0
+		missingGroupKey := 0
 		var blockedStatusSamples []string
+		var missingGroupKeySamples []string
 		for _, record := range records {
 			if !recordPassesFilters(record.Fields, effectiveFilters) {
 				continue
@@ -7820,12 +7825,22 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 					continue
 				}
 			}
+			groupCandidateRows++
+			groupKeyValue := recordCompositeGroupKey(record.Fields, effectiveGroupKeyFields)
+			if len(effectiveGroupKeyFields) > 0 && effectiveGroupKeyConst == "" && strings.TrimSpace(groupKeyValue) == "" {
+				missingGroupKey++
+				if len(missingGroupKeySamples) < 8 {
+					missingGroupKeySamples = append(missingGroupKeySamples,
+						fmt.Sprintf("line:%d fields=%s", record.Line, compactFieldSampleJSON([]actionRecord{record}, effectiveGroupKeyFields, 8, 2)))
+				}
+				continue
+			}
 			matched++
 			itemID := recordField(record.Fields, itemIDField)
 			if itemID == "" {
 				itemID = fmt.Sprintf("%s#%d", rel, record.Index)
 			}
-			groupKey := firstNonEmptyString(recordCompositeGroupKey(record.Fields, effectiveGroupKeyFields), effectiveGroupKeyConst, "all")
+			groupKey := firstNonEmptyString(groupKeyValue, effectiveGroupKeyConst, "all")
 			sourceLocator := fmt.Sprintf("line:%d", record.Line)
 			contributions = append(contributions, ContributionRecord{
 				ItemID:        LooseText(itemID),
@@ -7845,6 +7860,8 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			"matched":            fmt.Sprintf("%d", matched),
 			"filter_matched":     fmt.Sprintf("%d", filterMatched),
 			"missing_value":      fmt.Sprintf("%d", missingValue),
+			"group_candidates":   fmt.Sprintf("%d", groupCandidateRows),
+			"missing_group_key":  fmt.Sprintf("%d", missingGroupKey),
 			"total":              fmt.Sprintf("%d", total),
 			"filter_diagnostics": filterDiagnostics,
 		}
@@ -7869,6 +7886,28 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 				),
 			}
 		}
+		if len(effectiveGroupKeyFields) > 0 && effectiveGroupKeyConst == "" && missingGroupKey > 0 {
+			fields["missing_group_key_samples"] = strings.Join(missingGroupKeySamples, "; ")
+			if matched == 0 && groupCandidateRows > 0 && requireNonEmpty && strings.EqualFold(role, "target") {
+				actual := strings.Join(missingGroupKeySamples, "; ")
+				return DataArtifact{}, nil, nil, DataFieldContractError{
+					ActionKind:           DataActionComputeContribs,
+					Role:                 "contribution_group_key",
+					Fields:               append([]string(nil), effectiveGroupKeyFields...),
+					InputAlias:           rel,
+					InputAliases:         []string{rel},
+					AvailableFieldSample: actionRecordFieldNames(headers, records),
+					ActualSnippet:        actual,
+					RepairHint:           string(DataActionEnrichRecords),
+					Message: fmt.Sprintf("compute_contributions group_key_field(s) [%s] were empty on %d matched target row(s) in input %s; explicit field grouping cannot fall back to synthetic group \"all\". Materialize the group field on contribution rows with enrich_records or join_records before retrying compute_contributions; samples=%s",
+						strings.Join(effectiveGroupKeyFields, ", "),
+						missingGroupKey,
+						rel,
+						actual,
+					),
+				}
+			}
+		}
 		if effectiveValueField != "" && valueField == "" && rawMetric != "" && effectiveValueField == rawMetric {
 			fields["value_field_inferred_from"] = "metric"
 		}
@@ -7890,12 +7929,13 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			Summary:     fmt.Sprintf("%s produced %d contribution(s) from %d record(s)", rel, matched, total),
 			Fields:      fields,
 		})
-		diagnostics = append(diagnostics, fmt.Sprintf("%s total=%d filter_matched=%d contributions=%d missing_value=%d field_samples=%s filter_diagnostics=%s",
+		diagnostics = append(diagnostics, fmt.Sprintf("%s total=%d filter_matched=%d contributions=%d missing_value=%d missing_group_key=%d field_samples=%s filter_diagnostics=%s",
 			rel,
 			total,
 			filterMatched,
 			matched,
 			missingValue,
+			missingGroupKey,
 			compactFieldSampleJSON(records, append(append(filterFieldNames(effectiveFilters), effectiveValueField), effectiveGroupKeyFields...), 8, 3),
 			filterDiagnostics,
 		))
