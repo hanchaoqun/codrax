@@ -524,6 +524,54 @@ func TestAppendSoftContractCaveatsToAnswerForBus_NonRelationalComparisonSuppress
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_CrossRepoComparisonSuppressesStructuralEnumerationDivergence(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "对比 repo-a 和 repo-b 的核心导出入口",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		Buckets: []types.QuestionBucket{{Label: "repo-a"}, {Label: "repo-b"}},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolStructuralEnumerationDivergence},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("cross-component comparison should keep structural enumeration divergence in telemetry:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_PrincipalEnumerationKeepsStructuralEnumerationDivergence(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "列出接口的所有实现",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolStructuralEnumerationDivergence},
+	}, "zh", ctx)
+	if !strings.Contains(out, "枚举类条目") {
+		t.Fatalf("principal enumeration should keep structural divergence visible:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})

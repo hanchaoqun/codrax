@@ -346,6 +346,8 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 		types.ViolPrincipalSupportMemberOmitted,
 		types.ViolExhaustiveMemberSetCoverageDrift:
 		return !principalEnumerationSurfaceRequested(rm, contract)
+	case types.ViolStructuralEnumerationDivergence:
+		return structuralEnumerationDivergenceCaveatIsTelemetry(rm, contract)
 	case types.ViolUncertaintyBlockMissing:
 		return !contract.HasOutput(types.AnswerRequestedOutputAbsence) &&
 			!contract.HasOutput(types.AnswerRequestedOutputDiagnostic)
@@ -380,6 +382,19 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 	default:
 		return false
 	}
+}
+
+func structuralEnumerationDivergenceCaveatIsTelemetry(rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	if rm == nil {
+		return false
+	}
+	if contract.HasOutput(types.AnswerRequestedOutputComparison) {
+		return true
+	}
+	if rm.Predicates.IsCrossComponent || len(rm.QuestionStructure().Buckets) >= 2 {
+		return true
+	}
+	return false
 }
 
 func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {
