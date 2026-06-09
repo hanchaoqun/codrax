@@ -408,10 +408,14 @@ func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, 
 		if rm != nil && rm.Predicates.IsRelationalLookup {
 			return false
 		}
-		return !contract.HasOutput(types.AnswerRequestedOutputComparison)
+		return true
 	case types.FacetNearestMechanism, types.FacetUncertaintyBoundary:
 		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
 	case types.FacetCurrentCodePath:
+		if principalEnumerationSurfaceRequested(rm, contract) ||
+			contract.HasOutput(types.AnswerRequestedOutputComparison) {
+			return true
+		}
 		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
 	default:
 		return false

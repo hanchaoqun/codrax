@@ -499,6 +499,31 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RelationalComparisonKeepsCompon
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_NonRelationalComparisonSuppressesFacetMetadata(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "分别列出两个子仓的核心导出入口和功能用途",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		Buckets: []types.QuestionBucket{{Label: "repo-a"}, {Label: "repo-b"}},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetComponentRelation), "answer_facet_coverage")},
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetCurrentCodePath), "answer_facet_coverage")},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("principal comparison/enumeration answers should keep generic facet metadata in telemetry:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})
