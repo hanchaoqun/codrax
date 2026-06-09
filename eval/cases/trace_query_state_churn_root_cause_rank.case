@@ -1,0 +1,38 @@
+# Trace query — fragmented state churn root-cause ranking
+#
+# Coverage target: root_cause_rank should let fragmented state_churn compete
+# with normal scheduler/blocking causes and promote the dominant cumulative
+# state when no single long segment exists.
+ID="trace_query_state_churn_root_cause_rank"
+NAME="trace query — state_churn root cause rank"
+QUESTION="请优先使用 trace_query 的 root_cause_rank 分析 11.0s 到 11.008s 的丢帧窗口。这里没有单个长 runnable/sleep/D/running 阻塞，而是 app-20 和 rival-30 频繁短片段切换；请判断 state_churn 是否应作为主因、主导状态是什么、累计影响是多少，并解释为什么下一步应看同 CPU 竞争/CPU pressure。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-20   (   20) [001] .... 11.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.000300: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.000800: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.001100: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.001600: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.001900: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.002400: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.002700: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.003200: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.003500: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.004000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.004300: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.004800: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.005100: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.005600: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.005900: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.006400: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.006700: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.007200: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.007500: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.008000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=S ==> next_comm=app next_pid=20 next_prio=53
+'
+EXPECT_CONTAINS="state_churn runnable app-20 CPU pressure"
+EXPECT_MATCHES_REGEX="(主因|primary|rank=1|第一).*(state_churn|fragmented|碎片|runnable)|(state_churn|fragmented|碎片|runnable).*(主因|primary|rank=1|第一)
+(dominant_state|主导状态|主导).*(runnable|可运行)|runnable.*(dominant_state|主导)
+(impact|影响|累计).*(5\\.0|5\\.000|5ms|5 ms)
+(fragmented_runnable_wait|碎片化 runnable|碎片化可运行|state_churn)
+(same-CPU|同 CPU|CPU pressure|竞争|pressure)"

@@ -1,0 +1,23 @@
+# Trace query — inode event_search guidance
+#
+# Coverage target: trace_query event_search should make inode/name lookup useful
+# for model follow-up analysis, including file_io/page_cache filters and raw row
+# details such as dev, inode, entry_name, offset, bytes, and ret.
+ID="trace_query_inode_event_search"
+NAME="trace query — inode event_search lookup"
+QUESTION="请优先使用 trace_query 的 event_search 查找 inode 0xb9b8e 和 entry_name=foo.db 的相关 IO 行。请说明命中的 file_io/page_cache 行有哪些，包含 dev、inode、entry_name、offset、bytes、ret，并提醒 inode 需要 entry_name 或外部映射才能对应到路径；不要把 entry_name=foo.db 改写成 /foo.db 或任何绝对路径。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-20   (   20) [001] .... 12.000000: android_fs_dataread_start: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 rw R
+        app-20   (   20) [001] .... 12.001000: android_fs_dataread_end: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 ret 4096 latency_us=700 rw R
+        app-20   (   20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e offset 0
+        app-20   (   20) [001] .... 12.003000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e offset 0
+     other-40   (   40) [002] .... 12.004000: android_fs_datawrite_end: dev 260:136 ino 0xaaaa entry_name=bar.db offset 0 bytes 1024 ret 1024 latency_us=200 rw W
+'
+EXPECT_CONTAINS="0xb9b8e 260:136 foo.db"
+EXPECT_MATCHES_REGEX="(event_search|命中|matched|查找).*(0xb9b8e|foo\\.db)
+(file_io|android_fs|dataread|读).*(offset|0).*(4096|bytes|ret)
+(page_cache|mm_filemap|页缓存).*(add|delete|新增|删除)
+(路径|path|inode-to-path|entry_name|外部映射)
+(绝不能|不要|不能|不应).*(/foo\\.db|绝对路径|/data)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

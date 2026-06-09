@@ -1,0 +1,31 @@
+# Trace query — inode IO pressure root-cause summary
+#
+# Coverage target: trace_query should summarize inode-level file IO,
+# mm_filemap page-cache churn, storage-layer latency, and scheduler iowait
+# together so the final answer can name the dominant IO contributor instead of
+# only reporting generic D-state/block latency.
+ID="trace_query_inode_io_pressure"
+NAME="trace query — inode IO pressure root cause"
+QUESTION="请优先使用 trace_query 分析 12.0s 到 12.012s 这段丢帧窗口的 IO 根因：重点看 inode 级别读写、page cache churn、storage latency 和 sched_blocked_reason iowait。请指出主因 inode/dev/name、读写字节数、page-cache add/delete、storage 层最大耗时，以及它和 D-state/iowait 的关系；不要凭 inode 编造完整路径。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-20   (   20) [001] .... 12.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=120
+        app-20   (   20) [001] .... 12.001000: android_fs_datawrite_start: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 rw W
+        app-20   (   20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e offset 0
+        app-20   (   20) [001] .... 12.003000: android_fs_datawrite_end: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 ret 4096 latency_us=2000 rw W
+        app-20   (   20) [001] .... 12.004000: f2fs_direct_IO_enter: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write
+        app-20   (   20) [001] .... 12.005000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e offset 0
+        app-20   (   20) [001] .... 12.006000: scsi_dispatch_cmd_start: tag=7 dev=12,80 lba=4096 len=8192 opcode=WRITE
+        app-20   (   20) [001] .... 12.009500: scsi_dispatch_cmd_done: tag=7 dev=12,80 lba=4096 len=8192 opcode=WRITE ret=0 latency_us=3500
+        app-20   (   20) [001] .... 12.009700: f2fs_direct_IO_exit: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write ret=8192 latency_us=5700
+        app-20   (   20) [001] .... 12.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=120 prev_state=D ==> next_comm=worker next_pid=30 next_prio=120
+     worker-30   (   30) [001] d..3 12.010500: sched_blocked_reason: pid=20 iowait=1 caller=__filemap_fdatawait_range+0x134/0x150
+        app-20   (   20) [001] .... 12.011000: block_rq_issue: 12,80 W 4096 + 8 [app]
+        app-20   (   20) [001] .... 12.012000: block_rq_complete: 12,80 W () 4096 + 8 [0]
+'
+EXPECT_CONTAINS="0xb9b8e 260:136 foo.db iowait"
+EXPECT_MATCHES_REGEX="(file_io|inode|文件|读写|write).*(0xb9b8e).*(4096|8192|12288|bytes|字节)
+(page_cache|page cache|页缓存).*(add|delete|churn|新增|删除|抖动)
+(scsi|storage|存储).*(3\\.5|3500|max|最大|latency|耗时)
+(D-state|D 状态|iowait|__filemap_fdatawait_range)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

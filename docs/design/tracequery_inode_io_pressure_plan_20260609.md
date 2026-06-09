@@ -125,6 +125,10 @@ new input aliases that use existing fields.
     requires trace `entry_name` or external filesystem mapping.
 - Final answer guidance should preserve IO-specific facts: inode/dev/op/bytes,
   latency, page-cache add/delete churn, and iowait/D-state caveats.
+- `entry_name` is a trace file-name label, not an absolute path. The model must
+  not turn `entry_name=foo.db` into `/foo.db`, `/data/...`, or any
+  directory-qualified path unless the trace row or an external mapping provides
+  that exact path.
 
 ### ObservationLedger
 

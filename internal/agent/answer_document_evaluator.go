@@ -6430,7 +6430,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	}
 	if answerDocRuntimeTraceSchedulerQuestion(ctx) {
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
-		b.WriteString("- Runtime IO hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, or `io_pressure` observations, preserve inode/dev/op/bytes/count/latency/churn and relate them to D-state/iowait/block-latency facts. Do not invent a file path from an inode alone; only name a path when the trace row included `entry_name`/path or a separate filesystem mapping proves it.\n")
+		b.WriteString("- Runtime IO hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, or `io_pressure` observations, preserve inode/dev/op/bytes/count/latency/churn and relate them to D-state/iowait/block-latency facts. Do not invent a file path from an inode alone; only name a path when the trace row included a full path or a separate filesystem mapping proves it. Treat `entry_name` as a basename-like trace label: never prefix it with `/`, `/data/`, or any directory unless that exact full path is grounded.\n")
 	}
 	b.WriteString("\n")
 	return b.String()
