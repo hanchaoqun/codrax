@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -804,6 +805,41 @@ func TestDataTaskTerminalAuditWithRuntimeUsesRuntimeSnapshot(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("runtime terminal audit leaked preview value %q:\n%s", forbidden, text)
 		}
+	}
+}
+
+func TestDataTaskTerminalAuditDetailedStatusUsesJournalSnapshot(t *testing.T) {
+	rt := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+	})
+	rt.SetRounds(1, 0)
+
+	terminal := writeDataTaskTerminalArtifactFileWithRuntimeDetailed(
+		t.TempDir(),
+		t.TempDir(),
+		rt,
+		dataTaskTerminalAudit{Status: "complete", DataRounds: 1},
+		"complete",
+		"",
+		"",
+		"",
+		"test",
+	)
+	if terminal.Path == "" {
+		t.Fatal("terminal audit path empty")
+	}
+	if strings.TrimSpace(terminal.Snapshot.Status) == "" || strings.EqualFold(terminal.Snapshot.Status, "complete") {
+		t.Fatalf("Snapshot.Status=%q, want runtime-derived non-complete status", terminal.Snapshot.Status)
+	}
+	raw, err := os.ReadFile(terminal.Path)
+	if err != nil {
+		t.Fatalf("read terminal audit: %v", err)
+	}
+	if !strings.Contains(string(raw), fmt.Sprintf(`"status": "%s"`, terminal.Snapshot.Status)) {
+		t.Fatalf("terminal JSON does not contain detailed snapshot status %q:\n%s", terminal.Snapshot.Status, string(raw))
 	}
 }
 

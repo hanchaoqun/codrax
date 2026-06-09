@@ -282,7 +282,16 @@ terminal="$PWD/.codrax/data-audit/fake-blocked-terminal.json"
 cat >"$terminal" <<'JSON'
 {
   "status": "blocked",
-  "reason": "synthetic blocked data workflow"
+  "reason": "synthetic blocked data workflow",
+  "data_rounds": 7,
+  "repair_rounds": 3,
+  "record_count": 5,
+  "result_summary": "answer_len=8 decisions=5 rules=9 contributions=5 resolutions=23 consumed=15 warnings=0 reconcile=\"pass\"",
+  "action_events": [
+    {"status": "executed"},
+    {"status": "failed"}
+  ],
+  "action_graph": {}
 }
 JSON
 cat >"$logdir/codrax-20260608-000003-000-1.log" <<LOG
@@ -318,6 +327,12 @@ case "$blocked_verdict" in
     fail "blocked terminal should fail even when stdout contains expected regex: $blocked_verdict"
     ;;
 esac
+assert_eq "$(grep '^data_terminal_status=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "blocked" "data terminal status metric"
+assert_eq "$(grep '^data_rounds=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "7" "data rounds metric"
+assert_eq "$(grep '^data_repair_rounds=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "3" "data repair rounds metric"
+assert_eq "$(grep '^data_record_count=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "5" "data record count metric"
+assert_eq "$(grep '^data_action_failed=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "1" "data action failed metric"
+assert_eq "$(grep '^data_answer_len=' "$blocked_dir/run-1.metrics.txt" | cut -d= -f2)" "8" "data answer length metric"
 
 scenario_dir="$tmp/data-real-scenario"
 mkdir -p "$scenario_dir"

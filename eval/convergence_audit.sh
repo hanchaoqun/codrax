@@ -114,8 +114,8 @@ wait
   echo
   echo "This report is advisory. It helps decide whether a typed runtime fix is justified; it must not be interpreted as permission to override a model answer that is fully supported by evidence."
   echo
-  echo "| case | verdict | read | repo_map | list_files | source_lens | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
-  echo "|------|---------|-----:|---------:|-----------:|------------:|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
+  echo "| case | verdict | data_status | data_r | data_rep | data_ans | read | repo_map | list_files | source_lens | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
+  echo "|------|---------|-------------|-------:|---------:|---------:|-----:|---------:|-----------:|------------:|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
 
   total=0
   flagged=0
@@ -132,6 +132,12 @@ wait
     verdict_file="$dir/run-1.verdict"
     verdict="$(head -1 "$verdict_file" 2>/dev/null | awk '{print $1}')"
     verdict="${verdict:-UNKNOWN}"
+    data_status="$(metric_field "$metrics" data_terminal_status)"
+    data_status="${data_status:-—}"
+    [[ "$data_status" == "-" ]] && data_status="—"
+    data_rounds="$(metric_number "$metrics" data_rounds)"
+    data_repairs="$(metric_number "$metrics" data_repair_rounds)"
+    data_answer_len="$(metric_number "$metrics" data_answer_len)"
     read_calls="$(metric_number "$metrics" tool_read_file)"
     repo_map_calls="$(metric_number "$metrics" tool_repo_map)"
     list_files_calls="$(metric_number "$metrics" tool_list_files)"
@@ -183,8 +189,8 @@ wait
       flagged=$((flagged + 1))
     fi
     total=$((total + 1))
-    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-      "$case_id" "$verdict" "$read_calls" "$repo_map_calls" "$list_files_calls" "$source_lens" \
+    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+      "$case_id" "$verdict" "$data_status" "$data_rounds" "$data_repairs" "$data_answer_len" "$read_calls" "$repo_map_calls" "$list_files_calls" "$source_lens" \
       "$ana" "$exp" "$exp_disp" "$midloop" "$sibling" "$origin_block" \
       "$fin" "$fin_reject" "$fin_rewrite" "$sem" "$flags"
   done

@@ -2946,9 +2946,18 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 	reason := strings.TrimSpace(a.Reason)
 	lastErr := dataTaskLatestError(a.Records)
 	resultSummary := dataTaskTerminalResultSummary(a.Result, a.Records)
-	terminalPath := writeDataTaskTerminalArtifactFileWithRuntime(r.runtimeAnchor, r.repoRoot, r.activeDataWorkflowRuntime, a, status, reason, lastErr, resultSummary, "repl")
+	terminal := writeDataTaskTerminalArtifactFileWithRuntimeDetailed(r.runtimeAnchor, r.repoRoot, r.activeDataWorkflowRuntime, a, status, reason, lastErr, resultSummary, "repl")
+	terminalPath := terminal.Path
+	status = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Status), status)
+	reason = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Reason), reason)
+	lastErr = terminal.LastError
+	resultSummary = terminal.ResultSummary
+	recordCount := terminal.RecordCount
+	if recordCount == 0 {
+		recordCount = len(a.Records)
+	}
 	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
-		status, a.DataRounds, a.RepairRounds, len(a.Records), resultSummary,
+		status, terminal.DataRounds, terminal.RepairRounds, recordCount, resultSummary,
 		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
 	if reason != "" || lastErr != "" {
 		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s",
@@ -2979,10 +2988,31 @@ func writeDataTaskTerminalArtifactFile(runtimeAnchor, repoRoot string, a dataTas
 }
 
 func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string, workflowRuntime *dataworkflow.WorkflowRuntime, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) string {
+	return writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoot, workflowRuntime, a, status, reason, lastErr, resultSummary, logScope).Path
+}
+
+type dataTaskTerminalArtifactWrite struct {
+	Path          string
+	Snapshot      dataworkflow.WorkflowJournal
+	LastError     string
+	ResultSummary string
+	DataRounds    int
+	RepairRounds  int
+	RecordCount   int
+}
+
+func writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoot string, workflowRuntime *dataworkflow.WorkflowRuntime, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) dataTaskTerminalArtifactWrite {
+	out := dataTaskTerminalArtifactWrite{
+		LastError:     lastErr,
+		ResultSummary: resultSummary,
+		DataRounds:    a.DataRounds,
+		RepairRounds:  a.RepairRounds,
+		RecordCount:   len(a.Records),
+	}
 	dir := filepath.Join(firstNonEmptyString(runtimeAnchor, repoRoot, "."), "data-audit")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		logging.Warning("[%s/data] create audit dir failed: %v", firstNonEmptyString(logScope, "data"), err)
-		return ""
+		return out
 	}
 	records := a.Records
 	current := dataquery.TaskPlan{}
@@ -3003,6 +3033,11 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 		lastErr = dataTaskLatestError(records)
 		resultSummary = dataTaskTerminalResultSummary(a.Result, records)
 	}
+	out.LastError = lastErr
+	out.ResultSummary = resultSummary
+	out.DataRounds = a.DataRounds
+	out.RepairRounds = a.RepairRounds
+	out.RecordCount = len(records)
 	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
 		Records:       records,
 		CurrentPlan:   current,
@@ -3026,19 +3061,21 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 		Guards:        a.Guards,
 		GuardRound:    a.DataRounds,
 	})
+	out.Snapshot = snapshot
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logging.Warning("[%s/data] marshal data task terminal audit failed: %v", firstNonEmptyString(logScope, "data"), err)
-		return ""
+		return out
 	}
 	stamp := dataTaskAuditStamp()
 	path := filepath.Join(dir, fmt.Sprintf("%s-%d-terminal.json", stamp, os.Getpid()))
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		logging.Warning("[%s/data] write data task terminal audit failed path=%s: %v", firstNonEmptyString(logScope, "data"), path, err)
-		return ""
+		return out
 	}
+	out.Path = path
 	logging.Info("[%s/data] terminal full path=%s\n%s", firstNonEmptyString(logScope, "data"), path, string(raw))
-	return path
+	return out
 }
 
 func writeDataTaskWorkflowCheckpointFile(runtimeAnchor, repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan, dataRounds, repairRounds int, reason, logScope string, guards ...dataworkflow.GuardResult) string {

@@ -227,6 +227,28 @@ json_string_field() {
   LC_ALL=C sed -nE 's/^[[:space:]]*"'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$file" | head -1
 }
 
+json_number_field() {
+  local file="$1" field="$2"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C sed -nE 's/^[[:space:]]*"'"$field"'"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$file" | head -1
+}
+
+data_terminal_action_failed_count() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo 0; return; }
+  LC_ALL=C awk '
+    /"action_events"[[:space:]]*:[[:space:]]*\[/ { in_actions=1; next }
+    in_actions && /"action_graph"[[:space:]]*:/ { in_actions=0 }
+    in_actions && /"status"[[:space:]]*:[[:space:]]*"failed"/ { count++ }
+    END { print count + 0 }
+  ' "$file"
+}
+
+data_terminal_answer_len() {
+  local summary="$1"
+  LC_ALL=C sed -nE 's/.*answer_len=([0-9]+).*/\1/p' <<<"$summary" | head -1
+}
+
 latest_data_terminal_path() {
   local log="$1" path=""
   [[ -n "$log" && -f "$log" ]] || return 1
@@ -383,9 +405,33 @@ run_apply_step() {
 write_metrics() {
   local i="$1" rc="$2" log="$3"
   local metrics="$OUTDIR/run-$i.metrics.txt"
+  local data_terminal_path="" data_terminal_status="" data_rounds="0" data_repair_rounds="0" data_record_count="0" data_result_summary="" data_answer_len="0" data_action_failed="0"
+  data_terminal_path="$(latest_data_terminal_path "$log" 2>/dev/null || true)"
+  if [[ -n "$data_terminal_path" && -f "$data_terminal_path" ]]; then
+    data_terminal_status="$(json_string_field "$data_terminal_path" "status" || true)"
+    data_rounds="$(json_number_field "$data_terminal_path" "data_rounds" || true)"
+    data_repair_rounds="$(json_number_field "$data_terminal_path" "repair_rounds" || true)"
+    data_record_count="$(json_number_field "$data_terminal_path" "record_count" || true)"
+    data_result_summary="$(json_string_field "$data_terminal_path" "result_summary" || true)"
+    data_answer_len="$(data_terminal_answer_len "$data_result_summary" || true)"
+    data_action_failed="$(data_terminal_action_failed_count "$data_terminal_path" || true)"
+  fi
+  data_rounds="${data_rounds:-0}"
+  data_repair_rounds="${data_repair_rounds:-0}"
+  data_record_count="${data_record_count:-0}"
+  data_answer_len="${data_answer_len:-0}"
+  data_action_failed="${data_action_failed:-0}"
   {
     echo "exit_code=$rc"
     echo "log_file=$log"
+    echo "data_terminal_path=$data_terminal_path"
+    echo "data_terminal_status=$data_terminal_status"
+    echo "data_rounds=$data_rounds"
+    echo "data_repair_rounds=$data_repair_rounds"
+    echo "data_record_count=$data_record_count"
+    echo "data_action_failed=$data_action_failed"
+    echo "data_answer_len=$data_answer_len"
+    echo "data_result_summary=$data_result_summary"
     echo "tool_read_file=$(eval_count_tool_calls "$log" read_file)"
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
@@ -962,7 +1008,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_lane_block_kind_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_lane_block_kind_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

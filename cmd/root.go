@@ -1263,6 +1263,14 @@ func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classifi
 	if !singleShotDataTaskRoutingEnabled() {
 		return true, "", fmt.Errorf("data mode requested but data pipeline is not configured")
 	}
+	logging.Info("[cmd/route] single-shot data route route=%s data_task_kind=%s needs_data=%t source=%s confidence=%.2f classified=%t reason=%q",
+		policy.Route,
+		policy.DataTaskKind,
+		policy.NeedsDataAccess,
+		policy.Source,
+		policy.Confidence,
+		classified,
+		oneLineForLog(policy.Reason))
 	result, err := repl.RunDataTaskCLI(ctx, request, policy, repl.DataTaskCLIConfig{
 		Planner:         app.dataTaskPlanner,
 		RepoRoot:        flagRepo,
