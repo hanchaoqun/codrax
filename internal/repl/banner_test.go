@@ -1,8 +1,12 @@
 package repl
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
+	"github.com/pterm/pterm"
 )
 
 func TestRenderDegradedEnvHints_HealthyBox(t *testing.T) {
@@ -106,7 +110,7 @@ func TestDegradedEnvHints_LanguageGate(t *testing.T) {
 
 func TestMultiRepoBannerLine_DisabledPostureIsSingleRepoPrecise(t *testing.T) {
 	got := multiRepoBannerLine("zh", false, 3, 0, 2)
-	for _, want := range []string{"单仓模式", "已关闭", "3 个子仓", "/repos"} {
+	for _, want := range []string{"单仓模式", "已关闭", "3 个子仓", "--multi-repo=false", "/repos"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("disabled zh banner missing %q: %q", want, got)
 		}
@@ -116,7 +120,7 @@ func TestMultiRepoBannerLine_DisabledPostureIsSingleRepoPrecise(t *testing.T) {
 	}
 
 	got = multiRepoBannerLine("en", false, 3, 0, 2)
-	for _, want := range []string{"single-repo mode", "routing disabled", "3 sub-repos", "/repos"} {
+	for _, want := range []string{"single-repo mode", "routing disabled", "3 sub-repos", "--multi-repo=false", "/repos"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("disabled en banner missing %q: %q", want, got)
 		}
@@ -128,9 +132,34 @@ func TestMultiRepoBannerLine_DisabledPostureIsSingleRepoPrecise(t *testing.T) {
 
 func TestMultiRepoBannerLine_EnabledPostureShowsRoutingControls(t *testing.T) {
 	got := multiRepoBannerLine("en", true, 3, 1, 2)
-	for _, want := range []string{"multi-repo", "3 sub-repos", "active cap=2", "focus-pinned"} {
+	for _, want := range []string{"multi-repo", "3 sub-repos", "active cap=2", "focus-pinned", "--multi-repo=false"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("enabled banner missing %q: %q", want, got)
 		}
+	}
+}
+
+func TestREPLBannerHighlightsMultiRepoLine(t *testing.T) {
+	prevColor := pterm.PrintColor
+	pterm.EnableColor()
+	t.Cleanup(func() {
+		pterm.PrintColor = prevColor
+	})
+	var out bytes.Buffer
+	r := &REPL{
+		out:                &out,
+		headerPrinted:      true,
+		language:           "en",
+		multiRepoEnabled:   true,
+		multiRepoMaxActive: 2,
+		topology: &topology.RepoTopology{Repos: []topology.SubRepo{
+			{RootRel: "api"},
+			{RootRel: "web"},
+		}},
+	}
+	r.banner()
+	got := out.String()
+	if !strings.Contains(got, "\x1b[") || !strings.Contains(got, "--multi-repo=false") {
+		t.Fatalf("multi-repo banner should be highlighted and include disable hint, got %q", got)
 	}
 }

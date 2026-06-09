@@ -6,6 +6,7 @@
 > **跨语言一等公民**: ArkTS / Cangjie / Java / Kotlin / Go / Python / JS/TS / Rust / C/C++ / Swift / Ruby / Lua / Proto **同父目录共存**是核心用例,不是 edge case。
 > **v2 改动**: line drift 修;Slug 格式对齐 CacheDir 同源;`MainRepoRoot` 双 site 显式;raw consumer audit (§11) 与 phase-by-phase migration (§12) 落进 doc;cap thrashing 升级 fail-loud;REPL 3 注册点;R2' 6 处展开;Q1 改为 **MultiGraph carrier** Z+Y 混合(纯 Z 半成品)。
 > **2026-06-04 update**: active cap 默认仍为 2,硬上限升到 5;无显式 focus 时新增 compact-topology `multi_repo_focus` selector,不再把 biggest-first fallback 当成默认优选。显式 `/repos focus` / `--focus` 严格遵守,不自动补其它子仓。
+> **2026-06-09 UX guardrail**: REPL startup Banner 的 multi-repo 行必须高亮,并直接提示非跨仓任务使用 `--multi-repo=false`。这是 typed CLI/config posture,不是从用户问题或模型 prose 推断意图;目标是避免用户在父目录误进入多仓路由和额外 active 图内存。
 
 ## 0. 目标 & 非目标
 
@@ -20,6 +21,7 @@
 5. **磁盘可控**(per-repo cache 独立,粒度内复用现有 `index.CacheDir` slug 机制)
 6. **跨仓 ArkTS / Cangjie / runner 探测**全部止于 sub-repo 边界
 7. **零回归**单仓用户:`multi_repo_enabled=false` (默认 **true**,但单仓走退化路径) → 行为字节级等价于今天
+8. **误入多仓可见可退**:当父目录发现多个子仓时,Banner 明显提示 multi-repo posture;非跨仓任务给 `--multi-repo=false` 作为首选退出路径,不要让用户靠 cap 或 prompt 文字“暗示单仓”。
 
 ### 0.2 非目标
 

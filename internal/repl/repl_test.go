@@ -1363,6 +1363,7 @@ func TestPrintTopologyDiscoveryNotices(t *testing.T) {
 	for _, want := range []string{
 		"正在发现工作区子仓拓扑",
 		"工作区子仓拓扑已就绪：2 个子仓",
+		"--multi-repo=false",
 		"Workspace topology discovery failed: boom",
 		"·",
 		"✓",

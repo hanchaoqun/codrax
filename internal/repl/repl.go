@@ -5784,8 +5784,10 @@ func (r *REPL) banner() {
 		capN := r.activeMultiRepoMaxActiveLocked(r.multiRepoMaxActiveOverride)
 		r.multiRepoMu.Unlock()
 		if line := multiRepoBannerLine(r.language, r.multiRepoEnabled, len(r.topology.Repos), focusCount, capN); line != "" {
+			line = clampToTermWidth(line, bannerMaxWidth)
+			style := pterm.NewStyle(pterm.FgYellow, pterm.Bold)
 			fmt.Fprintf(r.out, "  %s\n",
-				pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+				style.Sprint(line))
 		}
 	}
 	// Single-pending-plan invariant — user-perception layer. When
@@ -5892,6 +5894,13 @@ func PrintTopologyDiscoveryComplete(out io.Writer, lang string, count int, elaps
 	msg := fmt.Sprintf("工作区子仓拓扑已就绪：%d 个子仓 (%s)", count, elapsed)
 	if !isZh(lang) {
 		msg = fmt.Sprintf("Workspace topology ready: %d sub-repo(s) (%s)", count, elapsed)
+	}
+	if count > 1 {
+		if isZh(lang) {
+			msg += "；非跨仓任务可用 --multi-repo=false 跳过多仓路由"
+		} else {
+			msg += "; not a cross-repo task? use --multi-repo=false to skip multi-repo routing"
+		}
 	}
 	fmt.Fprintf(out, "  %s %s\n", pterm.FgGreen.Sprint("✓"), pterm.FgDarkGray.Sprint(msg))
 }

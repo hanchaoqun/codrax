@@ -254,29 +254,29 @@ func clampToTermWidth(s string, maxWidth int) string {
 // itself a git repo) returns "" so the banner stays quiet — no UX
 // chrome for the dominant case.
 //
-// Style mirrors failureTaxonomyBannerLine / unsettledBanner: dim
-// FgDarkGray clamped at bannerMaxWidth, single line, ASCII-safe
-// (mixed CJK / English fits both --lang=zh and --lang=en operators).
+// Style is applied by REPL.banner: this line is intentionally more
+// prominent than the dim status rows because multi-repo mode changes
+// routing scope and memory footprint.
 func multiRepoBannerLine(lang string, enabled bool, subRepoCount int, focusCount int, capN int) string {
 	if subRepoCount <= 1 {
 		return ""
 	}
 	if !enabled {
 		if isZh(lang) {
-			return formatN(lang, "🗂  单仓模式:已关闭 multi-repo 路由;已发现 %d 个子仓;/repos 查看拓扑", subRepoCount)
+			return formatN(lang, "🗂  单仓模式:multi-repo 路由已关闭;已发现 %d 个子仓;保持单仓可用 --multi-repo=false;/repos 查看", subRepoCount)
 		}
-		return formatN(lang, "🗂  single-repo mode: multi-repo routing disabled; discovered %d sub-repos; /repos to inspect topology", subRepoCount)
+		return formatN(lang, "🗂  single-repo mode: multi-repo routing disabled; discovered %d sub-repos; keep single-repo with --multi-repo=false; /repos", subRepoCount)
 	}
 	if isZh(lang) {
 		if focusCount > 0 {
-			return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d, focus 已 pin %d 个);/repos 查看", subRepoCount, capN, focusCount)
+			return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d, focus 已 pin %d 个);非跨仓任务用 --multi-repo=false;/repos", subRepoCount, capN, focusCount)
 		}
-		return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d);/repos 查看 / focus / refresh", subRepoCount, capN)
+		return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d);非跨仓任务用 --multi-repo=false;/repos focus", subRepoCount, capN)
 	}
 	if focusCount > 0 {
-		return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d, %d focus-pinned); /repos to inspect", subRepoCount, capN, focusCount)
+		return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d, %d focus-pinned); not cross-repo? use --multi-repo=false; /repos", subRepoCount, capN, focusCount)
 	}
-	return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d); /repos for list / focus / refresh", subRepoCount, capN)
+	return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d); not cross-repo? use --multi-repo=false; /repos focus", subRepoCount, capN)
 }
 
 // failureTaxonomyBannerLine surfaces the count of learned

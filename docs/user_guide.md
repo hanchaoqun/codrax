@@ -508,8 +508,10 @@ REPL banner 立即提示:
    CODRAX  v0.1.X  /help · /exit
    模式: auto · code · operation · data · write (write_enabled=true)
    记忆: 3 recent + 0 compacted
-   🗂  multi-repo: 5 sub-repos (active cap=2); /repos for list / focus / refresh
+   🗂  multi-repo: 5 sub-repos (active cap=2); not cross-repo? use --multi-repo=false; /repos focus
 ```
+
+这行在终端里会用更醒目的颜色显示,因为 multi-repo 会改变路由范围并让 active 子仓图常驻内存。看到这个 Banner 但本次只是单仓任务时,优先重启并传 `--multi-repo=false`;如果确实要跨仓,再用 `/repos focus` 或 `--focus` 明确 pin 目标子仓。
 
 ### `/repos` 命令族
 
@@ -635,10 +637,10 @@ per-Run 覆盖 `codrax.yaml :: multi_repo_enabled`,无需改 yaml:
 codrax --repo ~/workspace --multi-repo=true --request "..."
 
 # 临时关闭 — 父目录扫到一堆子仓但本次只想用单仓 legacy 路径
-codrax --repo ~/single --multi-repo=false --request "..."
+codrax --repo ~/workspace --multi-repo=false --request "..."
 ```
 
-只有显式传 `--multi-repo=true` 或 `--multi-repo=false` 才会覆盖;省略 flag 时 yaml(或 yaml 缺省值 true)继续生效。生效会在启动 INFO 日志输出 `[multi-repo] CLI override: enabled=...`,可直观确认。
+只有显式传 `--multi-repo=true` 或 `--multi-repo=false` 才会覆盖;省略 flag 时 yaml(或 yaml 缺省值 true)继续生效。生效会在启动 INFO 日志输出 `[multi-repo] CLI override: enabled=...`,可直观确认。启动 Banner 已提示 multi-repo、但问题不是跨仓比较/跨仓引用/全 workspace 汇总时,建议优先用 `--multi-repo=false`,避免无意进入多仓 active-set 路由。
 
 `multi_repo_enabled=false` 时 `/repos focus|unfocus|refresh|cap` 会拒绝执行并提示同时给出 yaml 与 `--multi-repo=true` 两条启用方式;`/repos`(不带子命令)的列表仍可查阅,只是不会路由。
 
@@ -653,6 +655,8 @@ codrax --repo ~/single --multi-repo=false --request "..."
 
 100 子仓 × 1 万文件场景:active 默认仍只 hold 2 个；即使调到硬上限 5,也只缓存被选中的 active 子仓。
 
+如果只是从父目录误启动了单仓任务,不要通过调低 cap 来“勉强单仓化”;直接用 `--multi-repo=false` 跳过多仓路由,这是最稳定、内存占用最低的路径。
+
 ### 故障排查
 
 | 症状 | 原因 | 修复 |
@@ -662,6 +666,7 @@ codrax --repo ~/single --multi-repo=false --request "..."
 | `thrashing detected` Warning | 同上,LRU 抖动 | 同上 |
 | 写模式跨仓 fail-loud | 设计限制 | cd 进具体子仓重跑 |
 | 没看到 banner 多仓行 | 父目录是单 git 仓(不是 workspace) | 这是预期 — 单仓 quiet UX |
+| 看到了醒目的 multi-repo Banner,但本次不是跨仓任务 | 从父目录启动且发现了多个独立子仓 | 重启并传 `--multi-repo=false`,或 cd 到目标子仓再运行 |
 | banner 前等待较久 | 多仓 cold discovery 正在找子仓/统计 metadata | 2s 后会显示“正在发现工作区子仓拓扑”;后续 warm cache 不会被 `.codrax` 日志/缓存 mtime 误判失效 |
 | `/repos` 列出空 / 漏子仓 | BFS 深度不够 / 子仓 file count < min | yaml `multi_repo_discovery_depth: 6` 或 `multi_repo_min_files: 0` |
 
@@ -2105,6 +2110,14 @@ agents:
 
 扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描在内存和 CPU 两个维度都会压满小机器:进程内存可能超出宿主 RAM 被 OOM 杀掉,所有核心被占满又可能饿死 sshd 导致远程 SSH 断连。内存相关的键默认即开、无需配置;CPU 那个键(`repomap_scan_reserve_cpus`)按需开启。详见 `docs/design/large_repo_memory_resilience.md`。
 
+商用/受限宿主建议显式设置运行侧内存保护线,并低于容器或宿主硬上限留出余量:
+
+```bash
+GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
+```
+
+`GOMEMLIMIT` 是 Go 堆目标,不是 RSS 硬天花板;它能让 GC 更早介入,但 mmap、C 栈、tree-sitter/native parser 内存仍需要额外余量。需要真正硬限制时,用容器/cgroup/ulimit 设置进程内存上限,再把 `GOMEMLIMIT` 设在该上限以下。yaml 的 `memory_soft_limit_*` 是默认保护,显式环境变量适合每次大仓运行按宿主容量精确控制。
+
 | 键 | 默认 | 作用 |
 |---|---|---|
 | `memory_soft_limit_enabled` | `true` | 启动时设软堆上限(GOMEMLIMIT),让 GC 在宿主内存耗尽前提前回收。环境变量 `GOMEMLIMIT` 优先于本组所有键 |
@@ -2688,7 +2701,7 @@ CLI 单次模式输出:
 → 某种语言的 tree-sitter 解析失败率偏高。问题不大,但建议升级 codrax 或反馈给团队。
 
 **扫描超大仓库时进程被杀(`Killed` / dmesg 里有 OOM)**
-→ 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 `--repo` 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 `memory_soft_limit_fraction`。日志里的 `repo_map: resuming interrupted scan` 行说明续扫已生效。
+→ 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 显式设置每次运行的 `GOMEMLIMIT`,例如 `GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."`,并让它低于容器/宿主硬内存上限;② 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;③ 用 `--repo` 指向更小的子目录而非整棵树;④ 内存极小的机器可调低 `memory_soft_limit_fraction` 或直接设置 `memory_soft_limit_bytes`。日志里的 `repo_map: resuming interrupted scan` 行说明续扫已生效。
 
 **扫描超大仓库时 SSH 断连 / 远程终端卡死**
 → 全量扫描会占满每个 CPU 核心,可能饿死 sshd。把 `repomap_scan_reserve_cpus` 设为 `1`:扫描期间 codrax 把 `GOMAXPROCS` 压低一核,让**整个 Go 运行时(含 GC 线程)**都留一个空闲核心给 sshd。启动日志 `cpu: repomap scan reserves 1 core(s)` 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以这里用 `GOMAXPROCS` 上限作硬保证。该键默认 `0`(不改变默认行为、不损失扫描速度);小远程机掉 SSH 就设 `1`,仍卡顿设 `2`。

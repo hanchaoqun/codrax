@@ -125,6 +125,23 @@ reclaiming — a death spiral — but that is still strictly better than an
 unannounced kill, and a large scan's footprint is dominated by garbage,
 not live data).
 
+Operator hard-constraint guidance: for production or memory-constrained
+hosts, set the actual process/container memory hard limit outside codrax
+(container memory, cgroup, `ulimit`, or the platform equivalent), then set
+`GOMEMLIMIT` below that hard cap with headroom for non-Go-heap memory. A
+safe starting point is roughly 70-80% of the hard cap:
+
+```bash
+GOMEMLIMIT=6GiB codrax --repo /src/linux --request "..."
+GOMEMLIMIT=1536MiB codrax --repo /src/big --multi-repo=false --request "..."
+```
+
+The environment variable is the strongest per-run override. The yaml
+`memory_soft_limit_*` keys provide a default when the environment is unset;
+they do not replace the operator's hard memory policy. This distinction is
+intentional: codrax can pressure Go GC, but RSS also includes mmap, C stacks,
+tree-sitter/native parser memory, and OS/runtime overhead.
+
 `memlimit.Apply` runs once at startup, before any tool executes:
 
 1. Disabled by config → no-op.

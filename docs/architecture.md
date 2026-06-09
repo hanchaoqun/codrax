@@ -2573,7 +2573,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `cgec_*` | CGEC 调节 | `cgec_forced_reads_per_round`（3）/ `cgec_stall_threshold_soft`（2）/ `cgec_stall_threshold_hard`（3）/ `cgec_phase1_unread_top_k`（5）/ `cgec_phase1_unread_min_unread`（2）/ `cgec_multi_path_*` 系列 / `cgec_external_artifact_decoded_floor`（0.4） |
 | `chitchat_*` | /chat 通道 | `chitchat_enabled`（true）/ `chitchat_classifier_enabled`（true）/ recall/list 默认 + max limit |
 | `env_*` / `recommend_*` | 环境诊断 | `env_recommend_enabled`（true）/ `env_recommend_llm_enabled`（true）/ `env_recommend_llm_timeout_sec` / `recommend_global_install`（false）/ `env_probe_network` / `env_cache_ttl_days`（90） |
-| `memory_soft_limit_*` / `repomap_resume_*` / `repomap_scan_reserve_cpus` / `repomap_parse_timeout_*` | 大仓扫描韧性 | `memory_soft_limit_enabled`（true，启动设 GOMEMLIMIT 软上限）/ `memory_soft_limit_fraction`（0.8，宿主 RAM 占比）/ `memory_soft_limit_bytes`（0=自动，>0 直接用，512 MiB 下限）/ `repomap_resume_interrupted_scan`（true，full scan 复用上次被中断扫描已落盘的 chunk，hash 校验）/ `repomap_scan_reserve_cpus`（0,>0 时扫描期间把 GOMAXPROCS 压到 核数-该值,整个运行时含 GC 留出空闲核心防 SSH 断连;默认 0 按需开启）/ `repomap_parse_timeout_enabled`（true）/ `repomap_parse_timeout_seconds`（120，单文件 tree-sitter 解析安全阈值，0 关闭）。环境变量 `GOMEMLIMIT` 优先于内存组。见 `docs/design/large_repo_memory_resilience.md` |
+| `memory_soft_limit_*` / `repomap_resume_*` / `repomap_scan_reserve_cpus` / `repomap_parse_timeout_*` | 大仓扫描韧性 | `memory_soft_limit_enabled`（true，启动设 GOMEMLIMIT 软上限）/ `memory_soft_limit_fraction`（0.8，宿主 RAM 占比）/ `memory_soft_limit_bytes`（0=自动，>0 直接用，512 MiB 下限）/ `repomap_resume_interrupted_scan`（true，full scan 复用上次被中断扫描已落盘的 chunk，hash 校验）/ `repomap_scan_reserve_cpus`（0,>0 时扫描期间把 GOMAXPROCS 压到 核数-该值,整个运行时含 GC 留出空闲核心防 SSH 断连;默认 0 按需开启）/ `repomap_parse_timeout_enabled`（true）/ `repomap_parse_timeout_seconds`（120，单文件 tree-sitter 解析安全阈值，0 关闭）。环境变量 `GOMEMLIMIT` 优先于内存组;受限宿主应把容器/cgroup/ulimit 硬内存上限和更低的 `GOMEMLIMIT` 配套设置,因为 `GOMEMLIMIT` 是 Go 堆目标而非 RSS 硬天花板。见 `docs/design/large_repo_memory_resilience.md` |
 | `log_triage_*` | 日志分诊 | enabled / source_prefix / min_bytes（50）/ max_retries（1）/ two_step_enabled / two_step_bytes（32K）/ two_step_coverage（0.3）/ max_llm_calls（12） |
 | `perf_triage_*` | 性能分诊 | 同 log_triage 结构（默认 64K threshold） |
 | `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（256 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
@@ -2726,6 +2726,8 @@ Go 1.25.0（`go.mod` 真值源）。主要依赖：
 
 用户从父目录运行 `codrax --repo .`,父目录下可能有 N 个独立 git 仓(异构语言)。codrax 自动探测拓扑、按需加载、隔离 typed lane,**单仓用户行为字节级不变**。
 
+当启动 Banner 显示 multi-repo 时,该行必须使用比普通状态行更醒目的颜色,并直接给出 `--multi-repo=false` 建议。原因是 multi-repo 会改变路由范围和 active 图常驻内存;如果当前任务不是跨仓比较、跨仓引用或全 workspace 汇总,用户应优先用 `--multi-repo=false` 走单仓路径,而不是靠调低 cap 模拟单仓。
+
 `codrax.yaml` 5 个开关(全部 pointer-typed、缺省 → code default,clamp helpers 在 internal/config/runtime.go):
 
 ```yaml
@@ -2744,6 +2746,7 @@ multi_repo_min_files: 1                 # 子仓 file count 下限,过滤空目�
 
 **CLI flag**(2026-05-08 add):
 - `--focus <slug-or-path>`(repeatable / 逗号分隔)— 启动时预 pin 子仓,等价 REPL 启动后立即 `/repos focus`,但适用 scripted / non-REPL 调用。每 token 经 `topology.Resolve` 解 slug-or-RootRel,匹配不到的 token 一行 Warning + 丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略**(无 sub-repo 可匹配)。
+- `--multi-repo=false` — per-Run 关闭 multigraph routing;当父目录发现多个子仓但本次只要单仓语义时优先使用。该 flag 不靠用户/模型文本意图推断,只读 CLI typed bool 覆盖 `multi_repo_enabled`。
 
 REPL `/repos` 命令族(3 处注册:`replCommandAliases` / `slashCommands` / `handleSlash`):
 - `/repos`(默认子命令)— 列出已发现子仓 + active state + cap + focus pin

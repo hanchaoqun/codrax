@@ -101,6 +101,19 @@
 # 中文 扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)可能让 Go 堆
 #     超出可用内存,进程在扫描中途被 OOM 杀掉。详见
 #     docs/design/large_repo_memory_resilience.md。
+#
+# EN  On memory-constrained hosts, set an operator-level guardrail for each
+#     run, for example:
+#       GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
+#     Keep that value below the host/container memory hard limit with headroom
+#     for mmap/C stacks/native parser memory. GOMEMLIMIT is a Go heap target,
+#     not an RSS hard ceiling; pair it with container/cgroup/ulimit memory
+#     limits when the deployment needs a true hard cap.
+# 中文 内存受限的宿主建议每次运行显式设置运行侧保护线,例如:
+#       GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
+#     该值应低于宿主/容器硬内存上限,并给 mmap、C 栈、native parser 内存
+#     留余量。GOMEMLIMIT 是 Go 堆目标,不是 RSS 硬天花板;需要真正硬限制
+#     时应配合容器/cgroup/ulimit 的内存上限。
 
 # memory_soft_limit_enabled — install a soft heap limit (GOMEMLIMIT) at
 #   startup so the GC is pressured before host RAM is exhausted. The limit
@@ -1527,15 +1540,23 @@
 #     as one workspace, with per-sub-repo graph isolation. The default
 #     posture is ON; single-repo users hit a ~50µs fast path. The REPL
 #     `/repos` command lists / focuses / refreshes sub-repos.
+#     If the startup Banner shows multi-repo but this task is not cross-repo,
+#     pass `--multi-repo=false` for that run to skip multi-repo routing and
+#     avoid keeping active sub-repo graphs resident.
 # 中文 codrax 可以把"含 N 个独立 git 仓的父目录"当作一个工作区,各子仓
 #     图隔离。默认开启;单仓用户走 ~50µs 快路径。REPL `/repos` 命令用于
 #     列出 / 固定 / 刷新子仓。
+#     如果启动 Banner 显示 multi-repo,但本次不是跨仓任务,建议本次运行传
+#     `--multi-repo=false`,跳过多仓路由并避免常驻 active 子仓图。
 
 # multi_repo_enabled — master switch. nil/true enables multigraph routing;
 #   false reverts to legacy single-graph (discovery still runs for the
-#   `/repos` command). Default true.
+#   `/repos` command). Default true. Use CLI `--multi-repo=false` when a
+#   parent directory is detected as multi-repo but the current run should stay
+#   single-repo.
 #   总开关。nil/true 启用 multigraph 路由;false 回退到旧版单图(发现
-#   仍会跑,供 `/repos` 命令展示)。默认 true。
+#   仍会跑,供 `/repos` 命令展示)。默认 true。父目录被识别为多仓但本次
+#   只需要单仓语义时,优先用 CLI `--multi-repo=false` 临时关闭。
 # multi_repo_enabled: true
 
 # multi_repo_max_active — cap on resident sub-repo graphs in the LRU.
