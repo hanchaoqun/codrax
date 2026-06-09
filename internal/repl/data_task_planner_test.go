@@ -1574,6 +1574,166 @@ func TestDataTaskWorkflowCompletionGateAcceptsReferenceProjectionMetadata(t *tes
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateRejectsMismatchedReferenceProjectionMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "coverage_records.csv"), []byte("canonical_label\nGroupA\nGroupB\nGroupC\nGroupX\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"coverage_records.csv", "targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "17,4,5,0",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"coverage_records.csv", "targets.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r4"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:4"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r5"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:5"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count":         "4",
+				"projection":          "values",
+				"reference_projected": "true",
+				"reference_path":      "coverage_records.csv",
+				"reference_key_field": "canonical_label",
+				"reference_key_count": "4",
+			},
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("broad reference projection metadata must not satisfy the target reference contract")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic target reference projection repair")
+	}
+	if !plan.OutputContract.CompleteReference ||
+		plan.OutputContract.ReferencePath != "targets.csv" ||
+		plan.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("OutputContract=%+v, want targets.csv canonical_label reference", plan.OutputContract)
+	}
+}
+
+func TestDataTaskWorkflowPreservesPriorCompleteReferenceContractAheadOfBroadFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("canonical_label\nGroupA\nGroupX\nGroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "coverage_records.csv"), []byte("canonical_label\nGroupA\nGroupB\nGroupC\nGroupX\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plain := dataquery.OutputContract{Format: dataquery.OutputCSVLine, ExplanationAllowed: false, Delimiter: ","}
+	reference := dataquery.OutputContract{
+		Format:             dataquery.OutputCSVLine,
+		ExplanationAllowed: false,
+		Delimiter:          ",",
+		CompleteReference:  true,
+		ReferencePath:      "targets.csv",
+		ReferenceKeyField:  "canonical_label",
+	}
+	records := []dataTaskWorkflowRecord{
+		{Plan: dataquery.TaskPlan{InputPaths: []string{"coverage_records.csv"}, OutputContract: plain}},
+		{Plan: dataquery.TaskPlan{InputPaths: []string{"targets.csv"}, OutputContract: reference}},
+	}
+	current := dataquery.TaskPlan{
+		InputPaths:       []string{"coverage_records.csv"},
+		OutputContract:   plain,
+		ContinueAfter:    true,
+		CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_from_broad_records",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"coverage_records.csv"},
+			Params: map[string]string{
+				"reference_path":      "coverage_records.csv",
+				"reference_key_field": "canonical_label",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "17,4,5,0",
+		OutputContract: plain,
+		ConsumedPaths:  []string{"coverage_records.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r4"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:4"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r5"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:5"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "4",
+				"projection":  "values",
+			},
+		}},
+	}
+	candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
+	if !ok {
+		t.Fatal("expected a reference projection gap")
+	}
+	if candidate.Path != "targets.csv" || candidate.Field != "canonical_label" || candidate.KeyCount != 3 {
+		t.Fatalf("candidate=%+v, want targets.csv canonical_label reference", candidate)
+	}
+	if answerItems != 4 {
+		t.Fatalf("answerItems=%d, want current broad answer cardinality", answerItems)
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, records, current, result)
+	if guard.Empty() {
+		t.Fatal("prior complete reference contract must block broad fallback answer")
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, records, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic target reference projection repair")
+	}
+	if plan.OutputContract.ReferencePath != "targets.csv" ||
+		plan.OutputContract.ReferenceKeyField != "canonical_label" ||
+		!plan.OutputContract.CompleteReference {
+		t.Fatalf("OutputContract=%+v, want preserved target reference contract", plan.OutputContract)
+	}
+}
+
 func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{

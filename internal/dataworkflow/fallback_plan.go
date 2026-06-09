@@ -732,7 +732,9 @@ func BestOutputContract(values ...dataquery.OutputContract) dataquery.OutputCont
 func outputContractSpecificity(value dataquery.OutputContract) int {
 	rawFormat := strings.TrimSpace(string(value.Format))
 	rawDelimiter := strings.TrimSpace(value.Delimiter)
-	if rawFormat == "" && rawDelimiter == "" {
+	rawReferencePath := strings.TrimSpace(value.ReferencePath)
+	rawReferenceField := strings.TrimSpace(value.ReferenceKeyField)
+	if rawFormat == "" && rawDelimiter == "" && rawReferencePath == "" && rawReferenceField == "" && !value.CompleteReference {
 		return -1
 	}
 	value = value.Normalize()
@@ -748,6 +750,15 @@ func outputContractSpecificity(value dataquery.OutputContract) int {
 	}
 	if rawDelimiter != "" {
 		score++
+	}
+	if value.CompleteReference {
+		score += 6
+	}
+	if rawReferencePath != "" {
+		score += 3
+	}
+	if rawReferenceField != "" {
+		score += 3
 	}
 	return score
 }

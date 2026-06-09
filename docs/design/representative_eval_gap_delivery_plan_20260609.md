@@ -24,15 +24,16 @@ All hard behavior below is driven by typed contracts, typed artifact metadata, l
 
 ## Architectural Decisions
 
-### D1. Explicit Final Reference Contract Wins
+### D1. Explicit Final Reference Path Wins
 
-When `OutputContract.CompleteReference` is true and `ReferencePath/ReferenceKeyField` are set, that pair is the final output key universe. Fallback inference may only run when the explicit contract is absent or unreadable.
+When `OutputContract.CompleteReference` is true and `ReferencePath` is set, that path is the final output key universe. The key field is resolved structurally within that path: the declared `ReferenceKeyField` participates, and if it is misaligned the resolver may select a better same-path field by typed key overlap. Fallback inference across other paths may only run when the explicit path is absent or unreadable.
 
 Typed behavior:
 
-- A projected answer with mismatched `reference_path` or `reference_key_field` is not complete.
+- A projected answer with mismatched resolved `reference_path` or `reference_key_field` is not complete.
 - Non-reference reconcile groups remain valid audit/contribution groups but are excluded from the final projection.
 - Missing reference keys are projected as zero/empty values without changing contribution records.
+- Complete-reference output contracts have higher specificity than ordinary output format contracts, so later plain output batches cannot drop the final reference authority.
 
 ### D2. Reconcile Pass And Final Projection Pass Are Separate
 
@@ -210,4 +211,3 @@ Commercial acceptance criteria:
 - Trace PASS answer has no vague generic warning section.
 - Multi-repo answer remains bucketed and excludes unrelated repo content.
 - No implementation depends on case-specific values, prompt-only policy, or keyword matching of model prose.
-

@@ -5165,24 +5165,17 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		RepoRoot: strings.TrimSpace(repoRoot),
 		Seed:     result,
 	}
-	if contract.CompleteReference &&
-		strings.TrimSpace(contract.ReferencePath) != "" &&
-		strings.TrimSpace(contract.ReferenceKeyField) != "" {
-		candidate, ok := runner.ReferenceKeyCandidateForPath(contract.ReferencePath, contract.ReferenceKeyField, 100000)
+	if contract.CompleteReference && strings.TrimSpace(contract.ReferencePath) != "" {
+		candidate, ok := dataTaskExplicitReferenceProjectionCandidate(runner, contract.ReferencePath, contract.ReferenceKeyField, groupKeys)
 		if ok {
-			candidate = dataTaskAnnotateReferenceCandidateOverlap(candidate, groupKeys)
 			answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
 			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
 				return dataquery.ReferenceKeyCandidate{}, answerItems, false
 			}
-			if candidate.ExistingMatchCount > 0 || len(cleanDataTaskStrings(groupKeys)) == 0 {
-				if !dataworkflow.ResultAnswerPresent(result) ||
-					dataTaskReferenceProjectionItemCountMismatch(answerItems, candidate.KeyCount) ||
-					dataTaskReferenceKeySetMismatch(candidate.Keys, groupKeys) {
-					return candidate, answerItems, true
-				}
-				return dataquery.ReferenceKeyCandidate{}, answerItems, false
+			if dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, dataworkflow.ResultAnswerPresent(result)) {
+				return candidate, answerItems, true
 			}
+			return dataquery.ReferenceKeyCandidate{}, answerItems, false
 		}
 	}
 	if candidate, answerItems, ok := dataTaskAssembleActionReferenceProjectionGap(runner, current, contract, groupKeys, result); ok {
@@ -5224,6 +5217,31 @@ func dataTaskBestReferenceProjectionGapCandidate(runner dataquery.ActionRunner, 
 				best = candidate
 				bestSet = true
 			}
+		}
+	}
+	if !bestSet {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	return best, true
+}
+
+func dataTaskExplicitReferenceProjectionCandidate(runner dataquery.ActionRunner, path, field string, groupKeys []string) (dataquery.ReferenceKeyCandidate, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	var best dataquery.ReferenceKeyCandidate
+	bestSet := false
+	for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, cleanDataTaskStrings([]string{field}), groupKeys) {
+		if !bestSet || dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+			best = candidate
+			bestSet = true
+		}
+	}
+	for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, nil, groupKeys) {
+		if !bestSet || dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+			best = candidate
+			bestSet = true
 		}
 	}
 	if !bestSet {
