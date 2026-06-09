@@ -511,3 +511,50 @@ Generic fix direction: normalize data artifact aliases into canonical handoff pa
 16. Manually audit final answers and terminal logs again.
 
 Commercial acceptance for this delta requires all current representative cases to remain PASS, data terminal `last_error` to reflect only final-state errors, no avoidable data action execution for typed rank/field violations, extractor verdicts to prefer accepted evidence IDs without a repair retry, and no duplicate answer supplements when typed authored coverage is complete.
+
+## Final Verification Rerun After Batches G-I
+
+Summary path: `eval/results/representative_eval_20260609_final_summary.md`
+
+| case | verdict | flags | manual audit |
+|---|---|---|---|
+| `qf_architecture` | PASS | none | The final answer stayed semantically correct and no representative-stage regression was observed. |
+| `read_combo_trace_current_source_explanation` | PASS | `finalizer contract_warning auto_repair` | The answer remained grounded. Batch I reduced one class of avoidable verdict-citation failures, but advisory answer-contract warnings can still appear in telemetry. |
+| `data_multifile_reference_projection` | FAIL | `verdict` | Terminal status was `complete` with clean final `last_error`, but the final answer was `20,0,5` instead of `17,0,5`. |
+| `mr_cross_repo_compare` | PASS | none | Scope and final answer stayed correct in this representative run. |
+
+### data_multifile_reference_projection - New Root Cause
+
+Batch G fixed the stale terminal-error surface: the final terminal artifact had `status=complete`, empty final `last_error`, empty `last_nonterminal_error`, and no failed data actions. The remaining failure is semantic and upstream of projection.
+
+The initial typed action batch consumed `instructions.md`, `targets.csv`, `observations.csv`, and `labels.csv`. It also declared decision, contribution, and reconcile ledgers, but did not declare `coverage_contract.rule_coverage_required=true` and did not materialize a `derive_rules` ledger. The batch then ran:
+
+```text
+extract_records(instructions.md)
+extract_records(targets.csv)
+join_records(observations.csv, labels.csv)
+```
+
+The join action's model-authored purpose said "join and filter", but the typed `join_records` parameters only expressed an inner join on `raw_label`. Because no typed `filter_records` or `qualify_records` action ran before `compute_contributions`, an inactive source row remained in the contribution set. Reconcile and final projection were internally consistent over the polluted contribution ledger, producing `20,0,5`.
+
+This is not a projection bug and not a duplicate/dedupe bug. It is a system handoff gap: rule-bearing materials can be consumed as ordinary record/text artifacts without becoming a required rule coverage ledger, so downstream validators cannot prove that inclusion/exclusion rules were applied to decision and contribution records.
+
+### G18. Rule-Bearing Material Does Not Automatically Become Required Rule Coverage
+
+Required text/rule materials can be part of a strict-output aggregation plan while `rule_coverage_required` remains false. Once that happens, typed DAG staging may allow join/compute/reconcile actions to run before any source-backed rule ledger exists. The model can still mention rules in `purpose` or `success_criteria`, but hard logic cannot rely on that prose.
+
+Generic fix direction: when a complex strict-output or aggregation workflow declares required text/constraint materials and also requires decision/contribution/reconcile ledgers, the workflow contract must require rule coverage. Existing stage topology and deterministic fallback can then force a `derive_rules` batch before business computations and require item ledgers to link to source-backed rule IDs. The hard decision uses coverage materials, usage modes, ledger requirements, and rule-coverage records; it must not parse user intent keywords, action purpose text, or model-authored answer prose.
+
+### Batch N - Rule Materialization Handoff
+
+17. Add contract normalization for rule-bearing materials.
+    - Detect required text/constraint materials through the existing coverage-material path/usage classifier.
+    - When a complex strict-output or aggregation plan also requires decision/contribution/reconcile ledgers, set `rule_coverage_required=true`.
+    - Preserve existing explicit rule coverage and validation-rule behavior.
+
+18. Add completion/staging regressions.
+    - A strict aggregation with required rule material cannot proceed to compute/reconcile completion with zero rule coverage.
+    - The deterministic fallback emits a typed `derive_rules` batch for the missing rule ledger.
+    - A plan that already has `derive_rules` or source-backed rule records remains accepted.
+
+19. Re-run the focused data tests and the representative eval sweep after Batch N.

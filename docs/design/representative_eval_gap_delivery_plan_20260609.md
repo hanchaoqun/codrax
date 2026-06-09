@@ -353,6 +353,16 @@ Typed behavior:
 - Alias variants remain in lineage metadata for debug/audit.
 - Backend actions consume canonical aliases plus lineage rather than very long duplicate `input_paths`.
 
+### Delta D17. Rule-Bearing Materials Must Become Typed Rule Coverage Requirements
+
+Typed behavior:
+
+- Required text/constraint materials that participate in strict aggregation workflows upgrade the workflow contract to `rule_coverage_required=true`.
+- The upgrade is driven by coverage-material usage mode, material path classification, output-contract strictness, and required validation ledgers.
+- `derive_rules` remains the existing typed producer for source-backed rule coverage; the stage reducer and deterministic fallback decide when to schedule it.
+- Join/compute/reconcile completion cannot substitute for rule materialization when rule-bearing materials affect inclusion, exclusion, qualification, mapping, or validation.
+- Hard gates do not parse action `purpose`, `success_criteria`, user prose keywords, or model-authored output text.
+
 ## Current Delta Delivery Batches
 
 ### Batch G - Terminal Error Lineage
@@ -485,3 +495,34 @@ Final commercial acceptance criteria:
 - answer supplements do not duplicate already complete typed authored carriers;
 - explicit multi-repo scoped inventory does not cross into sibling subrepos;
 - code and docs contain no case-specific constants, prompt-redline workarounds, keyword intent gates, or model-prose hard gates.
+
+### Batch N - Rule Materialization Handoff
+
+Tasks:
+
+1. Normalize strict/aggregation coverage contracts from rule-bearing materials.
+   - Use existing coverage-material usage modes and text/constraint material classifier.
+   - Require rule coverage when required rule/text materials combine with decision/contribution/reconcile validation ledgers.
+   - Keep already explicit `derive_rules` and `rule_coverage_required` plans unchanged.
+
+2. Let existing typed topology schedule the repair.
+   - Missing rule coverage should surface as `missing_workflow_ledger`.
+   - Deterministic fallback should emit `derive_rules` via `RuleCoverageCompletionAction`.
+   - Later compute/reconcile/assemble actions should consume source-backed rule IDs through the existing ledger link validators.
+
+3. Add regressions.
+   - Initial typed action plan with required rule material, strict output, and contribution/reconcile ledgers is normalized to require rule coverage.
+   - Completion gate rejects a terminal result with decision/contribution/reconcile ledgers but zero source-backed rule coverage.
+   - Deterministic fallback emits a typed rule-coverage batch instead of accepting compute/reconcile completion.
+
+Validation:
+
+```bash
+go test ./internal/repl ./internal/dataworkflow ./internal/dataquery -run 'RuleCoverage|TextConstraint|WorkflowCompletion|DataTask'
+```
+
+Batch N acceptance criteria:
+
+- no hard rule depends on `active`, `inactive`, target label names, or case-specific values;
+- no user/model prose is parsed as a hard intent gate;
+- rule-bearing material evidence is handed off as source-backed `rule_coverage` records before backend contribution and final projection validators can declare completion.
