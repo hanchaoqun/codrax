@@ -220,6 +220,13 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"## Wakeup chain",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
+				"- bio_resource op=R path=/data/app/base.db thread=app-20 count=1 total_latency=2.500ms max_latency=2.500ms bytes=4096 line=3 example=op=R path=/data/app/base.db latency_us=2500 bytes=4096",
+				"  callstack=BioRead>Submit",
+				"- filesystem_resource op=read path=/data/app/base.db thread=app-20 count=1 total_latency=3.500ms max_latency=3.500ms bytes=1024 line=4 example=syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024",
+				"- page_fault_resource op=major path=0x1234 thread=app-20 count=1 total_latency=0.150ms max_latency=0.150ms bytes=4096 line=5 example=operation=major address=0x1234 duration_us=150 size=4096",
+				"- plugin_event kind=ability_monitor domain=AAFWK event=AbilityStart metric=latency_ms value=12.5 category=foreground thread=app-20 count=1 line=6 example=domain=AAFWK event_name=AbilityStart metric=latency_ms value=12.5 category=foreground",
+				"- plugin_event kind=xpower domain=xpower event=xpower_cpu metric=CPU value=73 category=foreground thread=xpower-30 count=1 line=7 example=component=CPU energy=8.2 usage=73 scene=foreground",
+				"- plugin_event kind=hi_sysevent domain=POWER event=THERMAL_REPORT metric=STAT value=hot category=MINOR thread=hisys-40 count=1 line=8 example=domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR",
 				"- state_churn com.app-42 dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms confidence=0.83 lines=111-119 — com.app-42 had frequent state switching; dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; next_step=inspect same-CPU pressure",
 				"- file_io inode=0xb9b8e dev=260:136 name=foo.db op=write thread=com.app-42 count=3 bytes=12288 total_latency=1.500ms max_latency=1.000ms offsets=0..8192 lines=200-204 — inode=0xb9b8e dev=260:136 op=write count=3 bytes=12288 thread=com.app-42 name=foo.db",
 				"- page_cache inode=0xb9b8e dev=260:136 thread=com.app-42 adds=2 deletes=1 churn=3 bytes=0 offsets=0..8192 lines=205-207 — inode=0xb9b8e dev=260:136 page-cache adds=2 deletes=1 churn=3 thread=com.app-42",
@@ -255,6 +262,60 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	blocking := findObservationRecord(t, ledger, "tool:0#trace_query:critical_blocking:1")
 	if blocking.Predicate != "critical_blocking" || blocking.Object != "monitor" || blocking.Value != "78.700" {
 		t.Fatalf("trace_query critical blocking should survive as supporting runtime observation: %+v", blocking)
+	}
+	bio := findObservationRecord(t, ledger, "tool:0#trace_query:bio_resource:1")
+	if bio.Predicate != "bio_resource" ||
+		bio.Subject != "/data/app/base.db" ||
+		bio.Object != "R" ||
+		bio.Value != "2.500" ||
+		bio.Unit != "ms" ||
+		bio.Span.LineStart != 3 ||
+		bio.ProvenanceLane != ObservationProvenanceArtifactSpan ||
+		bio.GroundingPolicy != ClaimGroundingSoft ||
+		!observationLedgerTestContainsString(bio.RichNotes, "bytes=4096") ||
+		!observationLedgerTestContainsString(bio.RichNotes, "callstack=BioRead>Submit") {
+		t.Fatalf("trace_query bio_resource should survive as runtime observation: %+v", bio)
+	}
+	filesystem := findObservationRecord(t, ledger, "tool:0#trace_query:filesystem_resource:1")
+	if filesystem.Predicate != "filesystem_resource" ||
+		filesystem.Subject != "/data/app/base.db" ||
+		filesystem.Object != "read" ||
+		filesystem.Value != "3.500" ||
+		!observationLedgerTestContainsString(filesystem.RichNotes, "bytes=1024") {
+		t.Fatalf("trace_query filesystem_resource should survive as runtime observation: %+v", filesystem)
+	}
+	pageFault := findObservationRecord(t, ledger, "tool:0#trace_query:page_fault_resource:1")
+	if pageFault.Predicate != "page_fault_resource" ||
+		pageFault.Subject != "0x1234" ||
+		pageFault.Object != "major" ||
+		pageFault.Value != "0.150" ||
+		!observationLedgerTestContainsString(pageFault.RichNotes, "bytes=4096") {
+		t.Fatalf("trace_query page_fault_resource should survive as runtime observation: %+v", pageFault)
+	}
+	ability := findObservationRecord(t, ledger, "tool:0#trace_query:plugin_event:1")
+	if ability.Predicate != "ability_monitor" ||
+		ability.Subject != "AAFWK" ||
+		ability.Object != "AbilityStart" ||
+		ability.Value != "12.5" ||
+		ability.Span.LineStart != 6 ||
+		!observationLedgerTestContainsString(ability.RichNotes, "metric=latency_ms") {
+		t.Fatalf("trace_query ability plugin event should survive as runtime observation: %+v", ability)
+	}
+	xpower := findObservationRecord(t, ledger, "tool:0#trace_query:plugin_event:2")
+	if xpower.Predicate != "xpower" ||
+		xpower.Subject != "xpower" ||
+		xpower.Object != "xpower_cpu" ||
+		xpower.Value != "73" ||
+		!observationLedgerTestContainsString(xpower.RichNotes, "category=foreground") {
+		t.Fatalf("trace_query xpower plugin event should survive as runtime observation: %+v", xpower)
+	}
+	hiSys := findObservationRecord(t, ledger, "tool:0#trace_query:plugin_event:3")
+	if hiSys.Predicate != "hi_sysevent" ||
+		hiSys.Subject != "POWER" ||
+		hiSys.Object != "THERMAL_REPORT" ||
+		hiSys.Value != "hot" ||
+		!observationLedgerTestContainsString(hiSys.RichNotes, "metric=STAT") {
+		t.Fatalf("trace_query hi_sysevent plugin event should survive as runtime observation: %+v", hiSys)
 	}
 	churn := findObservationRecord(t, ledger, "tool:0#trace_query:state_churn:1")
 	if churn.Predicate != "state_churn" ||

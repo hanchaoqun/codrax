@@ -1130,7 +1130,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	pageCacheOrdinal := 0
 	storageLatencyOrdinal := 0
 	ioPressureOrdinal := 0
-	for _, rawLine := range strings.Split(result.Summary, "\n") {
+	runtimeResourceOrdinals := map[string]int{}
+	pluginEventOrdinal := 0
+	lines := strings.Split(result.Summary, "\n")
+	for lineIdx := 0; lineIdx < len(lines); lineIdx++ {
+		rawLine := lines[lineIdx]
 		line := strings.TrimSpace(rawLine)
 		switch {
 		case strings.HasPrefix(line, "- rank="):
@@ -1171,6 +1175,18 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- io_pressure "):
 			ioPressureOrdinal++
 			if record, ok := traceQueryIOPressureRecord(index, ioPressureOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case traceQueryRuntimeResourceLabel(line) != "":
+			label := traceQueryRuntimeResourceLabel(line)
+			runtimeResourceOrdinals[label]++
+			continuation := traceQueryIndentedContinuation(lines, lineIdx+1, "callstack=")
+			if record, ok := traceQueryRuntimeResourceRecord(index, runtimeResourceOrdinals[label], label, line, continuation, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- plugin_event "):
+			pluginEventOrdinal++
+			if record, ok := traceQueryPluginEventRecord(index, pluginEventOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		}
@@ -1500,6 +1516,123 @@ func traceQueryIOPressureRecord(index, ordinal int, line string, ref Observation
 		ObservedAt:      observedAt,
 		Confidence:      0.70,
 	}, true
+}
+
+func traceQueryRuntimeResourceLabel(line string) string {
+	switch {
+	case strings.HasPrefix(line, "- bio_resource "):
+		return "bio"
+	case strings.HasPrefix(line, "- filesystem_resource "):
+		return "filesystem"
+	case strings.HasPrefix(line, "- page_fault_resource "):
+		return "page_fault"
+	default:
+		return ""
+	}
+}
+
+func traceQueryIndentedContinuation(lines []string, index int, prefix string) string {
+	if index < 0 || index >= len(lines) {
+		return ""
+	}
+	line := strings.TrimSpace(lines[index])
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	return line
+}
+
+func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuation string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- "+label+"_resource ")
+	path := strings.TrimSpace(fields["path"])
+	op := strings.TrimSpace(fields["op"])
+	totalLatency := traceQueryFieldMS(fields, "total_latency")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["line"])
+	if path == "" && op == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if totalLatency > 0 {
+		value = fmt.Sprintf("%.3f", totalLatency)
+	}
+	notes := traceQuerySelectedRichNotes(fields, []string{"op", "path", "thread", "count", "total_latency", "max_latency", "bytes", "line", "example"})
+	if continuation != "" {
+		notes = append(notes, continuation)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:%s_resource:%d", index, label, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingSoft,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        label + "_resource:" + firstNonEmptyString(path, op),
+		Subject:         firstNonEmptyString(path, label+"_resource"),
+		Predicate:       label + "_resource",
+		Object:          op,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         firstNonEmptyString(summary, traceQueryRuntimeResourceSummary(label, fields)),
+		RichNotes:       notes,
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.68,
+	}, true
+}
+
+func traceQueryRuntimeResourceSummary(label string, fields map[string]string) string {
+	parts := []string{label + "_resource"}
+	for _, key := range []string{"op", "path", "total_latency", "max_latency", "bytes", "count"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func traceQueryPluginEventRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- plugin_event ")
+	kind := strings.TrimSpace(fields["kind"])
+	domain := strings.TrimSpace(fields["domain"])
+	event := strings.TrimSpace(fields["event"])
+	metric := strings.TrimSpace(fields["metric"])
+	value := strings.TrimSpace(fields["value"])
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["line"])
+	if kind == "" && event == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:plugin_event:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingSoft,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "plugin_event:" + firstNonEmptyString(kind, domain, event, metric),
+		Subject:         firstNonEmptyString(domain, kind, "plugin_event"),
+		Predicate:       firstNonEmptyString(kind, "plugin_event"),
+		Object:          firstNonEmptyString(event, metric),
+		Value:           value,
+		Summary:         firstNonEmptyString(summary, traceQueryPluginEventSummary(fields)),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"kind", "domain", "event", "metric", "value", "category", "thread", "count", "line", "example"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.68,
+	}, true
+}
+
+func traceQueryPluginEventSummary(fields map[string]string) string {
+	parts := []string{"plugin_event"}
+	for _, key := range []string{"kind", "domain", "event", "metric", "value", "category", "count"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func traceQuerySelectedRichNotes(fields map[string]string, keys []string) []string {
