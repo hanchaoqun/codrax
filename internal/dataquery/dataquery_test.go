@@ -2045,6 +2045,53 @@ func TestActionRunnerExtractFieldsZeroMatchDiagnostics(t *testing.T) {
 	if !strings.Contains(fields["source_field_samples"], "total: 123") {
 		t.Fatalf("source_field_samples=%q, want source value sample", fields["source_field_samples"])
 	}
+	if !strings.Contains(fields["zero_match_diagnostics"], "source_partitions") ||
+		!strings.Contains(fields["zero_match_diagnostics"], "records.csv") {
+		t.Fatalf("zero_match_diagnostics=%q, want source partition diagnostics", fields["zero_match_diagnostics"])
+	}
+}
+
+func TestActionRunnerGeneratedRecordArtifactCarriesExecutableMetadataAndLineage(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,amount\n1,10\n2,7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		ContinueAfter:  true,
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "derive_amount",
+			Kind:           DataActionDeriveFields,
+			InputPaths:     []string{"records.csv"},
+			OutputArtifact: "derived_amounts",
+			Params: map[string]string{
+				"field_specs": `[{"source_field":"amount","target_field":"amount_num","operation":"parse_number"}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run derive_fields: %v", err)
+	}
+	if len(res.Artifacts) != 1 {
+		t.Fatalf("Artifacts=%+v, want one artifact", res.Artifacts)
+	}
+	artifact := res.Artifacts[0]
+	if artifact.Fields["executable_record_input"] != "true" {
+		t.Fatalf("fields=%+v, want executable_record_input=true", artifact.Fields)
+	}
+	if artifact.Fields["record_count"] != "2" || artifact.RowCount != 2 {
+		t.Fatalf("artifact row count fields=%+v RowCount=%d, want 2", artifact.Fields, artifact.RowCount)
+	}
+	if !strings.Contains(artifact.Fields["artifact_aliases"], "derived_amounts") {
+		t.Fatalf("artifact_aliases=%q, want generated artifact aliases", artifact.Fields["artifact_aliases"])
+	}
+	if !strings.Contains(artifact.Fields["output_headers"], "amount_num") {
+		t.Fatalf("output_headers=%q, want derived field contract", artifact.Fields["output_headers"])
+	}
+	if strings.Join(artifact.SourceRecordPaths, ",") != "records.csv" {
+		t.Fatalf("SourceRecordPaths=%v, want records.csv", artifact.SourceRecordPaths)
+	}
 }
 
 func TestActionRunnerComputeContributionsRejectsUnqualifiedGeneratedStatus(t *testing.T) {

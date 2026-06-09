@@ -2958,21 +2958,23 @@ func (r ActionRunner) runDeriveFields(action DataAction) (DataArtifact, []map[st
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "derived_fields")
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionDeriveFields),
-		SourcePaths: []string{rel},
-		Headers:     collectJoinedRecordHeaders(rows),
-		RowCount:    len(rows),
-		Summary:     fmt.Sprintf("derived %d field(s) for %d record(s) from %s", len(specs), len(rows), rel),
-		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields:      fields,
+		ID:                id,
+		Kind:              string(DataActionDeriveFields),
+		SourcePaths:       []string{rel},
+		SourceRecordPaths: []string{rel},
+		Headers:           collectJoinedRecordHeaders(rows),
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("derived %d field(s) for %d record(s) from %s", len(specs), len(rows), rel),
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
 		Children: []DataArtifact{{
-			ID:          rel + "#source",
-			Kind:        "derive_fields/source",
-			SourcePaths: []string{rel},
-			Headers:     headers,
-			RowCount:    total,
-			Summary:     fmt.Sprintf("%s supplied %d source record(s)", rel, total),
+			ID:                rel + "#source",
+			Kind:              "derive_fields/source",
+			SourcePaths:       []string{rel},
+			SourceRecordPaths: []string{rel},
+			Headers:           headers,
+			RowCount:          total,
+			Summary:           fmt.Sprintf("%s supplied %d source record(s)", rel, total),
 		}},
 	}, rows, []string{rel}, nil
 }
@@ -3080,6 +3082,7 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 	}
 	sourceFieldSampleFields = append(sourceFieldSampleFields, requiredFields...)
 	requiredMissing := map[string]int{}
+	sourcePartitions := map[string]*extractFieldSourcePartitionDiagnostic{}
 	for _, source := range sources {
 		for _, record := range source.Records {
 			if len(rows) >= maxOutput {
@@ -3114,6 +3117,7 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 					row[key] = value
 				}
 			}
+			updateExtractFieldSourcePartitionDiagnostics(sourcePartitions, currentFields, specs, requiredFields, source.Rel)
 			matched := true
 			if len(requiredFields) > 0 {
 				for _, field := range requiredFields {
@@ -3146,13 +3150,14 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 	for _, source := range sources {
 		sourcePaths = append(sourcePaths, source.Rel)
 		children = append(children, DataArtifact{
-			ID:          source.Rel + "#source",
-			Kind:        "extract_fields/source",
-			SourcePaths: []string{source.Rel},
-			Headers:     source.Headers,
-			RowCount:    source.Total,
-			Summary:     fmt.Sprintf("%s supplied %d source record(s)", source.Rel, source.Total),
-			Sample:      sampleActionRecordsWithVirtualFields(source.Records, source.Rel, 3),
+			ID:                source.Rel + "#source",
+			Kind:              "extract_fields/source",
+			SourcePaths:       []string{source.Rel},
+			SourceRecordPaths: []string{source.Rel},
+			Headers:           source.Headers,
+			RowCount:          source.Total,
+			Summary:           fmt.Sprintf("%s supplied %d source record(s)", source.Rel, source.Total),
+			Sample:            sampleActionRecordsWithVirtualFields(source.Records, source.Rel, 3),
 		})
 	}
 	fields := map[string]string{
@@ -3173,22 +3178,23 @@ func (r ActionRunner) runExtractFields(action DataAction) (DataArtifact, []map[s
 		fields["required_missing_counts"] = missingJSON
 	}
 	if total > 0 && len(rows) == 0 {
-		fields["zero_match_diagnostics"] = extractFieldsZeroMatchDiagnosticsJSON(specs, requiredFields, requiredMissing, nonEmpty, total, len(rows))
+		fields["zero_match_diagnostics"] = extractFieldsZeroMatchDiagnosticsJSON(specs, requiredFields, requiredMissing, nonEmpty, extractFieldSourcePartitionDiagnostics(sourcePartitions, 12), total, len(rows))
 	}
 	for _, name := range extractedFields {
 		fields["non_empty_"+name] = fmt.Sprintf("%d", nonEmpty[name])
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "extracted_fields")
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionExtractFields),
-		SourcePaths: sourcePaths,
-		Headers:     collectJoinedRecordHeaders(rows),
-		RowCount:    len(rows),
-		Summary:     fmt.Sprintf("extracted %d field(s) into %d matched record(s) from %d input(s)", len(specs), len(rows), len(sourcePaths)),
-		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields:      fields,
-		Children:    children,
+		ID:                id,
+		Kind:              string(DataActionExtractFields),
+		SourcePaths:       sourcePaths,
+		SourceRecordPaths: sourcePaths,
+		Headers:           collectJoinedRecordHeaders(rows),
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("extracted %d field(s) into %d matched record(s) from %d input(s)", len(specs), len(rows), len(sourcePaths)),
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
+		Children:          children,
 	}, rows, sourcePaths, nil
 }
 
@@ -3625,13 +3631,14 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "filtered_records")
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionFilterRecords),
-		SourcePaths: []string{rel},
-		Headers:     outputHeaders,
-		RowCount:    len(rows),
-		Summary:     fmt.Sprintf("filtered %d of %d record(s) from %s", len(rows), total, rel),
-		Sample:      sampleJoinedActionRows(rows, 3),
+		ID:                id,
+		Kind:              string(DataActionFilterRecords),
+		SourcePaths:       []string{rel},
+		SourceRecordPaths: []string{rel},
+		Headers:           outputHeaders,
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("filtered %d of %d record(s) from %s", len(rows), total, rel),
+		Sample:            sampleJoinedActionRows(rows, 3),
 		Fields: map[string]string{
 			"input_path":         rel,
 			"input_rows":         fmt.Sprintf("%d", total),
@@ -3641,12 +3648,13 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			"filter_diagnostics": filterDiagnostics,
 		},
 		Children: []DataArtifact{{
-			ID:          rel + "#source",
-			Kind:        "filter_records/source",
-			SourcePaths: []string{rel},
-			Headers:     headers,
-			RowCount:    total,
-			Summary:     fmt.Sprintf("%s supplied %d source record(s)", rel, total),
+			ID:                rel + "#source",
+			Kind:              "filter_records/source",
+			SourcePaths:       []string{rel},
+			SourceRecordPaths: []string{rel},
+			Headers:           headers,
+			RowCount:          total,
+			Summary:           fmt.Sprintf("%s supplied %d source record(s)", rel, total),
 		}},
 	}, rows, []string{rel}, nil
 }
@@ -5148,16 +5156,22 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 	}
 	fields["target_fields"] = strings.Join(targetFields, ",")
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "resolved_records")
+	referencePaths := []string{}
+	if len(consumed) > 1 {
+		referencePaths = normalizeMaterialPaths(consumed[1:])
+	}
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionApplyResolutions),
-		SourcePaths: normalizeMaterialPaths(consumed),
-		Headers:     outputHeaders,
-		RowCount:    len(rows),
-		Summary:     fmt.Sprintf("applied %d entity resolution set(s) to %d base record(s)", len(specs), len(rows)),
-		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields:      fields,
-		Children:    children,
+		ID:                id,
+		Kind:              string(DataActionApplyResolutions),
+		SourcePaths:       normalizeMaterialPaths(consumed),
+		SourceRecordPaths: []string{baseRel},
+		ReferencePaths:    referencePaths,
+		Headers:           outputHeaders,
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("applied %d entity resolution set(s) to %d base record(s)", len(specs), len(rows)),
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
+		Children:          children,
 	}, rows, normalizeMaterialPaths(consumed), nil
 }
 
@@ -6205,22 +6219,24 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		}
 		lookups = append(lookups, lookup)
 		children = append(children, DataArtifact{
-			ID:          rel + "#mapping",
-			Kind:        "enrich_records/mapping",
-			SourcePaths: []string{rel},
-			Headers:     headers,
-			RowCount:    total,
-			Summary:     fmt.Sprintf("%s supplied %d mapping candidate(s) for target field %s", rel, len(flattenEnrichLookupCandidates(lookup)), spec.TargetField),
-			Fields:      fields,
+			ID:             rel + "#mapping",
+			Kind:           "enrich_records/mapping",
+			SourcePaths:    []string{rel},
+			ReferencePaths: []string{rel},
+			Headers:        headers,
+			RowCount:       total,
+			Summary:        fmt.Sprintf("%s supplied %d mapping candidate(s) for target field %s", rel, len(flattenEnrichLookupCandidates(lookup)), spec.TargetField),
+			Fields:         fields,
 		})
 	}
 	children = append([]DataArtifact{{
-		ID:          baseRel + "#base",
-		Kind:        "enrich_records/base",
-		SourcePaths: []string{baseRel},
-		Headers:     baseHeaders,
-		RowCount:    baseTotal,
-		Summary:     fmt.Sprintf("%s supplied %d base record(s)", baseRel, baseTotal),
+		ID:                baseRel + "#base",
+		Kind:              "enrich_records/base",
+		SourcePaths:       []string{baseRel},
+		SourceRecordPaths: []string{baseRel},
+		Headers:           baseHeaders,
+		RowCount:          baseTotal,
+		Summary:           fmt.Sprintf("%s supplied %d base record(s)", baseRel, baseTotal),
 	}}, children...)
 	matchesByTarget := map[string]int{}
 	var resolutions []EntityResolutionRecord
@@ -6286,16 +6302,22 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		fields["matches_"+spec.TargetField] = fmt.Sprintf("%d", matchesByTarget[spec.TargetField])
 	}
 	fields["target_fields"] = strings.Join(fieldSummary, ",")
+	referencePaths := []string{}
+	if len(consumed) > 1 {
+		referencePaths = normalizeMaterialPaths(consumed[1:])
+	}
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionEnrichRecords),
-		SourcePaths: normalizeMaterialPaths(consumed),
-		Headers:     headers,
-		RowCount:    len(rows),
-		Summary:     fmt.Sprintf("enriched %d record(s) from %s with %d mapping spec(s)", len(rows), baseRel, len(specs)),
-		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields:      fields,
-		Children:    children,
+		ID:                id,
+		Kind:              string(DataActionEnrichRecords),
+		SourcePaths:       normalizeMaterialPaths(consumed),
+		SourceRecordPaths: []string{baseRel},
+		ReferencePaths:    referencePaths,
+		Headers:           headers,
+		RowCount:          len(rows),
+		Summary:           fmt.Sprintf("enriched %d record(s) from %s with %d mapping spec(s)", len(rows), baseRel, len(specs)),
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
+		Children:          children,
 	}, rows, resolutions, normalizeMaterialPaths(consumed), nil
 }
 
@@ -7115,14 +7137,15 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 		fields["join_field_inference_fanout"] = fmt.Sprintf("%d", fieldInference.Fanout)
 	}
 	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionJoinRecords),
-		SourcePaths: normalizeMaterialPaths([]string{leftRel, rightRel}),
-		Headers:     outputHeaders,
-		RowCount:    len(rows),
-		Summary:     summary,
-		Sample:      sampleJoinedActionRows(rows, 3),
-		Fields:      fields,
+		ID:                id,
+		Kind:              string(DataActionJoinRecords),
+		SourcePaths:       normalizeMaterialPaths([]string{leftRel, rightRel}),
+		SourceRecordPaths: normalizeMaterialPaths([]string{leftRel, rightRel}),
+		Headers:           outputHeaders,
+		RowCount:          len(rows),
+		Summary:           summary,
+		Sample:            sampleJoinedActionRows(rows, 3),
+		Fields:            fields,
 	}, rows, normalizeMaterialPaths([]string{leftRel, rightRel}), nil
 }
 
@@ -8908,6 +8931,12 @@ func (r ActionRunner) materializeActionArtifact(dir string, action DataAction, a
 	if strings.TrimSpace(artifact.Fields["output_headers"]) == "" && len(artifact.Headers) > 0 {
 		artifact.Fields["output_headers"] = strings.Join(artifact.Headers, ",")
 	}
+	if dataActionArtifactPayloadLooksRecordLike(artifact, raw) {
+		artifact.Fields["executable_record_input"] = "true"
+		if strings.TrimSpace(artifact.Fields["record_count"]) == "" {
+			artifact.Fields["record_count"] = fmt.Sprintf("%d", dataActionArtifactPayloadRowCount(raw, artifact.RowCount))
+		}
+	}
 	artifact.Fields["artifact_path"] = abs
 	artifact.Fields["artifact_aliases"] = strings.Join(aliases, ",")
 	for _, alias := range aliases {
@@ -9138,6 +9167,33 @@ func dataActionArtifactPayloadHeaders(raw []byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func dataActionArtifactPayloadLooksRecordLike(artifact DataArtifact, raw []byte) bool {
+	shape := strings.ToLower(strings.TrimSpace(artifact.Fields["json_shape"]))
+	if strings.HasPrefix(shape, "array") || (strings.HasPrefix(shape, "object") && strings.Contains(shape, "records")) {
+		return true
+	}
+	return len(artifact.Headers) > 0 && dataActionArtifactPayloadRowCount(raw, artifact.RowCount) > 0
+}
+
+func dataActionArtifactPayloadRowCount(raw []byte, fallback int) int {
+	if fallback > 0 {
+		return fallback
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case []any:
+		return len(typed)
+	case map[string]any:
+		if records, ok := typed["records"].([]any); ok {
+			return len(records)
+		}
+	}
+	return 0
 }
 
 func compactJSONShape(value any, depth int) string {
@@ -10111,17 +10167,7 @@ func compactFieldSampleJSON(records []actionRecord, fields []string, maxFields, 
 }
 
 func compactStringIntMapJSON(values map[string]int) string {
-	if len(values) == 0 {
-		return "{}"
-	}
-	cleaned := map[string]int{}
-	for key, value := range values {
-		key = strings.TrimSpace(key)
-		if key == "" || value == 0 {
-			continue
-		}
-		cleaned[key] = value
-	}
+	cleaned := positiveStringIntMap(values)
 	if len(cleaned) == 0 {
 		return "{}"
 	}
@@ -10132,7 +10178,103 @@ func compactStringIntMapJSON(values map[string]int) string {
 	return clampViolationText(string(raw), 1200)
 }
 
-func extractFieldsZeroMatchDiagnosticsJSON(specs []deriveFieldSpec, requiredFields []string, requiredMissing, nonEmpty map[string]int, inputRows, outputRows int) string {
+func positiveStringIntMap(values map[string]int) map[string]int {
+	if len(values) == 0 {
+		return nil
+	}
+	cleaned := map[string]int{}
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" || value == 0 {
+			continue
+		}
+		cleaned[key] = value
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
+}
+
+type extractFieldSourcePartitionDiagnostic struct {
+	SourcePath      string         `json:"source_path"`
+	Rows            int            `json:"rows"`
+	NonEmpty        map[string]int `json:"non_empty,omitempty"`
+	RequiredMissing map[string]int `json:"required_missing,omitempty"`
+}
+
+func updateExtractFieldSourcePartitionDiagnostics(partitions map[string]*extractFieldSourcePartitionDiagnostic, fields map[string]string, specs []deriveFieldSpec, requiredFields []string, fallbackSource string) {
+	if partitions == nil {
+		return
+	}
+	sourcePath := firstNonEmptyString(
+		strings.TrimSpace(recordField(fields, "_source_path")),
+		strings.TrimSpace(recordField(fields, "source_path")),
+		strings.TrimSpace(recordField(fields, "_source")),
+		strings.TrimSpace(fallbackSource),
+	)
+	if sourcePath == "" {
+		sourcePath = "unknown"
+	}
+	partition := partitions[sourcePath]
+	if partition == nil {
+		partition = &extractFieldSourcePartitionDiagnostic{
+			SourcePath:      sourcePath,
+			NonEmpty:        map[string]int{},
+			RequiredMissing: map[string]int{},
+		}
+		partitions[sourcePath] = partition
+	}
+	partition.Rows++
+	seen := map[string]bool{}
+	for _, spec := range specs {
+		field := strings.TrimSpace(spec.TargetField)
+		if field == "" || seen[field] {
+			continue
+		}
+		seen[field] = true
+		if strings.TrimSpace(recordField(fields, field)) != "" {
+			partition.NonEmpty[field]++
+		}
+	}
+	for _, field := range cleanStringSlice(requiredFields) {
+		if strings.TrimSpace(recordField(fields, field)) == "" {
+			partition.RequiredMissing[field]++
+		} else {
+			partition.NonEmpty[field]++
+		}
+	}
+}
+
+func extractFieldSourcePartitionDiagnostics(partitions map[string]*extractFieldSourcePartitionDiagnostic, limit int) []extractFieldSourcePartitionDiagnostic {
+	if len(partitions) == 0 || limit == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(partitions))
+	for key := range partitions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	out := make([]extractFieldSourcePartitionDiagnostic, 0, len(keys))
+	for _, key := range keys {
+		partition := partitions[key]
+		if partition == nil {
+			continue
+		}
+		out = append(out, extractFieldSourcePartitionDiagnostic{
+			SourcePath:      partition.SourcePath,
+			Rows:            partition.Rows,
+			NonEmpty:        positiveStringIntMap(partition.NonEmpty),
+			RequiredMissing: positiveStringIntMap(partition.RequiredMissing),
+		})
+	}
+	return out
+}
+
+func extractFieldsZeroMatchDiagnosticsJSON(specs []deriveFieldSpec, requiredFields []string, requiredMissing, nonEmpty map[string]int, sourcePartitions []extractFieldSourcePartitionDiagnostic, inputRows, outputRows int) string {
 	type specDiagnostic struct {
 		TargetField     string   `json:"target_field,omitempty"`
 		Operation       string   `json:"operation,omitempty"`
@@ -10141,11 +10283,12 @@ func extractFieldsZeroMatchDiagnosticsJSON(specs []deriveFieldSpec, requiredFiel
 		RequiredMissing int      `json:"required_missing,omitempty"`
 	}
 	diagnostics := struct {
-		InputRows             int              `json:"input_rows"`
-		OutputRows            int              `json:"output_rows"`
-		RequiredFields        []string         `json:"required_fields,omitempty"`
-		RequiredMissingCounts map[string]int   `json:"required_missing_counts,omitempty"`
-		Specs                 []specDiagnostic `json:"specs,omitempty"`
+		InputRows             int                                     `json:"input_rows"`
+		OutputRows            int                                     `json:"output_rows"`
+		RequiredFields        []string                                `json:"required_fields,omitempty"`
+		RequiredMissingCounts map[string]int                          `json:"required_missing_counts,omitempty"`
+		SourcePartitions      []extractFieldSourcePartitionDiagnostic `json:"source_partitions,omitempty"`
+		Specs                 []specDiagnostic                        `json:"specs,omitempty"`
 	}{
 		InputRows:      inputRows,
 		OutputRows:     outputRows,
@@ -10159,6 +10302,9 @@ func extractFieldsZeroMatchDiagnosticsJSON(specs []deriveFieldSpec, requiredFiel
 				diagnostics.RequiredMissingCounts[key] = value
 			}
 		}
+	}
+	if len(sourcePartitions) > 0 {
+		diagnostics.SourcePartitions = sourcePartitions
 	}
 	for _, spec := range specs {
 		sourceFields := cleanStringSlice(append(append([]string{}, spec.SourceFields...), spec.SourceField))
