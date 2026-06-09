@@ -151,6 +151,9 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	}
 
 	groundCtx := ground.BuildContext(ctx)
+	if normalized := normalizeHypothesisVerdictCitationLists(ctx, groundCtx, p.Items); normalized > 0 {
+		logging.Warning("[emit_hypothesis_verdict] normalized %d multi-anchor citation field(s) to a grounded primary citation", normalized)
+	}
 	built := make([]types.HypothesisVerdict, 0, len(p.Items))
 	for i, in := range p.Items {
 		v, perr := buildEmitHypothesisVerdictItem(in, i)
@@ -235,6 +238,82 @@ func evidenceIDMatchesEvidence(id string, ev types.EvidenceItem) bool {
 		return true
 	}
 	return false
+}
+
+func normalizeHypothesisVerdictCitationLists(ctx *types.BusContext, gc *ground.Context, items []emitHypothesisVerdictItem) int {
+	if len(items) == 0 {
+		return 0
+	}
+	normalized := 0
+	for i := range items {
+		raw := strings.TrimSpace(items[i].Citation)
+		if raw == "" {
+			continue
+		}
+		candidates := splitHypothesisVerdictCitationCandidates(raw)
+		if len(candidates) <= 1 {
+			continue
+		}
+		claimText := strings.TrimSpace(items[i].Rationale)
+		if h := hypothesisStatementForVerdict(ctx, strings.TrimSpace(items[i].HypothesisID)); h != "" {
+			claimText += "\n" + h
+		}
+		if candidate, ok := firstEvidenceCoveredHypothesisVerdictCitation(ctx, candidates, claimText); ok {
+			items[i].Citation = candidate
+			normalized++
+			continue
+		}
+		for _, candidate := range candidates {
+			candidateItem := items[i]
+			candidateItem.Citation = candidate
+			v, err := buildEmitHypothesisVerdictItem(candidateItem, i)
+			if err != nil {
+				continue
+			}
+			if err := validateHypothesisVerdictCitationGrounding(ctx, gc, v, i); err != nil {
+				continue
+			}
+			items[i].Citation = candidate
+			normalized++
+			break
+		}
+	}
+	return normalized
+}
+
+func firstEvidenceCoveredHypothesisVerdictCitation(ctx *types.BusContext, candidates []string, claimText string) (string, bool) {
+	for _, candidate := range candidates {
+		cit, err := parseEmitHypothesisCitation(candidate)
+		if err != nil {
+			continue
+		}
+		if hypothesisVerdictCitationCoveredByGroundedEvidence(ctx, cit, claimText) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func splitHypothesisVerdictCitationCandidates(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ';', '\n', '\r', '，', '；':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		candidate := strings.Trim(strings.TrimSpace(part), "`\"' ")
+		if candidate == "" || !looksLikeCitation(candidate) || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	return out
 }
 
 // buildEmitHypothesisVerdictItem validates one decoded item and

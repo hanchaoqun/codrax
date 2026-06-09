@@ -172,6 +172,40 @@ func TestEmitHypothesisVerdict_EvidenceIDBypassesUnrelatedReadHistory(t *testing
 	}
 }
 
+func TestEmitHypothesisVerdict_NormalizesMultiAnchorCitationToGroundedEvidence(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	seedReadFileHistory(ctx, "internal/agent/unrelated.go", 10, "func Other() {}")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-parse-trace-mark",
+		Kind:            types.EvidenceDirect,
+		Subject:         "parseTraceMark",
+		Predicate:       "parses",
+		Object:          "tracing_mark_write payload",
+		Source:          "internal/tracequery/parse.go",
+		LineStart:       788,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "parseTraceMark",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"parseTraceMark parses tracing_mark_write payloads","citation":"internal/agent/unrelated.go:10, internal/tracequery/parse.go:788"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("multi-anchor citation should normalize to grounded evidence, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "internal/tracequery/parse.go:788" {
+		t.Fatalf("citation = %q, want grounded evidence citation", got[0].Citation)
+	}
+}
+
 func TestEmitHypothesisVerdict_NormalizesExternalLogFrameCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	logBundle := &types.LogBundle{
