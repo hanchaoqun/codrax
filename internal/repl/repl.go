@@ -2951,17 +2951,18 @@ func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
 	status = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Status), status)
 	reason = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Reason), reason)
 	lastErr = terminal.LastError
+	lastNonterminalErr := terminal.LastNonterminalError
 	resultSummary = terminal.ResultSummary
 	recordCount := terminal.RecordCount
 	if recordCount == 0 {
 		recordCount = len(a.Records)
 	}
-	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
+	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q last_nonterminal_error=%q terminal_path=%s",
 		status, terminal.DataRounds, terminal.RepairRounds, recordCount, resultSummary,
-		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
-	if reason != "" || lastErr != "" {
-		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s",
-			status, reason, lastErr)
+		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), oneLineClamp(lastNonterminalErr, 500), terminalPath)
+	if reason != "" || lastErr != "" || lastNonterminalErr != "" {
+		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s\nlast_nonterminal_error:\n%s",
+			status, reason, lastErr, lastNonterminalErr)
 	}
 	r.emitDataTaskTerminalAuditPath(status, terminalPath)
 }
@@ -2992,13 +2993,14 @@ func writeDataTaskTerminalArtifactFileWithRuntime(runtimeAnchor, repoRoot string
 }
 
 type dataTaskTerminalArtifactWrite struct {
-	Path          string
-	Snapshot      dataworkflow.WorkflowJournal
-	LastError     string
-	ResultSummary string
-	DataRounds    int
-	RepairRounds  int
-	RecordCount   int
+	Path                 string
+	Snapshot             dataworkflow.WorkflowJournal
+	LastError            string
+	LastNonterminalError string
+	ResultSummary        string
+	DataRounds           int
+	RepairRounds         int
+	RecordCount          int
 }
 
 func writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoot string, workflowRuntime *dataworkflow.WorkflowRuntime, a dataTaskTerminalAudit, status, reason, lastErr, resultSummary, logScope string) dataTaskTerminalArtifactWrite {
@@ -3062,6 +3064,8 @@ func writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoo
 		GuardRound:    a.DataRounds,
 	})
 	out.Snapshot = snapshot
+	out.LastError = snapshot.LastError
+	out.LastNonterminalError = snapshot.LastNonterminalError
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logging.Warning("[%s/data] marshal data task terminal audit failed: %v", firstNonEmptyString(logScope, "data"), err)

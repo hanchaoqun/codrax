@@ -16,6 +16,8 @@ type WorkflowJournal struct {
 	RecordCount              int                      `json:"record_count,omitempty"`
 	ResultSummary            string                   `json:"result_summary,omitempty"`
 	LastError                string                   `json:"last_error,omitempty"`
+	LastNonterminalError     string                   `json:"last_nonterminal_error,omitempty"`
+	PriorErrors              []WorkflowPriorError     `json:"prior_errors,omitempty"`
 	ActionEvents             []ActionEvent            `json:"action_events,omitempty"`
 	ActionGraph              ActionGraph              `json:"action_graph,omitempty"`
 	LedgerGraph              LedgerGraph              `json:"ledger_graph,omitempty"`
@@ -28,6 +30,14 @@ type WorkflowJournal struct {
 	ProcessEvents            []WorkflowJournalEvent   `json:"process_events,omitempty"`
 	PlanTransitions          []PlanTransitionEvent    `json:"plan_transitions,omitempty"`
 	Resume                   *WorkflowResumePayload   `json:"resume,omitempty"`
+}
+
+type WorkflowPriorError struct {
+	Round       int      `json:"round,omitempty"`
+	PlanStatus  string   `json:"plan_status,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	ActionIDs   []string `json:"action_ids,omitempty"`
+	ActionKinds []string `json:"action_kinds,omitempty"`
 }
 
 type WorkflowResumePayload struct {
@@ -147,7 +157,16 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		}))
 	}
 	summary := firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, state.WorkflowViolationSummary, BuildWorkflowViolationSummary(violations))
-	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, input.LastError, state.DecisionFallbackReasonCode)
+	requestedStatus := strings.TrimSpace(input.Status)
+	preserveBaseStatus := workflowJournalShouldPreserveBaseStatus(state.Decision.Status, requestedStatus)
+	lastError := strings.TrimSpace(input.LastError)
+	priorErrors := workflowJournalPriorErrors(records, 8)
+	lastNonterminalError := ""
+	if workflowDecisionStatusLooksComplete(requestedStatus) && !preserveBaseStatus {
+		lastNonterminalError = firstNonEmptyJournalText(lastError, latestWorkflowPriorErrorText(priorErrors))
+		lastError = ""
+	}
+	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, lastError, state.DecisionFallbackReasonCode)
 	status := workflowJournalStatus(input.Status, decision)
 	reason := workflowJournalReason(input.Status, input.Reason, decision)
 	return WorkflowJournal{
@@ -157,7 +176,9 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		RepairRounds:             input.RepairRounds,
 		RecordCount:              len(records),
 		ResultSummary:            input.ResultSummary,
-		LastError:                input.LastError,
+		LastError:                lastError,
+		LastNonterminalError:     lastNonterminalError,
+		PriorErrors:              priorErrors,
 		ActionEvents:             actionEvents,
 		ActionGraph:              state.ActionGraph,
 		LedgerGraph:              state.LedgerGraph,
@@ -171,6 +192,46 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		PlanTransitions:          rtPlanTransitions(rt),
 		Resume:                   BuildWorkflowResumePayload(records, current, deferred),
 	}
+}
+
+func workflowJournalPriorErrors(records []WorkflowRecord, limit int) []WorkflowPriorError {
+	if limit <= 0 {
+		limit = 8
+	}
+	out := make([]WorkflowPriorError, 0)
+	for i, rec := range records {
+		errText := strings.TrimSpace(rec.Err)
+		if errText == "" {
+			continue
+		}
+		item := WorkflowPriorError{
+			Round:      i + 1,
+			PlanStatus: strings.TrimSpace(rec.Plan.Status),
+			Error:      errText,
+		}
+		for _, action := range rec.Plan.Actions {
+			if id := strings.TrimSpace(action.ID); id != "" {
+				item.ActionIDs = append(item.ActionIDs, id)
+			}
+			if kind := strings.TrimSpace(string(action.Kind)); kind != "" {
+				item.ActionKinds = append(item.ActionKinds, kind)
+			}
+		}
+		out = append(out, item)
+	}
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+func latestWorkflowPriorErrorText(errors []WorkflowPriorError) string {
+	for i := len(errors) - 1; i >= 0; i-- {
+		if text := strings.TrimSpace(errors[i].Error); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func BuildWorkflowJournalDecision(base WorkflowDecision, status, reason, lastErr, fallbackReasonCode string) WorkflowDecision {

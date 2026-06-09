@@ -84,14 +84,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		status = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Status), status)
 		reason = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Reason), reason)
 		lastErr = terminal.LastError
+		lastNonterminalErr := terminal.LastNonterminalError
 		resultSummary = terminal.ResultSummary
 		recordCount := terminal.RecordCount
 		if recordCount == 0 {
 			recordCount = len(records)
 		}
-		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q terminal_path=%s",
+		logging.Info("[cli/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q last_nonterminal_error=%q terminal_path=%s",
 			status, terminal.DataRounds, terminal.RepairRounds, recordCount, resultSummary,
-			oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), terminalPath)
+			oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), oneLineClamp(lastNonterminalErr, 500), terminalPath)
 		emitDataTaskCLITerminalAuditPath(cfg.Progress, cfg.Language, status, terminalPath, reason)
 	}()
 	candidates, err := dataquery.DiscoverCandidateFiles(repoRoot, 240)

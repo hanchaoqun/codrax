@@ -843,6 +843,62 @@ func TestDataTaskTerminalAuditDetailedStatusUsesJournalSnapshot(t *testing.T) {
 	}
 }
 
+func TestDataTaskTerminalAuditCompleteKeepsPriorErrorOutOfLastError(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+				ID:   "qualify_active",
+				Kind: dataquery.DataActionQualifyRecords,
+			}}},
+			Err: "data planning incomplete: action 1 references field status",
+		},
+		{
+			Plan: dataquery.TaskPlan{Status: "complete"},
+			Result: &dataquery.Result{
+				Answer:        "42",
+				ConsumedPaths: []string{"records.csv"},
+				OutputContract: dataquery.OutputContract{
+					Format: dataquery.OutputPlainSingleLine,
+				},
+			},
+		},
+	}
+
+	terminal := writeDataTaskTerminalArtifactFileWithRuntimeDetailed(
+		t.TempDir(),
+		t.TempDir(),
+		nil,
+		dataTaskTerminalAudit{Status: "complete", DataRounds: 3, RepairRounds: 1, Records: records, Result: records[1].Result},
+		"complete",
+		"",
+		"data planning incomplete: action 1 references field status",
+		"answer_len=2",
+		"test",
+	)
+	if terminal.Path == "" {
+		t.Fatal("terminal audit path empty")
+	}
+	if terminal.LastError != "" {
+		t.Fatalf("terminal.LastError=%q, want empty final-state error", terminal.LastError)
+	}
+	if !strings.Contains(terminal.LastNonterminalError, "field status") {
+		t.Fatalf("terminal.LastNonterminalError=%q", terminal.LastNonterminalError)
+	}
+	raw, err := os.ReadFile(terminal.Path)
+	if err != nil {
+		t.Fatalf("read terminal audit: %v", err)
+	}
+	text := string(raw)
+	if strings.Contains(text, `"last_error"`) {
+		t.Fatalf("complete terminal JSON must not carry stale last_error:\n%s", text)
+	}
+	for _, want := range []string{`"last_nonterminal_error"`, `"prior_errors"`, `"qualify_active"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("terminal JSON missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestDataTaskWorkflowCheckpointUsesJournalSchema(t *testing.T) {
 	anchor := t.TempDir()
 	records := []dataTaskWorkflowRecord{{

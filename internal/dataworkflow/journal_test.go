@@ -137,6 +137,75 @@ func TestWorkflowRuntimeBuildJournalSnapshotUsesRuntimeState(t *testing.T) {
 	}
 }
 
+func TestWorkflowJournalCompleteMovesPriorErrorToLineage(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{
+			Status: "ready",
+			Actions: []dataquery.DataAction{{
+				ID:   "filter_active",
+				Kind: dataquery.DataActionFilterRecords,
+			}},
+		},
+		Err: "data planning incomplete: action 1 references missing field status",
+	})
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status:    "complete",
+		LastError: "data planning incomplete: action 1 references missing field status",
+	})
+
+	if snapshot.Status != "complete" {
+		t.Fatalf("Status=%q, want complete", snapshot.Status)
+	}
+	if snapshot.LastError != "" {
+		t.Fatalf("LastError=%q, want empty final-state error for complete terminal", snapshot.LastError)
+	}
+	if snapshot.LastNonterminalError != "data planning incomplete: action 1 references missing field status" {
+		t.Fatalf("LastNonterminalError=%q", snapshot.LastNonterminalError)
+	}
+	if len(snapshot.PriorErrors) != 1 {
+		t.Fatalf("PriorErrors=%+v, want one prior error", snapshot.PriorErrors)
+	}
+	prior := snapshot.PriorErrors[0]
+	if prior.Round != 1 || prior.Error != snapshot.LastNonterminalError || prior.ActionIDs[0] != "filter_active" || prior.ActionKinds[0] != string(dataquery.DataActionFilterRecords) {
+		t.Fatalf("PriorErrors[0]=%+v", prior)
+	}
+	if strings.Contains(snapshot.Decision.Reason, "missing field status") {
+		t.Fatalf("Decision.Reason=%q, complete terminal should not inherit stale prior error", snapshot.Decision.Reason)
+	}
+}
+
+func TestWorkflowJournalNonCompletePreservesFinalError(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID:   "reconcile",
+			Kind: dataquery.DataActionReconcile,
+		}}},
+		Err: "final reconcile failed",
+	})
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status:    "failed",
+		LastError: "final reconcile failed",
+	})
+
+	if snapshot.Status != "failed" {
+		t.Fatalf("Status=%q, want failed", snapshot.Status)
+	}
+	if snapshot.LastError != "final reconcile failed" {
+		t.Fatalf("LastError=%q, want final error preserved", snapshot.LastError)
+	}
+	if snapshot.LastNonterminalError != "" {
+		t.Fatalf("LastNonterminalError=%q, want empty for non-complete final error", snapshot.LastNonterminalError)
+	}
+	if len(snapshot.PriorErrors) != 1 || snapshot.PriorErrors[0].Error != "final reconcile failed" {
+		t.Fatalf("PriorErrors=%+v", snapshot.PriorErrors)
+	}
+	if snapshot.Decision.Reason != "final reconcile failed" {
+		t.Fatalf("Decision.Reason=%q, want final error reason", snapshot.Decision.Reason)
+	}
+}
+
 func TestWorkflowRuntimeBuildJournalSnapshotPrefersLiveProcessEvents(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	rt.AppendRecord(WorkflowRecord{
