@@ -734,3 +734,42 @@ Batch T acceptance criteria:
 - blocked/base decision protection remains intact for incomplete snapshots;
 - no implementation branch reads model prose, answer text, file-name keywords,
   or business values as a hard status gate.
+
+## Final Delivery Verification
+
+Implemented batches covered the data workflow system gaps from rule material
+handoff through terminal journal completion authority. Final validation:
+
+```bash
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp go test ./internal/repl ./internal/dataworkflow ./internal/dataquery
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp make build
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_final_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Representative sweep result:
+
+| case | result | key acceptance signal |
+|---|---|---|
+| `qf_architecture` | PASS | canonical read-mode stages and topology authority preserved |
+| `read_combo_trace_current_source_explanation` | PASS | trace parsing, jank threshold, and external-source boundary grounded |
+| `data_multifile_reference_projection` | PASS | `data_status=complete`, final answer `17,0,5`, output graph `satisfied` |
+| `mr_cross_repo_compare` | PASS | active subrepo buckets remain separated |
+
+Data terminal acceptance:
+
+- terminal status: `complete`;
+- final `last_error`: empty;
+- `last_nonterminal_error` keeps historical plan-admission lineage only;
+- ledger graph next stage: `complete`;
+- output projection graph: `satisfied`;
+- final answer length: 6 (`17,0,5`);
+- data eval flags: none.
+
+The implemented hard decisions use typed contracts, ledgers, artifact lineage,
+output projection graphs, structured material coverage, and journal snapshots.
+They do not introduce prompt-only redline workarounds, user-intent keyword
+matches, model-prose hard gates, file-name constants, or business-value patches.

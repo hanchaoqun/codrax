@@ -833,3 +833,62 @@ action purpose strings, field-name keywords, or business values.
     - A completed snapshot with stale blocked decision writes terminal
       `complete`.
     - Incomplete snapshots still preserve blocked/failed final status.
+
+## Final Verification After Batch T
+
+Representative sweep command:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_final_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Summary path: `eval/results/representative_eval_20260609_final_summary.md`
+
+| case | verdict | data status | flags | manual audit |
+|---|---|---|---|---|
+| `qf_architecture` | PASS | - | `finalizer explorer_long contract_warning` | Semantically correct. It names conditional pre-stages, the four core read-mode stages, stage responsibilities, topology handoff, and cites canonical stage enum/binding sources. Remaining flags are answer-surface/efficiency telemetry; no stage-namespace regression observed. |
+| `read_combo_trace_current_source_explanation` | PASS | - | `finalizer contract_warning auto_repair` | Semantically correct. It explains `ParseLine`, `classifyEventType`, `parseTraceMark`, 16.67ms frame budget, 86.111ms duration, and the external-runtime evidence boundary. The finalizer needed a structured block repair; final answer is grounded. |
+| `data_multifile_reference_projection` | PASS | `complete` | none | Final answer is `17,0,5`; terminal JSON status is `complete`; ledger graph next stage is `complete`; output projection graph is `satisfied`; final `last_error` is empty and old plan-admission errors remain only as lineage. |
+| `mr_cross_repo_compare` | PASS | - | none | Answer remains bucketed by `repo-greet-go` and `repo-tools-py`, lists the expected exported identifiers, and excludes unrelated sibling repo content. |
+
+Data terminal artifact:
+`.codrax/data-audit/20260609-154805-223668-39537-terminal.json`
+
+Terminal JSON audit:
+
+```json
+{
+  "status": "complete",
+  "data_rounds": 12,
+  "repair_rounds": 1,
+  "result_summary": "answer_len=6 decisions=8 rules=9 contributions=3 resolutions=6 consumed=11 warnings=0 reconcile=\"pass\"",
+  "decision": {"status": "complete", "reason_code": "complete"},
+  "ledger_next_stage": "complete",
+  "output_status": "satisfied"
+}
+```
+
+Closed systemic issues in this final rerun:
+
+- rule-bearing materials are represented as required rule coverage before
+  downstream contribution/reconcile/final projection completion;
+- reference projection uses atomic/reference lineage before aggregate fallback;
+- `assemble_answer` hands reference material consumption to coverage validators;
+- deterministic completion fallback is preferred over noisy repair planning;
+- completed workflow state retires stale workflow violations in evaluation
+  normalization;
+- terminal journal status and decision use current typed ledger/output
+  completion rather than stale blocked lineage.
+
+Residual telemetry notes:
+
+- `qf_architecture` still reports read-mode answer-surface telemetry
+  (`contract_warning`) and an efficiency flag (`explorer_long`). Manual audit
+  found no semantic stage/topology failure.
+- `read_combo_trace_current_source_explanation` still needed a finalizer
+  structured-block repair. Manual audit found the final answer grounded and the
+  visible caveat specific to external trace/source boundaries, not generic.
