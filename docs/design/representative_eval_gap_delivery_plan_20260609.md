@@ -103,6 +103,28 @@ Typed behavior:
 - Completion gate accepts `reference_projected=true` only when path, key field, count, and verifiable values match typed reconcile groups.
 - Deterministic projection fallback carries reference/reconcile/contribution artifact aliases as `input_paths` so upstream evidence remains available to backend actions.
 
+### D9. Stage Topology Authority Is A Typed Handoff
+
+Architecture questions can legitimately enumerate multiple stage namespaces: read-mode pipeline stages, data workflow stages, retry phases, render phases, or test phases. When the analyzer emits a stage-like enumeration, downstream exploration needs authority files that let it distinguish the canonical pipeline topology from a sibling enum family with the same naming shape.
+
+Typed behavior:
+
+- read-mode main stages and conditional pre-stages are exposed through canonical `StageBinding`/topology helpers;
+- analyzer required-file candidates merge those authority files as soft disambiguation when a stage-like architecture enumeration is emitted;
+- the signal consumes typed scenario/kind/entity shape plus repo symbol/source authority, not user-prose keyword tables or model-authored answer text;
+- final answer checks can rely on structured block items, citations, and typed authority anchors rather than rendered prose.
+
+### D10. Explicit Group Fields Preserve Contribution Granularity
+
+`compute_contributions` must distinguish omitted grouping from explicit field grouping. Falling back to `group_key=all` is valid when the action explicitly asks for a constant group or no grouping, but it is invalid when matched target rows lack the caller's `group_key_field`.
+
+Typed behavior:
+
+- explicit `group_key_field(s)` require non-empty values on matched target rows;
+- missing explicit group values raise a typed dependency/field contract and carry join/enrich/materialization repair hints;
+- diagnostics preserve the matched-row and missing-group counts so backend repair can consume the evidence;
+- grouped contributions from enriched/joined records continue to work without changing stable scalar or constant-group scenarios.
+
 ## Delivery Batches
 
 ### Batch A - Final Reference Authority
@@ -215,7 +237,37 @@ Validation:
 go test ./internal/orchestrator ./internal/tool -run 'Caveat|Supplement|Principal|AnswerDocument'
 ```
 
-### Batch E - Full Verification
+### Batch E - Topology And Group-Field Contracts
+
+Tasks:
+
+1. Expose read-mode pipeline authority from code.
+   - Add helper(s) around canonical read-mode main stages, conditional pre-stages, and authority files.
+   - Keep orchestrator and analyzer consumers reading the same source of truth.
+
+2. Add analyzer required-file disambiguation for stage-like architecture enumerations.
+   - Use typed scenario/kind/entity structure and repo symbols.
+   - Merge authority files softly; do not replace model-selected files or hard-code final answers.
+
+3. Add topology regression tests.
+   - A stage-like architecture enumeration that initially names a sibling stage enum still handoffs canonical pipeline authority.
+   - Legitimate sibling stage namespaces remain answerable because the authority files are disambiguation evidence, not a hard answer override.
+
+4. Enforce explicit group-field non-empty contracts.
+   - `compute_contributions` must not emit `group_key=all` for rows missing an explicit group field.
+   - Return typed dependency/field violation with repair hints for join/enrich/materialization.
+
+5. Add contribution regression tests.
+   - Mixed-source extract records with group field present only on reference rows fail before emitting `group_key=all`.
+   - Enriched/joined records with non-empty group field emit grouped contributions normally.
+
+Validation:
+
+```bash
+go test ./internal/agent ./internal/types ./internal/dataquery ./internal/dataworkflow ./internal/repl -run 'RequiredFiles|Stage|Topology|Contribution|Group|Field|Projection'
+```
+
+### Batch F - Full Verification
 
 Tasks:
 

@@ -236,6 +236,18 @@ A later `assemble_answer` repair can inherit a prior `final_answer/projection` r
 
 Generic fix direction: final-output projection groups are audit/output lineage, not business contribution groups. Runner metric inference and workflow validators must exclude typed `final_answer/projection` groups when binding reference keys to reconcile values. Completion should require both projection shape metadata and typed value binding against reconcile groups when a values-style strict output is verifiable. Fallback projection plans should also carry structural input aliases for the reference, reconcile, and contribution artifacts so rich upstream evidence remains consumable by backend actions.
 
+### G10. Stage-Like Architecture Questions Can Drift Across Topology Namespaces
+
+The `qf_architecture` rerun answered the dataworkflow finite-state stages (`StageCoverRequiredMaterials` through `StageComplete`) instead of the read-mode orchestrator pipeline stages (`StageAnalyze`, `StageExplore`, `StageExtract`, `StageFinalize`) and conditional pre-stages. The analyzer had already identified a stage-like enumeration, but the typed handoff did not include the canonical stage-binding/topology authority, so exploration followed the first same-shaped enum family it saw. The existing quality gate caught same-area subtopic shape drift, but not the deeper namespace-authority issue.
+
+Generic fix direction: stage/topology architecture answers need a typed authority handoff when multiple stage-like enum families exist. The system should expose canonical stage-binding/topology files as source authority and add them as soft disambiguation reads for stage-like architecture enumerations. This must not hard-code a case answer or parse model prose; it should consume typed RequestModel/entity shape plus repo structure, and final-answer checks should compare structured carriers against typed authority anchors rather than free-form text.
+
+### G11. Explicit Contribution Group Fields Must Not Fall Back To A Synthetic Aggregate
+
+The data rerun computed contributions with `group_key_field=canonical_label`, but the chosen mixed-source `coverage_records.json` rows that matched `active=true` were observation rows and did not carry `canonical_label`. `compute_contributions` treated the empty per-row group key as `all`, producing a self-consistent aggregate `37` instead of failing the field/materialization contract. Downstream reconcile and assemble were then internally consistent while structurally unable to project per reference key.
+
+Generic fix direction: a typed action that receives an explicit grouping field must preserve that grouping granularity. If matched target rows do not have non-empty values for the explicit group field, the action should raise a typed dependency/field contract violation and route to existing join/enrich/materialization repair paths. A synthetic fallback group is valid only when the action explicitly requests a constant group or omits grouping entirely; it must not mask missing reference/materialized fields.
+
 ## Executable Task List
 
 ### Batch A - Data Reference Projection Correctness
@@ -309,17 +321,29 @@ Generic fix direction: final-output projection groups are audit/output lineage, 
     - Behavior: ignore typed final-output projection groups during business metric inference; reject `reference_projected=true` terminal answers when strict values output contradicts typed reconcile groups; include reference/reconcile/contribution aliases in deterministic projection fallback plans.
     - Validation: stale `final_answer/projection` groups cannot force zero-filled complete-reference output; value-mismatched projection metadata triggers deterministic `assemble_answer` repair.
 
-### Batch E - Verification Sweep
+### Batch E - Topology Authority And Group-Field Contracts
 
-14. Run focused unit tests after each batch.
+14. Handoff canonical read-mode stage/topology authority for stage-like architecture enumerations.
+    - Target: `internal/types/stage_binding.go`, `internal/agent/analyzer.go`, answer-surface validators as needed.
+    - Behavior: expose stage-binding/topology authority files through typed code, and merge them as soft required-file candidates when the analyzer emits a stage-like architecture enumeration that could otherwise drift to a sibling stage enum family.
+    - Validation: architecture answers about pipeline stages inspect canonical `PipelineStage`/`StageBinding` authority before accepting a same-shaped alternate stage namespace.
+
+15. Enforce explicit contribution group-field non-empty values.
+    - Target: `internal/dataquery/action_runner.go`, `internal/dataworkflow/*failure*`, `internal/repl/data_task_workflow.go`.
+    - Behavior: `compute_contributions` must fail with typed dependency/field contract when explicit group fields are absent or empty on matched target rows; repair should reuse `enrich_records`/`join_records` fallback mechanisms.
+    - Validation: mixed-source record samples cannot collapse grouped contributions into `group_key=all` unless a constant group was explicitly requested.
+
+### Batch F - Verification Sweep
+
+16. Run focused unit tests after each batch.
     - `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl`
     - Add narrower `-run` invocations for projection, terminal status, and artifact schema tests.
 
-15. Re-run representative eval with `PARALLEL=2`.
+17. Re-run representative eval with `PARALLEL=2`.
     - Same four cases as this audit.
     - Pass criteria: all four PASS; data lane terminal status complete; no wrong reference projection; trace/multi-repo warnings do not leak generic caveats.
 
-16. Run a broader data-focused eval slice.
+18. Run a broader data-focused eval slice.
     - Include data cases with missing reference keys, extra contribution groups, unmapped source rows, numeric parsing, and multi-file joins.
     - Pass criteria: no final projection uses a broad coverage artifact when an explicit reference contract exists.
 
