@@ -275,6 +275,75 @@ func TestAnalyzerRequiredFiles_CapabilityQueryUsesAuthorityFiles(t *testing.T) {
 	}
 }
 
+func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t *testing.T) {
+	graph := buildRankerGraph(
+		map[string][]repomap.Symbol{
+			"internal/dataworkflow/stage.go": {
+				{Name: "StageCoverRequiredMaterials", Kind: "const", Line: 4},
+				{Name: "StageComplete", Kind: "const", Line: 11},
+			},
+			types.ReadModePipelineEnumsFile: {
+				{Name: "StageAnalyze", Kind: "const", Line: 33},
+				{Name: "StageExplore", Kind: "const", Line: 34},
+				{Name: "StageExtract", Kind: "const", Line: 35},
+				{Name: "StageFinalize", Kind: "const", Line: 36},
+			},
+			types.ReadModePipelineStageBindingFile: {
+				{Name: "StageBinding", Kind: "type", Line: 6},
+			},
+			types.ReadModePipelineTopologyFile: {
+				{Name: "pipelineTopology", Kind: "var", Line: 17},
+			},
+		},
+		map[string]float64{
+			"internal/dataworkflow/stage.go": 9.0,
+		},
+	)
+	rm := types.RequestModel{
+		Scenario: types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+
+	got := stageTopologyAuthorityRequiredFiles(graph, rm, []string{"StageCoverRequiredMaterials"})
+	want := types.ReadModePipelineAuthorityFiles()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("authority files = %v, want %v", got, want)
+	}
+}
+
+func TestStageTopologyAuthorityRequiredFiles_DoesNotFireForNonStageOrNonArchitecture(t *testing.T) {
+	graph := buildRankerGraph(
+		map[string][]repomap.Symbol{
+			"internal/dataworkflow/stage.go": {
+				{Name: "StageCoverRequiredMaterials", Kind: "const", Line: 4},
+			},
+			types.ReadModePipelineEnumsFile:        {{Name: "StageAnalyze", Kind: "const"}},
+			types.ReadModePipelineStageBindingFile: {{Name: "StageBinding", Kind: "type"}},
+			types.ReadModePipelineTopologyFile:     {{Name: "pipelineTopology", Kind: "var"}},
+		},
+		nil,
+	)
+	architectureEnum := types.RequestModel{
+		Scenario: types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	if got := stageTopologyAuthorityRequiredFiles(graph, architectureEnum, []string{"WorkflowState"}); got != nil {
+		t.Fatalf("non-stage entity should not seed topology authority, got %v", got)
+	}
+
+	nonArchitectureEnum := architectureEnum
+	nonArchitectureEnum.Scenario = types.ScenarioGeneric
+	if got := stageTopologyAuthorityRequiredFiles(graph, nonArchitectureEnum, []string{"StageCoverRequiredMaterials"}); got != nil {
+		t.Fatalf("non-architecture request should not seed topology authority, got %v", got)
+	}
+}
+
 func TestShouldMergeLogTriageEntities_SkipsExternalSource(t *testing.T) {
 	if shouldMergeLogTriageEntities(&types.LogBundle{
 		Errors: []types.LogError{{Type: "panic"}},

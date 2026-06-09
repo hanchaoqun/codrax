@@ -11,6 +11,12 @@ type StageBinding struct {
 	Terminal bool
 }
 
+const (
+	ReadModePipelineEnumsFile        = "internal/types/enums.go"
+	ReadModePipelineStageBindingFile = "internal/types/stage_binding.go"
+	ReadModePipelineTopologyFile     = "internal/orchestrator/topology.go"
+)
+
 var builtinStageBindings = []StageBinding{
 	{Stage: StageLogTriage, Agent: AgentLogTriager, Skill: "log-triage-skill"},
 	{Stage: StagePerfTriage, Agent: AgentPerfTriager, Skill: "perf-triage-skill"},
@@ -31,6 +37,42 @@ func AllStageBindings() []StageBinding {
 	out := make([]StageBinding, len(builtinStageBindings))
 	copy(out, builtinStageBindings)
 	return out
+}
+
+// ReadModeMainStageBindings returns the canonical unconditional
+// read-mode pipeline stages in the same order as AllMainStages.
+func ReadModeMainStageBindings() []StageBinding {
+	stages := AllMainStages()
+	out := make([]StageBinding, 0, len(stages))
+	for _, stage := range stages {
+		if binding, ok := StageBindingForStage(stage); ok {
+			out = append(out, binding)
+		}
+	}
+	return out
+}
+
+// ReadModeConditionalPreStageBindings returns the canonical
+// conditional pre-stages that can run before read-mode analyze.
+func ReadModeConditionalPreStageBindings() []StageBinding {
+	stages := []PipelineStage{StageLogTriage, StagePerfTriage}
+	out := make([]StageBinding, 0, len(stages))
+	for _, stage := range stages {
+		if binding, ok := StageBindingForStage(stage); ok {
+			out = append(out, binding)
+		}
+	}
+	return out
+}
+
+// ReadModePipelineAuthorityFiles returns the source files that define
+// the read-mode stage namespace and its orchestrator topology.
+func ReadModePipelineAuthorityFiles() []string {
+	return []string{
+		ReadModePipelineEnumsFile,
+		ReadModePipelineStageBindingFile,
+		ReadModePipelineTopologyFile,
+	}
 }
 
 // StageBindingForStage returns the canonical built-in binding for a

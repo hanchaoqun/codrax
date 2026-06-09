@@ -2802,6 +2802,9 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 			lo = append(lo, h.Path)
 		}
 	}
+	if authority := stageTopologyAuthorityRequiredFiles(graph, rm, entities); len(authority) > 0 {
+		hi = append(hi, authority...)
+	}
 	// Config-trace seeder. When the target is a config key, the group's
 	// defining file (struct home + yaml example) is the load-bearing read
 	// even if the exact key has no symbol anchor (phantom keys score 0 in
@@ -2852,6 +2855,65 @@ func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
 		}
 	}
 	return out
+}
+
+func stageTopologyAuthorityRequiredFiles(graph *repomap.Graph, rm types.RequestModel, entities []string) []string {
+	if graph == nil || !stageTopologyAuthorityRequestShape(rm) || !stageTopologyAuthorityHasStageEntity(graph, entities) {
+		return nil
+	}
+	files := types.ReadModePipelineAuthorityFiles()
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		if _, ok := graph.FileIndex[file]; ok {
+			out = append(out, file)
+		}
+	}
+	return out
+}
+
+func stageTopologyAuthorityRequestShape(rm types.RequestModel) bool {
+	if rm.Scenario != types.ScenarioArchitectureExplain {
+		return false
+	}
+	if rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate {
+		return true
+	}
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
+		return true
+	}
+	return rm.QuestionStructure().HasAnyObligation()
+}
+
+func stageTopologyAuthorityHasStageEntity(graph *repomap.Graph, entities []string) bool {
+	if graph == nil || len(entities) == 0 {
+		return false
+	}
+	for _, entity := range entities {
+		name := stageTopologyEntitySymbolName(entity)
+		if !strings.HasPrefix(name, "Stage") {
+			continue
+		}
+		for _, sym := range graph.SymbolDefs[name] {
+			if sym == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(sym.Kind), "const") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stageTopologyEntitySymbolName(entity string) string {
+	entity = strings.TrimSpace(entity)
+	if entity == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(entity, "."); idx >= 0 && idx+1 < len(entity) {
+		entity = entity[idx+1:]
+	}
+	return strings.TrimSpace(entity)
 }
 
 // maxAnalyzerRequiredFilesCap surfaces the historical cap=3 ceiling on
