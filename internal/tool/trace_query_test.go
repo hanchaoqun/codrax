@@ -406,9 +406,57 @@ func TestTraceQuerySummaryRendersFragmentedStateChurn(t *testing.T) {
 	}
 }
 
+func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "inode_io.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 12.000000: android_fs_datawrite_start: entry_name=foo.db offset=0 bytes=4096 cmdline=app pid=20 i_size=8192 ino=0xb9b8e`,
+		`app-20 (20) [001] .... 12.001000: android_fs_datawrite_end: ino=0xb9b8e offset=0 bytes=4096`,
+		`app-20 (20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0 pfn=1 ofs=0`,
+		`app-20 (20) [001] .... 12.003000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e page=0 pfn=1 ofs=0`,
+		`app-20 (20) [001] .... 12.004000: scsi_dispatch_cmd_start: dev=12,80 op=write bytes=4096`,
+		`app-20 (20) [001] .... 12.006000: scsi_dispatch_cmd_done: dev=12,80 op=write bytes=4096`,
+		`app-20 (20) [001] .... 12.007000: sched_blocked_reason: pid=20 iowait=1 caller=fscache_page_wait_on_page_bit`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"inode_io.systrace","view":"windowStats","timeStart":"12.0s","timeEnd":"12.01s","event_types":"inodeIO,pageCache,storageLayerLatency","limit":"8"}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"# Trace Query: window_stats",
+		"file_io inode=0xb9b8e",
+		"name=foo.db",
+		"page_cache inode=0xb9b8e",
+		"storage_latency layer=scsi",
+		"io_pressure signal=",
+		"iowait_blocked=1",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("inode IO summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+
+	searchParams := json.RawMessage(`{"source":"path","path":"inode_io.systrace","view":"eventSearch","pattern":"0xb9b8e","event_types":"pageCache","limit":"4"}`)
+	search, err := (&TraceQuery{}).Execute(ctx, searchParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !search.Success || !strings.Contains(search.Summary, "matched_events=2") || !strings.Contains(search.Summary, "file_io dev=260:136 inode=0xb9b8e") {
+		t.Fatalf("event_type alias pageCache should be normalized and surface inode details:\n%s", search.Summary)
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "normalizes view=state_churn to window_stats", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "normalizes view=state_churn to window_stats", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "io_pressure_summary", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

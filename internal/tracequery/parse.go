@@ -17,11 +17,19 @@ import (
 var (
 	ftraceLineRE     = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
 	traceTimestampRE = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+[A-Za-z0-9_./:-]+:?`)
-	kvRE             = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
+	kvRE             = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
 	blockRequestRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
-	blockRemapRE     = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)
+	blockRemapRE     = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-(?:\s+\(([^)]+)\)\s+(\d+))?`)
 	blockErrorRE     = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
+
+var spaceKVKeys = map[string]struct{}{
+	"addr": {}, "address": {}, "bytes": {}, "cmdline": {}, "dev": {}, "entry_name": {},
+	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
+	"ino": {}, "inode": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
+	"operation": {}, "op": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "pino": {},
+	"pos": {}, "ret": {}, "rw": {}, "rwbs": {}, "size": {}, "type": {},
+}
 
 type parseCacheKey struct {
 	path      string
@@ -458,10 +466,12 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 			ev.BlockError = intern.intern(parseBlockError(fields))
 		}
 	case EventBlockRemap:
-		dev, sector, length := parseBlockRemap(fields)
+		dev, sector, length, srcDev, srcSector := parseBlockRemap(fields)
 		ev.BlockDev = intern.intern(dev)
 		ev.BlockSector = sector
 		ev.BlockLen = length
+		ev.BlockSrcDev = intern.intern(srcDev)
+		ev.BlockSrcSector = srcSector
 	case EventBinderTransaction:
 		ev.BinderTransactionID = atoi(kv["transaction"])
 		ev.BinderDestProc = atoi(kv["dest_proc"])
@@ -491,8 +501,10 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 			ev.SubsystemKind = ev.MemoryKind
 		}
 		populateResourceFields(&ev, kv, intern)
+		populateFileIOFields(&ev, kv, intern)
 	case EventStorage, EventFilesystem:
 		populateResourceFields(&ev, kv, intern)
+		populateFileIOFields(&ev, kv, intern)
 	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
 		populatePluginFields(&ev, rawType, kv, intern)
 	}
@@ -503,12 +515,36 @@ func populateResourceFields(ev *Event, kv map[string]string, intern *stringInter
 	if ev == nil {
 		return
 	}
-	ev.ResourcePath = intern.intern(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["name"]))
-	ev.ResourceOp = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rwbs"]))
+	ev.ResourcePath = intern.intern(cleanTraceValue(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["entry_name"], kv["name"])))
+	ev.ResourceOp = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rw"], kv["rwbs"]))
 	ev.ResourceLatencyMs = parseLatencyMs(kv)
 	ev.ResourceBytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
 	ev.ResourceAddress = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
 	ev.ResourceCallstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
+}
+
+func populateFileIOFields(ev *Event, kv map[string]string, intern *stringInterner) {
+	if ev == nil {
+		return
+	}
+	ev.FSDev = intern.intern(firstNonEmpty(kv["fs_dev"], kv["dev"]))
+	ev.Inode = intern.intern(cleanTraceValue(firstNonEmpty(kv["ino"], kv["inode"])))
+	ev.ParentInode = intern.intern(cleanTraceValue(firstNonEmpty(kv["pino"], kv["parent_ino"], kv["parent_inode"], kv["parent"])))
+	ev.EntryName = intern.intern(cleanTraceValue(firstNonEmpty(kv["entry_name"], kv["path"], kv["file"], kv["filename"], kv["name"])))
+	ev.FileOffset = atoi64Auto(firstNonEmpty(kv["offset"], kv["ofs"], kv["pos"]))
+	ev.FileLen = atoi64Auto(firstNonEmpty(kv["bytes"], kv["len"], kv["length"]))
+	ev.FileRW = intern.intern(normalizeFileRW(firstNonEmpty(kv["rw"], kv["rwbs"], kv["op"], kv["operation"], kv["type"], fileOperationFromEventName(ev.Name))))
+	ev.FileRet = atoi64Auto(kv["ret"])
+	ev.FileSize = atoi64Auto(firstNonEmpty(kv["i_size"], kv["file_size"]))
+	if ev.ResourcePath == "" && ev.EntryName != "" {
+		ev.ResourcePath = ev.EntryName
+	}
+	if ev.ResourceOp == "" && ev.FileRW != "" {
+		ev.ResourceOp = ev.FileRW
+	}
+	if ev.ResourceBytes == 0 && ev.FileLen > 0 {
+		ev.ResourceBytes = ev.FileLen
+	}
 }
 
 func populatePluginFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
@@ -530,12 +566,12 @@ func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
 	return m[1], m[2], atoi64(m[3]), atoi64(m[4])
 }
 
-func parseBlockRemap(fields string) (dev string, sector, length int64) {
+func parseBlockRemap(fields string) (dev string, sector, length int64, srcDev string, srcSector int64) {
 	m := blockRemapRE.FindStringSubmatch(strings.TrimSpace(fields))
-	if len(m) != 4 {
-		return "", 0, 0
+	if len(m) != 6 {
+		return "", 0, 0, "", 0
 	}
-	return m[1], atoi64(m[2]), atoi64(m[3])
+	return m[1], atoi64(m[2]), atoi64(m[3]), strings.TrimSpace(m[4]), atoi64(m[5])
 }
 
 func parseBlockError(fields string) string {
@@ -656,6 +692,8 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 			return "storage_ufs"
 		case strings.Contains(text, "mmc"):
 			return "storage_mmc"
+		case strings.Contains(text, "scsi"):
+			return "storage_scsi"
 		case strings.Contains(text, "i2c"):
 			return "storage_i2c"
 		case strings.Contains(text, "smbus"):
@@ -667,6 +705,10 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 		switch {
 		case strings.Contains(text, "file_system") || strings.Contains(text, "filesystem") || strings.Contains(text, "ebpf_file"):
 			return "ebpf_filesystem"
+		case strings.Contains(text, "android_fs"):
+			return "fs_android"
+		case strings.Contains(text, "f2fs"):
+			return "fs_f2fs"
 		case strings.Contains(text, "erofs"):
 			return "fs_erofs"
 		case strings.Contains(text, "ext4"):
@@ -707,6 +749,7 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 func isStorageEvent(raw string) bool {
 	return strings.HasPrefix(raw, "ufshcd_") ||
 		strings.HasPrefix(raw, "mmc_") ||
+		strings.HasPrefix(raw, "scsi_") ||
 		strings.HasPrefix(raw, "i2c_") ||
 		strings.HasPrefix(raw, "smbus_") ||
 		(strings.Contains(raw, "bio") && strings.Contains(raw, "latency")) ||
@@ -716,6 +759,8 @@ func isStorageEvent(raw string) bool {
 
 func isFilesystemEvent(raw string) bool {
 	return strings.HasPrefix(raw, "ext4_") ||
+		strings.HasPrefix(raw, "f2fs_") ||
+		strings.HasPrefix(raw, "android_fs_") ||
 		strings.HasPrefix(raw, "erofs_") ||
 		strings.HasPrefix(raw, "z_erofs_") ||
 		strings.HasPrefix(raw, "filesystem") ||
@@ -753,10 +798,35 @@ func parseKV(fields string) map[string]string {
 	out := make(map[string]string)
 	for _, m := range kvRE.FindAllStringSubmatch(fields, -1) {
 		if len(m) == 3 {
-			out[m[1]] = m[2]
+			out[m[1]] = cleanTraceValue(m[2])
 		}
 	}
+	parseSpaceKV(fields, out)
 	return out
+}
+
+func parseSpaceKV(fields string, out map[string]string) {
+	tokens := strings.Fields(fields)
+	for i := 0; i < len(tokens)-1; i++ {
+		key := strings.ToLower(strings.Trim(strings.TrimSpace(tokens[i]), ":,"))
+		if _, ok := spaceKVKeys[key]; !ok {
+			continue
+		}
+		if strings.Contains(key, "=") {
+			continue
+		}
+		valueIdx := i + 1
+		if tokens[valueIdx] == "=" && valueIdx+1 < len(tokens) {
+			valueIdx++
+		}
+		value := cleanTraceValue(tokens[valueIdx])
+		if value == "" || value == "=" || strings.Contains(value, "==>") {
+			continue
+		}
+		if _, exists := out[key]; !exists {
+			out[key] = value
+		}
+	}
 }
 
 func clockNameForEvent(raw, fields string) string {
@@ -812,6 +882,19 @@ func atoi64(raw string) int64 {
 	raw = strings.Trim(strings.TrimSpace(raw), ":,")
 	if raw == "" {
 		return 0
+	}
+	n, _ := strconv.ParseInt(raw, 10, 64)
+	return n
+}
+
+func atoi64Auto(raw string) int64 {
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if raw == "" {
+		return 0
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "0x") {
+		n, _ := strconv.ParseInt(raw[2:], 16, 64)
+		return n
 	}
 	n, _ := strconv.ParseInt(raw, 10, 64)
 	return n
@@ -882,6 +965,58 @@ func clampString(s string, n int) string {
 		return s[:n]
 	}
 	return s[:n-3] + "..."
+}
+
+func cleanTraceValue(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, `"'`)
+	raw = strings.TrimRight(raw, ",")
+	return raw
+}
+
+func normalizeFileRW(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	raw = strings.Trim(raw, `"'`)
+	switch {
+	case raw == "":
+		return ""
+	case raw == "r" || raw == "read" || strings.Contains(raw, "dataread"):
+		return "read"
+	case raw == "w" || raw == "write" || strings.Contains(raw, "datawrite"):
+		return "write"
+	case strings.Contains(raw, "read") && strings.Contains(raw, "bio"):
+		return "read_bio"
+	case strings.Contains(raw, "write") && strings.Contains(raw, "bio"):
+		return "write_bio"
+	case strings.Contains(raw, "sync"):
+		return "sync"
+	default:
+		return raw
+	}
+}
+
+func fileOperationFromEventName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(name, "dataread"):
+		return "read"
+	case strings.Contains(name, "datawrite"):
+		return "write"
+	case strings.Contains(name, "submit_read_bio"):
+		return "read_bio"
+	case strings.Contains(name, "submit_write_bio"):
+		return "write_bio"
+	case strings.Contains(name, "direct_io"):
+		return "direct_io"
+	case strings.Contains(name, "sync_file"):
+		return "sync"
+	case strings.Contains(name, "filemap_add_to_page_cache"):
+		return "page_cache_add"
+	case strings.Contains(name, "filemap_delete_from_page_cache"):
+		return "page_cache_delete"
+	default:
+		return ""
+	}
 }
 
 type stringInterner struct {

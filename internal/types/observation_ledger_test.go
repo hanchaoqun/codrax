@@ -221,6 +221,10 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
 				"- state_churn com.app-42 dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms confidence=0.83 lines=111-119 — com.app-42 had frequent state switching; dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; next_step=inspect same-CPU pressure",
+				"- file_io inode=0xb9b8e dev=260:136 name=foo.db op=write thread=com.app-42 count=3 bytes=12288 total_latency=1.500ms max_latency=1.000ms offsets=0..8192 lines=200-204 — inode=0xb9b8e dev=260:136 op=write count=3 bytes=12288 thread=com.app-42 name=foo.db",
+				"- page_cache inode=0xb9b8e dev=260:136 thread=com.app-42 adds=2 deletes=1 churn=3 bytes=0 offsets=0..8192 lines=205-207 — inode=0xb9b8e dev=260:136 page-cache adds=2 deletes=1 churn=3 thread=com.app-42",
+				"- storage_latency layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read thread=com.app-42 count=2 paired=1 unpaired_start=0 unpaired_done=0 max_latency=2.000ms avg_latency=2.000ms bytes=8192 lines=208-209 — layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read count=2 paired=1 max_latency=2.000ms",
+				"- io_pressure signal=scheduler_iowait_with_storage_latency score=12.000 block_max=3.000ms storage_max=2.000ms file_bytes=12288 file_events=3 page_cache_churn=3 iowait_blocked=1 d_state=4.000ms top_inode=0xb9b8e top_dev=260:136 top_name=foo.db lines=200-209 — io pressure signal=scheduler_iowait_with_storage_latency score=12.000 block_max=3.000ms storage_max=2.000ms file_bytes=12288 file_events=3 page_cache_churn=3 iowait_blocked=1 d_state=4.000ms top_inode=0xb9b8e",
 				"## Critical blocking calls",
 				"- blocking type=monitor thread=binder:1-7 peer=com.app-42 duration=78.700ms lines=160-170 confidence=0.80 — monitor lock contention overlapped the frame",
 			}, "\n"),
@@ -264,6 +268,37 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!observationLedgerTestContainsString(churn.RichNotes, "fragments=12") ||
 		!observationLedgerTestContainsString(churn.RichNotes, "max_segment=0.500ms") {
 		t.Fatalf("trace_query state_churn should survive as supporting runtime observation: %+v", churn)
+	}
+	fileIO := findObservationRecord(t, ledger, "tool:0#trace_query:file_io:1")
+	if fileIO.Predicate != "file_io_by_inode" ||
+		fileIO.Subject != "foo.db" ||
+		fileIO.Object != "write" ||
+		fileIO.Value != "12288" ||
+		fileIO.Unit != "bytes" ||
+		fileIO.Span.LineStart != 200 ||
+		!observationLedgerTestContainsString(fileIO.RichNotes, "inode=0xb9b8e") {
+		t.Fatalf("trace_query file_io should survive as runtime observation: %+v", fileIO)
+	}
+	pageCache := findObservationRecord(t, ledger, "tool:0#trace_query:page_cache:1")
+	if pageCache.Predicate != "page_cache_by_inode" ||
+		pageCache.Value != "3" ||
+		pageCache.Unit != "events" ||
+		!observationLedgerTestContainsString(pageCache.RichNotes, "deletes=1") {
+		t.Fatalf("trace_query page_cache should survive as runtime observation: %+v", pageCache)
+	}
+	storage := findObservationRecord(t, ledger, "tool:0#trace_query:storage_latency:1")
+	if storage.Predicate != "storage_latency_by_layer" ||
+		storage.Subject != "scsi" ||
+		storage.Value != "2.000" ||
+		storage.Unit != "ms" {
+		t.Fatalf("trace_query storage_latency should survive as runtime observation: %+v", storage)
+	}
+	pressure := findObservationRecord(t, ledger, "tool:0#trace_query:io_pressure:1")
+	if pressure.Predicate != "scheduler_iowait_with_storage_latency" ||
+		pressure.Object != "0xb9b8e" ||
+		pressure.Value != "12.000" ||
+		pressure.Unit != "score" {
+		t.Fatalf("trace_query io_pressure should survive as runtime observation: %+v", pressure)
 	}
 
 	rm := RequestModel{PerfTrace: &PerfBundle{Janks: []PerfJank{{TriggerSpan: "frame 7"}}}}

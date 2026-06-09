@@ -6430,6 +6430,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	}
 	if answerDocRuntimeTraceSchedulerQuestion(ctx) {
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
+		b.WriteString("- Runtime IO hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, or `io_pressure` observations, preserve inode/dev/op/bytes/count/latency/churn and relate them to D-state/iowait/block-latency facts. Do not invent a file path from an inode alone; only name a path when the trace row included `entry_name`/path or a separate filesystem mapping proves it.\n")
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -6475,10 +6476,18 @@ func answerDocRuntimeTraceSchedulerQuestion(ctx *types.AgentContext) bool {
 		strings.Contains(text, "sleep") ||
 		strings.Contains(text, "runnable") ||
 		strings.Contains(text, "running") ||
+		strings.Contains(text, "io") ||
+		strings.Contains(text, "inode") ||
+		strings.Contains(text, "page_cache") ||
+		strings.Contains(text, "file_io") ||
+		strings.Contains(text, "storage") ||
 		strings.Contains(text, "priority") ||
 		strings.Contains(text, "调度") ||
 		strings.Contains(text, "唤醒") ||
 		strings.Contains(text, "睡眠") ||
+		strings.Contains(text, "丢帧") ||
+		strings.Contains(text, "文件") ||
+		strings.Contains(text, "读写") ||
 		strings.Contains(text, "优先级")
 }
 

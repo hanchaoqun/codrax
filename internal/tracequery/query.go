@@ -601,7 +601,7 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 			return false
 		}
 	}
-	if len(typeSet) > 0 && !eventTypeMatches(ev.Type, typeSet) {
+	if len(typeSet) > 0 && !eventTypeMatches(ev, typeSet) {
 		return false
 	}
 	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
@@ -643,6 +643,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.BlockDev,
 		ev.BlockOp,
 		ev.BlockError,
+		ev.BlockSrcDev,
 		ev.IRQName,
 		ev.MemoryKind,
 		ev.SubsystemKind,
@@ -650,6 +651,11 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.ResourceOp,
 		ev.ResourceAddress,
 		ev.ResourceCallstack,
+		ev.FSDev,
+		ev.Inode,
+		ev.ParentInode,
+		ev.EntryName,
+		ev.FileRW,
 		ev.PluginDomain,
 		ev.PluginEventName,
 		ev.PluginMetric,
@@ -695,7 +701,12 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.BinderExtraSize,
 		ev.BlockSector,
 		ev.BlockLen,
+		ev.BlockSrcSector,
 		ev.ResourceBytes,
+		ev.FileOffset,
+		ev.FileLen,
+		ev.FileRet,
+		ev.FileSize,
 	} {
 		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
 			return true
@@ -710,14 +721,38 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	return false
 }
 
-func eventTypeMatches(typ EventType, typeSet map[EventType]bool) bool {
+func eventTypeMatches(ev Event, typeSet map[EventType]bool) bool {
+	typ := ev.Type
 	if typeSet[typ] {
 		return true
 	}
 	// Compatibility: older prompts use cpu_frequency to discover both concrete
 	// frequency residency rows and frequency-limit rows. Residency math still
 	// only consumes EventCPUFrequency.
-	return typ == EventCPUFrequencyLimit && typeSet[EventCPUFrequency]
+	if typ == EventCPUFrequencyLimit && typeSet[EventCPUFrequency] {
+		return true
+	}
+	name := strings.ToLower(ev.Name)
+	switch {
+	case typeSet["file_io"] && isFileIOEvent(ev):
+		return true
+	case typeSet["page_cache"] && isPageCacheEvent(ev):
+		return true
+	case typeSet["android_fs"] && strings.HasPrefix(name, "android_fs_"):
+		return true
+	case typeSet["f2fs"] && strings.HasPrefix(name, "f2fs_"):
+		return true
+	case typeSet["scsi"] && strings.HasPrefix(name, "scsi_"):
+		return true
+	case typeSet["mmc"] && strings.HasPrefix(name, "mmc_"):
+		return true
+	case typeSet["storage_latency"] && isStorageLatencyEvent(ev):
+		return true
+	case typeSet["io_pressure"] && (isStorageLatencyEvent(ev) || isFileIOEvent(ev) || isPageCacheEvent(ev) || ev.Type == EventSchedBlockedReason):
+		return true
+	default:
+		return false
+	}
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
@@ -966,6 +1001,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	bioResources := map[string]*RuntimeResourceSummary{}
 	filesystemResources := map[string]*RuntimeResourceSummary{}
 	pageFaultResources := map[string]*RuntimeResourceSummary{}
+	fileIO := map[string]*FileIOSummary{}
+	pageCache := map[string]*PageCacheSummary{}
 	abilityEvents := map[string]*TracePluginSummary{}
 	xpowerEvents := map[string]*TracePluginSummary{}
 	hiSystemEvents := map[string]*TracePluginSummary{}
@@ -1039,6 +1076,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 		accumulateSubsystemEvent(subsystems, ev)
 		accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
+		accumulateFileIO(fileIO, ev)
+		accumulatePageCache(pageCache, ev)
 		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
 	}
 	running := map[string]ThreadDuration{}
@@ -1115,6 +1154,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BIOResources = sortedRuntimeResources(bioResources, 8)
 	stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
 	stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
+	stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
+	stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
+	stats.StorageLatencyByLayer = computeStorageLatencyByLayer(idx, q, stats.IOLatencies, 8)
 	stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
 	stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
 	stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
@@ -1131,6 +1173,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	stats.StateChurn = computeStateChurnSummaries(idx, q, 8)
+	stats.IOPressureSummary = computeIOPressureSummary(stats)
 	return stats
 }
 
@@ -2869,6 +2912,364 @@ func sortedRuntimeResources(in map[string]*RuntimeResourceSummary, max int) []Ru
 	return out
 }
 
+func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
+	if !isFileIOEvent(ev) || !fileIOCountsAsActivity(ev) {
+		return
+	}
+	inode := firstNonEmpty(ev.Inode, "unknown")
+	dev := firstNonEmpty(ev.FSDev, ev.BlockSrcDev, ev.BlockDev, "unknown")
+	op := firstNonEmpty(ev.FileRW, ev.ResourceOp, fileOperationFromEventName(ev.Name), "io")
+	key := strings.Join([]string{dev, inode, op, fmt.Sprintf("%d", ev.PID)}, "/")
+	item := out[key]
+	if item == nil {
+		item = &FileIOSummary{
+			Dev:         dev,
+			Inode:       inode,
+			ParentInode: ev.ParentInode,
+			EntryName:   ev.EntryName,
+			Operation:   op,
+			Thread:      threadRefFromEvent(ev),
+			LineStart:   ev.Line,
+			LineEnd:     ev.Line,
+			StartTs:     ev.Ts,
+			EndTs:       ev.Ts,
+			Example:     clampString(ev.FieldText, 160),
+		}
+		out[key] = item
+	}
+	item.Count++
+	if ev.FileLen > 0 {
+		item.Bytes += ev.FileLen
+	} else if ev.ResourceBytes > 0 {
+		item.Bytes += ev.ResourceBytes
+	}
+	item.TotalLatencyMs += ev.ResourceLatencyMs
+	if ev.ResourceLatencyMs > item.MaxLatencyMs {
+		item.MaxLatencyMs = ev.ResourceLatencyMs
+	}
+	if item.EntryName == "" && ev.EntryName != "" {
+		item.EntryName = ev.EntryName
+	}
+	if item.ParentInode == "" && ev.ParentInode != "" {
+		item.ParentInode = ev.ParentInode
+	}
+	if ev.FileRet != 0 {
+		item.Ret = ev.FileRet
+	}
+	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ev.FileOffset)
+	applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
+	if item.StartTs == 0 || ev.Ts < item.StartTs {
+		item.StartTs = ev.Ts
+	}
+	if ev.Ts > item.EndTs {
+		item.EndTs = ev.Ts
+	}
+	if item.Example == "" {
+		item.Example = clampString(ev.FieldText, 160)
+	}
+}
+
+func sortedFileIOSummaries(in map[string]*FileIOSummary, max int) []FileIOSummary {
+	out := make([]FileIOSummary, 0, len(in))
+	for _, item := range in {
+		item.Summary = fmt.Sprintf("inode=%s dev=%s op=%s count=%d bytes=%d thread=%s", item.Inode, item.Dev, item.Operation, item.Count, item.Bytes, threadLabel(item.Thread))
+		if item.EntryName != "" {
+			item.Summary = fmt.Sprintf("%s name=%s", item.Summary, item.EntryName)
+		}
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].TotalLatencyMs != out[j].TotalLatencyMs {
+			return out[i].TotalLatencyMs > out[j].TotalLatencyMs
+		}
+		if out[i].Bytes != out[j].Bytes {
+			return out[i].Bytes > out[j].Bytes
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
+	if !isPageCacheEvent(ev) {
+		return
+	}
+	inode := firstNonEmpty(ev.Inode, "unknown")
+	dev := firstNonEmpty(ev.FSDev, ev.BlockSrcDev, ev.BlockDev, "unknown")
+	key := strings.Join([]string{dev, inode, fmt.Sprintf("%d", ev.PID)}, "/")
+	item := out[key]
+	if item == nil {
+		item = &PageCacheSummary{
+			Dev:       dev,
+			Inode:     inode,
+			Thread:    threadRefFromEvent(ev),
+			LineStart: ev.Line,
+			LineEnd:   ev.Line,
+			StartTs:   ev.Ts,
+			EndTs:     ev.Ts,
+			Example:   clampString(ev.FieldText, 160),
+		}
+		out[key] = item
+	}
+	name := strings.ToLower(ev.Name)
+	switch {
+	case strings.Contains(name, "delete_from_page_cache"):
+		item.Deletes++
+	case strings.Contains(name, "add_to_page_cache"):
+		item.Adds++
+	default:
+		item.Adds++
+	}
+	item.Churn = item.Adds + item.Deletes
+	if ev.FileLen > 0 {
+		item.Bytes += ev.FileLen
+	} else if ev.ResourceBytes > 0 {
+		item.Bytes += ev.ResourceBytes
+	}
+	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ev.FileOffset)
+	applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
+	if item.StartTs == 0 || ev.Ts < item.StartTs {
+		item.StartTs = ev.Ts
+	}
+	if ev.Ts > item.EndTs {
+		item.EndTs = ev.Ts
+	}
+	if item.Example == "" {
+		item.Example = clampString(ev.FieldText, 160)
+	}
+}
+
+func sortedPageCacheSummaries(in map[string]*PageCacheSummary, max int) []PageCacheSummary {
+	out := make([]PageCacheSummary, 0, len(in))
+	for _, item := range in {
+		item.Summary = fmt.Sprintf("inode=%s dev=%s page-cache adds=%d deletes=%d churn=%d thread=%s", item.Inode, item.Dev, item.Adds, item.Deletes, item.Churn, threadLabel(item.Thread))
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Churn != out[j].Churn {
+			return out[i].Churn > out[j].Churn
+		}
+		if out[i].Bytes != out[j].Bytes {
+			return out[i].Bytes > out[j].Bytes
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+type storageLatencyAcc struct {
+	item           StorageLatencySummary
+	totalLatencyMs float64
+	open           []Event
+}
+
+func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatencySummary, max int) []StorageLatencySummary {
+	accs := map[string]*storageLatencyAcc{}
+	for _, io := range blockLatencies {
+		key := strings.Join([]string{"block", "block_rq", io.Dev, io.Op}, "/")
+		acc := storageLatencyAccumulator(accs, key, "block", "block_rq", io.Dev, io.Op, io.IssueThread, io.IssueLine, io.IssueTs, "")
+		acc.item.Count++
+		acc.item.PairedCount++
+		acc.totalLatencyMs += io.DurationMs
+		if io.DurationMs > acc.item.MaxLatencyMs {
+			acc.item.MaxLatencyMs = io.DurationMs
+		}
+		acc.item.Bytes += io.Len * 512
+		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.IssueLine)
+		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.CompleteLine)
+		if io.CompleteTs > acc.item.EndTs {
+			acc.item.EndTs = io.CompleteTs
+		}
+	}
+	if idx != nil {
+		for _, ev := range idx.Events {
+			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || !isStorageLatencyEvent(ev) {
+				continue
+			}
+			layer := storageLatencyLayer(ev)
+			base, phase := storageLatencyBaseAndPhase(ev)
+			if layer == "" || base == "" {
+				continue
+			}
+			dev := firstNonEmpty(ev.FSDev, ev.BlockDev, ev.BlockSrcDev, "unknown")
+			op := firstNonEmpty(ev.FileRW, ev.ResourceOp, ev.BlockOp, fileOperationFromEventName(ev.Name), base)
+			key := strings.Join([]string{layer, base, dev, firstNonEmpty(ev.Inode, "-"), op, fmt.Sprintf("%d", ev.PID)}, "/")
+			acc := storageLatencyAccumulator(accs, key, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
+			acc.item.Count++
+			if ev.FileLen > 0 {
+				acc.item.Bytes += ev.FileLen
+			} else if ev.ResourceBytes > 0 {
+				acc.item.Bytes += ev.ResourceBytes
+			}
+			applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
+			if ev.Ts > acc.item.EndTs {
+				acc.item.EndTs = ev.Ts
+			}
+			switch phase {
+			case "start":
+				acc.open = append(acc.open, ev)
+			case "done":
+				if len(acc.open) == 0 {
+					acc.item.UnpairedDoneCount++
+					continue
+				}
+				start := acc.open[0]
+				acc.open = acc.open[1:]
+				if ev.Ts < start.Ts {
+					continue
+				}
+				dur := (ev.Ts - start.Ts) * 1000
+				acc.item.PairedCount++
+				acc.totalLatencyMs += dur
+				if dur > acc.item.MaxLatencyMs {
+					acc.item.MaxLatencyMs = dur
+				}
+			}
+		}
+	}
+	out := make([]StorageLatencySummary, 0, len(accs))
+	for _, acc := range accs {
+		acc.item.UnpairedStartCount += len(acc.open)
+		if acc.item.PairedCount > 0 {
+			acc.item.AvgLatencyMs = acc.totalLatencyMs / float64(acc.item.PairedCount)
+		}
+		acc.item.Summary = fmt.Sprintf("layer=%s event=%s dev=%s op=%s count=%d paired=%d max_latency=%.3fms", acc.item.Layer, acc.item.Event, acc.item.Dev, acc.item.Operation, acc.item.Count, acc.item.PairedCount, acc.item.MaxLatencyMs)
+		out = append(out, acc.item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].MaxLatencyMs != out[j].MaxLatencyMs {
+			return out[i].MaxLatencyMs > out[j].MaxLatencyMs
+		}
+		if out[i].PairedCount != out[j].PairedCount {
+			return out[i].PairedCount > out[j].PairedCount
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func storageLatencyAccumulator(accs map[string]*storageLatencyAcc, key, layer, event, dev, op string, thread ThreadRef, line int, ts float64, example string) *storageLatencyAcc {
+	acc := accs[key]
+	if acc != nil {
+		return acc
+	}
+	acc = &storageLatencyAcc{item: StorageLatencySummary{
+		Layer:     layer,
+		Event:     event,
+		Dev:       dev,
+		Operation: op,
+		Thread:    thread,
+		LineStart: line,
+		LineEnd:   line,
+		StartTs:   ts,
+		EndTs:     ts,
+		Example:   clampString(example, 160),
+	}}
+	accs[key] = acc
+	return acc
+}
+
+func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
+	var blockMax float64
+	for _, io := range stats.IOLatencies {
+		if io.DurationMs > blockMax {
+			blockMax = io.DurationMs
+		}
+	}
+	var storageMax float64
+	for _, item := range stats.StorageLatencyByLayer {
+		if item.MaxLatencyMs > storageMax {
+			storageMax = item.MaxLatencyMs
+		}
+	}
+	var fileBytes int64
+	var fileEvents int
+	var topFile FileIOSummary
+	for _, item := range stats.FileIOByInode {
+		fileBytes += item.Bytes
+		fileEvents += item.Count
+		if topFile.Inode == "" || item.Bytes > topFile.Bytes || (item.Bytes == topFile.Bytes && item.Count > topFile.Count) {
+			topFile = item
+		}
+	}
+	var pageChurn int
+	var topCache PageCacheSummary
+	for _, item := range stats.PageCacheByInode {
+		pageChurn += item.Churn
+		if topCache.Inode == "" || item.Churn > topCache.Churn {
+			topCache = item
+		}
+	}
+	var dStateMs float64
+	for _, item := range stats.DStateTop {
+		dStateMs += item.DurationMs
+	}
+	if blockMax == 0 && storageMax == 0 && fileBytes == 0 && fileEvents == 0 && pageChurn == 0 && stats.IOWaitBlockedCount == 0 && dStateMs == 0 {
+		return nil
+	}
+	score := firstPositiveFloat(blockMax, storageMax) +
+		float64(stats.IOWaitBlockedCount)*5 +
+		dStateMs +
+		float64(pageChurn)*0.2 +
+		float64(fileEvents)*0.1 +
+		float64(fileBytes)/(1024*1024)*2
+	signal := "io_activity"
+	switch {
+	case stats.IOWaitBlockedCount > 0 && (blockMax > 0 || storageMax > 0):
+		signal = "scheduler_iowait_with_storage_latency"
+	case fileBytes > 0 || fileEvents > 0:
+		signal = "file_io_hot_inode"
+	case pageChurn > 0:
+		signal = "page_cache_churn"
+	case blockMax > 0 || storageMax > 0:
+		signal = "storage_latency"
+	}
+	topInode := firstNonEmpty(topFile.Inode, topCache.Inode)
+	topDev := firstNonEmpty(topFile.Dev, topCache.Dev)
+	topName := topFile.EntryName
+	lineStart := firstPositive(topFile.LineStart, topCache.LineStart)
+	lineEnd := firstPositive(topFile.LineEnd, topCache.LineEnd)
+	if lineStart == 0 {
+		for _, item := range stats.StorageLatencyByLayer {
+			lineStart = item.LineStart
+			lineEnd = item.LineEnd
+			break
+		}
+	}
+	return &IOPressureSummary{
+		Signal:              signal,
+		Score:               score,
+		BlockMaxLatencyMs:   blockMax,
+		StorageMaxLatencyMs: storageMax,
+		FileIOBytes:         fileBytes,
+		FileIOEvents:        fileEvents,
+		PageCacheChurn:      pageChurn,
+		IOWaitBlockedCount:  stats.IOWaitBlockedCount,
+		DStateMs:            dStateMs,
+		TopInode:            topInode,
+		TopDev:              topDev,
+		TopEntryName:        topName,
+		LineStart:           lineStart,
+		LineEnd:             lineEnd,
+		Summary:             fmt.Sprintf("io pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms top_inode=%s", signal, score, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, firstNonEmpty(topInode, "unknown")),
+	}
+}
+
 func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePluginSummary, ev Event) {
 	kind := tracePluginKind(ev.Type)
 	if kind == "" {
@@ -3228,6 +3629,34 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, io := range stats.IOLatencies {
 		items = append(items, rootCauseItem("io_latency", io.IssueThread, io.DurationMs, 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs)))
 	}
+	for _, file := range stats.FileIOByInode {
+		impact := file.TotalLatencyMs
+		if impact <= 0 {
+			impact = fileIOAdvisoryImpactMs(file)
+		}
+		if impact <= 0 {
+			continue
+		}
+		summary := fmt.Sprintf("file IO inode=%s dev=%s op=%s count=%d bytes=%d", file.Inode, file.Dev, file.Operation, file.Count, file.Bytes)
+		if file.EntryName != "" {
+			summary = fmt.Sprintf("%s name=%s", summary, file.EntryName)
+		}
+		items = append(items, rootCauseItem("file_io_hot_inode", file.Thread, impact, 0.72, file.LineStart, file.LineEnd, "window_stats.file_io_by_inode", summary))
+	}
+	for _, cache := range stats.PageCacheByInode {
+		impact := float64(cache.Churn) * 0.3
+		if impact <= 0 {
+			continue
+		}
+		items = append(items, rootCauseItem("page_cache_churn", cache.Thread, impact, 0.66, cache.LineStart, cache.LineEnd, "window_stats.page_cache_by_inode", fmt.Sprintf("page cache churn inode=%s dev=%s adds=%d deletes=%d churn=%d", cache.Inode, cache.Dev, cache.Adds, cache.Deletes, cache.Churn)))
+	}
+	if stats.IOPressureSummary != nil && stats.IOPressureSummary.Score > 0 {
+		thread := ThreadRef{}
+		if len(stats.FileIOByInode) > 0 {
+			thread = stats.FileIOByInode[0].Thread
+		}
+		items = append(items, rootCauseItem("io_pressure", thread, stats.IOPressureSummary.Score, 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary))
+	}
 	windowImpactMs := (q.TimeEnd - q.TimeStart) * 1000
 	if windowImpactMs < 0 {
 		windowImpactMs = 0
@@ -3358,6 +3787,12 @@ func rootCauseTypeWeight(typ string) float64 {
 	switch typ {
 	case "io_wait", "d_state_or_io_wait", "binder_wait":
 		return 1.25
+	case "io_pressure":
+		return 1.12
+	case "file_io_hot_inode":
+		return 1.06
+	case "page_cache_churn":
+		return 0.86
 	case "runnable_wait", "cpu_pressure", "scheduler_latency":
 		return 1.15
 	case "fragmented_d_state_or_io_wait":
@@ -3379,6 +3814,10 @@ func rootCauseTypeWeight(typ string) float64 {
 	default:
 		return 0.8
 	}
+}
+
+func fileIOAdvisoryImpactMs(file FileIOSummary) float64 {
+	return float64(file.Count)*0.25 + float64(file.Bytes)/(1024*1024)*2
 }
 
 func stateChurnRankImpactMs(churn ThreadStateChurnSummary) float64 {
@@ -4345,6 +4784,65 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
+	for _, file := range stats.FileIOByInode {
+		out = append(out, EvidenceFact{
+			Subject:    firstNonEmpty(file.EntryName, "inode="+file.Inode),
+			Predicate:  "file_io_by_inode",
+			Object:     file.Operation,
+			Summary:    file.Summary,
+			LineStart:  file.LineStart,
+			LineEnd:    file.LineEnd,
+			StartTs:    file.StartTs,
+			EndTs:      file.EndTs,
+			Confidence: 0.74,
+		})
+		if len(out) >= 27 {
+			break
+		}
+	}
+	for _, cache := range stats.PageCacheByInode {
+		out = append(out, EvidenceFact{
+			Subject:    "inode=" + cache.Inode,
+			Predicate:  "page_cache_by_inode",
+			Object:     cache.Dev,
+			Summary:    cache.Summary,
+			LineStart:  cache.LineStart,
+			LineEnd:    cache.LineEnd,
+			StartTs:    cache.StartTs,
+			EndTs:      cache.EndTs,
+			Confidence: 0.70,
+		})
+		if len(out) >= 30 {
+			break
+		}
+	}
+	for _, storage := range stats.StorageLatencyByLayer {
+		out = append(out, EvidenceFact{
+			Subject:    storage.Layer,
+			Predicate:  "storage_latency_by_layer",
+			Object:     storage.Event,
+			Summary:    storage.Summary,
+			LineStart:  storage.LineStart,
+			LineEnd:    storage.LineEnd,
+			StartTs:    storage.StartTs,
+			EndTs:      storage.EndTs,
+			Confidence: 0.72,
+		})
+		if len(out) >= 33 {
+			break
+		}
+	}
+	if stats.IOPressureSummary != nil {
+		out = append(out, EvidenceFact{
+			Subject:    "io_pressure",
+			Predicate:  stats.IOPressureSummary.Signal,
+			Object:     stats.IOPressureSummary.TopInode,
+			Summary:    stats.IOPressureSummary.Summary,
+			LineStart:  stats.IOPressureSummary.LineStart,
+			LineEnd:    stats.IOPressureSummary.LineEnd,
+			Confidence: 0.70,
+		})
+	}
 	for _, limit := range stats.CPUFrequencyLimits {
 		out = append(out, EvidenceFact{
 			Subject:    fmt.Sprintf("cpu=%d", limit.CPU),
@@ -4895,6 +5393,117 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func applyLineRange(start, end *int, line int) {
+	if line <= 0 {
+		return
+	}
+	if *start == 0 || line < *start {
+		*start = line
+	}
+	if line > *end {
+		*end = line
+	}
+}
+
+func applyOffsetRange(minOffset, maxOffset *int64, offset int64) {
+	if offset <= 0 && *minOffset != 0 && *maxOffset != 0 {
+		return
+	}
+	if *minOffset == 0 || offset < *minOffset {
+		*minOffset = offset
+	}
+	if offset > *maxOffset {
+		*maxOffset = offset
+	}
+}
+
+func isFileIOEvent(ev Event) bool {
+	name := strings.ToLower(ev.Name)
+	if ev.Inode == "" && ev.EntryName == "" && ev.FSDev == "" {
+		return false
+	}
+	if isPageCacheEvent(ev) {
+		return false
+	}
+	for _, token := range []string{
+		"android_fs_dataread", "android_fs_datawrite", "f2fs_direct_io",
+		"f2fs_sync_file", "f2fs_submit_read_bio", "f2fs_submit_write_bio",
+		"ext4_", "erofs_", "file_system", "filesystem", "ebpf_file",
+	} {
+		if strings.Contains(name, token) {
+			return true
+		}
+	}
+	return ev.Type == EventFilesystem && (ev.Inode != "" || ev.EntryName != "")
+}
+
+func fileIOCountsAsActivity(ev Event) bool {
+	name := strings.ToLower(ev.Name)
+	if strings.HasSuffix(name, "_end") || strings.HasSuffix(name, "_exit") || strings.HasSuffix(name, "_done") {
+		return false
+	}
+	return true
+}
+
+func isPageCacheEvent(ev Event) bool {
+	name := strings.ToLower(ev.Name)
+	return ev.MemoryKind == "page_cache" ||
+		ev.SubsystemKind == "page_cache" ||
+		strings.Contains(name, "filemap_add_to_page_cache") ||
+		strings.Contains(name, "filemap_delete_from_page_cache")
+}
+
+func isStorageLatencyEvent(ev Event) bool {
+	if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
+		return true
+	}
+	layer := storageLatencyLayer(ev)
+	if layer == "" {
+		return false
+	}
+	_, phase := storageLatencyBaseAndPhase(ev)
+	return phase != ""
+}
+
+func storageLatencyLayer(ev Event) string {
+	name := strings.ToLower(ev.Name)
+	switch {
+	case ev.Type == EventBlockIssue || ev.Type == EventBlockComplete:
+		return "block"
+	case strings.HasPrefix(name, "mmc_"):
+		return "mmc"
+	case strings.HasPrefix(name, "scsi_"):
+		return "scsi"
+	case strings.HasPrefix(name, "f2fs_"):
+		return "f2fs"
+	case strings.HasPrefix(name, "android_fs_"):
+		return "android_fs"
+	case strings.HasPrefix(name, "ext4_"):
+		return "ext4"
+	case ev.Type == EventStorage:
+		return "storage"
+	case ev.Type == EventFilesystem:
+		return "filesystem"
+	default:
+		return ""
+	}
+}
+
+func storageLatencyBaseAndPhase(ev Event) (base, phase string) {
+	name := strings.ToLower(strings.TrimSpace(ev.Name))
+	for _, suffix := range []string{"_start", "_enter", "_begin"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix), "start"
+		}
+	}
+	for _, suffix := range []string{"_done", "_exit", "_end", "_complete"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix), "done"
+		}
+	}
+	return "", ""
 }
 
 func firstPositiveFloat(values ...float64) float64 {

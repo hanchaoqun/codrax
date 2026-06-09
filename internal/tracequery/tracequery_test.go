@@ -938,6 +938,79 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 	}
 }
 
+func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
+	idx := buildTraceIndex(t, "inode_io.systrace", `
+	app-20 (20) [001] .... 12.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+	app-20 (20) [001] .... 12.001000: android_fs_dataread_start: entry_name=foo.db offset=0 bytes=4096 cmdline=app pid=20 i_size=8192 ino=0xb9b8e
+	app-20 (20) [001] .... 12.001400: android_fs_dataread_end: ino=0xb9b8e offset=0 bytes=4096
+	app-20 (20) [001] .... 12.002000: f2fs_direct_IO_enter: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write
+	app-20 (20) [001] .... 12.003000: f2fs_direct_IO_exit: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write ret = 8192
+	app-20 (20) [001] .... 12.003100: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0000000000000000 pfn=3062260 ofs=0
+	app-20 (20) [001] .... 12.003200: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e page=0000000000000000 pfn=3062260 ofs=0
+	app-20 (20) [001] .... 12.004000: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096
+	app-20 (20) [001] .... 12.006000: scsi_dispatch_cmd_done: dev=12,80 op=read bytes=4096
+	app-20 (20) [001] .... 12.007000: block_rq_issue: 12,80 R 4096 () 408144272 + 8 [app]
+	irq-2 (2) [000] .... 12.010000: block_rq_complete: 12,80 R () 408144272 + 8 [0]
+	app-20 (20) [001] .... 12.011000: sched_blocked_reason: pid=20 iowait=1 caller=fscache_page_wait_on_page_bit
+	`)
+	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 12.0, TimeEnd: 12.012})
+	if len(stats.FileIOByInode) < 2 {
+		t.Fatalf("expected android/f2fs inode IO summaries: %+v", stats.FileIOByInode)
+	}
+	var android *FileIOSummary
+	var f2fs *FileIOSummary
+	for i := range stats.FileIOByInode {
+		switch {
+		case stats.FileIOByInode[i].Inode == "0xb9b8e" && stats.FileIOByInode[i].Operation == "read":
+			android = &stats.FileIOByInode[i]
+		case stats.FileIOByInode[i].Inode == "0x478e5" && stats.FileIOByInode[i].Operation == "write":
+			f2fs = &stats.FileIOByInode[i]
+		}
+	}
+	if android == nil || android.EntryName != "foo.db" || android.Bytes != 4096 {
+		t.Fatalf("android_fs read should aggregate by inode/name/bytes: %+v", stats.FileIOByInode)
+	}
+	if f2fs == nil || f2fs.Dev != "260:136" || f2fs.Bytes != 8192 {
+		t.Fatalf("f2fs direct IO should aggregate dev/inode/write bytes: %+v", stats.FileIOByInode)
+	}
+	if len(stats.PageCacheByInode) == 0 || stats.PageCacheByInode[0].Inode != "0xb9b8e" || stats.PageCacheByInode[0].Adds != 1 || stats.PageCacheByInode[0].Deletes != 1 {
+		t.Fatalf("page cache add/delete should aggregate by inode: %+v", stats.PageCacheByInode)
+	}
+	if len(stats.StorageLatencyByLayer) == 0 {
+		t.Fatalf("expected storage latency summaries")
+	}
+	foundF2FSLatency := false
+	foundSCSILatency := false
+	for _, item := range stats.StorageLatencyByLayer {
+		if item.Layer == "f2fs" && item.PairedCount == 1 && near(item.MaxLatencyMs, 1.0, 0.001) {
+			foundF2FSLatency = true
+		}
+		if item.Layer == "scsi" && item.PairedCount == 1 && near(item.MaxLatencyMs, 2.0, 0.001) {
+			foundSCSILatency = true
+		}
+	}
+	if !foundF2FSLatency || !foundSCSILatency {
+		t.Fatalf("expected f2fs/scsi paired storage latency, got %+v", stats.StorageLatencyByLayer)
+	}
+	if stats.IOPressureSummary == nil || stats.IOPressureSummary.IOWaitBlockedCount != 1 || stats.IOPressureSummary.TopInode == "" {
+		t.Fatalf("expected IO pressure summary with iowait and top inode: %+v", stats.IOPressureSummary)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 20, TimeStart: 12.0, TimeEnd: 12.012, Limit: 12})
+	foundIO := false
+	for _, item := range rank.Items {
+		if item.Type == "file_io_hot_inode" || item.Type == "io_pressure" || item.Type == "page_cache_churn" {
+			foundIO = true
+		}
+	}
+	if !foundIO {
+		t.Fatalf("root cause rank should include inode IO pressure candidates: %+v", rank.Items)
+	}
+	events := EventSearch(idx, Query{View: "event_search", Pattern: "0xb9b8e", EventTypes: []EventType{"page_cache"}, Limit: 4})
+	if len(events) != 2 {
+		t.Fatalf("page_cache event_type alias should find filemap rows by inode, got %+v", events)
+	}
+}
+
 func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
 	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})

@@ -58,7 +58,7 @@ var (
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank to let it compete with other causes. For frame/span discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, or one exact timestamp/event token before broad grep. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first returns bounded marker discovery and next-call hints instead of expanding expensive full-trace root-cause/resource views; rerun with the selected frame/span time or line window. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. window_stats/root_cause_rank also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank to let them compete with scheduler and blocking causes. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank to let it compete with other causes. For frame/span or inode discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, inode tokens such as 0x478e5, entry_name values, or one exact timestamp/event token before broad grep. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first returns bounded marker discovery and next-call hints instead of expanding expensive full-trace root-cause/resource views; rerun with the selected frame/span time or line window. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -76,7 +76,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. The JSON repair layer also accepts a comma/semicolon separated string for this field."},
+	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. The JSON repair layer also accepts a comma/semicolon separated string for this field and normalizes friendly aliases such as inode_io, pageCache, mm_filemap, and storageLayerLatency."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
@@ -321,13 +321,51 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 	out := make([]tracequery.EventType, 0, len(raw))
 	for _, item := range raw {
-		item = strings.TrimSpace(item)
+		item = normalizeTraceQueryEventTypeToken(item)
 		if item == "" {
 			continue
 		}
 		out = append(out, tracequery.EventType(item))
 	}
 	return out
+}
+
+func normalizeTraceQueryEventTypeToken(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	prevLowerOrDigit := false
+	for _, r := range raw {
+		switch {
+		case r == '-' || r == ' ' || r == '.':
+			b.WriteByte('_')
+			prevLowerOrDigit = false
+		case r >= 'A' && r <= 'Z':
+			if prevLowerOrDigit {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r + ('a' - 'A'))
+			prevLowerOrDigit = false
+		default:
+			b.WriteRune(r)
+			prevLowerOrDigit = (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		}
+	}
+	token := strings.ToLower(strings.Trim(b.String(), "_"))
+	switch token {
+	case "inode", "inode_io", "file_inode", "file_inode_io":
+		return "file_io"
+	case "pagecache", "filemap", "mm_filemap":
+		return "page_cache"
+	case "androidfs":
+		return "android_fs"
+	case "storage_layer", "storage_layer_latency":
+		return "storage_latency"
+	default:
+		return token
+	}
 }
 
 func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, resolvedPath string, platform tracequery.TracePlatform, platformSource string) (tracequery.TraceFlavor, string) {
@@ -949,6 +987,18 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, resource := range result.WindowStats.PageFaultResources {
 			writeTraceRuntimeResource(&b, "page_fault", resource)
 		}
+		for _, file := range result.WindowStats.FileIOByInode {
+			writeTraceFileIO(&b, file)
+		}
+		for _, cache := range result.WindowStats.PageCacheByInode {
+			writeTracePageCache(&b, cache)
+		}
+		for _, storage := range result.WindowStats.StorageLatencyByLayer {
+			writeTraceStorageLatency(&b, storage)
+		}
+		if result.WindowStats.IOPressureSummary != nil {
+			writeTraceIOPressure(&b, *result.WindowStats.IOPressureSummary)
+		}
 		for _, event := range result.WindowStats.AbilityEvents {
 			writeTracePluginSummary(&b, event)
 		}
@@ -1136,6 +1186,87 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 	}
 }
 
+func writeTraceFileIO(b *strings.Builder, item tracequery.FileIOSummary) {
+	fmt.Fprintf(b, "- file_io inode=%s dev=%s name=%s op=%s thread=%s count=%d bytes=%d total_latency=%.3fms max_latency=%.3fms offsets=%s lines=%d-%d — %s\n",
+		sanitizeForBanner(firstNonEmptyTraceString(item.Inode, "unknown")),
+		sanitizeForBanner(firstNonEmptyTraceString(item.Dev, "unknown")),
+		sanitizeForBanner(firstNonEmptyTraceString(item.EntryName, "unknown")),
+		sanitizeForBanner(item.Operation),
+		traceThreadLabel(item.Thread),
+		item.Count,
+		item.Bytes,
+		item.TotalLatencyMs,
+		item.MaxLatencyMs,
+		traceOffsetRange(item.MinOffset, item.MaxOffset),
+		item.LineStart,
+		item.LineEnd,
+		sanitizeForBanner(item.Summary),
+	)
+}
+
+func writeTracePageCache(b *strings.Builder, item tracequery.PageCacheSummary) {
+	fmt.Fprintf(b, "- page_cache inode=%s dev=%s thread=%s adds=%d deletes=%d churn=%d bytes=%d offsets=%s lines=%d-%d — %s\n",
+		sanitizeForBanner(firstNonEmptyTraceString(item.Inode, "unknown")),
+		sanitizeForBanner(firstNonEmptyTraceString(item.Dev, "unknown")),
+		traceThreadLabel(item.Thread),
+		item.Adds,
+		item.Deletes,
+		item.Churn,
+		item.Bytes,
+		traceOffsetRange(item.MinOffset, item.MaxOffset),
+		item.LineStart,
+		item.LineEnd,
+		sanitizeForBanner(item.Summary),
+	)
+}
+
+func writeTraceStorageLatency(b *strings.Builder, item tracequery.StorageLatencySummary) {
+	fmt.Fprintf(b, "- storage_latency layer=%s event=%s dev=%s op=%s thread=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d max_latency=%.3fms avg_latency=%.3fms bytes=%d lines=%d-%d — %s\n",
+		sanitizeForBanner(item.Layer),
+		sanitizeForBanner(item.Event),
+		sanitizeForBanner(firstNonEmptyTraceString(item.Dev, "unknown")),
+		sanitizeForBanner(item.Operation),
+		traceThreadLabel(item.Thread),
+		item.Count,
+		item.PairedCount,
+		item.UnpairedStartCount,
+		item.UnpairedDoneCount,
+		item.MaxLatencyMs,
+		item.AvgLatencyMs,
+		item.Bytes,
+		item.LineStart,
+		item.LineEnd,
+		sanitizeForBanner(item.Summary),
+	)
+}
+
+func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary) {
+	fmt.Fprintf(b, "- io_pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
+		sanitizeForBanner(item.Signal),
+		item.Score,
+		item.BlockMaxLatencyMs,
+		item.StorageMaxLatencyMs,
+		item.FileIOBytes,
+		item.FileIOEvents,
+		item.PageCacheChurn,
+		item.IOWaitBlockedCount,
+		item.DStateMs,
+		sanitizeForBanner(firstNonEmptyTraceString(item.TopInode, "unknown")),
+		sanitizeForBanner(firstNonEmptyTraceString(item.TopDev, "unknown")),
+		sanitizeForBanner(firstNonEmptyTraceString(item.TopEntryName, "unknown")),
+		item.LineStart,
+		item.LineEnd,
+		sanitizeForBanner(item.Summary),
+	)
+}
+
+func traceOffsetRange(minOffset, maxOffset int64) string {
+	if minOffset == 0 && maxOffset == 0 {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d..%d", minOffset, maxOffset)
+}
+
 func writeTracePluginSummary(b *strings.Builder, item tracequery.TracePluginSummary) {
 	fmt.Fprintf(b, "- plugin_event kind=%s domain=%s event=%s metric=%s value=%s category=%s thread=%s count=%d line=%d example=%s\n",
 		sanitizeForBanner(item.Kind),
@@ -1215,8 +1346,21 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 	if ev.BlockError != "" {
 		parts = append(parts, "block_error="+ev.BlockError)
 	}
+	if ev.BlockSrcDev != "" {
+		parts = append(parts, fmt.Sprintf("block_src=%s/%d", sanitizeForBanner(ev.BlockSrcDev), ev.BlockSrcSector))
+	}
 	if ev.SubsystemKind != "" {
 		parts = append(parts, "subsystem="+ev.SubsystemKind)
+	}
+	if ev.Inode != "" || ev.FSDev != "" || ev.EntryName != "" {
+		parts = append(parts, fmt.Sprintf("file_io dev=%s inode=%s name=%s op=%s offset=%d len=%d ret=%d",
+			sanitizeForBanner(ev.FSDev),
+			sanitizeForBanner(ev.Inode),
+			sanitizeForBanner(ev.EntryName),
+			sanitizeForBanner(ev.FileRW),
+			ev.FileOffset,
+			ev.FileLen,
+			ev.FileRet))
 	}
 	if ev.PluginEventName != "" {
 		parts = append(parts, "plugin_event="+sanitizeForBanner(ev.PluginEventName))

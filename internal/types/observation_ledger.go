@@ -1126,6 +1126,10 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	rootEvidenceOrdinal := 0
 	blockingOrdinal := 0
 	stateChurnOrdinal := 0
+	fileIOOrdinal := 0
+	pageCacheOrdinal := 0
+	storageLatencyOrdinal := 0
+	ioPressureOrdinal := 0
 	for _, rawLine := range strings.Split(result.Summary, "\n") {
 		line := strings.TrimSpace(rawLine)
 		switch {
@@ -1147,6 +1151,26 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- state_churn "):
 			stateChurnOrdinal++
 			if record, ok := traceQueryStateChurnRecord(index, stateChurnOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- file_io "):
+			fileIOOrdinal++
+			if record, ok := traceQueryFileIORecord(index, fileIOOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- page_cache "):
+			pageCacheOrdinal++
+			if record, ok := traceQueryPageCacheRecord(index, pageCacheOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- storage_latency "):
+			storageLatencyOrdinal++
+			if record, ok := traceQueryStorageLatencyRecord(index, storageLatencyOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- io_pressure "):
+			ioPressureOrdinal++
+			if record, ok := traceQueryIOPressureRecord(index, ioPressureOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		}
@@ -1338,6 +1362,152 @@ func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []st
 	}
 	if total > 0 {
 		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
+	}
+	return notes
+}
+
+func traceQueryFileIORecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- file_io ")
+	inode := strings.TrimSpace(fields["inode"])
+	op := strings.TrimSpace(fields["op"])
+	name := strings.TrimSpace(fields["name"])
+	bytes := strings.TrimSpace(fields["bytes"])
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if inode == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:file_io:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "file_io:" + firstNonEmptyString(inode, name, op),
+		Subject:         firstNonEmptyString(name, "inode="+inode),
+		Predicate:       "file_io_by_inode",
+		Object:          op,
+		Value:           bytes,
+		Unit:            "bytes",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"inode", "dev", "name", "op", "thread", "count", "bytes", "total_latency", "max_latency", "offsets"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.74,
+	}, true
+}
+
+func traceQueryPageCacheRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- page_cache ")
+	inode := strings.TrimSpace(fields["inode"])
+	dev := strings.TrimSpace(fields["dev"])
+	churn := strings.TrimSpace(fields["churn"])
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if inode == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:page_cache:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "page_cache:" + firstNonEmptyString(inode, dev),
+		Subject:         "inode=" + inode,
+		Predicate:       "page_cache_by_inode",
+		Object:          dev,
+		Value:           churn,
+		Unit:            "events",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"inode", "dev", "thread", "adds", "deletes", "churn", "bytes", "offsets"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.70,
+	}, true
+}
+
+func traceQueryStorageLatencyRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- storage_latency ")
+	layer := strings.TrimSpace(fields["layer"])
+	event := strings.TrimSpace(fields["event"])
+	maxLatency := traceQueryFieldMS(fields, "max_latency")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if layer == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if maxLatency > 0 {
+		value = fmt.Sprintf("%.3f", maxLatency)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:storage_latency:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "storage_latency:" + firstNonEmptyString(layer, event),
+		Subject:         layer,
+		Predicate:       "storage_latency_by_layer",
+		Object:          event,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"layer", "event", "dev", "op", "thread", "count", "paired", "unpaired_start", "unpaired_done", "max_latency", "avg_latency", "bytes"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.72,
+	}, true
+}
+
+func traceQueryIOPressureRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- io_pressure ")
+	signal := strings.TrimSpace(fields["signal"])
+	score := traceQueryFieldFloat(fields, "score")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if signal == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if score > 0 {
+		value = fmt.Sprintf("%.3f", score)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:io_pressure:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "io_pressure:" + signal,
+		Subject:         "io_pressure",
+		Predicate:       signal,
+		Object:          strings.TrimSpace(fields["top_inode"]),
+		Value:           value,
+		Unit:            "score",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"signal", "score", "block_max", "storage_max", "file_bytes", "file_events", "page_cache_churn", "iowait_blocked", "d_state", "top_inode", "top_dev", "top_name"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.70,
+	}, true
+}
+
+func traceQuerySelectedRichNotes(fields map[string]string, keys []string) []string {
+	var notes []string
+	for _, key := range keys {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			notes = append(notes, key+"="+value)
+		}
 	}
 	return notes
 }
