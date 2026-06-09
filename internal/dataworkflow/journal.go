@@ -295,6 +295,9 @@ func BuildWorkflowActionEvents(records []WorkflowRecord) []ActionEvent {
 		if strings.TrimSpace(rec.Err) != "" {
 			status = ActionStatusFailed
 		}
+		if rec.Admission != nil && strings.TrimSpace(rec.Admission.FinalGuardErr) != "" {
+			status = ActionStatusBlocked
+		}
 		events = append(events, ActionEvent{
 			Actions: cloneDataActions(rec.Plan.Actions),
 			Status:  status,

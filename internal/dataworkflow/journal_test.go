@@ -206,6 +206,38 @@ func TestWorkflowJournalNonCompletePreservesFinalError(t *testing.T) {
 	}
 }
 
+func TestWorkflowJournalAdmissionGuardRecordsBlockedAction(t *testing.T) {
+	action := dataquery.DataAction{
+		ID:         "qualify_active",
+		Kind:       dataquery.DataActionQualifyRecords,
+		InputPaths: []string{"enriched.json"},
+	}
+	guard := NewGuardResult("field_contract_violation", "error", RepairNeedsTypedAction, "missing field status", WorkflowViolation{
+		Code:       "field_contract_violation",
+		ActionID:   "qualify_active",
+		ActionKind: string(dataquery.DataActionQualifyRecords),
+		Reason:     "missing field status",
+	})
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+		Err:  guard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			Plan:          dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+			Original:      dataquery.TaskPlan{Actions: []dataquery.DataAction{action}},
+			Guard:         guard,
+			FinalGuard:    guard,
+			GuardErr:      guard.ErrorText(),
+			FinalGuardErr: guard.ErrorText(),
+		},
+	})
+
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{Status: "failed"})
+	if len(snapshot.ActionEvents) != 1 || snapshot.ActionEvents[0].Status != ActionStatusBlocked {
+		t.Fatalf("ActionEvents=%+v, want admission guard as blocked action", snapshot.ActionEvents)
+	}
+}
+
 func TestWorkflowRuntimeBuildJournalSnapshotPrefersLiveProcessEvents(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	rt.AppendRecord(WorkflowRecord{
