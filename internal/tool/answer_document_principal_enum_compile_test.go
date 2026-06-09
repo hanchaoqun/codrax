@@ -1949,6 +1949,83 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVisibleVerifiedN
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_ProseDescriptionsPreventVerifiedNoteSupplement(t *testing.T) {
+	mu := types.NewMutableState("对比两个子仓的核心导出标识符和功能用途")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("go_user_service", "UserService", "repo-greet-go/service/service.go", 8, "UserService declares the greeter interface contract."),
+		enumEvidence("go_impl", "GreetServiceImpl", "repo-greet-go/service/impl.go", 6, "GreetServiceImpl implements the greeter service."),
+		enumEvidence("py_process", "process_request", "repo-tools-py/tools/processor.py", 4, "process_request normalizes request text."),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "repo-greet-go 核心导出标识符",
+			Value:   "2",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"UserService", "GreetServiceImpl"},
+			SupportRefs: []string{
+				"UserService @ repo-greet-go/service/service.go:8",
+				"GreetServiceImpl @ repo-greet-go/service/impl.go:6",
+			},
+		},
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "repo-tools-py 核心导出标识符",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"process_request"},
+			SupportRefs: []string{"process_request @ repo-tools-py/tools/processor.py:4"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "功能用途",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "本回答按子仓分别说明核心导出标识符和功能用途。",
+		},
+		{
+			ID:    "go_bucket",
+			Kind:  types.BlockSection,
+			Title: "repo-greet-go",
+			Text: strings.Join([]string{
+				"UserService（repo-greet-go/service/service.go:8）是 greeter 的契约接口，定义服务调用方依赖的方法集合。",
+				"GreetServiceImpl（repo-greet-go/service/impl.go:6）是问候服务实现，负责提供具体问候和告别行为。",
+			}, "\n"),
+		},
+		{
+			ID:    "py_bucket",
+			Kind:  types.BlockSection,
+			Title: "repo-tools-py",
+			Text:  "process_request（repo-tools-py/tools/processor.py:4）是请求文本规范化入口，负责清理空白并统一大小写。",
+		},
+	}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充说明") {
+		t.Fatalf("model-authored prose descriptions should not receive duplicate note supplements:\n%s", joined)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_NoteSupplementSupportsExternalOrigins(t *testing.T) {
 	mu := types.NewMutableState("最近一次合入是什么特性")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

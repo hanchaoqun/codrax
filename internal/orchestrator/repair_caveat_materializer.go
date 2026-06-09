@@ -199,6 +199,14 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 	return appendSystemCaveatBullets(answer, caveats, lang)
 }
 
+func AppendUserCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
+	filtered := suppressGenericSoftCaveatsForAcceptedSurface(FilterDerivedViolations(violations), ctx)
+	if len(filtered) == 0 {
+		return answer
+	}
+	return AppendUserCaveatsToAnswer(answer, filtered, lang)
+}
+
 // AppendSoftContractCaveatsToAnswer appends user-facing caveats only
 // for soft root violations under the current runtime policy.
 //
@@ -328,7 +336,8 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 		types.ViolLaneBlockKindMismatch,
 		types.ViolRichnessRegression,
 		types.ViolRichnessGlaringGap,
-		types.ViolPrincipalProseUnderfilled:
+		types.ViolPrincipalProseUnderfilled,
+		types.ViolAnswerSemanticUnderfilled:
 		return true
 	case types.ViolEnumerationLabelUngrounded,
 		types.ViolEnumerationEvidenceUnderspecified,
@@ -377,7 +386,7 @@ func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, 
 	root := residualClusterValue(v.ClusterKey, "root")
 	facet := types.AnswerFacetKind(residualClusterValue(v.ClusterKey, "facet"))
 	if facet == "" {
-		return false
+		return unclusteredFacetCaveatIsTelemetry(rm, contract)
 	}
 	if root == "answer_richness_facet_coverage" {
 		return true
@@ -407,6 +416,23 @@ func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, 
 	default:
 		return false
 	}
+}
+
+func unclusteredFacetCaveatIsTelemetry(rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	if rm == nil {
+		return false
+	}
+	if acceptedPathNeedsPreciseGroundingDisclosure(rm, contract) {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqMechanism:
+		return true
+	}
+	return rm.Intent == types.IntentExplain && rm.Scenario == types.ScenarioArchitectureExplain
 }
 
 func acceptedPathNeedsPreciseGroundingDisclosure(rm *types.RequestModel, contract types.AnswerIntentContract) bool {

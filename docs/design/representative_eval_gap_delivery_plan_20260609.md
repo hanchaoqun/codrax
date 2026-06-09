@@ -21,6 +21,7 @@ All hard behavior below is driven by typed contracts, typed artifact metadata, l
 | Eval observability | `eval/run.sh`, `eval/convergence_audit.sh`, `eval/runner_lib_test.sh` | Surface data-lane status, rounds, repair signatures, and route logs. |
 | Artifact schema stability | `internal/dataquery/action_runner.go`, `internal/dataworkflow/artifact_schema.go`, `internal/dataworkflow/artifact_access_view.go` | Keep generated record-shaped artifacts executable by later typed actions. |
 | Answer surface quality | `internal/orchestrator/repair_caveat_materializer.go`, answer-document supplement path under `internal/tool/` | Prevent vague advisory warnings and duplicate system supplements in PASS answers. |
+| Rich evidence handoff | `internal/types` aggregate facts/evidence, `internal/tool/answer_document_principal_enum_compile.go`, data artifact lineage | Preserve upstream structured facts, member notes, support refs, evidence summaries, and artifact lineage for backend deterministic consumption. |
 
 ## Architectural Decisions
 
@@ -80,6 +81,16 @@ Typed behavior:
 - Generic low-confidence/advisory contract warnings stay in logs and summaries.
 - Specific hard blockers or verified limitations can render as caveats.
 - Supplement tables are rendered only when they repair or complete a missing typed surface.
+
+### D7. Rich Upstream Evidence Must Reach Backend Compilers
+
+Earlier stages often already know the important members, notes, support refs, record lineage, and output-contract metadata. That information must remain in typed handoff state and be consumed by deterministic backend compilers/validators. Final answer quality must not depend on the model repeating the evidence in exactly the shape the compiler prefers.
+
+Typed behavior:
+
+- `aggregate_facts`, `member_notes`, `support_refs`, evidence summaries, artifact lineage, and terminal/output metadata remain the authoritative backend handoff.
+- Answer compilers recognize authored prose, table, and list carriers by structured row candidates and location/citation compatibility before adding system supplements.
+- Coverage decisions do not parse user intent keywords or model prose intent; model text is used only as the visible authored surface for row/location/description coverage.
 
 ## Delivery Batches
 
@@ -176,6 +187,11 @@ Tasks:
 3. Add answer surface regression tests.
    - Runtime/current-source PASS answer has no vague generic warning.
    - Multi-repo bucket answer does not duplicate system supplement when authored sections cover required members.
+
+4. Preserve rich evidence handoff in backend consumers.
+   - Confirm answer-document compilers consume typed member rows, support refs, member notes, and evidence summaries.
+   - Confirm generated data artifacts carry lineage/record-executable metadata into downstream typed actions and eval telemetry.
+   - Do not introduce prompt-only instructions, keyword intent matching, or hard gates over model prose.
 
 Validation:
 

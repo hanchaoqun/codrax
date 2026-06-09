@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -877,25 +878,134 @@ func principalEnumerationRowHasAuthoredDescription(doc *types.AnswerDocumentV2, 
 		return false
 	}
 	for _, block := range doc.Blocks {
-		if !principalEnumerationBlockCanCarryRows(block) {
-			continue
-		}
-		if text := strings.TrimSpace(block.Text); text != "" {
-			for _, cells := range principalEnumerationMarkdownTableRows(text) {
-				if principalEnumerationMarkdownRowCoversRow(cells, row) &&
-					principalEnumerationMarkdownRowHasAuthoredDescription(cells, row) {
+		if principalEnumerationBlockCanCarryRows(block) {
+			if text := strings.TrimSpace(block.Text); text != "" {
+				for _, cells := range principalEnumerationMarkdownTableRows(text) {
+					if principalEnumerationMarkdownRowCoversRow(cells, row) &&
+						principalEnumerationMarkdownRowHasAuthoredDescription(cells, row) {
+						return true
+					}
+				}
+			}
+			for _, item := range block.Items {
+				if principalEnumerationStructuredItemCoversRow(item, doc, row) &&
+					principalEnumerationStructuredItemHasAuthoredDescription(item, row) {
 					return true
 				}
 			}
+			continue
 		}
-		for _, item := range block.Items {
-			if principalEnumerationStructuredItemCoversRow(item, doc, row) &&
-				principalEnumerationStructuredItemHasAuthoredDescription(item, row) {
-				return true
-			}
+		if principalEnumerationProseBlockHasAuthoredDescription(block, row) {
+			return true
 		}
 	}
 	return false
+}
+
+func principalEnumerationProseBlockHasAuthoredDescription(block types.AnswerBlock, row types.EnumerationDisplayRow) bool {
+	if preEmitSystemEnumerationRowSupplementBlock(block) {
+		return false
+	}
+	switch block.Kind {
+	case types.BlockSummary, types.BlockSection, types.BlockScalar, types.BlockDecision, types.BlockCaveat:
+	default:
+		return false
+	}
+	surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block))
+	if surface == "" {
+		return false
+	}
+	for _, segment := range principalEnumerationDescriptionSegments(surface) {
+		if !principalEnumerationSurfaceCoversRowForDescription(segment, row) {
+			continue
+		}
+		if principalEnumerationSurfaceHasAuthoredDescription(segment, row) {
+			return true
+		}
+	}
+	return principalEnumerationSurfaceCoversRowForDescription(surface, row) &&
+		principalEnumerationSurfaceHasAuthoredDescription(surface, row)
+}
+
+func principalEnumerationSurfaceCoversRowForDescription(surface string, row types.EnumerationDisplayRow) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	if principalEnumerationVisibleSurfaceCoversRow(surface, row) {
+		return true
+	}
+	for _, candidate := range principalEnumerationRowSurfaceCandidates(row) {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if preEmitAggregateMemberAppearsInText(candidate, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationSurfaceHasAuthoredDescription(surface string, row types.EnumerationDisplayRow) bool {
+	residual := principalEnumerationCleanCellText(surface)
+	if residual == "" {
+		return false
+	}
+	residual = aggregateToolLocationPattern.ReplaceAllString(residual, " ")
+	for _, candidate := range principalEnumerationDescriptionRemovalCandidates(row) {
+		residual = replaceCaseInsensitiveLiteral(residual, candidate, " ")
+	}
+	residual = strings.Trim(residual, " \t\r\n`*_()（）[]【】{}|,，;；:：.-")
+	residual = strings.Join(strings.Fields(residual), " ")
+	return principalEnumerationDescriptionCellLooksMeaningful(residual)
+}
+
+func principalEnumerationDescriptionRemovalCandidates(row types.EnumerationDisplayRow) []string {
+	raw := principalEnumerationRowSurfaceCandidates(row)
+	if category := strings.TrimSpace(row.Category); category != "" {
+		raw = append(raw, category)
+	}
+	for _, relationSurface := range principalEnumerationRelationSurfaceCandidates(row) {
+		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
+		if !ok {
+			continue
+		}
+		raw = append(raw, left, right)
+	}
+	return dedupPreEmitStringCandidates(raw)
+}
+
+func principalEnumerationDescriptionSegments(surface string) []string {
+	surface = strings.ReplaceAll(surface, "\r\n", "\n")
+	var out []string
+	start := 0
+	flush := func(end int) {
+		if end < start {
+			return
+		}
+		segment := strings.TrimSpace(surface[start:end])
+		if segment != "" {
+			out = append(out, segment)
+		}
+	}
+	for idx, r := range surface {
+		switch r {
+		case '\n', '。', '.', '；', ';', '！', '!', '？', '?':
+			flush(idx)
+			start = idx + len(string(r))
+		}
+	}
+	flush(len(surface))
+	return out
+}
+
+func replaceCaseInsensitiveLiteral(s, old, new string) string {
+	old = strings.TrimSpace(old)
+	if s == "" || old == "" {
+		return s
+	}
+	re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(old))
+	return re.ReplaceAllString(s, new)
 }
 
 func principalEnumerationMarkdownRowHasAuthoredDescription(cells []string, row types.EnumerationDisplayRow) bool {

@@ -5586,7 +5586,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// wasted round.
 		if IncrementAttemptsAndCheckExhausted(retryRes.Violations, o.busCtx.Mutable.RepairAttempts()) {
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
 				len(retryRes.Violations))
@@ -5603,7 +5603,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// stays on logging.Warning + closure stats; the user
 			// sees natural-language caveats only.
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(retryRes.Violations))
 			lastFinalize = out
@@ -5624,7 +5624,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
 					kind, state.retryUsedForKind(kind), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -5647,7 +5647,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] retry budget for class=%s exhausted (%d/%d) — accepting answer with caveat",
 					class, state.retryUsedForClass(class), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -5687,7 +5687,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Reasoning:  softYieldKillMessage(o.busCtx.Language),
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -5797,7 +5797,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		switch fallback {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)

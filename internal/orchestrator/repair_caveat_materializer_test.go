@@ -217,6 +217,28 @@ func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericEnume
 	}
 }
 
+func TestAppendUserCaveatsToAnswerForBus_MechanismSuppressesGenericUnclusteredCoverage(t *testing.T) {
+	rm := types.RequestModel{
+		RawRequest: "解释数据任务工作流",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism),
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered},
+		{Kind: types.ViolAnswerSemanticUnderfilled},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("accepted mechanism answer should suppress generic coverage/semantic caveats:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericCitationAndAcceptanceAdvisories(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)

@@ -224,6 +224,12 @@ The data case failed both because the answer was wrong and because `route=data` 
 
 Generic fix direction: log route/classifier decisions as structured records and split eval verdict reasons by semantic output, terminal contract, and telemetry/log expectation.
 
+### G8. Rich Upstream Evidence Can Be Lost Before Answer-Surface Compilation
+
+Some PASS answers already contain the right principal members and evidence in prose, but downstream system supplements can still duplicate them because the final compiler only recognizes table/list carriers. This is not a prompt wording issue: the earlier stages have already produced typed aggregate facts, member notes, support refs, and evidence summaries, but the answer-surface backend must consume those structured handoff signals consistently across prose, table, and list carriers.
+
+Generic fix direction: keep rich upstream evidence in typed handoff channels (`aggregate_facts`, `member_notes`, `support_refs`, evidence summaries, artifact lineage, and output-contract metadata) and let deterministic answer compilers/validators consume those signals. Do not infer principal coverage from user keywords or model intent prose; use row candidates, citation/location compatibility, structured facets, and authored carrier blocks.
+
 ## Executable Task List
 
 ### Batch A - Data Reference Projection Correctness
@@ -287,17 +293,22 @@ Generic fix direction: log route/classifier decisions as structured records and 
     - Behavior: supplement tables appear only when they repair a missing typed surface or materially improve completeness, not as unconditional duplication.
     - Validation: `mr_cross_repo_compare` remains correct without unnecessary duplicate system sections unless the contract requires them.
 
+12. Preserve rich upstream evidence through backend answer compilation.
+    - Target: `internal/tool/answer_document_principal_enum_compile.go`, aggregate fact/evidence handoff consumers.
+    - Behavior: deterministic compilers recognize typed member rows, support refs, locations, and authored prose/table/list carriers before adding supplements.
+    - Validation: member notes or evidence summaries are consumed as structured handoff material; no prompt-only instruction or keyword match decides coverage.
+
 ### Batch E - Verification Sweep
 
-12. Run focused unit tests after each batch.
+13. Run focused unit tests after each batch.
     - `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl`
     - Add narrower `-run` invocations for projection, terminal status, and artifact schema tests.
 
-13. Re-run representative eval with `PARALLEL=2`.
+14. Re-run representative eval with `PARALLEL=2`.
     - Same four cases as this audit.
     - Pass criteria: all four PASS; data lane terminal status complete; no wrong reference projection; trace/multi-repo warnings do not leak generic caveats.
 
-14. Run a broader data-focused eval slice.
+15. Run a broader data-focused eval slice.
     - Include data cases with missing reference keys, extra contribution groups, unmapped source rows, numeric parsing, and multi-file joins.
     - Pass criteria: no final projection uses a broad coverage artifact when an explicit reference contract exists.
 
@@ -309,6 +320,6 @@ The fix is only commercially acceptable when:
 - terminal status is single-source and machine-verifiable;
 - operator logs explain the failing typed action and repair reason without requiring manual archaeology through huge logs;
 - PASS answers do not carry vague user-visible warnings;
+- upstream aggregate facts, evidence summaries, support refs, and artifact lineage remain available to backend compilers/validators;
 - all changes are covered by structural tests and representative eval;
 - no task uses domain-specific constants, target names, keyword intent matching, or model prose as a hard gate.
-
