@@ -3042,6 +3042,7 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
 	countGaps := exhaustiveEnumerationPrincipalGroupedCountGaps(ctx, aggregateFacts)
 	universeGap := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
+	originSpecificOnlyMemberSet := exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx, aggregateFacts)
 	if ok && len(countGaps) == 0 && !universeGap.Blocking {
 		return ""
 	}
@@ -3051,23 +3052,40 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		}
 	}
 	if closure != nil {
+		repairKind := types.RepairEmitEvidence
+		repairOrigin := "pre_complete.exhaustive_member_set"
+		repairRationale := "exhaustive enumeration needs a typed member_set handoff or a completed answer-symbol slate so finalization does not reconstruct the list from prose"
 		files := completionMaterializationReadFiles(closure)
-		if checklistFiles := sourceInventoryMemberSetRepairFiles(ctx, 12); len(checklistFiles) > 0 {
+		keywords := dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...))
+		subject := ""
+		if originSpecificOnlyMemberSet {
+			repairKind = types.RepairStructuredHandoff
+			repairOrigin = "pre_complete.exhaustive_member_set.origin_specific"
+			repairRationale = "origin-specific external observations need a corrected aggregate_facts.member_set handoff with principal_answer role, exact members, and structured origin/provenance; do not repair this by emitting current-source evidence for the external artifact"
+			files = nil
+			keywords = nil
+			subject = "Repair aggregate_facts.member_set for the origin-specific external observation lane."
+		} else if checklistFiles := sourceInventoryMemberSetRepairFiles(ctx, 12); len(checklistFiles) > 0 {
 			files = dedupStringsPreserveOrder(append(files, checklistFiles...))
 		}
 		closure.AddRepair(types.RepairDirective{
-			Kind:      types.RepairEmitEvidence,
+			Kind:      repairKind,
 			Files:     files,
-			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
-			Rationale: "exhaustive enumeration needs a typed member_set handoff or a completed answer-symbol slate so finalization does not reconstruct the list from prose",
-			Origin:    "pre_complete.exhaustive_member_set",
+			Keywords:  keywords,
+			Subject:   subject,
+			Rationale: repairRationale,
+			Origin:    repairOrigin,
 		})
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — exhaustive member-set handoff is missing.\n\n")
 	b.WriteString("The current question requires an exhaustive enumeration. Do not close with the complete list only in tool-output memory, thinking text, or the closure reason.\n\n")
 	if strings.TrimSpace(invalid) != "" {
-		fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable principal-member data: %s\n\n", invalid)
+		if originSpecificOnlyMemberSet {
+			fmt.Fprintf(&b, "An origin-specific external-observation `member_set` was present but is not structurally usable as principal-member handoff data: %s\n\n", invalid)
+		} else {
+			fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable principal-member data: %s\n\n", invalid)
+		}
 	}
 	if len(countGaps) > 0 {
 		fmt.Fprintf(&b, "Some principal grouped/bucket count facts declare answer categories without handing off their members: %s. Under an exhaustive enumeration request, every positive principal grouped/bucket count must either carry its exact `members[]` or be represented by a matching principal `member_set`.\n\n", strings.Join(countGaps, "; "))
@@ -3079,8 +3097,29 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		b.WriteString(checklist)
 		b.WriteString("\n\n")
 	}
-	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
+	if originSpecificOnlyMemberSet {
+		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or repair `aggregate_facts` with kind=`member_set`, role=`principal_answer`, value equal to the exact member count, and `members` containing every principal answer member copied from the origin-specific tool/resource results. Preserve structured origin/provenance dimensions such as origin=`runtime_artifact`, artifact_id/artifact_kind, payload_ref/row_set_ref, or the producer token that identifies the external observation lane. Do not call `emit_evidence` for external trace/log/document/resource rows, and do not invent repo file:line `support_refs` for artifact-local members. If the external result has artifact-local line/row/time coordinates, carry them in dimensions/supporting aggregate facts or member notes rather than converting them into current-source citations. Then re-call `emit_investigation_complete`.")
+	} else {
+		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
+	}
 	return b.String()
+}
+
+func exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet && !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+			continue
+		}
+		origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
+		if types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins) {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceInventoryMemberSetRepairChecklist(ctx *types.BusContext, maxRows int) string {
@@ -3306,6 +3345,9 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
 			continue
 		}
+		if aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx, fact) {
+			return true, ""
+		}
 		allUsable := true
 		for _, member := range fact.Members {
 			if aggregateMemberSetMemberUsable(fact, member, support) {
@@ -3328,6 +3370,89 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		return false, ""
 	}
 	return false, strings.Join(invalid, "; ")
+}
+
+func aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	rm := requestModelForAggregateSupport(ctx)
+	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
+	if !types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins) {
+		return false
+	}
+	if aggregateMemberSetOriginRequiresCurrentSource(ctx, rm) {
+		return false
+	}
+	return aggregateMemberSetOriginContextAvailable(ctx, rm, origins)
+}
+
+func aggregateMemberSetOriginRequiresCurrentSource(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	var contract *types.AnswerContract
+	if ctx != nil && ctx.AnalysisIR != nil {
+		contract = &ctx.AnalysisIR.AnswerContract
+	}
+	return rm.RequiresCurrentSourceForExternalObservation(contract)
+}
+
+func aggregateMemberSetOriginContextAvailable(ctx *types.BusContext, rm *types.RequestModel, origins []types.AnswerEvidenceOrigin) bool {
+	if len(origins) == 0 {
+		return false
+	}
+	if aggregateMemberSetRuntimeContextAvailable(ctx, rm) {
+		return true
+	}
+	if rm != nil {
+		if rm.Predicates.IsHistoryLookup {
+			for _, origin := range origins {
+				if origin == types.AnswerEvidenceOriginVCSMetadata || origin == types.AnswerEvidenceOriginVCSDiff {
+					return true
+				}
+			}
+		}
+		if rm.ExternalObservationPolicy != nil &&
+			(rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() ||
+				rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
+			return true
+		}
+		if rm.HasExternalObservationArtifactReference() {
+			return true
+		}
+	}
+	for _, origin := range origins {
+		switch origin {
+		case types.AnswerEvidenceOriginCommandMeasurement,
+			types.AnswerEvidenceOriginRepoNegativeSearch,
+			types.AnswerEvidenceOriginCrossRepoIndex,
+			types.AnswerEvidenceOriginExternalDocument,
+			types.AnswerEvidenceOriginWebPage,
+			types.AnswerEvidenceOriginMCPResource,
+			types.AnswerEvidenceOriginConnectorResource:
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberSetRuntimeContextAvailable(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if rm != nil && (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactWithoutRequiredCurrentSource()) {
+		return true
+	}
+	if ctx != nil && (strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "") {
+		return true
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if waiver := ctx.Mutable.EvidenceFloorWaiver(); waiver.IsActive() {
+			switch waiver.Reason {
+			case types.EvidenceFloorWaiverExternalLog,
+				types.EvidenceFloorWaiverExternalTrace,
+				types.EvidenceFloorWaiverNoRepoIntersection,
+				types.EvidenceFloorWaiverInformationalRuntime:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func exhaustiveEnumerationPrincipalGroupedCountGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []string {

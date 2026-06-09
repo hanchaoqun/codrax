@@ -2462,6 +2462,208 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_AllowsExhaustiveRuntimeArtifactMemberSet(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all trace resource and plugin observations")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all trace resource and plugin observations",
+	}
+	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		Confidence:           0.9,
+	}
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      ir,
+		AttachedHitrace: "8.000000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"trace_query window_stats enumerated the external artifact rows",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"the principal members are artifact-local trace rows, not current-repo source lines"
+		},
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"trace observations",
+			"value":"6",
+			"role":"principal_answer",
+			"provenance":"trace_query.window_stats",
+			"dimensions":[
+				{"name":"origin","value":"runtime_artifact"},
+				{"name":"artifact_id","value":"attached_trace"},
+				{"name":"artifact_kind","value":"trace"}
+			],
+			"members":[
+				"bio_latency @ line 3",
+				"file_system @ line 4",
+				"page_fault_user @ line 5",
+				"ability_monitor @ line 6",
+				"xpower_cpu @ line 7",
+				"hi_sysevent @ line 8"
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime artifact member_set should close without repo support_refs: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after origin-specific runtime member_set passes")
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || len(facts[0].Members) != 6 {
+		t.Fatalf("runtime member_set aggregate should be retained, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotBypassMixedOriginExhaustiveMemberSet(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all trace rows and current source anchors")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all trace rows and current source anchors",
+	}
+	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		Confidence:           0.9,
+	}
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      ir,
+		AttachedHitrace: "8.000000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"mixed-origin rows are not fully repo-grounded",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"the trace members are external but the fact also declares current-source origin"
+		},
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"mixed trace and source observations",
+			"value":"1",
+			"role":"principal_answer",
+			"dimensions":[
+				{"name":"origin","value":"runtime_artifact"},
+				{"name":"secondary_origin","value":"current_source"}
+			],
+			"members":["bio_latency @ line 3"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("mixed-origin member_set downgrade should be soft, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "member_set") || !strings.Contains(res.Summary, "no typed evidence") {
+		t.Fatalf("summary should preserve member support requirement for mixed origins, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("mixed-origin ungrounded member_set must not mark investigation complete")
+	}
+}
+
+func TestEmitInvestigationComplete_OriginSpecificMemberSetHintAvoidsRepoEvidenceRepair(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all external trace observations")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all external trace observations",
+	}
+	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		Confidence:           0.9,
+	}
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      ir,
+		AttachedHitrace: "8.000000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"trace rows are known but the handoff role is wrong",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"trace rows are artifact-local"
+		},
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"trace observations",
+			"value":"1",
+			"role":"supporting_coverage",
+			"provenance":"trace_query.window_stats",
+			"dimensions":[{"name":"origin","value":"runtime_artifact"}],
+			"members":["bio_latency @ line 3"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("origin-specific handoff downgrade should be soft, got hard failure: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"origin-specific external-observation `member_set`",
+		"role=`principal_answer`",
+		"Do not call `emit_evidence`",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should include origin-specific repair guidance %q, got: %s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "For code symbols, paths, routes") {
+		t.Fatalf("origin-specific hint must not render source-code support_refs guidance: %s", res.Summary)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatalf("expected structured handoff repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if last.Kind != types.RepairStructuredHandoff {
+		t.Fatalf("expected structured_handoff repair, got %+v", last)
+	}
+	if last.Origin != "pre_complete.exhaustive_member_set.origin_specific" {
+		t.Fatalf("unexpected repair origin: %+v", last)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("structurally invalid origin-specific member_set must not mark investigation complete")
+	}
+}
+
 func TestEmitInvestigationComplete_DowngradesPrincipalGroupedCountWithoutMembersUnderExhaustiveEnumeration(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

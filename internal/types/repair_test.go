@@ -24,6 +24,11 @@ func TestClassifyRepairDirective(t *testing.T) {
 			want: RepairDebtSurgicalGrounding,
 		},
 		{
+			name: "structured handoff is principal blocking",
+			in:   RepairDirective{Kind: RepairStructuredHandoff, Subject: "aggregate_facts"},
+			want: RepairDebtPrincipalBlocking,
+		},
+		{
 			name: "surgical read is surgical grounding",
 			in:   RepairDirective{Kind: RepairReadFile, Files: []string{"a.go"}, LineRanges: []LineRange{{Start: 10, End: 12}}},
 			want: RepairDebtSurgicalGrounding,

@@ -50,6 +50,7 @@ func TestAllRepairKindsHaveProducer(t *testing.T) {
 		RepairReadFile:               "RepairReadFile",
 		RepairEmitEvidence:           "RepairEmitEvidence",
 		RepairExpandSearch:           "RepairExpandSearch",
+		RepairStructuredHandoff:      "RepairStructuredHandoff",
 		RepairSwapView:               "RepairSwapView",
 		RepairRebindSubject:          "RepairRebindSubject",
 		RepairForceCompleteDowngrade: "RepairForceCompleteDowngrade",
@@ -387,7 +388,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 		// 2026-05-07 lane-discipline audit.
-		ViolLaneBlockKindMismatch:         "ViolLaneBlockKindMismatch",
+		ViolLaneBlockKindMismatch:            "ViolLaneBlockKindMismatch",
 		ViolPrincipalSupportMemberOmitted:    "ViolPrincipalSupportMemberOmitted",
 		ViolExhaustiveMemberSetCoverageDrift: "ViolExhaustiveMemberSetCoverageDrift",
 		ViolInactiveScopeDisclosureMissing:   "ViolInactiveScopeDisclosureMissing",

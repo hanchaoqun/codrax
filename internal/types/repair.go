@@ -43,6 +43,13 @@ const (
 	// has not grown.
 	RepairExpandSearch RepairKind = "expand_search"
 
+	// RepairStructuredHandoff says the evidence is already in a
+	// non-current-source lane, but the model-authored structured
+	// handoff is malformed or incomplete. The explorer should repair
+	// aggregate_facts / members / dimensions instead of manufacturing
+	// current-source evidence.
+	RepairStructuredHandoff RepairKind = "structured_handoff"
+
 	// RepairSwapView says the AnalysisIR's compiled QuestionFamily /
 	// AnswerSemanticView routing under-fits the resolved answer
 	// subject and the explorer should surface the conflict. Subject
@@ -75,6 +82,7 @@ func AllRepairKinds() []RepairKind {
 		RepairReadFile,
 		RepairEmitEvidence,
 		RepairExpandSearch,
+		RepairStructuredHandoff,
 		RepairSwapView,
 		RepairRebindSubject,
 		RepairForceCompleteDowngrade,
@@ -84,8 +92,9 @@ func AllRepairKinds() []RepairKind {
 // IsValid returns true when k is one of the declared constants.
 func (k RepairKind) IsValid() bool {
 	switch k {
-	case RepairReadFile, RepairEmitEvidence, RepairExpandSearch, RepairSwapView,
-		RepairRebindSubject, RepairForceCompleteDowngrade:
+	case RepairReadFile, RepairEmitEvidence, RepairExpandSearch,
+		RepairStructuredHandoff, RepairSwapView, RepairRebindSubject,
+		RepairForceCompleteDowngrade:
 		return true
 	}
 	return false
@@ -132,7 +141,7 @@ func ClassifyRepairDirective(r RepairDirective) RepairDebtClass {
 			return RepairDebtAdvisory
 		}
 		return RepairDebtPrincipalBlocking
-	case RepairSwapView, RepairRebindSubject:
+	case RepairStructuredHandoff, RepairSwapView, RepairRebindSubject:
 		return RepairDebtPrincipalBlocking
 	default:
 		if r.Kind == "" {
@@ -415,6 +424,14 @@ func (r RepairDirective) Render() string {
 		b.WriteString("Run grep over additional keyword stems: ")
 		b.WriteString(strings.Join(r.Keywords, ", "))
 		b.WriteString("\n")
+		if r.Rationale != "" {
+			b.WriteString(r.Rationale + "\n")
+		}
+	case RepairStructuredHandoff:
+		b.WriteString("## Structured Handoff Repair\n")
+		if r.Subject != "" {
+			b.WriteString(r.Subject + "\n")
+		}
 		if r.Rationale != "" {
 			b.WriteString(r.Rationale + "\n")
 		}
