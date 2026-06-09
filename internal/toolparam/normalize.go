@@ -55,6 +55,8 @@ type schemaNode struct {
 	Items                  json.RawMessage            `json:"items"`
 	Enum                   []json.RawMessage          `json:"enum"`
 	CodraxSplitStringArray bool                       `json:"x-codrax-split-string-array"`
+	CodraxEnumStyleAlias   bool                       `json:"x-codrax-enum-style-alias"`
+	CodraxEnumAliases      map[string]string          `json:"x-codrax-enum-aliases"`
 }
 
 var envelopeCarrierKeyOrder = []string{
@@ -190,6 +192,14 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 
 	if s, ok := value.(string); ok && schemaAllowsStringEnumRepair(node) {
 		if v, rule, ok := decodeJSONStringEnumString(s, node); ok {
+			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
+		}
+		if node.CodraxEnumStyleAlias {
+			if v, rule, ok := normalizeStringEnumAlias(s, node); ok {
+				return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
+			}
+		}
+		if v, rule, ok := normalizeStringEnumCustomAlias(s, node); ok {
 			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
 		}
 	}
@@ -781,6 +791,52 @@ func decodeJSONStringEnumString(s string, node schemaNode) (string, string, bool
 			return inner, rule, true
 		}
 		current = strings.TrimSpace(inner)
+	}
+	return "", "", false
+}
+
+func normalizeStringEnumAlias(s string, node schemaNode) (string, string, bool) {
+	enumValues := schemaStringEnumValues(node)
+	if len(enumValues) == 0 {
+		return "", "", false
+	}
+	if _, ok := enumValues[s]; ok {
+		return "", "", false
+	}
+	trimmed := strings.TrimSpace(s)
+	if trimmed != s {
+		if _, ok := enumValues[trimmed]; ok {
+			return trimmed, "string_enum_whitespace", true
+		}
+	}
+	styled := schemaStyleKeyAlias(trimmed)
+	if styled != "" && styled != s {
+		if _, ok := enumValues[styled]; ok {
+			return styled, "string_enum_case_style", true
+		}
+	}
+	return "", "", false
+}
+
+func normalizeStringEnumCustomAlias(s string, node schemaNode) (string, string, bool) {
+	if len(node.CodraxEnumAliases) == 0 {
+		return "", "", false
+	}
+	enumValues := schemaStringEnumValues(node)
+	if len(enumValues) == 0 {
+		return "", "", false
+	}
+	for _, candidate := range []string{strings.TrimSpace(s), schemaStyleKeyAlias(strings.TrimSpace(s))} {
+		if candidate == "" {
+			continue
+		}
+		target := strings.TrimSpace(node.CodraxEnumAliases[candidate])
+		if target == "" {
+			continue
+		}
+		if _, ok := enumValues[target]; ok && target != s {
+			return target, "string_enum_alias", true
+		}
 	}
 	return "", "", false
 }

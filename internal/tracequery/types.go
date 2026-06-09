@@ -277,50 +277,51 @@ type TimeWindow struct {
 }
 
 type WindowStats struct {
-	Window               TimeWindow               `json:"window"`
-	EventCounts          map[EventType]int        `json:"event_counts,omitempty"`
-	CPU                  []CPUStats               `json:"cpu,omitempty"`
-	CoreTopology         []CoreClassStats         `json:"core_topology,omitempty"`
-	TopRunning           []ThreadDuration         `json:"top_running,omitempty"`
-	RunnableTop          []ThreadDuration         `json:"runnable_top,omitempty"`
-	DStateTop            []ThreadDuration         `json:"d_state_top,omitempty"`
-	CPUPressure          []CPUPressureStats       `json:"cpu_pressure,omitempty"`
-	IOLatencies          []IOLatencySummary       `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits   []CPUFrequencyLimit      `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents      []SubsystemEventSummary  `json:"subsystem_events,omitempty"`
-	BlockIssueCount      int                      `json:"block_issue_count,omitempty"`
-	BlockRemapCount      int                      `json:"block_remap_count,omitempty"`
-	BlockCompleteCount   int                      `json:"block_complete_count,omitempty"`
-	BinderCount          int                      `json:"binder_count,omitempty"`
-	BinderReceivedCount  int                      `json:"binder_received_count,omitempty"`
-	BinderAuxCount       int                      `json:"binder_aux_count,omitempty"`
-	IRQCount             int                      `json:"irq_count,omitempty"`
-	SoftIRQCount         int                      `json:"softirq_count,omitempty"`
-	MemoryEventCount     int                      `json:"memory_event_count,omitempty"`
-	StorageEventCount    int                      `json:"storage_event_count,omitempty"`
-	FilesystemEventCount int                      `json:"filesystem_event_count,omitempty"`
-	PowerEventCount      int                      `json:"power_event_count,omitempty"`
-	AbilityEventCount    int                      `json:"ability_event_count,omitempty"`
-	XPowerEventCount     int                      `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount   int                      `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount  int                      `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount   int                      `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount   int                      `json:"blocked_reason_count,omitempty"`
-	IOWaitBlockedCount   int                      `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons       []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
-	TraceSpans           []TraceSpanSummary       `json:"trace_spans,omitempty"`
-	TraceCounters        []TraceCounterSummary    `json:"trace_counters,omitempty"`
-	IRQBursts            []IRQBurstSummary        `json:"irq_bursts,omitempty"`
-	MemoryKinds          []MemoryKindSummary      `json:"memory_kinds,omitempty"`
-	BIOResources         []RuntimeResourceSummary `json:"bio_resources,omitempty"`
-	FilesystemResources  []RuntimeResourceSummary `json:"filesystem_resources,omitempty"`
-	PageFaultResources   []RuntimeResourceSummary `json:"page_fault_resources,omitempty"`
-	AbilityEvents        []TracePluginSummary     `json:"ability_events,omitempty"`
-	XPowerEvents         []TracePluginSummary     `json:"xpower_events,omitempty"`
-	HiSystemEvents       []TracePluginSummary     `json:"hi_sysevent_events,omitempty"`
-	ThreadDrifts         []ThreadDriftSummary     `json:"thread_drifts,omitempty"`
-	ComputeSupply        []ComputeSupplySummary   `json:"compute_supply,omitempty"`
-	Caveats              []string                 `json:"caveats,omitempty"`
+	Window               TimeWindow                `json:"window"`
+	EventCounts          map[EventType]int         `json:"event_counts,omitempty"`
+	CPU                  []CPUStats                `json:"cpu,omitempty"`
+	CoreTopology         []CoreClassStats          `json:"core_topology,omitempty"`
+	TopRunning           []ThreadDuration          `json:"top_running,omitempty"`
+	RunnableTop          []ThreadDuration          `json:"runnable_top,omitempty"`
+	DStateTop            []ThreadDuration          `json:"d_state_top,omitempty"`
+	CPUPressure          []CPUPressureStats        `json:"cpu_pressure,omitempty"`
+	IOLatencies          []IOLatencySummary        `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits   []CPUFrequencyLimit       `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents      []SubsystemEventSummary   `json:"subsystem_events,omitempty"`
+	BlockIssueCount      int                       `json:"block_issue_count,omitempty"`
+	BlockRemapCount      int                       `json:"block_remap_count,omitempty"`
+	BlockCompleteCount   int                       `json:"block_complete_count,omitempty"`
+	BinderCount          int                       `json:"binder_count,omitempty"`
+	BinderReceivedCount  int                       `json:"binder_received_count,omitempty"`
+	BinderAuxCount       int                       `json:"binder_aux_count,omitempty"`
+	IRQCount             int                       `json:"irq_count,omitempty"`
+	SoftIRQCount         int                       `json:"softirq_count,omitempty"`
+	MemoryEventCount     int                       `json:"memory_event_count,omitempty"`
+	StorageEventCount    int                       `json:"storage_event_count,omitempty"`
+	FilesystemEventCount int                       `json:"filesystem_event_count,omitempty"`
+	PowerEventCount      int                       `json:"power_event_count,omitempty"`
+	AbilityEventCount    int                       `json:"ability_event_count,omitempty"`
+	XPowerEventCount     int                       `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount   int                       `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount  int                       `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount   int                       `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount   int                       `json:"blocked_reason_count,omitempty"`
+	IOWaitBlockedCount   int                       `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons       []BlockedReasonSummary    `json:"blocked_reasons,omitempty"`
+	TraceSpans           []TraceSpanSummary        `json:"trace_spans,omitempty"`
+	TraceCounters        []TraceCounterSummary     `json:"trace_counters,omitempty"`
+	IRQBursts            []IRQBurstSummary         `json:"irq_bursts,omitempty"`
+	MemoryKinds          []MemoryKindSummary       `json:"memory_kinds,omitempty"`
+	BIOResources         []RuntimeResourceSummary  `json:"bio_resources,omitempty"`
+	FilesystemResources  []RuntimeResourceSummary  `json:"filesystem_resources,omitempty"`
+	PageFaultResources   []RuntimeResourceSummary  `json:"page_fault_resources,omitempty"`
+	AbilityEvents        []TracePluginSummary      `json:"ability_events,omitempty"`
+	XPowerEvents         []TracePluginSummary      `json:"xpower_events,omitempty"`
+	HiSystemEvents       []TracePluginSummary      `json:"hi_sysevent_events,omitempty"`
+	ThreadDrifts         []ThreadDriftSummary      `json:"thread_drifts,omitempty"`
+	ComputeSupply        []ComputeSupplySummary    `json:"compute_supply,omitempty"`
+	StateChurn           []ThreadStateChurnSummary `json:"state_churn,omitempty"`
+	Caveats              []string                  `json:"caveats,omitempty"`
 }
 
 type SchedulerLatencyResult struct {
@@ -433,6 +434,26 @@ type ThreadDuration struct {
 	LineEnd       int       `json:"line_end,omitempty"`
 	Priority      int       `json:"priority,omitempty"`
 	PriorityClass string    `json:"priority_class,omitempty"`
+}
+
+type ThreadStateChurnSummary struct {
+	Thread           ThreadRef `json:"thread"`
+	DominantState    string    `json:"dominant_state,omitempty"`
+	TotalMs          float64   `json:"total_ms,omitempty"`
+	DominantImpactMs float64   `json:"dominant_impact_ms,omitempty"`
+	RunningMs        float64   `json:"running_ms,omitempty"`
+	RunnableMs       float64   `json:"runnable_ms,omitempty"`
+	SleepMs          float64   `json:"sleep_ms,omitempty"`
+	DStateMs         float64   `json:"d_state_ms,omitempty"`
+	IOWaitMs         float64   `json:"io_wait_ms,omitempty"`
+	FragmentCount    int       `json:"fragment_count,omitempty"`
+	StateSwitches    int       `json:"state_switches,omitempty"`
+	MaxSegmentMs     float64   `json:"max_segment_ms,omitempty"`
+	P95SegmentMs     float64   `json:"p95_segment_ms,omitempty"`
+	LineStart        int       `json:"line_start,omitempty"`
+	LineEnd          int       `json:"line_end,omitempty"`
+	Confidence       float64   `json:"confidence,omitempty"`
+	Summary          string    `json:"summary,omitempty"`
 }
 
 type IOLatencySummary struct {

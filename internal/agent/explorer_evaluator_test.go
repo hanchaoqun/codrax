@@ -255,6 +255,10 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 	for _, want := range []string{
 		"Explicit Runtime Trace Path Start",
 		"Start with `trace_query`",
+		"`state_churn` context",
+		"fragmented state-churn causes",
+		"dominant_state",
+		"follow the rendered `next_step`",
 		"pattern=\"<literal>\"",
 		"not regex",
 		"carry that same `time_start`/`time_end`",

@@ -219,6 +219,8 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats — cpu=10 had high runnable pressure",
 				"## Wakeup chain",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
+				"## Window stats",
+				"- state_churn com.app-42 dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms confidence=0.83 lines=111-119 — com.app-42 had frequent state switching; dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; next_step=inspect same-CPU pressure",
 				"## Critical blocking calls",
 				"- blocking type=monitor thread=binder:1-7 peer=com.app-42 duration=78.700ms lines=160-170 confidence=0.80 — monitor lock contention overlapped the frame",
 			}, "\n"),
@@ -249,6 +251,19 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	blocking := findObservationRecord(t, ledger, "tool:0#trace_query:critical_blocking:1")
 	if blocking.Predicate != "critical_blocking" || blocking.Object != "monitor" || blocking.Value != "78.700" {
 		t.Fatalf("trace_query critical blocking should survive as supporting runtime observation: %+v", blocking)
+	}
+	churn := findObservationRecord(t, ledger, "tool:0#trace_query:state_churn:1")
+	if churn.Predicate != "state_churn" ||
+		churn.Object != "runnable" ||
+		churn.Subject != "com.app-42" ||
+		churn.Value != "5.000" ||
+		churn.Unit != "ms" ||
+		churn.Span.LineStart != 111 ||
+		churn.Span.LineEnd != 119 ||
+		churn.Confidence != 0.83 ||
+		!observationLedgerTestContainsString(churn.RichNotes, "fragments=12") ||
+		!observationLedgerTestContainsString(churn.RichNotes, "max_segment=0.500ms") {
+		t.Fatalf("trace_query state_churn should survive as supporting runtime observation: %+v", churn)
 	}
 
 	rm := RequestModel{PerfTrace: &PerfBundle{Janks: []PerfJank{{TriggerSpan: "frame 7"}}}}

@@ -102,6 +102,30 @@ const schedulerLatencyTrace = `
       rival-30   (   30) [001] .... 5.140000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=80 prev_state=S ==> next_comm=app next_pid=20 next_prio=53
 `
 
+const fragmentedChurnTrace = `
+        app-20   (   20) [001] .... 11.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.000300: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.000800: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.001100: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.001600: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.001900: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.002400: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.002700: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.003200: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.003500: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.004000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.004300: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.004800: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.005100: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.005600: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.005900: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.006400: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.006700: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.007200: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 11.007500: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53
+      rival-30   (   30) [001] .... 11.008000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=S ==> next_comm=app next_pid=20 next_prio=53
+`
+
 const blockingTrace = `
         app-20   (   20) [001] .... 6.000000: print: B|20|Choreographer#doFrame
         app-20   (   20) [001] .... 6.010000: print: B|20|Lock contention on InternTable lock
@@ -883,6 +907,34 @@ func TestWindowStatsComputeSupplyAndRootCauseRankUseSchedulerLatency(t *testing.
 	}
 	if !foundScheduler {
 		t.Fatalf("root cause rank missing scheduler/compute supply evidence: %+v", rank.Items)
+	}
+}
+
+func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
+	idx := buildTraceIndex(t, "fragmented.systrace", fragmentedChurnTrace)
+	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 11.0, TimeEnd: 11.008, Limit: 8})
+	if res.WindowStats == nil || len(res.WindowStats.StateChurn) == 0 {
+		t.Fatalf("expected fragmented state churn summary, got %+v", res.WindowStats)
+	}
+	churn := res.WindowStats.StateChurn[0]
+	if churn.Thread.PID != 20 || churn.DominantState != string(StateRunnable) {
+		t.Fatalf("expected target runnable churn, got %+v", churn)
+	}
+	if !near(churn.RunnableMs, 5.0, 0.001) || churn.MaxSegmentMs >= 1.0 || churn.FragmentCount < 10 || churn.StateSwitches < 9 {
+		t.Fatalf("fragmented churn should accumulate sub-ms runnable impact: %+v", churn)
+	}
+	if res.SchedulerLatency == nil || res.SchedulerLatency.Count != 0 {
+		t.Fatalf("sub-ms runnable fragments should not require scheduler_latency intervals above default threshold: %+v", res.SchedulerLatency)
+	}
+	if res.RootCauseRank == nil || len(res.RootCauseRank.Items) == 0 {
+		t.Fatalf("expected root cause rank items, got %+v", res.RootCauseRank)
+	}
+	first := res.RootCauseRank.Items[0]
+	if first.Type != "fragmented_runnable_wait" || first.Thread.PID != 20 {
+		t.Fatalf("fragmented runnable churn should rank as primary cause, got %+v all=%+v", first, res.RootCauseRank.Items)
+	}
+	if !strings.Contains(first.Summary, "frequent state switching") || !strings.Contains(first.Summary, "next_step=inspect same-CPU pressure") {
+		t.Fatalf("fragmented root cause should explain next diagnostic step: %+v", first)
 	}
 }
 

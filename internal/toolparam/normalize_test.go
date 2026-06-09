@@ -204,6 +204,105 @@ func TestNormalize_StringEnumJSONLiteralKeepsInvalidEnumForToolGate(t *testing.T
 	}
 }
 
+func TestNormalize_RepairsStringEnumCaseStyleAliases(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "view":{"type":"string","enum":["event_search","window_stats","root_cause_rank"],"x-codrax-enum-style-alias":true},
+	    "platform":{"type":"string","enum":["auto","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true},
+	    "free_text":{"type":"string"}
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "view":"rootCauseRank",
+	  "platform":"android-atrace",
+	  "free_text":"rootCauseRank"
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.view", "string_enum_case_style") {
+		t.Fatalf("expected view enum case-style repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.platform", "string_enum_case_style") {
+		t.Fatalf("expected platform enum case-style repair, got %+v", report)
+	}
+	var decoded struct {
+		View     string `json:"view"`
+		Platform string `json:"platform"`
+		FreeText string `json:"free_text"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.View != "root_cause_rank" || decoded.Platform != "android_atrace" || decoded.FreeText != "rootCauseRank" {
+		t.Fatalf("unexpected enum alias normalization: %+v\n%s", decoded, got)
+	}
+}
+
+func TestNormalize_StringEnumCaseStyleAliasRequiresSchemaOptIn(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "view":{"type":"string","enum":["event_search","window_stats","root_cause_rank"]}
+	  }
+	}`)
+	raw := json.RawMessage(`{"view":"rootCauseRank"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("enum alias without schema opt-in must not be repaired, got %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("enum payload changed without opt-in: got %s want %s", got, raw)
+	}
+}
+
+func TestNormalize_RepairsExplicitStringEnumAliases(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "view":{
+	      "type":"string",
+	      "enum":["event_search","window_stats","root_cause_rank"],
+	      "x-codrax-enum-aliases":{"state_churn":"window_stats"}
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"view":"stateChurn"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.view", "string_enum_alias") {
+		t.Fatalf("expected explicit enum alias repair, got %+v", report)
+	}
+	var decoded struct {
+		View string `json:"view"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.View != "window_stats" {
+		t.Fatalf("view alias = %q, want window_stats; raw=%s", decoded.View, got)
+	}
+}
+
+func TestNormalize_InvalidStringEnumAliasFallsThrough(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "view":{"type":"string","enum":["event_search","window_stats","root_cause_rank"],"x-codrax-enum-style-alias":true}
+	  }
+	}`)
+	raw := json.RawMessage(`{"view":"rootCause"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("invalid enum alias must remain for the tool gate, got %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("invalid enum payload changed: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_StringWrappedArrays(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

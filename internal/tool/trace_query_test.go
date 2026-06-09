@@ -348,9 +348,67 @@ func TestTraceQueryCoreTopologySurvivesCompatAndRenders(t *testing.T) {
 	}
 }
 
+func TestTraceQuerySummaryRendersFragmentedStateChurn(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "fragmented.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 11.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 11.000300: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53`,
+		`rival-30 (30) [001] .... 11.000800: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 11.001100: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53`,
+		`rival-30 (30) [001] .... 11.001600: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 11.001900: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53`,
+		`rival-30 (30) [001] .... 11.002400: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 11.002700: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53`,
+		`rival-30 (30) [001] .... 11.003200: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 11.003500: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=53`,
+		`rival-30 (30) [001] .... 11.004000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=53 prev_state=S ==> next_comm=app next_pid=20 next_prio=53`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"fragmented.systrace","view":"rootCauseRank","pid":"20","timeStart":"11.0s","timeEnd":"11.004s","limit":"6"}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"type=fragmented_runnable_wait",
+		"state_churn app-20 dominant_state=runnable",
+		"max_segment=0.500ms",
+		"next_step=inspect same-CPU pressure",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("fragmented state churn summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+
+	aliasParams := json.RawMessage(`{"source":"path","path":"fragmented.systrace","view":"stateChurn","pid":"20","timeStart":"11.0s","timeEnd":"11.004s","limit":"6"}`)
+	aliasRes, err := (&TraceQuery{}).Execute(ctx, aliasParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !aliasRes.Success {
+		t.Fatalf("trace_query should repair view=stateChurn to window_stats: %s", aliasRes.Summary)
+	}
+	for _, want := range []string{
+		"# Trace Query: window_stats",
+		"state_churn app-20 dominant_state=runnable",
+		"next_step=inspect same-CPU pressure",
+	} {
+		if !strings.Contains(aliasRes.Summary, want) {
+			t.Fatalf("stateChurn view alias summary missing %q:\n%s", want, aliasRes.Summary)
+		}
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "normalizes view=state_churn to window_stats", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

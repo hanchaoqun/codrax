@@ -96,7 +96,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 		Params: json.RawMessage(`{
 			"source":"path",
 			"path":"sample.systrace",
-			"view":"wakeup_chain",
+			"view":"rootCauseRank",
 			"thread":"com.tencent.mm-36379",
 			"pid":"36379",
 			"time_start":"2942.124416s",
@@ -124,6 +124,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 
 	got := base.normalizeToolCallParams(calls, schemas)
 	var decoded struct {
+		View               string   `json:"view"`
 		PID                int      `json:"pid"`
 		TimeStart          string   `json:"time_start"`
 		TimeEnd            string   `json:"time_end"`
@@ -144,6 +145,9 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 	}
 	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
 		t.Fatalf("repaired trace_query params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if decoded.View != "root_cause_rank" {
+		t.Fatalf("trace_query view enum alias repair failed: %+v\nraw=%s", decoded, got[0].Params)
 	}
 	if decoded.PID != 36379 || decoded.LineStart != 1102710 || decoded.LineEnd != 1139190 ||
 		decoded.MaxDepth != 6 || decoded.MaxBranches != 8 || decoded.MinDurationMS != 1 ||

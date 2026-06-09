@@ -1125,6 +1125,7 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	rootCauseOrdinal := 0
 	rootEvidenceOrdinal := 0
 	blockingOrdinal := 0
+	stateChurnOrdinal := 0
 	for _, rawLine := range strings.Split(result.Summary, "\n") {
 		line := strings.TrimSpace(rawLine)
 		switch {
@@ -1141,6 +1142,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- blocking "):
 			blockingOrdinal++
 			if record, ok := traceQueryBlockingRecord(index, blockingOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- state_churn "):
+			stateChurnOrdinal++
+			if record, ok := traceQueryStateChurnRecord(index, stateChurnOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		}
@@ -1263,6 +1269,77 @@ func traceQueryBlockingRecord(index, ordinal int, line string, ref ObservationSo
 		ObservedAt:      observedAt,
 		Confidence:      conf,
 	}, true
+}
+
+func traceQueryStateChurnRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	thread, fields, summary := traceQueryStateChurnLineFields(line)
+	dominant := strings.TrimSpace(fields["dominant_state"])
+	impact := traceQueryFieldMS(fields, "impact")
+	total := traceQueryFieldMS(fields, "total")
+	conf := traceQueryFieldFloat(fields, "confidence")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if dominant == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if impact > 0 {
+		value = fmt.Sprintf("%.3f", impact)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:state_churn:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "state_churn:" + dominant,
+		Subject:         thread,
+		Predicate:       "state_churn",
+		Object:          dominant,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		RichNotes:       traceQueryStateChurnRichNotes(fields, total),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      conf,
+	}, true
+}
+
+func traceQueryStateChurnLineFields(line string) (string, map[string]string, string) {
+	fields := map[string]string{}
+	body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- state_churn "))
+	head, summary, ok := strings.Cut(body, " — ")
+	if !ok {
+		head = body
+	}
+	thread := ""
+	for _, token := range strings.Fields(head) {
+		key, value, ok := strings.Cut(token, "=")
+		if !ok {
+			if thread == "" {
+				thread = strings.TrimSpace(token)
+			}
+			continue
+		}
+		fields[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+	return thread, fields, strings.TrimSpace(summary)
+}
+
+func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []string {
+	var notes []string
+	for _, key := range []string{"dominant_state", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			notes = append(notes, key+"="+value)
+		}
+	}
+	if total > 0 {
+		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
+	}
+	return notes
 }
 
 func traceQuerySummaryLineFields(line, prefix string) (map[string]string, string) {
