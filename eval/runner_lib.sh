@@ -85,9 +85,13 @@ eval_latest_result_dir() {
 eval_metric_field() {
   local file="$1"
   local key="$2"
-  local v
-  v=$(grep -a -oE "^${key}=[0-9]+" "$file" 2>/dev/null | head -1 | cut -d= -f2)
-  echo "${v:--}"
+  local line
+  line=$(grep -a -m1 "^${key}=" "$file" 2>/dev/null || true)
+  if [[ -z "$line" ]]; then
+    echo "-"
+    return 0
+  fi
+  printf '%s\n' "${line#*=}" | tr -d '\000'
 }
 
 eval_count_pattern() {
