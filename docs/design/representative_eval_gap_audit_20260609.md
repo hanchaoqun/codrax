@@ -558,3 +558,278 @@ Generic fix direction: when a complex strict-output or aggregation workflow decl
     - A plan that already has `derive_rules` or source-backed rule records remains accepted.
 
 19. Re-run the focused data tests and the representative eval sweep after Batch N.
+
+### G19. Current Completion Gate Is Not Applied Before Noisy Repair Status
+
+Batch N's focused rerun produced the correct final answer `17,0,5` with rule
+coverage, decision records, contribution ledger, reconcile report, and final
+projection all present. The terminal still reported `repair_node` because the
+evaluation path propagated an older action-dependency violation after later
+typed actions had superseded it. The model's evaluation reason even described
+the old workflow violation as stale, but that prose is not allowed to be a hard
+gate and must not be parsed.
+
+The systemic gap is priority ordering: the evaluator decision wrapper computes
+the completion gate only when the model status is already `complete`. When the
+model returns `repair_node`, a stale historical violation can outrank the current
+typed completion state. That makes auditability worse and can fail a commercially
+deliverable result even when the latest result satisfies the ledger graph,
+output projection graph, reference projection contract, and validation gate.
+
+Generic fix direction: every evaluation decision must derive the current
+completion guard from typed state before interpreting the model status. For
+noisy or terminal statuses such as `repair_node`, `blocked`, budget exhausted,
+or needs-clarification, an empty current completion gate plus a typed terminal
+answer artifact returns the answer and keeps older repair signals only as
+lineage. Explicit `continue_data` remains a forward-progress signal and is not
+short-circuited. If the gate is not empty, preserve the existing repair and
+fallback behavior. The hard decision must use only typed validation,
+ledger/output graphs, and result structure; it must not read user-intent
+keywords, action-purpose prose, or model-authored evaluation prose.
+
+### Batch O - Completion-Gate Precedence
+
+20. Always compute the current completion gate before evaluation-status routing.
+    - Use `dataTaskWorkflowCompletionGateGuardResultWithRepo` for complete,
+      repair, clarification, blocked, and budget statuses.
+    - Treat an empty current completion gate as `completion_satisfied` for
+      noisy/terminal statuses only when the result has a typed terminal answer
+      artifact.
+    - Preserve the stricter structural helper as an additional success path,
+      not the sole noisy-repair override.
+
+21. Keep stale repair information auditable but non-terminal.
+    - A superseded action-dependency violation remains visible in lineage and
+      prior errors.
+    - It cannot set terminal `repair_node` when the latest typed completion
+      gate is satisfied.
+    - Explicit `continue_data` continues to schedule the continuation planner.
+    - Incomplete latest results still follow existing repair/fallback paths.
+
+22. Add regression coverage.
+    - A `repair_node` evaluation with a current satisfied completion gate
+      returns the final answer.
+    - A non-empty completion gate still drives the existing repair/fallback
+      decision.
+    - No regression depends on case labels, status words in user data, or model
+      evaluation prose.
+
+### G20. Multi-Source Aggregate Artifacts Can Win Reference-Universe Inference
+
+After Batch O, the focused data rerun reached terminal `complete`, but the final
+answer was `17,4,5,0`. The reference projection repair selected
+`data_records.canonical_label` as the complete reference universe. That artifact
+was a multi-source extracted union across source, lookup, and target materials,
+so its key set included ordinary business groups as well as target keys. The
+correct output surface was the single-source reference material's key universe.
+
+This is a structural inference gap. A combined record artifact is useful for
+calculation and lineage, but it is a weaker default reference universe than a
+single-source material or explicitly declared reference path. Choosing the
+combined artifact over an atomic material lets projection include keys that were
+valid intermediate business groups but not members of the requested output
+surface.
+
+Generic fix direction: reference-universe inference should classify candidate
+paths by artifact lineage. Explicit reference paths remain strongest. Among
+inferred candidates, single-source material/artifact candidates should be tried
+before multi-source aggregate artifacts. Multi-source artifacts remain available
+as fallback when no atomic candidate can satisfy the typed output graph. This
+uses source-path cardinality and artifact aliases only; it must not inspect
+material names, field-name keywords, user prose, rule text, or model evaluation
+prose.
+
+### Batch P - Reference Candidate Lineage Priority
+
+23. Split inferred reference-candidate paths by lineage.
+    - Mark artifact IDs and aliases as aggregate when their artifact has more
+      than one source path or multiple child material projections.
+    - Keep source materials and single-source child artifacts in the primary
+      candidate bucket.
+    - Use aggregate artifacts only as fallback when no primary candidate
+      satisfies the projection gap.
+
+24. Preserve explicit contracts.
+    - `output_contract.reference_path` and action `reference_path` remain
+      authoritative.
+    - Existing explicit-reference runner behavior is unchanged.
+    - Existing overlap/cardinality scoring remains inside each lineage bucket.
+
+25. Add regression coverage.
+    - A multi-source combined record artifact with broader key overlap cannot
+      outrank a single-source reference material candidate.
+    - If no single-source candidate exists, the aggregate artifact fallback
+      remains available.
+    - Tests assert lineage and key-set behavior without file-name keywords or
+      business-value constants in production logic.
+
+### G21. Reference Projection Consumption Is Not Handed Off To Coverage Validation
+
+The Batch P rerun showed `assemble_answer` planning with `reference_path` set to
+the atomic reference material, but execution still failed coverage validation:
+the required reference material was reported as not consumed. The action had
+structurally used the reference path to project the output, yet the runner did
+not add that reference path to the result's consumed-material ledger.
+
+This is a handoff gap between deterministic action execution and backend
+coverage validation. Reference projection is a real typed material read, not
+just output metadata. If the runner records projection metadata but omits the
+reference material from `ConsumedPaths`, downstream validators see a false
+coverage miss and may force unnecessary repair loops.
+
+Generic fix direction: when `assemble_answer` completes reference projection,
+the artifact and result must carry the actual reference path as consumed source
+material. This is based on the action's typed `reference_path` and the
+structural candidate used by the runner; it must not parse script text, field
+names, material names, user prose, or model repair prose.
+
+### Batch Q - Assemble Reference Consumption Handoff
+
+26. Mark reference-projection inputs as consumed.
+    - Attach the selected reference path to the `assemble_answer` artifact's
+      `source_paths`.
+    - Merge those source paths into result `ConsumedPaths`.
+    - Preserve no-reference assembly behavior.
+
+27. Add runner regression coverage.
+    - An `assemble_answer` action with a required reference material satisfies
+      coverage validation after projecting with that reference path.
+    - The final answer and reference projection metadata remain unchanged.
+
+### G22. Noisy Repair Can Bypass Deterministic Completion Fallback
+
+The Batch Q rerun reached a state with contribution records present and the
+completion ledger graph requiring only `reconcile_artifacts`. The evaluator
+returned `repair_node` for an older local node issue, so the decision layer went
+to the repair planner instead of using the deterministic completion fallback for
+the currently missing ledger. The run exhausted repair budget while the typed
+next step was already known.
+
+This is a priority gap, not a planner prompt gap. When the current completion
+gate is non-empty and can build a deterministic fallback from the typed ledger
+or output graph, that fallback is stronger than a noisy model repair status.
+Repair planning should remain available only when no deterministic current-state
+fallback exists.
+
+Generic fix direction: compute completion fallback for every evaluation status
+and let `repair_node` consume it before model repair planning. The fallback is
+derived from typed validation/ledger/output graphs, so it does not parse user
+intent, action prose, model repair prose, or data-value keywords.
+
+### Batch R - Completion Fallback Before Repair Planner
+
+28. Compute completion fallback independently of model status.
+    - Build ledger/output fallback whenever the current completion guard is
+      non-empty and deterministic fallback is available.
+    - Keep existing `complete` behavior unchanged.
+
+29. Route noisy repair through deterministic fallback first.
+    - In `repair_node`, prefer completion fallback, then repair fallback, then
+      repair planner.
+    - Keep actual incomplete gates without fallback on the existing repair path.
+
+30. Add decision regressions.
+    - A `repair_node` evaluation with missing reconcile but available typed
+      reconcile fallback returns the fallback plan.
+    - Completion fallback still preserves the guard reason and source.
+
+### G23. Completed Typed Workflow State Does Not Retire Stale Violations
+
+The Batch R focused rerun produced the correct final answer `17,0,5`. The
+latest ledger graph reported `next_stage=complete`, every required ledger was
+satisfied, and the output projection graph was `satisfied` with a present answer
+and complete reference projection. The terminal still ended as `repair_node`
+because `NormalizeEvaluationForWorkflowState` applied historical
+`workflow_violations` before checking the current typed completion state. Those
+violations were real earlier in the run, but later typed actions had superseded
+them.
+
+This is a stale-lineage priority gap. A hard gate over current typed blockers is
+still necessary, but historical violations must not outrank a later state whose
+ledger graph and output projection graph prove completion. The fix must not
+weaken `GateEvaluationWithWorkflowViolations` globally; the raw gate remains
+correct for incomplete states. The retirement decision belongs at the
+workflow-state normalization boundary and must use only typed stage, ledger, and
+output projection fields.
+
+Generic fix direction: add a reusable typed completion predicate for
+`WorkflowStateView`. When `next_stage=complete`, no required ledger is
+incomplete, and the output projection graph is satisfied with a present answer,
+evaluation normalization should treat historical workflow violations as lineage
+instead of terminal blockers. Incomplete states still use the existing violation
+gate. This does not parse model prose, action purpose text, user intent, file
+names, field-name keywords, or business values.
+
+### Batch S - Typed Completion Retires Stale Violation Lineage
+
+31. Add a workflow-state completion predicate.
+    - Require `next_stage=complete` from typed state.
+    - Require no incomplete required ledgers.
+    - Require a satisfied output projection graph with an answer present.
+    - Allow legacy state snapshots only when they still have a typed answer
+      signal and no incomplete ledgers.
+
+32. Apply the predicate before stale violation gating.
+    - `NormalizeEvaluationForWorkflowState` should normalize noisy statuses to
+      `complete` when current typed state is complete.
+    - `ConservativeEvaluationFromWorkflowState` should not let the raw
+      violation gate override a completed current state.
+    - Incomplete states retain existing hard violation behavior.
+
+33. Add regression coverage.
+    - A complete workflow state with old action-dependency violations
+      normalizes to `complete`.
+    - The same violation still gates an incomplete state to `repair_node`.
+    - Conservative fallback over a complete state ignores stale violations.
+
+### G24. Terminal Journal Preserves Stale Blocked Decision After Completion
+
+The Batch S focused rerun ended with the correct final answer `17,0,5`.
+Terminal JSON showed all current completion signals satisfied:
+
+- ledger graph `next_stage=complete`;
+- all required ledgers present and `satisfied`;
+- output projection graph `status=satisfied`, `answer_present=true`,
+  `projection_artifact_present=true`, and `reference_complete=true`;
+- result summary `answer_len=6`, `contributions=4`, `reconcile="pass"`.
+
+The eval still failed with `data_terminal_status:blocked`. The terminal journal
+preserved an older `decision.status=blocked` and top-level `last_error` from a
+prior plan-admission failure where `assemble_answer` had been attempted before
+the workflow stage allowed it. That blocked decision was useful lineage, but the
+latest typed snapshot had already completed after a later deterministic
+`assemble_answer` repair.
+
+This is a second status-source priority gap. Evaluation normalization and the
+terminal journal are separate consumers of workflow state. The journal has a
+valid guardrail that prevents callers from writing `complete` over a genuinely
+blocked state, but the guardrail must also consult the current typed
+ledger/output snapshot. Otherwise old blocked decisions can override completed
+terminal artifacts even when the answer and output projection graph are valid.
+
+Generic fix direction: terminal journal status resolution should preserve a
+non-complete base decision only when the current typed snapshot is not complete.
+When ledger and output graphs prove completion, the terminal decision should be
+`complete`, final `last_error` should be empty, and historical plan-admission or
+field-contract errors should remain in bounded `prior_errors`,
+`workflow_violations`, and `last_nonterminal_error` lineage. This uses typed
+snapshot fields only; it must not parse answer prose, model evaluation text,
+action purpose strings, field-name keywords, or business values.
+
+### Batch T - Terminal Journal Completion Authority
+
+34. Reuse the typed completion predicate for journal snapshots.
+    - Require complete ledger/output graph before retiring a blocked base
+      decision.
+    - Preserve existing journal protection for incomplete snapshots.
+
+35. Normalize terminal decision fields for completed snapshots.
+    - Final status and decision status become `complete`.
+    - Final `last_error` is empty.
+    - Stale base decision reasons, violations, and next-actions are removed from
+      the terminal decision and retained in lineage fields.
+
+36. Add journal regression coverage.
+    - A completed snapshot with stale blocked decision writes terminal
+      `complete`.
+    - Incomplete snapshots still preserve blocked/failed final status.

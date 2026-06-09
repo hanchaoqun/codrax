@@ -86,9 +86,10 @@ var actionCapabilities = map[dataquery.DataActionKind]ActionCapability{
 		InputPaths:     ActionInputPathContract{Min: 2, Max: 2},
 	},
 	dataquery.DataActionFilterRecords: {
-		Kind:           dataquery.DataActionFilterRecords,
-		DependencyRank: 3,
-		InputPaths:     ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
+		Kind:            dataquery.DataActionFilterRecords,
+		DependencyRank:  3,
+		ProducesLedgers: []LedgerKind{LedgerDecisions},
+		InputPaths:      ActionInputPathContract{Min: 1, Max: 1, SingleRecordSet: true},
 	},
 	dataquery.DataActionValueDistribution: {
 		Kind:           dataquery.DataActionValueDistribution,

@@ -416,20 +416,23 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 }
 
 func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
-	var guard dataworkflow.GuardResult
 	var completionFallback dataworkflow.EvaluationFallbackCandidate
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
 	completionSatisfied := dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, current, result)
-	if eval.Status == dataquery.EvalComplete {
-		guard = dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
-		if !guard.Empty() {
-			transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, current, result, guard)
-			if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
-				completionFallback = dataworkflow.EvaluationFallbackCandidate{
-					Source:    "ledger",
-					Plan:      transition.Plan,
-					Reason:    guard.ErrorText(),
-					Available: true,
-				}
+	if !completionSatisfied &&
+		dataTaskEvaluationStatusAllowsCompletionGateOverride(eval.Status) &&
+		guard.Empty() &&
+		dataworkflow.ResultHasAssembleAnswerArtifact(result) {
+		completionSatisfied = true
+	}
+	if !guard.Empty() {
+		transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, current, result, guard)
+		if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
+			completionFallback = dataworkflow.EvaluationFallbackCandidate{
+				Source:    "ledger",
+				Plan:      transition.Plan,
+				Reason:    guard.ErrorText(),
+				Available: true,
 			}
 		}
 	}
@@ -505,6 +508,19 @@ func dataTaskEvaluationStatusLooksTerminal(status dataquery.EvaluationStatus) bo
 	}
 }
 
+func dataTaskEvaluationStatusAllowsCompletionGateOverride(status dataquery.EvaluationStatus) bool {
+	switch status {
+	case dataquery.EvalRepairNode,
+		dataquery.EvalNeedsClarification,
+		dataquery.EvalBlocked,
+		dataquery.EvalBudgetExhausted,
+		dataquery.EvalPartialAnswerPossible:
+		return true
+	default:
+		return false
+	}
+}
+
 func firstExecutableTaskPlan(first, fallback dataquery.TaskPlan) dataquery.TaskPlan {
 	if dataTaskPlanHasRuntimeShape(first) || len(first.Actions) > 0 || len(first.InputPaths) > 0 || strings.TrimSpace(first.Script) != "" {
 		return first
@@ -537,6 +553,9 @@ func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.Guar
 		if guard := dataTaskSingleActionShapeGuardResult(nil, plan, action, i, false); !guard.Empty() {
 			return guard
 		}
+	}
+	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(nil, plan); !guard.Empty() {
+		return guard
 	}
 	return dataworkflow.GuardResult{}
 }
@@ -602,6 +621,9 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 			return guard
 		}
 	}
+	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(records, plan); !guard.Empty() {
+		return guard
+	}
 	return dataworkflow.GuardResult{}
 }
 
@@ -656,7 +678,7 @@ func dataTaskActionShapeFacts(records []dataTaskWorkflowRecord, plan dataquery.T
 
 func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
 	errText := guard.ErrorText()
-	if dataTaskGuardHasCode(guard, "text_constraint_coverage_required", "text_constraint_rule_coverage_required") {
+	if dataTaskGuardHasCode(guard, "text_constraint_coverage_required", "text_constraint_rule_coverage_required", "rule_coverage_prerequisite_missing") {
 		contract := dataTaskWorkflowCoverageContract(records, plan)
 		action := dataworkflow.RuleCoverageCompletionAction(contract)
 		if strings.TrimSpace(action.ID) != "" {
@@ -1015,6 +1037,9 @@ func normalizeDataTaskPlanShapeForPolicy(plan dataquery.TaskPlan, policy TurnPol
 	if normalizeDataTaskStrictOutputContractFromShape(&plan) {
 		reasons = append(reasons, "enabled contribution/reconcile contract for a complex strict-output data plan")
 	}
+	if normalizeDataTaskRuleCoverageContractFromShape(&plan) {
+		reasons = append(reasons, "enabled rule coverage contract for required text/rule material in a validated data workflow")
+	}
 	normalized, shapeReasons := normalizeDataTaskPlanShape(plan)
 	reasons = append(reasons, shapeReasons...)
 	if normalizeDataTaskAggregationContractFromPolicy(&normalized, policy) {
@@ -1022,6 +1047,9 @@ func normalizeDataTaskPlanShapeForPolicy(plan dataquery.TaskPlan, policy TurnPol
 	}
 	if normalizeDataTaskStrictOutputContractFromShape(&normalized) {
 		reasons = append(reasons, "preserved contribution/reconcile contract after strict-output shape normalization")
+	}
+	if normalizeDataTaskRuleCoverageContractFromShape(&normalized) {
+		reasons = append(reasons, "preserved rule coverage contract after rule material shape normalization")
 	}
 	return normalized, reasons
 }
@@ -1075,6 +1103,40 @@ func normalizeDataTaskStrictOutputContractFromShape(plan *dataquery.TaskPlan) bo
 		changed = true
 	}
 	return changed
+}
+
+func normalizeDataTaskRuleCoverageContractFromShape(plan *dataquery.TaskPlan) bool {
+	if plan == nil || plan.CoverageContract.RuleCoverageRequired {
+		return false
+	}
+	if len(dataTaskRequiredRuleMaterialInputs(plan.CoverageContract)) == 0 {
+		return false
+	}
+	if dataTaskBusinessValidationLedgerCount(plan.CoverageContract) < 2 {
+		return false
+	}
+	if !dataTaskPlanHasStrictOutputContract(*plan) && !dataTaskPlanIsComplexAggregationCandidate(*plan) {
+		return false
+	}
+	plan.CoverageContract.RuleCoverageRequired = true
+	return true
+}
+
+func dataTaskBusinessValidationLedgerCount(contract dataquery.CoverageContract) int {
+	n := 0
+	if contract.DecisionRecordsRequired {
+		n++
+	}
+	if contract.ContributionLedgerRequired {
+		n++
+	}
+	if contract.EntityResolutionRequired {
+		n++
+	}
+	if contract.ReconcileRequired {
+		n++
+	}
+	return n
 }
 
 func dataTaskPlanHasStrictOutputContract(plan dataquery.TaskPlan) bool {
@@ -2703,6 +2765,29 @@ func dataTaskTextConstraintCoverageGuardResult(plan dataquery.TaskPlan) datawork
 		CustomInputPaths:            customInputs,
 		ScriptConsumedMaterialPaths: materials,
 	})
+}
+
+func dataTaskRuleCoveragePrerequisiteGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	contract := dataTaskWorkflowCoverageContract(records, plan)
+	state := dataTaskWorkflowState(records, plan)
+	return dataworkflow.RuleCoveragePrerequisiteGuardResult(dataworkflow.RuleCoveragePrerequisiteGuardInput{
+		RuleCoverageRequired: contract.RuleCoverageRequired,
+		RuleCoverageRecords:  dataTaskWorkflowRuleCoverageRecordCount(records),
+		PostRuleProgress:     state.Facts().HasPostRuleProgress(),
+		Actions:              plan.Actions,
+		RuleMaterialPaths:    dataTaskRequiredRuleMaterialInputs(contract),
+	})
+}
+
+func dataTaskWorkflowRuleCoverageRecordCount(records []dataTaskWorkflowRecord) int {
+	var ruleCoverage []dataquery.RuleCoverageRecord
+	for _, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		ruleCoverage = append(ruleCoverage, rec.Result.RuleCoverage...)
+	}
+	return len(dataquery.DedupeRuleCoverageRecords(ruleCoverage))
 }
 
 func dataTaskPathLooksLikeTextConstraintMaterial(p string) bool {
@@ -5161,6 +5246,7 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		return dataquery.ReferenceKeyCandidate{}, 0, false
 	}
 	candidatePaths := dataTaskReferenceCandidatePaths(records, current, result, contract)
+	primaryCandidatePaths, aggregateCandidatePaths := dataTaskReferenceProjectionCandidatePathBuckets(records, result, candidatePaths)
 	candidateFields := cleanDataTaskStrings([]string{contract.ReferenceKeyField})
 	runner := dataquery.ActionRunner{
 		RepoRoot: strings.TrimSpace(repoRoot),
@@ -5186,9 +5272,15 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		return candidate, answerItems, true
 	}
 	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
-	candidate, ok := dataTaskBestReferenceProjectionGapCandidate(runner, candidatePaths, candidateFields, groupKeys, result, answerItems, contract)
+	candidate, ok := dataTaskBestReferenceProjectionGapCandidate(runner, primaryCandidatePaths, candidateFields, groupKeys, result, answerItems, contract)
 	if !ok && len(candidateFields) > 0 {
-		candidate, ok = dataTaskBestReferenceProjectionGapCandidate(runner, candidatePaths, nil, groupKeys, result, answerItems, contract)
+		candidate, ok = dataTaskBestReferenceProjectionGapCandidate(runner, primaryCandidatePaths, nil, groupKeys, result, answerItems, contract)
+	}
+	if !ok && len(aggregateCandidatePaths) > 0 {
+		candidate, ok = dataTaskBestReferenceProjectionGapCandidate(runner, aggregateCandidatePaths, candidateFields, groupKeys, result, answerItems, contract)
+		if !ok && len(candidateFields) > 0 {
+			candidate, ok = dataTaskBestReferenceProjectionGapCandidate(runner, aggregateCandidatePaths, nil, groupKeys, result, answerItems, contract)
+		}
 	}
 	if !ok {
 		return dataquery.ReferenceKeyCandidate{}, 0, false
@@ -5682,6 +5774,80 @@ func dataTaskReferenceCandidatePaths(records []dataTaskWorkflowRecord, current d
 		}
 	}
 	return cleanDataTaskStrings(paths)
+}
+
+func dataTaskReferenceProjectionCandidatePathBuckets(records []dataTaskWorkflowRecord, result dataquery.Result, paths []string) ([]string, []string) {
+	aggregateAliases := dataTaskMultiSourceArtifactAliasSet(records, result)
+	var primary []string
+	var aggregate []string
+	for _, path := range cleanDataTaskStrings(paths) {
+		normalized := normalizeDataTaskCoveragePath(path)
+		if normalized != "" && aggregateAliases[normalized] {
+			aggregate = append(aggregate, path)
+			continue
+		}
+		primary = append(primary, path)
+	}
+	return cleanDataTaskStrings(primary), cleanDataTaskStrings(aggregate)
+}
+
+func dataTaskMultiSourceArtifactAliasSet(records []dataTaskWorkflowRecord, latest dataquery.Result) map[string]bool {
+	out := map[string]bool{}
+	var mark func(dataquery.DataArtifact)
+	mark = func(artifact dataquery.DataArtifact) {
+		if dataTaskArtifactLooksMultiSourceAggregate(artifact) {
+			for _, alias := range dataTaskArtifactAliasPaths(artifact) {
+				normalized := normalizeDataTaskCoveragePath(alias)
+				if normalized != "" {
+					out[normalized] = true
+				}
+			}
+			if artifact.Fields != nil {
+				normalized := normalizeDataTaskCoveragePath(artifact.Fields["artifact_path"])
+				if normalized != "" {
+					out[normalized] = true
+				}
+			}
+		}
+		for _, child := range artifact.Children {
+			mark(child)
+		}
+	}
+	for _, artifact := range latest.Artifacts {
+		mark(artifact)
+	}
+	for _, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		for _, artifact := range rec.Result.Artifacts {
+			mark(artifact)
+		}
+	}
+	return out
+}
+
+func dataTaskArtifactLooksMultiSourceAggregate(artifact dataquery.DataArtifact) bool {
+	if len(cleanDataTaskStrings(artifact.SourcePaths)) > 1 {
+		return true
+	}
+	childSources := map[string]bool{}
+	var collectChildSources func(dataquery.DataArtifact)
+	collectChildSources = func(child dataquery.DataArtifact) {
+		for _, path := range cleanDataTaskStrings(child.SourcePaths) {
+			normalized := normalizeDataTaskCoveragePath(path)
+			if normalized != "" {
+				childSources[normalized] = true
+			}
+		}
+		for _, grandchild := range child.Children {
+			collectChildSources(grandchild)
+		}
+	}
+	for _, child := range artifact.Children {
+		collectChildSources(child)
+	}
+	return len(childSources) > 1
 }
 
 func dataTaskRequiredOutputProjectionPlan(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, bool) {

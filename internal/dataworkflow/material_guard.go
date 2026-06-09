@@ -16,6 +16,14 @@ type TextConstraintCoverageGuardInput struct {
 	ScriptConsumedMaterialPaths []string
 }
 
+type RuleCoveragePrerequisiteGuardInput struct {
+	RuleCoverageRequired bool
+	RuleCoverageRecords  int
+	PostRuleProgress     bool
+	Actions              []dataquery.DataAction
+	RuleMaterialPaths    []string
+}
+
 type RequiredMaterialSchedulingGuardInput struct {
 	ContinueAfter  bool
 	RequiredPaths  []string
@@ -56,6 +64,52 @@ func TextConstraintCoverageGuardResult(input TextConstraintCoverageGuardInput) G
 		Reason:            message,
 	})
 	return NewGuardResult("text_constraint_coverage_required", "error", RepairNeedsTypedAction, message, violation)
+}
+
+func RuleCoveragePrerequisiteGuardResult(input RuleCoveragePrerequisiteGuardInput) GuardResult {
+	if !input.RuleCoverageRequired || input.RuleCoverageRecords > 0 || input.PostRuleProgress {
+		return GuardResult{}
+	}
+	var blocked []dataquery.DataAction
+	for _, action := range input.Actions {
+		kind := NormalizeActionKind(action.Kind)
+		switch kind {
+		case dataquery.DataActionDeriveRules,
+			dataquery.DataActionMaterialInventory,
+			dataquery.DataActionInspectMaterial,
+			dataquery.DataActionExtractRecords:
+			continue
+		default:
+			if DependencyRank(kind) <= 1 && !IsLeafFallback(kind) {
+				continue
+			}
+			blocked = append(blocked, action)
+		}
+	}
+	if len(blocked) == 0 {
+		return GuardResult{}
+	}
+	materials := cleanStrings(input.RuleMaterialPaths)
+	if len(materials) == 0 {
+		materials = []string{"coverage_contract.rule_coverage_required"}
+	}
+	sort.Strings(materials)
+	first := blocked[0]
+	kind := NormalizeActionKind(first.Kind)
+	message := fmt.Sprintf("data planning incomplete: rule_coverage_required=true but no rule_coverage records are materialized before action %s (%s). First emit derive_rules from rule/constraint materials [%s], then continue with downstream typed data actions.",
+		firstNonEmptyGuardText(strings.TrimSpace(first.ID), "action"),
+		kind,
+		strings.Join(materials, ", "))
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              "rule_coverage_prerequisite_missing",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		Action:            first,
+		InputAliases:      materials,
+		RepairActionHints: []string{string(dataquery.DataActionDeriveRules)},
+		Reason:            message,
+	})
+	return NewGuardResult("rule_coverage_prerequisite_missing", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func RequiredMaterialSchedulingGuardResult(input RequiredMaterialSchedulingGuardInput) GuardResult {

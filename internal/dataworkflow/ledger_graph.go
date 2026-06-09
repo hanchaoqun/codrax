@@ -39,7 +39,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			Present:         facts.DecisionRecords > 0,
 			Count:           facts.DecisionRecords,
 			Stage:           StagePrepareContributionInputs,
-			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionQualifyRecords, dataquery.DataActionComputeContribs},
+			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords, dataquery.DataActionComputeContribs},
 			DependsOn:       ledgerDependsOn(facts.RuleCoverageRequired, LedgerRuleCoverage),
 			MissingPrerequisites: ledgerPrerequisites(
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},

@@ -158,7 +158,8 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	}
 	summary := firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, state.WorkflowViolationSummary, BuildWorkflowViolationSummary(violations))
 	requestedStatus := strings.TrimSpace(input.Status)
-	preserveBaseStatus := workflowJournalShouldPreserveBaseStatus(state.Decision.Status, requestedStatus)
+	completionSatisfied := WorkflowStateSnapshotCompletionSatisfied(state)
+	preserveBaseStatus := workflowJournalShouldPreserveBaseStatus(state.Decision.Status, requestedStatus) && !completionSatisfied
 	lastError := strings.TrimSpace(input.LastError)
 	priorErrors := workflowJournalPriorErrors(records, 8)
 	lastNonterminalError := ""
@@ -166,7 +167,7 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		lastNonterminalError = firstNonEmptyJournalText(lastError, latestWorkflowPriorErrorText(priorErrors))
 		lastError = ""
 	}
-	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, lastError, state.DecisionFallbackReasonCode)
+	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, lastError, state.DecisionFallbackReasonCode, completionSatisfied)
 	status := workflowJournalStatus(input.Status, decision)
 	reason := workflowJournalReason(input.Status, input.Reason, decision)
 	return WorkflowJournal{
@@ -234,15 +235,21 @@ func latestWorkflowPriorErrorText(errors []WorkflowPriorError) string {
 	return ""
 }
 
-func BuildWorkflowJournalDecision(base WorkflowDecision, status, reason, lastErr, fallbackReasonCode string) WorkflowDecision {
+func BuildWorkflowJournalDecision(base WorkflowDecision, status, reason, lastErr, fallbackReasonCode string, completionSatisfied bool) WorkflowDecision {
 	decision := base
 	if text := strings.TrimSpace(status); text != "" {
-		if !workflowJournalShouldPreserveBaseStatus(base.Status, text) {
+		if !workflowJournalShouldPreserveBaseStatus(base.Status, text) || completionSatisfied {
 			decision.Status = text
 		}
 	}
 	if decision.ReasonCode == "" {
 		decision.ReasonCode = firstNonEmptyJournalText(status, fallbackReasonCode)
+	}
+	if completionSatisfied && workflowDecisionStatusLooksComplete(status) {
+		decision.Reason = strings.TrimSpace(reason)
+		decision.Violations = nil
+		decision.NextActions = nil
+		return decision
 	}
 	if text := firstNonEmptyJournalText(reason, lastErr); text != "" {
 		decision.Reason = text

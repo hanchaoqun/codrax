@@ -1896,6 +1896,110 @@ func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T
 	}
 }
 
+func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T) {
+	current := dataquery.TaskPlan{
+		ContinueAfter: true,
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:   "project_final_answer",
+			Kind: dataquery.DataActionAssembleAnswer,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "11,13",
+		OutputContract: current.OutputContract,
+		Rows: []dataquery.RowDecision{
+			{RowID: "row-1", Decision: "include"},
+			{RowID: "row-2", Decision: "include"},
+		},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("row-1"), Source: dataquery.LooseText("records.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("left"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("row-2"), Source: dataquery.LooseText("records.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("right"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("13"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status:       dataquery.LooseText("pass"),
+			ActualAnswer: dataquery.LooseText("11,13"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("left"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("11"), Actual: dataquery.LooseText("11"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("right"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("13"), Actual: dataquery.LooseText("13"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"projection": "values",
+			},
+		}},
+	}
+	if dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
+		t.Fatal("fixture must exercise the completion-gate path outside the stricter structural helper")
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo("", nil, current, result)
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, want current typed completion satisfied", guard)
+	}
+	decision := dataTaskEvaluationDecisionWithRepo("", nil, current, result, dataquery.Evaluation{
+		Status: dataquery.EvalRepairNode,
+		Reason: "older workflow node still requests repair",
+	}, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if decision.Action != dataworkflow.EvaluationDecisionReturnAnswer ||
+		decision.Status != "complete" ||
+		decision.Source != "completion_gate" {
+		t.Fatalf("decision=%+v, want current completion gate to override noisy repair", decision)
+	}
+}
+
+func TestDataTaskEvaluationDecisionUsesCompletionFallbackForNoisyRepair(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "left=11",
+		OutputContract: current.OutputContract,
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("row-1"), Source: dataquery.LooseText("records.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("left"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "contributions",
+			Kind: string(dataquery.DataActionComputeContribs),
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo("", nil, current, result)
+	if guard.Empty() {
+		t.Fatal("fixture must have a missing completion ledger")
+	}
+	decision := dataTaskEvaluationDecisionWithRepo("", nil, current, result, dataquery.Evaluation{
+		Status: dataquery.EvalRepairNode,
+		Reason: "older node still asks for repair",
+	}, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if decision.Action != dataworkflow.EvaluationDecisionFallbackPlan ||
+		decision.Source != "ledger" ||
+		!decision.HasPlan() {
+		t.Fatalf("decision=%+v, want completion fallback before repair planner", decision)
+	}
+	if len(decision.Plan.Actions) == 0 || decision.Plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("fallback plan=%+v, want reconcile_artifacts", decision.Plan)
+	}
+}
+
 func TestDataTaskWorkflowCompletionGateRejectsUnprojectedSameCountReferenceAnswer(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
@@ -2042,6 +2146,93 @@ func TestDataTaskWorkflowCompletionGateDetectsReferenceSubsetWithRollup(t *testi
 		plan.OutputContract.ReferencePath != "targets.csv" ||
 		plan.OutputContract.ReferenceKeyField != "canonical_label" {
 		t.Fatalf("OutputContract=%+v, want targets.csv canonical_label reference", plan.OutputContract)
+	}
+}
+
+func TestDataTaskReferenceProjectionPrefersAtomicCandidateOverAggregateArtifact(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("id,group_key\nR1,GroupA\nR2,GroupX\nR3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	combinedPath := filepath.Join(root, "combined_records.json")
+	if err := os.WriteFile(combinedPath, []byte(`[
+{"group_key":"GroupA"},
+{"group_key":"GroupB"},
+{"group_key":"GroupC"},
+{"group_key":"GroupX"}
+]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	combinedArtifact := dataquery.DataArtifact{
+		ID:          "combined_records",
+		Kind:        string(dataquery.DataActionExtractRecords),
+		SourcePaths: []string{"source_a.csv", "source_b.csv"},
+		Headers:     []string{"group_key"},
+		Fields: map[string]string{
+			"artifact_path":    combinedPath,
+			"artifact_aliases": "combined_records,combined_records.json",
+		},
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"combined_records", "reference.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "17,4,5",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"combined_records", "reference.csv"},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("row-1"), Source: dataquery.LooseText("source_a.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("row-2"), Source: dataquery.LooseText("source_b.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("row-3"), Source: dataquery.LooseText("source_a.csv"), SourceLocator: dataquery.LooseText("line:3"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{
+			combinedArtifact,
+			{
+				ID:   "final_answer",
+				Kind: string(dataquery.DataActionAssembleAnswer),
+				Fields: map[string]string{
+					"group_count": "3",
+					"projection":  "values",
+				},
+			},
+		},
+	}
+	records := []dataTaskWorkflowRecord{{Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{combinedArtifact}}}}
+	candidate, _, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
+	if !ok {
+		t.Fatal("expected reference projection gap")
+	}
+	if candidate.Path != "reference.csv" || candidate.Field != "group_key" || candidate.KeyCount != 3 {
+		t.Fatalf("candidate=%+v, want atomic reference.csv group_key despite broader aggregate overlap", candidate)
+	}
+
+	fallbackCurrent := current
+	fallbackCurrent.InputPaths = []string{"combined_records"}
+	fallbackResult := result
+	fallbackResult.ConsumedPaths = []string{"combined_records"}
+	candidate, _, ok = dataTaskOutputReferenceProjectionGap(root, records, fallbackCurrent, fallbackResult)
+	if !ok {
+		t.Fatal("expected aggregate fallback reference projection gap")
+	}
+	if candidate.Path != "combined_records" || candidate.Field != "group_key" || candidate.KeyCount != 4 {
+		t.Fatalf("candidate=%+v, want aggregate fallback when no atomic candidate exists", candidate)
 	}
 }
 
@@ -3886,6 +4077,75 @@ func TestDataTaskWorkflowStagingGuardRequiresRuleCoverageForTextConstraintMateri
 	plan.CoverageContract.RuleCoverageRequired = true
 	if errText := dataTaskWorkflowStagingGuardError(nil, plan); strings.Contains(errText, "rule_coverage_required=false") {
 		t.Fatalf("errText=%q, should not require rule coverage when already enabled", errText)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeForPolicyRequiresRuleCoverageForStrictRuleMaterial(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"instructions.md", "targets.csv", "observations.csv", "labels.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "labels.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "observations.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "targets.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "read_instructions", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"instructions.md"}},
+			{ID: "join_records", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"observations.csv", "labels.csv"}},
+		},
+	}
+	got, reasons := normalizeDataTaskPlanShapeForPolicy(plan, TurnPolicy{})
+	if !got.CoverageContract.RuleCoverageRequired {
+		t.Fatalf("RuleCoverageRequired=false, reasons=%v plan=%+v", reasons, got.CoverageContract)
+	}
+	if !got.CoverageContract.DecisionRecordsRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage=%+v, want strict output ledgers preserved", got.CoverageContract)
+	}
+	if !strings.Contains(strings.Join(reasons, ","), "rule coverage") {
+		t.Fatalf("reasons=%v, want rule coverage normalization reason", reasons)
+	}
+}
+
+func TestDataTaskWorkflowStagingGuardRequiresDerivedRulesBeforeDownstreamActions(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "observations.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "labels.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "read_instructions", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"instructions.md"}},
+			{ID: "join_records", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"observations.csv", "labels.csv"}},
+		},
+	}
+	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
+	if guard.Code != "rule_coverage_prerequisite_missing" {
+		t.Fatalf("guard=%+v, want rule_coverage_prerequisite_missing", guard)
+	}
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
+	if !ok {
+		t.Fatalf("fallback not available, reason=%q guard=%+v", reason, guard)
+	}
+	if len(fallback.Actions) != 1 || fallback.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("fallback=%+v, want derive_rules", fallback)
+	}
+	if strings.Join(fallback.Actions[0].InputPaths, ",") != "instructions.md" {
+		t.Fatalf("fallback action=%+v, want rule material input", fallback.Actions[0])
 	}
 }
 

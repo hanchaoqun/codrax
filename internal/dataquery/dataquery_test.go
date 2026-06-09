@@ -313,6 +313,63 @@ func TestActionRunnerFilterParamShapeIsTyped(t *testing.T) {
 	}
 }
 
+func TestActionRunnerFilterRecordsEmitsDecisionLedgerWhenRequired(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,status,amount\n1,paid,10\n2,pending,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired: true,
+			RuleCoverageRequired:    true,
+		},
+		Actions: []DataAction{{
+			ID:             "filter_paid",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"items.csv"},
+			OutputArtifact: "paid_items",
+			Params: map[string]string{
+				"filter_field":  "status",
+				"filter_value":  "paid",
+				"item_id_field": "id",
+			},
+		}},
+	}
+	seed := Result{RuleCoverage: []RuleCoverageRecord{{
+		RuleID:       "r_paid",
+		RuleText:     "paid rows are eligible",
+		Status:       "applied",
+		EvidenceRefs: []string{"rules.md:1"},
+	}}}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run filter_records: %v", err)
+	}
+	if len(res.Rows) != 2 {
+		t.Fatalf("Rows=%+v, want include and exclude decisions", res.Rows)
+	}
+	decisions := map[string]RowDecision{}
+	for _, row := range res.Rows {
+		decisions[row.RowID] = row
+	}
+	if decisions["1"].Decision != "include" || decisions["2"].Decision != "exclude" {
+		t.Fatalf("Rows=%+v, want include/exclude by filter", res.Rows)
+	}
+	for _, row := range res.Rows {
+		if len(row.RuleRefs) != 1 || row.RuleRefs[0] != "r_paid" {
+			t.Fatalf("row=%+v, want source-backed rule ref", row)
+		}
+		if len(row.EvidenceRef) == 0 || !strings.Contains(row.EvidenceRef[0], "items.csv") {
+			t.Fatalf("row=%+v, want source evidence ref", row)
+		}
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[len(res.Artifacts)-1].RowCount != 1 {
+		t.Fatalf("Artifacts=%+v, want filtered output artifact with one row", res.Artifacts)
+	}
+}
+
 func TestActionRunnerMissingActionInputIsTyped(t *testing.T) {
 	plan := TaskPlan{
 		Status: "ready",
@@ -9216,6 +9273,63 @@ func TestActionRunnerAssembleAnswerHonorsExplicitReferencePathBeforeFallbackInpu
 	}
 	if res.Artifacts[len(res.Artifacts)-1].Fields["group_count"] != "3" {
 		t.Fatalf("Assemble fields=%+v, want group_count=3 from explicit reference path", res.Artifacts[len(res.Artifacts)-1].Fields)
+	}
+}
+
+func TestActionRunnerAssembleAnswerMarksReferencePathConsumed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "reference.csv"), []byte("id,group_key\nR1,A\nR2,B\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		OutputContract: OutputContract{
+			Format:             OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "reference.csv",
+			ReferenceKeyField:  "group_key",
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{
+				Path:      "reference.csv",
+				Required:  true,
+				UsageMode: MaterialUseScriptConsumed,
+			}},
+			ReconcileRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:   "answer",
+			Kind: DataActionAssembleAnswer,
+			Params: map[string]string{
+				"complete_reference":  "true",
+				"reference_path":      "reference.csv",
+				"reference_key_field": "group_key",
+				"projection":          "values",
+			},
+		}},
+	}
+	seed := Result{
+		Reconcile: &ReconcileReport{
+			Status: LooseText("pass"),
+			Groups: []ReconcileGroup{
+				{GroupKey: LooseText("A"), Metric: LooseText("value"), Expected: LooseText("7"), Actual: LooseText("7")},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	consumed := map[string]bool{}
+	for _, path := range res.ConsumedPaths {
+		consumed[path] = true
+	}
+	if !consumed["reference.csv"] {
+		t.Fatalf("ConsumedPaths=%v, want reference.csv from assemble_answer reference projection", res.ConsumedPaths)
+	}
+	if res.Answer != "7,0" {
+		t.Fatalf("Answer=%q, want reference projection values", res.Answer)
 	}
 }
 

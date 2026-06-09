@@ -132,6 +132,67 @@ func TestConservativeEvaluationFromWorkflowStateUsesTypedViolation(t *testing.T)
 	}
 }
 
+func TestNormalizeEvaluationForWorkflowStateIgnoresStaleViolationsWhenComplete(t *testing.T) {
+	state := completedWorkflowStateForEvaluationTest([]WorkflowViolation{
+		actionDependencyViolationForEvaluationTest(),
+	})
+	eval := NormalizeEvaluationForWorkflowState(state, dataquery.Evaluation{
+		Status:     dataquery.EvalComplete,
+		Confidence: "high",
+		Reason:     "current ledger and projection graph are complete",
+	})
+	if eval.Status != dataquery.EvalComplete || eval.ActionID != "" || eval.ActionKind != "" {
+		t.Fatalf("eval=%+v, want completed state to retire stale violation lineage", eval)
+	}
+	if strings.Contains(eval.Reason, "typed_violation=action_dependency_violation") {
+		t.Fatalf("Reason=%q, stale workflow violation should stay out of terminal evaluation reason", eval.Reason)
+	}
+}
+
+func TestNormalizeEvaluationForWorkflowStateStillGatesIncompleteState(t *testing.T) {
+	state := completedWorkflowStateForEvaluationTest([]WorkflowViolation{
+		actionDependencyViolationForEvaluationTest(),
+	})
+	state.NextStage = StageReconcileArtifacts
+	state.LedgerGraph.NextStage = StageReconcileArtifacts
+	state.OutputProjectionGraph.Status = OutputProjectionStatusMissingProjection
+	eval := NormalizeEvaluationForWorkflowState(state, dataquery.Evaluation{
+		Status:     dataquery.EvalComplete,
+		Confidence: "high",
+		Reason:     "model says complete",
+	})
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "old_compute" ||
+		eval.ActionKind != string(dataquery.DataActionComputeContribs) ||
+		!strings.Contains(eval.Reason, "typed_violation=action_dependency_violation") {
+		t.Fatalf("eval=%+v, want incomplete state gated by typed workflow violation", eval)
+	}
+}
+
+func TestConservativeEvaluationFromWorkflowStateIgnoresStaleViolationsWhenComplete(t *testing.T) {
+	eval := ConservativeEvaluationFromWorkflowState(ConservativeEvaluationInput{
+		Records: []WorkflowRecord{{
+			Plan: dataquery.TaskPlan{
+				Actions: []dataquery.DataAction{{
+					ID:   "old_compute",
+					Kind: dataquery.DataActionComputeContribs,
+				}},
+			},
+			Err: "older action failed before later recovery",
+		}},
+		State: completedWorkflowStateForEvaluationTest([]WorkflowViolation{
+			actionDependencyViolationForEvaluationTest(),
+		}),
+	})
+	if eval.Status != dataquery.EvalComplete ||
+		eval.ActionID != "" ||
+		eval.ActionKind != "" ||
+		!strings.Contains(eval.Reason, "current typed workflow state is complete") ||
+		!strings.Contains(eval.Reason, "original_status=repair_node") {
+		t.Fatalf("eval=%+v, want conservative fallback normalized by completed typed state", eval)
+	}
+}
+
 func TestConservativeEvaluationFromWorkflowStateUsesLastError(t *testing.T) {
 	eval := ConservativeEvaluationFromWorkflowState(ConservativeEvaluationInput{
 		Records: []WorkflowRecord{{
@@ -148,6 +209,43 @@ func TestConservativeEvaluationFromWorkflowStateUsesLastError(t *testing.T) {
 		eval.ActionID != "compute_totals" ||
 		eval.ActionKind != string(dataquery.DataActionComputeContribs) {
 		t.Fatalf("eval=%+v, want repair from latest failed action", eval)
+	}
+}
+
+func completedWorkflowStateForEvaluationTest(violations []WorkflowViolation) WorkflowStateView {
+	return WorkflowStateView{
+		MaterialCoverageSufficient: true,
+		NextStage:                  StageComplete,
+		HasAnswer:                  true,
+		LedgerGraph: LedgerGraph{
+			NextStage: StageComplete,
+			Dependencies: []LedgerDependency{{
+				Ledger:   string(LedgerFinalProjection),
+				Required: true,
+				Present:  true,
+				Status:   LedgerStatusSatisfied,
+				Stage:    StageEmitOutputContractAnswer,
+			}},
+		},
+		OutputProjectionGraph: OutputProjectionGraph{
+			Status:                    OutputProjectionStatusSatisfied,
+			AnswerPresent:             true,
+			ProjectionArtifactPresent: true,
+			ReferenceComplete:         true,
+		},
+		WorkflowViolations: violations,
+	}
+}
+
+func actionDependencyViolationForEvaluationTest() WorkflowViolation {
+	return WorkflowViolation{
+		Code:          "action_dependency_violation",
+		Severity:      "error",
+		Repairability: RepairNeedsTypedAction,
+		ActionID:      "old_compute",
+		ActionKind:    string(dataquery.DataActionComputeContribs),
+		InputAlias:    "stale_input",
+		Reason:        "older action was outside the current allowed stage",
 	}
 }
 
@@ -231,6 +329,34 @@ func TestDecideEvaluationCompletionSatisfiedOverridesNoisyRepair(t *testing.T) {
 	})
 	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "complete" || decision.Source != "completion_gate" {
 		t.Fatalf("decision=%#v, want deterministic completion to return answer", decision)
+	}
+}
+
+func TestDecideEvaluationRepairUsesCompletionFallbackBeforePlanner(t *testing.T) {
+	guard := NewGuardResult("missing_reconcile", "error", RepairNeedsTypedAction, "repair missing reconcile", WorkflowViolation{Code: "missing_required_ledger"})
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{
+			Status: dataquery.EvalRepairNode,
+			Reason: "older node still asks for repair",
+		},
+		CompletionGuard: guard,
+		CompletionFallback: EvaluationFallbackCandidate{
+			Source: "ledger",
+			Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+				ID:   "continue_reconcile",
+				Kind: dataquery.DataActionReconcile,
+			}}},
+			Reason:    guard.ErrorText(),
+			Available: true,
+		},
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionFallbackPlan || decision.Source != "ledger" || !decision.HasPlan() {
+		t.Fatalf("decision=%#v, want completion fallback before repair planner", decision)
+	}
+	if decision.Plan.Actions[0].Kind != dataquery.DataActionReconcile {
+		t.Fatalf("Plan=%+v, want reconcile fallback", decision.Plan)
 	}
 }
 

@@ -23,8 +23,10 @@ func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) 
 		reason = "evaluator produced no structured tool call after prose response; continuing conservatively"
 	}
 	base := dataquery.Evaluation{Status: dataquery.EvalContinueData, Confidence: "low", Reason: reason}
-	if gated, ok := GateEvaluationWithWorkflowViolations(base, input.State.WorkflowViolations); ok {
-		return gated
+	if !WorkflowStateCompletionSatisfied(input.State) {
+		if gated, ok := GateEvaluationWithWorkflowViolations(base, input.State.WorkflowViolations); ok {
+			return gated
+		}
 	}
 	if len(input.Records) == 0 {
 		return NormalizeEvaluationForWorkflowState(input.State, base)
@@ -46,6 +48,9 @@ func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) 
 }
 
 func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery.Evaluation) dataquery.Evaluation {
+	if WorkflowStateCompletionSatisfied(state) {
+		return normalizeCompletedWorkflowEvaluation(eval)
+	}
 	if gated, ok := GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
 		return gated
 	}
@@ -60,6 +65,91 @@ func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery
 	note := "workflow custom_transform_disabled=true; continue with typed allowed_next_actions [" + strings.Join(allowed, ", ") + "] at next_stage=" + strings.TrimSpace(state.NextStage)
 	eval.Reason = appendEvaluationReason(eval.Reason, note)
 	return eval
+}
+
+func WorkflowStateCompletionSatisfied(state WorkflowStateView) bool {
+	return workflowLedgerOutputCompletionSatisfied(
+		workflowStateCompletionStage(state),
+		state.LedgerGraph,
+		state.OutputProjectionGraph,
+		state.HasAnswer,
+		state.MissingRequiredMaterialCount,
+	)
+}
+
+func WorkflowStateSnapshotCompletionSatisfied(state WorkflowStateSnapshot) bool {
+	if !stageFactsIsZero(state.StageFacts) && !state.StageFacts.MaterialCoverageSufficient {
+		return false
+	}
+	return workflowLedgerOutputCompletionSatisfied(
+		workflowStateSnapshotCompletionStage(state),
+		state.LedgerGraph,
+		state.OutputGraph,
+		state.StageFacts.HasAnswer,
+		0,
+	)
+}
+
+func workflowLedgerOutputCompletionSatisfied(stage string, ledgerGraph LedgerGraph, outputGraph OutputProjectionGraph, hasAnswer bool, missingRequiredMaterialCount int) bool {
+	if strings.TrimSpace(stage) != StageComplete {
+		return false
+	}
+	if missingRequiredMaterialCount > 0 {
+		return false
+	}
+	if _, ok := FirstIncompleteRequiredLedger(ledgerGraph); ok {
+		return false
+	}
+	return workflowOutputProjectionSatisfied(outputGraph, hasAnswer)
+}
+
+func workflowStateCompletionStage(state WorkflowStateView) string {
+	if stage := strings.TrimSpace(state.NextStage); stage != "" {
+		return stage
+	}
+	if stage := strings.TrimSpace(state.LedgerGraph.NextStage); stage != "" {
+		return stage
+	}
+	return strings.TrimSpace(state.ComputedNextStage())
+}
+
+func workflowStateSnapshotCompletionStage(state WorkflowStateSnapshot) string {
+	if stage := strings.TrimSpace(state.LedgerGraph.NextStage); stage != "" {
+		return stage
+	}
+	if !stageFactsIsZero(state.StageFacts) {
+		return strings.TrimSpace(NextStage(state.StageFacts))
+	}
+	return strings.TrimSpace(state.DecisionFallbackReasonCode)
+}
+
+func workflowOutputProjectionSatisfied(graph OutputProjectionGraph, hasAnswer bool) bool {
+	answerPresent := hasAnswer || graph.AnswerPresent
+	status := strings.TrimSpace(graph.Status)
+	if status == "" {
+		return answerPresent
+	}
+	return status == OutputProjectionStatusSatisfied && answerPresent
+}
+
+func normalizeCompletedWorkflowEvaluation(eval dataquery.Evaluation) dataquery.Evaluation {
+	out := eval
+	originalStatus := strings.TrimSpace(string(out.Status))
+	if out.Status != dataquery.EvalComplete {
+		note := "current typed workflow state is complete"
+		if originalStatus != "" {
+			note = appendEvaluationReason(note, "original_status="+originalStatus)
+		}
+		out.Reason = appendEvaluationReason(out.Reason, note)
+	}
+	out.Status = dataquery.EvalComplete
+	if confidence := strings.ToLower(strings.TrimSpace(out.Confidence)); confidence == "" || confidence == "low" {
+		out.Confidence = "high"
+	}
+	out.ActionID = ""
+	out.ActionKind = ""
+	out.RepairLocus = ""
+	return out
 }
 
 type EvaluationDecisionAction string
@@ -164,6 +254,16 @@ func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 			Reason: appendEvaluationReason("data task evaluator requested continuation but continuation planner is unavailable", eval.Reason),
 		}
 	case dataquery.EvalRepairNode:
+		if input.CompletionFallback.Available && taskPlanHasExecutableShape(input.CompletionFallback.Plan) {
+			return EvaluationDecision{
+				Action: EvaluationDecisionFallbackPlan,
+				Status: "continue",
+				Source: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Source), "completion_gate"),
+				Plan:   cloneTaskPlanValue(input.CompletionFallback.Plan),
+				Guard:  input.CompletionGuard,
+				Reason: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Reason), input.CompletionGuard.ErrorText()),
+			}
+		}
 		if input.RepairFallback.Available && taskPlanHasExecutableShape(input.RepairFallback.Plan) {
 			return EvaluationDecision{
 				Action: EvaluationDecisionFallbackPlan,

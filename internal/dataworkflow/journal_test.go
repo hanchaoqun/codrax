@@ -175,6 +175,74 @@ func TestWorkflowJournalCompleteMovesPriorErrorToLineage(t *testing.T) {
 	}
 }
 
+func TestWorkflowJournalCompleteSnapshotOverridesStaleBlockedDecision(t *testing.T) {
+	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
+	rt.AppendRecord(WorkflowRecord{
+		Plan: dataquery.TaskPlan{
+			Status: "ready",
+			Actions: []dataquery.DataAction{{
+				ID:   "assemble_too_early",
+				Kind: dataquery.DataActionAssembleAnswer,
+			}},
+		},
+		Err: "data planning incomplete: assemble_answer was outside the earlier allowed stage",
+	})
+	snapshot := rt.BuildJournalSnapshot(WorkflowJournalBuildInput{
+		Status:    "complete",
+		LastError: "data planning incomplete: assemble_answer was outside the earlier allowed stage",
+		State: WorkflowStateSnapshot{
+			StageFacts: StageFacts{
+				MaterialCoverageSufficient: true,
+				RuleCoverageRequired:       true,
+				RuleCoverageRecords:        1,
+				DecisionRecordsRequired:    true,
+				DecisionRecords:            1,
+				ContributionLedgerRequired: true,
+				ContributionRecords:        1,
+				ReconcileRequired:          true,
+				HasReconcile:               true,
+				HasAnswer:                  true,
+			},
+			LedgerGraph: LedgerGraph{
+				NextStage: StageComplete,
+				Dependencies: []LedgerDependency{{
+					Ledger:   string(LedgerFinalProjection),
+					Required: true,
+					Present:  true,
+					Status:   LedgerStatusSatisfied,
+					Stage:    StageEmitOutputContractAnswer,
+				}},
+			},
+			OutputGraph: OutputProjectionGraph{
+				Status:                    OutputProjectionStatusSatisfied,
+				AnswerPresent:             true,
+				ProjectionArtifactPresent: true,
+				ReferenceComplete:         true,
+			},
+			Decision: WorkflowDecision{
+				Status:      "blocked",
+				ReasonCode:  "complete",
+				Reason:      "older blocked decision",
+				Violations:  []string{"action_dependency_violation"},
+				NextActions: []string{string(dataquery.DataActionQualifyRecords)},
+			},
+		},
+	})
+
+	if snapshot.Status != "complete" || snapshot.Decision.Status != "complete" {
+		t.Fatalf("snapshot status=%q decision=%+v, want completed terminal state", snapshot.Status, snapshot.Decision)
+	}
+	if snapshot.LastError != "" {
+		t.Fatalf("LastError=%q, want stale error moved out of final-state field", snapshot.LastError)
+	}
+	if !strings.Contains(snapshot.LastNonterminalError, "assemble_answer was outside") {
+		t.Fatalf("LastNonterminalError=%q, want stale error lineage", snapshot.LastNonterminalError)
+	}
+	if snapshot.Decision.Reason != "" || len(snapshot.Decision.Violations) != 0 || len(snapshot.Decision.NextActions) != 0 {
+		t.Fatalf("Decision=%+v, want stale blocked decision details retired from terminal decision", snapshot.Decision)
+	}
+}
+
 func TestWorkflowJournalNonCompletePreservesFinalError(t *testing.T) {
 	rt := NewWorkflowRuntime(dataquery.TaskPlan{})
 	rt.AppendRecord(WorkflowRecord{

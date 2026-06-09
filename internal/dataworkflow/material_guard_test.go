@@ -69,6 +69,47 @@ func TestTextConstraintCoverageGuardResultAllowsRuleCoverageRequired(t *testing.
 	}
 }
 
+func TestRuleCoveragePrerequisiteGuardRejectsDownstreamActions(t *testing.T) {
+	guard := RuleCoveragePrerequisiteGuardResult(RuleCoveragePrerequisiteGuardInput{
+		RuleCoverageRequired: true,
+		Actions: []dataquery.DataAction{
+			{ID: "read_rules", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"rules.md"}},
+			{ID: "join_records", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"left.csv", "right.csv"}},
+		},
+		RuleMaterialPaths: []string{"rules.md"},
+	})
+	if guard.Code != "rule_coverage_prerequisite_missing" {
+		t.Fatalf("guard=%+v, want rule_coverage_prerequisite_missing", guard)
+	}
+	if len(guard.Violations) != 1 || guard.Violations[0].ActionID != "join_records" || guard.Violations[0].RepairActionHints[0] != string(dataquery.DataActionDeriveRules) {
+		t.Fatalf("violations=%+v, want blocked join with derive_rules hint", guard.Violations)
+	}
+}
+
+func TestRuleCoveragePrerequisiteGuardAllowsCoverageAndDerivedRules(t *testing.T) {
+	for name, input := range map[string]RuleCoveragePrerequisiteGuardInput{
+		"already_has_rules": {
+			RuleCoverageRequired: true,
+			RuleCoverageRecords:  1,
+			Actions:              []dataquery.DataAction{{ID: "compute", Kind: dataquery.DataActionComputeContribs}},
+		},
+		"derive_only": {
+			RuleCoverageRequired: true,
+			Actions:              []dataquery.DataAction{{ID: "rules", Kind: dataquery.DataActionDeriveRules}},
+		},
+		"coverage_only": {
+			RuleCoverageRequired: true,
+			Actions:              []dataquery.DataAction{{ID: "extract", Kind: dataquery.DataActionExtractRecords}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if guard := RuleCoveragePrerequisiteGuardResult(input); !guard.Empty() {
+				t.Fatalf("guard=%+v, want empty", guard)
+			}
+		})
+	}
+}
+
 func TestBroadCustomPrerequisiteGuardRejectsMissingPrerequisites(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:         "wide_transform",

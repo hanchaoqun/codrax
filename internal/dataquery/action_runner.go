@@ -748,7 +748,11 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionFilterRecords:
-			artifact, records, paths, err := r.runFilterRecords(action)
+			defaultRuleRefs := []string(nil)
+			if plan.CoverageContract.RuleCoverageRequired {
+				defaultRuleRefs = ruleCoverageIDs(ruleCoverage)
+			}
+			artifact, records, decisions, paths, err := r.runFilterRecords(action, defaultRuleRefs)
 			if err != nil {
 				return failAction(action, err)
 			}
@@ -757,6 +761,9 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				return failAction(action, err)
 			}
 			artifacts = append(artifacts, artifact)
+			if plan.CoverageContract.DecisionRecordsRequired {
+				rows = DedupeRowDecisionRecords(append(rows, decisions...))
+			}
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionValueDistribution:
@@ -897,6 +904,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			artifacts = append(artifacts, artifact)
 			reconcile = report
 			projectedAnswer = answer
+			consumed = append(consumed, artifact.SourcePaths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionCustomTransform:
 			result, err := r.runCustomTransform(ctx, plan, action)
@@ -3554,33 +3562,39 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 	}, rows, []string{rel}, nil
 }
 
-func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[string]any, []string, error) {
+func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []string) (DataArtifact, []map[string]any, []RowDecision, []string, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	inputPath := firstNonEmptyString(strings.TrimSpace(action.Params["input_path"]), strings.TrimSpace(action.Params["record_path"]), strings.TrimSpace(action.Params["base_path"]))
 	if inputPath == "" && len(paths) > 0 {
 		inputPath = paths[0]
 	}
 	if inputPath == "" {
-		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
+		return DataArtifact{}, nil, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "input_path/input_paths", "one executable record artifact path", action.InputPaths)
 	}
 	filters, err := parseContributionFilters(action)
 	if err != nil {
-		return DataArtifact{}, nil, nil, err
+		return DataArtifact{}, nil, nil, nil, err
 	}
 	if len(filters) == 0 {
-		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "filters_json/filter_field", "at least one typed filter object or field/value selector", actionParamKeys(action.Params))
+		return DataArtifact{}, nil, nil, nil, dataActionMissingParamError(DataActionFilterRecords, "filters_json/filter_field", "at least one typed filter object or field/value selector", actionParamKeys(action.Params))
 	}
+	ruleRefs := parseActionStringListParam(action.Params["rule_refs"])
+	if len(ruleRefs) == 0 {
+		ruleRefs = append([]string(nil), defaultRuleRefs...)
+	}
+	itemIDField := strings.TrimSpace(action.Params["item_id_field"])
+	reason := firstNonEmptyString(strings.TrimSpace(action.Params["reason"]), strings.TrimSpace(action.Purpose), "filtered by typed data action")
 	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
 	maxOutput := actionIntParam(action, "max_output_records", 100000, 1, 1000000)
 	records, headers, total, rel, err := r.readActionRecords(inputPath, maxRecords)
 	if err != nil {
-		return DataArtifact{}, nil, nil, err
+		return DataArtifact{}, nil, nil, nil, err
 	}
 	effectiveFilters, ignoredFilterFields := effectiveActionFiltersForRecords(filters, headers, records)
 	filterDiagnostics := filterDiagnosticsJSON(records, effectiveFilters, 8, 4)
 	if len(ignoredFilterFields) > 0 {
 		fields := actionRecordFilterFieldNames(headers, records)
-		return DataArtifact{}, nil, nil, dataFieldContractError(
+		return DataArtifact{}, nil, nil, nil, dataFieldContractError(
 			DataActionFilterRecords,
 			"filter",
 			rel,
@@ -3596,15 +3610,35 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 		)
 	}
 	if err := numericFilterContractError(rel, records, effectiveFilters); err != nil {
-		return DataArtifact{}, nil, nil, err
+		return DataArtifact{}, nil, nil, nil, err
 	}
 	rows := make([]map[string]any, 0, minInt(maxOutput, len(records)))
+	filterFields := filterFieldNames(effectiveFilters)
+	decisions := make([]RowDecision, 0, len(records))
 	for _, record := range records {
-		if !recordPassesFilters(record.Fields, effectiveFilters) {
+		passed := recordPassesFilters(record.Fields, effectiveFilters)
+		decision := "exclude"
+		if passed {
+			decision = "include"
+		}
+		itemID := recordField(record.Fields, itemIDField)
+		if itemID == "" {
+			itemID = fmt.Sprintf("%s#%d", rel, record.Index)
+		}
+		decisions = append(decisions, RowDecision{
+			RowID:         itemID,
+			Source:        rel,
+			SourceLocator: fmt.Sprintf("line:%d", record.Line),
+			Decision:      decision,
+			Reason:        reason,
+			EvidenceRef:   filterEvidenceRefs(record, rel, filterFields),
+			RuleRefs:      cleanStringList(ruleRefs),
+		})
+		if !passed {
 			continue
 		}
 		if len(rows) >= maxOutput {
-			return DataArtifact{}, nil, nil, dataActionLimitError(DataActionFilterRecords, "max_output_records", maxOutput, len(rows)+1)
+			return DataArtifact{}, nil, nil, nil, dataActionLimitError(DataActionFilterRecords, "max_output_records", maxOutput, len(rows)+1)
 		}
 		row := map[string]any{}
 		for key, value := range record.Fields {
@@ -3625,7 +3659,6 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 		}
 		sort.Strings(outputHeaders)
 	}
-	filterFields := filterFieldNames(effectiveFilters)
 	filterMatched := 0
 	for _, record := range records {
 		if recordPassesFilters(record.Fields, effectiveFilters) {
@@ -3659,7 +3692,18 @@ func (r ActionRunner) runFilterRecords(action DataAction) (DataArtifact, []map[s
 			RowCount:          total,
 			Summary:           fmt.Sprintf("%s supplied %d source record(s)", rel, total),
 		}},
-	}, rows, []string{rel}, nil
+	}, rows, decisions, []string{rel}, nil
+}
+
+func filterEvidenceRefs(record actionRecord, rel string, fields []string) []string {
+	refs := []string{fmt.Sprintf("%s:%d", rel, record.Line)}
+	for _, field := range cleanStringSlice(fields) {
+		if strings.TrimSpace(recordField(record.Fields, field)) == "" {
+			continue
+		}
+		refs = append(refs, fmt.Sprintf("%s:%d:%s", rel, record.Line, field))
+	}
+	return cleanStringList(refs)
 }
 
 func (r ActionRunner) runValueDistribution(action DataAction) (DataArtifact, []string, error) {
@@ -8377,11 +8421,21 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		}
 	}
 	return DataArtifact{
-		ID:      id,
-		Kind:    string(DataActionAssembleAnswer),
-		Summary: fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
-		Fields:  fields,
+		ID:          id,
+		Kind:        string(DataActionAssembleAnswer),
+		SourcePaths: assembleAnswerConsumedPaths(action, contract, projectionInfo),
+		Summary:     fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
+		Fields:      fields,
 	}, answer, &next, nil
+}
+
+func assembleAnswerConsumedPaths(action DataAction, contract OutputContract, projection assembleReferenceProjection) []string {
+	var paths []string
+	if projection.Projected && strings.TrimSpace(projection.Path) != "" {
+		paths = append(paths, projection.Path)
+	}
+	paths = append(paths, assembleExplicitReferencePaths(action, contract)...)
+	return normalizeMaterialPaths(paths)
 }
 
 func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) ([]ReconcileGroup, assembleReferenceProjection) {

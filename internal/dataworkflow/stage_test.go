@@ -109,6 +109,25 @@ func TestAllowedNextActionContractsForFactsIncludesSideRuleCoverage(t *testing.T
 	}
 }
 
+func TestAllowedNextActionContractsForFactsRequireDecisionBeforeRuleQualifiedCompute(t *testing.T) {
+	contracts := AllowedNextActionContractsForFacts(StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		RuleCoverageRecords:        1,
+		DecisionRecordsRequired:    true,
+		ContributionLedgerRequired: true,
+	})
+	kinds := strings.Join(ActionKindsFromContracts(contracts), ",")
+	if strings.Contains(kinds, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("allowed kinds=%s, compute_contributions should wait for explicit rule-qualified decisions", kinds)
+	}
+	for _, want := range []string{string(dataquery.DataActionFilterRecords), string(dataquery.DataActionQualifyRecords)} {
+		if !strings.Contains(kinds, want) {
+			t.Fatalf("allowed kinds=%s, want %s", kinds, want)
+		}
+	}
+}
+
 func TestMissingValidationStagesUseTypedFacts(t *testing.T) {
 	got := strings.Join(MissingValidationStages(StageFacts{
 		MaterialCoverageSufficient: true,

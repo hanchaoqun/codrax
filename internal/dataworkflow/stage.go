@@ -679,7 +679,33 @@ func AllowedNextActionContractsForFacts(facts StageFacts) []ActionContract {
 	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && stage != StageCoverRequiredMaterials && stage != StageDeriveRules {
 		contracts = prependUniqueActionContract(contracts, deriveRulesActionContract())
 	}
+	if facts.RuleCoverageRequired && facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {
+		contracts = filterActionContracts(contracts, dataquery.DataActionComputeContribs)
+	}
 	return contracts
+}
+
+func filterActionContracts(contracts []ActionContract, excluded ...dataquery.DataActionKind) []ActionContract {
+	if len(contracts) == 0 || len(excluded) == 0 {
+		return contracts
+	}
+	blocked := map[string]bool{}
+	for _, kind := range excluded {
+		if key := strings.TrimSpace(string(kind)); key != "" {
+			blocked[key] = true
+		}
+	}
+	if len(blocked) == 0 {
+		return contracts
+	}
+	out := make([]ActionContract, 0, len(contracts))
+	for _, contract := range contracts {
+		if blocked[strings.TrimSpace(contract.Kind)] {
+			continue
+		}
+		out = append(out, contract)
+	}
+	return out
 }
 
 func prependUniqueActionContract(contracts []ActionContract, extra ActionContract) []ActionContract {

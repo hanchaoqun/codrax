@@ -36,6 +36,9 @@ func TestActionCapabilitiesExposeLedgerOutputs(t *testing.T) {
 	if !ProducesLedger(dataquery.DataActionComputeContribs, LedgerContributions) {
 		t.Fatal("compute_contributions should produce contributions")
 	}
+	if !ProducesLedger(dataquery.DataActionFilterRecords, LedgerDecisions) {
+		t.Fatal("filter_records should produce row decisions")
+	}
 	if !ProducesLedger(dataquery.DataActionReconcile, LedgerReconcile) {
 		t.Fatal("reconcile_artifacts should produce reconcile")
 	}
