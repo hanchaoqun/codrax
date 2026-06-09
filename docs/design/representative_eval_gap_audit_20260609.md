@@ -892,3 +892,192 @@ Residual telemetry notes:
 - `read_combo_trace_current_source_explanation` still needed a finalizer
   structured-block repair. Manual audit found the final answer grounded and the
   visible caveat specific to external trace/source boundaries, not generic.
+
+## Current Representative Rerun - 2026-06-09 16:07 CST
+
+After the previous delivery batches, the same four representative cases were
+run again with `PARALLEL=2`.
+
+Run command:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_current2_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Summary path: `eval/results/representative_eval_20260609_current2_summary.md`
+
+| case | verdict | data status | flags | manual audit |
+|---|---|---|---|---|
+| `qf_architecture` | FAIL | - | `verdict explorer_long contract_warning context_prune` | The answer is semantically correct about the read-mode pipeline order and stage/agent bindings, but the rendered surface does not reliably carry the typed analyzer responsibility artifacts such as `AnalysisIR`, `TaskGraph`, `EvidencePlan`, and `AnswerContract`. |
+| `read_combo_trace_current_source_explanation` | PASS | - | `finalizer contract_warning` | The answer is rich and semantically correct. It repeats the parse/jank/boundary content across summary, numbered steps, conclusion, trace facts, and requested-dimension supplement, but this preserves the user-requested dimensions and should not be weakened by simple dedupe. |
+| `data_multifile_reference_projection` | PASS | `complete` | none | Final output is `17,0,5`; terminal status and decision are `complete`; final `last_error` is empty. A prior cross-rank planning issue remains only as `last_nonterminal_error` lineage. |
+| `mr_cross_repo_compare` | PASS | - | `contract_warning` | Scope routing stayed correct and the principal prose separates the two subrepos. Logs still show a brief scoped-inventory ambiguity that required `list_files` confirmation. |
+
+### G25. Read-Mode Stage Responsibility Artifacts Are Not First-Class Handoff
+
+`qf_architecture` failed only the verdict regex:
+
+```text
+no_regex_match:(classif|分类|hypothes|假设|意图|理解|推断|识别|解析|静态分析|[Tt]ask.?[Gg]raph|任务图|AnalysisIR)
+```
+
+The final answer already named `StageAnalyze -> StageExplore -> StageExtract ->
+StageFinalize`, the conditional pre-stages, `dispatchStage`, `StageOutput`,
+`BusContext`, and the verified stage/agent/skill supplement. The missing piece
+was not a wrong stage namespace; it was loss of the analyze-stage responsibility
+and primary artifacts on the answer surface. The deterministic supplement had
+authority for actor bindings, but not for typed responsibilities or outputs.
+
+Deep root cause: `StageBinding` is the shared topology authority consumed by
+orchestrator and finalizer supplement paths, yet it only carried
+stage/agent/skill/terminal. Responsibility-level facts such as analyzer
+classification, `AnalysisIR`, `TaskGraph`, `EvidencePlan`, and `AnswerContract`
+lived in architecture docs and scattered comments, not in the same typed
+handoff record used by backend answer compilation.
+
+Generic fix direction: extend the stage topology authority with stage
+responsibility and primary-artifact metadata, then render that metadata only
+when stage-binding authority is already grounded or requested through a typed
+stage-workflow dimension. This keeps the fix code-driven and general across
+read-mode architecture questions. It does not parse user intent keywords, eval
+regexes, or model-authored prose, and it does not suppress rich authored
+answers.
+
+### G26. Rich Correct Answers Must Not Be Treated As Defective Solely For Repetition
+
+The trace answer repeats the same semantic material in multiple carriers:
+principal summary, dimension headings, Step 1-5 explanation, conclusion, trace
+facts, and the requested-dimension source-quote supplement. The answer is
+semantically correct and preserves the explicit user dimensions. Reducing it by
+simple dedupe would weaken user-visible richness and could remove useful
+evidence boundary detail.
+
+Generic fix direction: answer-surface work should separate semantic/citation
+correctness from style density. A later carrier-coverage system may detect true
+contradictions or missing typed rows, but it must not delete rich, supported
+content merely because it is repeated across compatible carriers. Hard decisions
+remain typed: block structure, citations, requested dimensions, evidence
+lineage, and stage authority records, not user/model prose keywords.
+
+## Current Executable Tasks
+
+### Batch U - Read-Mode Stage Responsibility Handoff
+
+1. Extend the canonical stage authority record with responsibility and
+   primary-artifact metadata.
+   - Keep one source of truth for stage, agent, skill, terminal status,
+     responsibility, and artifacts.
+   - Include `AnalysisIR`, `TaskGraph`, `EvidencePlan`, and `AnswerContract`
+     on `StageAnalyze`.
+
+2. Render responsibility metadata in the verified stage-binding supplement.
+   - Render only when the existing grounded-source gate already allows the
+     supplement.
+   - Preserve the model-authored answer above the supplement.
+   - Do not suppress requested-dimension supplements or rich Step sections.
+
+3. Add regression coverage.
+   - `ReadModeMainStageBindings` must carry non-empty responsibilities and
+     artifacts.
+   - The stage-binding supplement must include `AnalysisIR`, `TaskGraph`,
+     `EvidencePlan`, and `AnswerContract`.
+   - The no-grounded-source gate must continue to prevent ungrounded
+     supplements.
+
+4. Rebuild and rerun validation.
+   - Run focused unit tests for `internal/types` and `internal/agent`.
+   - Rebuild `codrax`.
+   - Rerun `qf_architecture`, then the full four-case representative sweep with
+     `PARALLEL=2`.
+
+Batch U acceptance criteria:
+
+- `qf_architecture` PASS without relying on prompt changes or eval-regex
+  special-casing;
+- trace answer richness is not reduced;
+- no production branch parses model prose, user-prose keywords, file-name
+  constants, or business values as hard gates.
+
+### G27. Parenthetical Category Qualifiers Can Hide Existing Architecture Carriers
+
+The first Batch U focused rerun fixed the original `AnalysisIR` / `TaskGraph`
+visibility gap, but `qf_architecture` still failed on:
+
+```text
+banned:系统按已验证证据补充
+```
+
+Manual audit showed the failing surface was not the new stage-binding table. It
+was the older principal-enumeration supplement:
+
+```text
+系统按已验证证据补充缺失成员：条件性前置 stage（ADVISORY）（1）
+FallbackResetTarget @ internal/types/context.go:2709
+```
+
+The authored answer already had a section titled `条件性前置 stage（按需执行）`
+and explained `StageLogTriage`, `StagePerfTriage`, and
+`StageMultiRepoFocus`. The compiler failed to treat that section as the same
+category because the set label used a different parenthetical qualifier
+(`ADVISORY`). It then appended a competing system table and, worse, pulled in
+`FallbackResetTarget`, a reset-depth enum from a different namespace, as a
+missing member.
+
+Deep root cause: principal-enumeration carrier coverage was too table/list
+centric and too literal about parenthetical label qualifiers. Architecture
+explain answers often use prose sections as the natural carrier for typed
+category coverage; in that mode, bracketed qualifiers should refine the label,
+not split the namespace into a new missing-member table.
+
+Generic fix direction: for architecture-explain answer surfaces, allow
+summary/section blocks with the same parenthetical-stripped category label to
+act as authored carriers. This suppresses competing system supplements when a
+rich prose section already covers the category. Direct enumeration questions
+still keep strict row supplements. The decision uses typed intent/scenario,
+block kind, and deterministic label-normalization; it does not inspect model
+rationale, eval banned strings, file names, or business values as hard gates.
+
+### Final Verification After Batch U
+
+Focused qf verification:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_qf_after_stage_resp2_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Result: `qf_architecture` PASS, no flags.
+
+Representative sweep:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_after_stage_resp_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Summary path: `eval/results/representative_eval_20260609_after_stage_resp_summary.md`
+
+| case | verdict | data status | flags | manual audit |
+|---|---|---|---|---|
+| `qf_architecture` | PASS | - | `contract_warning auto_repair` | The answer keeps stage responsibilities visible and includes `AnalysisIR`, `TaskGraph`, `EvidencePlan`, and `AnswerContract`. The stale `FallbackResetTarget` supplement is gone. |
+| `read_combo_trace_current_source_explanation` | PASS | - | `finalizer contract_warning context_prune` | The answer remains rich and semantically correct. Repeated carriers preserve requested dimensions rather than weakening the answer. |
+| `data_multifile_reference_projection` | PASS | `complete` | none | Final answer is `17,0,5`; terminal status/decision are complete; `last_error` is empty; previous rank violation remains lineage only. |
+| `mr_cross_repo_compare` | PASS | - | `contract_warning` | The final answer remains separated by subrepo and names the expected exported identifiers. |
+
+Closed by this delta:
+
+- G25: stage responsibilities and primary artifacts now live in typed stage
+  authority and reach final answer surfaces.
+- G26: trace richness was preserved; no dedupe/trim fix was introduced.
+- G27: architecture prose sections with equivalent parenthetical-stripped labels
+  now suppress competing principal-enum supplements.

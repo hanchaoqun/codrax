@@ -9954,13 +9954,15 @@ func normalizedRequestedDimensionText(s string) string {
 }
 
 type verifiedStageBindingRow struct {
-	StageIdent string
-	StageValue string
-	AgentIdent string
-	AgentValue string
-	Skill      string
-	File       string
-	Line       int
+	StageIdent       string
+	StageValue       string
+	AgentIdent       string
+	AgentValue       string
+	Skill            string
+	Responsibility   string
+	PrimaryArtifacts []string
+	File             string
+	Line             int
 }
 
 func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
@@ -9973,17 +9975,17 @@ func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.An
 	if zh {
 		b.WriteString("---\n\n")
 		b.WriteString("> **系统补充：阶段绑定核对**\n>\n")
-		b.WriteString("> 下表来自本次已引用或已落地源码中的阶段绑定关系，用于避免最终成文压缩时丢失执行主体；它不替代上方模型答案。\n\n")
-		b.WriteString("| 阶段 | Agent | 技能 | 源码 |\n|---|---|---|---|\n")
+		b.WriteString("> 下表来自本次已引用或已落地源码中的阶段绑定关系，用于避免最终成文压缩时丢失执行主体、阶段职责和主要产物；它不替代上方模型答案。\n\n")
+		b.WriteString("| 阶段 | 职责和主要产物 | Agent | 技能 | 源码 |\n|---|---|---|---|---|\n")
 	} else {
 		b.WriteString("---\n\n")
 		b.WriteString("> **System supplement: verified stage bindings**\n>\n")
-		b.WriteString("> The table below is derived from source lines already cited or grounded in this run. It preserves actor bindings that can be lost during answer compression and does not replace the model-authored answer above.\n\n")
-		b.WriteString("| Stage | Agent | Skill | Source |\n|---|---|---|---|\n")
+		b.WriteString("> The table below is derived from source lines already cited or grounded in this run. It preserves actor bindings, stage responsibilities, and primary artifacts that can be lost during answer compression. It does not replace the model-authored answer above.\n\n")
+		b.WriteString("| Stage | Responsibility and primary artifacts | Agent | Skill | Source |\n|---|---|---|---|---|\n")
 	}
 	for _, row := range rows {
-		fmt.Fprintf(&b, "| `%s` (`%s`) | `%s` (`%s`) | `%s` | `%s:%d` |\n",
-			row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill, row.File, row.Line)
+		fmt.Fprintf(&b, "| `%s` (`%s`) | %s | `%s` (`%s`) | `%s` | `%s:%d` |\n",
+			row.StageIdent, row.StageValue, verifiedStageBindingDetailCell(row, zh), row.AgentIdent, row.AgentValue, row.Skill, row.File, row.Line)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -10006,14 +10008,23 @@ func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.Answer
 		return nil
 	}
 	lines := strings.Split(string(data), "\n")
-	wanted := []verifiedStageBindingRow{
-		{StageIdent: "StageAnalyze", StageValue: string(types.StageAnalyze), AgentIdent: "AgentAnalyzer", AgentValue: string(types.AgentAnalyzer), Skill: "analysis-skill", File: sourceRel},
-		{StageIdent: "StageExplore", StageValue: string(types.StageExplore), AgentIdent: "AgentExplorer", AgentValue: string(types.AgentExplorer), Skill: "explore-skill", File: sourceRel},
-		{StageIdent: "StageExtract", StageValue: string(types.StageExtract), AgentIdent: "AgentExtractor", AgentValue: string(types.AgentExtractor), Skill: "extract-skill", File: sourceRel},
-		{StageIdent: "StageFinalize", StageValue: string(types.StageFinalize), AgentIdent: "AgentFinalizer", AgentValue: string(types.AgentFinalizer), Skill: "answer-document-skill", File: sourceRel},
-	}
-	rows := make([]verifiedStageBindingRow, 0, len(wanted))
-	for _, want := range wanted {
+	bindings := types.ReadModeMainStageBindings()
+	rows := make([]verifiedStageBindingRow, 0, len(bindings))
+	for _, binding := range bindings {
+		stageIdent, agentIdent, ok := readModeStageBindingIdentifiers(binding)
+		if !ok {
+			return nil
+		}
+		want := verifiedStageBindingRow{
+			StageIdent:       stageIdent,
+			StageValue:       string(binding.Stage),
+			AgentIdent:       agentIdent,
+			AgentValue:       string(binding.Agent),
+			Skill:            binding.Skill,
+			Responsibility:   binding.Responsibility,
+			PrimaryArtifacts: append([]string(nil), binding.PrimaryArtifacts...),
+			File:             sourceRel,
+		}
 		line := verifiedStageBindingLine(lines, want)
 		if line <= 0 {
 			return nil
@@ -10022,6 +10033,46 @@ func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.Answer
 		rows = append(rows, want)
 	}
 	return rows
+}
+
+func verifiedStageBindingDetailCell(row verifiedStageBindingRow, zh bool) string {
+	var parts []string
+	if responsibility := strings.TrimSpace(row.Responsibility); responsibility != "" {
+		parts = append(parts, responsibility)
+	}
+	var artifacts []string
+	for _, artifact := range row.PrimaryArtifacts {
+		artifact = strings.TrimSpace(artifact)
+		if artifact != "" {
+			artifacts = append(artifacts, "`"+artifact+"`")
+		}
+	}
+	if len(artifacts) > 0 {
+		label := "Primary artifacts"
+		if zh {
+			label = "主要产物"
+		}
+		parts = append(parts, label+": "+strings.Join(artifacts, ", "))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, "<br>")
+}
+
+func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent string, agentIdent string, ok bool) {
+	switch binding.Stage {
+	case types.StageAnalyze:
+		return "StageAnalyze", "AgentAnalyzer", true
+	case types.StageExplore:
+		return "StageExplore", "AgentExplorer", true
+	case types.StageExtract:
+		return "StageExtract", "AgentExtractor", true
+	case types.StageFinalize:
+		return "StageFinalize", "AgentFinalizer", true
+	default:
+		return "", "", false
+	}
 }
 
 func answerDocumentCanUseStageBindingAuthority(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
@@ -10036,9 +10087,18 @@ func answerDocumentCanUseStageBindingAuthority(ctx *types.AgentContext, doc *typ
 
 func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int {
 	for i, line := range lines {
-		if strings.Contains(line, want.StageIdent) &&
-			strings.Contains(line, want.AgentIdent) &&
-			strings.Contains(line, want.Skill) {
+		if !strings.Contains(line, want.StageIdent) {
+			continue
+		}
+		window := line
+		for j := i + 1; j < len(lines) && j <= i+12; j++ {
+			window += "\n" + lines[j]
+			if strings.Contains(lines[j], "},") {
+				break
+			}
+		}
+		if strings.Contains(window, want.AgentIdent) &&
+			strings.Contains(window, want.Skill) {
 			return i + 1
 		}
 	}

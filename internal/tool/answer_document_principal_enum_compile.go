@@ -44,7 +44,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		}
 	}
 	singleSet := len(sets) == 1
-	modelAuthoredCarrierExists := principalEnumerationAnyModelAuthoredCarrierExists(doc, sets, singleSet)
+	modelAuthoredCarrierExists := principalEnumerationAnyModelAuthoredCarrierExists(doc, ctx, sets, singleSet)
 	if normalizePrincipalEnumerationSummary(doc, ctx, sets, !modelAuthoredCarrierExists) {
 		changed++
 	}
@@ -55,7 +55,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		if annotated := annotatePrincipalEnumerationCoveredBlocks(doc, set); annotated > 0 {
 			changed += annotated
 		}
-		authoredCarrier := principalEnumerationModelAuthoredCarrierExists(doc, set, singleSet)
+		authoredCarrier := principalEnumerationModelAuthoredCarrierExists(doc, ctx, set, singleSet)
 		missingRows := missingBySet[set.ID]
 		supplementRows := missingRows
 		supplementMode := principalEnumerationSupplementMissing
@@ -246,9 +246,9 @@ func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *type
 	return true
 }
 
-func principalEnumerationAnyModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet, singleSet bool) bool {
+func principalEnumerationAnyModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet, singleSet bool) bool {
 	for _, set := range sets {
-		if principalEnumerationModelAuthoredCarrierExists(doc, set, singleSet) {
+		if principalEnumerationModelAuthoredCarrierExists(doc, ctx, set, singleSet) {
 			return true
 		}
 	}
@@ -365,16 +365,22 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 	return false
 }
 
-func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, singleSet bool) bool {
+func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, ctx *types.BusContext, set types.EnumerationDisplaySet, singleSet bool) bool {
 	if doc == nil || len(set.Rows) == 0 {
 		return false
 	}
 	for _, block := range doc.Blocks {
-		if preEmitSystemEnumerationRowSupplementBlock(block) || !principalEnumerationBlockCanCarryRows(block) {
+		if preEmitSystemEnumerationRowSupplementBlock(block) {
 			continue
 		}
 		surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block))
 		if surface == "" && len(block.Items) == 0 {
+			continue
+		}
+		if !principalEnumerationBlockCanCarryRows(block) {
+			if principalEnumerationProseCategoryCarrierSuppressesSupplement(ctx, block, set) {
+				return true
+			}
 			continue
 		}
 		if principalEnumerationBlockHasEnumerationFacet(block) {
@@ -394,6 +400,19 @@ func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2,
 		}
 	}
 	return false
+}
+
+func principalEnumerationProseCategoryCarrierSuppressesSupplement(ctx *types.BusContext, block types.AnswerBlock, set types.EnumerationDisplaySet) bool {
+	rm := principalEnumerationEffectiveRequestModel(ctx)
+	if rm == nil || rm.Intent != types.IntentExplain || rm.Scenario != types.ScenarioArchitectureExplain {
+		return false
+	}
+	switch block.Kind {
+	case types.BlockSummary, types.BlockSection:
+	default:
+		return false
+	}
+	return principalEnumerationBlockSetScore(block, set) >= 28
 }
 
 func principalEnumerationBlockHasEnumerationFacet(block types.AnswerBlock) bool {
@@ -753,7 +772,50 @@ func principalEnumerationSetLabelMatchScore(surface string, set types.Enumeratio
 	if strings.Contains(surfaceKey, key) {
 		return 35
 	}
+	coreKey := principalEnumerationLabelCoreKey(set.Label)
+	if coreKey == "" {
+		coreKey = principalEnumerationLabelCoreKey(set.ID)
+	}
+	surfaceCoreKey := principalEnumerationLabelCoreKey(surface)
+	if coreKey != "" && surfaceCoreKey != "" && coreKey != key {
+		if surfaceCoreKey == coreKey {
+			return 32
+		}
+		if strings.Contains(surfaceCoreKey, coreKey) {
+			return 28
+		}
+	}
 	return 0
+}
+
+func principalEnumerationLabelCoreKey(label string) string {
+	return principalEnumerationLabelKey(stripPrincipalEnumerationParentheticalQualifiers(label))
+}
+
+func stripPrincipalEnumerationParentheticalQualifiers(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	var b strings.Builder
+	depth := 0
+	for _, r := range label {
+		switch r {
+		case '(', '（', '[', '［', '{', '｛':
+			depth++
+			continue
+		case ')', '）', ']', '］', '}', '｝':
+			if depth > 0 {
+				depth--
+				continue
+			}
+		}
+		if depth > 0 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool, mode principalEnumerationSupplementMode) types.AnswerBlock {

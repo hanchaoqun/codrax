@@ -85,6 +85,65 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_ParentheticalCategoryCarrierSuppressesSupplement(t *testing.T) {
+	mu := types.NewMutableState("read-mode pipeline stages")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("fallback_reset", "FallbackResetTarget", "internal/types/context.go", 2709, "FallbackResetTarget is a reset-depth enum used by fallback handling."),
+		enumEvidence("stage_analyze", "StageAnalyze", "internal/types/enums.go", 33, "StageAnalyze is the first read-mode main stage."),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "条件性前置 stage（ADVISORY）",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"FallbackResetTarget"},
+			SupportRefs: []string{"FallbackResetTarget @ internal/types/context.go:2709"},
+		},
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "无条件主管道",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"StageAnalyze"},
+			SupportRefs: []string{"StageAnalyze @ internal/types/enums.go:33"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:    "pre",
+			Kind:  types.BlockSection,
+			Title: "条件性前置 stage（按需执行）",
+			Text:  "这一层已经说明 StageLogTriage 和 StagePerfTriage 会在 analyze 前按需运行。",
+		},
+		{
+			ID:    "main",
+			Kind:  types.BlockSection,
+			Title: "无条件主管道",
+			Text:  "主管道从 StageAnalyze 进入，随后继续 explore/extract/finalize。",
+		},
+	}}
+
+	_ = normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "系统按已验证证据补充") ||
+		strings.Contains(visible, "FallbackResetTarget") {
+		t.Fatalf("parenthetical category carrier should suppress a competing supplement:\n%s", visible)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_RedlineDoesNotSynthesizeSummaryForAuthoredCarriers(t *testing.T) {
 	mu := types.NewMutableState("列出公开函数")
 	mu.AppendEvidence([]types.EvidenceItem{

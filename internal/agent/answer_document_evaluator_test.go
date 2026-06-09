@@ -6340,10 +6340,15 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSuppleme
 	}
 	for _, want := range []string{
 		"系统补充：阶段绑定核对",
+		"职责和主要产物",
 		"`StageExplore` (`explore`)",
 		"`AgentExplorer` (`explorer`)",
 		"`StageExtract` (`extract`)",
 		"`AgentExtractor` (`extractor`)",
+		"`AnalysisIR`",
+		"`TaskGraph`",
+		"`EvidencePlan`",
+		"`AnswerContract`",
 		"internal/types/stage_binding.go:",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
@@ -6421,6 +6426,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWork
 		"`AgentExplorer` (`explorer`)",
 		"`StageExtract` (`extract`)",
 		"`AgentExtractor` (`extractor`)",
+		"`AnalysisIR`",
+		"`TaskGraph`",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)

@@ -773,3 +773,204 @@ The implemented hard decisions use typed contracts, ledgers, artifact lineage,
 output projection graphs, structured material coverage, and journal snapshots.
 They do not introduce prompt-only redline workarounds, user-intent keyword
 matches, model-prose hard gates, file-name constants, or business-value patches.
+
+## Current2 Delivery Delta - Read-Mode Stage Responsibility Handoff
+
+The 16:07 CST representative rerun found one remaining failing case:
+`qf_architecture`. The failure was not an incorrect pipeline order or a wrong
+stage namespace. The answer already covered the read-mode stages and actor
+bindings. The missing commercial-grade handoff was responsibility-level topology
+metadata: `StageAnalyze` needs to carry classification and `AnalysisIR` /
+`TaskGraph` / `EvidencePlan` / `AnswerContract` as typed stage artifacts so the
+final answer surface does not depend on the model restating those terms.
+
+This delta explicitly does not reduce answer richness. The trace case's final
+answer is semantically correct and preserves requested dimensions through
+multiple carriers; deduping or suppressing those carriers would weaken the
+answer. The delivery objective is to enrich typed stage handoff, not to delete
+supported content.
+
+### Delta D18. Stage Responsibilities Belong In The Topology Authority
+
+Typed behavior:
+
+- `StageBinding` remains the canonical stage -> agent -> skill authority record;
+- each binding may also carry a responsibility summary and primary artifact
+  list;
+- read-mode main bindings include the artifacts needed by architecture answers:
+  `AnalysisIR`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, accepted
+  evidence/support outputs, and final answer artifacts;
+- finalizer last-mile supplements render responsibility metadata only when the
+  existing grounded stage-authority gate is satisfied;
+- rich model-authored answer content and requested-dimension supplements are
+  preserved.
+
+No production logic may inspect eval regexes, user intent keywords, or
+model-authored prose as a hard gate.
+
+### Batch U - Stage Responsibility Authority
+
+Tasks:
+
+1. Extend `internal/types/stage_binding.go`.
+   - Add responsibility and primary-artifact fields to `StageBinding`.
+   - Populate read-mode pre-stage, main-stage, multi-repo focus, and write-mode
+     bindings from code authority.
+   - Deep-copy artifact slices from exported helpers to prevent accidental
+     mutation of the global authority table.
+
+2. Extend answer-document stage supplement rendering.
+   - Use `types.ReadModeMainStageBindings()` instead of duplicating skill
+     strings in the finalizer path.
+   - Add a responsibility/artifact column to the verified stage-binding
+     supplement.
+   - Keep the existing grounded-source/requested-stage-workflow gate unchanged.
+   - Keep rich authored sections and requested-dimension supplements intact.
+
+3. Add regression coverage.
+   - `StageAnalyze` binding includes `Classify`, `AnalysisIR`, `TaskGraph`,
+     `EvidencePlan`, and `AnswerContract`.
+   - The finalizer supplement renders those artifacts when stage authority is
+     grounded.
+   - The no-authority test still blocks ungrounded supplements.
+
+4. Validate and rerun representative eval.
+   - Run focused `internal/types` and `internal/agent` tests.
+   - Rebuild `codrax`.
+   - Rerun `qf_architecture`.
+   - Rerun the four-case representative sweep with `PARALLEL=2`.
+
+Validation:
+
+```bash
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/types ./internal/agent \
+  -run 'TestReadModeStageBindings|TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSupplement|TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWorkflowDimension|TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingWithoutGroundedSource'
+
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp make build
+
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_qf_after_stage_resp_summary.md \
+bash eval/convergence_audit.sh
+
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_after_stage_resp_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Batch U acceptance criteria:
+
+- `qf_architecture` passes with canonical stage responsibility artifacts visible;
+- all four representative cases remain PASS;
+- trace answer richness is not weakened;
+- no code path uses prompt-only fixes, eval-regex matching, user keyword
+  matching, model-prose matching, file-name constants, or case-value patches.
+
+### Delta D19. Architecture Prose Sections Can Be Typed Enum Carriers
+
+The first Batch U qf rerun exposed a separate presentation-compiler gap. The
+answer had an authored section titled `条件性前置 stage（按需执行）`, but the
+principal enum set label was `条件性前置 stage（ADVISORY）`. Because the compiler
+treated the parenthetical qualifier as part of the hard category key and only
+counted table/list row carriers, it appended a competing missing-member table.
+That supplement selected `FallbackResetTarget`, a reset-depth enum outside the
+read-mode pipeline stage namespace.
+
+Typed behavior:
+
+- in architecture-explain answers, summary/section blocks can serve as authored
+  enum-category carriers when their parenthetical-stripped label matches the
+  typed set label;
+- direct enumerate/source-inventory answers still require strict row carriers
+  and keep missing-member supplements;
+- the carrier decision is based on typed `IntentExplain`,
+  `ScenarioArchitectureExplain`, block kind, and deterministic label
+  normalization;
+- no production branch reads eval banned strings, model rationale, user keyword
+  intent, field/file-name constants, or business values.
+
+### Batch V - Architecture Carrier Coverage
+
+Tasks:
+
+1. Add parenthetical-stripped category label matching.
+   - Normalize `公开函数（func）`, `条件性前置 stage（ADVISORY）`, and similar
+     labels to their core category for carrier matching only.
+   - Preserve existing exact label scoring as the strongest signal.
+
+2. Let architecture prose sections suppress competing supplements.
+   - Apply only for `IntentExplain` + `ScenarioArchitectureExplain`.
+   - Accept summary/section blocks whose visible label/text scores against the
+     typed set label.
+   - Do not change direct enumeration supplement behavior.
+
+3. Add regression coverage.
+   - An authored architecture section titled with a different parenthetical
+     qualifier suppresses the missing-member supplement.
+   - The stale unrelated row does not appear in the visible answer.
+
+Validation:
+
+```bash
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/tool \
+  -run 'TestNormalizePrincipalEnumerationRowBlocks_ParentheticalCategoryCarrierSuppressesSupplement|TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartialMarkdownTable|TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocationAndNoteColumns'
+
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/types ./internal/agent ./internal/tool
+```
+
+Batch V acceptance criteria:
+
+- qf architecture answers do not receive stale unrelated enum supplements when
+  a prose section already covers the architecture category;
+- row supplements remain available for direct enumeration outputs;
+- no hard decision consumes model prose intent, eval banned strings, or
+  case-specific constants.
+
+## Final Verification After Batches U-V
+
+Validated locally:
+
+```bash
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp go test ./internal/types ./internal/agent ./internal/tool
+GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp make build
+```
+
+Focused qf:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_qf_after_stage_resp2_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Representative sweep:
+
+```bash
+CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_after_stage_resp_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Final sweep result:
+
+| case | result | key acceptance signal |
+|---|---|---|
+| `qf_architecture` | PASS | stage responsibilities and `AnalysisIR` / `TaskGraph` / `EvidencePlan` / `AnswerContract` visible; no stale `FallbackResetTarget` supplement |
+| `read_combo_trace_current_source_explanation` | PASS | rich parse/jank/evidence-boundary answer preserved |
+| `data_multifile_reference_projection` | PASS | terminal `complete`, final answer `17,0,5` |
+| `mr_cross_repo_compare` | PASS | active subrepo buckets remain separated |
+
+Batches U-V are implemented through typed stage authority, deterministic
+answer-surface carrier coverage, and structural tests. They do not introduce
+prompt-only fixes, eval-regex branches, user-intent keyword matching,
+model-output prose hard gates, file-name constants, or case-value patches.
