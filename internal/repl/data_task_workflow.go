@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"path"
 	"sort"
 	"strconv"
@@ -5172,6 +5173,9 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
 				return dataquery.ReferenceKeyCandidate{}, answerItems, false
 			}
+			if dataTaskResultHasReferenceProjectionMetadata(result, candidate, answerItems, contract) {
+				return candidate, answerItems, true
+			}
 			if dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, dataworkflow.ResultAnswerPresent(result)) {
 				return candidate, answerItems, true
 			}
@@ -5209,6 +5213,9 @@ func dataTaskBestReferenceProjectionGapCandidate(runner dataquery.ActionRunner, 
 			}
 			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
 				continue
+			}
+			if dataTaskResultHasReferenceProjectionMetadata(result, candidate, answerItems, contract) {
+				return candidate, true
 			}
 			if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
 				continue
@@ -5277,6 +5284,9 @@ func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner,
 				if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
 					continue
 				}
+				if dataTaskResultHasReferenceProjectionMetadata(result, candidate, answerItems, contract) {
+					return candidate, answerItems, true
+				}
 				if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
 					continue
 				}
@@ -5295,6 +5305,9 @@ func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner,
 				if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
 					continue
 				}
+				if dataTaskResultHasReferenceProjectionMetadata(result, candidate, answerItems, contract) {
+					return candidate, answerItems, true
+				}
 				if !dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, answerPresent) {
 					continue
 				}
@@ -5312,6 +5325,14 @@ func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner,
 }
 
 func dataTaskResultHasReferenceProjection(result dataquery.Result, candidate dataquery.ReferenceKeyCandidate, answerItems int, contract dataquery.OutputContract) bool {
+	return dataTaskResultHasReferenceProjectionMatch(result, candidate, answerItems, contract, true)
+}
+
+func dataTaskResultHasReferenceProjectionMetadata(result dataquery.Result, candidate dataquery.ReferenceKeyCandidate, answerItems int, contract dataquery.OutputContract) bool {
+	return dataTaskResultHasReferenceProjectionMatch(result, candidate, answerItems, contract, false)
+}
+
+func dataTaskResultHasReferenceProjectionMatch(result dataquery.Result, candidate dataquery.ReferenceKeyCandidate, answerItems int, contract dataquery.OutputContract, requireValueBinding bool) bool {
 	if candidate.KeyCount <= 0 || !dataworkflow.ResultAnswerPresent(result) {
 		return false
 	}
@@ -5341,9 +5362,168 @@ func dataTaskResultHasReferenceProjection(result dataquery.Result, candidate dat
 		if wantField != "" && !strings.EqualFold(gotField, wantField) {
 			continue
 		}
+		if requireValueBinding && !dataTaskReferenceProjectionValuesBound(result, artifact, candidate, contract) {
+			continue
+		}
 		return true
 	}
 	return false
+}
+
+func dataTaskReferenceProjectionValuesBound(result dataquery.Result, artifact dataquery.DataArtifact, candidate dataquery.ReferenceKeyCandidate, contract dataquery.OutputContract) bool {
+	if result.Reconcile == nil || len(candidate.Keys) == 0 {
+		return true
+	}
+	projection := strings.ToLower(strings.TrimSpace(artifact.Fields["projection"]))
+	if projection == "" {
+		switch contract.Normalize().Format {
+		case dataquery.OutputCSVLine:
+			projection = "values"
+		case dataquery.OutputPlainSingleLine:
+			if !contract.Normalize().ExplanationAllowed {
+				projection = "values"
+			}
+		}
+	}
+	switch projection {
+	case "values", "value_list", "csv_values":
+	default:
+		return true
+	}
+	if parseBoolDataTaskString(artifact.Fields["include_keys"]) {
+		return true
+	}
+	delimiter := firstNonEmptyString(artifact.Fields["delimiter"], contract.Normalize().Delimiter, ",")
+	valueField := firstNonEmptyString(artifact.Fields["value_field"], "actual")
+	metric := firstNonEmptyString(artifact.Fields["metric"], dataTaskSingleBusinessReconcileMetric(result.Reconcile.Groups))
+	expected, ok := dataTaskReferenceProjectionExpectedValues(result.Reconcile.Groups, candidate.Keys, metric, valueField)
+	if !ok {
+		return true
+	}
+	actual := splitDataTaskProjectionValues(result.Answer, delimiter)
+	if len(actual) != len(expected) {
+		return false
+	}
+	for i := range expected {
+		if !dataTaskProjectionValueEqual(actual[i], expected[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func dataTaskReferenceProjectionExpectedValues(groups []dataquery.ReconcileGroup, keys []string, metric, valueField string) ([]string, bool) {
+	if len(keys) == 0 {
+		return nil, false
+	}
+	metric = strings.TrimSpace(metric)
+	existing := make(map[string]string, len(groups))
+	for _, group := range groups {
+		if dataTaskReconcileGroupIsFinalAnswerProjection(group) {
+			continue
+		}
+		groupMetric := strings.TrimSpace(group.Metric.String())
+		if metric != "" && groupMetric != "" && groupMetric != metric {
+			continue
+		}
+		key := strings.TrimSpace(group.GroupKey.String())
+		if key == "" {
+			continue
+		}
+		if _, seen := existing[key]; seen {
+			continue
+		}
+		value := dataTaskReconcileGroupValueByField(group, valueField)
+		if value == "" {
+			value = "0"
+		}
+		existing[key] = value
+	}
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		value := existing[key]
+		if value == "" {
+			value = "0"
+		}
+		out = append(out, value)
+	}
+	return out, len(out) > 0
+}
+
+func dataTaskSingleBusinessReconcileMetric(groups []dataquery.ReconcileGroup) string {
+	var metric string
+	for _, group := range groups {
+		if dataTaskReconcileGroupIsFinalAnswerProjection(group) {
+			continue
+		}
+		value := strings.TrimSpace(group.Metric.String())
+		if value == "" {
+			continue
+		}
+		if metric == "" {
+			metric = value
+			continue
+		}
+		if metric != value {
+			return ""
+		}
+	}
+	return metric
+}
+
+func dataTaskReconcileGroupIsFinalAnswerProjection(group dataquery.ReconcileGroup) bool {
+	if strings.EqualFold(strings.TrimSpace(group.Scope.String()), "final_answer") &&
+		strings.EqualFold(strings.TrimSpace(group.Role.String()), "output") &&
+		strings.EqualFold(strings.TrimSpace(group.Metric.String()), "projection") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(group.GroupKey.String()), "final_answer") &&
+		strings.EqualFold(strings.TrimSpace(group.Metric.String()), "projection")
+}
+
+func dataTaskReconcileGroupValueByField(group dataquery.ReconcileGroup, field string) string {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "expected":
+		return strings.TrimSpace(firstNonEmptyString(group.Expected.String(), group.Actual.String()))
+	case "actual", "":
+		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	default:
+		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	}
+}
+
+func splitDataTaskProjectionValues(answer, delimiter string) []string {
+	delimiter = firstNonEmptyString(delimiter, ",")
+	raw := strings.Split(strings.TrimSpace(answer), delimiter)
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		out = append(out, strings.TrimSpace(value))
+	}
+	return out
+}
+
+func dataTaskProjectionValueEqual(actual, expected string) bool {
+	actual = strings.TrimSpace(actual)
+	expected = strings.TrimSpace(expected)
+	if actual == expected {
+		return true
+	}
+	a, aOK := new(big.Rat).SetString(actual)
+	b, bOK := new(big.Rat).SetString(expected)
+	return aOK && bOK && a.Cmp(b) == 0
+}
+
+func parseBoolDataTaskString(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func dataTaskReferenceCandidatesForPath(runner dataquery.ActionRunner, path string, fields []string, groupKeys []string) []dataquery.ReferenceKeyCandidate {

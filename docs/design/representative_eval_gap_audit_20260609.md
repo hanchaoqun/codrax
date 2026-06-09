@@ -230,6 +230,12 @@ Some PASS answers already contain the right principal members and evidence in pr
 
 Generic fix direction: keep rich upstream evidence in typed handoff channels (`aggregate_facts`, `member_notes`, `support_refs`, evidence summaries, artifact lineage, and output-contract metadata) and let deterministic answer compilers/validators consume those signals. Do not infer principal coverage from user keywords or model intent prose; use row candidates, citation/location compatibility, structured facets, and authored carrier blocks.
 
+### G9. Final Projection Value Binding Can Be Polluted By Output Groups
+
+A later `assemble_answer` repair can inherit a prior `final_answer/projection` reconcile group. If that output group participates in business metric inference, the runner may fail to identify the single computed metric and fall back to an unrelated default metric. The reference-complete projection then preserves the correct key universe but fills every key as zero, while `reference_projected=true` metadata makes the completion gate think the answer is structurally complete.
+
+Generic fix direction: final-output projection groups are audit/output lineage, not business contribution groups. Runner metric inference and workflow validators must exclude typed `final_answer/projection` groups when binding reference keys to reconcile values. Completion should require both projection shape metadata and typed value binding against reconcile groups when a values-style strict output is verifiable. Fallback projection plans should also carry structural input aliases for the reference, reconcile, and contribution artifacts so rich upstream evidence remains consumable by backend actions.
+
 ## Executable Task List
 
 ### Batch A - Data Reference Projection Correctness
@@ -298,17 +304,22 @@ Generic fix direction: keep rich upstream evidence in typed handoff channels (`a
     - Behavior: deterministic compilers recognize typed member rows, support refs, locations, and authored prose/table/list carriers before adding supplements.
     - Validation: member notes or evidence summaries are consumed as structured handoff material; no prompt-only instruction or keyword match decides coverage.
 
+13. Bind final reference projection values to typed reconcile groups.
+    - Target: `internal/dataquery/action_runner.go`, `internal/repl/data_task_workflow.go`, `internal/dataworkflow/fallback_plan.go`.
+    - Behavior: ignore typed final-output projection groups during business metric inference; reject `reference_projected=true` terminal answers when strict values output contradicts typed reconcile groups; include reference/reconcile/contribution aliases in deterministic projection fallback plans.
+    - Validation: stale `final_answer/projection` groups cannot force zero-filled complete-reference output; value-mismatched projection metadata triggers deterministic `assemble_answer` repair.
+
 ### Batch E - Verification Sweep
 
-13. Run focused unit tests after each batch.
+14. Run focused unit tests after each batch.
     - `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl`
     - Add narrower `-run` invocations for projection, terminal status, and artifact schema tests.
 
-14. Re-run representative eval with `PARALLEL=2`.
+15. Re-run representative eval with `PARALLEL=2`.
     - Same four cases as this audit.
     - Pass criteria: all four PASS; data lane terminal status complete; no wrong reference projection; trace/multi-repo warnings do not leak generic caveats.
 
-15. Run a broader data-focused eval slice.
+16. Run a broader data-focused eval slice.
     - Include data cases with missing reference keys, extra contribution groups, unmapped source rows, numeric parsing, and multi-file joins.
     - Pass criteria: no final projection uses a broad coverage artifact when an explicit reference contract exists.
 

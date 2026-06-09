@@ -535,6 +535,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 			ID:             "complete_output_contract_answer",
 			Kind:           dataquery.DataActionAssembleAnswer,
 			Purpose:        "project existing reconcile groups into the requested output contract without changing business decisions or numeric values",
+			InputPaths:     outputProjectionInputPaths(input, params["reference_path"]),
 			OutputArtifact: "final_answer.json",
 			Params:         params,
 		}},
@@ -549,6 +550,47 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 		plan.Goal = "complete the final answer projection from already reconciled data"
 	}
 	return plan, true
+}
+
+func outputProjectionInputPaths(input OutputProjectionPlanInput, referencePath string) []string {
+	var paths []string
+	paths = append(paths, referencePath)
+	paths = append(paths, input.Current.InputPaths...)
+	for _, action := range input.Current.Actions {
+		paths = append(paths, action.InputPaths...)
+	}
+	for _, artifact := range input.Result.Artifacts {
+		if !projectionSourceArtifact(artifact) {
+			continue
+		}
+		paths = append(paths, artifact.ID)
+		paths = append(paths, artifact.SourcePaths...)
+		paths = append(paths, parseProjectionArtifactAliases(artifact.Fields["artifact_aliases"])...)
+	}
+	return cleanStrings(paths)
+}
+
+func projectionSourceArtifact(artifact dataquery.DataArtifact) bool {
+	kind := strings.TrimSpace(artifact.Kind)
+	if strings.EqualFold(kind, string(dataquery.DataActionReconcile)) ||
+		strings.EqualFold(kind, string(dataquery.DataActionComputeContribs)) {
+		return true
+	}
+	ledgerType := strings.TrimSpace(artifact.Fields["ledger_type"])
+	return strings.EqualFold(ledgerType, "contributions") ||
+		strings.EqualFold(ledgerType, "reconcile") ||
+		strings.EqualFold(ledgerType, "reconcile_artifacts")
+}
+
+func parseProjectionArtifactAliases(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 type ResultProjectionNeedInput struct {

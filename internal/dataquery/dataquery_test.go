@@ -9182,6 +9182,55 @@ func TestActionRunnerAssembleAnswerReplacesStaleFinalProjectionGroup(t *testing.
 	}
 }
 
+func TestActionRunnerAssembleAnswerIgnoresFinalProjectionGroupForMetricInference(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{
+		Reconcile: &ReconcileReport{
+			Status: LooseText("pass"),
+			Groups: []ReconcileGroup{
+				{GroupKey: LooseText("GroupA"), Metric: LooseText("total_value"), Expected: LooseText("17"), Actual: LooseText("17")},
+				{GroupKey: LooseText("GroupB"), Metric: LooseText("total_value"), Expected: LooseText("4"), Actual: LooseText("4")},
+				{GroupKey: LooseText("GroupC"), Metric: LooseText("total_value"), Expected: LooseText("5"), Actual: LooseText("5")},
+				{GroupKey: LooseText("final_answer"), Metric: LooseText("projection"), Scope: LooseText("final_answer"), Role: LooseText("output"), Expected: LooseText("0,0,0"), Actual: LooseText("0,0,0")},
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		Actions: []DataAction{{
+			ID:   "answer",
+			Kind: DataActionAssembleAnswer,
+			Params: map[string]string{
+				"complete_reference":  "true",
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"projection":          "values",
+				"delimiter":           ",",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run assemble stale projection metric inference: %v", err)
+	}
+	if res.Answer != "17,0,5" {
+		t.Fatalf("Answer=%q, want business metric projection unaffected by stale final_answer group", res.Answer)
+	}
+	fields := res.Artifacts[len(res.Artifacts)-1].Fields
+	if fields["metric"] != "total_value" {
+		t.Fatalf("Assemble fields=%+v, want typed projected metric total_value", fields)
+	}
+}
+
 func TestActionRunnerInfersReferenceKeyCandidateStructurally(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target\nA\nB\nC\n"), 0600); err != nil {

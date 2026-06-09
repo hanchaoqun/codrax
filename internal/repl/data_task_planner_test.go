@@ -1574,6 +1574,99 @@ func TestDataTaskWorkflowCompletionGateAcceptsReferenceProjectionMetadata(t *tes
 	}
 }
 
+func TestDataTaskWorkflowCompletionGateRejectsReferenceProjectionValueMismatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"targets.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "0,0,0",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"targets.csv"},
+		Rows:           []dataquery.RowDecision{{RowID: "r1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("r1"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("17"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r2"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("4"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("r3"), Source: dataquery.LooseText("observations.csv"), SourceLocator: dataquery.LooseText("line:3"), GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Value: dataquery.LooseText("5"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("final_answer"), Metric: dataquery.LooseText("projection"), Scope: dataquery.LooseText("final_answer"), Role: dataquery.LooseText("output"), Expected: dataquery.LooseText("0,0,0"), Actual: dataquery.LooseText("0,0,0"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{
+			{
+				ID:   "reconcile_result.json",
+				Kind: string(dataquery.DataActionReconcile),
+				Fields: map[string]string{
+					"artifact_aliases": "reconcile_result,reconcile_result.json",
+				},
+			},
+			{
+				ID:   "workflow_contributions",
+				Kind: "workflow_ledger/contributions",
+				Fields: map[string]string{
+					"artifact_aliases": "workflow_contributions,workflow_contributions.json",
+					"ledger_type":      "contributions",
+				},
+			},
+			{
+				ID:   "final_answer",
+				Kind: string(dataquery.DataActionAssembleAnswer),
+				Fields: map[string]string{
+					"group_count":         "3",
+					"projection":          "values",
+					"reference_projected": "true",
+					"reference_path":      "targets.csv",
+					"reference_key_field": "canonical_label",
+					"reference_key_count": "3",
+					"value_field":         "actual",
+					"delimiter":           ",",
+				},
+			},
+		},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if guard.Empty() {
+		t.Fatal("value-mismatched reference projection metadata must not satisfy terminal completion")
+	}
+	if guard.Code != "output_projection_incomplete_reference" {
+		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	}
+	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
+	if !ok {
+		t.Fatal("expected deterministic projection repair")
+	}
+	if plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("Actions=%+v, want assemble_answer repair", plan.Actions)
+	}
+	inputs := strings.Join(plan.Actions[0].InputPaths, ",")
+	for _, want := range []string{"targets.csv", "reconcile_result", "workflow_contributions"} {
+		if !strings.Contains(inputs, want) {
+			t.Fatalf("InputPaths=%v, want structural handoff alias %q", plan.Actions[0].InputPaths, want)
+		}
+	}
+}
+
 func TestDataTaskWorkflowCompletionGateRejectsMismatchedReferenceProjectionMetadata(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {

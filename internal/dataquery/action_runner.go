@@ -576,6 +576,7 @@ type assembleReferenceProjection struct {
 	Path      string
 	Field     string
 	KeyCount  int
+	Metric    string
 }
 
 func (e DataActionError) Error() string {
@@ -8331,6 +8332,9 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		if strings.TrimSpace(projectionInfo.Field) != "" {
 			fields["reference_key_field"] = projectionInfo.Field
 		}
+		if strings.TrimSpace(projectionInfo.Metric) != "" {
+			fields["metric"] = projectionInfo.Metric
+		}
 	}
 	return DataArtifact{
 		ID:      id,
@@ -8398,6 +8402,7 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		Path:      candidate.Path,
 		Field:     candidate.Field,
 		KeyCount:  candidate.KeyCount,
+		Metric:    metric,
 	}
 }
 
@@ -8690,6 +8695,9 @@ func referenceCandidateBetter(candidate, current ReferenceKeyCandidate) bool {
 func singleReconcileMetric(groups []ReconcileGroup) string {
 	var metric string
 	for _, group := range groups {
+		if reconcileGroupIsFinalAnswerProjection(group) {
+			continue
+		}
 		value := strings.TrimSpace(group.Metric.String())
 		if value == "" {
 			continue

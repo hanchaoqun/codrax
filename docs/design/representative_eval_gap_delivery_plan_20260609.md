@@ -92,6 +92,17 @@ Typed behavior:
 - Answer compilers recognize authored prose, table, and list carriers by structured row candidates and location/citation compatibility before adding system supplements.
 - Coverage decisions do not parse user intent keywords or model prose intent; model text is used only as the visible authored surface for row/location/description coverage.
 
+### D8. Final Projection Value Binding Is A Typed Completion Requirement
+
+Reference-complete shape metadata is necessary but not sufficient. When a strict values-style answer is verifiable, terminal completion must prove that each reference key's output value is bound to the typed reconcile group value for the selected metric. Prior `final_answer/projection` groups are output lineage and must not participate in business metric inference.
+
+Typed behavior:
+
+- `assemble_answer` infers business metric from reconcile groups after excluding typed final-output projection groups.
+- Projection artifacts expose the selected metric as typed metadata for downstream validators.
+- Completion gate accepts `reference_projected=true` only when path, key field, count, and verifiable values match typed reconcile groups.
+- Deterministic projection fallback carries reference/reconcile/contribution artifact aliases as `input_paths` so upstream evidence remains available to backend actions.
+
 ## Delivery Batches
 
 ### Batch A - Final Reference Authority
@@ -115,6 +126,11 @@ Tasks:
 
 4. Add regression for stale/wrong projection metadata.
    - A prior `assemble_answer` artifact using a broad reference path must not satisfy the target contract.
+
+5. Bind final projection values to reconcile groups.
+   - Exclude final-output projection groups from business metric inference.
+   - Reject value-mismatched strict values projections even when reference metadata matches.
+   - Carry reference/reconcile/contribution aliases in fallback `assemble_answer.input_paths`.
 
 Validation:
 
