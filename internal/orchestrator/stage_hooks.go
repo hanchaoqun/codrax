@@ -164,7 +164,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
 
-	if err := enforceWriteApprovalBeforeApply(o, plan); err != nil {
+	if err := enforceWriteApprovalBeforeApply(o, plan, "plan_post_hook"); err != nil {
 		return err
 	}
 
@@ -248,7 +248,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	return nil
 }
 
-func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan) error {
+func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, source string) error {
 	if o == nil || o.busCtx == nil || plan == nil {
 		return nil
 	}
@@ -261,25 +261,66 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan) er
 		policy = writeflow.ApprovalPolicyAutoSafe
 	}
 	decision := writeflow.DecideWriteApproval(policy, assessment)
+	fingerprint := types.PlanFingerprint(plan)
 	switch decision.Action {
 	case writeflow.ApprovalActionAutoExecute:
+		stampWriteApprovalRecord(plan, assessment, decision, source, "auto", fingerprint)
+		persistWriteApprovalRecord(o, plan)
 		return nil
 	case writeflow.ApprovalActionDeny:
+		stampWriteApprovalRecord(plan, assessment, decision, source, "denied", fingerprint)
+		plan.Status = types.PlanStatusBlocked
 		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
 		o.busCtx.Mutable.SetResultPlain(msg)
 		if o.busCtx.PlanPath != "" {
-			o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
+			persistWriteApprovalRecord(o, plan)
 		}
 		return fmt.Errorf("write approval denied for plan %s: %s", plan.ID, decision.ReasonCode)
 	case writeflow.ApprovalActionManual:
+		if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
+			return nil
+		}
+		userDecision := "required"
+		if plan.Approval != nil && plan.Approval.UserDecision == "approved" && plan.Approval.PlanFingerprint != fingerprint {
+			decision.ReasonCode = "stale_approval_fingerprint"
+			decision.Reason = "previous manual approval was for a different plan fingerprint"
+			userDecision = "stale"
+		}
+		stampWriteApprovalRecord(plan, assessment, decision, source, userDecision, fingerprint)
+		plan.Status = types.PlanStatusPending
 		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
 		o.busCtx.Mutable.SetResultPlain(msg)
 		if o.busCtx.PlanPath != "" {
-			o.persistPlanStatus(types.PlanStatusPending, nil)
+			persistWriteApprovalRecord(o, plan)
 		}
 		return fmt.Errorf("write approval required for plan %s: %s", plan.ID, decision.ReasonCode)
 	default:
 		return nil
+	}
+}
+
+func stampWriteApprovalRecord(plan *types.ChangePlan, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision, source, userDecision, fingerprint string) {
+	if plan == nil {
+		return
+	}
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, source, userDecision, fingerprint)
+}
+
+func writeApprovalRecordAllowsManualApply(plan *types.ChangePlan, fingerprint string) bool {
+	if plan == nil || plan.Approval == nil || fingerprint == "" {
+		return false
+	}
+	return plan.Approval.PlanFingerprint == fingerprint &&
+		plan.Approval.Action == string(writeflow.ApprovalActionManual) &&
+		plan.Approval.UserDecision == "approved"
+}
+
+func persistWriteApprovalRecord(o *Orchestrator, plan *types.ChangePlan) {
+	if o == nil || o.busCtx == nil || plan == nil || strings.TrimSpace(o.busCtx.PlanPath) == "" {
+		return
+	}
+	if err := types.WritePlanToFile(plan, o.busCtx.PlanPath); err != nil {
+		logging.Warning("[orchestrator] persist write approval record failed: %v", err)
 	}
 }
 
@@ -473,6 +514,10 @@ func applyPreHook(o *Orchestrator) error {
 		}
 		logging.Info("[orchestrator] apply pre-hook: loaded plan %s from %s (%d changes)",
 			plan.ID, o.busCtx.PlanPath, len(plan.Changes))
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if err := enforceWriteApprovalBeforeApply(o, plan, "apply_pre_hook"); err != nil {
+		return err
 	}
 	// 2. Worktree provisioning.
 	if o.worktreeBase == "" {

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -26,9 +27,9 @@ const (
 	RiskCritical RiskLevel = "critical"
 )
 
-// ApprovalPolicy describes how a write plan would be handled once the
-// workflow approval layer is wired into apply. Batch 2 only renders this as a
-// preview; it does not change the current apply behavior.
+// ApprovalPolicy describes how a write plan is handled by the final apply
+// boundary gate. Preview surfaces may render the same decision, but apply-pre
+// enforcement is the source of truth.
 type ApprovalPolicy string
 
 const (
@@ -193,6 +194,35 @@ func DecideWriteApproval(policy ApprovalPolicy, assessment RiskAssessment) Appro
 			ReasonCode: "manual_policy",
 			Reason:     "manual policy requires approval before apply",
 		}
+	}
+}
+
+// NewApprovalRecord converts a typed assessment and approval decision into the
+// persisted ChangePlan approval audit shape. Callers supply the source and
+// userDecision so REPL confirmations, automatic policy decisions, and scheduler
+// gates remain distinguishable without duplicating record assembly.
+func NewApprovalRecord(assessment RiskAssessment, decision ApprovalDecision, source, userDecision, fingerprint string) *types.WriteApprovalRecord {
+	now := time.Now()
+	reasons := make([]types.WriteApprovalReason, 0, len(assessment.Reasons))
+	for _, reason := range assessment.Reasons {
+		reasons = append(reasons, types.WriteApprovalReason{
+			Code:   reason.Code,
+			Detail: reason.Detail,
+			Path:   reason.Path,
+			Level:  string(reason.Level),
+		})
+	}
+	return &types.WriteApprovalRecord{
+		Policy:          string(decision.Policy),
+		RiskLevel:       string(assessment.Level),
+		Action:          string(decision.Action),
+		UserDecision:    strings.TrimSpace(userDecision),
+		ReasonCode:      decision.ReasonCode,
+		Reason:          decision.Reason,
+		Reasons:         reasons,
+		Source:          strings.TrimSpace(source),
+		PlanFingerprint: fingerprint,
+		DecidedAt:       &now,
 	}
 }
 

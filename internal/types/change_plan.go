@@ -1,6 +1,8 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,6 +26,11 @@ const (
 	// (W1 / W1b violation, git-apply refusal, stat error). Verify
 	// never ran.
 	PlanStatusApplyFailed = "applied_failed"
+	// PlanStatusBlocked means a deterministic pre-apply policy gate
+	// rejected the plan before any worktree write was attempted.
+	// It is terminal and settled: the operator must create a new plan
+	// rather than approve this one.
+	PlanStatusBlocked = "blocked"
 	// PlanStatusVerifyFailed means apply landed but verify's tests
 	// failed. Distinct from applied_failed so operators can tell
 	// "plan was broken" from "plan applied but surface regressed".
@@ -76,7 +83,7 @@ const (
 //
 // pending_approval / applied / verify_failed / unverified /
 // partially_applied are unsettled. merged / rejected /
-// applied_failed are settled (terminal). applied_failed is
+// applied_failed / blocked are settled (terminal). applied_failed is
 // terminal because apply itself crashed — nothing landed, the
 // user moves on; treating it as unsettled would block forever on a
 // dead plan. Unverified is unsettled because the user still needs
@@ -197,6 +204,43 @@ type IterationRecord struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// WriteApprovalReason mirrors writeflow.RiskReason without importing writeflow
+// into the low-level types package. It is persisted on ChangePlan so an
+// approval/denial can be audited after the original Run exits.
+type WriteApprovalReason struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Level  string `json:"level"`
+}
+
+// WriteApprovalRecord is the persisted approval decision for the exact
+// ChangePlan fingerprint that reached the apply boundary. Approval is separate
+// from PlanStatus: Status tracks execution lifecycle, while this record tracks
+// policy, risk, decision source, and whether a human explicitly approved a
+// manual-risk plan.
+type WriteApprovalRecord struct {
+	Policy          string                `json:"policy,omitempty"`
+	RiskLevel       string                `json:"risk_level,omitempty"`
+	Action          string                `json:"action,omitempty"`
+	UserDecision    string                `json:"user_decision,omitempty"`
+	ReasonCode      string                `json:"reason_code,omitempty"`
+	Reason          string                `json:"reason,omitempty"`
+	Reasons         []WriteApprovalReason `json:"reasons,omitempty"`
+	Source          string                `json:"source,omitempty"`
+	PlanFingerprint string                `json:"plan_fingerprint,omitempty"`
+	DecidedAt       *time.Time            `json:"decided_at,omitempty"`
+}
+
+// ApprovalMatchesCurrentFingerprint reports whether the persisted approval was
+// made against the plan bytes currently being considered for apply.
+func (p *ChangePlan) ApprovalMatchesCurrentFingerprint() bool {
+	if p == nil || p.Approval == nil {
+		return false
+	}
+	return p.Approval.PlanFingerprint != "" && p.Approval.PlanFingerprint == PlanFingerprint(p)
+}
+
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
 // as .codrax/plans/<id>.json by emit_change_plan.Execute, consumed by
@@ -211,8 +255,9 @@ type IterationRecord struct {
 // Lifecycle:
 //  1. Plan stage: emit_change_plan.Execute writes <id>.json,
 //     WriteClosure.PendingApplies is populated, Status="pending_approval"
-//  2. User approves (REPL /approve or --auto-apply): Status="approved"
-//     and a separate Run() with --mode=write --write-phase=apply consumes the file.
+//  2. User approves (REPL /approve) or policy auto-allows: Approval records
+//     the decision and a separate Run() with --mode=write --write-phase=apply
+//     consumes the file.
 //  3. Apply stage reads <id>.json, iterates ChangeUnits through
 //     apply_patch tool; sets applied_commit_sha on success.
 //  4. Verify stage runs tests; outcome stored on ChangeReport (below).
@@ -275,10 +320,11 @@ type ChangePlan struct {
 	// landed).
 	AppliedPaths []string `json:"applied_paths,omitempty"`
 
-	// Status transitions — see the PlanStatus* constants below.
-	// Legal values: pending_approval, approved, applied,
-	// applied_failed (apply tool failed), verify_failed (tests
-	// failed post-apply), rejected.
+	// Status transitions — see the PlanStatus* constants above.
+	// Legal values: pending_approval, applied, applied_failed,
+	// verify_failed, unverified, partially_applied, blocked, rejected,
+	// merged. Approval itself is tracked by Approval, not by a separate
+	// status string.
 	Status string `json:"status"`
 
 	// AppliedCommitSHA is the git commit SHA produced inside the
@@ -318,6 +364,10 @@ type ChangePlan struct {
 	// /reject [reason]. Empty when no reason was supplied or
 	// Status != "rejected".
 	RejectionReason string `json:"rejection_reason,omitempty"`
+
+	// Approval records the latest deterministic write approval decision for
+	// this exact plan fingerprint. A stale fingerprint never authorizes apply.
+	Approval *WriteApprovalRecord `json:"approval,omitempty"`
 
 	// PlanCritique is the optional pre-apply review text produced
 	// by the plan_critic agent (commit 4 P1-F). Persisted onto
@@ -369,6 +419,42 @@ type ChangePlan struct {
 	// PhaseGroupID is empty (zero value matches the absence
 	// signal at PhaseGroupID=="").
 	PhaseIndex int `json:"phase_index,omitempty"`
+}
+
+// PlanFingerprint returns a deterministic hash of the apply-relevant plan
+// fields. It deliberately excludes lifecycle fields (Status, AppliedAt,
+// WorktreePath, Approval, critique) so persisting status/approval metadata does
+// not invalidate the approved payload, while any change to requested file
+// operations or test obligations does.
+func PlanFingerprint(plan *ChangePlan) string {
+	if plan == nil {
+		return ""
+	}
+	payload := struct {
+		ID              string       `json:"id"`
+		Request         string       `json:"request,omitempty"`
+		Summary         string       `json:"summary,omitempty"`
+		Changes         []FileChange `json:"changes"`
+		AcceptanceTests []string     `json:"acceptance_tests,omitempty"`
+		TargetPaths     []string     `json:"target_paths"`
+		PhaseGroupID    string       `json:"phase_group_id,omitempty"`
+		PhaseIndex      int          `json:"phase_index,omitempty"`
+	}{
+		ID:              plan.ID,
+		Request:         plan.Request,
+		Summary:         plan.Summary,
+		Changes:         append([]FileChange(nil), plan.Changes...),
+		AcceptanceTests: append([]string(nil), plan.AcceptanceTests...),
+		TargetPaths:     append([]string(nil), plan.TargetPaths...),
+		PhaseGroupID:    plan.PhaseGroupID,
+		PhaseIndex:      plan.PhaseIndex,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // FileChange describes one file-level modification the apply stage

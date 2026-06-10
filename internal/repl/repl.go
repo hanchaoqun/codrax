@@ -8190,6 +8190,25 @@ func (r *REPL) handleApproveCmd(line string) {
 		r.info(approveCancelled(r.language))
 		return
 	}
+	userDecision := "approved"
+	if decision.Action == writeflow.ApprovalActionAutoExecute {
+		userDecision = "auto"
+	}
+	plan.Approval = writeflow.NewApprovalRecord(
+		assessment,
+		decision,
+		"repl_approve",
+		userDecision,
+		types.PlanFingerprint(plan),
+	)
+	if strings.TrimSpace(r.pendingPlanPath) != "" {
+		if err := types.WritePlanToFile(plan, r.pendingPlanPath); err != nil {
+			r.warn("could not persist write approval record for plan %s: %v\n", plan.ID, err)
+			if decision.Action == writeflow.ApprovalActionManual {
+				return
+			}
+		}
+	}
 
 	// Bare-directory scaffolding gate. Before handing the plan to the
 	// orchestrator, probe the target repo. If it's not a git repo, or

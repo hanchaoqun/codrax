@@ -27,4 +27,7 @@ func TestPlanStatus_TerminalsStaySettled(t *testing.T) {
 	if IsUnsettledStatus(PlanStatusRejected) {
 		t.Error("PlanStatusRejected must remain settled (terminal)")
 	}
+	if IsUnsettledStatus(PlanStatusBlocked) {
+		t.Error("PlanStatusBlocked must remain settled (terminal)")
+	}
 }

@@ -1,7 +1,7 @@
 # Write Mode Dynamic Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 0 ready to commit
+Status: Batch 1 ready to commit
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Goal
@@ -166,21 +166,21 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 - [x] Create branch `codex/write-mode-commercial-workflow`.
 - [x] Add this design and task ledger.
-- [ ] Commit `docs: record write-mode commercial workflow delivery plan`.
-- [ ] Push branch.
+- [x] Commit `docs: record write-mode commercial workflow delivery plan`.
+- [x] Push branch.
 
 ### Batch 1: Apply Boundary Approval
 
-- [ ] Add `PlanStatusBlocked`.
-- [ ] Add `WriteApprovalRecord` and deterministic plan fingerprint.
-- [ ] Persist approval record on `ChangePlan`.
-- [ ] Move final approval enforcement into `applyPreHook` after plan load and
+- [x] Add `PlanStatusBlocked`.
+- [x] Add `WriteApprovalRecord` and deterministic plan fingerprint.
+- [x] Persist approval record on `ChangePlan`.
+- [x] Move final approval enforcement into `applyPreHook` after plan load and
       before worktree provisioning.
-- [ ] Keep `planPostHook` as a preview/compatibility check without relying on
+- [x] Keep `planPostHook` as a preview/compatibility check without relying on
       it as the final gate.
-- [ ] Update `/approve` to record explicit user approval with the current
+- [x] Update `/approve` to record explicit user approval with the current
       fingerprint.
-- [ ] Add plan-file apply tests for auto, manual, deny, and stale approval.
+- [x] Add plan-file apply tests for auto, manual, deny, and stale approval.
 - [ ] Commit, push, and update this ledger.
 
 ### Batch 2: Structured Risk Policy
@@ -252,8 +252,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 | Batch | Status | Commit | Push | Tests |
 | --- | --- | --- | --- | --- |
-| 0 | in_progress | pending | pending | not run |
-| 1 | pending | pending | pending | pending |
+| 0 | complete | 81b7ebef | pushed | not run |
+| 1 | ready_to_commit | pending | pending | `go test ./internal/types`, `./internal/writeflow`, focused `./internal/orchestrator`, focused `./internal/repl` |
 | 2 | pending | pending | pending | pending |
 | 3 | pending | pending | pending | pending |
 | 4 | pending | pending | pending | pending |
