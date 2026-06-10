@@ -189,6 +189,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			innerErr := o.runControllerVerifyBatch(stepsUsed)
 			report := o.busCtx.Mutable.ChangeReport()
 			if report != nil {
+				o.ensureChangeReportPlanID(report)
 				o.syncMutablePlanStatusAfterVerify(report, innerErr)
 				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
 				updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
@@ -883,11 +884,11 @@ func writeWorkflowReportID(report *types.ChangeReport) string {
 	if report == nil {
 		return ""
 	}
-	planID := strings.TrimSpace(report.PlanID)
-	if planID == "" {
+	stem := writeWorkflowArtifactFileStem(report.PlanID)
+	if stem == "" {
 		return ""
 	}
-	return planID + ".report.json"
+	return stem + ".report.json"
 }
 
 func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID, artifactRef string) {

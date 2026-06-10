@@ -830,6 +830,94 @@ func TestSaveChangeReport_ReportDirFallback(t *testing.T) {
 	}
 }
 
+func TestSaveChangeReport_BackfillsPlanIDFromMutablePlan(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("probe"),
+	}
+	o.reportDir = tmp
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-current"})
+
+	report := &types.ChangeReport{
+		Passed: true,
+	}
+	o.saveChangeReport(report)
+
+	if report.PlanID != "plan-current" {
+		t.Fatalf("report PlanID should be backfilled from current ChangePlan; got %q", report.PlanID)
+	}
+	wantPath := filepath.Join(tmp, "plan-current.report.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("backfilled report not persisted: %v (expected at %s)", err, wantPath)
+	}
+}
+
+func TestSaveChangeReport_PersistsPlanThroughSaverWhenNoPlanPath(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.SetPlanSaver(&testPlanSaver{dir: tmp})
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("probe"),
+	}
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-durable"})
+
+	report := &types.ChangeReport{Passed: true}
+	o.saveChangeReport(report)
+
+	wantPlan := filepath.Join(tmp, "plan-durable.json")
+	if o.busCtx.PlanPath != wantPlan {
+		t.Fatalf("PlanPath should be rebound to saved plan path; got %q want %q", o.busCtx.PlanPath, wantPlan)
+	}
+	if _, err := os.Stat(wantPlan); err != nil {
+		t.Fatalf("plan saver did not persist plan: %v", err)
+	}
+	wantReport := filepath.Join(tmp, "plan-durable.report.json")
+	if _, err := os.Stat(wantReport); err != nil {
+		t.Errorf("report not persisted next to saved plan: %v (expected at %s)", err, wantReport)
+	}
+}
+
+func TestSaveChangeReport_WorkDirFallbackWhenNoPlanStore(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		WorkDir: tmp,
+		Mutable: types.NewMutableState("probe"),
+	}
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-workdir"})
+
+	report := &types.ChangeReport{Passed: true}
+	o.saveChangeReport(report)
+
+	wantPath := filepath.Join(tmp, "plans", "plan-workdir.report.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("workdir report fallback failed: %v (expected at %s)", err, wantPath)
+	}
+}
+
+func TestWriteWorkflowReportID_UsesArtifactSafeStem(t *testing.T) {
+	report := &types.ChangeReport{PlanID: "../plan unsafe"}
+	if got := writeWorkflowReportID(report); got != "_plan_unsafe.report.json" {
+		t.Fatalf("report id should use artifact-safe stem; got %q", got)
+	}
+}
+
+type testPlanSaver struct {
+	dir string
+}
+
+func (s *testPlanSaver) Save(plan *types.ChangePlan) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("nil testPlanSaver")
+	}
+	path := filepath.Join(s.dir, plan.ID+".json")
+	if err := types.WritePlanToFile(plan, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // TestBaselineReportRoundTrip locks the MutableState slot behaviour
 // so CritNoRegression can read what runApplyPhase writes.
 func TestBaselineReportRoundTrip(t *testing.T) {

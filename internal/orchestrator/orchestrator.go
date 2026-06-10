@@ -3618,7 +3618,8 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 	if report == nil {
 		return
 	}
-	if report.PlanID == "" {
+	planID := o.ensureChangeReportPlanID(report)
+	if planID == "" {
 		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID empty")
 		return
 	}
@@ -3630,23 +3631,118 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 	//     field. This is the load-bearing fallback that lets
 	//     restoreBestIfRegressed persist the restored ChangeReport on
 	//     terminal failure even after multiple retry iterations.
-	//  3. (skip with log) — plan-mode e2e flow with no on-disk artifact.
-	var planDir string
-	if o.busCtx.PlanPath != "" {
-		planDir = filepath.Dir(o.busCtx.PlanPath)
-	} else if o.reportDir != "" {
-		planDir = o.reportDir
-	}
+	//  3. planSaver — controller-first write runs usually have an
+	//     in-memory ChangePlan first; persisting it through the same
+	//     PlanStore the REPL uses gives the report a durable sibling.
+	//  4. busCtx.WorkDir/plans — last-resort run-local audit trail for
+	//     tests or stripped-down embeddings that did not wire PlanStore.
+	planDir := o.ensureChangeReportDir()
 	if planDir == "" {
 		logging.Warning("[orchestrator] skipping ChangeReport disk save: no plan dir resolvable (plan-mode e2e path)")
 		return
 	}
-	reportPath := filepath.Join(planDir, report.PlanID+".report.json")
+	stem := writeWorkflowArtifactFileStem(planID)
+	if stem == "" {
+		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID %q has no safe artifact stem", planID)
+		return
+	}
+	reportPath := filepath.Join(planDir, stem+".report.json")
 	if err := types.WriteChangeReportToFile(report, reportPath); err != nil {
 		logging.Warning("[orchestrator] ChangeReport disk save failed: %v", err)
 		return
 	}
 	logging.Info("[orchestrator] ChangeReport saved: %s", reportPath)
+}
+
+func (o *Orchestrator) ensureChangeReportPlanID(report *types.ChangeReport) string {
+	if report == nil {
+		return ""
+	}
+	if planID := strings.TrimSpace(report.PlanID); planID != "" {
+		return planID
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		if planID := strings.TrimSpace(plan.ID); planID != "" {
+			report.PlanID = planID
+			return planID
+		}
+	}
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		activeBatchID := strings.TrimSpace(run.ActiveBatchID)
+		for _, batch := range run.Batches {
+			if strings.TrimSpace(batch.ID) != activeBatchID {
+				continue
+			}
+			if planID := strings.TrimSpace(batch.PlanID); planID != "" {
+				report.PlanID = planID
+				return planID
+			}
+		}
+		if activeBatchID == "" && len(run.Batches) == 1 {
+			if planID := strings.TrimSpace(run.Batches[0].PlanID); planID != "" {
+				report.PlanID = planID
+				return planID
+			}
+		}
+	}
+	return ""
+}
+
+func (o *Orchestrator) ensureChangeReportDir() string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	if path := strings.TrimSpace(o.busCtx.PlanPath); path != "" {
+		o.reportDir = filepath.Dir(path)
+		return o.reportDir
+	}
+	if dir := strings.TrimSpace(o.reportDir); dir != "" {
+		return dir
+	}
+	if o.planSaver != nil && o.busCtx.Mutable != nil {
+		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && strings.TrimSpace(plan.ID) != "" {
+			path, err := o.planSaver.Save(plan)
+			if err != nil {
+				logging.Warning("[orchestrator] ChangeReport plan persist fallback failed: %v", err)
+			} else if strings.TrimSpace(path) != "" {
+				o.busCtx.PlanPath = path
+				o.planPath = path
+				o.reportDir = filepath.Dir(path)
+				return o.reportDir
+			}
+		}
+	}
+	if workDir := strings.TrimSpace(o.busCtx.WorkDir); workDir != "" {
+		o.reportDir = filepath.Join(workDir, "plans")
+		return o.reportDir
+	}
+	return ""
+}
+
+func writeWorkflowArtifactFileStem(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), ".")
 }
 
 // renderVerifyFailure builds the Mutable.Result message for a

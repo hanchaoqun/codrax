@@ -213,3 +213,9 @@ flowchart TD
   filtered from the StageExplore schema when a `WriteExplorationRequest` is
   active, and runtime validation rejects bypass attempts with typed repair
   metadata.
+- 2026-06-10 Batch 4 complete: post-apply `ChangeReport` persistence now
+  backfills missing `PlanID` from the current typed `ChangePlan` or active
+  workflow batch, persists in-memory controller plans through the existing
+  PlanStore when available, falls back to the run workdir for stripped-down
+  embeddings, and records workflow `VerifyRef` with the same artifact-safe
+  report id.
