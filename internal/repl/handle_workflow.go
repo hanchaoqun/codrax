@@ -379,11 +379,18 @@ func writeWorkflowBatchLines(b *strings.Builder, lang string, run types.WriteWor
 		if strings.TrimSpace(batch.PlanID) != "" {
 			planPart = fmt.Sprintf(" plan `%s`", batch.PlanID)
 		}
+		refPart := ""
+		if strings.TrimSpace(batch.ApplyRef) != "" {
+			refPart += fmt.Sprintf(" apply `%s`", batch.ApplyRef)
+		}
+		if strings.TrimSpace(batch.VerifyRef) != "" {
+			refPart += fmt.Sprintf(" verify `%s`", batch.VerifyRef)
+		}
 		goal := strings.TrimSpace(batch.Goal)
 		if goal != "" {
 			goal = " - " + goal
 		}
-		fmt.Fprintf(b, "%s `%s` `%s`%s%s\n", marker, batch.ID, batch.Status, planPart, goal)
+		fmt.Fprintf(b, "%s `%s` `%s`%s%s%s\n", marker, batch.ID, batch.Status, planPart, refPart, goal)
 	}
 }
 

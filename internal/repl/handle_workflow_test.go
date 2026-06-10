@@ -13,7 +13,7 @@ import (
 func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 	planStore := NewPlanStore(t.TempDir())
 	plan := &types.ChangePlan{
-		ID:          "plan-workflow-show",
+		ID:          "p1",
 		Summary:     "show workflow",
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"internal/repl/repl.go"},
@@ -41,10 +41,12 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 			ExplorationRoundsUsed: 1,
 		},
 		Batches: []types.WriteWorkflowBatch{{
-			ID:     "batch-1",
-			Goal:   "show active batch",
-			Status: types.WriteWorkflowBatchPendingApproval,
-			PlanID: "plan-workflow-show",
+			ID:        "batch-1",
+			Goal:      "show active batch",
+			Status:    types.WriteWorkflowBatchPendingApproval,
+			PlanID:    "p1",
+			ApplyRef:  "applied/p1",
+			VerifyRef: "p1.report.json",
 		}},
 		ContextPacks: []types.WriteContextPack{{
 			PackID:  "pack-1",
@@ -87,7 +89,9 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"Write workflow `wf-show`",
 		"Active batch: `batch-1`",
-		"plan `plan-workflow-show`",
+		"plan `p1`",
+		"apply `applied/p1`",
+		"verify `p1.report.json`",
 		"policy=`auto_safe` risk=`high` action=`ask`",
 		"Handoff context: 1 pack(s), P0=1 P1=1",
 		"do not break read mode",

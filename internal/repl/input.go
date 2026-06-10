@@ -302,8 +302,8 @@ var slashCommands = []slashCommand{
 	{Name: "/data", HelpEn: "run one request through data processing", HelpZh: "单次强制走数据处理"},
 	{
 		Name:   "/workflow",
-		HelpEn: "show operation/write workflow state and resume saved write runs",
-		HelpZh: "查看 operation/write workflow 状态,并恢复已保存的写模式运行",
+		HelpEn: "show operation and write workflow state; resume saved write runs",
+		HelpZh: "查看 operation 和写模式 workflow 状态,并恢复已保存的写模式运行",
 		Subs: []slashSubcommand{
 			{"show", "show current workflow graph and queue (default)", "查看当前 workflow 图和队列(默认)"},
 			{"show <run-id>", "show a saved write workflow run by id", "按 ID 查看已保存的写模式 workflow run"},

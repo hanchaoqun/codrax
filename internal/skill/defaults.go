@@ -801,15 +801,14 @@ Prose written outside the tool call is captured in the trace but does not drive 
 			"RESOURCE BUDGET — the verify stage will run your tests under hard caps (default 2 GiB memory, 600 CPU-seconds, plus the configured wall-clock timeout). A test that exceeds any cap is SIGKILLed and the verify→plan retry receives an explicit OOM / CPU-limit / timeout classification — meaning you don't get to blame 'tests failed' if the real cause is unbounded allocation or an infinite loop. To stay within budget: every loop in test or production code MUST have an explicit termination condition (no `while True:` / `for {}` / `loop {}` without a reachable break/return); every recursion MUST have a base case; every allocation whose size depends on input MUST validate the input is bounded before allocating; every blocking call (sleep / wait / lock / network / file open) MUST have a finite timeout. These rules apply to BOTH new test fixtures and production code the tests exercise. Raising the caps is NOT an acceptable fix — bounded execution IS the contract.",
 			"Use depends_on for ORDERING constraints between changes in this same plan: when creating a new file X and then modifying an existing file Y that will import / call X, set Y's depends_on to [\"X\"]. The apply stage topologically-sorts before writing, so declaring the edge guarantees X lands on disk before Y tries to reference it. depends_on is ALWAYS repo-relative paths of OTHER entries in THIS plan — cross-plan or absolute paths are rejected, as is any cycle (a → b → a). Leave depends_on empty when the default declaration order is correct.",
 			"Optionally list acceptance_tests[] — natural-language test assertions the apply stage's verify phase should confirm. Empty is legal (no explicit tests to check).",
-			"Do NOT invoke apply_patch or run_tests from the plan stage — those belong to the apply / verify stages that consume the plan later.",
+			"Do NOT invoke apply_patch from the plan stage. Do NOT invoke run_tests unless dry_run=true; real test execution belongs to the verify stage that consumes the plan later.",
 		},
 		ToolSuggestions: []string{
 			"read_file",
 			"grep",
 			"list_files",
 			"repo_map",
-			"exec_command", // Q2 red line: kept deliberately; worktree sandbox guards runaway commands
-			"run_tests",    // dry-run probe only during batch-local planning
+			"run_tests", // dry-run probe only during batch-local planning
 			"emit_change_plan",
 			"emit_plan_skeleton",
 			"emit_plan_change",
@@ -818,7 +817,7 @@ Prose written outside the tool call is captured in the trace but does not drive 
 		Prohibitions: []string{
 			"do not modify any file during the plan stage — this stage produces the proposal, it does not execute it",
 			"do not invent file paths that do not exist in the repository — read_file or grep to verify paths first",
-			"do not emit apply_patch or run_tests — those tools belong to later phases",
+			"do not emit apply_patch, and do not emit run_tests unless dry_run=true — real execution belongs to later phases",
 			"do not write a plan whose changes[] array is empty — a plan without any proposed change is meaningless",
 			"do not emit two changes[] entries with the same path — one change per file per plan, compose when necessary",
 			"do not create cycles in depends_on — a → b → a, or any longer loop, is rejected. When two files genuinely mutually depend on each other's edits, they usually belong in a single combined change",

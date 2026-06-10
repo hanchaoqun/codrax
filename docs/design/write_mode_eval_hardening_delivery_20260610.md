@@ -234,11 +234,11 @@ flowchart TD
 
 ### Batch 6: Stage Tool Contracts And UX
 
-- [ ] Update `/workflow` slash table to expose show/list/resume/clear/cancel.
-- [ ] Harden prompt/tool tests so planner uses typed dry-run probes, not generic
+- [x] Update `/workflow` slash table to expose show/list/resume/clear/cancel.
+- [x] Harden prompt/tool tests so planner uses typed dry-run probes, not generic
       build shell commands.
-- [ ] Render only live worktree/report paths; otherwise render stable refs.
-- [ ] Commit and push.
+- [x] Render only live worktree/report paths; otherwise render stable refs.
+- [x] Commit and push.
 
 ### Batch 7: Commercial Regression Matrix
 
@@ -273,3 +273,4 @@ flowchart TD
 | 3 | complete | current batch | pushed | Typed manual approval pauses as active `pending_approval`; `/workflow` exposes show/list/resume/clear/cancel and pending approval stays discoverable for `/approve`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive|TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/repl -run 'TestWriteWorkflowRunStore|TestWorkflowShowDisplaysActiveWriteWorkflow|TestApproveUsesActiveWorkflowBatchPlan|TestWorkflowResumeSelectsSavedWriteWorkflow|TestWorkflowClearDeletesActiveWriteWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines_CoversEveryCommand|TestSlashCommand_HelpBothVariantsNonEmpty'`. |
 | 4 | complete | current batch | pushed | Verify report refs now attach to workflow batches; failed build/test evidence and blob refs persist as P2 context for replan. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/types -run 'TestWriteContextPackFromChangeReportCarriesVerifyFailure|TestWriteContextPackViewBoundsAndDefensiveCopy'`. |
 | 5 | complete | current batch | pushed | Batch attempts now carry plan/apply/verify artifact refs; ordinary apply errors no longer masquerade as pending approval; verified runs synchronize mutable plan status to `applied`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`, `go test ./internal/types -run 'TestNormalizeWriteWorkflowRunPersistsContextPacks|TestWriteWorkflowRunToFileRoundTrip'`. |
+| 6 | complete | current batch | pushed | Planner no longer exposes generic `exec_command`; dry-run probes use typed `run_tests dry_run=true`; `/workflow show` renders stable plan/apply/verify refs. Tests: `go test ./internal/skill`, `go test ./internal/repl -run 'TestWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines|TestSlashCommand_HelpBothVariantsNonEmpty'`. |

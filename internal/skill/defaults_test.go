@@ -539,10 +539,20 @@ func TestChangePlanSkill_BatchLocalPlanningWorkflow(t *testing.T) {
 			t.Fatalf("change-plan-skill workflow should mention %q; got:\n%s", want, wf)
 		}
 	}
-	for _, want := range []string{"repo_map", "grep", "read_file"} {
+	for _, want := range []string{"repo_map", "grep", "read_file", "run_tests", "dry_run=true"} {
 		if !strings.Contains(wf, want) {
 			t.Errorf("batch-local exploration should reference tool %q; got:\n%s", want, wf)
 		}
+	}
+	suggestions := map[string]bool{}
+	for _, name := range sk.ToolSuggestions {
+		suggestions[name] = true
+	}
+	if suggestions["exec_command"] {
+		t.Fatalf("planner must not expose generic exec_command; use typed dry-run probes instead: %v", sk.ToolSuggestions)
+	}
+	if !suggestions["run_tests"] {
+		t.Fatalf("planner should expose run_tests for dry_run=true probes: %v", sk.ToolSuggestions)
 	}
 	for _, banned := range []string{
 		"PHASE A",
