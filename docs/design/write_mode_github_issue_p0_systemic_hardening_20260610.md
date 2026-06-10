@@ -364,10 +364,17 @@ update here.
       prompt rendering; full `go test ./...` green.
 
 ### Batch 3 — Durable failure evidence (P0-3, P2 timestamps)
-- [ ] Worktree diff capture helper + persistence at verify-failure branch.
-- [ ] Surface JSON persistence next to report; attempt ArtifactRef wiring.
-- [ ] `GeneratedAt` backfill on save; controller-workflow persistence
-      regression test (report + diff + surface exist after failed verify).
+- [x] `worktree.CaptureCommitPatch` (read-only `git show` of the apply
+      checkpoint commit) + `persistVerifyFailureEvidence` at the scheduler's
+      verify-failure branch: report saved through the standard path even when
+      stage hooks are bypassed, attempt patch written as
+      `<stem>.attempt-N.diff`, cleanup behaviour untouched (L5).
+- [x] Test surface persistence is satisfied by the report embedding from
+      Batch 1 (`ChangeReport.TestSurface` serializes into `.report.json`);
+      the diff artifact ref attaches to the batch's latest verify attempt.
+- [x] `GeneratedAt` backfill in `saveChangeReport`; regression tests: direct
+      evidence persistence against a real git worktree, and the controller
+      workflow leaving a durable failed report when hooks are bypassed.
 
 ### Batch 4 — Approval risk decomposition (P0-4)
 - [ ] Hunk/edit span parser (deterministic) + `DeclSpanSource` interface +
@@ -431,3 +438,8 @@ update here.
   finish_disposition=accept_unverified escape lane; ModePlan action enum
   masked at schema-projection, emit-validation, and scheduler layers from one
   action-set source. `go test ./...` green.
+- 2026-06-10: Batch 3 — durable failure evidence shipped. Failed verify
+  attempts now persist the typed report (with backfilled GeneratedAt) and the
+  apply-checkpoint patch as `<stem>.attempt-N.diff` before any cleanup; the
+  diff ref attaches to the verify attempt record. Worktree cleanup semantics
+  unchanged. `go test ./...` green.

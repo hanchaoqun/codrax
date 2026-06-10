@@ -3677,6 +3677,9 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID %q has no safe artifact stem", planID)
 		return
 	}
+	if report.GeneratedAt.IsZero() {
+		report.GeneratedAt = time.Now()
+	}
 	reportPath := filepath.Join(planDir, stem+".report.json")
 	if err := types.WriteChangeReportToFile(report, reportPath); err != nil {
 		logging.Warning("[orchestrator] ChangeReport disk save failed: %v", err)

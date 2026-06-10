@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -223,6 +224,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				verifyFailures[run.ActiveBatchID]++
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_failed", innerErr.Error())
+				o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
 				o.persistWriteWorkflowRun(&run)
 				if verifyFailures[run.ActiveBatchID] > o.writeRetryBudget {
 					run.Status = types.WriteWorkflowRunBlocked
@@ -969,4 +971,75 @@ func writePlanDeniedByApproval(plan *types.ChangePlan) bool {
 		return true
 	}
 	return plan.Approval != nil && plan.Approval.Action == string(writeflow.ApprovalActionDeny)
+}
+
+// persistVerifyFailureEvidence makes a failed verify attempt durable before
+// the next controller turn (and before the unconditional worktree cleanup at
+// Run exit can destroy the bytes): the typed ChangeReport is saved through
+// the standard report path, and the attempt's applied-commit patch is written
+// next to it as <stem>.attempt-N.diff. The diff artifact ref is attached to
+// the batch's latest verify attempt record. Capture is best-effort and never
+// alters cleanup behaviour (red line L5); failures log at warning.
+func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun, report *types.ChangeReport, attempt int) {
+	if o == nil || o.busCtx == nil || run == nil {
+		return
+	}
+	if report != nil {
+		o.saveChangeReport(report)
+	}
+	if o.busCtx.WorktreePath == "" || strings.TrimSpace(o.currentIterCommitSHA) == "" {
+		return
+	}
+	planID := ""
+	if report != nil {
+		planID = strings.TrimSpace(report.PlanID)
+	}
+	if planID == "" {
+		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+			planID = strings.TrimSpace(plan.ID)
+		}
+	}
+	stem := writeWorkflowArtifactFileStem(planID)
+	planDir := o.ensureChangeReportDir()
+	if stem == "" || planDir == "" {
+		return
+	}
+	patch, err := worktree.CaptureCommitPatch(o.busCtx.WorktreePath, o.currentIterCommitSHA)
+	if err != nil {
+		logging.Warning("[orchestrator] verify-failure diff capture failed: %v", err)
+		return
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	diffName := fmt.Sprintf("%s.attempt-%d.diff", stem, attempt)
+	diffPath := filepath.Join(planDir, diffName)
+	if err := os.WriteFile(diffPath, []byte(patch), 0o644); err != nil {
+		logging.Warning("[orchestrator] verify-failure diff save failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] verify-failure attempt diff saved: %s", diffPath)
+	attachDiffArtifactToLatestVerifyAttempt(run, run.ActiveBatchID, diffName)
+}
+
+// attachDiffArtifactToLatestVerifyAttempt points the most recent verify
+// attempt's ArtifactRef at the captured attempt diff so audit and resume can
+// find the bytes without the worktree.
+func attachDiffArtifactToLatestVerifyAttempt(run *types.WriteWorkflowRun, batchID, artifactRef string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || strings.TrimSpace(artifactRef) == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID != batchID {
+			continue
+		}
+		for j := len(run.Batches[i].Attempts) - 1; j >= 0; j-- {
+			if run.Batches[i].Attempts[j].Kind != "verify" {
+				continue
+			}
+			run.Batches[i].Attempts[j].ArtifactRef = strings.TrimSpace(artifactRef)
+			return
+		}
+		return
+	}
 }

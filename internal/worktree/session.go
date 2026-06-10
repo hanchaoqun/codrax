@@ -765,3 +765,21 @@ func sanitizeTraceID(s string) string {
 	}
 	return b.String()
 }
+
+// CaptureCommitPatch returns the unified patch (commit header + diff) of one
+// commit inside the worktree. Used to persist durable attempt evidence for
+// failed verifications BEFORE the unconditional cleanup defer discards the
+// tree — cleanup behaviour itself is never altered. Read-only.
+func CaptureCommitPatch(path, sha string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("worktree.CaptureCommitPatch: path is empty")
+	}
+	if strings.TrimSpace(sha) == "" {
+		return "", errors.New("worktree.CaptureCommitPatch: sha is empty")
+	}
+	out, err := runGitIn(path, "show", "--format=medium", "--no-color", sha)
+	if err != nil {
+		return "", fmt.Errorf("worktree.CaptureCommitPatch: %w (output: %s)", err, out)
+	}
+	return out, nil
+}
