@@ -1044,7 +1044,7 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 	if in.HasRequest && phase == types.ModeApply && !in.AutoApply {
 		return "", "", fmt.Errorf("--mode=write --write-phase=apply in single-shot (--request) requires --auto-apply for approval")
 	}
-	if (phase == types.ModeApply || phase == types.ModeVerify) && strings.TrimSpace(in.PlanFile) == "" {
+	if phase == types.ModeVerify && strings.TrimSpace(in.PlanFile) == "" {
 		return "", "", fmt.Errorf("--mode=write --write-phase=%s requires --plan-file <path>", string(phase))
 	}
 
@@ -2209,10 +2209,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		// Operators can set pipeline_max_parallelism: 1 for serial
 		// debug/rate-limit mode or 0 for uncapped fan-out.
 		MaxParallelism: types.DefaultPipelineMaxParallelism,
-		// WriteWorkflowEngine=legacy preserves the existing stable
-		// plan/apply/verify path. The controller engine is opt-in until
-		// its full dynamic-loop matrix is proven.
-		WriteWorkflowEngine: types.WriteWorkflowEngineLegacy,
+		// Write mode is controller-first. The historical
+		// write_workflow_engine yaml key is still parsed for
+		// compatibility but no longer selects a public legacy path.
+		WriteWorkflowEngine: types.WriteWorkflowEngineController,
 		// B4-F1 (2026-05-04) — wire DefaultViolationBudgetSettings
 		// into the production seed so the documented defaults
 		// (FailLoudEnabled=true, UserVisibleViolationCaveat=false)
@@ -2689,14 +2689,12 @@ func initApp(cmd *cobra.Command, args []string) error {
 			pipelineSettings.PlanCriticEnabled = *rs.PipelinePlanCriticEnabled
 		}
 		if rs.WriteWorkflowEngine != nil {
-			normalized := types.NormalizeWriteWorkflowEngine(*rs.WriteWorkflowEngine)
-			if normalized == types.WriteWorkflowEngineLegacy &&
-				strings.TrimSpace(*rs.WriteWorkflowEngine) != "" &&
-				!strings.EqualFold(strings.TrimSpace(*rs.WriteWorkflowEngine), types.WriteWorkflowEngineLegacy) {
-				logging.Warning("[config] unknown write_workflow_engine=%q; using %s",
-					*rs.WriteWorkflowEngine, types.WriteWorkflowEngineLegacy)
+			raw := strings.TrimSpace(*rs.WriteWorkflowEngine)
+			if raw != "" && !strings.EqualFold(raw, types.WriteWorkflowEngineController) {
+				logging.Warning("[config] write_workflow_engine=%q is deprecated; write mode uses %s",
+					raw, types.WriteWorkflowEngineController)
 			}
-			pipelineSettings.WriteWorkflowEngine = normalized
+			pipelineSettings.WriteWorkflowEngine = types.NormalizeWriteWorkflowEngine(raw)
 		}
 		// Keep-worktree-on-success toggle (Fix 4 "try before merge").
 		// Same pointer-typed yaml shape so explicit false is

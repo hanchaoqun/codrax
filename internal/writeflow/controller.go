@@ -42,7 +42,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		run.Budget.ExplorationRoundsUsed++
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeExplore, "", batchID, decision.ReasonCode)
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
-	case ActionPlanChangeBatch:
+	case ActionPlanBatch:
 		batchID, goal := batchIDAndGoalFromBatch(decision, run)
 		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
 		if added {
@@ -53,19 +53,46 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgePlan, "", batchID, decision.ReasonCode)
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
-	case ActionApplyReadyPlan:
+	case ActionApplyPlan:
 		batchID := activeOrNextBatchID(run)
-		updateWorkflowBatch(&run, batchID, "", types.WriteWorkflowBatchPendingApproval)
+		updateWorkflowBatch(&run, batchID, "", types.WriteWorkflowBatchApplying)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeApply, "", batchID, decision.ReasonCode)
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
-	case ActionVerify:
+	case ActionVerifyBatch:
 		batchID := activeOrNextBatchID(run)
 		updateWorkflowBatch(&run, batchID, "", types.WriteWorkflowBatchVerifying)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeVerify, "", batchID, decision.ReasonCode)
+		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
+	case ActionAppendBatch:
+		batchID, goal := batchIDAndGoalFromBatch(decision, run)
+		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
+		if added {
+			run.Budget.BatchesUsed++
+		}
+		run.ActiveBatchID = batchID
+		run.Status = types.WriteWorkflowRunInProgress
+		appendWorkflowEdge(&run, types.WriteWorkflowEdgeFollowup, "", batchID, decision.ReasonCode)
+		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
+	case ActionSplitBatch:
+		batchID, goal := batchIDAndGoalFromBatch(decision, run)
+		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
+		if added {
+			run.Budget.BatchesUsed++
+		}
+		run.ActiveBatchID = batchID
+		run.Status = types.WriteWorkflowRunInProgress
+		appendWorkflowEdge(&run, types.WriteWorkflowEdgeSplit, "", batchID, decision.ReasonCode)
+		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
+	case ActionReplanBatch:
+		batchID, goal := batchIDAndGoalFromBatch(decision, run)
+		updateWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
+		run.ActiveBatchID = batchID
+		run.Status = types.WriteWorkflowRunInProgress
+		appendWorkflowEdge(&run, types.WriteWorkflowEdgePlan, batchID, batchID, decision.ReasonCode)
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
 	case ActionFinish:
 		if run.ActiveBatchID != "" {

@@ -708,21 +708,13 @@
 #   (硬上限 12)。
 # pipeline_max_phases_per_run: 5
 
-# write_workflow_engine — outer write-mode workflow scheduler.
-#   Values:
-#     legacy      stable existing plan/apply/verify path (default)
-#     controller  opt-in dynamic DAG controller. It persists runs under
-#                 <CWD>/.codrax/plans/workflows/, can request bounded
-#                 read-only exploration, and lets /workflow show inspect the
-#                 active batch. Simple/stable write flows should remain on
-#                 legacy until the controller matrix is fully qualified.
-#   写模式外层调度器:
-#     legacy      现有稳定 plan/apply/verify 路径(默认)
-#     controller  可选动态 DAG controller。run 落在
-#                 <CWD>/.codrax/plans/workflows/，可请求小批量只读探索，
-#                 并通过 /workflow show 查看 active batch。稳定写代码场景
-#                 默认继续走 legacy，直到 controller 矩阵完全验收。
-# write_workflow_engine: legacy
+# write mode scheduler
+#   Write mode is controller-first: the dynamic DAG controller is always the
+#   public scheduler for plan/apply/verify. The historical
+#   write_workflow_engine key is still parsed for old local configs, but it no
+#   longer selects legacy behavior.
+#   写模式固定使用 controller-first 动态 DAG 调度；历史
+#   write_workflow_engine 键仅兼容旧本地配置，不再选择 legacy 行为。
 
 # ---------------------------------------------------------------------------
 # Failure & answer taxonomy (cross-Run learning)  ·  失败 / 答案分类学(跨 Run 学习)

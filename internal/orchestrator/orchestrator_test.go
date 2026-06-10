@@ -1,9 +1,12 @@
 package orchestrator
 
 import (
+	"encoding/json"
+
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // This file hosts the mock agent + registry helpers the DAG tests
@@ -66,6 +69,9 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		if agentFns != nil {
 			fn = agentFns[n]
 		}
+		if fn == nil && n == types.AgentWriteController {
+			fn = defaultTestWriteController
+		}
 		ar.Register(newMockAgent(n, fn))
 	}
 
@@ -91,4 +97,45 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 	sar := agent.NewSubAgentRegistry()
 
 	return ar, sr, sar
+}
+
+func defaultTestWriteController(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+	decision := writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "test_complete"}
+	switch ctx.Mode {
+	case types.ModePlan:
+		if ctx.Mutable.ChangePlan() == nil {
+			decision = writeflow.WriteWorkflowDecision{
+				Action: writeflow.ActionPlanBatch,
+				Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: types.StripConversationPrefix(ctx.Mutable.Objective())},
+			}
+		}
+	case types.ModeApply:
+		switch {
+		case ctx.Mutable.ChangePlan() == nil:
+			decision = writeflow.WriteWorkflowDecision{
+				Action: writeflow.ActionPlanBatch,
+				Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: types.StripConversationPrefix(ctx.Mutable.Objective())},
+			}
+		case ctx.Mutable.ChangeReport() != nil && ctx.Mutable.ChangeReport().Passed:
+			decision = writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "test_complete"}
+		case ctx.Mutable.ChangeReport() != nil:
+			decision = writeflow.WriteWorkflowDecision{
+				Action: writeflow.ActionReplanBatch,
+				Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: types.StripConversationPrefix(ctx.Mutable.Objective())},
+			}
+		case len(ctx.Mutable.WriteClosure().AppliedSet()) > 0:
+			decision = writeflow.WriteWorkflowDecision{Action: writeflow.ActionVerifyBatch, ReasonCode: "test_verify"}
+		default:
+			decision = writeflow.WriteWorkflowDecision{Action: writeflow.ActionApplyPlan, ReasonCode: "test_apply"}
+		}
+	case types.ModeVerify:
+		if ctx.Mutable.ChangeReport() == nil {
+			decision = writeflow.WriteWorkflowDecision{Action: writeflow.ActionVerifyBatch, ReasonCode: "test_verify"}
+		}
+	}
+	raw, err := json.Marshal(decision)
+	if err != nil {
+		return nil, err
+	}
+	return &agent.StageOutput{MissingPiece: types.MissingNone, Data: raw}, nil
 }

@@ -558,10 +558,11 @@ func TestWriteScheduler_TransientRetry_DoesNotDrainStepBudget(t *testing.T) {
 	}
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
-	// One step is spent by analyze, leaving exactly one write-graph
-	// step. The EOF retry must be free, otherwise the second planner
-	// dispatch never gets budget.
-	o.SetMaxSteps(2)
+	// Steps are spent by analyze, write_analyze, the plan controller
+	// decision, the plan stage, and the finish decision. The EOF retry
+	// must be free, otherwise the second planner dispatch never gets
+	// budget.
+	o.SetMaxSteps(5)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true)
 	o.SetScaffoldEnabled(true)

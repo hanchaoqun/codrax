@@ -47,7 +47,7 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 			},
 		},
 		{
-			Action:     writeflow.ActionPlanChangeBatch,
+			Action:     writeflow.ActionPlanBatch,
 			ReasonCode: "context_ready",
 			Batch: &writeflow.WriteBatchPlan{
 				ID:            "batch-1",
@@ -55,6 +55,8 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 				ExpectedPaths: []string{"internal/agent/planner.go"},
 			},
 		},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
@@ -81,26 +83,30 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
-	o.runTaskPhaseFn = func(stepsUsed *int) error {
-		if handoff := mu.WriteExplorationHandoff(); handoff == nil || len(handoff.EvidenceRefs) != 1 {
-			t.Fatalf("inner batch should see exploration handoff, got %+v", handoff)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			if handoff := mu.WriteExplorationHandoff(); handoff == nil || len(handoff.EvidenceRefs) != 1 {
+				t.Fatalf("plan batch should see exploration handoff, got %+v", handoff)
+			}
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-controller-1",
+				Status:      types.PlanStatusPending,
+				Summary:     "patch planner",
+				TargetPaths: []string{"internal/agent/planner.go"},
+			})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-controller-1", Passed: true})
 		}
-		mu.SetChangePlan(&types.ChangePlan{
-			ID:          "plan-controller-1",
-			Status:      types.PlanStatusApplied,
-			Summary:     "patch planner",
-			TargetPaths: []string{"internal/agent/planner.go"},
-		})
-		mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-controller-1", Passed: true})
 		*stepsUsed++
-		return nil
+		return &agent.StageOutput{}, nil
 	}
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
 		t.Fatalf("runWriteControllerWorkflow: %v", err)
 	}
-	if controllerCalls != 3 {
-		t.Fatalf("controller calls = %d, want 3", controllerCalls)
+	if controllerCalls != 5 {
+		t.Fatalf("controller calls = %d, want 5", controllerCalls)
 	}
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("workflow should complete, got %+v", store.last)
@@ -118,8 +124,12 @@ func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	mu := types.NewMutableState("two batch change")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "two batch change"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
-		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first bounded change"}},
-		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-2", Goal: "second bounded change", DependsOn: []string{"batch-1"}}},
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first bounded change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "first_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "first_applied"},
+		{Action: writeflow.ActionAppendBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-2", Goal: "second bounded change", DependsOn: []string{"batch-1"}}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "second_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "second_applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
@@ -131,13 +141,19 @@ func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
 	planN := 0
-	o.runTaskPhaseFn = func(stepsUsed *int) error {
-		planN++
-		planID := fmt.Sprintf("plan-%d", planN)
-		mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusApplied, Summary: planID, TargetPaths: []string{fmt.Sprintf("f%d.go", planN)}})
-		mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planN++
+			planID := fmt.Sprintf("plan-%d", planN)
+			mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusPending, Summary: planID, TargetPaths: []string{fmt.Sprintf("f%d.go", planN)}})
+		case types.StageVerify:
+			if plan := mu.ChangePlan(); plan != nil {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+			}
+		}
 		*stepsUsed++
-		return nil
+		return &agent.StageOutput{}, nil
 	}
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
@@ -158,8 +174,12 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	mu := types.NewMutableState("repair failing verify")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair failing verify"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
-		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
-		{Action: writeflow.ActionPlanChangeBatch, ReasonCode: "repair_after_verify", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair attempt"}},
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "first_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "first_applied"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair_after_verify", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair attempt"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "repair_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "repair_applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
@@ -170,19 +190,28 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(1)
 	attempt := 0
-	o.runTaskPhaseFn = func(stepsUsed *int) error {
-		attempt++
-		planID := fmt.Sprintf("plan-attempt-%d", attempt)
-		mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusApplied, Summary: planID, TargetPaths: []string{"fix.go"}})
-		if attempt == 1 {
-			mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "unit failed"})
-			*stepsUsed++
-			return fmt.Errorf("verify failed")
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			attempt++
+			planID := fmt.Sprintf("plan-attempt-%d", attempt)
+			mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusPending, Summary: planID, TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			planID := ""
+			if plan := mu.ChangePlan(); plan != nil {
+				planID = plan.ID
+			}
+			if attempt == 1 {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "unit failed"})
+				*stepsUsed++
+				return &agent.StageOutput{Error: "verify failed"}, nil
+			}
+			mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
 		}
-		mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
 		*stepsUsed++
-		return nil
+		return &agent.StageOutput{}, nil
 	}
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
@@ -194,7 +223,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	if store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("workflow should complete after repair: %+v", store.last)
 	}
-	if len(store.last.ProgressLedger) == 0 || !workflowProgressHasReason(store.last.ProgressLedger, "inner_batch_failed") {
+	if len(store.last.ProgressLedger) == 0 || !workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
 		t.Fatalf("verify failure should be recorded in progress ledger: %+v", store.last.ProgressLedger)
 	}
 }
@@ -204,7 +233,9 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testi
 	mu := types.NewMutableState("repair with fresh exploration")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair with fresh exploration"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
-		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "first_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "first_applied"},
 		{
 			Action:     writeflow.ActionExploreCode,
 			ReasonCode: "need_failure_context",
@@ -215,7 +246,9 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testi
 				CandidatePaths:       []string{"fix.go"},
 			},
 		},
-		{Action: writeflow.ActionPlanChangeBatch, ReasonCode: "fresh_context_ready", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair after exploration"}},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "fresh_context_ready", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair after exploration"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "repair_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "repair_applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
@@ -243,23 +276,34 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testi
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(1)
 	attempt := 0
-	o.runTaskPhaseFn = func(stepsUsed *int) error {
-		attempt++
-		planID := fmt.Sprintf("plan-reexplore-%d", attempt)
-		mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusApplied, Summary: planID, TargetPaths: []string{"fix.go"}})
-		if attempt == 1 {
-			mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "assertion failed before exploration"})
-			*stepsUsed++
-			return fmt.Errorf("verify failed")
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			attempt++
+			planID := fmt.Sprintf("plan-reexplore-%d", attempt)
+			mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusPending, Summary: planID, TargetPaths: []string{"fix.go"}})
+			if attempt == 2 {
+				handoff := mu.WriteExplorationHandoff()
+				if handoff == nil || len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].Source != "fix.go" {
+					t.Fatalf("second plan should consume fresh exploration handoff, got %+v", handoff)
+				}
+			}
+		case types.StageVerify:
+			planID := ""
+			if plan := mu.ChangePlan(); plan != nil {
+				planID = plan.ID
+			}
+			if attempt == 1 {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "assertion failed before exploration"})
+				*stepsUsed++
+				return &agent.StageOutput{Error: "verify failed"}, nil
+			}
+			mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
 		}
-		handoff := mu.WriteExplorationHandoff()
-		if handoff == nil || len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].Source != "fix.go" {
-			t.Fatalf("second plan should consume fresh exploration handoff, got %+v", handoff)
-		}
-		mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
 		*stepsUsed++
-		return nil
+		return &agent.StageOutput{}, nil
 	}
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
@@ -274,7 +318,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testi
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("workflow should complete after re-explore/replan: %+v", store.last)
 	}
-	if !workflowProgressHasReason(store.last.ProgressLedger, "inner_batch_failed") ||
+	if !workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") ||
 		!workflowProgressHasReason(store.last.ProgressLedger, "exploration_complete") {
 		t.Fatalf("failure and re-exploration progress should both persist: %+v", store.last.ProgressLedger)
 	}
@@ -288,7 +332,8 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	mu := types.NewMutableState("requires approval")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "requires approval"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
-		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "high risk batch"}},
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "high risk batch"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -298,15 +343,27 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
-	o.runTaskPhaseFn = func(stepsUsed *int) error {
-		mu.SetChangePlan(&types.ChangePlan{
-			ID:          "plan-needs-approval",
-			Status:      types.PlanStatusPending,
-			Summary:     "manual gate",
-			TargetPaths: []string{"go.mod"},
-		})
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage == types.StagePlan {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-needs-approval",
+				Status:      types.PlanStatusPending,
+				Summary:     "manual gate",
+				TargetPaths: []string{"go.mod"},
+			})
+			*stepsUsed++
+			return &agent.StageOutput{}, nil
+		}
+		if stage == types.StageApply {
+			if plan := mu.ChangePlan(); plan != nil {
+				plan.Status = types.PlanStatusPending
+				mu.SetChangePlan(plan)
+			}
+			*stepsUsed++
+			return nil, fmt.Errorf("write approval requires operator confirmation")
+		}
 		*stepsUsed++
-		return fmt.Errorf("write approval requires operator confirmation")
+		return &agent.StageOutput{}, nil
 	}
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err == nil {

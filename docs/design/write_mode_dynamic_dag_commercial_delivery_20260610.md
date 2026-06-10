@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 0 in progress
+Status: Batch 1 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -134,18 +134,18 @@ not stuffed into prompts directly.
 
 ### Batch 0: Design Ledger
 
-- [ ] Add this document.
-- [ ] Commit `docs: record dynamic write dag delivery plan`.
-- [ ] Push branch.
+- [x] Add this document.
+- [x] Commit `docs: record dynamic write dag delivery plan`.
+- [x] Push branch.
 
 ### Batch 1: Canonical Controller Engine
 
-- [ ] Route all write modes through the controller scheduler.
-- [ ] Redefine `ModePlan`, `ModeApply`, and `ModeVerify` behavior as controller
+- [x] Route all write modes through the controller scheduler.
+- [x] Redefine `ModePlan`, `ModeApply`, and `ModeVerify` behavior as controller
       modes.
-- [ ] Import `--plan-file` into a workflow seed rather than a legacy skip path.
-- [ ] Remove public `write_workflow_engine` config/docs/defaults.
-- [ ] Prove read/log/trace/data/operation dispatch remains untouched.
+- [x] Import `--plan-file` into a workflow seed rather than a legacy skip path.
+- [x] Remove public `write_workflow_engine` config/docs/defaults.
+- [x] Prove read/log/trace/data/operation dispatch remains untouched.
 
 ### Batch 2: Durable DAG Store And Resume
 
@@ -222,4 +222,5 @@ not stuffed into prompts directly.
 
 | Batch | Status | Commit | Push | Notes |
 | --- | --- | --- | --- | --- |
-| 0 | in progress | pending | pending | New controller-first ledger created. |
+| 0 | complete | `d4dc7840` | pushed | New controller-first ledger created. |
+| 1 | implemented | pending | pending | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |

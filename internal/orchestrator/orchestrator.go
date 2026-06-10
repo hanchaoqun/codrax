@@ -379,6 +379,13 @@ type Orchestrator struct {
 	// method (production path).
 	runTaskPhaseFn func(*int) error
 
+	// controllerWriteStageFn is the action-level write-controller
+	// test seam. Production leaves it nil so plan/apply/verify
+	// dispatch through normal hooks and agents; controller scheduler
+	// unit tests use it to seed typed artifacts without invoking
+	// worktree setup or LLM agents.
+	controllerWriteStageFn func(types.PipelineStage, *int) (*agent.StageOutput, error)
+
 	// writeWorkflowRunStore persists controller-engine workflow runs.
 	// Nil means controller progress is in-memory only; the execution
 	// path still works, but REPL/CLI recovery surfaces cannot inspect
@@ -573,12 +580,12 @@ func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
 	o.emit = emit
 }
 
-// WriteWorkflowEngine returns the resolved outer write workflow engine. Empty
-// or unknown settings normalize to legacy so stable write-mode paths remain the
-// default.
+// WriteWorkflowEngine returns the resolved outer write workflow engine. The
+// historical legacy setting is accepted only for yaml compatibility; write mode
+// now always resolves to the controller engine.
 func (o *Orchestrator) WriteWorkflowEngine() string {
 	if o == nil {
-		return types.WriteWorkflowEngineLegacy
+		return types.WriteWorkflowEngineController
 	}
 	return types.NormalizeWriteWorkflowEngine(o.settings.WriteWorkflowEngine)
 }
@@ -2271,27 +2278,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	if o.busCtx.TaskState.LastError == "" {
-		// Multi-phase fork (commit 20, stage II). When the
-		// LLM emitted a sequential proposal AND we have a
-		// PlanGroupStore wired AND we're in ModeApply, drive
-		// runPhaseGroup instead of single runTaskPhase. The
-		// gate's preconditions are all OR'd to false in the
-		// single-phase / ModePlan / ModeVerify / no-store
-		// case, so existing flows are byte-identical.
-		if o.WriteWorkflowControllerEnabled() && o.busCtx.Mode == types.ModeApply && o.planPath == "" {
+		if o.busCtx.Mode.IsWrite() {
 			if err := o.runWriteControllerWorkflow(&stepsUsed); err != nil {
 				logging.Error("[orchestrator] write controller workflow: %v", err)
-				if o.busCtx.TaskState.LastError == "" {
-					o.busCtx.TaskState.LastError = err.Error()
-				}
-			}
-		} else if o.isMultiPhaseRun() {
-			ir := o.busCtx.Mutable.WriteAnalysisIR()
-			group := o.buildPlanGroupFromProposal(ir)
-			logging.Info("[orchestrator] multi-phase run: group=%s phases=%d",
-				group.ID, len(group.Phases))
-			if err := o.runPhaseGroup(group, &stepsUsed); err != nil {
-				logging.Error("[orchestrator] phase group %s: %v", group.ID, err)
 				if o.busCtx.TaskState.LastError == "" {
 					o.busCtx.TaskState.LastError = err.Error()
 				}

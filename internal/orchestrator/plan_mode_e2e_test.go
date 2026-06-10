@@ -24,10 +24,10 @@ import (
 func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 	// Seed a ChangePlan that the stub planner will install.
 	expectedPlan := &types.ChangePlan{
-		ID:            "plan-e2e-test",
-		Request:       "add a comment to main.go",
-		Summary:       "Stub plan — adds a one-line header comment to main.go to prove the plan-mode dispatch chain.",
-		Status:        "pending_approval",
+		ID:      "plan-e2e-test",
+		Request: "add a comment to main.go",
+		Summary: "Stub plan — adds a one-line header comment to main.go to prove the plan-mode dispatch chain.",
+		Status:  "pending_approval",
 		Changes: []types.FileChange{
 			{Path: "main.go", Kind: "modify", NewContent: "// codrax\n", Rationale: "header comment"},
 		},
@@ -37,7 +37,7 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{
-			Language:            "en",
+			Language: "en",
 		})),
 		// The stub planner directly installs the ChangePlan on
 		// Mutable — mimicking what emit_change_plan's Execute would
@@ -108,8 +108,8 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 	if !busCtx.TaskState.IsTerminal {
 		t.Error("TaskState.IsTerminal should be true post-Run")
 	}
-	if busCtx.PipelineStage != types.StagePlan {
-		t.Errorf("PipelineStage = %q, want StagePlan", busCtx.PipelineStage)
+	if busCtx.PipelineStage != types.StageWriteController {
+		t.Errorf("PipelineStage = %q, want StageWriteController", busCtx.PipelineStage)
 	}
 }
 

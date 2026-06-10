@@ -1,24 +1,16 @@
 package types
 
-import "strings"
-
 const (
 	WriteWorkflowEngineLegacy     = "legacy"
 	WriteWorkflowEngineController = "controller"
 )
 
-// NormalizeWriteWorkflowEngine maps operator config to the small typed engine
-// set. Unknown values fall back to legacy so new controller code never changes
-// stable write-mode behavior by accident.
+// NormalizeWriteWorkflowEngine keeps the historical yaml field parseable while
+// resolving every value to the controller-first write engine. The old legacy
+// write scheduler is no longer a public runtime choice.
 func NormalizeWriteWorkflowEngine(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case WriteWorkflowEngineController:
-		return WriteWorkflowEngineController
-	case WriteWorkflowEngineLegacy, "":
-		return WriteWorkflowEngineLegacy
-	default:
-		return WriteWorkflowEngineLegacy
-	}
+	_ = raw
+	return WriteWorkflowEngineController
 }
 
 func IsControllerWriteWorkflowEngine(raw string) bool {

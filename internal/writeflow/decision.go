@@ -14,13 +14,23 @@ import (
 type WorkflowAction string
 
 const (
-	ActionExploreCode     WorkflowAction = "explore_code"
+	ActionExploreCode WorkflowAction = "explore_code"
+	ActionPlanBatch   WorkflowAction = "plan_batch"
+	ActionApplyPlan   WorkflowAction = "apply_plan"
+	ActionVerifyBatch WorkflowAction = "verify_batch"
+	ActionAppendBatch WorkflowAction = "append_batch"
+	ActionSplitBatch  WorkflowAction = "split_batch"
+	ActionReplanBatch WorkflowAction = "replan_batch"
+	ActionAskUser     WorkflowAction = "ask_user"
+	ActionFinish      WorkflowAction = "finish"
+	ActionBlock       WorkflowAction = "block"
+
+	// Deprecated controller action names accepted as schema aliases during the
+	// controller-first migration. NormalizeWriteWorkflowDecision maps these to
+	// the canonical action names before orchestration switches on them.
 	ActionPlanChangeBatch WorkflowAction = "plan_change_batch"
 	ActionApplyReadyPlan  WorkflowAction = "apply_ready_plan"
 	ActionVerify          WorkflowAction = "verify"
-	ActionAskUser         WorkflowAction = "ask_user"
-	ActionFinish          WorkflowAction = "finish"
-	ActionBlock           WorkflowAction = "block"
 )
 
 // WriteWorkflowDecision is the typed output shape for a future workflow
@@ -79,9 +89,9 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 		if decision.ExplorationRequest == nil {
 			errs = append(errs, "explore_code requires exploration_request")
 		}
-	case ActionPlanChangeBatch:
+	case ActionPlanBatch, ActionAppendBatch, ActionSplitBatch, ActionReplanBatch:
 		if decision.Batch == nil {
-			errs = append(errs, "plan_change_batch requires batch")
+			errs = append(errs, fmt.Sprintf("%s requires batch", decision.Action))
 		}
 	case ActionAskUser:
 		if len(decision.QuestionsForUser) == 0 {
@@ -106,9 +116,12 @@ func WriteWorkflowDecisionSchema() json.RawMessage {
 		"properties": map[string]any{
 			"action": enumStringProp([]string{
 				string(ActionExploreCode),
-				string(ActionPlanChangeBatch),
-				string(ActionApplyReadyPlan),
-				string(ActionVerify),
+				string(ActionPlanBatch),
+				string(ActionApplyPlan),
+				string(ActionVerifyBatch),
+				string(ActionAppendBatch),
+				string(ActionSplitBatch),
+				string(ActionReplanBatch),
 				string(ActionAskUser),
 				string(ActionFinish),
 				string(ActionBlock),
@@ -176,7 +189,15 @@ func explorationRequestSchema() map[string]any {
 
 func normalizeWorkflowAction(action WorkflowAction) WorkflowAction {
 	switch action {
-	case ActionExploreCode, ActionPlanChangeBatch, ActionApplyReadyPlan, ActionVerify, ActionAskUser, ActionFinish, ActionBlock:
+	case ActionPlanChangeBatch:
+		return ActionPlanBatch
+	case ActionApplyReadyPlan:
+		return ActionApplyPlan
+	case ActionVerify:
+		return ActionVerifyBatch
+	case ActionExploreCode, ActionPlanBatch, ActionApplyPlan, ActionVerifyBatch,
+		ActionAppendBatch, ActionSplitBatch, ActionReplanBatch, ActionAskUser,
+		ActionFinish, ActionBlock:
 		return action
 	default:
 		return ""
