@@ -573,6 +573,86 @@ func TestTraceQueryEventSearchBroadPatternWithObjectiveFrameIDGivesExactHint(t *
 	}
 }
 
+func TestTraceQueryEventSearchBroadPatternWithObjectiveSpanKeywordGivesExactHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "span_broad.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.100000: print: B|20|DecodeOther`,
+		`app-20 (20) [001] .... 1.120000: print: E|20`,
+		`app-20 (20) [001] .... 2.100000: print: B|20|DecodeBitmap`,
+		`app-20 (20) [001] .... 2.140000: print: E|20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState(`分析 DecodeBitmap 这个 span 的耗时为什么异常`),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "span_broad.systrace",
+		"view":    "event_search",
+		"pattern": "Decode",
+		"limit":   1,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"event_search_limit_reached=true",
+		"objective_exact_span_hint",
+		`span/marker token "DecodeBitmap"`,
+		`pattern "Decode" does not include it`,
+		`trace_query(view="span_window", span_name="DecodeBitmap"`,
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("broad event_search should warn for exact span token, missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryEventSearchBroadPatternWithObjectiveKVTokenGivesExactHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "kv_broad.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.100000: print: C|20|jank_frames=1|1`,
+		`app-20 (20) [001] .... 2.100000: print: C|20|jank_frames=7|1`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState(`分析 jank_frames=7 这一帧为什么丢帧`),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "kv_broad.systrace",
+		"view":    "event_search",
+		"pattern": "jank_frames",
+		"limit":   1,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"event_search_limit_reached=true",
+		"objective_exact_token_hint",
+		`exact token "jank_frames=7" (kind=kv)`,
+		`pattern "jank_frames" does not include it`,
+		`trace_query(view="event_search", pattern="jank_frames=7"`,
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("broad event_search should warn for exact kv token, missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryLargeExplicitTimeWindowUsesWindowedIndex(t *testing.T) {
 	oldThreshold := traceQueryWindowedIndexMinBytes
 	traceQueryWindowedIndexMinBytes = 1

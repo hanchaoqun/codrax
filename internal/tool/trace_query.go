@@ -54,6 +54,10 @@ var (
 	traceQueryWindowedIndexMinBytes        int64 = 64 << 20
 	traceQueryObjectiveKVTokenRE                 = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_./:-]*=[^\s,，。；;"'）)]+`)
 	traceQueryObjectiveFrameIDRE                 = regexp.MustCompile(`(?i)Choreographer#doFrame\D{0,32}([0-9]{3,})`)
+	traceQueryObjectiveHexTokenRE                = regexp.MustCompile(`(?i)\b0x[0-9a-f]{4,}\b`)
+	traceQueryObjectiveQuotedTokenRE             = regexp.MustCompile(`"([^"\n]{3,160})"|“([^”\n]{3,160})”|'([^'\n]{3,160})'|‘([^’\n]{3,160})’`)
+	traceQueryObjectiveLabeledTokenRE            = regexp.MustCompile(`(?i)(?:span(?:_name)?(?:\s*关键字)?|marker|label|keyword|关键字|标记|标签|span名|span名称)\s*(?:=|:|：|为|是|叫|名为)?\s*([A-Za-z0-9_#./:$@+\-]{3,160})`)
+	traceQueryObjectivePreLabeledTokenRE         = regexp.MustCompile(`(?i)([A-Za-z0-9_#./:$@+\-]{3,160})\s*(?:这个|该|此)?\s*(?:span|marker|label|keyword|关键字|标记|标签)`)
 	traceQueryTimestampRE                        = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
 )
 
@@ -1033,32 +1037,167 @@ func traceQueryObjectiveText(ctx *types.BusContext) string {
 	return ctx.Mutable.Objective()
 }
 
-func traceQueryObjectiveExactTokenCaveats(ctx *types.BusContext, p traceQueryParams, result tracequery.Result) []string {
-	if strings.TrimSpace(result.View) != "event_search" {
-		return nil
-	}
-	frameID := traceQueryObjectiveFrameID(ctx)
-	if frameID == "" {
-		return nil
-	}
-	pattern := strings.TrimSpace(p.Pattern)
-	if strings.Contains(pattern, frameID) {
-		return nil
-	}
-	return []string{fmt.Sprintf("objective_exact_frame_hint=user request names Choreographer#doFrame %s, but this event_search pattern %q does not include requested token %q; returned rows are not evidence that frame %s is absent. Rerun trace_query(view=\"frame_window\", pattern=%q, event_types=[\"trace_mark\"]) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
-		frameID, pattern, frameID, frameID, frameID, frameID)}
+type traceQueryObjectiveExactToken struct {
+	Token string
+	Kind  string
 }
 
-func traceQueryObjectiveFrameID(ctx *types.BusContext) string {
+func traceQueryObjectiveExactTokenCaveats(ctx *types.BusContext, p traceQueryParams, result tracequery.Result) []string {
+	view := strings.TrimSpace(result.View)
+	switch view {
+	case "event_search", "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow":
+	default:
+		return nil
+	}
+	tokens := traceQueryObjectiveExactTokens(ctx)
+	if len(tokens) == 0 {
+		return nil
+	}
+	selector := firstNonEmptyTraceString(p.Pattern, p.SpanName)
+	var out []string
+	for _, token := range tokens {
+		if traceQuerySelectorContainsObjectiveToken(selector, token.Token) || traceQueryResultContainsObjectiveToken(result, token.Token) {
+			continue
+		}
+		selectorName := traceQueryObjectiveSelectorName(p)
+		switch token.Kind {
+		case "frame":
+			out = append(out, fmt.Sprintf("objective_exact_frame_hint=user request names Choreographer#doFrame %s, but this %s %s %q does not include requested token %q; returned rows are not evidence that frame %s is absent. Rerun trace_query(view=\"frame_window\", pattern=%q, event_types=[\"trace_mark\"]) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
+				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token, token.Token, token.Token, token.Token))
+		case "span", "quoted":
+			out = append(out, fmt.Sprintf("objective_exact_span_hint=user request names exact span/marker token %q, but this %s %s %q does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"span_window\", span_name=%q) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
+				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token, token.Token))
+		default:
+			out = append(out, fmt.Sprintf("objective_exact_token_hint=user request names exact token %q (kind=%s), but this %s %s %q does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"event_search\", pattern=%q) or an appropriate specialized view with that exact literal token before making an absence claim",
+				token.Token, token.Kind, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token))
+		}
+	}
+	return out
+}
+
+func traceQueryObjectiveSelectorName(p traceQueryParams) string {
+	if strings.TrimSpace(p.Pattern) != "" {
+		return "pattern"
+	}
+	if strings.TrimSpace(p.SpanName) != "" {
+		return "span_name"
+	}
+	return "selector"
+}
+
+func traceQueryObjectiveExactTokens(ctx *types.BusContext) []traceQueryObjectiveExactToken {
 	text := traceQueryObjectiveText(ctx)
 	if strings.TrimSpace(text) == "" {
-		return ""
+		return nil
 	}
-	m := traceQueryObjectiveFrameIDRE.FindStringSubmatch(text)
-	if len(m) < 2 {
-		return ""
+	var out []traceQueryObjectiveExactToken
+	seen := map[string]bool{}
+	add := func(raw, kind string) {
+		token := traceQueryNormalizeObjectiveToken(raw)
+		if token == "" || !traceQueryObjectiveTokenAllowed(token) {
+			return
+		}
+		key := strings.ToLower(token)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, traceQueryObjectiveExactToken{Token: token, Kind: kind})
 	}
-	return strings.TrimSpace(m[1])
+	for _, m := range traceQueryObjectiveFrameIDRE.FindAllStringSubmatch(text, 8) {
+		if len(m) >= 2 {
+			add(m[1], "frame")
+		}
+	}
+	for _, m := range traceQueryObjectiveQuotedTokenRE.FindAllStringSubmatch(text, 12) {
+		for i := 1; i < len(m); i++ {
+			if strings.TrimSpace(m[i]) != "" {
+				add(m[i], "quoted")
+				break
+			}
+		}
+	}
+	for _, token := range traceQueryObjectiveKVTokenRE.FindAllString(text, 16) {
+		add(token, "kv")
+	}
+	for _, token := range traceQueryObjectiveHexTokenRE.FindAllString(text, 12) {
+		add(token, "hex")
+	}
+	for _, re := range []*regexp.Regexp{traceQueryObjectiveLabeledTokenRE, traceQueryObjectivePreLabeledTokenRE} {
+		for _, m := range re.FindAllStringSubmatch(text, 12) {
+			if len(m) >= 2 {
+				add(m[1], "span")
+			}
+		}
+	}
+	return out
+}
+
+func traceQueryNormalizeObjectiveToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	token = strings.Trim(token, " \t\r\n,，.。;；:：()（）[]【】{}<>《》\"'“”‘’")
+	return token
+}
+
+func traceQueryObjectiveTokenAllowed(token string) bool {
+	if len([]rune(token)) < 3 {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(token))
+	switch lower {
+	case "trace", "systrace", "hitrace", "atrace", "span", "marker", "label", "keyword", "event_search", "frame_window", "span_window":
+		return false
+	}
+	if strings.HasSuffix(lower, ".systrace") || strings.HasSuffix(lower, ".htrace") || strings.HasSuffix(lower, ".trace") {
+		return false
+	}
+	return true
+}
+
+func traceQuerySelectorContainsObjectiveToken(selector, token string) bool {
+	selector = strings.ToLower(strings.TrimSpace(selector))
+	token = strings.ToLower(strings.TrimSpace(token))
+	return selector != "" && token != "" && strings.Contains(selector, token)
+}
+
+func traceQueryResultContainsObjectiveToken(result tracequery.Result, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+	contains := func(values ...string) bool {
+		for _, value := range values {
+			if strings.Contains(strings.ToLower(value), token) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, ev := range result.Events {
+		if contains(ev.Raw, ev.SpanName, ev.FieldText, ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm) {
+			return true
+		}
+	}
+	for _, span := range result.SpanWindows {
+		if contains(span.Name) {
+			return true
+		}
+	}
+	if result.FramePipeline != nil {
+		for _, item := range result.FramePipeline.Items {
+			if contains(item.Name, item.Summary) {
+				return true
+			}
+		}
+	}
+	if result.FrameTimeline != nil {
+		for _, item := range result.FrameTimeline.Items {
+			if contains(item.Name, item.FrameID, item.Summary) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func scanTraceQueryRecipeMarkers(ctx context.Context, path string, tokens []traceQueryRecipeDiscoveryToken, maxMarkers int) ([]traceQueryRecipeDiscoveryMarker, int, bool, error) {
