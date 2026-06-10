@@ -258,7 +258,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
       write flows remain stable.
 - [x] Retain `legacy` default for one release; controller remains opt-in via
       `write_workflow_engine: controller`.
-- [ ] Commit final ledger update and push.
+- [x] Commit `test: harden write workflow reexploration`, push, and record final
+      ledger completion.
 
 ## 6. Progress Ledger
 
