@@ -127,6 +127,18 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	if got := store.last.Batches[0]; got.PlanID != "plan-controller-1" || got.Status != types.WriteWorkflowBatchComplete {
 		t.Fatalf("batch not marked complete with plan id: %+v", got)
 	}
+	got := store.last.Batches[0]
+	if got.ApplyRef != "refs/codrax/applied/plan-controller-1" || got.VerifyRef != "plan-controller-1.report.json" {
+		t.Fatalf("batch refs should track apply and verify artifacts: %+v", got)
+	}
+	if !workflowBatchHasAttemptArtifact(got, "plan", "complete", "", "plan-controller-1") ||
+		!workflowBatchHasAttemptArtifact(got, "apply", "applied", "apply_succeeded", "refs/codrax/applied/plan-controller-1") ||
+		!workflowBatchHasAttemptArtifact(got, "verify", "passed", "tests_passed", "plan-controller-1.report.json") {
+		t.Fatalf("batch attempts should track plan/apply/verify artifact refs: %+v", got.Attempts)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusApplied || plan.AppliedAt == nil {
+		t.Fatalf("verified workflow should synchronize mutable plan status to applied, got %+v", plan)
+	}
 }
 
 func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
@@ -317,6 +329,61 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	if !workflowRunContextContains(store.last, "build_error", "fix.go:12 undefined: helper") ||
 		!workflowRunContextContains(store.last, "failure_summary_blob_ref", "/tmp/codrax/blob/compile-failed.txt") {
 		t.Fatalf("verify failure context should retain typed build evidence: %+v", store.last.ContextPacks)
+	}
+}
+
+func TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("apply fails structurally")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "apply fails structurally"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "make change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+		{Action: writeflow.ActionBlock, ReasonCode: "apply_failed"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-apply-error",
+				Status:      types.PlanStatusPending,
+				Summary:     "ordinary apply error",
+				TargetPaths: []string{"fix.go"},
+			})
+		case types.StageApply:
+			*stepsUsed++
+			return nil, fmt.Errorf("patch did not apply")
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("workflow should return the controller block after apply failure")
+	}
+	if controllerCalls != 3 {
+		t.Fatalf("controller should receive a turn after ordinary apply failure, calls=%d", controllerCalls)
+	}
+	if store.last == nil || len(store.last.Batches) != 1 {
+		t.Fatalf("workflow should persist failed apply batch: %+v", store.last)
+	}
+	batch := store.last.Batches[0]
+	if batch.Status == types.WriteWorkflowBatchPendingApproval {
+		t.Fatalf("ordinary apply error must not become pending approval: %+v", batch)
+	}
+	if !workflowBatchHasAttemptArtifact(batch, "apply", "failed", "apply_error", "") {
+		t.Fatalf("ordinary apply error should be recorded as apply_error attempt: %+v", batch.Attempts)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, string(types.WriteWorkflowBatchPendingApproval)) {
+		t.Fatalf("ordinary apply error should not record pending approval progress: %+v", store.last.ProgressLedger)
 	}
 }
 
@@ -548,6 +615,15 @@ func workflowProgressHasReason(items []types.WriteWorkflowProgress, reason strin
 func workflowBatchHasAttempt(batch types.WriteWorkflowBatch, kind, status, reasonCode, reportID string) bool {
 	for _, attempt := range batch.Attempts {
 		if attempt.Kind == kind && attempt.Status == status && attempt.ReasonCode == reasonCode && attempt.ReportID == reportID {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowBatchHasAttemptArtifact(batch types.WriteWorkflowBatch, kind, status, reasonCode, artifactRef string) bool {
+	for _, attempt := range batch.Attempts {
+		if attempt.Kind == kind && attempt.Status == status && attempt.ReasonCode == reasonCode && attempt.ArtifactRef == artifactRef {
 			return true
 		}
 	}

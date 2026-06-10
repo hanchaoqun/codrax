@@ -23,12 +23,14 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 			ApprovalRef:    " approval-ref ",
 			ContextPackIDs: []string{" pack-1 ", "pack-1"},
 			Attempts: []WriteWorkflowAttempt{{
-				ID:         " attempt-1 ",
-				Kind:       " plan ",
-				Status:     " complete ",
-				ReasonCode: " ok ",
-				PlanID:     " plan-1 ",
-				StartedAt:  time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC),
+				ID:          " attempt-1 ",
+				Kind:        " plan ",
+				Status:      " complete ",
+				ReasonCode:  " ok ",
+				PlanID:      " plan-1 ",
+				ReportID:    " plan-1.report.json ",
+				ArtifactRef: " refs/codrax/applied/plan-1 ",
+				StartedAt:   time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC),
 			}},
 		}},
 		Edges: []WriteWorkflowEdge{{
@@ -76,7 +78,10 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 		t.Fatalf("batch refs not normalized: %+v", got.Batches[0])
 	}
 	if len(got.Batches[0].Attempts) != 1 || got.Batches[0].Attempts[0].ID != "attempt-1" ||
-		got.Batches[0].Attempts[0].PlanID != "plan-1" || got.Batches[0].Attempts[0].StartedAt.IsZero() {
+		got.Batches[0].Attempts[0].PlanID != "plan-1" ||
+		got.Batches[0].Attempts[0].ReportID != "plan-1.report.json" ||
+		got.Batches[0].Attempts[0].ArtifactRef != "refs/codrax/applied/plan-1" ||
+		got.Batches[0].Attempts[0].StartedAt.IsZero() {
 		t.Fatalf("attempts not normalized/preserved: %+v", got.Batches[0].Attempts)
 	}
 	if len(got.ProgressLedger) != 1 || got.ProgressLedger[0].At.IsZero() {

@@ -227,10 +227,10 @@ flowchart TD
 
 ### Batch 5: State Machine And Attempts
 
-- [ ] Normalize batch statuses after plan/apply/verify transitions.
-- [ ] Attach plan/apply/verify attempt refs and reason codes.
-- [ ] Add tests for no contradictory `pending_approval` after auto apply.
-- [ ] Commit and push.
+- [x] Normalize batch statuses after plan/apply/verify transitions.
+- [x] Attach plan/apply/verify attempt refs and reason codes.
+- [x] Add tests for no contradictory `pending_approval` after auto apply.
+- [x] Commit and push.
 
 ### Batch 6: Stage Tool Contracts And UX
 
@@ -272,3 +272,4 @@ flowchart TD
 | 2 | complete | current batch | pushed | ModePlan now terminates after a reviewable ChangePlan and never reaches apply/verify. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`. |
 | 3 | complete | current batch | pushed | Typed manual approval pauses as active `pending_approval`; `/workflow` exposes show/list/resume/clear/cancel and pending approval stays discoverable for `/approve`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive|TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/repl -run 'TestWriteWorkflowRunStore|TestWorkflowShowDisplaysActiveWriteWorkflow|TestApproveUsesActiveWorkflowBatchPlan|TestWorkflowResumeSelectsSavedWriteWorkflow|TestWorkflowClearDeletesActiveWriteWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines_CoversEveryCommand|TestSlashCommand_HelpBothVariantsNonEmpty'`. |
 | 4 | complete | current batch | pushed | Verify report refs now attach to workflow batches; failed build/test evidence and blob refs persist as P2 context for replan. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/types -run 'TestWriteContextPackFromChangeReportCarriesVerifyFailure|TestWriteContextPackViewBoundsAndDefensiveCopy'`. |
+| 5 | complete | current batch | pushed | Batch attempts now carry plan/apply/verify artifact refs; ordinary apply errors no longer masquerade as pending approval; verified runs synchronize mutable plan status to `applied`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`, `go test ./internal/types -run 'TestNormalizeWriteWorkflowRunPersistsContextPacks|TestWriteWorkflowRunToFileRoundTrip'`. |

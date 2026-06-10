@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
@@ -148,12 +149,13 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			plan := o.busCtx.Mutable.ChangePlan()
 			if plan != nil {
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
+				updateWorkflowRunBatchApply(&run, run.ActiveBatchID, plan, writeWorkflowApplyAttemptStatus(plan, innerErr), writeWorkflowApplyAttemptReason(plan, innerErr))
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
 			if innerErr != nil {
 				lastInnerErr = innerErr
 				switch {
-				case plan != nil && plan.Status == types.PlanStatusPending:
+				case writePlanNeedsManualApproval(plan):
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
 					appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), innerErr.Error())
 					o.persistWriteWorkflowRun(&run)
@@ -187,9 +189,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			innerErr := o.runControllerVerifyBatch(stepsUsed)
 			report := o.busCtx.Mutable.ChangeReport()
 			if report != nil {
+				o.syncMutablePlanStatusAfterVerify(report, innerErr)
 				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
 				updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
 				o.syncCurrentWriteContextPackToRun(&run)
+			} else if o.skipVerify {
+				o.syncMutablePlanStatusAfterSkippedVerify()
+				if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+					updateWorkflowRunBatchVerifySkipped(&run, run.ActiveBatchID, plan.ID)
+				}
 			}
 			if innerErr != nil || (report != nil && !report.Passed) {
 				if innerErr == nil && report != nil {
@@ -452,6 +460,49 @@ func (o *Orchestrator) runControllerVerifyBatch(stepsUsed *int) error {
 	return err
 }
 
+func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeReport, err error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || report == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	now := time.Now()
+	switch {
+	case err != nil || !report.Passed:
+		plan.Status = types.PlanStatusVerifyFailed
+		plan.AppliedAt = nil
+	case len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx):
+		plan.Status = types.PlanStatusUnverified
+		plan.AppliedAt = &now
+	default:
+		plan.Status = types.PlanStatusApplied
+		plan.AppliedAt = &now
+	}
+	if o.busCtx.WorktreePath != "" {
+		plan.WorktreePath = o.busCtx.WorktreePath
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
+func (o *Orchestrator) syncMutablePlanStatusAfterSkippedVerify() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	now := time.Now()
+	plan.Status = types.PlanStatusApplied
+	plan.AppliedAt = &now
+	if o.busCtx.WorktreePath != "" {
+		plan.WorktreePath = o.busCtx.WorktreePath
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
 func (o *Orchestrator) runControllerWriteStage(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 	if o == nil || o.busCtx == nil {
 		return nil, fmt.Errorf("write controller stage %s missing context", stage)
@@ -634,7 +685,7 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID str
 			run.Batches[i].PlanID = strings.TrimSpace(planID)
 			run.Batches[i].PlanRef = strings.TrimSpace(planID)
 			run.Batches[i].UpdatedAt = time.Now()
-			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", strings.TrimSpace(planID), "")
+			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", strings.TrimSpace(planID), "", strings.TrimSpace(planID))
 			return
 		}
 	}
@@ -645,11 +696,45 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID str
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Attempts: []types.WriteWorkflowAttempt{{
-			ID:         fmt.Sprintf("attempt-%d", 1),
-			Kind:       "plan",
-			Status:     "complete",
-			PlanID:     strings.TrimSpace(planID),
-			FinishedAt: time.Now(),
+			ID:          fmt.Sprintf("attempt-%d", 1),
+			Kind:        "plan",
+			Status:      "complete",
+			PlanID:      strings.TrimSpace(planID),
+			ArtifactRef: strings.TrimSpace(planID),
+			FinishedAt:  time.Now(),
+		}},
+	})
+}
+
+func updateWorkflowRunBatchApply(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, status, reasonCode string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || plan == nil {
+		return
+	}
+	planID := strings.TrimSpace(plan.ID)
+	applyRef := writeWorkflowApplyRef(plan, status)
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			if applyRef != "" {
+				run.Batches[i].ApplyRef = applyRef
+			}
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "apply", status, reasonCode, planID, "", applyRef)
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		ApplyRef:  applyRef,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
+			ID:          fmt.Sprintf("attempt-%d", 1),
+			Kind:        "apply",
+			Status:      strings.TrimSpace(status),
+			ReasonCode:  strings.TrimSpace(reasonCode),
+			PlanID:      planID,
+			ArtifactRef: applyRef,
+			FinishedAt:  time.Now(),
 		}},
 	})
 }
@@ -664,7 +749,7 @@ func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, r
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].VerifyRef = reportID
 			run.Batches[i].UpdatedAt = time.Now()
-			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, planID, reportID)
+			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, planID, reportID, reportID)
 			return
 		}
 	}
@@ -674,15 +759,89 @@ func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, r
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Attempts: []types.WriteWorkflowAttempt{{
+			ID:          fmt.Sprintf("attempt-%d", 1),
+			Kind:        "verify",
+			Status:      strings.TrimSpace(status),
+			ReasonCode:  strings.TrimSpace(reasonCode),
+			PlanID:      planID,
+			ReportID:    reportID,
+			ArtifactRef: reportID,
+			FinishedAt:  time.Now(),
+		}},
+	})
+}
+
+func updateWorkflowRunBatchVerifySkipped(run *types.WriteWorkflowRun, batchID, planID string) {
+	if run == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "verify", "skipped", "skip_verify", strings.TrimSpace(planID), "", "")
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
 			ID:         fmt.Sprintf("attempt-%d", 1),
 			Kind:       "verify",
-			Status:     strings.TrimSpace(status),
-			ReasonCode: strings.TrimSpace(reasonCode),
-			PlanID:     planID,
-			ReportID:   reportID,
+			Status:     "skipped",
+			ReasonCode: "skip_verify",
+			PlanID:     strings.TrimSpace(planID),
 			FinishedAt: time.Now(),
 		}},
 	})
+}
+
+func writeWorkflowApplyAttemptStatus(plan *types.ChangePlan, err error) string {
+	if err == nil {
+		return "applied"
+	}
+	if plan == nil {
+		return "failed"
+	}
+	if writePlanNeedsManualApproval(plan) {
+		return string(types.WriteWorkflowBatchPendingApproval)
+	}
+	switch plan.Status {
+	case types.PlanStatusBlocked:
+		return "blocked"
+	case types.PlanStatusPartiallyApplied:
+		return "partial"
+	default:
+		return "failed"
+	}
+}
+
+func writeWorkflowApplyAttemptReason(plan *types.ChangePlan, err error) string {
+	if err == nil {
+		return "apply_succeeded"
+	}
+	if plan == nil {
+		return "apply_error"
+	}
+	if writePlanNeedsManualApproval(plan) {
+		return "approval_required"
+	}
+	switch plan.Status {
+	case types.PlanStatusBlocked:
+		return "approval_denied"
+	case types.PlanStatusPartiallyApplied:
+		return "partial_apply"
+	default:
+		return "apply_error"
+	}
+}
+
+func writeWorkflowApplyRef(plan *types.ChangePlan, status string) string {
+	if plan == nil || strings.TrimSpace(plan.ID) == "" || strings.TrimSpace(status) != "applied" {
+		return ""
+	}
+	return worktree.AppliedRef(plan.ID)
 }
 
 func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) string {
@@ -731,19 +890,20 @@ func writeWorkflowReportID(report *types.ChangeReport) string {
 	return planID + ".report.json"
 }
 
-func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID string) {
+func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID, artifactRef string) {
 	if batch == nil {
 		return
 	}
 	batch.Attempts = append(batch.Attempts, types.WriteWorkflowAttempt{
-		ID:         fmt.Sprintf("attempt-%d", len(batch.Attempts)+1),
-		Kind:       strings.TrimSpace(kind),
-		Status:     strings.TrimSpace(status),
-		ReasonCode: strings.TrimSpace(reasonCode),
-		PlanID:     strings.TrimSpace(planID),
-		ReportID:   strings.TrimSpace(reportID),
-		StartedAt:  time.Now(),
-		FinishedAt: time.Now(),
+		ID:          fmt.Sprintf("attempt-%d", len(batch.Attempts)+1),
+		Kind:        strings.TrimSpace(kind),
+		Status:      strings.TrimSpace(status),
+		ReasonCode:  strings.TrimSpace(reasonCode),
+		PlanID:      strings.TrimSpace(planID),
+		ReportID:    strings.TrimSpace(reportID),
+		ArtifactRef: strings.TrimSpace(artifactRef),
+		StartedAt:   time.Now(),
+		FinishedAt:  time.Now(),
 	})
 }
 
