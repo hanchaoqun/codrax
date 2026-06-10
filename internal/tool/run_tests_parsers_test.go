@@ -111,6 +111,58 @@ FAIL    pkg [build failed]
 	}
 }
 
+func TestParseGoTestJSONLines_PackageBuildFailWithPassingSibling(t *testing.T) {
+	output := `{"ImportPath":"github.com/example/root.test","Action":"build-output","Output":"# github.com/example/root\n"}
+{"ImportPath":"github.com/example/root.test","Action":"build-output","Output":"mux_test.go:1672:45: unknown escape sequence\n"}
+{"ImportPath":"github.com/example/root.test","Action":"build-fail"}
+{"Time":"2026-06-10T15:57:06Z","Action":"start","Package":"github.com/example/root"}
+{"Time":"2026-06-10T15:57:06Z","Action":"output","Package":"github.com/example/root","Output":"FAIL\tgithub.com/example/root [setup failed]\n"}
+{"Time":"2026-06-10T15:57:06Z","Action":"fail","Package":"github.com/example/root","Elapsed":0,"FailedBuild":"github.com/example/root.test"}
+{"Time":"2026-06-10T15:57:07Z","Action":"run","Package":"github.com/example/root/middleware","Test":"TestOK"}
+{"Time":"2026-06-10T15:57:07Z","Action":"pass","Package":"github.com/example/root/middleware","Test":"TestOK","Elapsed":0.01}
+{"Time":"2026-06-10T15:57:07Z","Action":"pass","Package":"github.com/example/root/middleware","Elapsed":0.01}
+`
+	report, err := parseGoTestJSONLines(output)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("mixed package build failure must not pass because a sibling package had passing tests")
+	}
+	if !report.BuildFailed {
+		t.Fatal("BuildFailed should be true when any package reports build-fail")
+	}
+	var buildRow *types.TestResult
+	var passingUnit int
+	for i := range report.TestResults {
+		row := &report.TestResults[i]
+		if row.Kind == types.TestResultKindBuildError {
+			buildRow = row
+		}
+		if row.Kind == types.TestResultKindUnit && row.Passed {
+			passingUnit++
+		}
+	}
+	if buildRow == nil {
+		t.Fatalf("expected a synthetic build_error row; got %+v", report.TestResults)
+	}
+	if buildRow.Passed {
+		t.Fatal("build_error row must be failed")
+	}
+	if len(buildRow.BuildErrors) == 0 {
+		t.Fatalf("build_error row should carry parsed BuildErrors; got %+v", buildRow)
+	}
+	if got := buildRow.BuildErrors[0]; got.File != "mux_test.go" || got.Line != 1672 || got.Column != 45 || !strings.Contains(got.Message, "unknown escape sequence") {
+		t.Fatalf("unexpected BuildError: %+v", got)
+	}
+	if passingUnit != 1 {
+		t.Fatalf("expected sibling passing unit test to remain recorded; got %d", passingUnit)
+	}
+	if !strings.Contains(report.FailureSummary, "unknown escape sequence") {
+		t.Fatalf("FailureSummary should lead with build failure detail; got %q", report.FailureSummary)
+	}
+}
+
 func TestParseGoTestJSONLines_MalformedLineIgnored(t *testing.T) {
 	output := `{"Action":"run","Package":"pkg","Test":"TestA"}
 this is not json at all, should be ignored silently

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -205,12 +206,14 @@ var reSwiftTestCase = regexp.MustCompile(
 //
 // Reference: https://pkg.go.dev/cmd/test2json
 type goTestEvent struct {
-	Time    time.Time `json:"Time"`
-	Action  string    `json:"Action"`
-	Package string    `json:"Package"`
-	Test    string    `json:"Test,omitempty"`
-	Elapsed float64   `json:"Elapsed,omitempty"`
-	Output  string    `json:"Output,omitempty"`
+	Time        time.Time `json:"Time"`
+	Action      string    `json:"Action"`
+	Package     string    `json:"Package"`
+	ImportPath  string    `json:"ImportPath,omitempty"`
+	Test        string    `json:"Test,omitempty"`
+	Elapsed     float64   `json:"Elapsed,omitempty"`
+	Output      string    `json:"Output,omitempty"`
+	FailedBuild string    `json:"FailedBuild,omitempty"`
 }
 
 func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
@@ -233,6 +236,26 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 	// package level (Test field empty). We track these separately
 	// so a package-level fail without test names still surfaces.
 	pkgStatus := make(map[string]string)
+	pkgOutput := make(map[string]*strings.Builder)
+	pkgOf := func(ev goTestEvent) string {
+		pkg := strings.TrimSpace(ev.Package)
+		if pkg == "" {
+			pkg = strings.TrimSpace(ev.ImportPath)
+		}
+		return pkg
+	}
+	appendPkgOutput := func(pkg, output string) {
+		pkg = strings.TrimSpace(pkg)
+		if pkg == "" || output == "" {
+			return
+		}
+		b := pkgOutput[pkg]
+		if b == nil {
+			b = &strings.Builder{}
+			pkgOutput[pkg] = b
+		}
+		b.WriteString(output)
+	}
 
 	scanner := bufio.NewScanner(strings.NewReader(stdout))
 	// Lift default buffer so a long line (rare but possible with
@@ -252,18 +275,32 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			// single bad line is usually a corruption artifact.
 			continue
 		}
+		pkg := pkgOf(ev)
 		if ev.Test == "" {
 			// Package-level event.
 			switch ev.Action {
 			case "pass", "fail", "skip":
-				pkgStatus[ev.Package] = ev.Action
+				if pkg != "" {
+					if ev.Action == "fail" && strings.TrimSpace(ev.FailedBuild) != "" {
+						pkgStatus[strings.TrimSpace(ev.FailedBuild)] = "fail"
+						appendPkgOutput(strings.TrimSpace(ev.FailedBuild), ev.Output)
+					} else {
+						pkgStatus[pkg] = ev.Action
+					}
+				}
+			case "build-fail":
+				if pkg != "" {
+					pkgStatus[pkg] = "fail"
+				}
+			case "output", "build-output":
+				appendPkgOutput(pkg, ev.Output)
 			}
 			continue
 		}
-		key := keyOf(ev.Package, ev.Test)
+		key := keyOf(pkg, ev.Test)
 		a, ok := tests[key]
 		if !ok {
-			a = &accum{suite: ev.Package, name: ev.Test}
+			a = &accum{suite: pkg, name: ev.Test}
 			tests[key] = a
 		}
 		switch ev.Action {
@@ -295,6 +332,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 	// Go test output is already deterministic enough, and keeping
 	// insertion order preserves the runner's test execution order.
 	results := make([]types.TestResult, 0, len(tests))
+	packageHasResult := map[string]bool{}
 	for _, a := range tests {
 		if !a.completed {
 			// Test started but never finished — build error or
@@ -318,6 +356,9 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			Duration:      a.elapsed,
 			FailureDetail: detail,
 		})
+		if a.suite != "" {
+			packageHasResult[a.suite] = true
+		}
 	}
 
 	allPassed := true
@@ -338,20 +379,55 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 		}
 	}
 
-	// Compile-error path: zero per-test events + (a) at least one
-	// package-level fail OR (b) parseBuildErrors found .go file:line
-	// markers in non-JSON stdout. Either signal indicates the Go test
-	// run never compiled. Synthesise a build-error row so
-	// evalTestsPass sees BuildFailed and surfaces "build failed before
-	// tests ran" instead of "0 tests passed".
+	// Compile-error path: a package-level fail with no test rows for
+	// that package means the package did not reach test execution.
+	// This can happen alongside other packages that do run and pass.
+	// Synthesize one build-error row per failed package so aggregate
+	// verification cannot be dominated by unrelated passing packages.
 	//
-	// (b) is necessary because go-test-json sometimes emits
+	// The fallback below still handles zero-result output where
+	// go-test-json emits
 	// `FAIL    pkg [build failed]` as plain text on stderr without a
 	// corresponding JSON `{"Action":"fail"}` event — the JSON-line
 	// filter at the top of this parser drops those lines, so without
 	// the build-error fallback an unparseable stdout would leak into
 	// the no-tests branch and incorrectly pass verify.
 	buildFailed := false
+	var failedPkgs []string
+	for pkg, status := range pkgStatus {
+		if status != "fail" || packageHasResult[pkg] {
+			continue
+		}
+		failedPkgs = append(failedPkgs, pkg)
+	}
+	sort.Strings(failedPkgs)
+	for _, pkg := range failedPkgs {
+		source := ""
+		if b := pkgOutput[pkg]; b != nil {
+			source = b.String()
+		}
+		if strings.TrimSpace(source) == "" {
+			source = stdout
+		}
+		buildErrs := parseBuildErrors(source)
+		if len(buildErrs) == 0 && source != stdout {
+			buildErrs = parseBuildErrors(stdout)
+		}
+		detail := truncateDetail(source, 4000)
+		if strings.TrimSpace(detail) == "" {
+			detail = truncateDetail(stdout, 4000)
+		}
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstNonEmptyString([]string{firstBuildErrorAssertionID(buildErrs), pkg}),
+			Suite:         firstNonEmptyString([]string{pkg, "build"}),
+			Passed:        false,
+			FailureDetail: detail,
+			BuildErrors:   buildErrs,
+		})
+		buildFailed = true
+		allPassed = false
+	}
 	buildErrsScan := parseBuildErrors(stdout)
 	if len(results) == 0 && (pkgFail || len(buildErrsScan) > 0) {
 		results = append(results, types.TestResult{
@@ -363,6 +439,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			BuildErrors:   buildErrsScan,
 		})
 		buildFailed = true
+		allPassed = false
 	}
 
 	// Zero results + no package-level fail + no build error = the
@@ -383,14 +460,31 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 	}
 	if !report.Passed {
 		if buildFailed {
-			report.FailureSummary = renderBuildFailureSummary("Go",
-				results[0].BuildErrors,
-				strings.SplitN(narrativeBuildErrorExcerpt(stdout), "\n", 2)[0])
+			buildErrs, excerpt := collectBuildFailureDetails(results)
+			if excerpt == "" {
+				excerpt = strings.SplitN(narrativeBuildErrorExcerpt(stdout), "\n", 2)[0]
+			}
+			report.FailureSummary = renderBuildFailureSummary("Go", buildErrs, excerpt)
 		} else {
 			report.FailureSummary = buildGoFailureSummary(results, pkgStatus)
 		}
 	}
 	return report, nil
+}
+
+func collectBuildFailureDetails(results []types.TestResult) ([]types.BuildError, string) {
+	var out []types.BuildError
+	firstExcerpt := ""
+	for _, result := range results {
+		if result.Kind != types.TestResultKindBuildError {
+			continue
+		}
+		out = append(out, result.BuildErrors...)
+		if firstExcerpt == "" {
+			firstExcerpt = strings.SplitN(strings.TrimSpace(result.FailureDetail), "\n", 2)[0]
+		}
+	}
+	return out, firstExcerpt
 }
 
 func buildGoFailureSummary(results []types.TestResult, pkgStatus map[string]string) string {
@@ -823,11 +917,11 @@ func minInt(a, b int) int {
 // went wrong" footer, and the 10-line cap would drop the verdict.
 // We solve this by running TWO passes:
 //
-//   1. Verdict pass — pick up to 3 lines matching the small set of
-//      verdict-shape markers (BUILD FAILURE, BUILD FAILED, FAILURE:,
-//      What went wrong). These ALWAYS land first in the output.
-//   2. Detail pass — fill remaining 7 slots with the per-error
-//      markers ([ERROR], error:, Error:, e: , TS).
+//  1. Verdict pass — pick up to 3 lines matching the small set of
+//     verdict-shape markers (BUILD FAILURE, BUILD FAILED, FAILURE:,
+//     What went wrong). These ALWAYS land first in the output.
+//  2. Detail pass — fill remaining 7 slots with the per-error
+//     markers ([ERROR], error:, Error:, e: , TS).
 //
 // Pairs with parseBuildErrors which extracts structured file:line:msg
 // rows. The narrative excerpt is the human-readable companion that
@@ -926,20 +1020,20 @@ func narrativeBuildErrorExcerpt(stdout string) string {
 // fragment like "Bar.java:42" doesn't get swallowed by the generic
 // fallback.
 //
-//   1. Maven javac:   "[ERROR] /path/Foo.java:[42,5] cannot find symbol"
-//   2. Kotlin:        "e: file:///path/Foo.kt:42:5 Unresolved reference"
-//   3. Generic:       "/path/Foo.{java,scala,kt,kts,ets,ts,tsx,go,
-//                      rs,c,h,cc,cpp,cxx,hpp,hh,py}:42: error: …"
-//                     Covers javac/scalac/Gradle, Go (`./foo.go:5:1:
-//                     syntax error:`), GCC/Clang (`foo.c:42:5: error:`),
-//                     pylint/mypy.
-//   4. TS (paren):    "/path/foo.ts(42,5): error TS2304: …"
-//   5. TS (colon):    "/path/foo.ts:42:5 - error TS2304: …"
-//   6. Cangjie:       "error: /path/Bar.cj:42:5: …"
-//   7. Rust (-->):    "  --> src/lib.rs:10:5"  (block-style; carries
-//                     the location only — rustc puts the error code on
-//                     a preceding `error[E0308]: …` line which
-//                     extractRustErrorCodeAndMessage links back.)
+//  1. Maven javac:   "[ERROR] /path/Foo.java:[42,5] cannot find symbol"
+//  2. Kotlin:        "e: file:///path/Foo.kt:42:5 Unresolved reference"
+//  3. Generic:       "/path/Foo.{java,scala,kt,kts,ets,ts,tsx,go,
+//     rs,c,h,cc,cpp,cxx,hpp,hh,py}:42: error: …"
+//     Covers javac/scalac/Gradle, Go (`./foo.go:5:1:
+//     syntax error:`), GCC/Clang (`foo.c:42:5: error:`),
+//     pylint/mypy.
+//  4. TS (paren):    "/path/foo.ts(42,5): error TS2304: …"
+//  5. TS (colon):    "/path/foo.ts:42:5 - error TS2304: …"
+//  6. Cangjie:       "error: /path/Bar.cj:42:5: …"
+//  7. Rust (-->):    "  --> src/lib.rs:10:5"  (block-style; carries
+//     the location only — rustc puts the error code on
+//     a preceding `error[E0308]: …` line which
+//     extractRustErrorCodeAndMessage links back.)
 //
 // Each capture group: file, line, optional col, optional symbol/code,
 // message. parseBuildErrors normalises into BuildError rows and

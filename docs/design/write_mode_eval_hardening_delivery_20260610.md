@@ -190,16 +190,17 @@ flowchart TD
 ### Batch 0: Reopened Hardening Ledger
 
 - [x] Add this document.
-- [ ] Commit and push `docs: reopen write mode eval hardening ledger`.
+- [x] Commit and push `docs: reopen write mode eval hardening ledger`.
 
 ### Batch 1: Typed Verify Verdict
 
-- [ ] Strengthen Go JSON parser so package-level build failures produce
+- [x] Strengthen Go JSON parser so package-level build failures produce
       `build_error` rows even when sibling packages pass tests.
-- [ ] Strengthen aggregate summary to lead with failed projects/packages.
-- [ ] Add parser/unit tests for mixed package build-fail plus passing sibling.
-- [ ] Ensure controller does not depend on verifier prose for completion.
-- [ ] Commit and push.
+- [x] Strengthen aggregate summary to lead with failed projects/packages.
+- [x] Add parser/unit tests for mixed package build-fail plus passing sibling.
+- [x] Ensure controller consumes `ChangeReport.Passed/BuildFailed/TestResults`
+      rather than verifier prose for completion.
+- [x] Commit and push.
 
 ### Batch 2: ModePlan Terminal Gate
 
@@ -266,4 +267,5 @@ flowchart TD
 
 | Batch | Status | Commit | Push | Notes |
 | --- | --- | --- | --- | --- |
-| 0 | in progress | pending | pending | Hardening reopened from eval evidence. |
+| 0 | complete | `874200f0` | pushed | Hardening reopened from eval evidence. |
+| 1 | complete | current batch | pushed | Go parser now preserves package build failures next to passing sibling package tests. Tests: `go test ./internal/tool -run 'TestParseGoTestJSONLines|TestParseGoTest_CompileErrorMapsToBuildFailed|TestRenderBuildFailureSummary|TestFirstBuildErrorAssertionID|TestMergeChangeReports'`, `go test ./internal/tool`. |
