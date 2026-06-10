@@ -30,14 +30,15 @@ type EmitPlanChange struct {
 }
 
 type emitPlanChangeParams struct {
-	Path       string `json:"path"`
-	NewContent string `json:"new_content,omitempty"`
-	Patch      string `json:"patch,omitempty"`
+	Path       string                 `json:"path"`
+	NewContent string                 `json:"new_content,omitempty"`
+	Patch      string                 `json:"patch,omitempty"`
+	Edits      []types.StructuredEdit `json:"edits,omitempty"`
 }
 
 const emitPlanChangeSchemaReminder = "REQUIRED schema: {path: string (must match a path in the skeleton), " +
 	"new_content: string (full file body for kind=create/modify), " +
-	"patch: string (unified diff for kind=patch)}. " +
+	"patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch}. " +
 	"For kind=delete, do NOT call emit_plan_change — delete kinds need no body. " +
 	"Call emit_plan_skeleton FIRST; the skeleton sets the per-file kind, this tool fills the body."
 
@@ -45,7 +46,7 @@ func (t *EmitPlanChange) Name() string { return "emit_plan_change" }
 
 func (t *EmitPlanChange) Description() string {
 	return "Fill one file's body in the partial plan installed by emit_plan_skeleton. " +
-		"For kind=create / kind=modify supply new_content; for kind=patch supply patch (unified diff). " +
+		"For kind=create / kind=modify supply new_content; for kind=patch supply patch (unified diff) or edits (structured line edits). " +
 		"The last call (when every non-delete slot is filled) runs the full validators and finalizes the plan."
 }
 
@@ -56,7 +57,23 @@ func (t *EmitPlanChange) Parameters() json.RawMessage {
 	  "properties": {
 	    "path":        {"type": "string", "description": "Repo-relative path matching one of the skeleton's changes[].path entries."},
 	    "new_content": {"type": "string", "description": "Full body for kind=create / kind=modify."},
-	    "patch":       {"type": "string", "description": "Unified diff for kind=patch."}
+	    "patch":       {"type": "string", "description": "Unified diff for kind=patch. Use either patch OR edits, not both."},
+	    "edits": {
+	      "type": "array",
+	      "description": "Optional structured line edits for kind=patch. The tool compiles these into a unified diff against current file bytes. Use either edits OR patch, not both.",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "properties": {
+	          "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after"]},
+	          "start_line": {"type": "integer", "minimum": 1},
+	          "end_line": {"type": "integer", "minimum": 1},
+	          "content": {"type": "string"},
+	          "old_text": {"type": "string"}
+	        },
+	        "required": ["kind", "start_line"]
+	      }
+	    }
 	  },
 	  "required": ["path"]
 	}`)
@@ -149,15 +166,16 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}
 		c.NewContent = p.NewContent
 	case "patch":
-		if strings.TrimSpace(p.Patch) == "" {
+		if strings.TrimSpace(p.Patch) == "" && len(p.Edits) == 0 {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
-				Summary:   fmt.Sprintf("emit_plan_change rejected: change %q (kind=patch) requires non-empty patch (unified diff)", path),
+				Summary:   fmt.Sprintf("emit_plan_change rejected: change %q (kind=patch) requires non-empty patch (unified diff) or edits[]", path),
 				Timestamp: time.Now(),
 			}, nil
 		}
 		c.Patch = p.Patch
+		c.Edits = append([]types.StructuredEdit(nil), p.Edits...)
 	case "delete":
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -193,7 +211,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 				missing = append(missing, ch.Path)
 			}
 		case "patch":
-			if strings.TrimSpace(ch.Patch) == "" {
+			if strings.TrimSpace(ch.Patch) == "" && len(ch.Edits) == 0 {
 				missing = append(missing, ch.Path)
 			}
 		}

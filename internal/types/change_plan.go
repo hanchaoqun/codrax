@@ -487,6 +487,13 @@ type FileChange struct {
 	// Patch is the unified-diff payload for kind="patch".
 	Patch string `json:"patch,omitempty"`
 
+	// Edits is the structured-edit alternative for kind="patch".
+	// Planner may use it for localized line operations instead of
+	// hand-writing a unified diff. The tool layer deterministically
+	// compiles Edits against current file bytes into Patch before
+	// validation/apply. Raw Patch remains available for complex diffs.
+	Edits []StructuredEdit `json:"edits,omitempty"`
+
 	// NewPath is the destination path for kind="rename". Repo-
 	// relative, must not collide with any existing file in the
 	// worktree or with another change's Path / NewPath. Empty for
@@ -522,6 +529,33 @@ type FileChange struct {
 	// at runtime that every DependsOn target is already in
 	// WriteClosure.AppliedSet before the tool accepts the unit.
 	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+// StructuredEdit is a line-addressed edit inside a single existing file.
+// Line numbers are 1-based and refer to the file bytes read by the validator
+// before any edit in this list is applied. Multiple edits in one FileChange are
+// composed deterministically after overlap checks.
+type StructuredEdit struct {
+	// Kind is one of replace, delete, insert_before, insert_after.
+	Kind string `json:"kind"`
+
+	// StartLine is required for every kind. For replace/delete it is the
+	// first line in the inclusive range. For insert_before/insert_after it
+	// is the anchor line.
+	StartLine int `json:"start_line"`
+
+	// EndLine is required for replace/delete and ignored for insert kinds.
+	// The range is inclusive and 1-based.
+	EndLine int `json:"end_line,omitempty"`
+
+	// Content is inserted or used as replacement text for insert/replace.
+	// It may contain multiple lines and is preserved byte-for-byte.
+	Content string `json:"content,omitempty"`
+
+	// OldText optionally carries the exact original bytes expected at the
+	// target range or insertion anchor. When set, the builder rejects stale
+	// context instead of relying on line numbers alone.
+	OldText string `json:"old_text,omitempty"`
 }
 
 // ChangeReport is the Verify stage's output — a structured summary

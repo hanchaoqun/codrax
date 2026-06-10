@@ -219,3 +219,10 @@ flowchart TD
   PlanStore when available, falls back to the run workdir for stripped-down
   embeddings, and records workflow `VerifyRef` with the same artifact-safe
   report id.
+- 2026-06-10 Batch 5 complete: `kind=patch` now supports optional
+  structured `edits[]` for localized line operations. The shared
+  ChangePlan validators compile edits against current file bytes into a
+  reviewable unified diff, reject stale `old_text`, overlap, duplicate
+  insertion points, invalid ranges, and no-op edits, while raw `patch`
+  remains available for complex diffs. Apply re-compiles edits inside the
+  worktree as defense in depth.

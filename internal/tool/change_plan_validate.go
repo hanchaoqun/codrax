@@ -39,6 +39,7 @@ func emitChangesToFileChanges(changes []emitChangePlanChange) []types.FileChange
 			Kind:       strings.TrimSpace(c.Kind),
 			NewContent: c.NewContent,
 			Patch:      c.Patch,
+			Edits:      append([]types.StructuredEdit(nil), c.Edits...),
 			NewPath:    strings.TrimSpace(c.NewPath),
 			Rationale:  strings.TrimSpace(c.Rationale),
 			DependsOn:  deps,
@@ -96,6 +97,12 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 			if newPath != "" {
 				return fmt.Sprintf("change %q has kind=%s but new_path is set (only kind=rename uses new_path)", path, kind)
 			}
+		}
+		if len(c.Edits) > 0 && kind != "patch" {
+			return fmt.Sprintf("change %q has edits[] but kind=%s (structured edits are only valid for kind=patch)", path, kind)
+		}
+		if len(c.Edits) > 0 && strings.TrimSpace(c.Patch) != "" {
+			return fmt.Sprintf("change %q has both patch and edits[]; choose exactly one patch source", path)
 		}
 	}
 	for _, c := range changes {
@@ -159,8 +166,8 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 //   - kind=patch: ✓ what the gate enforces.
 //
 // Returns "" on success or a rejection reason naming the offending
-// path + the WORKED EXAMPLE pointer so the LLM can fix without
-// guessing the unified diff format.
+// path and the structured patch alternatives so the LLM can fix without
+// guessing whole-file content.
 //
 // Skip when ctx == nil OR ctx.Mutable == nil OR no WriteAnalysisIR
 // has been emitted yet (defensive: the gate is content-dependent
@@ -190,8 +197,7 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 		return fmt.Sprintf(
 			"task.scope=micro forbids kind=modify on %q — micro-scope tasks (one function / one constant / one line in one file, per the prior classification) MUST use kind=patch with a unified diff. "+
 				"A whole-file overwrite for a one-line edit collapses the diff the user reviews. "+
-				"Re-emit this change with kind=patch and a unified diff that touches only the affected line(s); "+
-				"the change-plan-skill prompt's WORKED EXAMPLE shows the exact format (--- / +++ headers, @@ hunk header with line counts, ' '/'-'/'+' line prefixes, byte-for-byte context match including tabs). "+
+				"Re-emit this change with kind=patch and prefer edits[] for localized line changes; use raw patch only for complex diffs. "+
 				"Carve-outs: kind=create (new file) / kind=delete (removal) / kind=rename (pure move) bypass this gate; only kind=modify-on-existing-file is rejected.",
 			path)
 	}
@@ -199,6 +205,9 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 }
 
 func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange) string {
+	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
+		return rej
+	}
 	if GitAvailable() && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		for _, c := range changes {
 			if strings.TrimSpace(c.Kind) != "patch" {
@@ -229,6 +238,23 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	}
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
 		return rej
+	}
+	return ""
+}
+
+func compileStructuredEditPatches(ctx *types.BusContext, changes []types.FileChange) string {
+	for i := range changes {
+		if len(changes[i].Edits) == 0 {
+			continue
+		}
+		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+			return fmt.Sprintf("change %q uses edits[] but no repo root is available to compile them", strings.TrimSpace(changes[i].Path))
+		}
+		patch, err := compileStructuredEditsToPatch(ctx.RepoRoot, &changes[i])
+		if err != nil {
+			return err.Error()
+		}
+		changes[i].Patch = patch
 	}
 	return ""
 }

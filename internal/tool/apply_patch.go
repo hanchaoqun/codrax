@@ -224,12 +224,22 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	// `\n` during re-emission that `git apply` reports as "corrupt
 	// patch at line N").
 	if kind == "patch" {
-		if strings.TrimSpace(unit.Patch) == "" {
+		patchText := unit.Patch
+		if len(unit.Edits) > 0 {
+			compiled, err := compileStructuredEditsToPatch(ctx.RepoRoot, unit)
+			if err != nil {
+				return errResult(t.Name(),
+					fmt.Sprintf("apply_patch rejected: structured edits for %q did not compile: %v", path, err)), nil
+			}
+			patchText = compiled
+			unit.Patch = compiled
+		}
+		if strings.TrimSpace(patchText) == "" {
 			return errResult(t.Name(),
 				fmt.Sprintf("apply_patch rejected: plan ChangeUnit for %q has empty Patch (planner bug — kind=patch must carry a unified diff)", path)), nil
 		}
-		if err := applyUnifiedDiff(ctx.RepoRoot, unit.Patch); err != nil {
-			return errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error(), unit.Patch)), nil
+		if err := applyUnifiedDiff(ctx.RepoRoot, patchText); err != nil {
+			return errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error(), patchText)), nil
 		}
 		ctx.Mutable.WriteClosure().MarkApplied(path)
 		logging.Info("[apply_patch] patch %s (worktree=%s)", path, ctx.RepoRoot)

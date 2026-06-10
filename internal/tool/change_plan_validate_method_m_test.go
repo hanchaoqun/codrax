@@ -48,8 +48,8 @@ func TestValidatePlanScopeKindAlignment_PatchGoTypoR1Reproduction(t *testing.T) 
 	if !strings.Contains(rej, "kind=patch") {
 		t.Errorf("rejection message must point at kind=patch as the fix; got: %s", rej)
 	}
-	if !strings.Contains(rej, "WORKED EXAMPLE") {
-		t.Errorf("rejection message must reference the WORKED EXAMPLE for diff syntax; got: %s", rej)
+	if !strings.Contains(rej, "edits[]") || !strings.Contains(rej, "raw patch") {
+		t.Errorf("rejection message must prefer structured edits and retain raw patch fallback; got: %s", rej)
 	}
 }
 

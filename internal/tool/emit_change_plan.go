@@ -31,7 +31,7 @@ import (
 const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
-	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), " +
+	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
 	"OPTIONAL: acceptance_tests: array of strings. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
@@ -83,13 +83,14 @@ type emitChangePlanParams struct {
 // package so the wire-format is independent of the internal struct
 // (which may grow new fields post-B0 without breaking old plans).
 type emitChangePlanChange struct {
-	Path       string   `json:"path"`
-	Kind       string   `json:"kind"`
-	NewContent string   `json:"new_content,omitempty"`
-	Patch      string   `json:"patch,omitempty"`
-	NewPath    string   `json:"new_path,omitempty"`
-	Rationale  string   `json:"rationale"`
-	DependsOn  []string `json:"depends_on,omitempty"`
+	Path       string                 `json:"path"`
+	Kind       string                 `json:"kind"`
+	NewContent string                 `json:"new_content,omitempty"`
+	Patch      string                 `json:"patch,omitempty"`
+	Edits      []types.StructuredEdit `json:"edits,omitempty"`
+	NewPath    string                 `json:"new_path,omitempty"`
+	Rationale  string                 `json:"rationale"`
+	DependsOn  []string               `json:"depends_on,omitempty"`
 }
 
 // Name returns the tool's stable identifier. Used by the planner
@@ -144,7 +145,23 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
           },
           "patch": {
             "type": "string",
-            "description": "Unified-diff payload for kind=patch. B2 only; leave empty in B0."
+            "description": "Unified-diff payload for kind=patch. Use either patch OR edits, not both."
+          },
+          "edits": {
+            "type": "array",
+            "description": "Optional structured line edits for kind=patch. The tool compiles these into a unified diff against current file bytes. Use either edits OR patch, not both.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after"]},
+                "start_line": {"type": "integer", "minimum": 1},
+                "end_line": {"type": "integer", "minimum": 1},
+                "content": {"type": "string", "description": "Replacement or insertion bytes. Required for replace/insert; omit for delete."},
+                "old_text": {"type": "string", "description": "Optional exact original bytes for the target range or insertion anchor. When present, stale context is rejected."}
+              },
+              "required": ["kind", "start_line"]
+            }
           },
           "rationale": {
             "type": "string",
