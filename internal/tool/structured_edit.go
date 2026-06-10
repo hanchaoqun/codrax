@@ -92,15 +92,24 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 		switch kind {
 		case "replace", "delete":
-			if edit.StartLine < 1 || edit.EndLine < edit.StartLine || edit.EndLine > lineCount {
-				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, edit.EndLine, lineCount)
+			endLine := edit.EndLine
+			// Omitted end_line means a single-line edit. The schema
+			// documents the default so the model never has to copy
+			// line arithmetic for the common one-line replace.
+			if endLine == 0 {
+				endLine = edit.StartLine
+			}
+			if edit.StartLine < 1 || endLine < edit.StartLine || endLine > lineCount {
+				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, endLine, lineCount)
 			}
 			start := edit.StartLine - 1
-			end := edit.EndLine
+			end := endLine
 			if edit.OldText != "" {
 				got := strings.Join(lines[start:end], "")
-				if got != edit.OldText {
-					return nil, fmt.Errorf("structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d", path, i, edit.StartLine, edit.EndLine)
+				if !structuredEditOldTextMatches(got, edit.OldText) {
+					return nil, fmt.Errorf(
+						"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — re-read the file and resend old_text matching the current content",
+						path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
 				}
 			}
 			insert := []string(nil)
@@ -126,8 +135,10 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 				if edit.StartLine >= 1 && edit.StartLine <= lineCount {
 					anchor = lines[edit.StartLine-1]
 				}
-				if anchor != edit.OldText {
-					return nil, fmt.Errorf("structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d", path, i, edit.StartLine)
+				if !structuredEditOldTextMatches(anchor, edit.OldText) {
+					return nil, fmt.Errorf(
+						"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — re-read the file and resend old_text matching the current content",
+						path, i, edit.StartLine, boundedByteQuote(anchor, 160))
 				}
 			}
 			key := fmt.Sprintf("%s:%d", kind, start)
@@ -200,4 +211,31 @@ func spliceLines(lines []string, start, end int, insert []string) []string {
 	next = append(next, insert...)
 	next = append(next, lines[end:]...)
 	return next
+}
+
+// structuredEditOldTextMatches compares the model-supplied old_text against
+// the current bytes of the target range. Exact byte equality is the rule;
+// the single documented normalization is the final trailing newline — the
+// model frequently quotes a range without (or with) the terminal "\n" that
+// SplitAfter preserves. This is a byte-level structural tolerance, never a
+// fuzzy match.
+func structuredEditOldTextMatches(got, oldText string) bool {
+	if got == oldText {
+		return true
+	}
+	if got == oldText+"\n" || got+"\n" == oldText {
+		return true
+	}
+	return false
+}
+
+// boundedByteQuote renders the current bytes for a mismatch diagnostic,
+// quoted and capped so the repair message stays readable while showing the
+// model exactly what the file holds now.
+func boundedByteQuote(s string, max int) string {
+	runes := []rune(s)
+	if max > 0 && len(runes) > max {
+		return fmt.Sprintf("%q (truncated, %d bytes total)", string(runes[:max]), len(s))
+	}
+	return fmt.Sprintf("%q", s)
 }

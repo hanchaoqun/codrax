@@ -561,8 +561,9 @@ type StructuredEdit struct {
 	// is the anchor line.
 	StartLine int `json:"start_line"`
 
-	// EndLine is required for replace/delete and ignored for insert kinds.
-	// The range is inclusive and 1-based.
+	// EndLine is the inclusive 1-based last line for replace/delete;
+	// omitted (0) it defaults to StartLine (single-line edit). Ignored
+	// for insert kinds.
 	EndLine int `json:"end_line,omitempty"`
 
 	// Content is inserted or used as replacement text for insert/replace.

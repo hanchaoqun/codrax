@@ -415,8 +415,15 @@ update here.
       Full `go test ./...` green.
 
 ### Batch 6 — Structured edit reliability (P1-1)
-- [ ] end_line default, mismatch byte diagnostics, trailing-newline
-      normalization, schema description updates, regression tests.
+- [x] Omitted `end_line` defaults to `start_line` for replace/delete (the
+      `invalid line range N-0` class is gone); `old_text` mismatches echo the
+      bounded current bytes with the re-read repair direction; matching
+      tolerates exactly one byte-level normalization — the final trailing
+      newline. Schema descriptions for start_line/end_line/old_text state
+      the defaults and the echo behavior precisely; both validator and
+      apply-side recompile share the single seam. Regression tests cover
+      single-line replace/delete defaults, newline tolerance both ways,
+      mismatch echoes for range and insert anchor, and the byte-rule matrix.
 
 ### Batch 7 — Eval port + regression matrix (P2)
 - [ ] Port evidence ledger, cases, fixtures, Makefile target, run.sh
@@ -474,3 +481,6 @@ update here.
   rounds get one typed-context re-dispatch instead of aborting the
   workflow; evidence-anchored pack items dedupe by fact. Full
   `go test ./...` green.
+- 2026-06-10: Batch 6 — structured edit reliability shipped. end_line
+  defaults, byte-echoing mismatch diagnostics, trailing-newline tolerance,
+  precise schema wording. Full `go test ./...` green.

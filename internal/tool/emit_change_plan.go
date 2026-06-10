@@ -155,10 +155,10 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
               "additionalProperties": false,
               "properties": {
                 "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after"]},
-                "start_line": {"type": "integer", "minimum": 1},
-                "end_line": {"type": "integer", "minimum": 1},
+                "start_line": {"type": "integer", "minimum": 1, "description": "1-based. First line of the inclusive range for replace/delete; the anchor line for insert_before/insert_after."},
+                "end_line": {"type": "integer", "minimum": 1, "description": "1-based inclusive last line for replace/delete. Omit for a single-line edit — it defaults to start_line. Ignored for insert kinds."},
                 "content": {"type": "string", "description": "Replacement or insertion bytes. Required for replace/insert; omit for delete."},
-                "old_text": {"type": "string", "description": "Optional exact original bytes for the target range or insertion anchor. When present, stale context is rejected."}
+                "old_text": {"type": "string", "description": "Optional exact CURRENT bytes of the target range or insertion anchor line. Must match the file as it is now (re-read after any earlier edit); a missing or extra final newline is tolerated. On mismatch the error echoes the current bytes so you can correct without guessing."}
               },
               "required": ["kind", "start_line"]
             }

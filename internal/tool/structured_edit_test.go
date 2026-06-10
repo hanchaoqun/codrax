@@ -178,3 +178,116 @@ func TestEmitPlanChange_StructuredEditsFinalize(t *testing.T) {
 		t.Fatalf("finalized plan should contain compiled patch; got:\n%s", plan.Changes[0].Patch)
 	}
 }
+
+func TestCompileStructuredEdits_SingleLineReplaceWithoutEndLine(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\n")
+	change := &types.FileChange{
+		Path: "src/a.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 2, Content: "TWO\n"},
+		},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("omitted end_line must default to start_line: %v", err)
+	}
+	if !strings.Contains(patch, "-two") || !strings.Contains(patch, "+TWO") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+}
+
+func TestCompileStructuredEdits_SingleLineDeleteWithoutEndLine(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\n")
+	change := &types.FileChange{
+		Path:  "src/a.txt",
+		Kind:  "patch",
+		Edits: []types.StructuredEdit{{Kind: "delete", StartLine: 2}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("omitted end_line on delete must default to start_line: %v", err)
+	}
+	if !strings.Contains(patch, "-two") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+}
+
+func TestCompileStructuredEdits_OldTextTrailingNewlineTolerated(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\n")
+	change := &types.FileChange{
+		Path: "src/a.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			// Model quoted the line without the terminal newline.
+			{Kind: "replace", StartLine: 2, OldText: "two", Content: "TWO\n"},
+		},
+	}
+	if _, err := compileStructuredEditsToPatch(root, change); err != nil {
+		t.Fatalf("missing final newline in old_text must be tolerated: %v", err)
+	}
+}
+
+func TestCompileStructuredEdits_OldTextMismatchEchoesCurrentBytes(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\n")
+	change := &types.FileChange{
+		Path: "src/a.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 2, EndLine: 2, OldText: "stale line\n", Content: "TWO\n"},
+		},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("stale old_text must be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `"two\n"`) {
+		t.Fatalf("mismatch diagnostic must echo the current bytes, got: %s", msg)
+	}
+	if !strings.Contains(msg, "re-read the file") {
+		t.Fatalf("mismatch diagnostic must carry the repair direction, got: %s", msg)
+	}
+}
+
+func TestCompileStructuredEdits_InsertAnchorMismatchEchoesCurrentBytes(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\n")
+	change := &types.FileChange{
+		Path: "src/a.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "insert_after", StartLine: 1, OldText: "wrong anchor", Content: "inserted\n"},
+		},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("stale anchor must be rejected")
+	}
+	if !strings.Contains(err.Error(), `"one\n"`) {
+		t.Fatalf("anchor diagnostic must echo current bytes, got: %s", err.Error())
+	}
+}
+
+func TestStructuredEditOldTextMatches_ByteRules(t *testing.T) {
+	cases := []struct {
+		got, old string
+		want     bool
+	}{
+		{"two\n", "two\n", true},
+		{"two\n", "two", true},
+		{"two", "two\n", true},
+		{"two\n", "Two\n", false},
+		{"two\n", " two\n", false},
+		{"a\nb\n", "a\nb", true},
+	}
+	for _, c := range cases {
+		if got := structuredEditOldTextMatches(c.got, c.old); got != c.want {
+			t.Fatalf("match(%q, %q) = %v, want %v", c.got, c.old, got, c.want)
+		}
+	}
+}
