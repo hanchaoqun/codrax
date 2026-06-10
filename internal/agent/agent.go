@@ -2085,6 +2085,21 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
 			b.name, i, len(resp.Content), len(resp.ToolCalls))
+		if reasoning := strings.TrimSpace(resp.ReasoningContent); reasoning != "" {
+			logging.Debug("[diag %s] iter=%d ASSISTANT reasoning_content:\n%s\n---",
+				b.name, i, truncForLog(reasoning, 4000))
+			b.deps.Emit(render.Event{
+				Kind:            render.EventAgentReasoning,
+				Timestamp:       time.Now(),
+				Agent:           b.name,
+				Stage:           ctx.Stage,
+				Iteration:       i,
+				Reasoning:       reasoning,
+				ParallelGroupID: ctx.ParallelGroupID,
+				ParallelUnitID:  ctx.ExploreDispatchKey,
+				DispatchKind:    string(ctx.ExploreDispatchKind),
+			})
+		}
 		if resp.Content != "" {
 			logging.Debug("[diag %s] iter=%d ASSISTANT content:\n%s\n---",
 				b.name, i, truncForLog(resp.Content, 4000))

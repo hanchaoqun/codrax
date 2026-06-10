@@ -1254,6 +1254,29 @@ func (mixedContentToolLLM) MaxOutputTokens() int          { return 4096 }
 func (mixedContentToolLLM) RequestTimeout() time.Duration { return 0 }
 func (mixedContentToolLLM) RetryMaxAttempts() int         { return 0 }
 
+type reasoningContentToolLLM struct{}
+
+func (reasoningContentToolLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	if opts.OnReasoningDelta != nil {
+		opts.OnReasoningDelta("I will inspect ")
+		opts.OnReasoningDelta("the trace.")
+	}
+	return llm.Response{
+		ReasoningContent: "I will inspect the trace.",
+		ToolCalls: []llm.ToolCall{{
+			ID:     "call-trace",
+			Name:   "trace_tool",
+			Params: json.RawMessage(`{"path":"record.systrace"}`),
+		}},
+	}, nil
+}
+
+func (reasoningContentToolLLM) ModelID() string               { return "reasoning-content-tool" }
+func (reasoningContentToolLLM) MaxContextTokens() int         { return 128000 }
+func (reasoningContentToolLLM) MaxOutputTokens() int          { return 4096 }
+func (reasoningContentToolLLM) RequestTimeout() time.Duration { return 0 }
+func (reasoningContentToolLLM) RetryMaxAttempts() int         { return 0 }
+
 type traceTool struct {
 	tool.ReadOnly
 	tool.NonEvidenceTool
@@ -1318,6 +1341,51 @@ func TestBaseAgent_EmitsToolBatchBeforeExecutingMixedContentToolResponse(t *test
 	if !(reasoningIdx < batchIdx && batchIdx < startIdx) {
 		t.Fatalf("tool batch must be visible after prose and before execution start; reasoning=%d batch=%d start=%d events=%+v",
 			reasoningIdx, batchIdx, startIdx, events)
+	}
+}
+
+func TestBaseAgent_PersistsReasoningContentAfterStreamingPreview(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(traceTool{})
+
+	var events []render.Event
+	b := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		LLM:           reasoningContentToolLLM{},
+		Tools:         registry,
+		MaxIterations: 1,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, &stubEvaluator{})
+
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{ToolSuggestions: []string{"trace_tool"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil || len(out.ToolResults) != 1 || out.ToolResults[0].ToolName != "trace_tool" {
+		t.Fatalf("tool did not execute cleanly, output=%+v", out)
+	}
+	var sawLivePreview, sawPermanent bool
+	for _, ev := range events {
+		switch ev.Kind {
+		case render.EventAgentContent:
+			if strings.Contains(ev.Reasoning, "I will inspect the trace.") {
+				sawLivePreview = true
+			}
+		case render.EventAgentReasoning:
+			if strings.Contains(ev.Reasoning, "I will inspect the trace.") {
+				sawPermanent = true
+			}
+		}
+	}
+	if !sawLivePreview {
+		t.Fatalf("reasoning_content deltas should still reach live preview, events=%+v", events)
+	}
+	if !sawPermanent {
+		t.Fatalf("reasoning_content must be committed to permanent scrollback, events=%+v", events)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ var (
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. window_stats/root_cause_rank also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank to let them compete with scheduler and blocking causes. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank to let it compete with other causes. For frame/span or inode discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, inode tokens such as 0x478e5, entry_name values, or one exact timestamp/event token before broad grep. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first returns bounded marker discovery and next-call hints instead of expanding expensive full-trace root-cause/resource views; rerun with the selected frame/span time or line window. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. window_stats/root_cause_rank also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank to let them compete with scheduler and blocking causes. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank to let it compete with other causes. For frame/span or inode discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, inode tokens such as 0x478e5, entry_name values, or one exact timestamp/event token before broad grep. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -103,13 +104,22 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if reject != nil {
 		return *reject, nil
 	}
+	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
+	if auto, ok := t.maybeLargeRecipeAutoWindow(ctx, p, path, sourceLabel, timeCaveat); ok {
+		return auto, nil
+	}
+	if narrowed, ok := t.maybeLargePatternWindowedView(ctx, p, path, sourceLabel, timeCaveat); ok {
+		return narrowed, nil
+	}
 	if discovery, ok := t.maybeLargeRecipeDiscovery(ctx, p, path, sourceLabel); ok {
 		return discovery, nil
 	}
 	if guard, ok := t.maybeLargeTraceHeavyViewGuard(ctx, p, path, sourceLabel); ok {
 		return guard, nil
 	}
-	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
+	if streamed, ok := t.maybeLargeEventSearchStream(ctx, p, path, sourceLabel, timeStart, timeEnd, timeCaveat); ok {
+		return streamed, nil
+	}
 	buildStart := time.Now()
 	logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
 		p.View, sourceLabel, path, timeStart, timeEnd, p.LineStart.Int(), p.LineEnd.Int())
@@ -125,6 +135,33 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	}
 	logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d",
 		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd)
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, timeStart, timeEnd)
+	runStart := time.Now()
+	logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
+	result := tracequery.Run(idx, q)
+	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats))
+	if timeCaveat != "" {
+		result.Caveats = append(result.Caveats, timeCaveat)
+	}
+	storeStart := time.Now()
+	payload, _ := json.MarshalIndent(result, "", "  ")
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+	summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   preview,
+		RawRef:    rawRef,
+		Timestamp: time.Now(),
+	}, nil
+}
+
+func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, timeStart, timeEnd float64) tracequery.Query {
 	q := tracequery.Query{
 		View:                 p.View,
 		Thread:               p.Thread,
@@ -151,10 +188,385 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
 		q.IncludeWindowStats = true
 	}
+	return q
+}
+
+func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, timeCaveat string) (types.ToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryShouldAutoWindowFromPattern(p) {
+		return types.ToolResult{}, false
+	}
+	pattern := firstNonEmptyTraceString(p.Pattern, p.SpanName)
+	searchP := p
+	searchP.View = "event_search"
+	searchP.Pattern = pattern
+	searchQ := traceQueryBuildQuery(ctx, searchP, sourceLabel, path, 0, 0)
+	if searchQ.Limit < 20 {
+		searchQ.Limit = 20
+	}
+	streamStart := time.Now()
+	logging.Debug("[trace_query] phase=auto_window_search view=%s source=%s path=%s start pattern=%s",
+		p.View, sourceLabel, path, pattern)
+	searchResult, err := tracequery.StreamEventSearch(contextFromBus(ctx), path, searchQ)
+	if err != nil {
+		logging.Debug("[trace_query] phase=auto_window_search view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(streamStart), err)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query failed to locate %s in %s: %v", pattern, path, err),
+			Timestamp: time.Now(),
+		}, true
+	}
+	candidates := traceQueryAutoWindowCandidatesFromEvents(p, searchResult.Events, traceQueryAutoWindowMaxCandidates)
+	if len(candidates) == 0 {
+		searchResult.Caveats = append(searchResult.Caveats,
+			fmt.Sprintf("auto_window_from_pattern=false; no timestamped event matched pattern %q for view=%s", pattern, firstNonEmptyTraceString(p.View, "frame_window")))
+		payload, _ := json.MarshalIndent(searchResult, "", "  ")
+		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+		summary := traceQuerySummary(searchResult, searchP, sourceLabel, payloadRef)
+		preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+		if rawRef == "" {
+			rawRef = payloadRef
+		}
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   preview,
+			RawRef:    rawRef,
+			Timestamp: time.Now(),
+		}, true
+	}
+	if traceQueryShouldRunMultiplePatternWindows(p, len(candidates)) {
+		return t.runAutoWindowCandidates(ctx, p, path, sourceLabel, "large_trace_pattern_auto_windows", candidates, timeCaveat), true
+	}
+	start, end := candidates[0].Start, candidates[0].End
+	boundedP := p
+	boundedP.TimeStart = traceSecondFromAutoWindow(start)
+	boundedP.TimeEnd = traceSecondFromAutoWindow(end)
+	buildStart := time.Now()
+	logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s start pattern=%s time_start=%.6f time_end=%.6f matches=%d",
+		p.View, path, pattern, start, end, len(searchResult.Events))
+	idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, boundedP, start, end)
+	if err != nil {
+		logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(buildStart), err)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query failed to parse auto-window %.6f..%.6f in %s: %v", start, end, path, err),
+			Timestamp: time.Now(),
+		}, true
+	}
+	q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, start, end)
 	runStart := time.Now()
-	logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
 	result := tracequery.Run(idx, q)
-	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats))
+	logging.Debug("[trace_query] phase=auto_window_run view=%s path=%s done elapsed=%s events=%d evidence=%d caveats=%d",
+		q.View, path, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats))
+	result.Caveats = append(result.Caveats,
+		fmt.Sprintf("auto_window_from_pattern=true; pattern %q matched %d event(s), then ran %s in %.6f..%.6f seconds without building a full trace index",
+			pattern, len(searchResult.Events), firstNonEmptyTraceString(p.View, "frame_window"), start, end))
+	if timeCaveat != "" {
+		result.Caveats = append(result.Caveats, timeCaveat)
+	}
+	storeStart := time.Now()
+	payload, _ := json.MarshalIndent(result, "", "  ")
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+	summary := traceQuerySummary(result, boundedP, sourceLabel, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   preview,
+		RawRef:    rawRef,
+		Timestamp: time.Now(),
+	}, true
+}
+
+func traceQueryShouldAutoWindowFromPattern(p traceQueryParams) bool {
+	if traceQueryHasExplicitIndexWindow(p) {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmptyTraceString(p.Pattern, p.SpanName)) == "" {
+		return false
+	}
+	switch strings.TrimSpace(p.View) {
+	case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow",
+		"scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe":
+		return true
+	default:
+		return false
+	}
+}
+
+const traceQueryAutoWindowMaxCandidates = 3
+
+type traceQueryAutoWindowCandidate struct {
+	Rank    int     `json:"rank"`
+	Source  string  `json:"source,omitempty"`
+	Token   string  `json:"token,omitempty"`
+	Ts      float64 `json:"ts,omitempty"`
+	Line    int     `json:"line,omitempty"`
+	Start   float64 `json:"time_start"`
+	End     float64 `json:"time_end"`
+	Primary bool    `json:"primary,omitempty"`
+	Raw     string  `json:"raw,omitempty"`
+}
+
+type traceQueryAutoWindowChild struct {
+	Candidate traceQueryAutoWindowCandidate `json:"candidate"`
+	Result    tracequery.Result             `json:"result,omitempty"`
+	Error     string                        `json:"error,omitempty"`
+}
+
+func traceQueryAutoWindowFromEvents(p traceQueryParams, events []tracequery.EventView) (float64, float64, bool) {
+	candidates := traceQueryAutoWindowCandidatesFromEvents(p, events, 1)
+	if len(candidates) == 0 {
+		return 0, 0, false
+	}
+	return candidates[0].Start, candidates[0].End, true
+}
+
+func traceQueryAutoWindowCandidatesFromEvents(p traceQueryParams, events []tracequery.EventView, max int) []traceQueryAutoWindowCandidate {
+	if max <= 0 {
+		max = traceQueryAutoWindowMaxCandidates
+	}
+	token := firstNonEmptyTraceString(p.Pattern, p.SpanName)
+	candidates := make([]traceQueryAutoWindowCandidate, 0, max)
+	for _, ev := range events {
+		candidate, ok := traceQueryAutoWindowCandidateForTimestamp(p, "event_search", token, ev.Ts, ev.Line, false, ev.Raw)
+		if !ok || traceQueryAutoWindowCandidateIsDuplicate(candidates, candidate) {
+			continue
+		}
+		candidates = append(candidates, candidate)
+		if len(candidates) >= max {
+			break
+		}
+	}
+	traceQueryRankAutoWindowCandidates(candidates)
+	return candidates
+}
+
+func traceQueryAutoWindowCandidatesFromMarkers(p traceQueryParams, markers []traceQueryRecipeDiscoveryMarker, max int) []traceQueryAutoWindowCandidate {
+	if max <= 0 {
+		max = traceQueryAutoWindowMaxCandidates
+	}
+	ordered := append([]traceQueryRecipeDiscoveryMarker(nil), markers...)
+	hasSpecificMarker := false
+	for _, marker := range ordered {
+		if traceQueryRecipeMarkerPriority(marker) <= 3 {
+			hasSpecificMarker = true
+			break
+		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi := traceQueryRecipeMarkerPriority(ordered[i])
+		pj := traceQueryRecipeMarkerPriority(ordered[j])
+		if pi != pj {
+			return pi < pj
+		}
+		if ordered[i].Line != ordered[j].Line {
+			return ordered[i].Line < ordered[j].Line
+		}
+		return ordered[i].Ts < ordered[j].Ts
+	})
+	candidates := make([]traceQueryAutoWindowCandidate, 0, max)
+	for _, marker := range ordered {
+		if hasSpecificMarker && traceQueryRecipeMarkerPriority(marker) >= 4 {
+			continue
+		}
+		candidate, ok := traceQueryAutoWindowCandidateForTimestamp(p, "recipe_marker", marker.Token, marker.Ts, marker.Line, marker.Primary, marker.Raw)
+		if !ok || traceQueryAutoWindowCandidateIsDuplicate(candidates, candidate) {
+			continue
+		}
+		candidates = append(candidates, candidate)
+		if len(candidates) >= max {
+			break
+		}
+	}
+	traceQueryRankAutoWindowCandidates(candidates)
+	return candidates
+}
+
+func traceQueryAutoWindowCandidateForTimestamp(p traceQueryParams, source, token string, ts float64, line int, primary bool, raw string) (traceQueryAutoWindowCandidate, bool) {
+	if ts <= 0 {
+		return traceQueryAutoWindowCandidate{}, false
+	}
+	before, after := traceQueryAutoWindowPadding(p.View)
+	start := ts - before
+	if start < 0 {
+		start = 0
+	}
+	end := ts + after
+	if end <= start {
+		end = start + after
+	}
+	return traceQueryAutoWindowCandidate{
+		Source:  source,
+		Token:   token,
+		Ts:      ts,
+		Line:    line,
+		Start:   start,
+		End:     end,
+		Primary: primary,
+		Raw:     truncateForLog(raw, 500),
+	}, true
+}
+
+func traceQueryAutoWindowCandidateIsDuplicate(existing []traceQueryAutoWindowCandidate, candidate traceQueryAutoWindowCandidate) bool {
+	for _, prev := range existing {
+		delta := candidate.Ts - prev.Ts
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta <= 0.001 && strings.EqualFold(strings.TrimSpace(candidate.Token), strings.TrimSpace(prev.Token)) {
+			return true
+		}
+		if candidate.Line > 0 && candidate.Line == prev.Line {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryRankAutoWindowCandidates(candidates []traceQueryAutoWindowCandidate) {
+	for i := range candidates {
+		candidates[i].Rank = i + 1
+	}
+}
+
+func traceQueryRecipeMarkerPriority(marker traceQueryRecipeDiscoveryMarker) int {
+	token := strings.ToLower(strings.TrimSpace(marker.Token))
+	raw := strings.ToLower(strings.TrimSpace(marker.Raw))
+	switch {
+	case marker.Primary:
+		return 0
+	case strings.Contains(token, "jank_frames") || strings.Contains(raw, "jank_frames"):
+		return 1
+	case strings.Contains(token, "actualtimeline") || strings.Contains(token, "expectedtimeline") ||
+		strings.Contains(raw, "actualtimeline") || strings.Contains(raw, "expectedtimeline"):
+		return 2
+	case strings.Contains(token, "choreographer") || strings.Contains(token, "renderframe") ||
+		strings.Contains(raw, "choreographer") || strings.Contains(raw, "renderframe"):
+		return 3
+	case strings.Contains(token, "jank") || strings.Contains(raw, "jank"):
+		return 4
+	default:
+		return 5
+	}
+}
+
+func traceQueryShouldRunMultiplePatternWindows(p traceQueryParams, count int) bool {
+	if count <= 1 {
+		return false
+	}
+	switch strings.TrimSpace(p.View) {
+	case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceQueryAutoWindowPadding(view string) (float64, float64) {
+	switch strings.TrimSpace(view) {
+	case "span_window":
+		return 0.250, 2.000
+	case "frame_window", "render_pipeline", "frame_timeline", "frame_flow":
+		return 0.250, 2.000
+	case "recipe":
+		return 0.500, 2.000
+	default:
+		return 0.250, 1.000
+	}
+}
+
+func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, mode string, candidates []traceQueryAutoWindowCandidate, timeCaveat string) types.ToolResult {
+	children := make([]traceQueryAutoWindowChild, 0, len(candidates))
+	for _, candidate := range candidates {
+		boundedP := p
+		boundedP.TimeStart = traceSecondFromAutoWindow(candidate.Start)
+		boundedP.TimeEnd = traceSecondFromAutoWindow(candidate.End)
+		logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d token=%s time_start=%.6f time_end=%.6f",
+			mode, p.View, path, candidate.Rank, candidate.Token, candidate.Start, candidate.End)
+		idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, boundedP, candidate.Start, candidate.End)
+		if err != nil {
+			logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d failed err=%v", mode, p.View, path, candidate.Rank, err)
+			children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Error: err.Error()})
+			continue
+		}
+		q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, candidate.Start, candidate.End)
+		runStart := time.Now()
+		result := tracequery.Run(idx, q)
+		logging.Debug("[trace_query] phase=auto_window_candidate_run mode=%s view=%s path=%s rank=%d done elapsed=%s events=%d evidence=%d caveats=%d",
+			mode, q.View, path, candidate.Rank, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats))
+		result.Caveats = append(result.Caveats,
+			fmt.Sprintf("auto_window_candidate=true; mode=%s rank=%d source=%s token=%q line=%d ts=%.6f window=%.6f..%.6f seconds",
+				mode, candidate.Rank, candidate.Source, candidate.Token, candidate.Line, candidate.Ts, candidate.Start, candidate.End))
+		if timeCaveat != "" {
+			result.Caveats = append(result.Caveats, timeCaveat)
+		}
+		children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Result: result})
+	}
+	payload := map[string]any{
+		"mode":           mode,
+		"source_path":    path,
+		"source":         sourceLabel,
+		"requested_view": firstNonEmptyTraceString(p.View, "recipe"),
+		"recipe_name":    p.RecipeName,
+		"candidates":     candidates,
+		"results":        children,
+	}
+	payloadBytes, _ := json.MarshalIndent(payload, "", "  ")
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-auto-windows.json", string(payloadBytes))
+	summary := traceQueryAutoWindowSummary(path, sourceLabel, p, mode, children, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   preview,
+		RawRef:    rawRef,
+		Timestamp: time.Now(),
+	}
+}
+
+func traceSecondFromAutoWindow(seconds float64) TraceSecond {
+	return TraceSecond{
+		seconds:        seconds,
+		set:            true,
+		raw:            fmt.Sprintf("%.6f", seconds),
+		unit:           "s",
+		fractionDigits: 6,
+		scale:          1,
+	}
+}
+
+func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string, timeStart, timeEnd float64, timeCaveat string) (types.ToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryShouldStreamEventSearch(p) {
+		return types.ToolResult{}, false
+	}
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, timeStart, timeEnd)
+	streamStart := time.Now()
+	logging.Debug("[trace_query] phase=stream_event_search view=%s source=%s path=%s start pattern=%s event_types=%d",
+		q.View, sourceLabel, path, p.Pattern, len(q.EventTypes))
+	result, err := tracequery.StreamEventSearch(contextFromBus(ctx), path, q)
+	if err != nil {
+		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s failed elapsed=%s err=%v", q.View, path, time.Since(streamStart), err)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query failed to stream-search %s: %v", path, err),
+			Timestamp: time.Now(),
+		}, true
+	}
+	logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s done elapsed=%s matched=%d caveats=%d",
+		q.View, path, time.Since(streamStart), len(result.Events), len(result.Caveats))
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
@@ -173,7 +585,15 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		Summary:   preview,
 		RawRef:    rawRef,
 		Timestamp: time.Now(),
-	}, nil
+	}, true
+}
+
+func traceQueryShouldStreamEventSearch(p traceQueryParams) bool {
+	view := strings.TrimSpace(p.View)
+	if view != "" && view != "event_search" {
+		return false
+	}
+	return !traceQueryHasExplicitIndexWindow(p)
 }
 
 func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, timeStart, timeEnd float64) (*tracequery.Index, error) {
@@ -234,7 +654,8 @@ func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p trac
 
 func traceQueryIsHeavyView(view string) bool {
 	switch strings.TrimSpace(view) {
-	case "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe":
+	case "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe",
+		"span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow":
 		return true
 	default:
 		return false
@@ -245,9 +666,7 @@ func traceQueryHasBoundedTraceScope(p traceQueryParams) bool {
 	return p.TimeStart.Set() ||
 		p.TimeEnd.Set() ||
 		p.LineStart.Int() > 0 ||
-		p.LineEnd.Int() > 0 ||
-		strings.TrimSpace(p.SpanName) != "" ||
-		strings.TrimSpace(p.Pattern) != ""
+		p.LineEnd.Int() > 0
 }
 
 func traceQueryHeavyViewGuardSummary(path, sourceLabel string, p traceQueryParams, size int64) string {
@@ -481,6 +900,27 @@ type traceQueryRecipeDiscoveryMarker struct {
 type traceQueryRecipeDiscoveryToken struct {
 	Text    string
 	Primary bool
+}
+
+func (t *TraceQuery) maybeLargeRecipeAutoWindow(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, timeCaveat string) (types.ToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !traceQueryShouldUseLargeRecipeDiscovery(p, info.Size()) {
+		return types.ToolResult{}, false
+	}
+	markers, _, _, scanErr := scanTraceQueryRecipeMarkers(contextFromBus(ctx), path, traceQueryRecipeDiscoveryTokens(ctx, p), 48)
+	if scanErr != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query recipe auto-window discovery failed for %s: %v", path, scanErr),
+			Timestamp: time.Now(),
+		}, true
+	}
+	candidates := traceQueryAutoWindowCandidatesFromMarkers(p, markers, traceQueryAutoWindowMaxCandidates)
+	if len(candidates) == 0 {
+		return types.ToolResult{}, false
+	}
+	return t.runAutoWindowCandidates(ctx, p, path, sourceLabel, "large_trace_recipe_auto_windows", candidates, timeCaveat), true
 }
 
 func (t *TraceQuery) maybeLargeRecipeDiscovery(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
@@ -728,6 +1168,80 @@ func traceQueryRecipeDiscoverySummary(path, sourceLabel string, p traceQueryPara
 		}
 	} else {
 		b.WriteString("\nno_marker_advisory=no jank/frame marker was found by the light discovery tokens. Provide pattern with one exact literal frame id/span label/marker token, span_name, time_start/time_end, line_start/line_end, pid/thread, or run event_search for a narrower deterministic query before requesting the full recipe.\n")
+	}
+	return b.String()
+}
+
+func traceQueryAutoWindowSummary(path, sourceLabel string, p traceQueryParams, mode string, children []traceQueryAutoWindowChild, payloadRef string) string {
+	view := firstNonEmptyTraceString(p.View, "recipe")
+	var b strings.Builder
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s pattern=%s span_name=%s recipe_name=%s mode=%s platform=%s trace_flavor=%s payload_ref=%s]\n",
+		sanitizeForBanner(view),
+		sourceLabel,
+		sanitizeForBanner(path),
+		traceQueryArtifactID(sourceLabel),
+		sanitizeForBanner(p.Thread),
+		positiveIntBannerValue(p.PID.Int()),
+		sanitizeForBanner(p.Pattern),
+		sanitizeForBanner(p.SpanName),
+		sanitizeForBanner(p.RecipeName),
+		sanitizeForBanner(mode),
+		sanitizeForBanner(p.Platform),
+		sanitizeForBanner(p.TraceFlavor),
+		sanitizeForBanner(payloadRef),
+	)
+	b.WriteString("# Trace Query: auto window candidates\n\n")
+	fmt.Fprintf(&b, "source=%s requested_view=%s candidate_windows=%d mode=%s\n", sanitizeForBanner(path), sanitizeForBanner(view), len(children), sanitizeForBanner(mode))
+	if payloadRef != "" {
+		fmt.Fprintf(&b, "payload_ref=%s\n", sanitizeForBanner(payloadRef))
+	}
+	b.WriteString("auto_window_policy=lightweight discovery selected timestamped marker/span/frame matches, then each candidate was analyzed with a bounded time window and a windowed index.\n")
+	if len(children) > 0 {
+		b.WriteString("\n## Candidate windows\n")
+		for _, child := range children {
+			candidate := child.Candidate
+			primary := ""
+			if candidate.Primary {
+				primary = " primary=true"
+			}
+			fmt.Fprintf(&b, "- rank=%d source=%s token=%s%s line=%d ts=%.6f time_start=%.6f time_end=%.6f raw=%s\n",
+				candidate.Rank,
+				sanitizeForBanner(candidate.Source),
+				sanitizeForBanner(candidate.Token),
+				primary,
+				candidate.Line,
+				candidate.Ts,
+				candidate.Start,
+				candidate.End,
+				sanitizeForBanner(candidate.Raw),
+			)
+		}
+		b.WriteString("\n")
+	}
+	for _, child := range children {
+		candidate := child.Candidate
+		fmt.Fprintf(&b, "## Candidate %d\n", candidate.Rank)
+		fmt.Fprintf(&b, "candidate_window=%.6f..%.6f seconds token=%s line=%d ts=%.6f source=%s\n",
+			candidate.Start,
+			candidate.End,
+			sanitizeForBanner(candidate.Token),
+			candidate.Line,
+			candidate.Ts,
+			sanitizeForBanner(candidate.Source),
+		)
+		if child.Error != "" {
+			fmt.Fprintf(&b, "candidate_error=%s\n\n", sanitizeForBanner(child.Error))
+			continue
+		}
+		boundedP := p
+		boundedP.TimeStart = traceSecondFromAutoWindow(candidate.Start)
+		boundedP.TimeEnd = traceSecondFromAutoWindow(candidate.End)
+		childSummary := traceQuerySummary(child.Result, boundedP, sourceLabel, "")
+		b.WriteString(childSummary)
+		if !strings.HasSuffix(childSummary, "\n") {
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

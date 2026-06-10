@@ -572,6 +572,85 @@ func TestTraceQueryLargeExplicitTimeWindowUsesWindowedIndex(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeEventSearchUsesStreamingScan(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "streamed.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 173073`,
+		`app-20 (20) [000] .... 9.001000: print: E|20`,
+		`app-20 (20) [000] .... 9.010000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "streamed.systrace",
+		"view":    "event_search",
+		"pattern": "173073",
+		"limit":   10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"matched_events=1", "Choreographer#doFrame 173073", "streamed_event_search=true"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("streaming event_search summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryLargeFrameWindowPatternAutoNarrowsToWindow(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "frame_guard.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 173073`,
+		`app-20 (20) [000] .... 9.001000: print: E|20`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "frame_guard.systrace",
+		"view":    "frame_window",
+		"pattern": "173073",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Trace Query: frame_window",
+		"index_windowed=true",
+		"auto_window_from_pattern=true",
+		"Choreographer#doFrame 173073",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("frame_window auto-window summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "mode=large_trace_heavy_view_guard") {
+		t.Fatalf("frame_window pattern should auto-narrow before guard:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryLargeHeavyViewWithoutWindowUsesGuard(t *testing.T) {
 	oldThreshold := traceQueryWindowedIndexMinBytes
 	traceQueryWindowedIndexMinBytes = 1
@@ -612,10 +691,15 @@ func TestTraceQueryLargeHeavyViewWithoutWindowUsesGuard(t *testing.T) {
 	}
 }
 
-func TestTraceQueryLargeUnboundedJankRecipeUsesDiscoveryGuard(t *testing.T) {
-	oldThreshold := traceQueryLargeRecipeDiscoveryMinBytes
+func TestTraceQueryLargeUnboundedJankRecipeAutoAnalyzesTopMarker(t *testing.T) {
+	oldRecipeThreshold := traceQueryLargeRecipeDiscoveryMinBytes
+	oldWindowThreshold := traceQueryWindowedIndexMinBytes
 	traceQueryLargeRecipeDiscoveryMinBytes = 1
-	defer func() { traceQueryLargeRecipeDiscoveryMinBytes = oldThreshold }()
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() {
+		traceQueryLargeRecipeDiscoveryMinBytes = oldRecipeThreshold
+		traceQueryWindowedIndexMinBytes = oldWindowThreshold
+	}()
 
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "large.systrace")
@@ -649,15 +733,70 @@ func TestTraceQueryLargeUnboundedJankRecipeUsesDiscoveryGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !res.Success {
-		t.Fatalf("trace_query discovery guard failed: %s", res.Summary)
+		t.Fatalf("trace_query auto-window recipe failed: %s", res.Summary)
 	}
-	for _, want := range []string{"mode=large_trace_recipe_discovery", "jank_frames=7", "primary=true", "next_call_hint", "line_start=1"} {
+	for _, want := range []string{
+		"mode=large_trace_recipe_auto_windows",
+		"# Trace Query: auto window candidates",
+		"candidate_windows=1",
+		"jank_frames=7",
+		"primary=true",
+		"index_windowed=true",
+		"Root cause rank",
+		"Window stats",
+		"auto_window_candidate=true",
+	} {
 		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("discovery summary missing %q:\n%s", want, res.Summary)
+			t.Fatalf("auto-window recipe summary missing %q:\n%s", want, res.Summary)
 		}
 	}
-	if strings.Contains(res.Summary, "Root cause rank") || strings.Contains(res.Summary, "Window stats") {
-		t.Fatalf("unbounded large jank discovery should not run heavy views:\n%s", res.Summary)
+	if strings.Contains(res.Summary, "large_trace_recipe_guard") {
+		t.Fatalf("timestamped jank marker should auto-window before discovery guard:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryLargeSpanKeywordAutoAnalyzesFewWindows(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "span_multi.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [000] .... 5.000000: print: B|20|DecodeBitmap`,
+		`app-20 (20) [000] .... 5.020000: print: E|20`,
+		`app-20 (20) [000] .... 9.000000: print: B|20|DecodeBitmap`,
+		`app-20 (20) [000] .... 9.030000: print: E|20`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":    "path",
+		"path":      "span_multi.systrace",
+		"view":      "span_window",
+		"span_name": "DecodeBitmap",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query span auto-window failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"mode=large_trace_pattern_auto_windows",
+		"candidate_windows=2",
+		"DecodeBitmap",
+		"index_windowed=true",
+		"span app-20 \"DecodeBitmap\" 5.000000..5.020000",
+		"span app-20 \"DecodeBitmap\" 9.000000..9.030000",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("span auto-window summary missing %q:\n%s", want, res.Summary)
+		}
 	}
 }
 

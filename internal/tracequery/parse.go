@@ -41,6 +41,8 @@ type parseCacheKey struct {
 
 var indexCache sync.Map
 
+const maxCachedTraceIndexBytes int64 = 64 << 20
+
 type indexBuildCall struct {
 	done chan struct{}
 	idx  *Index
@@ -85,6 +87,7 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	}
 	opts = normalizeBuildOptions(opts)
 	windowKey := opts.cacheKey()
+	cacheable := shouldCacheTraceIndex(info.Size(), opts)
 	key := parseCacheKey{
 		path:      path,
 		size:      info.Size(),
@@ -92,9 +95,11 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 		version:   ParserVersion,
 		windowKey: windowKey,
 	}
-	if cached, ok := indexCache.Load(key); ok {
-		if idx, ok := cached.(*Index); ok {
-			return idx, nil
+	if cacheable {
+		if cached, ok := indexCache.Load(key); ok {
+			if idx, ok := cached.(*Index); ok {
+				return idx, nil
+			}
 		}
 	}
 	if opts.windowed() {
@@ -106,13 +111,18 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 		}
 		if cached, ok := indexCache.Load(fullKey); ok {
 			if idx, ok := cached.(*Index); ok {
-				windowed := deriveWindowedIndex(idx, opts)
-				indexCache.Store(key, windowed)
-				return windowed, nil
+				return deriveWindowedIndex(idx, opts), nil
 			}
 		}
 	}
-	return buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts)
+	return buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts, cacheable)
+}
+
+func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
+	if opts.windowed() {
+		return false
+	}
+	return size <= maxCachedTraceIndexBytes
 }
 
 func canonicalTraceIndexPath(path string) string {
@@ -127,7 +137,7 @@ func canonicalTraceIndexPath(path string) string {
 	return path
 }
 
-func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
+func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string, size int64, modUnix int64, opts BuildOptions, cacheable bool) (*Index, error) {
 	indexBuildMu.Lock()
 	if call := indexBuilds[key]; call != nil {
 		indexBuildMu.Unlock()
@@ -143,7 +153,7 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string,
 	indexBuildMu.Unlock()
 
 	call.idx, call.err = parseFile(ctx, path, size, modUnix, opts)
-	if call.err == nil {
+	if call.err == nil && cacheable {
 		indexCache.Store(key, call.idx)
 	}
 	indexBuildMu.Lock()
@@ -342,7 +352,6 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil
 }
-
 func paddedTimeStart(opts BuildOptions) float64 {
 	if !opts.TimeStartSet {
 		return 0

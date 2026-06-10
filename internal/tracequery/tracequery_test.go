@@ -548,6 +548,49 @@ func TestBuildIndexCanonicalPathReusesCache(t *testing.T) {
 	}
 }
 
+func TestShouldCacheTraceIndexSkipsLargeAndWindowedIndexes(t *testing.T) {
+	if !shouldCacheTraceIndex(maxCachedTraceIndexBytes, BuildOptions{}) {
+		t.Fatal("small/full trace index should remain cacheable")
+	}
+	if shouldCacheTraceIndex(maxCachedTraceIndexBytes+1, BuildOptions{}) {
+		t.Fatal("large full trace index must not be retained in the process cache")
+	}
+	if shouldCacheTraceIndex(1024, BuildOptions{AllowWindowedParse: true, TimeStartSet: true, TimeStart: 2}) {
+		t.Fatal("windowed trace index must not be retained in the process cache")
+	}
+}
+
+func TestBuildIndexWithOptionsDoesNotCacheWindowedIndexes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "window_no_cache.systrace")
+	body := strings.Join([]string{
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+	}
+	first, err := BuildIndexWithOptions(context.Background(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := BuildIndexWithOptions(context.Background(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("windowed indexes should be rebuilt instead of cached forever: %p", first)
+	}
+}
+
 func TestBuildIndexWithOptionsDerivesWindowFromFullCache(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "derive_window.systrace")
@@ -586,6 +629,30 @@ func TestBuildIndexWithOptionsDerivesWindowFromFullCache(t *testing.T) {
 	}
 	if windowed.Events[0].Line != 2 || windowed.Events[1].Line != 3 {
 		t.Fatalf("derived window should preserve source lines: %+v", windowed.Events)
+	}
+}
+
+func TestStreamEventSearchFindsPatternWithoutFullIndex(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream_search.systrace")
+	body := strings.Join([]string{
+		`      app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 173073`,
+		`      app-20 (20) [000] .... 9.001000: print: E|20`,
+		`      app-20 (20) [000] .... 9.010000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := StreamEventSearch(context.Background(), path, Query{Pattern: "173073", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 1 || !strings.Contains(res.Events[0].SpanName, "173073") {
+		t.Fatalf("stream search did not return frame marker: %+v", res.Events)
+	}
+	if !containsSubstring(res.Caveats, "streamed_event_search=true") {
+		t.Fatalf("stream search should disclose memory-safe mode: %+v", res.Caveats)
 	}
 }
 
