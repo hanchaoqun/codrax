@@ -244,7 +244,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
 - [x] Update `docs/user_guide.md`, `docs/architecture.md`, and
       `codrax.yaml.example`.
 - [x] Add REPL tests for workflow visibility and approval UX.
-- [ ] Commit, push, and update this ledger.
+- [x] Commit `feat: surface write workflow state in repl`, push, and update
+      this ledger.
 
 ### Batch 7: Commercial Hardening
 
