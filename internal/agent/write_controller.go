@@ -28,6 +28,9 @@ func (e *writeControllerEvaluator) BuildInitialInstruction(ctx *types.AgentConte
 	if task := renderWriteControllerTaskSection(ctx); task != "" {
 		sections = append(sections, task)
 	}
+	if run := renderWriteControllerRunSection(ctx); run != "" {
+		sections = append(sections, run)
+	}
 	if artifacts := renderWriteControllerArtifactSection(ctx); artifacts != "" {
 		sections = append(sections, artifacts)
 	}
@@ -130,6 +133,40 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 	}
 	if len(ir.Request.ExpectedOutcomes) > 0 {
 		fmt.Fprintf(&b, "- expected_outcomes: %s\n", strings.Join(ir.Request.ExpectedOutcomes, " | "))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderWriteControllerRunSection(ctx *types.AgentContext) string {
+	run := ctx.Mutable.WriteWorkflowRun()
+	if run == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Workflow run state\n\n")
+	fmt.Fprintf(&b, "- run_id: %s\n", run.RunID)
+	fmt.Fprintf(&b, "- status: %s\n", run.Status)
+	if run.ActiveBatchID != "" {
+		fmt.Fprintf(&b, "- active_batch: %s\n", run.ActiveBatchID)
+	}
+	if run.Budget.MaxBatches > 0 || run.Budget.MaxExplorationRounds > 0 {
+		fmt.Fprintf(&b, "- budget: batches %d/%d, exploration rounds %d/%d per batch\n",
+			run.Budget.BatchesUsed, run.Budget.MaxBatches,
+			run.Budget.ExplorationRoundsUsed, run.Budget.MaxExplorationRounds)
+	}
+	if len(run.Batches) > 0 {
+		b.WriteString("- batches:\n")
+		for i, batch := range run.Batches {
+			if i >= 8 {
+				fmt.Fprintf(&b, "  - ... +%d more batch(es)\n", len(run.Batches)-i)
+				break
+			}
+			fmt.Fprintf(&b, "  - %s status=%s goal=%s plan=%s\n", batch.ID, batch.Status, limitWriteControllerText(batch.Goal, 120), batch.PlanID)
+		}
+	}
+	if len(run.ProgressLedger) > 0 {
+		last := run.ProgressLedger[len(run.ProgressLedger)-1]
+		fmt.Fprintf(&b, "- last_progress: batch=%s status=%s reason=%s\n", last.BatchID, last.Status, last.ReasonCode)
 	}
 	return strings.TrimSpace(b.String())
 }

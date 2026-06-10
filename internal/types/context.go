@@ -643,6 +643,7 @@ type MutableState struct {
 	writeExplorationRequest *WriteExplorationRequest
 	writeExplorationHandoff *WriteExplorationHandoff
 	writeContextPack        *WriteContextPack
+	writeWorkflowRun        *WriteWorkflowRun
 	writeWorkflowDecision   []byte
 
 	// planCritique is the optional pre-apply review text produced by
@@ -1025,6 +1026,10 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	if m.writeContextPack != nil {
 		pack := cloneWriteContextPack(*m.writeContextPack)
 		out.writeContextPack = &pack
+	}
+	if m.writeWorkflowRun != nil {
+		run := CloneWriteWorkflowRun(*m.writeWorkflowRun)
+		out.writeWorkflowRun = &run
 	}
 	out.writeWorkflowDecision = append([]byte(nil), m.writeWorkflowDecision...)
 	if m.turnAArtifacts != nil {
@@ -1595,6 +1600,46 @@ func (m *MutableState) ResetWriteContextPack() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeContextPack = nil
+}
+
+// WriteWorkflowRun returns the current outer workflow run snapshot, when the
+// controller engine is active. The returned value is a defensive copy.
+func (m *MutableState) WriteWorkflowRun() *WriteWorkflowRun {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.writeWorkflowRun == nil {
+		return nil
+	}
+	out := CloneWriteWorkflowRun(*m.writeWorkflowRun)
+	return &out
+}
+
+// SetWriteWorkflowRun stores the normalized outer workflow run snapshot.
+// Passing nil clears the snapshot.
+func (m *MutableState) SetWriteWorkflowRun(run *WriteWorkflowRun) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if run == nil {
+		m.writeWorkflowRun = nil
+		return
+	}
+	snap := CloneWriteWorkflowRun(*run)
+	m.writeWorkflowRun = &snap
+}
+
+func (m *MutableState) ResetWriteWorkflowRun() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeWorkflowRun = nil
 }
 
 // WriteWorkflowDecisionJSON returns the last schema-normalized controller

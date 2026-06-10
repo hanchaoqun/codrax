@@ -136,6 +136,22 @@ func TestMutableStateWriteExplorationDefensiveCopy(t *testing.T) {
 		t.Fatalf("context pack mutation leaked through state: %+v", gotPack2)
 	}
 
+	run := &WriteWorkflowRun{
+		RunID: "wf-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: WriteWorkflowBatchNeedsExploration,
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	run.Batches[0].Status = WriteWorkflowBatchBlocked
+	gotRun := mu.WriteWorkflowRun()
+	gotRun.Batches[0].Status = WriteWorkflowBatchComplete
+	gotRun2 := mu.WriteWorkflowRun()
+	if gotRun2.Batches[0].Status != WriteWorkflowBatchNeedsExploration {
+		t.Fatalf("workflow run mutation leaked through state: %+v", gotRun2)
+	}
+
 	raw := []byte(`{"action":"finish"}`)
 	mu.SetWriteWorkflowDecisionJSON(raw)
 	raw[0] = 'X'

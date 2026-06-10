@@ -379,6 +379,17 @@ type Orchestrator struct {
 	// method (production path).
 	runTaskPhaseFn func(*int) error
 
+	// writeWorkflowRunStore persists controller-engine workflow runs.
+	// Nil means controller progress is in-memory only; the execution
+	// path still works, but REPL/CLI recovery surfaces cannot inspect
+	// the outer DAG.
+	writeWorkflowRunStore WriteWorkflowRunSaver
+
+	// readExplorationRunner wraps the existing read-only exploration
+	// subflow so the controller engine can reuse it without touching
+	// the read scheduler loop. Nil = defaultReadExplorationRunner.
+	readExplorationRunner ReadExplorationRunner
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
@@ -1122,6 +1133,33 @@ type PlanSaver interface {
 // directly via cmd/root.go's writePlanFile).
 func (o *Orchestrator) SetPlanSaver(s PlanSaver) {
 	o.planSaver = s
+}
+
+// WriteWorkflowRunSaver is the orchestrator-side persistence interface for the
+// controller engine's outer DAG run.
+type WriteWorkflowRunSaver interface {
+	Save(run *types.WriteWorkflowRun) (string, error)
+}
+
+func (o *Orchestrator) SetWriteWorkflowRunStore(s WriteWorkflowRunSaver) {
+	o.writeWorkflowRunStore = s
+}
+
+// ReadExplorationRunner reuses the existing read-only write exploration
+// subflow from the controller engine. Tests can inject a stub; production uses
+// defaultReadExplorationRunner, which calls runWriteExplorationSubflow.
+type ReadExplorationRunner interface {
+	Run(o *Orchestrator) (int, error)
+}
+
+type defaultReadExplorationRunner struct{}
+
+func (defaultReadExplorationRunner) Run(o *Orchestrator) (int, error) {
+	return o.runWriteExplorationSubflow()
+}
+
+func (o *Orchestrator) SetReadExplorationRunner(r ReadExplorationRunner) {
+	o.readExplorationRunner = r
 }
 
 // SetContinuationClassifier installs the LLM-driven
@@ -2240,7 +2278,14 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// gate's preconditions are all OR'd to false in the
 		// single-phase / ModePlan / ModeVerify / no-store
 		// case, so existing flows are byte-identical.
-		if o.isMultiPhaseRun() {
+		if o.WriteWorkflowControllerEnabled() && o.busCtx.Mode == types.ModeApply && o.planPath == "" {
+			if err := o.runWriteControllerWorkflow(&stepsUsed); err != nil {
+				logging.Error("[orchestrator] write controller workflow: %v", err)
+				if o.busCtx.TaskState.LastError == "" {
+					o.busCtx.TaskState.LastError = err.Error()
+				}
+			}
+		} else if o.isMultiPhaseRun() {
 			ir := o.busCtx.Mutable.WriteAnalysisIR()
 			group := o.buildPlanGroupFromProposal(ir)
 			logging.Info("[orchestrator] multi-phase run: group=%s phases=%d",

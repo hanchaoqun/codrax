@@ -29,11 +29,24 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 			Consumers: []types.WriteContextConsumer{types.WriteConsumerController},
 		}},
 	})
+	mut.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "first batch",
+			Status: types.WriteWorkflowBatchNeedsExploration,
+		}},
+		Budget: types.WriteWorkflowBudget{MaxBatches: 5, MaxExplorationRounds: 2},
+	})
 	eval := &writeControllerEvaluator{}
 	got := eval.BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
 	for _, want := range []string{
 		"## Typed write task",
 		"ship workflow controller",
+		"## Workflow run state",
+		"wf-1",
 		"## Priority write context pack",
 		"emit_write_workflow_decision",
 		"typed action enum",
