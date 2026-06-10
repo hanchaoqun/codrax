@@ -87,3 +87,40 @@ func TestWriteControllerParseOutputReadsStoredDecisionJSON(t *testing.T) {
 		t.Fatalf("Data should preserve stored normalized JSON, got %s", out.Data)
 	}
 }
+
+func TestWriteControllerPromptFiltersPlannerProbeReports(t *testing.T) {
+	mut := types.NewMutableState("stale probe")
+	mut.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-probe",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			PlanID: "plan-current",
+		}},
+	})
+	mut.SetChangePlan(&types.ChangePlan{ID: "plan-current", Status: types.PlanStatusPending})
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID:         "plan-current",
+		Channel:        types.ChangeReportChannelPlannerProbe,
+		Passed:         false,
+		FailureSummary: "stale dry-run failure",
+	})
+	eval := &writeControllerEvaluator{}
+	got := eval.BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	if strings.Contains(got, "stale dry-run failure") || strings.Contains(got, "change_report:") {
+		t.Fatalf("planner probe report must not render as authoritative controller artifact:\n%s", got)
+	}
+
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID:         "plan-current",
+		Channel:        types.ChangeReportChannelPostApplyVerify,
+		Passed:         true,
+		FailureSummary: "",
+	})
+	got = eval.BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	if !strings.Contains(got, "change_report: plan_id=plan-current channel=post_apply_verify passed=true") {
+		t.Fatalf("post-apply report should render as authoritative controller artifact:\n%s", got)
+	}
+}

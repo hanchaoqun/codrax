@@ -537,6 +537,12 @@ type ChangeReport struct {
 	// One-to-one: a single plan produces zero-or-one report.
 	PlanID string `json:"plan_id"`
 
+	// Channel records which scheduler lane produced the report. Hard workflow
+	// decisions must only treat post_apply_verify reports as authoritative.
+	// Planner probes are useful context, but they describe the pre-apply state
+	// and must never drive finish/replan routing for the active batch.
+	Channel ChangeReportChannel `json:"channel,omitempty"`
+
 	// PhaseGroupID + PhaseIndex carry the multi-phase coordinates
 	// when this report belongs to a stage II phase plan (commit
 	// 32 schema gap fix). Both empty/zero on single-phase reports.
@@ -645,6 +651,13 @@ type ChangeReport struct {
 	// GeneratedAt is the verify-stage completion timestamp.
 	GeneratedAt time.Time `json:"generated_at"`
 }
+
+type ChangeReportChannel string
+
+const (
+	ChangeReportChannelPlannerProbe    ChangeReportChannel = "planner_probe"
+	ChangeReportChannelPostApplyVerify ChangeReportChannel = "post_apply_verify"
+)
 
 // FailureKind tags ChangeReport.FailureSummary so consumers can route
 // the retry-hint narrative on the cause rather than the symptom.

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,6 +229,79 @@ func TestRunPyCompileFallback_FailOnSyntaxError(t *testing.T) {
 	}
 }
 
+func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	writeMakefile(t, root, "test:\n\t@echo failing probe\n\t@exit 1\n")
+	mu := types.NewMutableState("probe channel")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":  "make",
+		"dry_run": true,
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("failing probe should return Success=false, got %+v", result)
+	}
+	if got := mu.ChangeReport(); got != nil {
+		t.Fatalf("plan-stage dry_run in ModeApply must not populate ChangeReport, got %+v", got)
+	}
+	probes := mu.PlanStageProbeReports()
+	if len(probes) != 1 {
+		t.Fatalf("expected one planner probe report, got %d", len(probes))
+	}
+	if probes[0].Channel != types.ChangeReportChannelPlannerProbe {
+		t.Fatalf("probe channel = %q, want planner_probe", probes[0].Channel)
+	}
+	if probes[0].Passed {
+		t.Fatalf("probe should preserve failing verdict for planner context: %+v", probes[0])
+	}
+}
+
+func TestRunTestsDryRunFlagIgnoredOutsideStagePlan(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	writeMakefile(t, root, "test:\n\t@echo verified\n")
+	mu := types.NewMutableState("verify channel")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":  "make",
+		"dry_run": true,
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("verify run should pass, got %+v", result)
+	}
+	if got := mu.ChangeReport(); got == nil {
+		t.Fatal("verify-stage run_tests must populate authoritative ChangeReport")
+	} else if got.Channel != types.ChangeReportChannelPostApplyVerify {
+		t.Fatalf("verify report channel = %q, want post_apply_verify", got.Channel)
+	}
+	if probes := mu.PlanStageProbeReports(); len(probes) != 0 {
+		t.Fatalf("verify-stage dry_run flag must not append planner probes, got %+v", probes)
+	}
+}
+
 // TestPythonInterpreter_InterleavedVenvOrdering locks fix A: when
 // both worktree and main_repo carry venvs, the probe interleaves
 // per dir-name (.venv across all roots before falling to venv across
@@ -355,4 +429,20 @@ func TestWarningPassedReport_StructureBilingual(t *testing.T) {
 	if !strings.Contains(en.FailureSummary, "no test work to do") {
 		t.Errorf("en summary should mention no test work; got %q", en.FailureSummary)
 	}
+}
+
+func writeMakefile(t *testing.T, root, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+}
+
+func runTestsJSONParams(t *testing.T, params map[string]any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	return raw
 }

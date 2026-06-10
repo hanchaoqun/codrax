@@ -199,3 +199,8 @@ flowchart TD
 ## Progress Ledger
 
 - 2026-06-10 Batch 0 started: design ledger recorded from eval findings.
+- 2026-06-10 Batch 0 complete: design ledger committed and pushed to `main`.
+- 2026-06-10 Batch 1 complete: `run_tests(dry_run=true)` now routes by typed
+  pipeline stage, so controller apply-mode planning probes stay in
+  `PlanStageProbeReports`; authoritative controller artifacts filter to the
+  current plan's post-apply `ChangeReport`.

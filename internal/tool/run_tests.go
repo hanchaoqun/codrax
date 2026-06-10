@@ -101,14 +101,13 @@ type runTestsParams struct {
 	// command runs.
 	WorkingDir string `json:"working_dir,omitempty"`
 
-	// DryRun is the Module E plan-stage probe flag. When true AND
-	// BusContext.Mode == ModePlan, the tool runs against the user's
-	// main repo (no worktree required) and stores the resulting
-	// ChangeReport on Mutable.PlanStageProbeReports rather than
-	// Mutable.ChangeReport. Lets the planner test the existing
-	// suite for a baseline understanding before emitting a plan,
-	// without polluting the verify-stage's authoritative outcome
-	// channel.
+	// DryRun is the Module E plan-stage probe flag. When true during
+	// StagePlan, the tool runs against the user's current repo surface
+	// and stores the resulting ChangeReport on
+	// Mutable.PlanStageProbeReports rather than Mutable.ChangeReport.
+	// Lets the planner test the existing suite for a baseline
+	// understanding before emitting a plan, without polluting the
+	// verify-stage's authoritative outcome channel.
 	//
 	// Outside plan stage the flag is ignored (the verify stage
 	// always wants the result on the main ChangeReport channel).
@@ -207,13 +206,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	}
 
-	// Module E: plan-stage dry-run probe runs against MainRepoRoot
-	// (no worktree provisioned in plan stage); reports flow to a
+	// Module E: plan-stage dry-run probes run against MainRepoRoot
+	// (no worktree provisioned in plan-only mode); reports flow to a
 	// separate probe channel so the verify stage's authoritative
-	// outcome is never polluted. The flag is ONLY honored when
-	// Mode==ModePlan — outside plan stage we keep the original
-	// strict worktree contract.
-	dryRunProbe := p.DryRun && ctx.Mode == types.ModePlan
+	// outcome is never polluted. Controller apply workflows also run
+	// a StagePlan dispatch while ctx.Mode==ModeApply, so the hard
+	// channel boundary must read the typed pipeline stage, not the
+	// user-facing write mode.
+	dryRunProbe := isRunTestsDryRunProbe(ctx, p)
 
 	if ctx.RepoRoot == "" {
 		// In dry-run probe mode the planner has no worktree to swap
@@ -867,10 +867,22 @@ func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dr
 		return
 	}
 	if dryRunProbe {
+		report.Channel = types.ChangeReportChannelPlannerProbe
 		ctx.Mutable.AppendPlanStageProbeReport(report)
 		return
 	}
+	report.Channel = types.ChangeReportChannelPostApplyVerify
 	ctx.Mutable.SetChangeReport(report)
+}
+
+func isRunTestsDryRunProbe(ctx *types.BusContext, params runTestsParams) bool {
+	if ctx == nil || !params.DryRun {
+		return false
+	}
+	if ctx.PipelineStage == types.StagePlan {
+		return true
+	}
+	return ctx.PipelineStage == "" && ctx.Mode == types.ModePlan
 }
 
 func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot string) *types.ChangeReport {

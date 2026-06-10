@@ -183,9 +183,10 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 				plan.Approval.Action, plan.Approval.RiskLevel, plan.Approval.UserDecision, plan.Approval.ReasonCode)
 		}
 	}
-	if report := ctx.Mutable.ChangeReport(); report != nil {
+	if report := authoritativeWriteControllerReport(ctx); report != nil {
 		wrote = true
-		fmt.Fprintf(&b, "- change_report: plan_id=%s passed=%t build_failed=%t\n", report.PlanID, report.Passed, report.BuildFailed)
+		fmt.Fprintf(&b, "- change_report: plan_id=%s channel=%s passed=%t build_failed=%t\n",
+			report.PlanID, report.Channel, report.Passed, report.BuildFailed)
 		if strings.TrimSpace(report.FailureSummary) != "" {
 			fmt.Fprintf(&b, "- verify_failure_summary: %s\n", limitWriteControllerText(report.FailureSummary, 220))
 		}
@@ -194,6 +195,40 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func authoritativeWriteControllerReport(ctx *types.AgentContext) *types.ChangeReport {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	report := ctx.Mutable.ChangeReport()
+	if report == nil {
+		return nil
+	}
+	if report.Channel != "" && report.Channel != types.ChangeReportChannelPostApplyVerify {
+		return nil
+	}
+	currentPlanID := ""
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		currentPlanID = strings.TrimSpace(plan.ID)
+	}
+	if currentPlanID != "" && strings.TrimSpace(report.PlanID) != "" && strings.TrimSpace(report.PlanID) != currentPlanID {
+		return nil
+	}
+	if currentPlanID == "" {
+		if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
+			for _, batch := range run.Batches {
+				if batch.ID == run.ActiveBatchID {
+					currentPlanID = strings.TrimSpace(batch.PlanID)
+					break
+				}
+			}
+		}
+	}
+	if currentPlanID != "" && strings.TrimSpace(report.PlanID) != "" && strings.TrimSpace(report.PlanID) != currentPlanID {
+		return nil
+	}
+	return report
 }
 
 func renderWriteWorkflowDecisionStageReport(decision writeflow.WriteWorkflowDecision) string {
