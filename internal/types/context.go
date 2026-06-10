@@ -385,6 +385,15 @@ type MutableState struct {
 	// boundary alongside the iteration ledger.
 	planStageProbeReports []*ChangeReport
 
+	// verifyFailureHandoff carries the latest failed post-apply
+	// verification to the next planning round as typed evidence. It
+	// deliberately SURVIVES the controller's per-round planning-state
+	// reset (which wipes ChangeReport and the iteration ledger) so the
+	// replan prompt can open with failure-local targets; the scheduler
+	// replaces it on each new failure and clears it when the batch
+	// verifies green or the run finishes.
+	verifyFailureHandoff *VerifyFailureHandoff
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -3455,6 +3464,38 @@ func (m *MutableState) PlanStageProbeReports() []*ChangeReport {
 	out := make([]*ChangeReport, len(m.planStageProbeReports))
 	copy(out, m.planStageProbeReports)
 	return out
+}
+
+// SetVerifyFailureHandoff installs the typed replan carrier for the latest
+// failed post-apply verification. The scheduler owns the lifecycle: replace
+// on each failure, clear on green verify or run completion.
+func (m *MutableState) SetVerifyFailureHandoff(h *VerifyFailureHandoff) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.verifyFailureHandoff = h
+}
+
+// VerifyFailureHandoff returns the current typed replan carrier, or nil.
+func (m *MutableState) VerifyFailureHandoff() *VerifyFailureHandoff {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.verifyFailureHandoff
+}
+
+// ResetVerifyFailureHandoff clears the replan carrier.
+func (m *MutableState) ResetVerifyFailureHandoff() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.verifyFailureHandoff = nil
 }
 
 // ResetPlanStageProbeReports clears the probe slice. Called at Run

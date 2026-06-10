@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -229,5 +230,59 @@ func TestAgentSettings_RejectsCollapsedRecoveryWindow(t *testing.T) {
 	if got.PlannerSoftIterCap != d.PlannerSoftIterCap || got.PlannerHardIterCap != d.PlannerHardIterCap {
 		t.Errorf("expected fallback to defaults on collapsed window, got soft=%d hard=%d",
 			got.PlannerSoftIterCap, got.PlannerHardIterCap)
+	}
+}
+
+func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
+	mu := types.NewMutableState("handoff render")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-1",
+		BatchID:     "batch-1",
+		Attempt:     2,
+		FailureKind: types.FailureKindTestsFailed,
+		Executed: []types.ExecutedCommand{
+			{Runner: "make", WorkingDir: ".", Command: "make check", ExitCode: 2},
+		},
+		FailingTests: []types.TestResult{
+			{AssertionID: "TestAscii", Suite: "RandomStringUtilsTest", Passed: false, FailureDetail: "fast path must require end <= 0x7f"},
+		},
+		BuildErrors:            []types.BuildError{{File: "src/x.c", Line: 42, Message: "expected ;"}},
+		FailureSummary:         "1 of 3 tests failed",
+		BlobRef:                "/tmp/blob/run.txt",
+		DiffArtifactRef:        "plan-1.attempt-1.diff",
+		NextSurfaceCandidateID: "make@.",
+	})
+	eval := &plannerEvaluator{}
+	ctx := &types.AgentContext{Mutable: mu}
+	section := eval.buildVerifyFailureHandoffSection(ctx)
+	for _, want := range []string{
+		"## Latest verification failure (authoritative)",
+		"plan: plan-1 attempt: 2 failure_kind: tests_failed",
+		"command: `make check` (cwd=., exit=2, runner=make)",
+		"failing_test: TestAscii (suite=RandomStringUtilsTest)",
+		"build_error: src/x.c:42",
+		"full runner output: /tmp/blob/run.txt",
+		"previous attempt patch: plan-1.attempt-1.diff",
+		"unexecuted runnable test candidate: make@.",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("section missing %q:\n%s", want, section)
+		}
+	}
+	full := eval.BuildInitialInstruction(ctx, nil)
+	idx := strings.Index(full, "## Latest verification failure (authoritative)")
+	if idx < 0 {
+		t.Fatalf("handoff section must render in the planner prompt:\n%s", full)
+	}
+	if mid := strings.Index(full, "## Task framing"); mid >= 0 && mid < idx {
+		t.Fatalf("failure section must lead the prompt:\n%s", full)
+	}
+}
+
+func TestBuildVerifyFailureHandoffSection_EmptyWithoutHandoff(t *testing.T) {
+	mu := types.NewMutableState("no handoff")
+	eval := &plannerEvaluator{}
+	if got := eval.buildVerifyFailureHandoffSection(&types.AgentContext{Mutable: mu}); got != "" {
+		t.Fatalf("no handoff must render nothing, got %q", got)
 	}
 }

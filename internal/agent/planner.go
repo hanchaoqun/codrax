@@ -128,6 +128,11 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	// facts (Module B) → planning context / retry hint (existing).
 	// All sections are pure data — no "you should do X" prescriptions.
 	var sections []string
+	// Replan rounds open with the latest typed verification failure so the
+	// repair targets lead everything else the planner reads.
+	if failure := e.buildVerifyFailureHandoffSection(ctx); failure != "" {
+		sections = append(sections, failure)
+	}
 	if framing := e.buildTaskFramingSection(ctx); framing != "" {
 		sections = append(sections, framing)
 	}
@@ -1043,4 +1048,77 @@ func NewPlannerAgent(deps *Dependencies) Agent {
 		defaultSoftIterCap: deps.AgentSettings.PlannerSoftIterCap,
 		defaultHardIterCap: deps.AgentSettings.PlannerHardIterCap,
 	})
+}
+
+// buildVerifyFailureHandoffSection renders the typed carrier for the latest
+// failed post-apply verification as the planner's lead section on replan
+// rounds. Every row is projected from the typed ChangeReport (assertions,
+// build errors, executed commands, artifact refs) — the planner gets
+// failure-local repair targets instead of re-deriving the problem from
+// prose or restarting broad exploration.
+func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	h := ctx.Mutable.VerifyFailureHandoff()
+	if h == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Latest verification failure (authoritative)\n\n")
+	b.WriteString("The previous apply of this batch failed verification. Produce a bounded repair plan that addresses these findings on the same target files — do not restart broad exploration.\n\n")
+	fmt.Fprintf(&b, "- plan: %s attempt: %d", h.PlanID, h.Attempt)
+	if h.FailureKind != "" {
+		fmt.Fprintf(&b, " failure_kind: %s", h.FailureKind)
+	}
+	b.WriteString("\n")
+	for _, cmd := range h.Executed {
+		if strings.TrimSpace(cmd.Command) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- command: `%s` (cwd=%s, exit=%d, runner=%s)\n", cmd.Command, cmd.WorkingDir, cmd.ExitCode, cmd.Runner)
+	}
+	const maxRows = 10
+	shown := 0
+	for _, tr := range h.FailingTests {
+		if shown >= maxRows {
+			fmt.Fprintf(&b, "- … (+%d more failing tests)\n", len(h.FailingTests)-shown)
+			break
+		}
+		row := "- failing_test: " + tr.AssertionID
+		if tr.Suite != "" {
+			row += " (suite=" + tr.Suite + ")"
+		}
+		if detail := strings.TrimSpace(tr.FailureDetail); detail != "" {
+			row += " — " + limitWriteControllerText(detail, 200)
+		}
+		b.WriteString(row + "\n")
+		shown++
+	}
+	shown = 0
+	for _, be := range h.BuildErrors {
+		if shown >= maxRows {
+			fmt.Fprintf(&b, "- … (+%d more build errors)\n", len(h.BuildErrors)-shown)
+			break
+		}
+		loc := be.File
+		if be.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", be.File, be.Line)
+		}
+		fmt.Fprintf(&b, "- build_error: %s — %s\n", loc, limitWriteControllerText(be.Message, 200))
+		shown++
+	}
+	if h.FailureSummary != "" {
+		fmt.Fprintf(&b, "- summary: %s\n", limitWriteControllerText(h.FailureSummary, 300))
+	}
+	if h.BlobRef != "" {
+		fmt.Fprintf(&b, "- full runner output: %s (page with read_file offset/limit)\n", h.BlobRef)
+	}
+	if h.DiffArtifactRef != "" {
+		fmt.Fprintf(&b, "- previous attempt patch: %s (in the plan directory)\n", h.DiffArtifactRef)
+	}
+	if h.NextSurfaceCandidateID != "" {
+		fmt.Fprintf(&b, "- unexecuted runnable test candidate: %s\n", h.NextSurfaceCandidateID)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

@@ -447,10 +447,18 @@ func writeContextItemKey(item WriteContextItem) string {
 	for _, c := range consumers {
 		consumerParts = append(consumerParts, string(c))
 	}
+	// Items anchored to a typed evidence location dedupe on the fact, not
+	// its wording: retries re-project the same file:line finding with
+	// slightly different text, and re-worded duplicates of one fact must
+	// not crowd consumer Top-N views.
+	text := strings.ToLower(item.Text)
+	if item.EvidenceRef != nil && strings.TrimSpace(item.EvidenceRef.Source) != "" && item.EvidenceRef.LineStart > 0 {
+		text = ""
+	}
 	return strings.Join([]string{
 		string(item.Priority),
 		item.Kind,
-		strings.ToLower(item.Text),
+		text,
 		item.SourceStage,
 		item.SourceID,
 		ref,

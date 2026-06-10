@@ -224,7 +224,10 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				verifyFailures[run.ActiveBatchID]++
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_failed", innerErr.Error())
-				o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
+				diffRef := o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
+				if handoff := types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef); handoff != nil {
+					o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
+				}
 				o.persistWriteWorkflowRun(&run)
 				if verifyFailures[run.ActiveBatchID] > o.writeRetryBudget {
 					run.Status = types.WriteWorkflowRunBlocked
@@ -238,9 +241,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
+			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionFinish:
 			run.Status = types.WriteWorkflowRunComplete
+			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 			if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
 				result := "write workflow complete"
@@ -431,31 +436,49 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		o.seedControllerBatchExplorationContext(*batch)
 	}
 	transientUsed := 0
+	noPlanRetried := false
 	lastStallSignature := ""
 	for {
 		o.prepareControllerPlanningState()
 		_, err := o.runControllerWriteStage(types.StagePlan, stepsUsed)
-		if err != nil {
-			if llm.IsStreamLevelRetryable(err) && transientUsed < o.transientRetryBudget {
-				sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), nil, types.StagePlan)
-				if transientHardPlateauEligible(err, sig) && sig == lastStallSignature {
-					friendly := stallPlateauMessage(o.busCtx, types.StagePlan, friendlyDispatchErr(err), o.autoInitRepo, o.scaffoldEnabled)
-					o.busCtx.TaskState.LastError = friendly
-					return errors.New(friendly)
-				}
-				lastStallSignature = sig
-				transientUsed++
-				o.busCtx.TaskState.LastError = ""
-				logging.Warning("[orchestrator] controller plan transient dispatch error; retry %d/%d: %v",
-					transientUsed, o.transientRetryBudget, err)
-				continue
+		if err != nil && llm.IsStreamLevelRetryable(err) && transientUsed < o.transientRetryBudget {
+			sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), nil, types.StagePlan)
+			if transientHardPlateauEligible(err, sig) && sig == lastStallSignature {
+				friendly := stallPlateauMessage(o.busCtx, types.StagePlan, friendlyDispatchErr(err), o.autoInitRepo, o.scaffoldEnabled)
+				o.busCtx.TaskState.LastError = friendly
+				return errors.New(friendly)
 			}
+			lastStallSignature = sig
+			transientUsed++
+			o.busCtx.TaskState.LastError = ""
+			logging.Warning("[orchestrator] controller plan transient dispatch error; retry %d/%d: %v",
+				transientUsed, o.transientRetryBudget, err)
+			continue
+		}
+		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
+			return nil
+		}
+		// A planning round that ends with no ChangePlan installed is not
+		// terminal on its first occurrence while typed verify-failure
+		// evidence is waiting: grant exactly one re-dispatch whose planning
+		// hint cites the empty round. The condition reads typed state only
+		// (no plan installed + handoff present), never the error text.
+		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && o.busCtx.Mutable.VerifyFailureHandoff() != nil {
+			noPlanRetried = true
+			o.busCtx.TaskState.LastError = ""
+			hint := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+			if hint != "" {
+				hint += "\n\n"
+			}
+			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded repair plan via emit_change_plan that addresses the verification failure section above; do not finish the round without the emit."
+			o.busCtx.Mutable.SetPlanningHint(hint)
+			logging.Warning("[orchestrator] controller replan round produced no plan; granting one re-dispatch with typed failure context")
+			continue
+		}
+		if err != nil {
 			return err
 		}
-		if plan := o.busCtx.Mutable.ChangePlan(); plan == nil {
-			return errors.New("write controller plan_batch produced no ChangePlan")
-		}
-		return nil
+		return errors.New("write controller plan_batch produced no ChangePlan")
 	}
 }
 
@@ -559,6 +582,10 @@ func (o *Orchestrator) runControllerWriteStage(stage types.PipelineStage, stepsU
 	return out, nil
 }
 
+// prepareControllerPlanningState resets the per-round planning channels.
+// Mutable.VerifyFailureHandoff deliberately survives this reset: it is the
+// typed carrier that brings the latest failed verification into the replan
+// prompt, and the scheduler clears it only on green verify or finish.
 func (o *Orchestrator) prepareControllerPlanningState() {
 	mu := o.busCtx.Mutable
 	mu.ResetChangePlan()
@@ -980,15 +1007,15 @@ func writePlanDeniedByApproval(plan *types.ChangePlan) bool {
 // next to it as <stem>.attempt-N.diff. The diff artifact ref is attached to
 // the batch's latest verify attempt record. Capture is best-effort and never
 // alters cleanup behaviour (red line L5); failures log at warning.
-func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun, report *types.ChangeReport, attempt int) {
+func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun, report *types.ChangeReport, attempt int) string {
 	if o == nil || o.busCtx == nil || run == nil {
-		return
+		return ""
 	}
 	if report != nil {
 		o.saveChangeReport(report)
 	}
 	if o.busCtx.WorktreePath == "" || strings.TrimSpace(o.currentIterCommitSHA) == "" {
-		return
+		return ""
 	}
 	planID := ""
 	if report != nil {
@@ -1002,12 +1029,12 @@ func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun,
 	stem := writeWorkflowArtifactFileStem(planID)
 	planDir := o.ensureChangeReportDir()
 	if stem == "" || planDir == "" {
-		return
+		return ""
 	}
 	patch, err := worktree.CaptureCommitPatch(o.busCtx.WorktreePath, o.currentIterCommitSHA)
 	if err != nil {
 		logging.Warning("[orchestrator] verify-failure diff capture failed: %v", err)
-		return
+		return ""
 	}
 	if attempt < 1 {
 		attempt = 1
@@ -1016,10 +1043,11 @@ func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun,
 	diffPath := filepath.Join(planDir, diffName)
 	if err := os.WriteFile(diffPath, []byte(patch), 0o644); err != nil {
 		logging.Warning("[orchestrator] verify-failure diff save failed: %v", err)
-		return
+		return ""
 	}
 	logging.Info("[orchestrator] verify-failure attempt diff saved: %s", diffPath)
 	attachDiffArtifactToLatestVerifyAttempt(run, run.ActiveBatchID, diffName)
+	return diffName
 }
 
 // attachDiffArtifactToLatestVerifyAttempt points the most recent verify

@@ -397,12 +397,22 @@ update here.
       re-pinned to the new behavior. Full `go test ./...` green.
 
 ### Batch 5 — Verify-failure handoff + replan resilience (P0-5, P1-5)
-- [ ] `VerifyFailureHandoff` carrier + scheduler set/clear lifecycle.
-- [ ] Planner lead section + controller artifact line; bounded no-plan
-      re-dispatch with typed emit-failure citation.
-- [ ] EvidenceRef-aware context pack dedupe.
-- [ ] Tests: handoff survives planning reset, lead section rendering, single
-      bounded retry, dedupe collapse.
+- [x] `types.VerifyFailureHandoff` (typed projection of the failed report:
+      bounded failing rows, build errors, executed commands, blob/diff
+      artifact refs, next unexecuted surface candidate) + MutableState
+      channel that deliberately survives `prepareControllerPlanningState`;
+      scheduler sets it per failure and clears on green verify / finish.
+- [x] Planner replan prompt opens with "Latest verification failure
+      (authoritative)" rendered from the carrier; one bounded re-dispatch
+      when a planning round installs no ChangePlan while the carrier is
+      active (typed condition — no error-text matching), with the planning
+      hint citing the empty round.
+- [x] EvidenceRef-anchored context items dedupe on the fact (file:line),
+      not wording, so retries cannot crowd consumer Top-N views.
+- [x] Tests: handoff projection/bounds/next-candidate, lifecycle e2e
+      (survives reset at replan, cleared on green), no-plan single retry +
+      first-attempt terminal behavior, lead-section rendering and ordering.
+      Full `go test ./...` green.
 
 ### Batch 6 — Structured edit reliability (P1-1)
 - [ ] end_line default, mismatch byte diagnostics, trailing-newline
@@ -458,4 +468,9 @@ update here.
   are advisory medium; hard High comes from typed declaration-line
   intersection and path policy (now including persistence schemas); REPL
   approve applies stricter-wins against the recorded fingerprint. Full
+  `go test ./...` green.
+- 2026-06-10: Batch 5 — verify-failure handoff shipped. Typed carrier
+  survives the planning reset and leads the replan prompt; empty replan
+  rounds get one typed-context re-dispatch instead of aborting the
+  workflow; evidence-anchored pack items dedupe by fact. Full
   `go test ./...` green.

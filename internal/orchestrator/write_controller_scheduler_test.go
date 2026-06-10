@@ -734,3 +734,130 @@ func TestRunWriteControllerWorkflow_FinishAfterPassedVerifyNeedsNoDisposition(t 
 		t.Fatalf("run should complete, got %+v", store.last.Status)
 	}
 }
+
+func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("handoff lifecycle")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "handoff lifecycle"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "repair_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "repair_applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+	attempt := 0
+	var handoffSeenAtReplan *types.VerifyFailureHandoff
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			attempt++
+			if attempt == 2 {
+				handoffSeenAtReplan = mu.VerifyFailureHandoff()
+			}
+			planID := fmt.Sprintf("plan-%d", attempt)
+			mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusPending, Summary: planID, TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			plan := mu.ChangePlan()
+			if attempt == 1 {
+				mu.SetChangeReport(&types.ChangeReport{
+					PlanID:         plan.ID,
+					Passed:         false,
+					FailureKind:    types.FailureKindTestsFailed,
+					FailureSummary: "TestA failed",
+					TestResults:    []types.TestResult{{AssertionID: "TestA", Passed: false, FailureDetail: "want 2 got 3"}},
+				})
+			} else {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+			}
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if handoffSeenAtReplan == nil {
+		t.Fatal("replan planning round must see the typed verify-failure handoff (it survives the planning-state reset)")
+	}
+	if handoffSeenAtReplan.PlanID != "plan-1" || len(handoffSeenAtReplan.FailingTests) != 1 {
+		t.Fatalf("handoff should carry the failing plan's typed rows: %+v", handoffSeenAtReplan)
+	}
+	if got := mu.VerifyFailureHandoff(); got != nil {
+		t.Fatalf("green verify must clear the handoff, got %+v", got)
+	}
+}
+
+func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan retry")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "no plan retry"}}})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1", Attempt: 1})
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		if planCalls == 1 {
+			// First round: no plan emitted — the planner-style terminal error.
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		}
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-retry", Status: types.PlanStatusPending, Summary: "repair", TargetPaths: []string{"fix.go"}})
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}, &steps); err != nil {
+		t.Fatalf("one empty round with handoff active must be retried, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan stage calls = %d, want 2 (one empty + one retry)", planCalls)
+	}
+	if !strings.Contains(mu.PlanningHint(), "previous planning round ended without a stored change plan") {
+		t.Fatalf("retry hint must cite the empty round, got %q", mu.PlanningHint())
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatal("retry round should have installed the plan")
+	}
+}
+
+func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan terminal")
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		planCalls++
+		*stepsUsed++
+		return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first"}, &steps); err == nil {
+		t.Fatal("first-attempt empty round without handoff must stay terminal")
+	}
+	if planCalls != 1 {
+		t.Fatalf("plan stage calls = %d, want 1 (no retry without typed failure context)", planCalls)
+	}
+}
