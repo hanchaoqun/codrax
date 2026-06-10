@@ -100,6 +100,13 @@ var builtinStageBindings = []StageBinding{
 		PrimaryArtifacts: []string{"WriteAnalysisIR"},
 	},
 	{
+		Stage:            StageWriteController,
+		Agent:            AgentWriteController,
+		Skill:            "write-controller-skill",
+		Responsibility:   "Select the next bounded write workflow action from typed artifacts.",
+		PrimaryArtifacts: []string{"WriteWorkflowDecision", "WriteWorkflowRun"},
+	},
+	{
 		Stage:            StagePlan,
 		Agent:            AgentPlanner,
 		Skill:            "change-plan-skill",

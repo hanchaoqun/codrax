@@ -2206,6 +2206,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		// Operators can set pipeline_max_parallelism: 1 for serial
 		// debug/rate-limit mode or 0 for uncapped fan-out.
 		MaxParallelism: types.DefaultPipelineMaxParallelism,
+		// WriteWorkflowEngine=legacy preserves the existing stable
+		// plan/apply/verify path. The controller engine is opt-in until
+		// its full dynamic-loop matrix is proven.
+		WriteWorkflowEngine: types.WriteWorkflowEngineLegacy,
 		// B4-F1 (2026-05-04) — wire DefaultViolationBudgetSettings
 		// into the production seed so the documented defaults
 		// (FailLoudEnabled=true, UserVisibleViolationCaveat=false)
@@ -2680,6 +2684,16 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.PipelinePlanCriticEnabled != nil {
 			pipelineSettings.PlanCriticEnabled = *rs.PipelinePlanCriticEnabled
+		}
+		if rs.WriteWorkflowEngine != nil {
+			normalized := types.NormalizeWriteWorkflowEngine(*rs.WriteWorkflowEngine)
+			if normalized == types.WriteWorkflowEngineLegacy &&
+				strings.TrimSpace(*rs.WriteWorkflowEngine) != "" &&
+				!strings.EqualFold(strings.TrimSpace(*rs.WriteWorkflowEngine), types.WriteWorkflowEngineLegacy) {
+				logging.Warning("[config] unknown write_workflow_engine=%q; using %s",
+					*rs.WriteWorkflowEngine, types.WriteWorkflowEngineLegacy)
+			}
+			pipelineSettings.WriteWorkflowEngine = normalized
 		}
 		// Keep-worktree-on-success toggle (Fix 4 "try before merge").
 		// Same pointer-typed yaml shape so explicit false is
@@ -3245,6 +3259,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	toolRegistry.Register(&tool.EmitPerfTrace{})
 	toolRegistry.Register(&tool.EmitPerfSegmentation{})
 	toolRegistry.Register(&tool.EmitWriteAnalysis{})
+	toolRegistry.Register(&tool.EmitWriteWorkflowDecision{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 

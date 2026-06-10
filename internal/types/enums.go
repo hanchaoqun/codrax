@@ -44,6 +44,12 @@ const (
 	// Read-mode Runs never reach this stage.
 	StageWriteAnalyze PipelineStage = "write_analyze"
 
+	// StageWriteController is the optional outer write workflow
+	// controller stage. It emits a typed workflow decision for the
+	// next bounded write batch; legacy write mode does not dispatch it
+	// unless write_workflow_engine=controller.
+	StageWriteController PipelineStage = "write_controller"
+
 	// Write-mode stages. Only fire when BusContext.Mode is
 	// ModePlan / ModeApply / ModeVerify; Run()'s Mode switch
 	// dispatches to the plan stage hook / the apply stage hook / the verify stage hook
@@ -83,7 +89,7 @@ func (s PipelineStage) IsTerminal() bool {
 // read-mode artifacts gating applies (we don't want the read
 // analyzer's narrative bleeding into write_analyzer prompts).
 func (s PipelineStage) IsWrite() bool {
-	return s == StageWriteAnalyze || s == StagePlan || s == StageApply || s == StageVerify
+	return s == StageWriteAnalyze || s == StageWriteController || s == StagePlan || s == StageApply || s == StageVerify
 }
 
 // String returns the string representation of the PipelineStage.
@@ -135,6 +141,11 @@ const (
 	// read directly). Never fires in read mode.
 	AgentWriteAnalyzer AgentName = "write_analyzer"
 
+	// AgentWriteController is the optional outer write workflow
+	// controller. It emits typed WriteWorkflowDecision actions for
+	// the dynamic write DAG when explicitly enabled.
+	AgentWriteController AgentName = "write_controller"
+
 	// Write-mode agents. Each pairs with the matching Stage
 	// (StagePlan / StageApply / StageVerify) via pipelineTopology.
 	// All three are real LLM-backed agents as of B2: planner emits
@@ -162,6 +173,7 @@ func AllAgentNames() []AgentName {
 		AgentPerfTriager,
 		AgentMultiRepoFocus,
 		AgentWriteAnalyzer,
+		AgentWriteController,
 		AgentPlanner,
 		AgentCoder,
 		AgentVerifier,

@@ -165,9 +165,9 @@ func explorationRequestSchema() map[string]any {
 		"properties": map[string]any{
 			"batch_id":              stringProp("The write workflow batch this exploration supports."),
 			"goal":                  stringProp("The read-only source question to answer before planning code changes."),
-			"exploration_questions": stringArrayProp("Specific source questions the explorer should answer."),
+			"exploration_questions": stringArrayProp("Specific source questions to answer before planning."),
 			"candidate_paths":       stringArrayProp("Likely files or directories to inspect."),
-			"constraints":           stringArrayProp("Constraints the explorer must preserve as context."),
+			"constraints":           stringArrayProp("Constraints source exploration must preserve as context."),
 			"max_rounds":            map[string]any{"type": "integer", "minimum": 0},
 			"evidence_requirements": stringArrayProp("Evidence expectations for the handoff, such as file:line anchors or tests to identify."),
 		},

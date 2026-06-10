@@ -56,6 +56,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		// zero-value StageOutput (which runPlanPhase then interprets
 		// as "no ChangePlan produced" and surfaces fail-loud).
 		types.AgentWriteAnalyzer,
+		types.AgentWriteController,
 		types.AgentPlanner,
 		types.AgentCoder,
 		types.AgentVerifier,
@@ -78,6 +79,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		"answer-document-skill",
 		// B0 write-mode skills (mirror topology.go entries).
 		"write-analysis-skill",
+		"write-controller-skill",
 		"change-plan-skill",
 		"code-write-skill",
 		"test-execute-skill",

@@ -155,6 +155,12 @@ type PipelineSettings struct {
 	// "Run ends, worktree gone" behaviour.
 	KeepWorktreeOnSuccess bool `yaml:"keep_worktree_on_success"`
 
+	// WriteWorkflowEngine selects the outer write workflow scheduler.
+	// "legacy" preserves the existing plan/apply/verify path; "controller"
+	// enables the typed dynamic workflow controller. Unknown or empty
+	// values normalize to legacy at the CLI/config boundary.
+	WriteWorkflowEngine string `yaml:"write_workflow_engine"`
+
 	// Explore carries the explorer-side budget knobs used by the
 	// sourcemix throttler.
 	Explore ExploreSettings `yaml:"explore"`

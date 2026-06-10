@@ -39,6 +39,7 @@ func TestToolSchemasDoNotExposeInternalMechanismTerms(t *testing.T) {
 		&EmitPerfTrace{},
 		&EmitPerfSegmentation{},
 		&EmitWriteAnalysis{},
+		&EmitWriteWorkflowDecision{},
 	}
 
 	var hits []string

@@ -135,6 +135,16 @@ func TestMutableStateWriteExplorationDefensiveCopy(t *testing.T) {
 	if gotPack2.Items[0].Text != "preserve read mode" {
 		t.Fatalf("context pack mutation leaked through state: %+v", gotPack2)
 	}
+
+	raw := []byte(`{"action":"finish"}`)
+	mu.SetWriteWorkflowDecisionJSON(raw)
+	raw[0] = 'X'
+	gotRaw := mu.WriteWorkflowDecisionJSON()
+	gotRaw[0] = 'Y'
+	gotRaw2 := mu.WriteWorkflowDecisionJSON()
+	if string(gotRaw2) != `{"action":"finish"}` {
+		t.Fatalf("workflow decision JSON mutation leaked through state: %s", gotRaw2)
+	}
 }
 
 func TestNormalizeWriteExplorationHandoffBoundsListsAndRefs(t *testing.T) {

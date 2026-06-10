@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	run := WriteWorkflowRun{
@@ -56,5 +60,32 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	again := NormalizeWriteWorkflowRun(run)
 	if again.ContextPacks[0].Items[0].Text != "preserve read mode" {
 		t.Fatalf("normalization should return defensive slices")
+	}
+}
+
+func TestWriteWorkflowRunToFileRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wf-1.json")
+	run := &WriteWorkflowRun{
+		RunID:         "wf-1",
+		Goal:          "ship controller",
+		Status:        WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	if err := WriteWorkflowRunToFile(run, path); err != nil {
+		t.Fatalf("WriteWorkflowRunToFile: %v", err)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("tmp file should not remain after successful write, stat err=%v", err)
+	}
+	loaded, err := LoadWriteWorkflowRunFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadWriteWorkflowRunFromFile: %v", err)
+	}
+	if loaded == nil || loaded.RunID != "wf-1" || loaded.Batches[0].ID != "batch-1" {
+		t.Fatalf("unexpected loaded run: %+v", loaded)
 	}
 }

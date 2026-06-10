@@ -1092,6 +1092,8 @@ func agentIdentityPrompt(name types.AgentName, stage types.PipelineStage) string
 		role = "a log structurer parsing the attached runtime log into a typed bundle"
 	case types.AgentPerfTriager:
 		role = "a performance-trace structurer parsing the attached trace into a typed bundle"
+	case types.AgentWriteController:
+		role = "a rolling write workflow coordinator selecting the next typed action"
 	case types.AgentPlanner:
 		role = "a change planner producing a structured plan of file-level edits"
 	case types.AgentCoder:
@@ -4176,6 +4178,8 @@ func stageReportPromptTitle(r types.StageReport) string {
 		return "Prior runtime-log extraction result"
 	case types.AgentPerfTriager:
 		return "Prior performance-trace extraction result"
+	case types.AgentWriteController:
+		return "Prior write workflow decision"
 	case types.AgentPlanner:
 		return "Prior change-planning result"
 	case types.AgentCoder:
@@ -4186,6 +4190,8 @@ func stageReportPromptTitle(r types.StageReport) string {
 		switch r.Stage {
 		case types.StageAnalyze, types.StageWriteAnalyze:
 			return "Prior request analysis result"
+		case types.StageWriteController:
+			return "Prior write workflow decision"
 		case types.StageExplore:
 			return "Prior code investigation result"
 		case types.StageExtract:

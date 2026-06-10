@@ -643,6 +643,7 @@ type MutableState struct {
 	writeExplorationRequest *WriteExplorationRequest
 	writeExplorationHandoff *WriteExplorationHandoff
 	writeContextPack        *WriteContextPack
+	writeWorkflowDecision   []byte
 
 	// planCritique is the optional pre-apply review text produced by
 	// the plan_critic agent (commit 4 P1-F). Empty when the critic
@@ -1025,6 +1026,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		pack := cloneWriteContextPack(*m.writeContextPack)
 		out.writeContextPack = &pack
 	}
+	out.writeWorkflowDecision = append([]byte(nil), m.writeWorkflowDecision...)
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
@@ -1593,6 +1595,46 @@ func (m *MutableState) ResetWriteContextPack() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeContextPack = nil
+}
+
+// WriteWorkflowDecisionJSON returns the last schema-normalized controller
+// decision payload emitted by emit_write_workflow_decision. Consumers must
+// unmarshal it into the typed writeflow.WriteWorkflowDecision before routing;
+// model prose is intentionally not part of this channel.
+func (m *MutableState) WriteWorkflowDecisionJSON() []byte {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]byte(nil), m.writeWorkflowDecision...)
+}
+
+// SetWriteWorkflowDecisionJSON stores a controller decision payload. Passing
+// nil or an empty slice clears the decision. The setter does not validate the
+// schema because the tool owns validation; it only preserves an immutable
+// snapshot for downstream typed consumers.
+func (m *MutableState) SetWriteWorkflowDecisionJSON(raw []byte) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(raw) == 0 {
+		m.writeWorkflowDecision = nil
+		return
+	}
+	m.writeWorkflowDecision = append([]byte(nil), raw...)
+}
+
+// ResetWriteWorkflowDecisionJSON clears the last controller decision.
+func (m *MutableState) ResetWriteWorkflowDecisionJSON() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeWorkflowDecision = nil
 }
 
 // RecordUnvalidatedReason appends a reason describing a

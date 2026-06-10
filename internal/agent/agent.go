@@ -1229,6 +1229,9 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 	case types.AgentWriteAnalyzer:
 		return "Call `emit_write_analysis` with the task classification you have. `task.kind=misc` and a one-line summary are acceptable defaults when scope or risk are uncertain — the schema prefers a coarse-but-emitted answer over a perfectly-tuned one that never lands.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_write_analysis", Hint: "emit best-effort task description"}}
+	case types.AgentWriteController:
+		return "Call `emit_write_workflow_decision` with the next typed workflow action. If the available typed artifacts are insufficient, choose `explore_code`; if a safety or budget boundary blocks progress, choose `block`.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_write_workflow_decision", Hint: "emit typed controller decision"}}
 	case types.AgentPlanner:
 		return "Call `emit_change_plan` with the changes already drafted. If kind=patch units need regeneration, narrow the plan to kind=modify (full bodies) — the pre-flight gate still protects kind=patch units but kind=modify skips it.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_change_plan", Hint: "close the plan stage with best-effort ChangePlan"}}

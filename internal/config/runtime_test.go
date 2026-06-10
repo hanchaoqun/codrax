@@ -41,6 +41,7 @@ markdown_preview_host: 127.0.0.1
 markdown_preview_port: 49152
 data_task_max_repair_rounds: 9
 data_task_max_data_rounds: 18
+write_workflow_engine: controller
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -79,6 +80,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.ProvidersConfig == nil || *s.ProvidersConfig != "/etc/codrax/providers.yaml" {
 		t.Errorf("ProvidersConfig = %v", s.ProvidersConfig)
+	}
+	if s.WriteWorkflowEngine == nil || *s.WriteWorkflowEngine != "controller" {
+		t.Errorf("WriteWorkflowEngine = %v", s.WriteWorkflowEngine)
 	}
 	// blob_*
 	if s.BlobMaxInlineBytes == nil || *s.BlobMaxInlineBytes != 65536 {

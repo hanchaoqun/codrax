@@ -738,6 +738,29 @@ Prose written outside the tool call is captured in the trace but does not drive 
 	})
 
 	r.Register(&Config{
+		Name: "write-controller-skill",
+		Goal: "Choose the next bounded write workflow action from typed artifacts and emit it with emit_write_workflow_decision.",
+		Workflow: []string{
+			"Read the structured context sections supplied by the system: task analysis, workflow run state, current plan/report status, approval/risk record, and priority write context pack.",
+			"Choose one action from the schema: explore_code, plan_change_batch, apply_ready_plan, verify, ask_user, finish, or block. The action is the only controller routing signal.",
+			"When source understanding is missing for the current batch, emit explore_code with an exploration_request containing batch_id, goal, focused questions, candidate_paths, and evidence requirements.",
+			"When the current batch is ready for a bounded ChangePlan, emit plan_change_batch with batch describing only that batch's goal, expected paths/kinds, and success criteria.",
+			"When the typed artifacts show no further batch is needed, emit finish. When a structural safety or budget boundary prevents progress, emit block with reason_code and a concise reason.",
+			"Call emit_write_workflow_decision exactly once.",
+		},
+		ToolSuggestions: []string{
+			"emit_write_workflow_decision",
+		},
+		OutputFormat: "Emit ONE emit_write_workflow_decision call. Free-form prose is ignored by workflow routing; only the tool's structured action and payload are consumed.",
+		Prohibitions: []string{
+			"do NOT modify files or run commands — the controller only selects the next typed workflow action",
+			"do NOT produce a code-change plan — plan_change_batch delegates bounded code planning to the code planner",
+			"do NOT rely on narrative wording as a routing signal — routing consumes only the typed action enum and validated payload",
+			"do NOT emit more than one controller decision in a dispatch",
+		},
+	})
+
+	r.Register(&Config{
 		Name: "change-plan-skill",
 		Goal: "Produce a concrete ChangePlan for the user's requested code change by reading the relevant source and emitting it via either single-shot (emit_change_plan) or structural multi-round (emit_plan_skeleton + emit_plan_change-per-file).",
 		Workflow: []string{

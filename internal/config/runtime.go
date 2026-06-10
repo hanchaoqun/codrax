@@ -1333,12 +1333,18 @@ type RuntimeSettings struct {
 	//                        equivalent: --allow-scaffold. Default
 	//                        false (fail-loud on empty + no scaffold
 	//                        authorization, with a clear hint).
+	//   WriteWorkflowEngine — selects the outer write workflow engine.
+	//                        "legacy" preserves the existing
+	//                        plan/apply/verify path; "controller"
+	//                        enables the typed dynamic workflow DAG.
+	//                        Unknown values normalize to legacy.
 	WriteEnabled         *bool   `yaml:"write_enabled"`
 	WriteAutoApproval    *bool   `yaml:"write_auto_approval"`
 	WriteApprovalPolicy  *string `yaml:"write_approval_policy"`
 	WritePlanDir         *string `yaml:"write_plan_dir"`
 	WriteAutoInitRepo    *bool   `yaml:"write_auto_init_repo"`
 	WriteScaffoldEnabled *bool   `yaml:"write_scaffold_enabled"`
+	WriteWorkflowEngine  *string `yaml:"write_workflow_engine"`
 
 	// REPL interactive knobs. `repl_*` prefix groups runtime tweaks
 	// to the interactive prompt. Today only the paste-fold threshold

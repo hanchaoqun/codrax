@@ -539,6 +539,7 @@ type Orchestrator struct {
 
 // New creates a new Orchestrator.
 func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
+	settings.WriteWorkflowEngine = types.NormalizeWriteWorkflowEngine(settings.WriteWorkflowEngine)
 	subRuntime := agent.NewSubAgentRuntime(subAgents)
 	subRuntime.SetMaxParallelism(settings.MaxParallelism)
 	return &Orchestrator{
@@ -559,6 +560,20 @@ func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
 		emit = render.NopEmitter
 	}
 	o.emit = emit
+}
+
+// WriteWorkflowEngine returns the resolved outer write workflow engine. Empty
+// or unknown settings normalize to legacy so stable write-mode paths remain the
+// default.
+func (o *Orchestrator) WriteWorkflowEngine() string {
+	if o == nil {
+		return types.WriteWorkflowEngineLegacy
+	}
+	return types.NormalizeWriteWorkflowEngine(o.settings.WriteWorkflowEngine)
+}
+
+func (o *Orchestrator) WriteWorkflowControllerEnabled() bool {
+	return types.IsControllerWriteWorkflowEngine(o.WriteWorkflowEngine())
 }
 
 // EmitMultiRepoScanNotice surfaces a per-sub-repo scan-progress

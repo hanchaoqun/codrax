@@ -45,6 +45,40 @@ func TestExploreSkillOutputFormatStaysToolFirst(t *testing.T) {
 	}
 }
 
+func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-controller-skill")
+	if err != nil {
+		t.Fatalf("Get(write-controller-skill) returned error: %v", err)
+	}
+	if len(sk.ToolSuggestions) != 1 || sk.ToolSuggestions[0] != "emit_write_workflow_decision" {
+		t.Fatalf("write-controller tool suggestions = %v", sk.ToolSuggestions)
+	}
+	corpus := strings.ToLower(sk.Goal + "\n" + sk.OutputFormat + "\n" + allWorkflowBodies(sk) + "\n" + allProhibitionBodies(sk))
+	for _, want := range []string{
+		"typed workflow action",
+		"action is the only controller routing signal",
+		"emit_write_workflow_decision",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-controller skill missing %q:\n%s", want, corpus)
+		}
+	}
+	for _, banned := range []string{
+		"keyword",
+		"if the request says",
+		"if the user says",
+		"summary contains",
+		"rationale contains",
+		"parse prose",
+	} {
+		if strings.Contains(corpus, banned) {
+			t.Fatalf("write-controller skill contains prose-routing smell %q:\n%s", banned, corpus)
+		}
+	}
+}
+
 // TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
 // EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
 // using internal pipeline gate names ("forced-read and citation-

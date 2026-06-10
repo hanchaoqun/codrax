@@ -88,6 +88,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
 		// four stay inert for read-mode Runs because those stages
 		// only fire when BusContext.Mode is Plan / Apply / Verify.
 		types.AgentWriteAnalyzer,
+		types.AgentWriteController,
 		types.AgentPlanner,
 		types.AgentCoder,
 		types.AgentVerifier,
@@ -102,9 +103,12 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
 		types.AgentPerfTriager:    func(d *Dependencies) Agent { return NewPerfTriagerAgent(d, perfSettings) },
 		types.AgentMultiRepoFocus: func(d *Dependencies) Agent { return NewMultiRepoFocusAgent(d) },
 		types.AgentWriteAnalyzer:  func(d *Dependencies) Agent { return NewWriteAnalyzerAgent(d) },
-		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
-		types.AgentCoder:          func(d *Dependencies) Agent { return NewCoderAgent(d) },
-		types.AgentVerifier:       func(d *Dependencies) Agent { return NewVerifierAgent(d) },
+		types.AgentWriteController: func(d *Dependencies) Agent {
+			return NewWriteControllerAgent(d)
+		},
+		types.AgentPlanner:  func(d *Dependencies) Agent { return NewPlannerAgent(d) },
+		types.AgentCoder:    func(d *Dependencies) Agent { return NewCoderAgent(d) },
+		types.AgentVerifier: func(d *Dependencies) Agent { return NewVerifierAgent(d) },
 	}
 
 	for _, name := range agents {

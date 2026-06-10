@@ -76,3 +76,60 @@ func LoadPlanGroupFromFile(path string) (*PlanGroup, error) {
 	}
 	return &g, nil
 }
+
+// WriteWorkflowRunToFile serialises an outer write workflow run with the same
+// atomic-write pattern used by ChangePlan and PlanGroup persistence.
+func WriteWorkflowRunToFile(run *WriteWorkflowRun, path string) error {
+	if run == nil {
+		return fmt.Errorf("WriteWorkflowRunToFile: nil run")
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("WriteWorkflowRunToFile: empty path")
+	}
+	normalized := NormalizeWriteWorkflowRun(*run)
+	if strings.TrimSpace(normalized.RunID) == "" {
+		return fmt.Errorf("WriteWorkflowRunToFile: run.RunID empty")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("WriteWorkflowRunToFile: mkdir %s: %w", filepath.Dir(path), err)
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WriteWorkflowRunToFile: marshal: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("WriteWorkflowRunToFile: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("WriteWorkflowRunToFile: rename %s: %w", tmp, err)
+	}
+	return nil
+}
+
+// LoadWriteWorkflowRunFromFile reads a persisted workflow run. Missing files
+// return (nil, nil), matching the PlanGroup recovery path.
+func LoadWriteWorkflowRunFromFile(path string) (*WriteWorkflowRun, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("LoadWriteWorkflowRunFromFile: read %s: %w", path, err)
+	}
+	var run WriteWorkflowRun
+	if err := json.Unmarshal(data, &run); err != nil {
+		return nil, fmt.Errorf("LoadWriteWorkflowRunFromFile: parse %s: %w", path, err)
+	}
+	run = NormalizeWriteWorkflowRun(run)
+	if run.RunID == "" {
+		return nil, fmt.Errorf("LoadWriteWorkflowRunFromFile: %s has empty run_id", path)
+	}
+	return &run, nil
+}

@@ -13,6 +13,8 @@ func TestPipelineStage_IsWrite(t *testing.T) {
 		want  bool
 	}{
 		// Write-mode stages: IsWrite MUST be true.
+		{StageWriteAnalyze, true},
+		{StageWriteController, true},
 		{StagePlan, true},
 		{StageApply, true},
 		{StageVerify, true},
