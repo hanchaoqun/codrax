@@ -18,21 +18,21 @@ package types
 //   - ModeRead: analyze → explore → extract → finalize. No worktree
 //     is created, no write-phase stages run. Default.
 //
-//   - ModePlan: analyze → explore → extract → plan → finalize.
-//     Produces a ChangePlan artifact on disk (typically
-//     .codrax/plans/<id>.json) and returns. Main repo HEAD untouched.
-//     A worktree may be created for read-side probing but is
-//     discarded at finalize time.
+//   - ModePlan: analyze → write_analyze → write_controller.
+//     The controller may run read-only exploration and emit a
+//     bounded ChangePlan artifact on disk (typically
+//     .codrax/plans/<id>.json), then stops before mutation. Main
+//     repo HEAD remains untouched.
 //
-//   - ModeApply: requires --plan-file. Creates a git worktree
-//     (detached HEAD), applies the plan inside, runs the apply
-//     stage, then runs verify. No merge back to main repo — the
-//     user is responsible for cherry-picking from the worktree if
-//     they approve the resulting commit.
+//   - ModeApply: analyze → write_analyze → write_controller.
+//     The controller can explore, plan, apply, verify, replan,
+//     split, append, finish, or block through typed actions. Any
+//     supplied --plan-file is imported as a single-batch workflow
+//     seed and still passes through the final risk/approval gate.
 //
-//   - ModeVerify: requires --plan-file and an already-applied
-//     worktree (re-runs just the verify stage on existing state,
-//     e.g. to retry flaky tests without redoing apply).
+//   - ModeVerify: verifies an active workflow batch, a saved run,
+//     or an imported --plan-file seed through the same durable
+//     controller path.
 //
 // PipelineMode is a string type so yaml serialization, REPL /mode
 // commands, and log messages all share a single canonical form.
@@ -43,19 +43,17 @@ const (
 	// Legacy callers that zero-value the field hit this path.
 	ModeRead PipelineMode = "read"
 
-	// ModePlan runs the full read pipeline plus a single plan
-	// stage; emits a ChangePlan to disk and finalizes. No write
-	// stages fire.
+	// ModePlan runs the write controller far enough to explore and
+	// emit a bounded ChangePlan. No apply mutation fires.
 	ModePlan PipelineMode = "plan"
 
-	// ModeApply consumes an existing ChangePlan (from --plan-file
-	// or REPL /plan state) and runs plan + apply + verify stages
-	// inside a detached-HEAD worktree.
+	// ModeApply runs the write controller end-to-end. It may start
+	// from a fresh request, an active workflow run, or an imported
+	// --plan-file seed.
 	ModeApply PipelineMode = "apply"
 
-	// ModeVerify re-runs only the verify stage against an existing
-	// worktree + applied plan. Used to retry flaky tests or
-	// re-check after a user tweaks the worktree by hand.
+	// ModeVerify asks the write controller to verify an active batch,
+	// saved workflow run, or imported --plan-file seed.
 	ModeVerify PipelineMode = "verify"
 )
 

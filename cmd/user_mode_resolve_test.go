@@ -64,7 +64,7 @@ func TestResolveUserMode_WriteDisabledRejected(t *testing.T) {
 	}
 }
 
-func TestResolveUserMode_WritePhaseApplyRequiresPlanFileAndAutoApply(t *testing.T) {
+func TestResolveUserMode_WritePhaseApplyRequiresAutoApplyForSingleShot(t *testing.T) {
 	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
@@ -77,18 +77,21 @@ func TestResolveUserMode_WritePhaseApplyRequiresPlanFileAndAutoApply(t *testing.
 		t.Fatalf("apply without auto-apply should mention --auto-apply, got: %v", err)
 	}
 
-	_, _, err = resolveUserModeAndWritePhase(modeResolutionInputs{
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
 		CLIWritePhase: "apply",
 		HasRequest:    true,
 		AutoApply:     true,
 	})
-	if err == nil || !strings.Contains(err.Error(), "--plan-file") {
-		t.Fatalf("apply without plan file should mention --plan-file, got: %v", err)
+	if err != nil {
+		t.Fatalf("controller-first apply without plan-file should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeApply {
+		t.Fatalf("resolved mode=%q phase=%q, want write/apply", mode, phase)
 	}
 
-	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+	mode, phase, err = resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
 		CLIWritePhase: "apply",
@@ -104,14 +107,17 @@ func TestResolveUserMode_WritePhaseApplyRequiresPlanFileAndAutoApply(t *testing.
 	}
 }
 
-func TestResolveUserMode_WritePhaseVerifyRequiresPlanFile(t *testing.T) {
-	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+func TestResolveUserMode_WritePhaseVerifyAllowsActiveWorkflow(t *testing.T) {
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
 		CLIWritePhase: "verify",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--plan-file") {
-		t.Fatalf("verify without plan file should mention --plan-file, got: %v", err)
+	if err != nil {
+		t.Fatalf("controller-first verify without plan-file should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeVerify {
+		t.Fatalf("resolved mode=%q phase=%q, want write/verify", mode, phase)
 	}
 }
 

@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 7 implemented
+Status: Batch 8 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -198,12 +198,12 @@ not stuffed into prompts directly.
 
 ### Batch 8: Commercial Hardening
 
-- [ ] Run `go test ./...`.
-- [ ] Run `make test`.
-- [ ] E2E cover low-risk auto apply, high-risk approval, critical deny,
+- [x] Run `go test ./...`.
+- [x] Run `make test`.
+- [x] E2E cover low-risk auto apply, high-risk approval, critical deny,
       imported plan gate, dynamic split/append, verify-failure replan, resume,
       and handoff evidence retention.
-- [ ] Confirm non-write modes and worktree cleanup red lines.
+- [x] Confirm non-write modes and worktree cleanup red lines.
 
 ## 7. Acceptance Criteria
 
@@ -229,4 +229,5 @@ not stuffed into prompts directly.
 | 4 | complete | `181833a0` | pushed | Shared `allow/ask/deny` permission primitive added; write approval maps to shared permission decisions; write-mode `exec_command` uses typed permission output before running observation commands. Tests: `go test ./internal/safety ./internal/tool ./internal/writeflow ./internal/operation`. |
 | 5 | complete | `e15d884d` | pushed | `WriteContextPack` artifacts are persisted under workflow context dirs and batch refs are attached to durable runs. Tests: `go test ./internal/types ./internal/repl ./internal/orchestrator ./internal/agent`. |
 | 6 | complete | `f363be76` | pushed | Planner prompt now scopes to the active workflow batch and typed context pack; controller prompt hygiene tests pin canonical actions and forbid prose-routing/unsupported action drift. Tests: `go test ./internal/skill`. |
-| 7 | implemented | pending | pending | `/workflow resume` and `/workflow clear` added for durable write runs; clear removes context artifacts; user and architecture docs now describe controller-first write mode. Tests: `go test ./internal/repl`. |
+| 7 | complete | `912e5782` | pushed | `/workflow resume` and `/workflow clear` added for durable write runs; clear removes context artifacts; user and architecture docs now describe controller-first write mode. Tests: `go test ./internal/repl`, `go test ./internal/repl ./internal/types ./internal/orchestrator`. |
+| 8 | implemented | pending | pending | Full hardening exposed and fixed stale CLI resolver/help assumptions that apply/verify require `--plan-file`; controller-first apply/verify now allow workflow seed/active run continuation. Tests: `go test ./...`, `make test`. |

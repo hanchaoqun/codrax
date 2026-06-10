@@ -205,10 +205,9 @@ var (
 	//   --plan-out    — plan-mode output file path. When set, the
 	//                   ChangePlan JSON writes here instead of the
 	//                   default .codrax/plans/<id>.json.
-	//   --plan-file   — apply/verify input plan file. REQUIRED when
-	//                   --write-phase is apply or verify — those
-	//                   phases consume an existing plan, they do
-	//                   not produce one.
+	//   --plan-file   — optional apply/verify seed plan. Imported as
+	//                   a single-batch write workflow and passed
+	//                   through the same risk/approval gates.
 	flagMode       string
 	flagWritePhase string
 	flagAutoApply  bool
@@ -573,7 +572,7 @@ func init() {
 	f.StringVar(&flagWritePhase, "write-phase", "plan", "write mode phase: plan|apply|verify (only valid with --mode=write)")
 	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=write --write-phase=apply in single-shot)")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
-	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=write --write-phase=apply|verify)")
+	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: optional path to an existing ChangePlan JSON seed")
 	f.StringVar(&flagDataResume, "data-resume", "", "data mode: opt-in resume from a prior .codrax/data-audit/*-checkpoint-*.json workflow checkpoint")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
@@ -1044,10 +1043,6 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 	if in.HasRequest && phase == types.ModeApply && !in.AutoApply {
 		return "", "", fmt.Errorf("--mode=write --write-phase=apply in single-shot (--request) requires --auto-apply for approval")
 	}
-	if phase == types.ModeVerify && strings.TrimSpace(in.PlanFile) == "" {
-		return "", "", fmt.Errorf("--mode=write --write-phase=%s requires --plan-file <path>", string(phase))
-	}
-
 	return userMode, phase, nil
 }
 
