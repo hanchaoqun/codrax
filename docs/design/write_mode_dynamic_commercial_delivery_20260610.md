@@ -249,13 +249,15 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 ### Batch 7: Commercial Hardening
 
-- [ ] Run focused packages after each batch.
-- [ ] Run `go test ./...`.
-- [ ] Run `make test`.
-- [ ] Confirm read-mode red lines, worktree cleanup, operation lane, and simple
+- [x] Run focused packages after each batch.
+- [x] Add controller hardening test for verify failure -> re-explore -> replan
+      with persisted handoff context.
+- [x] Run `go test ./...`.
+- [x] Run `make test`.
+- [x] Confirm read-mode red lines, worktree cleanup, operation lane, and simple
       write flows remain stable.
-- [ ] Consider switching the default engine only after the full matrix passes;
-      otherwise retain `legacy` default for one release.
+- [x] Retain `legacy` default for one release; controller remains opt-in via
+      `write_workflow_engine: controller`.
 - [ ] Commit final ledger update and push.
 
 ## 6. Progress Ledger

@@ -199,6 +199,90 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	}
 }
 
+func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("repair with fresh exploration")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair with fresh exploration"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first attempt"}},
+		{
+			Action:     writeflow.ActionExploreCode,
+			ReasonCode: "need_failure_context",
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:              "batch-1",
+				Goal:                 "inspect failing test surface",
+				ExplorationQuestions: []string{"why did verify fail?"},
+				CandidatePaths:       []string{"fix.go"},
+			},
+		},
+		{Action: writeflow.ActionPlanChangeBatch, ReasonCode: "fresh_context_ready", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair after exploration"}},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	explorerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+		types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+				ReadFiles: []string{"fix.go"},
+				EvidenceItems: []types.EvidenceItem{{
+					ID:              "ev-after-verify-failure",
+					Kind:            types.EvidenceMechanism,
+					Subject:         "failing assertion",
+					Source:          "fix.go",
+					LineStart:       42,
+					Summary:         "fresh exploration found the failed branch",
+					GroundingStatus: types.GroundingRecovered,
+				}},
+			})
+			return &agent.StageOutput{}, nil
+		},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	attempt := 0
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		attempt++
+		planID := fmt.Sprintf("plan-reexplore-%d", attempt)
+		mu.SetChangePlan(&types.ChangePlan{ID: planID, Status: types.PlanStatusApplied, Summary: planID, TargetPaths: []string{"fix.go"}})
+		if attempt == 1 {
+			mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "assertion failed before exploration"})
+			*stepsUsed++
+			return fmt.Errorf("verify failed")
+		}
+		handoff := mu.WriteExplorationHandoff()
+		if handoff == nil || len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].Source != "fix.go" {
+			t.Fatalf("second plan should consume fresh exploration handoff, got %+v", handoff)
+		}
+		mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
+		*stepsUsed++
+		return nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("expected one re-exploration call, got %d", explorerCalls)
+	}
+	if attempt != 2 {
+		t.Fatalf("expected two inner attempts, got %d", attempt)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after re-explore/replan: %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "inner_batch_failed") ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "exploration_complete") {
+		t.Fatalf("failure and re-exploration progress should both persist: %+v", store.last.ProgressLedger)
+	}
+	if len(store.last.ContextPacks) == 0 {
+		t.Fatalf("workflow should retain handoff context packs: %+v", store.last)
+	}
+}
+
 func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("requires approval")
