@@ -226,6 +226,20 @@ func TestWorkflowJournalCompleteSnapshotOverridesStaleBlockedDecision(t *testing
 				Violations:  []string{"action_dependency_violation"},
 				NextActions: []string{string(dataquery.DataActionQualifyRecords)},
 			},
+			WorkflowViolations: []WorkflowViolation{{
+				Code:       "action_dependency_violation",
+				Severity:   "error",
+				ActionID:   "assemble_too_early",
+				ActionKind: string(dataquery.DataActionAssembleAnswer),
+				Reason:     "older blocked lineage",
+			}},
+			WorkflowViolationSummary: BuildWorkflowViolationSummary([]WorkflowViolation{{
+				Code:       "action_dependency_violation",
+				Severity:   "error",
+				ActionID:   "assemble_too_early",
+				ActionKind: string(dataquery.DataActionAssembleAnswer),
+				Reason:     "older blocked lineage",
+			}}),
 		},
 	})
 
@@ -240,6 +254,9 @@ func TestWorkflowJournalCompleteSnapshotOverridesStaleBlockedDecision(t *testing
 	}
 	if snapshot.Decision.Reason != "" || len(snapshot.Decision.Violations) != 0 || len(snapshot.Decision.NextActions) != 0 {
 		t.Fatalf("Decision=%+v, want stale blocked decision details retired from terminal decision", snapshot.Decision)
+	}
+	if len(snapshot.WorkflowViolations) != 0 || snapshot.WorkflowViolationSummary.Total != 0 {
+		t.Fatalf("terminal violations=%+v summary=%+v, want stale blockers retained only in lineage fields", snapshot.WorkflowViolations, snapshot.WorkflowViolationSummary)
 	}
 }
 

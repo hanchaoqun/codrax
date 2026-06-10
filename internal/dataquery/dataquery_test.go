@@ -2897,6 +2897,105 @@ func TestActionRunnerNormalizeEntitiesReferenceModeAppliesRepeatedSourceRows(t *
 	}
 }
 
+func TestActionRunnerApplyEntityResolutionsPreservesCanonicalKeyProvenance(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "observations.csv"), []byte("record_id,raw_label,amount\nr1,A-one,10\nr2,A-two,7\nr3,Beta,4\nr4,Gamma alt,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "labels.csv"), []byte("raw_label,canonical_label\nA-one,GroupA\nA-two,GroupA\nBeta,GroupB\nGamma alt,GroupC\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			EntityResolutionRequired:   true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:             "entity_resolution_ledger",
+				Kind:           DataActionNormalizeEntities,
+				InputPaths:     []string{"observations.csv", "labels.csv"},
+				OutputArtifact: "entity_resolution_ledger",
+				Params: map[string]string{
+					"source_path":           "observations.csv",
+					"reference_path":        "labels.csv",
+					"source_field":          "raw_label",
+					"reference_name_fields": `["raw_label"]`,
+					"canonical_id_field":    "canonical_label",
+					"canonical_label_field": "raw_label",
+					"match_mode":            "exact",
+				},
+			},
+			{
+				ID:             "observations_resolved",
+				Kind:           DataActionApplyResolutions,
+				InputPaths:     []string{"observations.csv", "entity_resolution_ledger"},
+				OutputArtifact: "observations_resolved",
+				Params: map[string]string{
+					"base_path":             "observations.csv",
+					"resolution_path":       "entity_resolution_ledger",
+					"base_key_fields":       `["_source_index"]`,
+					"resolution_key_fields": `["item_id"]`,
+					"target_id_field":       "canonical_id",
+					"target_label_field":    "canonical_label",
+					"target_status_field":   "canonical_status",
+					"accepted_statuses":     `["resolved"]`,
+					"preserve_base_rows":    "true",
+				},
+			},
+			{
+				ID:         "contrib",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"observations_resolved"},
+				Params: map[string]string{
+					"group_key_field": "canonical_label",
+					"metric":          "amount",
+					"value_field":     "amount",
+					"operation":       "add",
+					"item_id_field":   "record_id",
+					"filters_json":    `[{"field":"canonical_status","op":"eq","value":"resolved"}]`,
+				},
+			},
+			{ID: "reconcile", Kind: DataActionReconcile},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run canonical provenance apply flow: %v", err)
+	}
+	var normalizeArtifact, applyArtifact DataArtifact
+	for _, artifact := range res.Artifacts {
+		switch artifact.ID {
+		case "entity_resolution_ledger":
+			normalizeArtifact = artifact
+		case "observations_resolved":
+			applyArtifact = artifact
+		}
+	}
+	if normalizeArtifact.ID == "" || applyArtifact.ID == "" {
+		t.Fatalf("Artifacts=%+v, want normalize and apply artifacts", res.Artifacts)
+	}
+	if got := normalizeArtifact.Fields["canonical_id_field"]; got != "canonical_label" {
+		t.Fatalf("normalize canonical_id_field=%q, want canonical_label", got)
+	}
+	var first map[string]any
+	if err := json.Unmarshal([]byte(applyArtifact.Sample[0]), &first); err != nil {
+		t.Fatalf("unmarshal apply sample: %v", err)
+	}
+	if first["canonical_label"] != "GroupA" {
+		t.Fatalf("first resolved row=%+v, want canonical_label to preserve canonical key GroupA", first)
+	}
+	got := map[string]string{}
+	for _, group := range res.Reconcile.Groups {
+		got[group.GroupKey.String()] = reconcileGroupValue(group)
+	}
+	if got["GroupA"] != "17" || got["GroupB"] != "4" || got["GroupC"] != "5" {
+		t.Fatalf("reconcile groups=%+v, want GroupA=17 GroupB=4 GroupC=5", got)
+	}
+}
+
 func TestActionRunnerApplyEntityResolutionsMissingBaseKeyIsTyped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,name\n1,Alpha\n"), 0o644); err != nil {
@@ -4956,6 +5055,66 @@ func TestActionRunnerEnrichRecordsAppliesEntityResolutionArtifact(t *testing.T) 
 	}
 	if got := res.EntityResolutions[0].CanonicalID.String(); got != "A" {
 		t.Fatalf("first enriched resolution canonical_id=%q, want A; resolutions=%+v", got, res.EntityResolutions)
+	}
+}
+
+func TestActionRunnerEnrichRecordsUsesExactLocatorKeys(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "active.csv"), []byte("_source_index,record_id,raw_label,value\n1,r1,A-one,10\n2,r2,A-two,7\n4,r4,Beta,4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "canonical_mapped.csv"), []byte("item_id,canonical_label,status\nactive.csv#1:raw_label,GroupA,resolved\nactive.csv#2:raw_label,GroupA,resolved\nactive.csv#3:raw_label,GroupB,resolved\nactive.csv#4:raw_label,GroupC,resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{{
+			ID:             "enrich",
+			Kind:           DataActionEnrichRecords,
+			InputPaths:     []string{"active.csv", "canonical_mapped.csv"},
+			OutputArtifact: "active_with_canonical",
+			Params: map[string]string{
+				"base_path": "active.csv",
+				"lookup_specs_json": `[{
+					"lookup_path":"canonical_mapped.csv",
+					"base_fields":["_source_index"],
+					"lookup_fields":["item_id"],
+					"lookup_value_field":"canonical_label",
+					"mapping_filters":[{"field":"status","op":"eq","value":"resolved"}],
+					"match_mode":"contains",
+					"target_field":"canonical_label"
+				}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run enrich_records locator-safe enrichment: %v", err)
+	}
+	artifact := res.Artifacts[0]
+	if got := artifact.Fields["matches_canonical_label"]; got != "3" {
+		t.Fatalf("matches_canonical_label=%q, want 3; artifact=%+v", got, artifact)
+	}
+	if len(artifact.Children) < 2 {
+		t.Fatalf("Children=%+v, want mapping child metadata", artifact.Children)
+	}
+	if got := artifact.Children[1].Fields["locator_match_mode"]; got != "exact" {
+		t.Fatalf("mapping metadata=%+v, want locator_match_mode=exact", artifact.Children[1].Fields)
+	}
+	var rows []map[string]any
+	for _, sample := range artifact.Sample {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(sample), &row); err != nil {
+			t.Fatalf("unmarshal sample %q: %v", sample, err)
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("rows=%+v, want three sample rows", rows)
+	}
+	if rows[2]["record_id"] != "r4" ||
+		rows[2]["canonical_label"] != "GroupB" {
+		t.Fatalf("rows=%+v, want base row index 3 to bind locator #3, not raw _source_index=4", rows)
 	}
 }
 

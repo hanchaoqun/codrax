@@ -1551,10 +1551,13 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 			EvidencePaths:     cleanStringList(rec.EvidenceRefs),
 			Summary:           fmt.Sprintf("%s -> %s", rec.SourceValue.String(), firstNonEmptyString(rec.CanonicalLabel.String(), rec.CanonicalID.String(), rec.Status.String())),
 			Fields: map[string]string{
-				"source_value":    rec.SourceValue.String(),
-				"canonical_id":    rec.CanonicalID.String(),
-				"canonical_label": rec.CanonicalLabel.String(),
-				"status":          rec.Status.String(),
+				"source_value":          rec.SourceValue.String(),
+				"source_field":          rec.SourceField.String(),
+				"canonical_id":          rec.CanonicalID.String(),
+				"canonical_label":       rec.CanonicalLabel.String(),
+				"canonical_id_field":    rec.CanonicalIDField.String(),
+				"canonical_label_field": rec.CanonicalLabelField.String(),
+				"status":                rec.Status.String(),
 			},
 			SourcePaths: cleanStringList(rec.EvidenceRefs),
 		})
@@ -1575,7 +1578,7 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 }
 
 func entityResolutionArtifactHeaders() []string {
-	return []string{"item_id", "source_value", "canonical_id", "canonical_label", "status", "reason"}
+	return []string{"item_id", "source_value", "source_field", "canonical_id", "canonical_label", "canonical_id_field", "canonical_label_field", "status", "reason"}
 }
 
 func entityResolutionArtifactFields(action DataAction, count int) map[string]string {
@@ -2156,14 +2159,17 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 				}
 				seen[key] = true
 				out = append(out, EntityResolutionRecord{
-					ItemID:         LooseText(itemID),
-					SourceValue:    LooseText(sourceValue),
-					CanonicalID:    LooseText(canonicalID),
-					CanonicalLabel: LooseText(canonicalLabel),
-					Status:         LooseText(status),
-					EvidenceRefs:   []string{fmt.Sprintf("%s:%d", rel, record.Line)},
-					RuleRefs:       append([]string(nil), ruleRefs...),
-					Reason:         LooseText(reason),
+					ItemID:              LooseText(itemID),
+					SourceValue:         LooseText(sourceValue),
+					SourceField:         LooseText(field),
+					CanonicalID:         LooseText(canonicalID),
+					CanonicalLabel:      LooseText(canonicalLabel),
+					CanonicalIDField:    LooseText(pathCanonicalIDField),
+					CanonicalLabelField: LooseText(pathCanonicalLabelField),
+					Status:              LooseText(status),
+					EvidenceRefs:        []string{fmt.Sprintf("%s:%d", rel, record.Line)},
+					RuleRefs:            append([]string(nil), ruleRefs...),
+					Reason:              LooseText(reason),
 				})
 				matched++
 			}
@@ -2383,14 +2389,17 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 				evidenceRefs = append(evidenceRefs, evidence)
 			}
 			out = append(out, EntityResolutionRecord{
-				ItemID:         LooseText(itemID),
-				SourceValue:    LooseText(sourceValue),
-				CanonicalID:    LooseText(canonicalID),
-				CanonicalLabel: LooseText(canonicalLabel),
-				Status:         LooseText(status),
-				EvidenceRefs:   cleanStringList(evidenceRefs),
-				RuleRefs:       append([]string(nil), ruleRefs...),
-				Reason:         LooseText(reason),
+				ItemID:              LooseText(itemID),
+				SourceValue:         LooseText(sourceValue),
+				SourceField:         LooseText(field),
+				CanonicalID:         LooseText(canonicalID),
+				CanonicalLabel:      LooseText(canonicalLabel),
+				CanonicalIDField:    LooseText(canonicalIDField),
+				CanonicalLabelField: LooseText(canonicalLabelField),
+				Status:              LooseText(status),
+				EvidenceRefs:        cleanStringList(evidenceRefs),
+				RuleRefs:            append([]string(nil), ruleRefs...),
+				Reason:              LooseText(reason),
 			})
 		}
 	}
@@ -5141,7 +5150,7 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 				choice := choices[0].rec
 				row[spec.TargetIDField] = recordField(choice.Fields, spec.CanonicalIDField)
 				if spec.TargetLabelField != "" {
-					row[spec.TargetLabelField] = recordField(choice.Fields, spec.CanonicalLabelField)
+					row[spec.TargetLabelField] = applyResolutionTargetLabelValue(choice, spec)
 				}
 				status = firstNonEmptyString(choices[0].status, "resolved")
 				matchedByTarget[spec.TargetIDField]++
@@ -6140,6 +6149,27 @@ func filterAcceptedResolutionChoices(choices []resolutionChoice, spec applyResol
 	return out
 }
 
+func applyResolutionTargetLabelValue(choice actionRecord, spec applyResolutionSpec) string {
+	label := recordField(choice.Fields, spec.CanonicalLabelField)
+	id := recordField(choice.Fields, spec.CanonicalIDField)
+	if id != "" && applyResolutionTargetLabelShouldUseCanonicalID(choice, spec) {
+		return id
+	}
+	return label
+}
+
+func applyResolutionTargetLabelShouldUseCanonicalID(choice actionRecord, spec applyResolutionSpec) bool {
+	targetField := strings.TrimSpace(spec.TargetLabelField)
+	if targetField == "" {
+		return false
+	}
+	canonicalIDSourceField := recordField(choice.Fields, "canonical_id_field")
+	if canonicalIDSourceField == "" {
+		return false
+	}
+	return strings.EqualFold(targetField, canonicalIDSourceField)
+}
+
 func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[string]any, []EntityResolutionRecord, []string, error) {
 	paths := cleanStringListPreserveOrder(action.InputPaths)
 	basePath := firstNonEmptyString(strings.TrimSpace(action.Params["base_path"]), strings.TrimSpace(action.Params["record_path"]))
@@ -6254,6 +6284,9 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 			"mapping_value_field":   spec.MappingValueField,
 			"target_field":          spec.TargetField,
 			"match_mode":            spec.MatchMode,
+		}
+		if enrichSpecUsesLocatorKeys(spec) {
+			fields["locator_match_mode"] = "exact"
 		}
 		if len(ignoredMappingFilters) > 0 {
 			fields["ignored_filter_fields"] = strings.Join(ignoredMappingFilters, ",")
@@ -6851,7 +6884,7 @@ func buildEnrichLookup(records []actionRecord, rel string, spec enrichRecordSpec
 			if source == "" {
 				continue
 			}
-			for _, indexedSource := range enrichLookupSourceTerms(source) {
+			for _, indexedSource := range enrichLookupSourceTermsForField(source, sourceField, spec) {
 				candidate := enrichCandidate{
 					Source:   indexedSource,
 					Value:    value,
@@ -6869,6 +6902,13 @@ func buildEnrichLookup(records []actionRecord, rel string, spec enrichRecordSpec
 		})
 	}
 	return out
+}
+
+func enrichLookupSourceTermsForField(source, field string, spec enrichRecordSpec) []string {
+	if enrichSpecUsesLocatorKeys(spec) && enrichFieldIsLocatorLike(field) {
+		return enrichLocatorKeysFromValue(source, field, false)
+	}
+	return enrichLookupSourceTerms(source)
 }
 
 func enrichLookupSourceTerms(source string) []string {
@@ -6906,7 +6946,11 @@ func selectEnrichValueFromRecord(record actionRecord, lookup map[string][]enrich
 	bestStatus := "unmatched"
 	for _, field := range spec.SourceFields {
 		sourceValue := recordField(record.Fields, field)
-		value, status, evidence = selectEnrichValue(sourceValue, lookup, spec)
+		if enrichSpecUsesLocatorKeys(spec) && enrichFieldIsLocatorLike(field) {
+			value, status, evidence = selectEnrichValueFromLocatorKeys(enrichLocatorKeysFromRecord(record, field, spec), lookup, spec)
+		} else {
+			value, status, evidence = selectEnrichValue(sourceValue, lookup, spec)
+		}
 		switch status {
 		case "matched":
 			return value, status, evidence
@@ -6927,6 +6971,52 @@ func selectEnrichValueFromRecord(record actionRecord, lookup map[string][]enrich
 		bestStatus = "unmatched_required"
 	}
 	return "", bestStatus, ""
+}
+
+func selectEnrichValueFromLocatorKeys(keys []string, lookup map[string][]enrichCandidate, spec enrichRecordSpec) (value, status, evidence string) {
+	if len(keys) == 0 {
+		if spec.Required {
+			return "", "missing_source", ""
+		}
+		return "", "unmatched", ""
+	}
+	var candidates []enrichCandidate
+	seen := map[string]bool{}
+	for _, key := range keys {
+		for _, candidate := range lookup[normalizeEnrichKey(key, spec)] {
+			seenKey := candidate.Source + "\x00" + candidate.Value + "\x00" + candidate.Evidence
+			if seen[seenKey] {
+				continue
+			}
+			seen[seenKey] = true
+			candidates = append(candidates, candidate)
+		}
+	}
+	if len(candidates) == 0 {
+		if spec.Required {
+			return "", "unmatched_required", ""
+		}
+		return "", "unmatched", ""
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].Weight > candidates[j].Weight
+	})
+	best := candidates[0]
+	ambiguous := false
+	for _, candidate := range candidates[1:] {
+		if candidate.Value != best.Value {
+			ambiguous = true
+			break
+		}
+	}
+	if ambiguous && spec.Required {
+		return "", "ambiguous", best.Evidence
+	}
+	status = "matched"
+	if ambiguous {
+		status = "matched_ambiguous"
+	}
+	return best.Value, status, best.Evidence
 }
 
 func selectEnrichValue(sourceValue string, lookup map[string][]enrichCandidate, spec enrichRecordSpec) (value, status, evidence string) {
@@ -6988,6 +7078,123 @@ func selectEnrichValue(sourceValue string, lookup map[string][]enrichCandidate, 
 		status = "matched_ambiguous"
 	}
 	return best.Value, status, best.Evidence
+}
+
+func enrichSpecUsesLocatorKeys(spec enrichRecordSpec) bool {
+	return enrichFieldsContainLocatorLike(spec.SourceFields) && enrichFieldsContainLocatorLike(spec.MappingSourceFields)
+}
+
+func enrichFieldsContainLocatorLike(fields []string) bool {
+	for _, field := range fields {
+		if enrichFieldIsLocatorLike(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichFieldIsLocatorLike(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "_source_index", "_source_line", "source_index", "source_line", "row_index", "record_index", "line",
+		"_source_locator", "source_locator", "item_id", "record_id", "row_id", "id":
+		return true
+	default:
+		return false
+	}
+}
+
+func enrichFieldIsGeneratedIndexLike(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "_source_index", "_source_line", "source_index", "source_line", "row_index", "record_index", "line":
+		return true
+	default:
+		return false
+	}
+}
+
+func enrichFieldIsCompositeLocatorLike(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "_source_locator", "source_locator", "item_id", "record_id", "row_id", "id":
+		return true
+	default:
+		return false
+	}
+}
+
+func enrichMappingUsesCompositeLocator(spec enrichRecordSpec) bool {
+	for _, field := range spec.MappingSourceFields {
+		if enrichFieldIsCompositeLocatorLike(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichLocatorKeysFromRecord(record actionRecord, field string, spec enrichRecordSpec) []string {
+	field = strings.TrimSpace(field)
+	value := recordField(record.Fields, field)
+	if enrichFieldIsGeneratedIndexLike(field) && enrichMappingUsesCompositeLocator(spec) {
+		return enrichLocatorKeysFromIndex(record.Index, record.Line)
+	}
+	return enrichLocatorKeysFromValue(value, field, true)
+}
+
+func enrichLocatorKeysFromIndex(index, line int) []string {
+	var out []string
+	add := func(kind, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		out = append(out, kind+":"+value)
+	}
+	if index > 0 {
+		add("idx", strconv.Itoa(index))
+	}
+	if line > 0 {
+		add("line", strconv.Itoa(line))
+	}
+	return cleanStringSlice(out)
+}
+
+func enrichLocatorKeysFromValue(value, field string, includeFull bool) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var out []string
+	add := func(kind, raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		out = append(out, kind+":"+strings.ToLower(raw))
+	}
+	if enrichFieldIsGeneratedIndexLike(field) {
+		add("idx", value)
+	} else if idx := sourceIndexFromResolutionLocator(value); idx != "" {
+		add("idx", idx)
+	} else if idx := sourceIndexFromLooseLocator(value); idx != "" {
+		add("idx", idx)
+	}
+	if includeFull || len(out) == 0 {
+		add("full", value)
+	}
+	return cleanStringSlice(out)
+}
+
+var looseSourceIndexLocatorRE = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_])(line|row|record|index|idx)[:=#\s-]*([0-9]+)(?:$|[^a-z0-9_])`)
+
+func sourceIndexFromLooseLocator(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	matches := looseSourceIndexLocatorRE.FindStringSubmatch(" " + value + " ")
+	if len(matches) >= 3 {
+		return strings.TrimSpace(matches[2])
+	}
+	return ""
 }
 
 func normalizeEnrichKey(value string, spec enrichRecordSpec) string {
@@ -9151,7 +9358,7 @@ func dataActionArtifactPayloadForWrite(artifact DataArtifact, payload any) any {
 		}
 	case []EntityResolutionRecord:
 		if len(rows) == 0 {
-			return emptyLedgerArtifactPayload(artifact, "entity_resolutions", []EntityResolutionRecord{}, []string{"item_id", "source_value", "canonical_id", "canonical_label", "status", "reason"})
+			return emptyLedgerArtifactPayload(artifact, "entity_resolutions", []EntityResolutionRecord{}, entityResolutionArtifactHeaders())
 		}
 	case []RuleCoverageRecord:
 		if len(rows) == 0 {

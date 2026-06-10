@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -145,5 +146,65 @@ func TestActionSchemaShapeGuardRejectsNonRecordArtifacts(t *testing.T) {
 		violation.ActionKind != string(dataquery.DataActionFilterRecords) ||
 		violation.RepairActionHints[0] != string(dataquery.DataActionExtractRecords) {
 		t.Fatalf("violation=%+v, want typed record-shape violation", violation)
+	}
+}
+
+func TestActionSchemaShapeGuardReportsExecutableRecordCandidates(t *testing.T) {
+	records := []WorkflowRecord{{
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:          "observations_raw",
+			Kind:        "unknown",
+			SourcePaths: []string{"observations.csv"},
+			Fields:      map[string]string{"json_shape": "object"},
+		}, {
+			ID:                "READ_LABELS",
+			Kind:              string(dataquery.DataActionExtractRecords),
+			Headers:           []string{"raw_label", "canonical_label"},
+			SourcePaths:       []string{"labels.csv"},
+			SourceRecordPaths: []string{"labels.csv#records"},
+			RowCount:          4,
+			Fields: map[string]string{
+				"json_shape":       "array(len=4,item=object(keys=raw_label,canonical_label))",
+				"artifact_aliases": "labels.csv#records",
+			},
+		}, {
+			ID:                "READ_OBSERVATIONS",
+			Kind:              string(dataquery.DataActionExtractRecords),
+			Headers:           []string{"raw_label", "active", "value"},
+			SourcePaths:       []string{"observations.csv"},
+			SourceRecordPaths: []string{"observations_raw", "observations.csv#records"},
+			RowCount:          6,
+			Fields: map[string]string{
+				"json_shape":       "array(len=6,item=object(keys=raw_label,active,value))",
+				"artifact_aliases": "observations.csv#records",
+			},
+		}}},
+	}}
+	guard := ActionSchemaShapeGuardResult(ActionSchemaShapeGuardInput{
+		Records: records,
+		Action: dataquery.DataAction{
+			ID:         "join_observations_with_labels",
+			Kind:       dataquery.DataActionJoinRecords,
+			InputPaths: []string{"observations_raw", "labels.csv#records"},
+			Params: map[string]string{
+				"left_fields":  `["raw_label"]`,
+				"right_fields": `["raw_label"]`,
+			},
+		},
+		ActionIndex: 0,
+	})
+	if guard.Code != "artifact_schema_incompatible" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want artifact_schema_incompatible", guard)
+	}
+	violation := guard.Violations[0]
+	if len(violation.CandidateArtifacts) == 0 {
+		t.Fatalf("violation=%+v, want executable record candidate handoff", violation)
+	}
+	if !strings.Contains(violation.CandidateArtifacts[0], "READ_OBSERVATIONS") ||
+		!strings.Contains(violation.CandidateArtifacts[0], "raw_label") {
+		t.Fatalf("candidate_artifacts=%v, want same-lineage READ_OBSERVATIONS with raw_label", violation.CandidateArtifacts)
+	}
+	if !strings.Contains(guard.Message, "Candidate record-shaped input") {
+		t.Fatalf("message=%q, want candidate hint", guard.Message)
 	}
 }

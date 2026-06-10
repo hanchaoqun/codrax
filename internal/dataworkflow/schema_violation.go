@@ -88,6 +88,117 @@ func FieldContractCandidateLabels(candidates []ArtifactFieldCandidate) []string 
 	return out
 }
 
+func RecordInputCandidateArtifacts(projections []ArtifactSchemaProjection, rejected ArtifactSchemaProjection, input string, required []string, limit int) []ArtifactFieldCandidate {
+	inputKey := normalizeAccessPath(input)
+	required = cleanStrings(required)
+	type candidate struct {
+		value        ArtifactFieldCandidate
+		matchSize    int
+		lineageScore int
+		rowCount     int
+	}
+	var candidates []candidate
+	for _, projection := range projections {
+		if !ArtifactUsableForRecordAction(projection) {
+			continue
+		}
+		alias := firstArtifactSchemaAlias(projection)
+		if alias == "" || normalizeAccessPath(alias) == inputKey || normalizeAccessPath(projection.ID) == inputKey {
+			continue
+		}
+		fields := artifactFieldSet(projection.Fields)
+		var matches []string
+		for _, field := range required {
+			if fields[strings.ToLower(strings.TrimSpace(field))] != "" {
+				matches = append(matches, field)
+			}
+		}
+		matches = cleanStrings(matches)
+		lineageScore := artifactProjectionLineageOverlap(rejected, projection)
+		if len(required) > 0 && len(matches) == 0 {
+			continue
+		}
+		if len(required) == 0 && lineageScore == 0 {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			value: ArtifactFieldCandidate{
+				Alias:          alias,
+				MatchingFields: matches,
+				MatchesAll:     len(required) == 0 || len(matches) == len(required),
+			},
+			matchSize:    len(matches),
+			lineageScore: lineageScore,
+			rowCount:     projection.RowCount,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].value.MatchesAll != candidates[j].value.MatchesAll {
+			return candidates[i].value.MatchesAll
+		}
+		if candidates[i].lineageScore != candidates[j].lineageScore {
+			return candidates[i].lineageScore > candidates[j].lineageScore
+		}
+		if candidates[i].matchSize != candidates[j].matchSize {
+			return candidates[i].matchSize > candidates[j].matchSize
+		}
+		if candidates[i].rowCount != candidates[j].rowCount {
+			return candidates[i].rowCount > candidates[j].rowCount
+		}
+		return candidates[i].value.Alias < candidates[j].value.Alias
+	})
+	if limit <= 0 {
+		limit = len(candidates)
+	}
+	out := make([]ArtifactFieldCandidate, 0, min(limit, len(candidates)))
+	for _, candidate := range candidates {
+		out = append(out, candidate.value)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func artifactProjectionLineageOverlap(left, right ArtifactSchemaProjection) int {
+	leftKeys := artifactProjectionLineageKeySet(left)
+	if len(leftKeys) == 0 {
+		return 0
+	}
+	var score int
+	for key := range artifactProjectionLineageKeySet(right) {
+		if leftKeys[key] {
+			score++
+		}
+	}
+	return score
+}
+
+func artifactProjectionLineageKeySet(projection ArtifactSchemaProjection) map[string]bool {
+	out := map[string]bool{}
+	add := func(value string) {
+		for _, key := range artifactLineageKeys(value) {
+			if key != "" {
+				out[key] = true
+			}
+		}
+	}
+	add(projection.ID)
+	for _, alias := range projection.Aliases {
+		add(alias)
+	}
+	for _, value := range projection.SourcePaths {
+		add(value)
+	}
+	for _, value := range projection.SourceRecordPaths {
+		add(value)
+	}
+	for _, value := range projection.ReferencePaths {
+		add(value)
+	}
+	return out
+}
+
 func FieldContractRepairHints(allowedActions []string) []string {
 	allowed := map[string]bool{}
 	for _, action := range allowedActions {

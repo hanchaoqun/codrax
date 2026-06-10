@@ -77,6 +77,12 @@ func ActionSchemaShapeGuardResult(input ActionSchemaShapeGuardInput) GuardResult
 		if ArtifactSchemaCompatibleRecordInput(projection) {
 			continue
 		}
+		requiredFields := ActionInputExpectedFields(input.Action, actionInput)
+		candidateArtifacts := RecordInputCandidateArtifactLabels(projections, projection, actionInput, requiredFields, 4)
+		candidateHint := ""
+		if len(candidateArtifacts) > 0 {
+			candidateHint = " Candidate record-shaped input(s): " + strings.Join(candidateArtifacts, "; ") + "."
+		}
 		reason := fmt.Sprintf("data planning incomplete: action %d (%s) consumes input %s, but artifact schema projection classifies it as node_class=%s json_shape=%s kind=%s, not a record-shaped artifact for this typed action. Use a record-producing typed action first, choose a record-shaped alias from artifact_graph, or inspect the artifact schema before consuming it.",
 			input.ActionIndex+1,
 			firstNonEmptyGuardText(strings.TrimSpace(input.Action.ID), string(kind)),
@@ -85,6 +91,7 @@ func ActionSchemaShapeGuardResult(input ActionSchemaShapeGuardInput) GuardResult
 			firstNonEmptyGuardText(strings.TrimSpace(projection.JSONShape), "unknown"),
 			firstNonEmptyGuardText(strings.TrimSpace(projection.Kind), "unknown"),
 		)
+		reason += candidateHint
 		violation := NewActionInputViolation(
 			"artifact_schema_incompatible",
 			"error",
@@ -96,9 +103,71 @@ func ActionSchemaShapeGuardResult(input ActionSchemaShapeGuardInput) GuardResult
 			[]string{string(dataquery.DataActionExtractRecords), string(dataquery.DataActionInspectMaterial)},
 		)
 		violation.AvailableFieldSample = append([]string(nil), projection.Fields...)
+		violation.CandidateArtifacts = append([]string(nil), candidateArtifacts...)
 		return NewGuardResult("artifact_schema_incompatible", "error", RepairNeedsTypedAction, reason, violation)
 	}
 	return GuardResult{}
+}
+
+func ActionInputExpectedFields(action dataquery.DataAction, inputAlias string) []string {
+	inputAlias = normalizeAccessPath(inputAlias)
+	if inputAlias == "" {
+		return nil
+	}
+	kind := NormalizeActionKind(action.Kind)
+	var requirements []ActionFieldRequirement
+	switch kind {
+	case dataquery.DataActionDeriveFields,
+		dataquery.DataActionExtractFields,
+		dataquery.DataActionGroupRecords,
+		dataquery.DataActionExpandRecords,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionQualifyRecords:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) == 1 && normalizeAccessPath(inputs[0]) == inputAlias {
+			return SingleRecordSetActionFieldRefs(kind, action)
+		}
+	case dataquery.DataActionComputeContribs:
+		inputs := cleanStrings(action.InputPaths)
+		if len(inputs) == 1 && normalizeAccessPath(inputs[0]) == inputAlias {
+			return ComputeContributionActionFieldRefs(action)
+		}
+	case dataquery.DataActionJoinRecords:
+		requirements = JoinActionFieldRequirements(action)
+	case dataquery.DataActionMappingCandidate, dataquery.DataActionNormalizeEntities:
+		var skip bool
+		requirements, skip = NormalizeEntityActionFieldRequirements(action)
+		if skip {
+			return nil
+		}
+	case dataquery.DataActionEnrichRecords:
+		requirements = EnrichActionFieldRequirements(action)
+	}
+	for _, req := range requirements {
+		if normalizeAccessPath(req.Path) == inputAlias {
+			return cleanStrings(req.Fields)
+		}
+	}
+	return nil
+}
+
+func RecordInputCandidateArtifactLabels(projections []ArtifactSchemaProjection, rejected ArtifactSchemaProjection, inputAlias string, requiredFields []string, limit int) []string {
+	candidates := RecordInputCandidateArtifacts(projections, rejected, inputAlias, requiredFields, limit)
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		alias := strings.TrimSpace(candidate.Alias)
+		if alias == "" {
+			continue
+		}
+		label := alias
+		if len(candidate.MatchingFields) > 0 {
+			label += " has record fields [" + strings.Join(cleanStrings(candidate.MatchingFields), ", ") + "]"
+		} else {
+			label += " is record-shaped"
+		}
+		out = append(out, label)
+	}
+	return out
 }
 
 func ActionRequiresRecordInputs(kind dataquery.DataActionKind) bool {

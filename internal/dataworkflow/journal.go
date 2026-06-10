@@ -159,6 +159,10 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 	summary := firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, state.WorkflowViolationSummary, BuildWorkflowViolationSummary(violations))
 	requestedStatus := strings.TrimSpace(input.Status)
 	completionSatisfied := WorkflowStateSnapshotCompletionSatisfied(state)
+	if completionSatisfied && workflowDecisionStatusLooksComplete(requestedStatus) {
+		violations = nil
+		summary = WorkflowViolationSummary{}
+	}
 	preserveBaseStatus := workflowJournalShouldPreserveBaseStatus(state.Decision.Status, requestedStatus) && !completionSatisfied
 	lastError := strings.TrimSpace(input.LastError)
 	priorErrors := workflowJournalPriorErrors(records, 8)

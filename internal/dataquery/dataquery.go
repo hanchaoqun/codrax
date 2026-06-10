@@ -1032,42 +1032,51 @@ func (r *ContributionRecord) UnmarshalJSON(data []byte) error {
 }
 
 type EntityResolutionRecord struct {
-	ItemID         LooseText         `json:"item_id,omitempty"`
-	SourceValue    LooseText         `json:"source_value,omitempty"`
-	CanonicalID    LooseText         `json:"canonical_id,omitempty"`
-	CanonicalLabel LooseText         `json:"canonical_label,omitempty"`
-	Status         LooseText         `json:"status,omitempty"`
-	Candidates     []EntityCandidate `json:"candidates,omitempty"`
-	EvidenceRefs   []string          `json:"evidence_refs,omitempty"`
-	RuleRefs       []string          `json:"rule_refs,omitempty"`
-	Reason         LooseText         `json:"reason,omitempty"`
+	ItemID              LooseText         `json:"item_id,omitempty"`
+	SourceValue         LooseText         `json:"source_value,omitempty"`
+	SourceField         LooseText         `json:"source_field,omitempty"`
+	CanonicalID         LooseText         `json:"canonical_id,omitempty"`
+	CanonicalLabel      LooseText         `json:"canonical_label,omitempty"`
+	CanonicalIDField    LooseText         `json:"canonical_id_field,omitempty"`
+	CanonicalLabelField LooseText         `json:"canonical_label_field,omitempty"`
+	Status              LooseText         `json:"status,omitempty"`
+	Candidates          []EntityCandidate `json:"candidates,omitempty"`
+	EvidenceRefs        []string          `json:"evidence_refs,omitempty"`
+	RuleRefs            []string          `json:"rule_refs,omitempty"`
+	Reason              LooseText         `json:"reason,omitempty"`
 }
 
 func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
 	type rawEntityResolutionRecord struct {
-		ItemID         LooseText       `json:"item_id,omitempty"`
-		SourceValue    LooseText       `json:"source_value,omitempty"`
-		CanonicalID    LooseText       `json:"canonical_id,omitempty"`
-		CanonicalLabel LooseText       `json:"canonical_label,omitempty"`
-		Status         LooseText       `json:"status,omitempty"`
-		Candidates     json.RawMessage `json:"candidates,omitempty"`
-		EvidenceRefs   []string        `json:"evidence_refs,omitempty"`
-		RuleRefs       []string        `json:"rule_refs,omitempty"`
-		Reason         LooseText       `json:"reason,omitempty"`
+		ItemID              LooseText       `json:"item_id,omitempty"`
+		SourceValue         LooseText       `json:"source_value,omitempty"`
+		SourceField         LooseText       `json:"source_field,omitempty"`
+		CanonicalID         LooseText       `json:"canonical_id,omitempty"`
+		CanonicalLabel      LooseText       `json:"canonical_label,omitempty"`
+		CanonicalIDField    LooseText       `json:"canonical_id_field,omitempty"`
+		CanonicalLabelField LooseText       `json:"canonical_label_field,omitempty"`
+		Status              LooseText       `json:"status,omitempty"`
+		Candidates          json.RawMessage `json:"candidates,omitempty"`
+		EvidenceRefs        []string        `json:"evidence_refs,omitempty"`
+		RuleRefs            []string        `json:"rule_refs,omitempty"`
+		Reason              LooseText       `json:"reason,omitempty"`
 	}
 	var raw rawEntityResolutionRecord
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 	*r = EntityResolutionRecord{
-		ItemID:         raw.ItemID,
-		SourceValue:    raw.SourceValue,
-		CanonicalID:    raw.CanonicalID,
-		CanonicalLabel: raw.CanonicalLabel,
-		Status:         raw.Status,
-		EvidenceRefs:   raw.EvidenceRefs,
-		RuleRefs:       raw.RuleRefs,
-		Reason:         raw.Reason,
+		ItemID:              raw.ItemID,
+		SourceValue:         raw.SourceValue,
+		SourceField:         raw.SourceField,
+		CanonicalID:         raw.CanonicalID,
+		CanonicalLabel:      raw.CanonicalLabel,
+		CanonicalIDField:    raw.CanonicalIDField,
+		CanonicalLabelField: raw.CanonicalLabelField,
+		Status:              raw.Status,
+		EvidenceRefs:        raw.EvidenceRefs,
+		RuleRefs:            raw.RuleRefs,
+		Reason:              raw.Reason,
 	}
 	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err == nil {
@@ -1077,11 +1086,20 @@ func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
 		if r.SourceValue.String() == "" {
 			r.SourceValue = LooseText(rawAliasString(rawMap, "source", "raw", "raw_value", "value"))
 		}
+		if r.SourceField.String() == "" {
+			r.SourceField = LooseText(rawAliasString(rawMap, "input_field", "field", "source_name_field"))
+		}
 		if r.CanonicalID.String() == "" {
 			r.CanonicalID = LooseText(rawAliasString(rawMap, "canonical", "normalized_id", "target_id"))
 		}
 		if r.CanonicalLabel.String() == "" {
 			r.CanonicalLabel = LooseText(rawAliasString(rawMap, "label", "normalized_label", "target_label"))
+		}
+		if r.CanonicalIDField.String() == "" {
+			r.CanonicalIDField = LooseText(rawAliasString(rawMap, "id_field", "reference_id_field"))
+		}
+		if r.CanonicalLabelField.String() == "" {
+			r.CanonicalLabelField = LooseText(rawAliasString(rawMap, "label_field", "reference_label_field"))
 		}
 		if r.Reason.String() == "" {
 			r.Reason = LooseText(rawAliasString(rawMap, "notes", "summary", "details"))
