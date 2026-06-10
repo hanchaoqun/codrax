@@ -158,13 +158,13 @@ not stuffed into prompts directly.
 
 ### Batch 3: Action Executors
 
-- [ ] Implement native `explore_code`, `plan_batch`, `apply_plan`,
+- [x] Implement native `explore_code`, `plan_batch`, `apply_plan`,
       `verify_batch`, `append_batch`, `split_batch`, and `replan_batch`
       scheduling.
-- [ ] Stop using `BuildWriteTaskGraph` as the controller's main execution path.
-- [ ] Keep planner/coder/verifier agents but call them through action-specific
+- [x] Stop using `BuildWriteTaskGraph` as the controller's main execution path.
+- [x] Keep planner/coder/verifier agents but call them through action-specific
       executors.
-- [ ] Support verify-failure convergence through re-explore/replan/split.
+- [x] Support verify-failure convergence through re-explore/replan/split.
 
 ### Batch 4: Unified Permission Engine
 
@@ -225,3 +225,4 @@ not stuffed into prompts directly.
 | 0 | complete | `d4dc7840` | pushed | New controller-first ledger created. |
 | 1 | complete | `24db3c62` | pushed | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |
 | 2 | implemented | pending | pending | Workflow run schema now carries timestamps, refs, and attempts; scheduler resumes active runs when no plan-file seed is supplied. Tests: `go test ./internal/types ./internal/writeflow ./internal/repl ./internal/orchestrator`. |
+| 3 | complete | `24db3c62` | pushed | Action-level controller executors were delivered with the controller canonicalization batch: plan/apply/verify are directly schedulable, verify failure returns to controller under retry budget, and `BuildWriteTaskGraph` is no longer the controller main execution path. |
