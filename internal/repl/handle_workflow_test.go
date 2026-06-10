@@ -71,6 +71,7 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 	out := &bytes.Buffer{}
 	r := New(Config{
 		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
 		Out:                   out,
 		RepoRoot:              "/tmp/repo",
 		Branch:                "main",
@@ -236,5 +237,95 @@ func TestRejectMarksOnlyActiveWorkflowBatchBlocked(t *testing.T) {
 	}
 	if len(loaded.ProgressLedger) == 0 || loaded.ProgressLedger[len(loaded.ProgressLedger)-1].ReasonCode != "rejected" {
 		t.Fatalf("workflow rejection progress missing: %+v", loaded.ProgressLedger)
+	}
+}
+
+func TestWorkflowResumeSelectsSavedWriteWorkflow(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-resume",
+		Status:        types.WriteWorkflowRunPlanned,
+		ActiveBatchID: "batch-done",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-done",
+			Status: types.WriteWorkflowBatchComplete,
+		}, {
+			ID:     "batch-next",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow resume wf-resume")
+
+	loaded, err := workflowStore.Load("wf-resume")
+	if err != nil {
+		t.Fatalf("Load workflow: %v", err)
+	}
+	if loaded.Status != types.WriteWorkflowRunInProgress || loaded.ActiveBatchID != "batch-next" {
+		t.Fatalf("resume should activate next resumable batch: %+v", loaded)
+	}
+	if len(loaded.ProgressLedger) == 0 || loaded.ProgressLedger[len(loaded.ProgressLedger)-1].ReasonCode != "resumed" {
+		t.Fatalf("resume progress missing: %+v", loaded.ProgressLedger)
+	}
+}
+
+func TestWorkflowClearDeletesActiveWriteWorkflow(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-clear",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			PackID:  "pack-1",
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "evidence_ref",
+				Text:     "internal/repl/repl.go:1",
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow clear")
+
+	loaded, err := workflowStore.Load("wf-clear")
+	if err != nil {
+		t.Fatalf("Load after clear: %v", err)
+	}
+	if loaded != nil {
+		t.Fatal("workflow should be deleted after /workflow clear")
 	}
 }

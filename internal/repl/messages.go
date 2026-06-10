@@ -1492,9 +1492,9 @@ func workflowCancelledMsg(lang, id string) string {
 
 func workflowHelpMsg(lang string) string {
 	if isZh(lang) {
-		return "/workflow [show|list|cancel] — show 优先展示 active write workflow；cancel 仅取消当前 operation skill workflow。写模式批次继续使用 /approve 或 /reject。"
+		return "/workflow [show|list|resume|clear|cancel] — show 优先展示 active write workflow；resume/clear 作用于 write workflow；cancel 仅取消当前 operation skill workflow。写模式批次继续使用 /approve 或 /reject。"
 	}
-	return "/workflow [show|list|cancel] — show prefers the active write workflow; cancel only cancels the current operation skill workflow. Continue write batches with /approve or /reject."
+	return "/workflow [show|list|resume|clear|cancel] — show prefers the active write workflow; resume/clear target write workflows; cancel only cancels the current operation skill workflow. Continue write batches with /approve or /reject."
 }
 
 func providerWorkflowMarkdown(lang string, wf operation.WorkflowInstance) string {

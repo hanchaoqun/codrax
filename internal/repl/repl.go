@@ -4323,6 +4323,16 @@ func (r *REPL) handleWorkflowCmd(line string) {
 			return
 		}
 		r.info(workflowHelpMsg(r.language))
+	case rest == "resume" || strings.HasPrefix(rest, "resume "):
+		if r.handleWriteWorkflowResume(rest) {
+			return
+		}
+		r.info(workflowHelpMsg(r.language))
+	case rest == "clear" || strings.HasPrefix(rest, "clear "):
+		if r.handleWriteWorkflowClear(rest) {
+			return
+		}
+		r.info(workflowHelpMsg(r.language))
 	case rest == "cancel":
 		if r.providerWorkflow == nil {
 			r.info(workflowNoActiveMsg(r.language))

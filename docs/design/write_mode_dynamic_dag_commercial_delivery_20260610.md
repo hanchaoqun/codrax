@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 6 implemented
+Status: Batch 7 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -190,11 +190,11 @@ not stuffed into prompts directly.
 
 ### Batch 7: CLI/REPL And Docs
 
-- [ ] Add `/workflow show/list/resume/clear`.
-- [ ] Make `/approve` and `/reject` operate on the active batch.
-- [ ] Update `docs/architecture.md`, `docs/user_guide.md`, and
+- [x] Add `/workflow show/list/resume/clear`.
+- [x] Make `/approve` and `/reject` operate on the active batch.
+- [x] Update `docs/architecture.md`, `docs/user_guide.md`, and
       `codrax.yaml.example`.
-- [ ] Update this progress ledger after each pushed batch.
+- [x] Update this progress ledger after each pushed batch.
 
 ### Batch 8: Commercial Hardening
 
@@ -228,4 +228,5 @@ not stuffed into prompts directly.
 | 3 | complete | `24db3c62` | pushed | Action-level controller executors were delivered with the controller canonicalization batch: plan/apply/verify are directly schedulable, verify failure returns to controller under retry budget, and `BuildWriteTaskGraph` is no longer the controller main execution path. |
 | 4 | complete | `181833a0` | pushed | Shared `allow/ask/deny` permission primitive added; write approval maps to shared permission decisions; write-mode `exec_command` uses typed permission output before running observation commands. Tests: `go test ./internal/safety ./internal/tool ./internal/writeflow ./internal/operation`. |
 | 5 | complete | `e15d884d` | pushed | `WriteContextPack` artifacts are persisted under workflow context dirs and batch refs are attached to durable runs. Tests: `go test ./internal/types ./internal/repl ./internal/orchestrator ./internal/agent`. |
-| 6 | implemented | pending | pending | Planner prompt now scopes to the active workflow batch and typed context pack; controller prompt hygiene tests pin canonical actions and forbid prose-routing/unsupported action drift. Tests: `go test ./internal/skill`. |
+| 6 | complete | `f363be76` | pushed | Planner prompt now scopes to the active workflow batch and typed context pack; controller prompt hygiene tests pin canonical actions and forbid prose-routing/unsupported action drift. Tests: `go test ./internal/skill`. |
+| 7 | implemented | pending | pending | `/workflow resume` and `/workflow clear` added for durable write runs; clear removes context artifacts; user and architecture docs now describe controller-first write mode. Tests: `go test ./internal/repl`. |

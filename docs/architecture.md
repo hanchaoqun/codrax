@@ -217,7 +217,7 @@ graph TB
 
 | 组件 | 包路径 | 职责 |
 |------|--------|------|
-| **Orchestrator** | `internal/orchestrator` | DAG 调度、阶段分派、retry / contract check、CGEC enforcer、写模式三阶段直分派与 opt-in controller DAG |
+| **Orchestrator** | `internal/orchestrator` | DAG 调度、阶段分派、retry / contract check、CGEC enforcer、写模式 controller-first 动态 DAG |
 | **Agent** | `internal/agent` | 9 个专业 Agent；每个嵌入 `BaseAgent` 跑 ReAct 循环 |
 | **Skill** | `internal/skill` | 声明式配置：每个 skill 写明 workflow / 工具 allowlist / 输出格式 / 禁令 |
 | **Tool** | `internal/tool` | 只读工具 + 结构化发射器 + 写模式工具 + grounding 验证 |
@@ -1358,13 +1358,13 @@ const (
 
 | Mode | 阶段链 | 退出条件 |
 |---|---|---|
-| ModePlan | analyze → write_analyze → runPlanPhase | Plan 写到 Mutable.ChangePlan；cmd/root.go 写 `--plan-out` 或 `.codrax/plans/<id>.json`；REPL 走 PlanStore 自动保存 |
-| ModeApply | analyze → write_analyze → runPlanPhase（PlanPath 已设则跳过）→ runApplyPhase → runVerifyPhase | 任一失败 fail-loud；全成功 PlanStatus=applied；worktree 默认销毁，开 `pipeline_keep_worktree_on_success` 则保留 |
-| ModeVerify | analyze → write_analyze → runVerifyPhase | 独立 re-verify：对已有 plan 的 worktree 重跑测试；不会重新 apply |
+| ModePlan | analyze → write_analyze → write_controller loop (`explore_code` / `plan_batch` / terminal) | 允许只读探索并生成当前 bounded batch 的 ChangePlan；不进入 apply mutation |
+| ModeApply | analyze → write_analyze → write_controller loop (`explore_code` / `plan_batch` / `apply_plan` / `verify_batch` / `replan_batch` / `split_batch` / `append_batch` / terminal) | 低/中风险自动推进，高风险停在 pending approval，critical/策略拒绝 block；成功后 run complete |
+| ModeVerify | analyze → write_analyze → write_controller verify path | 验证指定 workflow run、active batch 或导入 plan seed；不绕过 durable run 和 risk/approval 记录 |
 
-读模式（ModeRead）继续走 runTaskGraph，字节级行为不变。默认 `write_workflow_engine=legacy` 时,写模式 3 个阶段不经 DAG scheduler；analyzer 仍跑一次作分类器（保持 read mode L1 byte-identity）；随后 `Run()` 分支到 mode-specific phase 函数。
+读模式（ModeRead）继续走 runTaskGraph，字节级行为不变。写模式不再暴露 legacy/controller 选择面；`write_workflow_engine` 只兼容解析旧本地配置,不会改变调度器。analyzer 仍跑一次作分类器（保持 read mode L1 byte-identity）,随后 `write_analyzer` 产生 `WriteAnalysisIR` 并种入 durable `WriteWorkflowRun`。
 
-`write_workflow_engine=controller` 是显式 opt-in 的外层写模式 DAG。它只在 `ModeApply` 且没有 `--plan-file` 时接管,先生成 `WriteWorkflowRun`，再通过 `write_controller` 的 typed `emit_write_workflow_decision` 在 `explore_code / plan_change_batch / finish / block` 间推进。每个 code-changing batch 仍复用现有 `BuildWriteTaskGraph` 内层 plan→apply→verify 执行器；controller 不解析模型散文,只读取结构化 decision、ChangePlan、ChangeReport、approval record 和 context pack。run 持久化到 `.codrax/plans/workflows/`，REPL `/workflow show` 读取该持久态展示 active batch、handoff、approval 和预算。
+controller 是唯一公开写模式调度器。它通过 typed `emit_write_workflow_decision` 在 `explore_code / plan_batch / apply_plan / verify_batch / append_batch / split_batch / replan_batch / ask_user / finish / block` 间推进；调度器只消费结构化 decision、ChangePlan、ChangeReport、approval record、permission decision 和 context pack,不解析模型散文。`--plan-file` 被导入为单 batch workflow seed,同样经过最终 apply-pre gate。run 持久化到 `.codrax/plans/workflows/`，REPL `/workflow show/list/resume/clear` 读取并管理该持久态。
 
 ### 8.3 write_analyzer — 写模式专属请求分类
 
@@ -2481,7 +2481,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
 
-**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；controller engine 下没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list` 读取 `.codrax/plans/workflows/` 展示 active write workflow，若没有 active write workflow 再回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 多阶段方案进度；`/pitfalls` 列出 active pitfall。
+**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/resume/clear` 读取 `.codrax/plans/workflows/` 展示、恢复或清理 active write workflow，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 多阶段方案进度；`/pitfalls` 列出 active pitfall。
 
 ### 13.4 internal/tool/blob — Tool 输出落盘
 
@@ -2566,7 +2566,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `analysis_*` | emit_analysis 运行时验证 | `analysis_warn_below_keywords`（8）/ `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds`（3）/ `analysis_emit_only_correction_retries`（3）/ `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` / `analysis_evidence_profile`（permissive/balanced/strict/custom）/ `analysis_grounding_floor` / `analysis_evidence_tier1_floor` |
 | `evidence_*` | explorer completion gate | `evidence_grounding_floor` / `evidence_tier1_floor`（legacy numeric overrides; omitted values inherit the active evidence profile） |
 | `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_strict_answer_review_enabled`（true）/ `pipeline_self_consistency_review_enabled`（false，opt-in）系列 / `pipeline_semantic_quality_review_enabled`（false，opt-in）/ `pipeline_transient_retry_budget`（3）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（600）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
-| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` / `write_workflow_engine`（legacy） |
+| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` / `write_workflow_engine`（compatibility-only, always controller-first） |
 | `gate_*` | analyzer 质量门 | `gate_coverage_min`（0.6）/ `gate_coverage_weight_{symbol,config,concept}`（1.0/0.7/0.4）/ `gate_hypothesis_min_priority` |
 | `explore_*` | explorer heuristics | `explore_per_tool_default_cap` + 15 个 ExploreHeuristics 阈值 |
 | `agent_*` | Agent 限额 | `agent_max_iterations`（20）/ `agent_max_tool_history_bytes`（150 KB）/ `agent_max_tool_history_fraction`（fraction × ctxwin × 4）/ 4 个 `agent_loop_*` / `agent_finalizer_*`（max_correction_retries / preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）/ `agent_extractor_max_correction_retries` / per-evaluator 双段 iter cap（planner 6/9 / extractor 3/5 / verifier 5/8 / coder slack=3 recovery=3）/ per-dispatch scaling（subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra + planner_complexity_extra / extractor_complexity_extra / target_paths_verifier_extra）/ scaled_iter_max ceiling 系列 / `agent_max_retry_budget_ceil`（5）/ `agent_log_triager_iter_cap`（20）/ `agent_perf_triager_iter_cap`（20）/ `agent_investigation_complete_policy`（"soft"）/ `agent_prior_conversation_policy`（"analyzer"）/ `agent_context_pressure_soft_ratio`（0.7）/ `agent_context_pressure_hard_ratio`（0.9） |

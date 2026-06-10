@@ -1742,9 +1742,9 @@ write_enabled: true
 
 ## 4.2 完整流程
 
-写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。在 plan 之前还有两个隐式分类阶段——`analyze`(读模式 analyzer 复用作请求分类)+ `write_analyze`(写模式专属,产 `WriteAnalysisIR`:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。
+写模式用户入口仍是三类动作:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。内部统一走 controller-first 动态 DAG:先跑 `analyze`(读模式 analyzer 复用作请求分类)+ `write_analyze`(产 `WriteAnalysisIR`:任务 kind/scope/risk/期望结果),再由 `write_controller` 每次选择一个 typed action 推进。
 
-默认 `write_workflow_engine: legacy` 保持这条稳定路径。复杂写任务可以在 yaml 里显式设 `write_workflow_engine: controller` 开启外层动态 DAG:controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`/workflow show` 会展示 active batch、queued batches、审批记录、handoff 摘要和剩余预算;没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
+controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。`/workflow show` 展示 active batch、queued batches、审批记录、handoff 摘要和剩余预算;`/workflow resume` 把保存的非终态 run 置为下一次写模式续跑目标;`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
 
 REPL 实际流程:
 
@@ -2150,7 +2150,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
 | `write_auto_approval` | `false` | 兼容旧布尔配置;仅未设置 `write_approval_policy` 时生效。`true` 映射 `auto_safe`,`false` 映射 `manual` |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
-| `write_workflow_engine` | `legacy` | 外层写模式调度器:`legacy` 保持现有稳定路径;`controller` 开启动态 DAG、持久 workflow run 和 `/workflow show` 批次视图 |
+| `write_workflow_engine` | compatibility-only | 兼容旧本地配置的已废弃键;写模式始终使用 controller-first 动态 DAG、持久 workflow run 和 `/workflow show/list/resume/clear` 批次视图 |
 | `pipeline_write_retry_budget` | 3 | verify 失败后自动重 plan 的最大次数 |
 | `pipeline_write_retry_budget_ceil` | 5 | 上面那个 budget 的硬上限 |
 | `pipeline_baseline_capture_enabled` | `false` | 写模式开启前先跑一次基准测试,用于回归判定(双倍测试时间) |
@@ -2389,7 +2389,8 @@ operation 工作流相关 REPL 命令:
 
 - `/approve`:执行当前 workflow action。
 - `/workflow show`:查看当前 workflow 的节点、边、队列和当前 action；如果同时存在 active write workflow,会优先展示 write workflow,这时用 `/operation show` 查看 operation workflow。
-- `/workflow cancel`:取消当前 workflow。
+- `/workflow resume` / `/workflow clear`:作用于 write workflow run；operation workflow 不使用这两个命令。
+- `/workflow cancel`:取消当前 operation workflow。
 - `/operation show`:也会优先展示当前 workflow 状态。
 
 如果 stdout / stderr 很大,codrax 会把完整输出写到 `.codrax/operation/`,面板只展示短预览和完整输出路径。
@@ -2547,6 +2548,8 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/reject [reason]` | 拒绝当前 pending plan(理由记入 memory) |
 | `/workflow show` | 查看 active write workflow 的 batch、approval、handoff 和 budget;无 active write workflow 时回落到 operation workflow |
 | `/workflow list` | 列出 `.codrax/plans/workflows/` 下保存的 write workflow runs |
+| `/workflow resume [<run-id>]` | 将指定或当前非终态 write workflow 设为 active,下一次写模式从该 batch 继续 |
+| `/workflow clear [<run-id>]` | 删除指定或当前 active write workflow run 元数据和 context artifacts,不删除 plan/worktree |
 | `/verify [<id>]` | 对已 apply 的 plan 重跑 verify |
 | `/worktree list` | 列出保留的 worktree |
 | `/worktree discard <id>` | 删除指定 worktree |

@@ -183,6 +183,10 @@ func (s *WriteWorkflowRunStore) Clear(id string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("WriteWorkflowRunStore.Clear: remove %s: %w", path, err)
 	}
+	contextDir := filepath.Join(s.workflowDir, "contexts", id)
+	if err := os.RemoveAll(contextDir); err != nil {
+		return fmt.Errorf("WriteWorkflowRunStore.Clear: remove %s: %w", contextDir, err)
+	}
 	return nil
 }
 

@@ -75,6 +75,19 @@ func TestWriteWorkflowRunStoreSaveLoadList(t *testing.T) {
 	if active == nil || active.RunID != "wf-1" {
 		t.Fatalf("unexpected active run: %+v", active)
 	}
+	if err := store.Clear("wf-1"); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(contextPath); !os.IsNotExist(err) {
+		t.Fatalf("context artifact dir should be cleared, stat err=%v", err)
+	}
+	loaded, err = store.Load("wf-1")
+	if err != nil {
+		t.Fatalf("Load after Clear: %v", err)
+	}
+	if loaded != nil {
+		t.Fatal("Load after Clear should return nil run")
+	}
 }
 
 func TestWriteWorkflowRunStoreRejectsInvalidID(t *testing.T) {

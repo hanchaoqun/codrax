@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -53,6 +54,14 @@ func workflowShowID(rest string) string {
 	return ""
 }
 
+func workflowCommandID(rest, command string) string {
+	fields := strings.Fields(rest)
+	if len(fields) >= 2 && fields[0] == command {
+		return fields[1]
+	}
+	return ""
+}
+
 func (r *REPL) handleWriteWorkflowList() bool {
 	if r.writeWorkflowRunStore == nil {
 		return false
@@ -67,6 +76,103 @@ func (r *REPL) handleWriteWorkflowList() bool {
 		return true
 	}
 	r.renderBordered(writeWorkflowListMarkdown(r.language, infos))
+	return true
+}
+
+func (r *REPL) handleWriteWorkflowResume(rest string) bool {
+	if r.writeWorkflowRunStore == nil {
+		return false
+	}
+	runID := workflowCommandID(rest, "resume")
+	var (
+		run *types.WriteWorkflowRun
+		err error
+	)
+	if runID != "" {
+		run, err = r.writeWorkflowRunStore.Load(runID)
+	} else {
+		run, err = r.writeWorkflowRunStore.FindActiveRun()
+	}
+	if err != nil {
+		r.errorf("workflow resume: %v\n", err)
+		return true
+	}
+	if run == nil {
+		r.info(workflowNoActiveMsg(r.language))
+		return true
+	}
+	if run.Status == types.WriteWorkflowRunComplete || run.Status == types.WriteWorkflowRunBlocked {
+		r.info(writeWorkflowCannotResumeMsg(r.language, run.RunID, string(run.Status)))
+		return true
+	}
+	batchID := resumableWriteWorkflowBatchID(*run)
+	if batchID == "" {
+		r.info(writeWorkflowCannotResumeMsg(r.language, run.RunID, "no resumable batch"))
+		return true
+	}
+	now := time.Now()
+	run.Status = types.WriteWorkflowRunInProgress
+	run.ActiveBatchID = batchID
+	run.UpdatedAt = now
+	run.ProgressLedger = append(run.ProgressLedger, types.WriteWorkflowProgress{
+		BatchID:    batchID,
+		Stage:      "repl",
+		Status:     string(types.WriteWorkflowRunInProgress),
+		ReasonCode: "resumed",
+		Message:    "workflow selected for next write-mode continuation",
+		At:         now,
+	})
+	if _, err := r.writeWorkflowRunStore.Save(run); err != nil {
+		r.errorf("workflow resume: %v\n", err)
+		return true
+	}
+	r.info(writeWorkflowResumedMsg(r.language, run.RunID, batchID))
+	return true
+}
+
+func resumableWriteWorkflowBatchID(run types.WriteWorkflowRun) string {
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID != "" {
+		for _, batch := range run.Batches {
+			if batch.ID == activeID && batch.Status != types.WriteWorkflowBatchComplete && batch.Status != types.WriteWorkflowBatchBlocked {
+				return batch.ID
+			}
+		}
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == "" {
+			continue
+		}
+		if batch.Status == types.WriteWorkflowBatchComplete || batch.Status == types.WriteWorkflowBatchBlocked {
+			continue
+		}
+		return batch.ID
+	}
+	return ""
+}
+
+func (r *REPL) handleWriteWorkflowClear(rest string) bool {
+	if r.writeWorkflowRunStore == nil {
+		return false
+	}
+	runID := workflowCommandID(rest, "clear")
+	if runID == "" {
+		run, err := r.writeWorkflowRunStore.FindActiveRun()
+		if err != nil {
+			r.errorf("workflow clear: %v\n", err)
+			return true
+		}
+		if run == nil {
+			r.info(workflowNoActiveMsg(r.language))
+			return true
+		}
+		runID = run.RunID
+	}
+	if err := r.writeWorkflowRunStore.Clear(runID); err != nil {
+		r.errorf("workflow clear: %v\n", err)
+		return true
+	}
+	r.info(writeWorkflowClearedMsg(r.language, runID))
 	return true
 }
 
@@ -435,6 +541,27 @@ func writeWorkflowNoRunsMsg(lang string) string {
 		return "当前没有已保存的 write workflow。"
 	}
 	return "No saved write workflows."
+}
+
+func writeWorkflowResumedMsg(lang, runID, batchID string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("write workflow `%s` 已恢复为 active，当前 batch `%s`。下一次写模式会继续它。", runID, batchID)
+	}
+	return fmt.Sprintf("Write workflow `%s` resumed as active at batch `%s`. The next write-mode run will continue it.", runID, batchID)
+}
+
+func writeWorkflowClearedMsg(lang, runID string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("write workflow `%s` 已清理。", runID)
+	}
+	return fmt.Sprintf("Write workflow `%s` cleared.", runID)
+}
+
+func writeWorkflowCannotResumeMsg(lang, runID, status string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("write workflow `%s` 不能恢复：%s。", runID, status)
+	}
+	return fmt.Sprintf("Write workflow `%s` cannot be resumed: %s.", runID, status)
 }
 
 func writeWorkflowBoundPlanMsg(lang, command, runID, batchID, planID string) string {
