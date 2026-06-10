@@ -22,6 +22,7 @@ import (
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -445,8 +446,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 	if shouldGateExecCommandAsWriteReadOnly(ctx) {
 		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
-		if err := validateReadOnlyExecCommand(command); err != nil {
-			result := writeModeExecRefusal(ctx, command, err)
+		decision := decideWriteModeExecPermission(command)
+		if decision.Action != safety.PermissionAllow {
+			result := writeModeExecRefusal(ctx, command, fmt.Errorf("%s: %s", decision.ReasonCode, decision.Reason))
 			result.Timestamp = time.Now()
 			return result, nil
 		}

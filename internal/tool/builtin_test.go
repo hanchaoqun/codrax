@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -889,6 +890,17 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 			t.Fatalf("write-stage read-only exec_command should run; got %q", result.Summary)
 		}
 	})
+}
+
+func TestDecideWriteModeExecPermission(t *testing.T) {
+	allowed := decideWriteModeExecPermission("pwd")
+	if allowed.Action != safety.PermissionAllow || allowed.ReasonCode != "write_exec_observation" {
+		t.Fatalf("pwd should be allowed observation, got %+v", allowed)
+	}
+	denied := decideWriteModeExecPermission("printf hi > out.txt")
+	if denied.Action != safety.PermissionDeny || denied.ReasonCode != "write_exec_not_observation" {
+		t.Fatalf("shell mutation should be denied, got %+v", denied)
+	}
 }
 
 // fakeActiveSetGater is a stand-in for *multigraph.MultiGraph that

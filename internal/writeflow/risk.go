@@ -198,6 +198,19 @@ func DecideWriteApproval(policy ApprovalPolicy, assessment RiskAssessment) Appro
 	}
 }
 
+func PermissionFromWriteApproval(decision ApprovalDecision) safety.PermissionDecision {
+	switch decision.Action {
+	case ApprovalActionAutoExecute:
+		return safety.AllowPermission("write_approval", decision.ReasonCode, decision.Reason)
+	case ApprovalActionManual:
+		return safety.AskPermission("write_approval", decision.ReasonCode, decision.Reason)
+	case ApprovalActionDeny:
+		return safety.DenyPermission("write_approval", decision.ReasonCode, decision.Reason)
+	default:
+		return safety.AskPermission("write_approval", "unknown_write_approval_action", "write approval action is unknown")
+	}
+}
+
 // NewApprovalRecord converts a typed assessment and approval decision into the
 // persisted ChangePlan approval audit shape. Callers supply the source and
 // userDecision so REPL confirmations, automatic policy decisions, and scheduler

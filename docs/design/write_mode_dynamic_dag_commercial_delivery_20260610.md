@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 2 implemented
+Status: Batch 4 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -168,11 +168,11 @@ not stuffed into prompts directly.
 
 ### Batch 4: Unified Permission Engine
 
-- [ ] Extract shared allow/ask/deny permission primitives.
-- [ ] Reuse operation approval concepts without coupling write mode to operation
+- [x] Extract shared allow/ask/deny permission primitives.
+- [x] Reuse operation approval concepts without coupling write mode to operation
       workflow internals.
-- [ ] Add per-agent write command permissions.
-- [ ] Enforce external-directory and doom-loop policy through typed signals.
+- [x] Add per-agent write command permissions.
+- [x] Enforce external-directory and doom-loop policy through typed signals.
 
 ### Batch 5: Durable Priority Handoff Store
 
@@ -224,5 +224,6 @@ not stuffed into prompts directly.
 | --- | --- | --- | --- | --- |
 | 0 | complete | `d4dc7840` | pushed | New controller-first ledger created. |
 | 1 | complete | `24db3c62` | pushed | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |
-| 2 | implemented | pending | pending | Workflow run schema now carries timestamps, refs, and attempts; scheduler resumes active runs when no plan-file seed is supplied. Tests: `go test ./internal/types ./internal/writeflow ./internal/repl ./internal/orchestrator`. |
+| 2 | complete | `8dde5687` | pushed | Workflow run schema now carries timestamps, refs, and attempts; scheduler resumes active runs when no plan-file seed is supplied. Tests: `go test ./internal/types ./internal/writeflow ./internal/repl ./internal/orchestrator`. |
 | 3 | complete | `24db3c62` | pushed | Action-level controller executors were delivered with the controller canonicalization batch: plan/apply/verify are directly schedulable, verify failure returns to controller under retry budget, and `BuildWriteTaskGraph` is no longer the controller main execution path. |
+| 4 | implemented | pending | pending | Shared `allow/ask/deny` permission primitive added; write approval maps to shared permission decisions; write-mode `exec_command` uses typed permission output before running observation commands. Tests: `go test ./internal/safety ./internal/tool ./internal/writeflow ./internal/operation`. |

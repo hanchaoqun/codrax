@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -206,6 +207,13 @@ func writeModeExecRefusal(ctx *types.BusContext, command string, err error) type
 			"exec_command refused: write-mode shell commands are restricted to read-only observation commands. %s. Use apply_patch for file edits and run_tests for validation; exec_command is not an apply channel in write mode. The command would have run from %s. The rejected command was: %s",
 			writeModeExecPolicyError(err), rootHint, sanitizeForBanner(command)),
 	}
+}
+
+func decideWriteModeExecPermission(command string) safety.PermissionDecision {
+	if err := validateReadOnlyExecCommand(command); err != nil {
+		return safety.DenyPermission("write_exec_command", "write_exec_not_observation", err.Error())
+	}
+	return safety.AllowPermission("write_exec_command", "write_exec_observation", "command is read-only observation")
 }
 
 func writeModeExecPolicyError(err error) string {

@@ -3,6 +3,7 @@ package writeflow
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -28,6 +29,18 @@ func TestAssessWriteRiskSourceMedium(t *testing.T) {
 	}
 	if decision := DecideWriteApproval(ApprovalPolicyAutoLowOnly, got); decision.Action != ApprovalActionManual {
 		t.Fatalf("auto_low_only approval = %s; want %s", decision.Action, ApprovalActionManual)
+	}
+}
+
+func TestPermissionFromWriteApproval(t *testing.T) {
+	if got := PermissionFromWriteApproval(ApprovalDecision{Action: ApprovalActionAutoExecute, ReasonCode: "ok"}); got.Action != safety.PermissionAllow {
+		t.Fatalf("auto_execute should map to allow, got %+v", got)
+	}
+	if got := PermissionFromWriteApproval(ApprovalDecision{Action: ApprovalActionManual, ReasonCode: "review"}); got.Action != safety.PermissionAsk {
+		t.Fatalf("manual should map to ask, got %+v", got)
+	}
+	if got := PermissionFromWriteApproval(ApprovalDecision{Action: ApprovalActionDeny, ReasonCode: "blocked"}); got.Action != safety.PermissionDeny {
+		t.Fatalf("deny should map to deny, got %+v", got)
 	}
 }
 
