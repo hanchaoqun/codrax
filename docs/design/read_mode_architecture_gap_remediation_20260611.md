@@ -88,10 +88,19 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 - [x] trace 投影 `LogFrame` 补 `ArtifactStartTsMs/ArtifactDurationMs`(产出端已有数据,纯透传),trace 帧可回锚时间窗。
 - [x] 实施期复核修正:审计的"log authority 排除 perf 文件"断言错误——perf union 发生在 authoritative ceiling 返回之前,perf 文件随 ceiling 一同返回;补澄清注释,无行为改动。
 
-### 批 4 — R5 emit 一致性 + R7 溢出计量(P2)
-- [ ] `decodeWithSalvage` 统一 seam;emit_log_triage / emit_perf_trace 迁移。
-- [ ] emit 拒绝消息 R6 hygiene 全量测试。
-- [ ] extractor 溢出 typed 计数 + 分数分布提示行。
+### 批 4 — R5 emit 一致性 + R7 溢出计量 + R8 条件引用拒绝(P2)【已交付】
+- [x] emit_log_triage salvage 成功路径把修复事实经 compat 注记带给模型(下次直接发数组),不再只进日志。
+- [x] emit_perf_trace 接入 MisplacedFieldHint 预映射(stalls/frames/observations 字符串载体 → 字段级修复指引)。
+- [x] 全 emit 拒绝消息 R6 hygiene 测试(枚举 5 个读管线 emit 工具,非法载荷触发拒绝,内部词汇扫描——测试 oracle,产品零关键字)。
+- [x] extractor 证据溢出提示升级:量化被截条数 + 声明"排名截断不构成反证、快照仍可取用"。
+- [x] R8(实测发现):emit_hypothesis_verdict 对 artifact-local 引用(log:N)的拒绝消息现在引用 typed 条件(本问要求 current-source lane → 需 repo 锚点,artifact 行留在 rationale),终结"格式不像 path:line"式的盲猜;声明格式的结构解析,非意图关键字。
+- [x] 混合案 spec 放宽:file:line 实路径引用视作"结合源码"的有效形态。
+
+### R9(实测第五轮发现,新增)用户引用的 artifact 坐标无 typed 通道贯穿到答案面
+
+logtri_line_current_code 复跑:同一问题("日志第 3 行的 first_byte_timeout")两轮答案,一轮保留"第 3 行"锚点、一轮丢失——坐标是否回显全凭模型措辞抖动。问题类:用户问句中引用的 artifact-local 坐标(日志/trace 行号)在 analyzer 处无 typed 声明位,finalizer 无对应软指令,答案面是否锚定全靠运气。
+
+**方案**:`RequestModel.ReferencedArtifactLines`(source enum + 行区间)由 analyzer 在 emit_analysis 中 typed 声明(模型分类,非系统关键字扫描);finalizer 答案面渲染软指令"问题引用了附件第 N 行,请以 artifact-local 坐标锚定解释,与 repo 引用保持两轨"。软引导 + typed 信号,不设硬门。
 
 ### 批 5 — 实测回归
 - [ ] 代表性 eval 四轴复跑(每波 2 个):s1a / logtri_goroutine_dump / trace_query_blocked_reason_chain / logtri_line_current_code / qf_architecture / trace_query_state_churn_root_cause_rank / logtri_cpp_asan / trace_query_donghu_mixed_platform。
@@ -113,4 +122,6 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 - 批 2 交付:kind/locus 分账 + force-finalize 前 drain;全量测试绿。
 - 批 3 交付:前置降级全链路可见 + 混合场景原子读/钉序/时间坐标;全量测试绿。
 - 实测第四波:logtri_cpp_asan PASS、trace_query_donghu_mixed_platform PASS。四轴八案 7/8,唯一 FAIL 为 case spec 词汇钉死(非系统缺陷)。
+- 批 4 交付:emit 一致性 + 溢出可观测 + R8 条件引用拒绝;全量测试绿。
+- 实测第五轮(spec 放宽后混合案复跑):FAIL 转移为真实抖动——artifact 行号锚点一轮在一轮丢 → 立项 R9(typed 坐标通道),见上。
 - 实测第二、三波:trace_query_blocked_reason_chain PASS、qf_architecture PASS、trace_query_state_churn_root_cause_rank PASS;logtri_line_current_code FAIL 判定为 case spec 词汇钉死(答案以精确 file:line 引用结合源码,优于字面"源码"一词;spec 待放宽)+ 顺带挖出 R8:emit_hypothesis_verdict 对 artifact-local 锚点的条件接受,拒绝消息未说明条件分支,归入批 4 的拒绝消息精度项。

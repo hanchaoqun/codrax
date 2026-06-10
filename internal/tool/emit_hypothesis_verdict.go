@@ -156,7 +156,7 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	}
 	built := make([]types.HypothesisVerdict, 0, len(p.Items))
 	for i, in := range p.Items {
-		v, perr := buildEmitHypothesisVerdictItem(in, i)
+		v, perr := buildEmitHypothesisVerdictItem(ctx, in, i)
 		if perr != nil {
 			return failEmit(t.Name(), now, "%v", perr)
 		}
@@ -266,7 +266,7 @@ func normalizeHypothesisVerdictCitationLists(ctx *types.BusContext, gc *ground.C
 		for _, candidate := range candidates {
 			candidateItem := items[i]
 			candidateItem.Citation = candidate
-			v, err := buildEmitHypothesisVerdictItem(candidateItem, i)
+			v, err := buildEmitHypothesisVerdictItem(ctx, candidateItem, i)
 			if err != nil {
 				continue
 			}
@@ -322,7 +322,7 @@ func splitHypothesisVerdictCitationCandidates(raw string) []string {
 // because it needs BusContext history. The cross-reference against
 // HypothesisSet[*].ID remains the drain layer's responsibility, see
 // MutableState.MarkHypothesis in P6.
-func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (types.HypothesisVerdict, error) {
+func buildEmitHypothesisVerdictItem(ctx *types.BusContext, in emitHypothesisVerdictItem, index int) (types.HypothesisVerdict, error) {
 	hypID := strings.TrimSpace(in.HypothesisID)
 	if hypID == "" {
 		return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: hypothesis_id is required", index)
@@ -356,13 +356,13 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 			}
 		}
 		if citation != "" && !looksLikeCitation(citation) {
-			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, in.Citation)
+			return types.HypothesisVerdict{}, hypothesisCitationShapeError(ctx, index, in.Citation)
 		}
 	case types.HypRejected:
 		if citation != "" {
 			// When provided, it must still be shape-valid.
 			if !looksLikeCitation(citation) {
-				return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, in.Citation)
+				return types.HypothesisVerdict{}, hypothesisCitationShapeError(ctx, index, in.Citation)
 			}
 		} else if rationale == "" {
 			// Absence-based rejection requires rationale to carry the
@@ -377,6 +377,23 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 		Rationale:    rationale,
 		Citation:     citation,
 	}, nil
+}
+
+
+// hypothesisCitationShapeError builds the rejection for a citation that
+// failed the repo path:line shape check. When the citation parses as an
+// artifact-local line reference (log:N / trace:N-M / runtime_artifact:N)
+// against an attached artifact, the message states the exact typed
+// condition that made it unacceptable here — this question requires the
+// current-source lane — instead of a generic shape complaint the model
+// cannot act on. All inputs are typed (declared-format parse + the
+// RequestModel lane flag); no prose is interpreted.
+func hypothesisCitationShapeError(ctx *types.BusContext, index int, raw string) error {
+	rawAttachment := ctx != nil && (strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "")
+	if prefix, _, _, ok := parseHypothesisLocalArtifactLineCitation(strings.TrimSpace(extractHypothesisArtifactCitationCandidate(raw))); ok && (hypothesisVerdictArtifactPrefixMatches(ctx, prefix) || rawAttachment) {
+		return fmt.Errorf("items[%d]: citation %q is an artifact-local line reference; this question requires the current-source lane, so confirmed/rejected verdicts need a repo 'path:line' (or an evidence_id of an accepted grounded item). Keep the artifact line in the rationale as observation context and cite the repo source that explains it.", index, raw)
+	}
+	return fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, raw)
 }
 
 func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []emitHypothesisVerdictItem) int {

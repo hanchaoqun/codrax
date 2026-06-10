@@ -205,7 +205,8 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("### Deterministic evidence the investigation extracted\n\n")
 			evMax := len(evidenceItems)
 			if evMax > extractorMaxEvidence {
-				fmt.Fprintf(&b, "*(showing top %d of %d ranked items)*\n\n", extractorMaxEvidence, evMax)
+				overflow := evMax - extractorMaxEvidence
+				fmt.Fprintf(&b, "*(showing top %d of %d ranked items; %d lower-ranked items are not shown — they remain available through the investigation snapshot, and absence from this list is a ranking cut, not evidence against them)*\n\n", extractorMaxEvidence, evMax, overflow)
 				evMax = extractorMaxEvidence
 			}
 			for i := 0; i < evMax; i++ {

@@ -151,7 +151,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, emitPerfTraceMisplacedHints)
 	}
 
 	// Cross-field sanity: at least one structured trace fact must be
@@ -759,4 +759,25 @@ func buildEmitPerfTraceSchema() map[string]any {
 			"residue":      map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "maxLength": 500}},
 		},
 	}
+}
+
+// emitPerfTraceMisplacedHints pre-maps the LLM-frequent shape drifts for
+// this tool so a strict-decode rejection carries field-precise repair
+// guidance instead of a bare parser error.
+var emitPerfTraceMisplacedHints = []MisplacedFieldHint{
+	{
+		Field:          "stalls",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"stalls (a JSON array of stall objects, not a JSON-encoded string)"},
+	},
+	{
+		Field:          "frames",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"frames (a JSON array of frame objects, not a JSON-encoded string)"},
+	},
+	{
+		Field:          "observations",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"observations (a JSON array of observation objects, not a JSON-encoded string)"},
+	},
 }

@@ -879,3 +879,27 @@ func TestLooksLikeCitation_Boundary(t *testing.T) {
 		})
 	}
 }
+
+// The shape-rejection for an artifact-local citation must state the typed
+// condition (current-source lane required) instead of a generic format
+// complaint — the model cannot otherwise know WHY log:N was refused here.
+func TestHypothesisCitationShapeError_CitesLaneCondition(t *testing.T) {
+	mu := types.NewMutableState("lane")
+	ctx := &types.BusContext{Mutable: mu, AttachedLog: "line one\nline two\nline three\n"}
+	err := hypothesisCitationShapeError(ctx, 0, "log:3")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "current-source lane") {
+		t.Fatalf("artifact-local rejection must cite the lane condition, got %q", msg)
+	}
+	if !strings.Contains(msg, "rationale") {
+		t.Fatalf("rejection must carry the repair direction, got %q", msg)
+	}
+	// A plain malformed citation keeps the generic shape message.
+	err2 := hypothesisCitationShapeError(ctx, 1, "???")
+	if err2 == nil || strings.Contains(err2.Error(), "current-source lane") {
+		t.Fatalf("non-artifact citations keep the generic message, got %v", err2)
+	}
+}

@@ -280,6 +280,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters())
 
 	var p emitLogTriageParams
+	var salvageNote string
 	decoded := false
 	if !decoded {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -287,6 +288,10 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 				p = salvaged
 				decoded = true
 				logging.Info("[emit_log_triage] salvaged string-wrapped array fields from partially malformed payload: %v", fields)
+				// The repair must reach the MODEL, not just the log:
+				// the same compat-note channel every structured emit
+				// uses, so the next emit sends arrays directly.
+				salvageNote = fmt.Sprintf(" [compat: fields %v arrived as JSON strings and were auto-repaired into arrays — emit real arrays next time]", fields)
 			}
 		}
 	}
@@ -390,7 +395,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   summary,
+		Summary:   summary + salvageNote,
 		Timestamp: time.Now(),
 	}, nil
 }
