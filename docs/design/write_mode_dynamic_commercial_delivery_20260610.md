@@ -213,14 +213,14 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 ### Batch 4: Controller MVP
 
-- [ ] Add `write_controller` agent/stage behind configuration.
-- [ ] Add `emit_write_workflow_decision` tool using the existing typed
+- [x] Add `write_controller` agent/stage behind configuration.
+- [x] Add `emit_write_workflow_decision` tool using the existing typed
       decision schema.
-- [ ] Add `WriteWorkflowRunStore` with atomic save/load/list.
-- [ ] Support `explore_code`, `plan_change_batch`, `finish`, and `block`.
-- [ ] Default `write_workflow_engine` to `legacy`.
-- [ ] Add hygiene tests proving controller routing is typed, not prose-based.
-- [ ] Commit, push, and update this ledger.
+- [x] Add `WriteWorkflowRunStore` with atomic save/load/list.
+- [x] Support `explore_code`, `plan_change_batch`, `finish`, and `block`.
+- [x] Default `write_workflow_engine` to `legacy`.
+- [x] Add hygiene tests proving controller routing is typed, not prose-based.
+- [x] Commit, push, and update this ledger.
 
 ### Batch 5: Dynamic Batch Loop
 
@@ -259,8 +259,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | 0 | complete | 81b7ebef | pushed | not run |
 | 1 | complete | b4ab2eb7 | pushed | `go test ./internal/types -run 'TestPlanStatus\|Test.*ChangePlan\|Test.*Approval\|Test.*Fingerprint'`; `go test ./internal/writeflow`; focused `./internal/orchestrator`; focused `./internal/repl` |
 | 2 | complete | 5dd96bb3 | pushed | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
-| 3 | complete | e9c0d509 | pending | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
-| 4 | pending | pending | pending | pending |
+| 3 | complete | e9c0d509 / 52f34ac3 | pushed | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
+| 4 | complete | e6fe4bf9 | pending | `go test ./...`; focused `./internal/types`; focused `./internal/writeflow`; focused `./internal/tool`; focused `./internal/repl`; focused `./internal/agent`; focused `./internal/skill`; focused `./internal/config`; focused `./internal/orchestrator`; focused `./internal/context`; focused `./cmd` |
 | 5 | pending | pending | pending | pending |
 | 6 | pending | pending | pending | pending |
 | 7 | pending | pending | pending | pending |
