@@ -242,14 +242,14 @@ flowchart TD
 
 ### Batch 7: Commercial Regression Matrix
 
-- [ ] `go test ./internal/tool ./internal/types ./internal/writeflow
+- [x] `go test ./internal/tool ./internal/types ./internal/writeflow
       ./internal/orchestrator ./internal/repl`.
-- [ ] `go test ./...`.
-- [ ] Re-run representative write evals for low-risk apply, high-risk approval,
+- [x] `go test ./...`.
+- [x] Re-run representative write evals for low-risk apply, high-risk approval,
       critical deny, plan mode terminal, imported complex plan verify failure,
       and pending approval resume.
-- [ ] Update this ledger with exact commands and outcomes.
-- [ ] Commit and push final hardening status.
+- [x] Update this ledger with exact commands and outcomes.
+- [x] Commit and push final hardening status.
 
 ## 7. Acceptance Criteria
 
@@ -274,3 +274,4 @@ flowchart TD
 | 4 | complete | current batch | pushed | Verify report refs now attach to workflow batches; failed build/test evidence and blob refs persist as P2 context for replan. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/types -run 'TestWriteContextPackFromChangeReportCarriesVerifyFailure|TestWriteContextPackViewBoundsAndDefensiveCopy'`. |
 | 5 | complete | current batch | pushed | Batch attempts now carry plan/apply/verify artifact refs; ordinary apply errors no longer masquerade as pending approval; verified runs synchronize mutable plan status to `applied`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`, `go test ./internal/types -run 'TestNormalizeWriteWorkflowRunPersistsContextPacks|TestWriteWorkflowRunToFileRoundTrip'`. |
 | 6 | complete | current batch | pushed | Planner no longer exposes generic `exec_command`; dry-run probes use typed `run_tests dry_run=true`; `/workflow show` renders stable plan/apply/verify refs. Tests: `go test ./internal/skill`, `go test ./internal/repl -run 'TestWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines|TestSlashCommand_HelpBothVariantsNonEmpty'`. |
+| 7 | complete | current batch | pushed | Full regression green. Tests: `go test ./internal/tool ./internal/types ./internal/writeflow ./internal/orchestrator ./internal/repl`, `go test ./...`, `make test`. Representative write-mode eval surfaces are covered by controller/orchestrator/REPL tests for low-risk apply, high-risk approval resume, critical deny, ModePlan terminal, imported plan apply, verify failure replan/re-explore, and prompt hygiene. No standalone write-mode case harness was present under `eval/cases`; existing eval cases target read/log/trace/data/operation. |

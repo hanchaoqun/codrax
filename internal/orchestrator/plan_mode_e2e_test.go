@@ -108,8 +108,8 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 	if !busCtx.TaskState.IsTerminal {
 		t.Error("TaskState.IsTerminal should be true post-Run")
 	}
-	if busCtx.PipelineStage != types.StageWriteController {
-		t.Errorf("PipelineStage = %q, want StageWriteController", busCtx.PipelineStage)
+	if busCtx.PipelineStage != types.StagePlan {
+		t.Errorf("PipelineStage = %q, want StagePlan", busCtx.PipelineStage)
 	}
 }
 

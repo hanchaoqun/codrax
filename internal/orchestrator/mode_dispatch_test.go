@@ -10,6 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // ---------------------------------------------------------------------------
@@ -347,8 +348,13 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 
 	ir := dagIR(types.AnswerContract{Language: "en"})
 	plannerCalled := false
+	controllerCalls := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionApplyPlan, ReasonCode: "imported_plan_ready"},
+			{Action: writeflow.ActionBlock, ReasonCode: "apply_failed"},
+		}, &controllerCalls),
 		types.AgentPlanner: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 			plannerCalled = true
 			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
@@ -375,13 +381,15 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 	if plannerCalled {
 		t.Fatal("planner agent must NOT be dispatched when PlanPath is pre-set")
 	}
-	if busCtx.PipelineStage != types.StageApply {
-		t.Errorf("PipelineStage should advance past plan (stage=apply); got %q",
-			busCtx.PipelineStage)
+	if controllerCalls != 2 {
+		t.Fatalf("controller calls = %d, want apply then block", controllerCalls)
 	}
-	if !strings.Contains(busCtx.TaskState.LastError, "worktree") {
-		t.Errorf("apply phase should fail on missing worktree base; got LastError=%q",
-			busCtx.TaskState.LastError)
+	run := busCtx.Mutable.WriteWorkflowRun()
+	if run == nil || !workflowProgressHasReason(run.ProgressLedger, "apply_failed") {
+		t.Fatalf("workflow should record apply_failed progress, got %+v", run)
+	}
+	if run != nil && !workflowProgressHasMessage(run.ProgressLedger, "worktree") {
+		t.Fatalf("apply failure should retain worktree error in workflow progress, got %+v", run.ProgressLedger)
 	}
 }
 
@@ -405,4 +413,13 @@ func TestOrchestrator_ModeGetter(t *testing.T) {
 	if o.Mode() != "" {
 		t.Errorf("SetMode(\"\") should clear to empty, got %q", o.Mode())
 	}
+}
+
+func workflowProgressHasMessage(items []types.WriteWorkflowProgress, substring string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Message, substring) {
+			return true
+		}
+	}
+	return false
 }
