@@ -642,6 +642,7 @@ type MutableState struct {
 	// final-answer citation state.
 	writeExplorationRequest *WriteExplorationRequest
 	writeExplorationHandoff *WriteExplorationHandoff
+	writeContextPack        *WriteContextPack
 
 	// planCritique is the optional pre-apply review text produced by
 	// the plan_critic agent (commit 4 P1-F). Empty when the critic
@@ -1020,6 +1021,10 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
 	out.sourceInventoryObservation = CloneSourceInventoryObservation(m.sourceInventoryObservation)
 	out.sourceInventoryDiscoveryHinted = cloneStringBoolMap(m.sourceInventoryDiscoveryHinted)
+	if m.writeContextPack != nil {
+		pack := cloneWriteContextPack(*m.writeContextPack)
+		out.writeContextPack = &pack
+	}
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
@@ -1531,6 +1536,63 @@ func (m *MutableState) ResetWriteExplorationHandoff() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeExplorationHandoff = nil
+}
+
+// WriteContextPack returns the prioritized cross-stage handoff pack for the
+// current write workflow batch. The returned value is a defensive copy.
+func (m *MutableState) WriteContextPack() *WriteContextPack {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.writeContextPack == nil {
+		return nil
+	}
+	out := cloneWriteContextPack(*m.writeContextPack)
+	return &out
+}
+
+// SetWriteContextPack stores the normalized prioritized context pack. Passing
+// nil clears the pack.
+func (m *MutableState) SetWriteContextPack(pack *WriteContextPack) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if pack == nil {
+		m.writeContextPack = nil
+		return
+	}
+	snap := NormalizeWriteContextPack(cloneWriteContextPack(*pack))
+	m.writeContextPack = &snap
+}
+
+// MergeWriteContextPack merges a new pack into the current batch pack.
+func (m *MutableState) MergeWriteContextPack(pack WriteContextPack) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.writeContextPack == nil {
+		snap := NormalizeWriteContextPack(cloneWriteContextPack(pack))
+		m.writeContextPack = &snap
+		return
+	}
+	merged := MergeWriteContextPacks(m.writeContextPack.BatchID, m.writeContextPack.Goal, *m.writeContextPack, pack)
+	m.writeContextPack = &merged
+}
+
+// ResetWriteContextPack clears the prioritized cross-stage write handoff.
+func (m *MutableState) ResetWriteContextPack() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeContextPack = nil
 }
 
 // RecordUnvalidatedReason appends a reason describing a

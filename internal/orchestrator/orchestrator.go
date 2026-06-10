@@ -1911,6 +1911,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// REPL turn.
 	o.busCtx.Mutable.ResetWriteExplorationRequest()
 	o.busCtx.Mutable.ResetWriteExplorationHandoff()
+	o.busCtx.Mutable.ResetWriteContextPack()
 	// Commit 51 Gap 3: read-mode answer-retry log resets per Run.
 	// Events accumulate across retries within a Run; the end-of-Run
 	// answer_reviewer dispatch (orchestrator.runAnswerReviewerOnSuccess)

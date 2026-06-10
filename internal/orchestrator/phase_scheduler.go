@@ -578,6 +578,7 @@ func (o *Orchestrator) resetForNextPhase() {
 	mu.ResetChangeReport()
 	mu.ResetWriteExplorationRequest()
 	mu.ResetWriteExplorationHandoff()
+	mu.ResetWriteContextPack()
 	// IterationLedger reset (commit 32) so the per-phase
 	// retry-attempt counter we read at end of phase reflects
 	// THIS phase's retries only — not phase 1 + 2 cumulative.
@@ -587,7 +588,7 @@ func (o *Orchestrator) resetForNextPhase() {
 	mu.ResetIterationLedger()
 	// AppliedSet preserved (cumulative across phases).
 	// WriteAnalysisIR preserved (single task, multiple phases).
-	// WriteExplorationRequest/Handoff reset (per-batch planning context).
+	// WriteExplorationRequest/Handoff/ContextPack reset (per-batch planning context).
 	// PlanCritique preserved on the previous phase's plan
 	// struct; the next phase will produce its own when its
 	// planner emits.
@@ -640,10 +641,12 @@ func (o *Orchestrator) seedWriteExplorationRequestFromPhase(phase *types.PhaseRe
 		return
 	}
 	o.busCtx.Mutable.SetWriteExplorationRequest(&req)
+	o.setWriteContextPackForBatch(&req, nil)
 	if ta := o.busCtx.Mutable.TurnAArtifacts(); ta != nil {
 		handoff := types.WriteExplorationHandoffFromTurnA(req, *ta)
 		if handoff.Goal != "" || len(handoff.TargetFiles) > 0 || len(handoff.EvidenceRefs) > 0 {
 			o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)
+			o.setWriteContextPackForBatch(&req, &handoff)
 		}
 	}
 }
@@ -736,6 +739,42 @@ func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {
 		return
 	}
 	o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)
+	o.setWriteContextPackForBatch(req, &handoff)
+}
+
+func (o *Orchestrator) setWriteContextPackForBatch(req *types.WriteExplorationRequest, handoff *types.WriteExplorationHandoff) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	var packs []types.WriteContextPack
+	if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+		packs = append(packs, types.WriteContextPackFromWriteAnalysisIR(ir))
+	}
+	if handoff != nil {
+		packs = append(packs, types.WriteContextPackFromExplorationHandoff(*handoff))
+	}
+	if len(packs) == 0 {
+		return
+	}
+	batchID := ""
+	goal := ""
+	if req != nil {
+		batchID = req.BatchID
+		goal = req.Goal
+	}
+	if handoff != nil {
+		if batchID == "" {
+			batchID = handoff.BatchID
+		}
+		if goal == "" {
+			goal = handoff.Goal
+		}
+	}
+	pack := types.MergeWriteContextPacks(batchID, goal, packs...)
+	if len(pack.Items) == 0 {
+		return
+	}
+	o.busCtx.Mutable.SetWriteContextPack(&pack)
 }
 
 func writeExplorationRequestFromPhase(phase *types.PhaseRecord, group *types.PlanGroup, ir *types.WriteAnalysisIR) types.WriteExplorationRequest {

@@ -119,6 +119,22 @@ func TestMutableStateWriteExplorationDefensiveCopy(t *testing.T) {
 	if gotHandoff2.TargetFiles[0] != "planner.go" || gotHandoff2.EvidenceRefs[0].Source != "planner.go" {
 		t.Fatalf("handoff mutation leaked through state: %+v", gotHandoff2)
 	}
+
+	pack := &WriteContextPack{
+		Items: []WriteContextItem{{
+			Priority: WriteContextP0,
+			Kind:     "constraint",
+			Text:     "preserve read mode",
+		}},
+	}
+	mu.SetWriteContextPack(pack)
+	pack.Items[0].Text = "mutated"
+	gotPack := mu.WriteContextPack()
+	gotPack.Items[0].Text = "caller-mutated"
+	gotPack2 := mu.WriteContextPack()
+	if gotPack2.Items[0].Text != "preserve read mode" {
+		t.Fatalf("context pack mutation leaked through state: %+v", gotPack2)
+	}
 }
 
 func TestNormalizeWriteExplorationHandoffBoundsListsAndRefs(t *testing.T) {

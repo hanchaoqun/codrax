@@ -245,6 +245,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			})
 		}
 	}
+	mergeWritePlanContextPack(o, plan)
 	return nil
 }
 
@@ -261,11 +262,13 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 		policy = writeflow.ApprovalPolicyAutoSafe
 	}
 	decision := writeflow.DecideWriteApproval(policy, assessment)
+	mergeWriteRiskContextPack(o, plan, assessment, decision)
 	fingerprint := types.PlanFingerprint(plan)
 	switch decision.Action {
 	case writeflow.ApprovalActionAutoExecute:
 		stampWriteApprovalRecord(plan, assessment, decision, source, "auto", fingerprint)
 		persistWriteApprovalRecord(o, plan)
+		mergeWritePlanContextPack(o, plan)
 		return nil
 	case writeflow.ApprovalActionDeny:
 		stampWriteApprovalRecord(plan, assessment, decision, source, "denied", fingerprint)
@@ -275,9 +278,11 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 		if o.busCtx.PlanPath != "" {
 			persistWriteApprovalRecord(o, plan)
 		}
+		mergeWritePlanContextPack(o, plan)
 		return fmt.Errorf("write approval denied for plan %s: %s", plan.ID, decision.ReasonCode)
 	case writeflow.ApprovalActionManual:
 		if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
+			mergeWritePlanContextPack(o, plan)
 			return nil
 		}
 		userDecision := "required"
@@ -293,10 +298,33 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 		if o.busCtx.PlanPath != "" {
 			persistWriteApprovalRecord(o, plan)
 		}
+		mergeWritePlanContextPack(o, plan)
 		return fmt.Errorf("write approval required for plan %s: %s", plan.ID, decision.ReasonCode)
 	default:
 		return nil
 	}
+}
+
+func mergeWritePlanContextPack(o *Orchestrator, plan *types.ChangePlan) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return
+	}
+	pack := types.WriteContextPackFromChangePlan(plan)
+	if len(pack.Items) == 0 {
+		return
+	}
+	o.busCtx.Mutable.MergeWriteContextPack(pack)
+}
+
+func mergeWriteRiskContextPack(o *Orchestrator, plan *types.ChangePlan, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return
+	}
+	pack := writeflow.ContextPackFromRiskAssessment(plan.ID, plan.Summary, assessment, decision)
+	if len(pack.Items) == 0 {
+		return
+	}
+	o.busCtx.Mutable.MergeWriteContextPack(pack)
 }
 
 func stampWriteApprovalRecord(plan *types.ChangePlan, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision, source, userDecision, fingerprint string) {
@@ -875,6 +903,10 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	report := o.busCtx.Mutable.ChangeReport()
 	if report != nil {
 		o.saveChangeReport(report)
+		pack := types.WriteContextPackFromChangeReport(report)
+		if len(pack.Items) > 0 {
+			o.busCtx.Mutable.MergeWriteContextPack(pack)
+		}
 		// Append a fingerprint per verify round so the write-scheduler
 		// retry decision can spot "no change in any signal" stalls.
 		// Adjacent identical fingerprints across (AppliedCount,

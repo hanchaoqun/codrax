@@ -1,7 +1,7 @@
 # Write Mode Dynamic Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 2 complete
+Status: Batch 3 ready to commit
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Goal
@@ -200,12 +200,14 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 ### Batch 3: Priority Handoff
 
-- [ ] Add `WriteContextPack`, item priorities, sources, and consumer masks.
-- [ ] Project from `WriteAnalysisIR`, `TurnAArtifacts`, risk assessment,
+- [x] Add `WriteContextPack`, item priorities, sources, and consumer masks.
+- [x] Project from `WriteAnalysisIR`, `TurnAArtifacts`, risk assessment,
       approval record, plan critique, and verify report.
-- [ ] Persist context packs on `WriteWorkflowRun`.
-- [ ] Render planner/verifier/controller views from priority packs.
-- [ ] Add tests that high-priority constraints and evidence are preserved and
+- [x] Persist context packs on `WriteWorkflowRun` schema; the atomic store lands
+      in Batch 4.
+- [x] Render planner/verifier views from priority packs and expose controller
+      views through typed `WriteContextPack.View`.
+- [x] Add tests that high-priority constraints and evidence are preserved and
       low-priority noise is bounded.
 - [ ] Commit, push, and update this ledger.
 
@@ -256,8 +258,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | --- | --- | --- | --- | --- |
 | 0 | complete | 81b7ebef | pushed | not run |
 | 1 | complete | b4ab2eb7 | pushed | `go test ./internal/types -run 'TestPlanStatus\|Test.*ChangePlan\|Test.*Approval\|Test.*Fingerprint'`; `go test ./internal/writeflow`; focused `./internal/orchestrator`; focused `./internal/repl` |
-| 2 | complete | 5dd96bb3 | pending | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
-| 3 | pending | pending | pending | pending |
+| 2 | complete | 5dd96bb3 | pushed | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
+| 3 | ready_to_commit | pending | pending | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
 | 4 | pending | pending | pending | pending |
 | 5 | pending | pending | pending | pending |
 | 6 | pending | pending | pending | pending |

@@ -123,6 +123,12 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"  - Do NOT read files or shell out to construct a diff — the plan is already applied.\n" +
 		"  - Do NOT re-run tests to chase flakiness — verify is fail-loud.\n")
 
+	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerVerifier, "Priority write context pack", 10); pack != "" {
+		s.WriteString("\n")
+		s.WriteString(pack)
+		s.WriteString("\n")
+	}
+
 	// Plan-touched paths section. Without this, the verifier picks a runner
 	// from worktree manifests alone (go.mod wins on a polyglot repo where
 	// the plan only created a Python script) and runs an unrelated test

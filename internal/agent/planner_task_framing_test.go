@@ -212,6 +212,73 @@ func TestPlannerWriteExplorationHandoff_RendersAfterWorkflowSeed(t *testing.T) {
 	}
 }
 
+func TestPlannerWriteContextPack_RendersInsteadOfLegacyHandoff(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Summary: "fix planner retry context"},
+		},
+	})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		Goal:        "legacy handoff",
+		TargetFiles: []string{"legacy.go"},
+	})
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		BatchID: "batch-1",
+		Goal:    "priority pack",
+		Items: []types.WriteContextItem{
+			{
+				Priority:    types.WriteContextP0,
+				Kind:        "constraint",
+				Text:        "do not change read scheduler byte identity",
+				SourceStage: "write_analysis",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+			{
+				Priority:    types.WriteContextP1,
+				Kind:        "target_file",
+				Text:        "internal/agent/planner.go",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner, types.WriteConsumerVerifier},
+			},
+			{
+				Priority:    types.WriteContextP3,
+				Kind:        "pattern_hint",
+				Text:        "planner sections are pure data",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	packIdx := strings.Index(got, "## Priority write context pack")
+	handoffIdx := strings.Index(got, "## Prior code exploration handoff")
+	if packIdx < 0 {
+		t.Fatalf("expected priority context pack; got:\n%s", got)
+	}
+	if handoffIdx >= 0 {
+		t.Fatalf("legacy handoff should be skipped when pack exists; got:\n%s", got)
+	}
+	for _, want := range []string{
+		"priority pack",
+		"p0 constraint [write_analysis]",
+		"do not change read scheduler byte identity",
+		"p1 target_file [explore]",
+		"internal/agent/planner.go",
+		"p3 pattern_hint [explore]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("priority pack prompt missing %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "legacy.go") {
+		t.Fatalf("legacy handoff content should not render beside context pack; got:\n%s", got)
+	}
+}
+
 func TestPlannerWriteExplorationRequest_RendersBeforeHandoff(t *testing.T) {
 	mu := types.NewMutableState("the user request")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{

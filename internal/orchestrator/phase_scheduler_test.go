@@ -250,6 +250,14 @@ func TestSeedWriteExplorationRequestFromPhaseProjectsTurnAToHandoff(t *testing.T
 	if len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].LineStart != 105 {
 		t.Fatalf("evidence refs not projected: %+v", handoff.EvidenceRefs)
 	}
+	pack := mu.WriteContextPack()
+	if pack == nil {
+		t.Fatal("expected priority context pack from projected handoff")
+	}
+	view := pack.View(types.WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "evidence_ref", "planner handoff @ internal/agent/planner.go:105") {
+		t.Fatalf("planner context pack missing evidence ref: %+v", view.Items)
+	}
 }
 
 func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *testing.T) {
@@ -289,6 +297,14 @@ func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *t
 	}
 	if handoff.BatchID != "batch-1" || handoff.Goal != "patch planner" {
 		t.Fatalf("handoff identity drift: %+v", handoff)
+	}
+	pack := mu.WriteContextPack()
+	if pack == nil {
+		t.Fatal("expected priority context pack")
+	}
+	view := pack.View(types.WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "target_file", "internal/agent/planner.go") {
+		t.Fatalf("planner context pack missing target file: %+v", view.Items)
 	}
 }
 
@@ -1288,6 +1304,15 @@ func TestApplyAcceptanceVerdict_AcceptedAdvances(t *testing.T) {
 	if o.nextPhaseHint != "ORM needs to know about users.email" {
 		t.Errorf("nextPhaseHint should be propagated; got %q", o.nextPhaseHint)
 	}
+}
+
+func writeContextViewContains(view types.WriteContextView, kind, substring string) bool {
+	for _, item := range view.Items {
+		if item.Kind == kind && strings.Contains(item.Text, substring) {
+			return true
+		}
+	}
+	return false
 }
 
 // fakeGroupStore is a minimal test impl of the PlanGroupSaver

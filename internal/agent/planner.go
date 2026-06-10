@@ -137,7 +137,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if req := e.buildWriteExplorationRequestSection(ctx); req != "" {
 		sections = append(sections, req)
 	}
-	if handoff := e.buildWriteExplorationHandoffSection(ctx); handoff != "" {
+	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerPlanner, "Priority write context pack", 14); pack != "" {
+		sections = append(sections, pack)
+	} else if handoff := e.buildWriteExplorationHandoffSection(ctx); handoff != "" {
 		sections = append(sections, handoff)
 	}
 	if seed := e.buildInvestigationSeed(ctx); seed != "" {

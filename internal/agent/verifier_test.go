@@ -256,6 +256,56 @@ func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	}
 }
 
+func TestVerifier_BuildInitialInstruction_RendersVerifierContextPackView(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan",
+		TargetPaths: []string{"internal/agent/verifier.go"},
+		Changes:     []types.FileChange{{Path: "internal/agent/verifier.go", Kind: "modify"}},
+	}
+	ctx := verifierFixtureCtx(nil, plan)
+	ctx.Mutable.SetWriteContextPack(&types.WriteContextPack{
+		BatchID: "batch-1",
+		Goal:    "verify priority handoff",
+		Items: []types.WriteContextItem{
+			{
+				Priority:    types.WriteContextP0,
+				Kind:        "risk_note",
+				Text:        "approval constraints must remain visible",
+				SourceStage: "approval",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerVerifier},
+			},
+			{
+				Priority:    types.WriteContextP2,
+				Kind:        "test_surface",
+				Text:        "go test ./internal/agent",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner, types.WriteConsumerVerifier},
+			},
+			{
+				Priority:    types.WriteContextP3,
+				Kind:        "pattern_hint",
+				Text:        "planner-only style detail",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+		},
+	})
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	for _, want := range []string{
+		"## Priority write context pack",
+		"approval constraints must remain visible",
+		"go test ./internal/agent",
+	} {
+		if !strings.Contains(inst, want) {
+			t.Fatalf("verifier context pack missing %q; got:\n%s", want, inst)
+		}
+	}
+	if strings.Contains(inst, "planner-only style detail") {
+		t.Fatalf("verifier prompt should not render planner-only context; got:\n%s", inst)
+	}
+}
+
 // TestVerifier_BuildInitialInstruction_TargetPathsAndLanguages locks
 // the runner-selection contract: when the plan's TargetPaths span
 // languages the worktree manifest doesn't represent (e.g. a single
