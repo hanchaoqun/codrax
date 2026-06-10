@@ -194,6 +194,17 @@ func WorkflowSeedFromWriteAnalysis(ir *types.WriteAnalysisIR) WriteWorkflowPlan 
 		ExpectedPaths:        dedupTrimWorkflowStrings(ir.Request.ScopeAnchors),
 		SuccessCriteria:      plan.SuccessCriteria,
 	}
+	// Typed short path for micro-scope tasks with known anchors: the
+	// analyzer already classified the change as contained (Scope=micro,
+	// typed enum) and extracted concrete scope anchors, so the batch seeds
+	// ready-for-plan instead of needs-exploration. This optimizes round
+	// count over the SAME controller DAG — explore_code stays available in
+	// the action schema and the controller may still choose it; only the
+	// typed starting state changes.
+	if ir.Request.Task.Scope == types.ScopeMicro && len(next.ExpectedPaths) > 0 {
+		next.Status = BatchReadyForChangePlan
+		next.NeedsCodeExploration = false
+	}
 	plan.NextBatch = &next
 	return NormalizeWorkflowPlan(plan)
 }

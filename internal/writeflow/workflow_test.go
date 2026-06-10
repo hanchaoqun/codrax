@@ -124,3 +124,35 @@ func TestWorkflowSeedFromWriteAnalysisUsesPhaseProposal(t *testing.T) {
 		t.Fatalf("constraints = %+v", got.KnownConstraints)
 	}
 }
+
+func TestWorkflowSeedFromWriteAnalysis_MicroScopeWithAnchorsSeedsReadyForPlan(t *testing.T) {
+	ir := &types.WriteAnalysisIR{}
+	ir.Request.Task = types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix typo"}
+	ir.Request.ScopeAnchors = []string{"src/util.c"}
+	seed := WorkflowSeedFromWriteAnalysis(ir)
+	if seed.NextBatch == nil {
+		t.Fatal("seed must produce a next batch")
+	}
+	if seed.NextBatch.Status != BatchReadyForChangePlan {
+		t.Fatalf("micro scope with anchors should seed ready-for-plan, got %s", seed.NextBatch.Status)
+	}
+	if seed.NextBatch.NeedsCodeExploration {
+		t.Fatal("micro scope with anchors should not demand exploration")
+	}
+}
+
+func TestWorkflowSeedFromWriteAnalysis_MicroWithoutAnchorsStillExplores(t *testing.T) {
+	ir := &types.WriteAnalysisIR{}
+	ir.Request.Task = types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix typo"}
+	seed := WorkflowSeedFromWriteAnalysis(ir)
+	if seed.NextBatch == nil || seed.NextBatch.Status != BatchNeedsExploration {
+		t.Fatalf("micro scope without anchors must keep exploration, got %+v", seed.NextBatch)
+	}
+	ir2 := &types.WriteAnalysisIR{}
+	ir2.Request.Task = types.WriteTask{Kind: types.WriteTaskFeature, Scope: types.ScopePackage, Summary: "wider change"}
+	ir2.Request.ScopeAnchors = []string{"pkg/"}
+	seed2 := WorkflowSeedFromWriteAnalysis(ir2)
+	if seed2.NextBatch == nil || seed2.NextBatch.Status != BatchNeedsExploration {
+		t.Fatalf("package scope must keep exploration, got %+v", seed2.NextBatch)
+	}
+}

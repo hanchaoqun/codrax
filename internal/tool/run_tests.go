@@ -723,6 +723,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			setLastExecOutcome("parser_error")
 			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
 			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
+			// A parser error must still leave a typed, durable failure
+			// report — the audit chain and the verify state machine read
+			// reports, not tool summaries. Passed=false with the parser
+			// detail in FailureSummary; FailureKind stays at the
+			// tests_failed default so retry routing remains conservative.
+			parserReport := &types.ChangeReport{
+				Passed:         false,
+				FailureSummary: fmt.Sprintf("runner output parser failed: %v", err),
+			}
+			if ref != "" {
+				parserReport.FailureSummaryBlobRef = ref
+			}
+			installRunTestsReport(ctx, finishReport(qualifyChangeReport(parserReport, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,

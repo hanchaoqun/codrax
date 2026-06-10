@@ -861,3 +861,38 @@ func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) 
 		t.Fatalf("plan stage calls = %d, want 1 (no retry without typed failure context)", planCalls)
 	}
 }
+
+func TestSeedWriteWorkflowRun_MicroScopeStartsReadyToPlan(t *testing.T) {
+	mu := types.NewMutableState("micro short path")
+	ir := &types.WriteAnalysisIR{}
+	ir.Request.Task = types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix literal"}
+	ir.Request.ScopeAnchors = []string{"src/util.c"}
+	mu.SetWriteAnalysisIR(ir)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	if len(run.Batches) != 1 {
+		t.Fatalf("expected one seeded batch, got %+v", run.Batches)
+	}
+	if run.Batches[0].Status != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("micro-scope seed should start ready_to_plan, got %s", run.Batches[0].Status)
+	}
+}
+
+func TestSeedWriteWorkflowRun_NonMicroStartsNeedsExploration(t *testing.T) {
+	mu := types.NewMutableState("regular seed")
+	ir := &types.WriteAnalysisIR{}
+	ir.Request.Task = types.WriteTask{Kind: types.WriteTaskFeature, Scope: types.ScopePackage, Summary: "wider"}
+	ir.Request.ScopeAnchors = []string{"pkg/"}
+	mu.SetWriteAnalysisIR(ir)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	if len(run.Batches) != 1 || run.Batches[0].Status != types.WriteWorkflowBatchNeedsExploration {
+		t.Fatalf("non-micro seed must keep needs_exploration, got %+v", run.Batches)
+	}
+}

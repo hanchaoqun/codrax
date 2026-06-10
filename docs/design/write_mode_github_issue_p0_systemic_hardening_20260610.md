@@ -503,4 +503,14 @@ update here.
   fixtures + harness hardening + evidence ledger with expected outcomes);
   locale-dependent runner-lib counter regression fixed; architecture.md
   updated; full `go test ./...` + `make test` + `make eval-runner-test`
-  green. All seven batches delivered.
+  green.
+- 2026-06-10: Batch 8 — completeness sweep against the evidence ledger's ten
+  follow-up tasks. (a) P1 complexity-aware short path: a micro-scope task
+  with typed analyzer anchors seeds its batch `ready_to_plan` instead of
+  `needs_exploration` — same controller DAG, same action schema, only the
+  typed starting state changes (`WorkflowSeedFromWriteAnalysis` +
+  `seedWriteWorkflowRun` status mapping). (b) run_tests parser errors now
+  install a typed failed ChangeReport (summary + output blob ref + executed
+  command rows) so the audit chain and verify state machine see parser
+  failures as reports, not just tool summaries. Full `go test ./...` +
+  `make eval-runner-test` green. All report follow-up tasks 1-10 delivered.

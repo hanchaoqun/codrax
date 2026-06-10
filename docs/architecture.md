@@ -1375,6 +1375,7 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 - **失败证据持久化**：verify 失败分支在任何清理之前落盘 report JSON（`GeneratedAt` 落盘时回填）+ apply checkpoint commit 的补丁 `<stem>.attempt-N.diff`,diff 引用挂到 batch verify attempt 的 `ArtifactRef`；worktree 无条件清理语义（L5）不变。
 - **Approval 风险分解（§1.5 落地）**：`WriteAnalysisIR` 的三个风险布尔与 `Overall=high` 是 LLM 分类（噪声信号）,降级为 advisory Medium（reason code 区分 corroborated / uncorroborated,auto_safe 下可自动执行）。硬 High 只来自精确 typed 信号：plan 自身 hunk（unified-diff '-' 行逐行推进解析）与 structured edit 范围对仓库图导出符号**声明行**（`repomap.NewDeclSpanSource`,只取 Symbol.Line,body 不算,parse tier 3/4 报 ok=false）的交集 `public_decl_line_changed`,以及路径策略（build manifest / secrets / CI / hooks / **新增 persistence schema-migration 类**）。REPL `/approve` 对同 fingerprint 的 plan 执行 stricter-wins：plan 时记录的 manual 要求不会因 REPL 侧无图重算而静默降为 auto。
 - **Structured edit 加固**：replace/delete 省略 `end_line` 默认 `start_line`；`old_text` 失配错误回显当前字节（有界）+ 重读指引；匹配唯一的字节级容差是末尾换行。validator 与 apply 侧 recompile 共用同一 seam。
+- **Micro-scope 短路径**：analyzer 分类 `scope=micro` 且带 typed scope anchors 时,seed batch 直接 `ready_to_plan`（跳过默认探索轮）。同一 controller DAG、同一 action schema——`explore_code` 仍在动作集中,controller 可自行选择回到探索；只有 typed 起始状态不同。
 
 ### 8.3 write_analyzer — 写模式专属请求分类
 

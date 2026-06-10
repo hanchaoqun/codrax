@@ -370,10 +370,18 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		run = attachPlanContextPackToWorkflowRun(run, importedPlan)
 	} else if seed.NextBatch != nil {
 		run.ActiveBatchID = batchIDOrDefault(seed.NextBatch.ID, "batch-1")
+		// The seed's typed batch status carries the micro-scope short
+		// path: analyzer-classified contained changes with known anchors
+		// start ready_to_plan and skip the default exploration round.
+		// Same DAG, same action schema — only the starting state differs.
+		status := types.WriteWorkflowBatchNeedsExploration
+		if seed.NextBatch.Status == writeflow.BatchReadyForChangePlan {
+			status = types.WriteWorkflowBatchReadyToPlan
+		}
 		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
 			ID:        run.ActiveBatchID,
 			Goal:      seed.NextBatch.Goal,
-			Status:    types.WriteWorkflowBatchNeedsExploration,
+			Status:    status,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		})
