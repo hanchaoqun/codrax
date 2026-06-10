@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: google/gson LazilyParsedNumber value semantics.
+ID="github_issue_gson_lazy_number"
+NAME="gson Java LazilyParsedNumber implements value-based equals and hashCode"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/gson_lazy_number"
+QUESTION="真实上游记录：google/gson 的 LazilyParsedNumber（gson/internal）历史上实现了 Number 但没有实现 equals/hashCode（历史 issue 627），导致包装同一字面量的两个实例不相等，破坏 map key 和测试断言；现行上游实现已补齐基于包装值的两个方法。请在这个最小 Java 复现仓里补上基于 value 的 equals(Object) 与 hashCode()，保持现有 Number 接口行为不变，不要修改测试与校验脚本。上游文件: https://github.com/google/gson/blob/main/gson/src/main/java/com/google/gson/internal/LazilyParsedNumber.java"
+POST_APPLY_FILE="src/main/java/com/google/gson/internal/LazilyParsedNumber.java"
+EXPECT_MATCHES_REGEX='public[[:space:]]+boolean[[:space:]]+equals[[:space:]]*[(]
+public[[:space:]]+int[[:space:]]+hashCode[[:space:]]*[(]'

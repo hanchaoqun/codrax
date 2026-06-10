@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -894,5 +896,164 @@ func TestSeedWriteWorkflowRun_NonMicroStartsNeedsExploration(t *testing.T) {
 	run := o.seedWriteWorkflowRun()
 	if len(run.Batches) != 1 || run.Batches[0].Status != types.WriteWorkflowBatchNeedsExploration {
 		t.Fatalf("non-micro seed must keep needs_exploration, got %+v", run.Batches)
+	}
+}
+
+// Budget completion lane: a batch applied with its last steps must still get
+// a verification verdict; a green verdict completes the run instead of
+// blocking it and discarding the applied work.
+func TestRunWriteControllerWorkflow_BudgetExhaustionRunsCompletionVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("budget completion")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "budget completion"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		// The loop-top budget check fires before this decision is requested.
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "never_reached"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.maxSteps = 4 // controller+plan+controller+apply → exhausted before verify turn
+	verifyRan := false
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-budget", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			verifyRan = true
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-budget", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("completion verify should finish the run, got %v", err)
+	}
+	if !verifyRan {
+		t.Fatal("completion lane must run the verify dispatch")
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("run should complete, got %s", store.last.Status)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "budget_completion_verify") {
+		t.Fatalf("completion lane should be recorded: %+v", store.last.ProgressLedger)
+	}
+	if store.last.Batches[0].Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("batch should be verified complete, got %+v", store.last.Batches[0])
+	}
+}
+
+func TestRunWriteControllerWorkflow_BudgetCompletionVerifyFailureStillBlocks(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	planDir := t.TempDir()
+	mu := types.NewMutableState("budget completion fail")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "budget completion fail"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
+	o.maxSteps = 4
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-budget-fail", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-budget-fail", Passed: false, FailureSummary: "still red"})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "budget exhausted") {
+		t.Fatalf("failed completion verify must still block on budget, got %v", err)
+	}
+	// The failed verdict must leave durable evidence.
+	if _, statErr := os.Stat(filepath.Join(planDir, "plan-budget-fail.report.json")); statErr != nil {
+		t.Fatalf("completion verify failure must persist the report: %v", statErr)
+	}
+}
+
+// The --plan-file artifact must follow the live plan across replan rounds.
+func TestRunWriteControllerWorkflow_MirrorsActivePlanToImportFile(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mirror := filepath.Join(t.TempDir(), "imported.plan.json")
+	seedPlan := &types.ChangePlan{ID: "plan-imported", Status: types.PlanStatusPending, Summary: "seed", TargetPaths: []string{"fix.go"}, Request: "fix it",
+		Changes: []types.FileChange{{Path: "fix.go", Kind: "modify", NewContent: "package main\n"}}}
+	if err := types.WritePlanToFile(seedPlan, mirror); err != nil {
+		t.Fatalf("seed plan write: %v", err)
+	}
+	mu := types.NewMutableState("mirror live plan")
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "imported_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "repair_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "repair_applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, PlanPath: mirror}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+	attempt := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			attempt++
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-repair", Status: types.PlanStatusPending, Summary: "repair", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			planID := "plan-imported"
+			if plan := mu.ChangePlan(); plan != nil {
+				planID = plan.ID
+			}
+			if attempt == 0 {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "imported plan red"})
+			} else {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: true})
+			}
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	data, err := os.ReadFile(mirror)
+	if err != nil {
+		t.Fatalf("mirror file gone: %v", err)
+	}
+	var mirrored types.ChangePlan
+	if err := json.Unmarshal(data, &mirrored); err != nil {
+		t.Fatalf("mirror parse: %v", err)
+	}
+	if mirrored.ID != "plan-repair" {
+		t.Fatalf("mirror must hold the live plan after replan, got %s", mirrored.ID)
+	}
+	if mirrored.Status != types.PlanStatusApplied {
+		t.Fatalf("mirror must carry the final verified status, got %s", mirrored.Status)
 	}
 }

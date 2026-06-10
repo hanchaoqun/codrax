@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: fmtlib/fmt#2564.
+ID="github_issue_fmt_tm_year_overflow"
+NAME="fmt C++ tm formatter widens year arithmetic to avoid int overflow"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/fmt_tm_year_overflow"
+QUESTION="真实上游记录：fmtlib/fmt PR #2564 修复 chrono tm formatter 用 int 做年份运算、tm_year 接近 INT_MAX 时在拓宽前就溢出的问题，上游改用 long long 承载年份并在 chrono-test.cc 钉住 tm_year=INT_MAX 格式化为 2147485547。请在这个最小 C++ 复现仓里修复 include/tmfmt.hpp 的同类溢出，只改头文件，不改测试。上游 PR: https://github.com/fmtlib/fmt/pull/2564"
+POST_APPLY_FILE="include/tmfmt.hpp"
+EXPECT_MATCHES_REGEX='(long long|int64_t)'

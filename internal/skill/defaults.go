@@ -747,6 +747,7 @@ Prose written outside the tool call is captured in the trace but does not drive 
 			"When the current batch is ready for a bounded ChangePlan, emit plan_batch with batch describing only that batch's goal, expected paths/kinds, and success criteria.",
 			"When a typed ChangePlan is ready and the mode allows mutation, emit apply_plan. After apply succeeds, emit verify_batch so tests and structured verification decide whether the batch is complete.",
 			"When typed verification evidence shows more code work is needed, emit replan_batch, split_batch, append_batch, or explore_code according to the durable workflow state.",
+			"When a batch is in needs_replan with a recorded verification failure, prefer replan_batch directly — the planner receives the typed failure evidence (failing assertions, executed commands, artifact refs) as its lead section. Spend explore_code only when that evidence cannot locate the fix; every extra exploration round consumes the same step budget the remaining verify needs.",
 			"When the typed artifacts show no further batch is needed, emit finish. When a structural safety or budget boundary prevents progress, emit block with reason_code and a concise reason.",
 			"Call emit_write_workflow_decision exactly once.",
 		},

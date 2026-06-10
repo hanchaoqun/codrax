@@ -1409,6 +1409,9 @@ func outputIndicatesMissingBinary(output, bin string) bool {
 // exec error chain. *exec.ExitError is the typical wrapper; other
 // shapes return -1.
 func extractExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		if ee.ProcessState != nil {

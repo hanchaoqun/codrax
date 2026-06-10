@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: iamkun/dayjs#1611.
+ID="github_issue_dayjs_duration_nan"
+NAME="dayjs JS duration ISO parse defaults missing components to zero"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/dayjs_duration_nan"
+QUESTION="真实上游记录：iamkun/dayjs PR #1611 修复 duration 插件解析 ISO 8601 时缺失分量经 Number(undefined) 变成 NaN 的问题，上游把缺失分量默认为 0 并钉住 PT1H 的格式化结果 0000-00-00T01:00:00。请在这个最小 JS 复现仓里修复 src/duration.js 的同类问题，并在 tests/duration.test.js 保留/补充 PT1H 缺失分量的回归断言。上游 PR: https://github.com/iamkun/dayjs/pull/1611"
+EXPECT_MATCHES_REGEX='PT1H
+0000-00-00T01:00:00'

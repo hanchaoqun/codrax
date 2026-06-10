@@ -34,6 +34,13 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	}
 	run := o.loadOrSeedWriteWorkflowRun()
 	o.persistWriteWorkflowRun(&run)
+	// importedPlanMirror is the --plan-file path this run was started
+	// with (empty otherwise). The controller workflow may replace the
+	// active plan across replan rounds; mirroring every accepted plan
+	// (and its later status/worktree updates) back to this file keeps
+	// the operator-visible artifact pointing at the LIVE plan instead
+	// of the first imported snapshot.
+	importedPlanMirror := strings.TrimSpace(o.busCtx.PlanPath)
 	explorationRounds := map[string]int{}
 	verifyFailures := map[string]int{}
 	controllerTurns := 0
@@ -42,6 +49,16 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 
 	for controllerTurns < maxTurns {
 		if *stepsUsed >= o.maxSteps {
+			// Completion lane: an applied-but-unverified batch gets its
+			// verification BEFORE the budget verdict. Without this, a run
+			// that spends its last steps applying a (possibly correct)
+			// plan dies blocked, cleanup discards the worktree, and the
+			// applied work never receives a verdict. The condition reads
+			// typed attempt records only; one bounded verify dispatch is
+			// allowed past the ceiling because completion outranks pacing.
+			if o.runBudgetCompletionVerify(&run, stepsUsed, importedPlanMirror) {
+				return nil
+			}
 			run.Status = types.WriteWorkflowRunBlocked
 			appendControllerProgress(&run, run.ActiveBatchID, "budget_exhausted", "global step budget exhausted")
 			o.persistWriteWorkflowRun(&run)
@@ -131,6 +148,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
+			o.mirrorActivePlanToImportFile(importedPlanMirror)
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
 			if writePlanDeniedByApproval(plan) {
@@ -207,6 +225,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if report != nil {
 				o.ensureChangeReportPlanID(report)
 				o.syncMutablePlanStatusAfterVerify(report, innerErr)
+				o.mirrorActivePlanToImportFile(importedPlanMirror)
 				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
 				updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
 				o.syncCurrentWriteContextPackToRun(&run)
@@ -267,6 +286,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.busCtx.Mutable.SetResultPlain(msg)
 			return fmt.Errorf("%s", msg)
 		}
+	}
+	if o.runBudgetCompletionVerify(&run, stepsUsed, importedPlanMirror) {
+		return nil
 	}
 	run.Status = types.WriteWorkflowRunBlocked
 	appendControllerProgress(&run, run.ActiveBatchID, "controller_turn_budget_exhausted", "")
@@ -1078,4 +1100,100 @@ func attachDiffArtifactToLatestVerifyAttempt(run *types.WriteWorkflowRun, batchI
 		}
 		return
 	}
+}
+
+// mirrorActivePlanToImportFile writes the current active ChangePlan back to
+// the --plan-file path the run was started with, so the operator-visible
+// artifact always reflects the live plan across replan rounds. It also
+// re-anchors busCtx.PlanPath at that file so downstream consumers (report
+// directory resolution, approval persistence, the preserve-on-success
+// worktree path write at Run exit) keep working after the per-round
+// planning reset cleared the original path. No-op when the run was not
+// started from a plan file.
+func (o *Orchestrator) mirrorActivePlanToImportFile(mirrorPath string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || strings.TrimSpace(mirrorPath) == "" {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	if err := types.WritePlanToFile(plan, mirrorPath); err != nil {
+		logging.Warning("[orchestrator] active plan mirror to %s failed: %v", mirrorPath, err)
+		return
+	}
+	o.planPath = mirrorPath
+	o.busCtx.PlanPath = mirrorPath
+}
+
+// runBudgetCompletionVerify is the budget-exhaustion completion lane: when
+// the active batch's latest apply attempt succeeded and no verify attempt
+// followed it, one bounded verify dispatch runs past the ceiling so the
+// applied work receives a typed verdict. Returns true when that verdict
+// completes the run (batch verified green); on failure the standard
+// evidence persistence runs and the caller proceeds to the blocked verdict.
+// All conditions read typed attempt records — never prose.
+func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, stepsUsed *int, importedPlanMirror string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || o.skipVerify {
+		return false
+	}
+	if o.busCtx.Mutable.ChangePlan() == nil {
+		return false
+	}
+	var active *types.WriteWorkflowBatch
+	for i := range run.Batches {
+		if run.Batches[i].ID == run.ActiveBatchID {
+			active = &run.Batches[i]
+			break
+		}
+	}
+	if active == nil {
+		return false
+	}
+	lastApplyIdx, lastVerifyIdx := -1, -1
+	for i, attempt := range active.Attempts {
+		switch attempt.Kind {
+		case "apply":
+			if attempt.Status == "applied" {
+				lastApplyIdx = i
+			}
+		case "verify":
+			lastVerifyIdx = i
+		}
+	}
+	if lastApplyIdx < 0 || lastVerifyIdx > lastApplyIdx {
+		return false
+	}
+	logging.Info("[orchestrator] budget exhausted with applied-but-unverified batch %s — running completion verify", run.ActiveBatchID)
+	appendControllerProgress(run, run.ActiveBatchID, "budget_completion_verify", "running final verification for the applied batch before the budget verdict")
+	innerErr := o.runControllerVerifyBatch(stepsUsed)
+	report := o.busCtx.Mutable.ChangeReport()
+	if report != nil {
+		o.ensureChangeReportPlanID(report)
+		o.syncMutablePlanStatusAfterVerify(report, innerErr)
+		o.mirrorActivePlanToImportFile(importedPlanMirror)
+		o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
+		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
+		o.syncCurrentWriteContextPackToRun(run)
+	}
+	if innerErr == nil && report != nil && report.Passed {
+		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
+		appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
+		o.busCtx.Mutable.ResetVerifyFailureHandoff()
+		run.Status = types.WriteWorkflowRunComplete
+		o.persistWriteWorkflowRun(run)
+		if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
+			o.busCtx.Mutable.SetResult("write workflow complete")
+		}
+		return true
+	}
+	if innerErr == nil && report != nil {
+		innerErr = fmt.Errorf("verify failed: %s", strings.TrimSpace(report.FailureSummary))
+	}
+	if innerErr != nil {
+		appendControllerProgress(run, run.ActiveBatchID, "verify_failed", innerErr.Error())
+	}
+	o.persistVerifyFailureEvidence(run, report, len(active.Attempts))
+	o.persistWriteWorkflowRun(run)
+	return false
 }

@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: dateutil gh-411 fixed by gh-553.
+ID="github_issue_dateutil_relativedelta_float"
+NAME="dateutil Python relativedelta normalizes whole-number float months and years"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/dateutil_relativedelta_float"
+QUESTION="真实上游记录：dateutil changelog 2.7.0 记录 gh pr #411 报告、gh pr #553 修复——relativedelta 构造函数收到整数值浮点（如 months=12.0）时保留 float，加日期时在日历运算里报错；上游把整数值浮点规整为 int，非整数值浮点抛 ValueError。请在这个最小 Python 复现仓里修复 relativedelta.py 的同类问题，不要修改测试文件。上游记录: https://dateutil.readthedocs.io/en/2.8.2/changelog.html"
+POST_APPLY_FILE="relativedelta.py"
+EXPECT_MATCHES_REGEX='(is_integer|int[(])
+ValueError'

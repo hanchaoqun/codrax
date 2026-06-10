@@ -248,3 +248,9 @@ func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractExitCode_SuccessIsZero(t *testing.T) {
+	if got := extractExitCode(nil); got != 0 {
+		t.Fatalf("nil error must report exit 0, got %d", got)
+	}
+}

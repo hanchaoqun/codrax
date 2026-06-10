@@ -153,3 +153,57 @@ that delivery:
 
 Re-run with `make eval-github-issues SAMPLES=1` and record fresh observed
 results here next to (not over) the pre-hardening rows.
+
+## Live Run Ledger — 2026-06-10 Evening (post-hardening, this clone)
+
+### Round 1: original four cases (binary at `a89ce192`)
+
+| Case | Verdict | Evidence |
+| --- | --- | --- |
+| C libgit2 | PASS | unchanged happy path |
+| C++ nlohmann | FAIL (harness) | plan auto-executed at `risk=medium` (approval decomposition WORKED — last round this blocked as high); both headers patched with the exact `%.*Lg` fix; verify `make check` passed; verdict regex missed only because the ported `run.sh` content reader resolved `git ls-files` paths against the wrong CWD |
+| Java commons-lang | FAIL (budget) | verifier picked `make` directly off the rendered test surface (no Maven detour); verify failed on a missing regression assertion; the run died on `global step budget exhausted` mid-recovery |
+| TS Zod | FAIL (budget) | same budget shape: after verify #2 failed, the controller spent ~8 exploration rounds (read-only lane rejecting `exec_command`, emit retries), then the third plan — which added the missing regression tests — was APPLIED but the budget died before its verify; blocked → worktree discarded → applied fix lost. `attempt-1.diff` + report persisted (Batch 3 worked); `needs_replan cause=tests_failed` rendered (Batch 2 worked); planner replan opened with the typed failure section both rounds (Batch 5 worked) |
+
+### Round 1 systemic findings → fixes shipped in this clone
+
+1. **F1 budget completion lane (P0)**: an applied-but-unverified batch now
+   gets one bounded verify dispatch past the step/turn ceiling before the
+   budget verdict (`runBudgetCompletionVerify`, typed attempt-record
+   condition). Green verdict completes the run; failure persists evidence
+   and blocks as before. Without this, a correct fix applied with the last
+   steps was discarded unverdicted.
+2. **F2 controller pacing guidance (soft)**: needs_replan + recorded failure
+   evidence → prefer replan_batch; exploration costs the same budget the
+   remaining verify needs.
+3. **F3 live plan mirror (P1)**: `--plan-file` runs mirror every accepted
+   plan (and its status/worktree updates) back to the imported file, and
+   re-anchor PlanPath there, so the operator-visible artifact and the
+   preserve-on-success worktree path follow the LIVE plan across replan
+   rounds instead of freezing at the first snapshot.
+4. **F4 ExecutedCommand exit codes (P2)**: successful executions recorded
+   `exit_code=-1` (extractExitCode(nil)); now 0.
+5. **F5 harness reader (P0, eval-only)**: `git -C <wt> ls-files | xargs cat`
+   resolved repo-relative paths against run.sh's CWD; restored the
+   subshell `cd` so post-apply content is read from the worktree.
+
+### Round 2: four NEW cases from fresh upstream records
+
+| Case | Language / shape | Upstream record | Verdict |
+| --- | --- | --- | --- |
+| `github_issue_gson_lazy_number` | Java, additive methods (prod+oracle) | google/gson LazilyParsedNumber equals/hashCode gap (historical issue 627) | PASS — `runner=java` unavailable host; model chose make directly |
+| `github_issue_dayjs_duration_nan` | JS, prod fix + regression test, package.json manifest | iamkun/dayjs#1611 | PASS — **live runner-missing escalation**: `node exit=127 runner_missing → make (runner_missing_escalation) executed` |
+| `github_issue_fmt_tm_year_overflow` | C++, single header, real compile+run | fmtlib/fmt#2564 | PASS — deterministic `-fwrapv` reduction; widening fix verified by execution |
+| `github_issue_dateutil_relativedelta_float` | Python, bare dir, stdlib unittest | dateutil gh-411/gh-553 | FAIL→spec — fix correct (`value != int(value)` normalization), `python -m unittest discover` (framework=unittest lane) PASSED, worktree preserved; the case spec had pinned the `is_integer` spelling. Spec broadened to `(is_integer|int[(])`. |
+
+### Confirmed-working mechanisms (live evidence)
+
+- Typed test surface drives runner choice (commons-lang/zod chose make
+  immediately; no Maven/pytest detours).
+- Runner-missing dead-end escalation end-to-end (dayjs: node→make).
+- Python unittest framework selection end-to-end (dateutil).
+- Approval decomposition: nlohmann two-header body-only patch auto-executed
+  at medium (previously hard-blocked high).
+- Canonical needs_replan state + verify-failure handoff lead section render
+  in live controller/planner prompts; attempt diffs + reports persist on
+  failure.

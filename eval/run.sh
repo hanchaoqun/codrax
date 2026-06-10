@@ -806,7 +806,9 @@ run_one() {
         fi
       else
         if git -C "$apply_source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-          cleaned="$(git -C "$apply_source" ls-files -z 2>/dev/null | xargs -0 cat 2>/dev/null)"
+          # cat must resolve the repo-relative paths inside apply_source;
+          # plain `xargs cat` would resolve them against run.sh's CWD.
+          cleaned="$(git -C "$apply_source" ls-files -z 2>/dev/null | (cd "$apply_source" && xargs -0 cat 2>/dev/null))"
         fi
       fi
       ;;
