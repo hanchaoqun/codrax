@@ -133,3 +133,53 @@ func LoadWriteWorkflowRunFromFile(path string) (*WriteWorkflowRun, error) {
 	}
 	return &run, nil
 }
+
+func WriteContextPackToFile(pack *WriteContextPack, path string) error {
+	if pack == nil {
+		return fmt.Errorf("WriteContextPackToFile: nil pack")
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("WriteContextPackToFile: empty path")
+	}
+	normalized := NormalizeWriteContextPack(*pack)
+	if normalized.PackID == "" && len(normalized.Items) == 0 {
+		return fmt.Errorf("WriteContextPackToFile: empty pack")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("WriteContextPackToFile: mkdir %s: %w", filepath.Dir(path), err)
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WriteContextPackToFile: marshal: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("WriteContextPackToFile: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("WriteContextPackToFile: rename %s: %w", tmp, err)
+	}
+	return nil
+}
+
+func LoadWriteContextPackFromFile(path string) (*WriteContextPack, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("LoadWriteContextPackFromFile: read %s: %w", path, err)
+	}
+	var pack WriteContextPack
+	if err := json.Unmarshal(data, &pack); err != nil {
+		return nil, fmt.Errorf("LoadWriteContextPackFromFile: parse %s: %w", path, err)
+	}
+	pack = NormalizeWriteContextPack(pack)
+	return &pack, nil
+}

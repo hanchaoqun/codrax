@@ -53,11 +53,101 @@ func (s *WriteWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error
 	if err := os.MkdirAll(s.workflowDir, 0o755); err != nil {
 		return "", fmt.Errorf("WriteWorkflowRunStore.Save: mkdir %s: %w", s.workflowDir, err)
 	}
+	if err := s.saveContextPacks(&normalized); err != nil {
+		return "", err
+	}
 	path := filepath.Join(s.workflowDir, normalized.RunID+".json")
 	if err := types.WriteWorkflowRunToFile(&normalized, path); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+func (s *WriteWorkflowRunStore) saveContextPacks(run *types.WriteWorkflowRun) error {
+	if s == nil || run == nil || len(run.ContextPacks) == 0 {
+		return nil
+	}
+	contextDir := filepath.Join(s.workflowDir, "contexts", run.RunID)
+	for i := range run.ContextPacks {
+		pack := types.NormalizeWriteContextPack(run.ContextPacks[i])
+		if len(pack.Items) == 0 {
+			continue
+		}
+		packID := workflowContextPackArtifactID(run.RunID, pack, i)
+		pack.PackID = packID
+		run.ContextPacks[i] = pack
+		attachContextPackRefToRunBatch(run, pack.BatchID, packID)
+		if err := types.WriteContextPackToFile(&pack, filepath.Join(contextDir, packID+".json")); err != nil {
+			return fmt.Errorf("WriteWorkflowRunStore.Save context pack %s: %w", packID, err)
+		}
+	}
+	return nil
+}
+
+func workflowContextPackArtifactID(runID string, pack types.WriteContextPack, idx int) string {
+	parts := []string{runID, pack.BatchID, pack.PackID, pack.SourceStage}
+	var b strings.Builder
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('-')
+		}
+		b.WriteString(part)
+	}
+	if b.Len() == 0 {
+		fmt.Fprintf(&b, "%s-context-%d", runID, idx+1)
+	}
+	out := make([]rune, 0, b.Len())
+	lastDash := false
+	for _, r := range strings.ToLower(b.String()) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out = append(out, r)
+			lastDash = false
+		case r == '-' || r == '_':
+			if !lastDash {
+				out = append(out, '-')
+				lastDash = true
+			}
+		default:
+			if !lastDash {
+				out = append(out, '-')
+				lastDash = true
+			}
+		}
+	}
+	id := strings.Trim(string(out), "-")
+	if id == "" {
+		id = fmt.Sprintf("%s-context-%d", runID, idx+1)
+	}
+	if len(id) > 120 {
+		id = id[:120]
+		id = strings.TrimRight(id, "-")
+	}
+	return id
+}
+
+func attachContextPackRefToRunBatch(run *types.WriteWorkflowRun, batchID, packID string) {
+	batchID = strings.TrimSpace(batchID)
+	packID = strings.TrimSpace(packID)
+	if run == nil || batchID == "" || packID == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID != batchID {
+			continue
+		}
+		for _, existing := range run.Batches[i].ContextPackIDs {
+			if existing == packID {
+				return
+			}
+		}
+		run.Batches[i].ContextPackIDs = append(run.Batches[i].ContextPackIDs, packID)
+		return
+	}
 }
 
 func (s *WriteWorkflowRunStore) Load(id string) (*types.WriteWorkflowRun, error) {

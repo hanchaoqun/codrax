@@ -22,6 +22,11 @@ func TestWriteWorkflowRunStoreSaveLoadList(t *testing.T) {
 		ContextPacks: []types.WriteContextPack{{
 			PackID:  "pack-1",
 			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "evidence_ref",
+				Text:     "internal/foo.go:12",
+			}},
 		}},
 	}
 	path, err := store.Save(run)
@@ -47,6 +52,21 @@ func TestWriteWorkflowRunStoreSaveLoadList(t *testing.T) {
 	}
 	if len(infos) != 1 || infos[0].ID != "wf-1" || infos[0].Batches != 1 || infos[0].ContextPacks != 1 {
 		t.Fatalf("unexpected list info: %+v", infos)
+	}
+	contextPath := filepath.Join(store.WorkflowDir(), "contexts", "wf-1", "wf-1-batch-1-pack-1.json")
+	pack, err := types.LoadWriteContextPackFromFile(contextPath)
+	if err != nil {
+		t.Fatalf("LoadWriteContextPackFromFile: %v", err)
+	}
+	if pack == nil || pack.PackID != "wf-1-batch-1-pack-1" {
+		t.Fatalf("unexpected context pack artifact: %+v", pack)
+	}
+	loaded, err = store.Load("wf-1")
+	if err != nil {
+		t.Fatalf("Load after context pack save: %v", err)
+	}
+	if len(loaded.Batches[0].ContextPackIDs) != 1 || loaded.Batches[0].ContextPackIDs[0] != "wf-1-batch-1-pack-1" {
+		t.Fatalf("batch should reference context artifact: %+v", loaded.Batches[0].ContextPackIDs)
 	}
 	active, err := store.FindActiveRun()
 	if err != nil {

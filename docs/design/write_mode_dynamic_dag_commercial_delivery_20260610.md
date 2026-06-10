@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 4 implemented
+Status: Batch 5 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -176,10 +176,10 @@ not stuffed into prompts directly.
 
 ### Batch 5: Durable Priority Handoff Store
 
-- [ ] Persist context packs as artifacts and attach refs to runs/batches/events.
-- [ ] Project context from analysis, exploration, risk, plan, apply, and verify.
-- [ ] Render consumer-specific Top-N views from refs.
-- [ ] Add evidence-retention tests.
+- [x] Persist context packs as artifacts and attach refs to runs/batches/events.
+- [x] Project context from analysis, exploration, risk, plan, apply, and verify.
+- [x] Render consumer-specific Top-N views from refs.
+- [x] Add evidence-retention tests.
 
 ### Batch 6: Prompt Simplification And Hygiene
 
@@ -226,4 +226,5 @@ not stuffed into prompts directly.
 | 1 | complete | `24db3c62` | pushed | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |
 | 2 | complete | `8dde5687` | pushed | Workflow run schema now carries timestamps, refs, and attempts; scheduler resumes active runs when no plan-file seed is supplied. Tests: `go test ./internal/types ./internal/writeflow ./internal/repl ./internal/orchestrator`. |
 | 3 | complete | `24db3c62` | pushed | Action-level controller executors were delivered with the controller canonicalization batch: plan/apply/verify are directly schedulable, verify failure returns to controller under retry budget, and `BuildWriteTaskGraph` is no longer the controller main execution path. |
-| 4 | implemented | pending | pending | Shared `allow/ask/deny` permission primitive added; write approval maps to shared permission decisions; write-mode `exec_command` uses typed permission output before running observation commands. Tests: `go test ./internal/safety ./internal/tool ./internal/writeflow ./internal/operation`. |
+| 4 | complete | `181833a0` | pushed | Shared `allow/ask/deny` permission primitive added; write approval maps to shared permission decisions; write-mode `exec_command` uses typed permission output before running observation commands. Tests: `go test ./internal/safety ./internal/tool ./internal/writeflow ./internal/operation`. |
+| 5 | implemented | pending | pending | `WriteContextPack` artifacts are persisted under workflow context dirs and batch refs are attached to durable runs. Tests: `go test ./internal/types ./internal/repl ./internal/orchestrator ./internal/agent`. |
