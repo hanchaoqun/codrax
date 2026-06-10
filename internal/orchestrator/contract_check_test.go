@@ -346,6 +346,88 @@ func TestRunContractCheck_DocV2SkipsFileOnlySupplementalCitations(t *testing.T) 
 	}
 }
 
+func TestRunContractCheck_ComparisonMissingBucketSectionsStrictByContext(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		Buckets: []types.QuestionBucket{
+			{Label: "repo-a", Index: 1},
+			{Label: "repo-b", Index: 2},
+		},
+	}
+	mut := types.NewMutableState("compare repo-a and repo-b")
+	mut.SetRequestModel(rm)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "summary",
+			Kind:     types.BlockSummary,
+			Text:     "repo-a and repo-b are compared here.",
+			FacetIDs: []string{string(types.FacetBucketLabel)},
+		}},
+	})
+	bus := &types.BusContext{
+		Ctx:        context.Background(),
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = bus
+
+	res := runContractCheck(&agent.StageOutput{FinalAnswer: "answer"}, types.AnswerContract{}, mut, o, contractCheckSkipLLMReview())
+	if res.Passed {
+		t.Fatalf("comparison answer missing one section per bucket must be strict; violations=%+v", res.Violations)
+	}
+	roots := FilterFinalizerRetryRootViolationsForBus(res.Violations, bus)
+	if len(roots) == 0 {
+		t.Fatalf("comparison bucket section gap must stay actionable for finalizer retry; violations=%+v", res.Violations)
+	}
+	found := false
+	for _, v := range roots {
+		if v.Kind == types.ViolBlockCoverageMissing && v.MissingBlockKind == types.BlockSection {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("actionable roots missing section coverage violation: %+v", roots)
+	}
+}
+
+func TestRunContractCheck_NonComparisonSectionCoverageRemainsSoftByDefault(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+	}
+	mut := types.NewMutableState("explain architecture")
+	mut.SetRequestModel(rm)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "architecture summary",
+		}},
+	})
+	bus := &types.BusContext{
+		Ctx:        context.Background(),
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = bus
+
+	res := runContractCheck(&agent.StageOutput{FinalAnswer: "answer"}, types.AnswerContract{}, mut, o, contractCheckSkipLLMReview())
+	if !res.Passed {
+		t.Fatalf("non-comparison block coverage remains soft by default; violations=%+v", res.Violations)
+	}
+	if roots := FilterFinalizerRetryRootViolationsForBus(res.Violations, bus); len(roots) != 0 {
+		t.Fatalf("non-comparison soft coverage should not become retry roots; got %+v", roots)
+	}
+}
+
 func TestRunContractCheck_PassingCase(t *testing.T) {
 	out := &agent.StageOutput{
 		FinalAnswer: `- ` + "`" + `Foo` + "`" + ` at internal/a.go:1

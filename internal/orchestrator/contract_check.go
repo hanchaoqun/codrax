@@ -136,6 +136,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 	trace := newContractCheckTrace(o)
+	var contractBus *types.BusContext
+	if o != nil {
+		contractBus = o.busCtx
+	}
 	if runtimeArtifactCitationFloorWaived(mut, o) {
 		c.CitationReq.Required = false
 		c.CitationReq.MinCitations = 0
@@ -418,7 +422,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	var sqOutcome semanticQualityReviewOutcome
 	strictReview := !opts.skipLLMReview && (o == nil || o.strictAnswerReviewEnabledValue())
 	if strictReview && !deterministicReviewerHandled {
-		preReviewerStrict := hasAnyStrictViolation(result.Violations)
+		preReviewerStrict := hasAnyStrictViolationForBus(result.Violations, contractBus)
 		if preReviewerStrict {
 			logging.Info("[orchestrator] skipping LLM answer reviewers until deterministic strict contract violations are repaired")
 		}
@@ -592,7 +596,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// Append above already happened). Default strict-kinds covers
 	// every legacy kind so pre-commit-53 behaviour is byte-identical;
 	// only the 3 new kinds (P2/P4) default to soft.
-	result.Passed = !hasAnyStrictViolation(result.Violations)
+	result.Passed = !hasAnyStrictViolationForBus(result.Violations, contractBus)
 
 	return result
 }

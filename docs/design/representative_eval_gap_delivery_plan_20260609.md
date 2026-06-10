@@ -1213,3 +1213,81 @@ Acceptance:
    - top-level active violation summary is empty in complete state.
 5. Rerun the four representative cases with `PARALLEL=2`.
 6. Commit scoped dataquery/dataworkflow/docs changes on `main` and push.
+
+## Batch AA - Comparison Bucket Section Completion Gate
+
+Post-push representative eval on 2026-06-10 found one remaining system-level
+gap in `mr_cross_repo_compare`: the evidence pool contained both requested
+subrepo buckets, but the final V2 answer emitted zero `section` blocks even
+though `QFComparison` requires one principal section per typed bucket. The
+default-soft treatment of `block_coverage_missing` let the answer ship with a
+warning.
+
+Design principle:
+
+- promote only the precise user-visible comparison section carrier;
+- keep broad block/facet telemetry soft outside this context;
+- do not inspect user intent keywords, repository names, expected identifiers,
+  model-authored prose, final-answer text, or eval regexes;
+- preserve answer richness by forcing complete bucket carriers, not by trimming
+  prose or suppressing supplements.
+
+Tasks:
+
+1. Add a contextual strict predicate.
+   - Gate on `ResolveQuestionFamily(RequestModel) == QFComparison`.
+   - Require `QuestionStructure().Buckets` count >= 2.
+   - Match `ViolBlockCoverageMissing` for typed `BlockSection` coverage via
+     `MissingBlockKind` or the typed block-kind cluster key.
+
+2. Wire the predicate into contract pass/fail.
+   - `runContractCheck` must fail when the comparison bucket section carrier is
+     missing even though `ViolBlockCoverageMissing` remains default-soft
+     globally.
+   - Pre-reviewer strict detection must see the same contextual strict defect
+     so LLM reviewers cannot suppress it as "sufficient".
+
+3. Wire the predicate into finalizer retry-root filtering.
+   - `FilterFinalizerRetryRootViolationsForBus` must keep the contextual
+     section gap actionable.
+   - Non-comparison block coverage remains soft-only unless operator strict
+     promotion is configured.
+
+4. Add regression tests.
+   - Comparison with two buckets and no sections hard-fails and yields an
+     actionable retry root.
+   - Architecture/non-comparison missing section coverage still soft-passes by
+     default.
+
+5. Validate.
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/orchestrator -run 'Comparison.*Bucket|NonComparison.*Section|FilterFinalizerRetryRootViolationsForBus'
+
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/orchestrator ./internal/tool ./internal/types
+
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+make build
+
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260610_mr_after_bucket_gate_summary.md \
+bash eval/convergence_audit.sh
+
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260610_final_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Acceptance:
+
+- focused multi-repo comparison answer visibly carries both active subrepo
+  buckets and excludes inactive sibling content;
+- four-case representative sweep passes;
+- no prompt red-line regression, keyword intent matching, model-prose hard gate,
+  or case-specific symbol/repo-name patch is introduced.

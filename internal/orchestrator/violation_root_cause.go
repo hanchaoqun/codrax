@@ -182,16 +182,26 @@ func FilterFinalizerRetryRootViolations(violations []types.Violation) []types.Vi
 // non-current-source, non-exact-output support such as VCS narrative, runtime
 // artifact, command-measurement context, or negative-search boundary data.
 func FilterFinalizerRetryRootViolationsForBus(violations []types.Violation, bus *types.BusContext) []types.Violation {
-	roots := FilterFinalizerRetryRootViolations(violations)
+	roots := FilterDerivedViolations(violations)
 	if len(roots) == 0 {
+		return nil
+	}
+	actionable := make([]types.Violation, 0, len(roots))
+	for _, v := range roots {
+		if !isStrictViolationForBus(v, bus) {
+			continue
+		}
+		actionable = append(actionable, v)
+	}
+	if len(actionable) == 0 {
 		return nil
 	}
 	bindings := answerClaimBindingsForBusContext(bus)
 	if !claimBindingsDescribeNonHardNarrativeSupport(bindings) {
-		return roots
+		return actionable
 	}
-	out := make([]types.Violation, 0, len(roots))
-	for _, v := range roots {
+	out := make([]types.Violation, 0, len(actionable))
+	for _, v := range actionable {
 		if claimBindingSuppressesGenericFinalizerRetry(v) {
 			continue
 		}

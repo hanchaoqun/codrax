@@ -1363,3 +1363,84 @@ values, or final-answer text.
    - Focused data eval must return `17,0,5`.
    - Representative sweep must keep all four cases passing with answer
      richness preserved.
+
+## Post-Push Representative Rerun - 2026-06-10 09:53 CST
+
+Command:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260610_after_push_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Result:
+
+| Case | Status | Audit |
+| --- | --- | --- |
+| `qf_architecture` | PASS | Semantically rich; remaining `contract_warning` telemetry only. |
+| `read_combo_trace_current_source_explanation` | PASS | Trace answer remains correct; `contract_warning` telemetry only. |
+| `data_multifile_reference_projection` | PASS | Complete data answer; reference projection returns expected values. |
+| `mr_cross_repo_compare` | FAIL | Evidence contained both subrepo buckets, but final V2 document emitted only a summary plus one principal table supplement, so the visible answer omitted the `repo-greet-go` identifier set. |
+
+Manual audit of `eval/results/mr_cross_repo_compare-20260610-095338/run-1.out`
+showed that exploration and extraction had already collected the required
+evidence:
+
+- `repo-greet-go`: `UserService`, `GreetServiceImpl`,
+  `NewGreetServiceImpl`, `Greet`, `Goodbye`.
+- `repo-tools-py`: `process_request`, `echo`.
+
+The finalizer and pre-emit logs also showed the semantic view required one
+`section` block per comparison bucket, but the emitted document had zero
+`section` blocks. The V2 block oracle produced `block_coverage_missing` and
+`facet_uncovered` telemetry, then the global default-soft policy accepted the
+answer with a warning.
+
+### G32. Comparison Bucket Section Coverage Was Soft-Accepted
+
+The deep root cause is not evidence collection and not a missing multi-repo
+scope route. It is a contract execution gap: `QFComparison` already compiles a
+typed `BlockSection` requirement with `MinCount == MaxCount == bucket_count`,
+but the final gate treated the missing section carrier as generic
+answer-surface telemetry. That allowed a semantically incomplete visible
+comparison surface to ship even though the precise typed signals said the
+question had two user-named buckets and the answer carried zero bucket
+sections.
+
+This must not be fixed by matching repository names, expected identifiers,
+answer prose, or eval regexes. The generic system rule is: when typed
+`RequestModel.QuestionStructure().Buckets` resolves the question to
+`QFComparison`, the required `section` coverage is a user-visible completion
+condition. Broad facet metadata remains soft by default; the hard path is only
+the typed section carrier that preserves the user's explicit partition.
+
+### Batch AA - Comparison Bucket Section Completion Gate
+
+1. Add a contextual strict predicate for comparison bucket section coverage.
+   - Input signals: `ResolveQuestionFamily(RequestModel) == QFComparison`,
+     bucket count >= 2, and `ViolBlockCoverageMissing` for `BlockSection`.
+   - Do not read user-intent keywords, repo names, expected symbols, model
+     answer prose, or final-answer regexes.
+
+2. Apply the predicate consistently.
+   - `runContractCheck` pass/fail must treat the gap as strict.
+   - finalizer retry-root filtering must keep the same gap actionable so the
+     scheduler cannot accept it as soft-only.
+
+3. Keep non-comparison behavior stable.
+   - Architecture/generic section coverage remains default-soft unless an
+     operator explicitly promotes the violation kind.
+   - `facet_uncovered` for metadata-only bucket labels remains soft by default.
+
+4. Add regression coverage.
+   - Comparison answer with two buckets and zero sections hard-fails and
+     produces an actionable finalizer retry root.
+   - Non-comparison missing section coverage still soft-passes by default.
+
+5. Re-run focused and representative evals.
+   - Focused `mr_cross_repo_compare` must show both active subrepo buckets.
+   - Four-case representative sweep must remain pass with data/trace richness
+     preserved.

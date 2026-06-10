@@ -350,6 +350,49 @@ func TestFilterFinalizerRetryRootViolationsForBus_KeepsExactAndRequestedShapeDef
 	}
 }
 
+func TestFilterFinalizerRetryRootViolationsForBus_ComparisonBucketSectionsActionableByDefault(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	bus := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		Buckets: []types.QuestionBucket{
+			{Label: "repo-a", Index: 1},
+			{Label: "repo-b", Index: 2},
+		},
+	}}}
+	in := []types.Violation{{
+		Kind:             types.ViolBlockCoverageMissing,
+		MissingBlockKind: types.BlockSection,
+		ClusterKey:       types.BlockKindClusterKey(types.BlockSection, "answer_block_coverage"),
+	}}
+
+	out := FilterFinalizerRetryRootViolationsForBus(in, bus)
+	if len(out) != 1 {
+		t.Fatalf("comparison section coverage must be actionable even when block coverage is default-soft; got %+v", out)
+	}
+}
+
+func TestFilterFinalizerRetryRootViolationsForBus_NonComparisonSectionsStaySoft(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	bus := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+	}}}
+	in := []types.Violation{{
+		Kind:             types.ViolBlockCoverageMissing,
+		MissingBlockKind: types.BlockSection,
+		ClusterKey:       types.BlockKindClusterKey(types.BlockSection, "answer_block_coverage"),
+	}}
+
+	out := FilterFinalizerRetryRootViolationsForBus(in, bus)
+	if len(out) != 0 {
+		t.Fatalf("non-comparison section coverage should remain default-soft; got %+v", out)
+	}
+}
+
 func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})
