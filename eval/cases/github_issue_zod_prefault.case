@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: colinhacks/zod#5824 fixed by PR #5893.
+ID="github_issue_zod_prefault"
+NAME="zod TypeScript toJSONSchema preserves falsy prefault defaults"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/zod_prefault"
+QUESTION="真实上游记录：colinhacks/zod issue #5824 由 PR #5893 修复，toJSONSchema 使用 truthiness 判断 _prefault 时会丢掉 false、0、空字符串等 falsy prefault。请在这个最小 TypeScript 复现仓里改成结构化存在性判断，并补充 false、0、空字符串的回归测试。上游 PR: https://github.com/colinhacks/zod/pull/5893"
+EXPECT_MATCHES_REGEX='prefault[(]false[)]
+prefault[(]0[)]
+prefault[(]""[)]'

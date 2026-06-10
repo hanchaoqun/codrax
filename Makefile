@@ -297,7 +297,7 @@ endif
 # Override sample count: `make eval-patch SAMPLES=5`. Run a single
 # case via `bash eval/run.sh eval/cases/patch_go_typo.case 3`.
 # ---------------------------------------------------------------------------
-.PHONY: eval-runner-test eval-data-real eval-patch eval-patch-go eval-patch-c eval-patch-cpp eval-patch-java eval-patch-python
+.PHONY: eval-runner-test eval-data-real eval-patch eval-patch-go eval-patch-c eval-patch-cpp eval-patch-java eval-patch-python eval-github-issues
 
 SAMPLES ?= 3
 
@@ -333,6 +333,13 @@ eval-patch-java: build
 
 eval-patch-python: build
 	bash eval/run.sh eval/cases/patch_python_typo.case $(SAMPLES)
+
+eval-github-issues: build
+	@for case in eval/cases/github_issue_*.case; do \
+		echo "=== $$case ==="; \
+		bash eval/run.sh $$case $(SAMPLES) || true; \
+	done
+	@echo "Done. Per-case results under eval/results/."
 endif
 
 # ---------------------------------------------------------------------------

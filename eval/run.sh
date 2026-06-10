@@ -648,6 +648,8 @@ run_one() {
   local rc=0
   local scratch=""
   local plan=""
+  local plan_written=0
+  local apply_attempted=0
 
   case "$MODE" in
     plan|apply)
@@ -664,7 +666,11 @@ run_one() {
       export CODRAX_SETTINGS="$ROOT/eval/fixtures/write_enabled.yaml"
       run_plan_step "$i" "$out" "$logdir" "$scratch" "$plan"
       rc=$?
-      if [[ "$MODE" == "apply" && $rc -eq 0 && -f "$plan" ]]; then
+      if [[ -f "$plan" ]]; then
+        plan_written=1
+      fi
+      if [[ "$MODE" == "apply" && $rc -eq 0 && $plan_written -eq 1 ]]; then
+        apply_attempted=1
         run_apply_step "$i" "$out" "$logdir" "$scratch" "$plan"
         rc=$?
       fi
@@ -763,6 +769,12 @@ run_one() {
       fi
       ;;
     apply)
+      if [[ $plan_written -ne 1 ]]; then
+        extra_reasons+=("plan_not_written")
+      fi
+      if [[ $apply_attempted -ne 1 ]]; then
+        extra_reasons+=("apply_not_run")
+      fi
       # Apply happens inside a worktree (L5 red line: worktree is the
       # write sandbox; the scratch/ main repo HEAD bytes never change
       # automatically). Post-apply content therefore lives under the
@@ -793,8 +805,8 @@ run_one() {
           extra_reasons+=("post_apply_file_missing:$POST_APPLY_FILE")
         fi
       else
-        if [[ -d "$apply_source/.git" ]]; then
-          cleaned="$(cd "$apply_source" && git ls-files -z 2>/dev/null | xargs -0 cat 2>/dev/null)"
+        if git -C "$apply_source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          cleaned="$(git -C "$apply_source" ls-files -z 2>/dev/null | xargs -0 cat 2>/dev/null)"
         fi
       fi
       ;;

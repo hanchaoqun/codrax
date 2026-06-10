@@ -426,12 +426,27 @@ update here.
       mismatch echoes for range and insert anchor, and the byte-rule matrix.
 
 ### Batch 7 — Eval port + regression matrix (P2)
-- [ ] Port evidence ledger, cases, fixtures, Makefile target, run.sh
-      hardening; `make eval-runner-test`, `bash -n eval/run.sh`.
-- [ ] `docs/architecture.md` deltas (surface, masking, risk corroboration,
-      handoff carrier).
-- [ ] Full `go test ./...` + `make test`; prompt hygiene tests for all new
-      sections.
+- [x] Ported from the eval workspace byte-identically: the evidence ledger
+      (with an added expected-vs-observed outcomes section), the four
+      `eval/cases/github_issue_*.case`, `eval/fixtures/github_issues/`, the
+      `eval-github-issues` Makefile target, and the `eval/run.sh` apply-mode
+      + git-file-worktree hardening. `bash -n eval/run.sh` clean.
+- [x] Fixed a pre-existing origin/main regression that broke
+      `make eval-runner-test` on both clones: the finalizer reject counter
+      used a multibyte bracket expression (`[校交]`) whose grep semantics are
+      locale-dependent (byte-decomposed → silent zero in non-UTF-8 locales);
+      replaced with locale-stable literal alternation. `make eval-runner-test`
+      green.
+- [x] `docs/architecture.md` deltas: §8.2 controller hardening list (action
+      masking, canonical attempt state, finish gate + typed escape,
+      VerifyFailureHandoff, durable failure evidence, risk decomposition,
+      structured edit defaults) and §8.7 typed TestSurface + dead-end
+      escalation.
+- [x] Full `go test ./...` + `make test` green; task-10 hygiene pin
+      (`TestFinishBlockedReason_DoesNotReadProse`) proves the finish gate
+      ignores prose in both directions. Live `make eval-github-issues`
+      requires LLM API access and is recorded in the evidence ledger as the
+      follow-up re-run command.
 
 ## 6. Acceptance criteria
 
@@ -484,3 +499,8 @@ update here.
 - 2026-06-10: Batch 6 — structured edit reliability shipped. end_line
   defaults, byte-echoing mismatch diagnostics, trailing-newline tolerance,
   precise schema wording. Full `go test ./...` green.
+- 2026-06-10: Batch 7 — eval regression suite ported (4 GitHub-issue cases +
+  fixtures + harness hardening + evidence ledger with expected outcomes);
+  locale-dependent runner-lib counter regression fixed; architecture.md
+  updated; full `go test ./...` + `make test` + `make eval-runner-test`
+  green. All seven batches delivered.

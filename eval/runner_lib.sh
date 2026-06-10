@@ -207,7 +207,11 @@ eval_count_finalizer_rejects() {
   # source snippets and model answers may discuss `finalizer_rejects` or quote
   # customer logs that contain "成文校验未通过".
   tool=$(eval_count_control_pattern 'DEBUG \[diag finalizer\][^:]*phase=toolresult TOOLRESULT emit_answer_document(_patch)? ok=false' "$file")
-  render=$(eval_count_control_pattern 'INFO \[render\][[:space:]]+•[[:space:]]+成文[校交]验未通过' "$file")
+  # Multibyte bracket expressions ([校交]) are locale-dependent: in a
+  # non-UTF-8 grep locale the class decomposes into single BYTES and the
+  # pattern can never match, silently zeroing the counter. Literal
+  # alternation is byte-exact in every locale.
+  render=$(eval_count_control_pattern 'INFO \[render\][[:space:]]+•[[:space:]]+(成文校验未通过|成文交验未通过)' "$file")
   n=$((tool + render))
   echo "$n"
 }

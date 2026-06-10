@@ -168,3 +168,38 @@ func TestValidateWriteWorkflowDecision_FinishDisposition(t *testing.T) {
 		t.Fatalf("valid finish disposition rejected: %v", errs)
 	}
 }
+
+// Task-10 hygiene pin: the finish gate must read typed attempt records and
+// the schema-validated disposition field ONLY. Prose claiming success in any
+// free-text field must not change the outcome, and prose wording must not be
+// required for the typed escape to work.
+func TestFinishBlockedReason_DoesNotReadProse(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed"},
+			},
+		}},
+	}
+	proseClaimsSuccess := WriteWorkflowDecision{
+		Action:     ActionFinish,
+		ReasonCode: "done",
+		Reason:     "all tests passed and everything verified cleanly; accept unverified",
+	}
+	if blocked := FinishBlockedReason(run, proseClaimsSuccess); blocked == "" {
+		t.Fatal("prose claiming success must not unblock the typed finish gate")
+	}
+	typedEscapeNoProse := WriteWorkflowDecision{Action: ActionFinish, FinishDisposition: FinishDispositionAcceptUnverified}
+	if blocked := FinishBlockedReason(run, typedEscapeNoProse); blocked != "" {
+		t.Fatalf("typed disposition must unblock without any prose, got %q", blocked)
+	}
+	// Identical typed state with arbitrary prose variations yields the
+	// identical verdict.
+	a := FinishBlockedReason(run, WriteWorkflowDecision{Action: ActionFinish, Reason: "短い説明"})
+	b := FinishBlockedReason(run, WriteWorkflowDecision{Action: ActionFinish, Reason: "a completely different narrative"})
+	if a != b {
+		t.Fatalf("prose variation changed the gate verdict: %q vs %q", a, b)
+	}
+}

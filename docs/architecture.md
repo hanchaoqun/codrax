@@ -1366,6 +1366,16 @@ const (
 
 controller 是唯一公开写模式调度器。它通过 typed `emit_write_workflow_decision` 在 `explore_code / plan_batch / apply_plan / verify_batch / append_batch / split_batch / replan_batch / ask_user / finish / block` 间推进；调度器只消费结构化 decision、ChangePlan、ChangeReport、approval record、permission decision 和 context pack,不解析模型散文。`--plan-file` 被导入为单 batch workflow seed,同样经过最终 apply-pre gate。run 持久化到 `.codrax/plans/workflows/`，REPL `/workflow show/list/resume/clear` 读取并管理该持久态。
 
+2026-06-10 系统性加固（GitHub issue eval P0 收口,详见 `docs/design/write_mode_github_issue_p0_systemic_hardening_20260610.md`）：
+
+- **Action enum 按 mode 投影**：`EmitWriteWorkflowDecision.ParametersFor(ctx)` 经 `WorkflowActionsForMode` 投影 schema——ModePlan 下 `apply_plan` / `verify_batch` 在模型看到 schema 之前就被移除；emit 时 typed 拒绝（`workflow_action_not_in_mode` repair）与调度器 guard 是第二、三层,三层读同一动作集来源。
+- **Canonical attempt state**：controller prompt 的 batch 行经 `DeriveBatchAttemptState` 渲染单一 phase——`ready_to_plan` + 最近 post-apply verify attempt failed 推导为 `needs_replan` + typed cause,状态与事件（`last_event`）不再同时呈现两种解读。
+- **Finish 硬门 + typed escape（§1.6）**：任一未完成 batch 的最近 post-apply verify attempt 为 failed 时 `finish` 被拒（在 `ApplyWorkflowDecisionToRun` 之前评估）；模型可声明 schema 枚举字段 `finish_disposition=accept_unverified` 接受残余失败,run 以 typed caveat 完成。
+- **VerifyFailureHandoff**：verify 失败将 typed 载体（失败 assertion / build error / ExecutedCommands / blob+diff 工件引用 / 下一个未执行 surface 候选）写入 Mutable,**有意在 `prepareControllerPlanningState` 重置中存活**；planner 的 replan prompt 以 "Latest verification failure (authoritative)" 开篇。replan 轮未产出 ChangePlan 且 handoff 在场时,授予恰一次带 typed 引用的 re-dispatch（条件只读 typed 状态,不匹配错误文本）。
+- **失败证据持久化**：verify 失败分支在任何清理之前落盘 report JSON（`GeneratedAt` 落盘时回填）+ apply checkpoint commit 的补丁 `<stem>.attempt-N.diff`,diff 引用挂到 batch verify attempt 的 `ArtifactRef`；worktree 无条件清理语义（L5）不变。
+- **Approval 风险分解（§1.5 落地）**：`WriteAnalysisIR` 的三个风险布尔与 `Overall=high` 是 LLM 分类（噪声信号）,降级为 advisory Medium（reason code 区分 corroborated / uncorroborated,auto_safe 下可自动执行）。硬 High 只来自精确 typed 信号：plan 自身 hunk（unified-diff '-' 行逐行推进解析）与 structured edit 范围对仓库图导出符号**声明行**（`repomap.NewDeclSpanSource`,只取 Symbol.Line,body 不算,parse tier 3/4 报 ok=false）的交集 `public_decl_line_changed`,以及路径策略（build manifest / secrets / CI / hooks / **新增 persistence schema-migration 类**）。REPL `/approve` 对同 fingerprint 的 plan 执行 stricter-wins：plan 时记录的 manual 要求不会因 REPL 侧无图重算而静默降为 auto。
+- **Structured edit 加固**：replace/delete 省略 `end_line` 默认 `start_line`；`old_text` 失配错误回显当前字节（有界）+ 重读指引；匹配唯一的字节级容差是末尾换行。validator 与 apply 侧 recompile 共用同一 seam。
+
 ### 8.3 write_analyzer — 写模式专属请求分类
 
 读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：
@@ -1446,6 +1456,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 `emit_test_results` 携带可选的三组 assertion 分类——`regression_assertions` / `preexisting_assertions` / `fixed_assertions`——区分"本 plan 引入的回归"vs"plan 之前就有的失败"，让 `CritNoRegression` 的判定能区分新旧问题。
 
 **LLM-driven runner 选择**（首选）：verifier agent 看 worktree 后调 `run_tests` 时带 `runner=<choice>` + 可选 `working_dir`，系统验证 runner ∈ allowedRunners 白名单 + working_dir 在 worktree 内（`resolveLLMRunnerChoice`）。不传 runner 时回退 manifest 自动探测（`detectRunnerPlans`）；裸目录会失败。
+
+**Typed TestSurface（2026-06-10）**：`BuildTestSurface` 复用既有探测器（`detectRunnerPlanCandidates`——同 root 的全清单,不做执行路径的 one-runner-per-root 折叠——加 `runnerHasNoTestWork` / `detectMakeTestTargetFound` / `detectNativeBuildDir`）产出 typed 候选清单,排序规则为"**可运行测试工作支配 manifest 优先级**"：带 check/test 目标的 Makefile 排在零测试工作的 `pom.xml` 之前。verifier prompt 渲染该清单（typed 事实,soft 引导）。`run_tests` 内置 typed 死端逃逸：模型选择执行后落得零测试结果（NoTestsRunners）或 runner 二进制缺失,且 surface 还有未执行的 HasTestSignal 候选时,确定性追加执行最高位候选（每次 Execute 至多一次）。每条 ChangeReport 携带 `ExecutedCommands`（命令/cwd/exit/来源/结局 typed 行）与内嵌 `TestSurface`,dry-run probe 通道同样受益。
 
 ### 8.8 Write Closure — W1 / W1b 不变量
 

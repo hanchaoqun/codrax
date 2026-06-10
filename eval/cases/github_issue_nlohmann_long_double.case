@@ -1,0 +1,7 @@
+# Real GitHub issue write-mode eval: nlohmann/json#3929.
+ID="github_issue_nlohmann_long_double"
+NAME="nlohmann C++ long double format syncs implementation and single include"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/nlohmann_long_double"
+QUESTION="真实上游记录：nlohmann/json PR #3929 修复 long double dump 时 serializer 使用 %.*lg 而不是 %.*Lg 的问题。这个最小 C++ 复现仓有实现头和 single_include 两份同步文件；请修复 long double snprintf format，确保两份头都同步，测试文件不要改。上游 PR: https://github.com/nlohmann/json/pull/3929"
+EXPECT_MATCHES_REGEX='%[.][*]Lg'
