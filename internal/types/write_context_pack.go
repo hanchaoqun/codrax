@@ -307,6 +307,10 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		}
 		pack.Items = append(pack.Items, writeContextItem(kind, WriteContextP2, report.FailureSummary, "verify",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		if report.FailureSummaryBlobRef != "" {
+			pack.Items = append(pack.Items, writeContextItem("failure_summary_blob_ref", WriteContextP2, report.FailureSummaryBlobRef, "verify",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		}
 	}
 	for _, result := range report.TestResults {
 		if result.Passed {

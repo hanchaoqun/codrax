@@ -188,6 +188,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			report := o.busCtx.Mutable.ChangeReport()
 			if report != nil {
 				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
+				updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
 				o.syncCurrentWriteContextPackToRun(&run)
 			}
 			if innerErr != nil || (report != nil && !report.Passed) {
@@ -543,6 +544,9 @@ func (o *Orchestrator) syncCurrentWriteContextPackToRun(run *types.WriteWorkflow
 	if pack == nil || len(pack.Items) == 0 {
 		return
 	}
+	if strings.TrimSpace(run.ActiveBatchID) != "" {
+		pack.BatchID = strings.TrimSpace(run.ActiveBatchID)
+	}
 	*run = upsertWorkflowRunContextPack(*run, *pack)
 	o.busCtx.Mutable.SetWriteWorkflowRun(run)
 }
@@ -586,6 +590,9 @@ func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.
 		return run
 	}
 	pack := types.WriteContextPackFromChangePlan(plan)
+	if strings.TrimSpace(run.ActiveBatchID) != "" {
+		pack.BatchID = strings.TrimSpace(run.ActiveBatchID)
+	}
 	return upsertWorkflowRunContextPack(run, pack)
 }
 
@@ -645,6 +652,83 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID str
 			FinishedAt: time.Now(),
 		}},
 	})
+}
+
+func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || report == nil {
+		return
+	}
+	reportID := writeWorkflowReportID(report)
+	planID := strings.TrimSpace(report.PlanID)
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			run.Batches[i].VerifyRef = reportID
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, planID, reportID)
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		VerifyRef: reportID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
+			ID:         fmt.Sprintf("attempt-%d", 1),
+			Kind:       "verify",
+			Status:     strings.TrimSpace(status),
+			ReasonCode: strings.TrimSpace(reasonCode),
+			PlanID:     planID,
+			ReportID:   reportID,
+			FinishedAt: time.Now(),
+		}},
+	})
+}
+
+func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) string {
+	if err != nil {
+		return "failed"
+	}
+	if report == nil {
+		return "missing_report"
+	}
+	if !report.Passed {
+		return "failed"
+	}
+	if len(report.NoTestsRunners) > 0 {
+		return "unverified"
+	}
+	return "passed"
+}
+
+func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) string {
+	if report == nil {
+		return "missing_report"
+	}
+	if report.BuildFailed {
+		return "build_failed"
+	}
+	if !report.Passed {
+		return "tests_failed"
+	}
+	if err != nil {
+		return "verify_error"
+	}
+	if len(report.NoTestsRunners) > 0 {
+		return "no_tests"
+	}
+	return "tests_passed"
+}
+
+func writeWorkflowReportID(report *types.ChangeReport) string {
+	if report == nil {
+		return ""
+	}
+	planID := strings.TrimSpace(report.PlanID)
+	if planID == "" {
+		return ""
+	}
+	return planID + ".report.json"
 }
 
 func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID string) {

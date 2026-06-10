@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -263,7 +264,24 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 				planID = plan.ID
 			}
 			if attempt == 1 {
-				mu.SetChangeReport(&types.ChangeReport{PlanID: planID, Passed: false, FailureSummary: "unit failed"})
+				mu.SetChangeReport(&types.ChangeReport{
+					PlanID:                planID,
+					Passed:                false,
+					BuildFailed:           true,
+					FailureSummary:        "compile failed",
+					FailureSummaryBlobRef: "/tmp/codrax/blob/compile-failed.txt",
+					TestResults: []types.TestResult{{
+						Kind:          types.TestResultKindBuildError,
+						AssertionID:   "fix.go:12",
+						Suite:         "build",
+						FailureDetail: "undefined: helper",
+						BuildErrors: []types.BuildError{{
+							File:    "fix.go",
+							Line:    12,
+							Message: "undefined: helper",
+						}},
+					}},
+				})
 				*stepsUsed++
 				return &agent.StageOutput{Error: "verify failed"}, nil
 			}
@@ -284,6 +302,21 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	}
 	if len(store.last.ProgressLedger) == 0 || !workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
 		t.Fatalf("verify failure should be recorded in progress ledger: %+v", store.last.ProgressLedger)
+	}
+	if len(store.last.Batches) != 1 {
+		t.Fatalf("expected one batch, got %+v", store.last.Batches)
+	}
+	batch := store.last.Batches[0]
+	if batch.VerifyRef != "plan-attempt-2.report.json" {
+		t.Fatalf("latest verify ref = %q, want final report ref", batch.VerifyRef)
+	}
+	if !workflowBatchHasAttempt(batch, "verify", "failed", "build_failed", "plan-attempt-1.report.json") ||
+		!workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-attempt-2.report.json") {
+		t.Fatalf("verify attempts should retain failed and passed report refs: %+v", batch.Attempts)
+	}
+	if !workflowRunContextContains(store.last, "build_error", "fix.go:12 undefined: helper") ||
+		!workflowRunContextContains(store.last, "failure_summary_blob_ref", "/tmp/codrax/blob/compile-failed.txt") {
+		t.Fatalf("verify failure context should retain typed build evidence: %+v", store.last.ContextPacks)
 	}
 }
 
@@ -507,6 +540,29 @@ func workflowProgressHasReason(items []types.WriteWorkflowProgress, reason strin
 	for _, item := range items {
 		if item.ReasonCode == reason {
 			return true
+		}
+	}
+	return false
+}
+
+func workflowBatchHasAttempt(batch types.WriteWorkflowBatch, kind, status, reasonCode, reportID string) bool {
+	for _, attempt := range batch.Attempts {
+		if attempt.Kind == kind && attempt.Status == status && attempt.ReasonCode == reasonCode && attempt.ReportID == reportID {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring string) bool {
+	if run == nil {
+		return false
+	}
+	for _, pack := range run.ContextPacks {
+		for _, item := range pack.Items {
+			if item.Kind == kind && strings.Contains(item.Text, substring) {
+				return true
+			}
 		}
 	}
 	return false

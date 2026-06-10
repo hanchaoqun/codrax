@@ -219,11 +219,11 @@ flowchart TD
 
 ### Batch 4: Verify Failure Handoff
 
-- [ ] Project build errors and failed tests into P2 context pack items.
-- [ ] Attach verify report refs to the active batch.
-- [ ] Render planner/controller P2 failure context before generic summaries.
-- [ ] Add context-pack tests for build file/line/message retention.
-- [ ] Commit and push.
+- [x] Project build errors and failed tests into P2 context pack items.
+- [x] Attach verify report refs to the active batch.
+- [x] Render planner/controller P2 failure context before generic summaries.
+- [x] Add context-pack tests for build file/line/message retention.
+- [x] Commit and push.
 
 ### Batch 5: State Machine And Attempts
 
@@ -271,3 +271,4 @@ flowchart TD
 | 1 | complete | current batch | pushed | Go parser now preserves package build failures next to passing sibling package tests. Tests: `go test ./internal/tool -run 'TestParseGoTestJSONLines|TestParseGoTest_CompileErrorMapsToBuildFailed|TestRenderBuildFailureSummary|TestFirstBuildErrorAssertionID|TestMergeChangeReports'`, `go test ./internal/tool`. |
 | 2 | complete | current batch | pushed | ModePlan now terminates after a reviewable ChangePlan and never reaches apply/verify. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`. |
 | 3 | complete | current batch | pushed | Typed manual approval pauses as active `pending_approval`; `/workflow` exposes show/list/resume/clear/cancel and pending approval stays discoverable for `/approve`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive|TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/repl -run 'TestWriteWorkflowRunStore|TestWorkflowShowDisplaysActiveWriteWorkflow|TestApproveUsesActiveWorkflowBatchPlan|TestWorkflowResumeSelectsSavedWriteWorkflow|TestWorkflowClearDeletesActiveWriteWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines_CoversEveryCommand|TestSlashCommand_HelpBothVariantsNonEmpty'`. |
+| 4 | complete | current batch | pushed | Verify report refs now attach to workflow batches; failed build/test evidence and blob refs persist as P2 context for replan. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch|TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/types -run 'TestWriteContextPackFromChangeReportCarriesVerifyFailure|TestWriteContextPackViewBoundsAndDefensiveCopy'`. |

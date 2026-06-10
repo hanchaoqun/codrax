@@ -82,10 +82,11 @@ func TestWriteContextPackFromExplorationHandoffPrioritizesEvidence(t *testing.T)
 
 func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	report := &ChangeReport{
-		PlanID:         "plan-1",
-		Passed:         false,
-		BuildFailed:    true,
-		FailureSummary: "compile failed",
+		PlanID:                "plan-1",
+		Passed:                false,
+		BuildFailed:           true,
+		FailureSummary:        "compile failed",
+		FailureSummaryBlobRef: "/tmp/codrax/blob/run-tests-plan-1.txt",
 		TestResults: []TestResult{{
 			Kind:          TestResultKindBuildError,
 			AssertionID:   "internal/foo.go:10",
@@ -107,6 +108,7 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 		text string
 	}{
 		{"build_failure", "compile failed"},
+		{"failure_summary_blob_ref", "/tmp/codrax/blob/run-tests-plan-1.txt"},
 		{"failed_test", "undefined: Foo"},
 		{"build_error", "internal/foo.go:10 Foo undefined: Foo"},
 		{"regression_assertion", "TestExisting"},
