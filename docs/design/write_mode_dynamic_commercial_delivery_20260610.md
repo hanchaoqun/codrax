@@ -1,7 +1,7 @@
 # Write Mode Dynamic Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 3 ready to commit
+Status: Batch 3 complete
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Goal
@@ -209,7 +209,7 @@ Consumers render only their relevant Top-N view; full context is persisted.
       views through typed `WriteContextPack.View`.
 - [x] Add tests that high-priority constraints and evidence are preserved and
       low-priority noise is bounded.
-- [ ] Commit, push, and update this ledger.
+- [x] Commit, push, and update this ledger.
 
 ### Batch 4: Controller MVP
 
@@ -259,7 +259,7 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | 0 | complete | 81b7ebef | pushed | not run |
 | 1 | complete | b4ab2eb7 | pushed | `go test ./internal/types -run 'TestPlanStatus\|Test.*ChangePlan\|Test.*Approval\|Test.*Fingerprint'`; `go test ./internal/writeflow`; focused `./internal/orchestrator`; focused `./internal/repl` |
 | 2 | complete | 5dd96bb3 | pushed | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
-| 3 | ready_to_commit | pending | pending | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
+| 3 | complete | e9c0d509 | pending | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
 | 4 | pending | pending | pending | pending |
 | 5 | pending | pending | pending | pending |
 | 6 | pending | pending | pending | pending |
