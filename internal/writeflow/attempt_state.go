@@ -39,6 +39,13 @@ type BatchAttemptState struct {
 	PlanID   string `json:"plan_id,omitempty"`
 	ReportID string `json:"report_id,omitempty"`
 
+	// LatestVerifyStatus / LatestVerifyArtifactRef expose the newest verify
+	// attempt's typed status ("passed", "failed", "unverified", ...) and its
+	// artifact ref (the persisted attempt diff for failures) for resume
+	// hydration and finish caveats.
+	LatestVerifyStatus      string `json:"latest_verify_status,omitempty"`
+	LatestVerifyArtifactRef string `json:"latest_verify_artifact_ref,omitempty"`
+
 	// FailedVerifyAttempts counts post-apply verify attempts with a failed
 	// status. Attempt records are only written by the scheduler's verify
 	// branch, so planner dry-run probes never inflate this count.
@@ -74,6 +81,8 @@ func DeriveBatchAttemptState(batch types.WriteWorkflowBatch) BatchAttemptState {
 	latestVerify := latestAttemptOfKind(batch, "verify")
 	if latestVerify != nil {
 		st.ReportID = strings.TrimSpace(latestVerify.ReportID)
+		st.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
+		st.LatestVerifyArtifactRef = strings.TrimSpace(latestVerify.ArtifactRef)
 	}
 	if batch.Status == types.WriteWorkflowBatchReadyToPlan && latestVerify != nil && latestVerify.Status == "failed" {
 		st.Phase = BatchPhaseNeedsReplan
@@ -139,6 +148,22 @@ func UnverifiedBatchSummaries(run types.WriteWorkflowRun) []string {
 			entry += " (" + rc + ")"
 		}
 		out = append(out, entry)
+	}
+	return out
+}
+
+// UnverifiedBatchCaveats lists batches whose latest verify attempt completed
+// with the typed "unverified" status (a NoTests outcome on non-test code).
+// Finish paths append this as a result caveat so a run can never silently
+// read "complete" with zero executed assertions.
+func UnverifiedBatchCaveats(run types.WriteWorkflowRun) []string {
+	var out []string
+	for _, batch := range run.Batches {
+		latestVerify := latestAttemptOfKind(batch, "verify")
+		if latestVerify == nil || latestVerify.Status != "unverified" {
+			continue
+		}
+		out = append(out, batch.ID)
 	}
 	return out
 }

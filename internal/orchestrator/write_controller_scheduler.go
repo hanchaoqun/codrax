@@ -34,6 +34,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	}
 	run := o.loadOrSeedWriteWorkflowRun()
 	o.persistWriteWorkflowRun(&run)
+	explorationRounds := map[string]int{}
+	verifyFailures := map[string]int{}
+	// Resume hydration: a run loaded from the store carries its history only
+	// in typed attempt records. Rebuild the in-memory retry ledger, the
+	// active plan, and the verify-failure carrier from those records and the
+	// durable artifacts so a resumed run behaves like the run that paused —
+	// the retry budget cannot silently reset and replan keeps its evidence.
+	o.hydrateResumedWorkflowState(&run, verifyFailures)
 	// importedPlanMirror is the --plan-file path this run was started
 	// with (empty otherwise). The controller workflow may replace the
 	// active plan across replan rounds; mirroring every accepted plan
@@ -41,8 +49,6 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	// the operator-visible artifact pointing at the LIVE plan instead
 	// of the first imported snapshot.
 	importedPlanMirror := strings.TrimSpace(o.busCtx.PlanPath)
-	explorationRounds := map[string]int{}
-	verifyFailures := map[string]int{}
 	controllerTurns := 0
 	maxTurns := defaultWriteWorkflowMaxBatches*4 + 4
 	var lastInnerErr error
@@ -91,6 +97,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		if err != nil {
 			return err
 		}
+		// A batch switch invalidates the previous batch's verify-failure
+		// carrier: the new batch's planner must not open with another
+		// batch's failure section.
+		if before.ActiveBatchID != run.ActiveBatchID {
+			if h := o.busCtx.Mutable.VerifyFailureHandoff(); h != nil && h.BatchID != run.ActiveBatchID {
+				o.busCtx.Mutable.ResetVerifyFailureHandoff()
+			}
+		}
 		o.syncCurrentWriteContextPackToRun(&run)
 		o.persistWriteWorkflowRun(&run)
 
@@ -101,11 +115,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				batchID = decision.ExplorationRequest.BatchID
 			}
 			if explorationRounds[batchID] >= defaultWriteWorkflowMaxExplorationRounds {
-				run.Status = types.WriteWorkflowRunBlocked
-				updateWorkflowRunBatchStatus(&run, batchID, types.WriteWorkflowBatchBlocked)
-				appendControllerProgress(&run, batchID, "exploration_budget_exhausted", "batch exploration round budget exhausted")
+				// Reject the ACTION, not the run (same pattern as the finish
+				// gate): the controller sees the typed event next turn and can
+				// still plan, replan, finish, or block on its own.
+				lastInnerErr = fmt.Errorf("exploration budget exhausted for %s", batchID)
+				appendControllerProgress(&run, batchID, "exploration_budget_exhausted",
+					"exploration round budget exhausted; choose plan_batch, replan_batch, finish, or block")
 				o.persistWriteWorkflowRun(&run)
-				return fmt.Errorf("write workflow blocked: exploration budget exhausted for %s", batchID)
+				continue
 			}
 			explorationRounds[batchID]++
 			if decision.ExplorationRequest != nil {
@@ -273,6 +290,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 						result += " — accepted with failed verification: " + strings.Join(unverified, ", ")
 					}
 				}
+				if noTests := writeflow.UnverifiedBatchCaveats(run); len(noTests) > 0 {
+					result += " — no tests executed for: " + strings.Join(noTests, ", ")
+				}
 				o.busCtx.Mutable.SetResult(result)
 			}
 			return nil
@@ -282,6 +302,18 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			msg := "write workflow blocked: " + decision.ReasonCode
 			if decision.Reason != "" {
 				msg += ": " + decision.Reason
+			}
+			// ask_user carries typed questions; the operator must see them
+			// verbatim, not just the reason prose.
+			if len(decision.QuestionsForUser) > 0 {
+				msg += "\nQuestions for the user:"
+				for i, q := range decision.QuestionsForUser {
+					if i >= 5 {
+						msg += fmt.Sprintf("\n- … (+%d more)", len(decision.QuestionsForUser)-i)
+						break
+					}
+					msg += "\n- " + q
+				}
 			}
 			o.busCtx.Mutable.SetResultPlain(msg)
 			return fmt.Errorf("%s", msg)
@@ -1196,7 +1228,7 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	if innerErr != nil {
 		appendControllerProgress(run, run.ActiveBatchID, "verify_failed", innerErr.Error())
 	}
-	o.persistVerifyFailureEvidence(run, report, len(active.Attempts))
+	o.persistVerifyFailureEvidence(run, report, writeflow.DeriveBatchAttemptState(*active).FailedVerifyAttempts+1)
 	o.persistWriteWorkflowRun(run)
 	return false
 }
@@ -1230,4 +1262,101 @@ func lastPlanEmitRejectionSummary(results []types.ToolResult) string {
 		return summary
 	}
 	return ""
+}
+
+// hydrateResumedWorkflowState rebuilds the in-memory controller state for a
+// run loaded from the store. Inputs are typed only: failed-verify counts come
+// from attempt records, the plan from the durable plan artifact next to the
+// report directory (or the live mirror file), and the verify-failure carrier
+// from the persisted report via the same projection the live path uses.
+// Best-effort: a missing artifact degrades to the corresponding live-state
+// default and logs at warning.
+func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, verifyFailures map[string]int) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || len(run.Batches) == 0 {
+		return
+	}
+	resumed := false
+	for _, p := range run.ProgressLedger {
+		if p.ReasonCode == "workflow_resumed" {
+			resumed = true
+			break
+		}
+	}
+	if !resumed {
+		return
+	}
+	var active *types.WriteWorkflowBatch
+	for i := range run.Batches {
+		st := writeflow.DeriveBatchAttemptState(run.Batches[i])
+		if st.FailedVerifyAttempts > 0 {
+			verifyFailures[run.Batches[i].ID] = st.FailedVerifyAttempts
+		}
+		if run.Batches[i].ID == run.ActiveBatchID {
+			active = &run.Batches[i]
+		}
+	}
+	if active == nil {
+		return
+	}
+	st := writeflow.DeriveBatchAttemptState(*active)
+	if o.busCtx.Mutable.ChangePlan() == nil && st.PlanID != "" {
+		if plan := o.loadDurablePlanArtifact(st.PlanID); plan != nil {
+			o.busCtx.Mutable.SetChangePlan(plan)
+			logging.Info("[orchestrator] resume: hydrated active plan %s from durable artifact", st.PlanID)
+		} else {
+			logging.Warning("[orchestrator] resume: active batch references plan %s but no durable plan artifact was found", st.PlanID)
+		}
+	}
+	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan && st.ReportID != "" {
+		if report := o.loadDurableReportArtifact(st.ReportID); report != nil && !report.Passed {
+			diffRef := ""
+			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
+				diffRef = st.LatestVerifyArtifactRef
+			}
+			if handoff := types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef); handoff != nil {
+				o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
+				logging.Info("[orchestrator] resume: rebuilt verify-failure context from %s", st.ReportID)
+			}
+		}
+	}
+}
+
+// loadDurablePlanArtifact resolves a plan id to its persisted JSON: first the
+// imported plan file when its id matches, then the report directory's
+// <stem>.json sibling.
+func (o *Orchestrator) loadDurablePlanArtifact(planID string) *types.ChangePlan {
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		return nil
+	}
+	if path := strings.TrimSpace(o.busCtx.PlanPath); path != "" {
+		if plan, err := types.LoadChangePlanFromFile(path); err == nil && plan != nil && strings.TrimSpace(plan.ID) == planID {
+			return plan
+		}
+	}
+	stem := writeWorkflowArtifactFileStem(planID)
+	dir := o.ensureChangeReportDir()
+	if stem == "" || dir == "" {
+		return nil
+	}
+	plan, err := types.LoadChangePlanFromFile(filepath.Join(dir, stem+".json"))
+	if err != nil || plan == nil || strings.TrimSpace(plan.ID) != planID {
+		return nil
+	}
+	return plan
+}
+
+// loadDurableReportArtifact reads a persisted ChangeReport by its artifact
+// file name (the batch attempt's ReportID) from the report directory.
+func (o *Orchestrator) loadDurableReportArtifact(reportID string) *types.ChangeReport {
+	reportID = strings.TrimSpace(reportID)
+	dir := o.ensureChangeReportDir()
+	if reportID == "" || dir == "" {
+		return nil
+	}
+	report, err := types.LoadChangeReportFromFile(filepath.Join(dir, reportID))
+	if err != nil {
+		return nil
+	}
+	return report
 }

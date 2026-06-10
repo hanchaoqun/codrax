@@ -203,3 +203,32 @@ func TestFinishBlockedReason_DoesNotReadProse(t *testing.T) {
 		t.Fatalf("prose variation changed the gate verdict: %q vs %q", a, b)
 	}
 }
+
+func TestWorkflowActionsForMode_VerifyIsVerifyOnly(t *testing.T) {
+	actions := WorkflowActionsForMode(types.ModeVerify)
+	allowed := map[WorkflowAction]bool{}
+	for _, a := range actions {
+		allowed[a] = true
+	}
+	for _, banned := range []WorkflowAction{ActionPlanBatch, ActionApplyPlan, ActionExploreCode, ActionReplanBatch, ActionAppendBatch, ActionSplitBatch} {
+		if allowed[banned] {
+			t.Fatalf("ModeVerify must not offer %s", banned)
+		}
+	}
+	for _, required := range []WorkflowAction{ActionVerifyBatch, ActionFinish, ActionBlock, ActionAskUser} {
+		if !allowed[required] {
+			t.Fatalf("ModeVerify must offer %s", required)
+		}
+	}
+}
+
+func TestUnverifiedBatchCaveats_ListsNoTestsBatches(t *testing.T) {
+	run := types.WriteWorkflowRun{Batches: []types.WriteWorkflowBatch{
+		{ID: "batch-1", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "unverified", ReasonCode: "no_tests"}}},
+		{ID: "batch-2", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "passed"}}},
+	}}
+	got := UnverifiedBatchCaveats(run)
+	if len(got) != 1 || got[0] != "batch-1" {
+		t.Fatalf("caveats = %v, want [batch-1]", got)
+	}
+}

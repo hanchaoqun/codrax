@@ -1064,6 +1064,12 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	if h == nil {
 		return ""
 	}
+	// Defense in depth behind the scheduler's batch-switch reset: a carrier
+	// addressed to another batch must never lead this batch's plan.
+	if run := ctx.Mutable.WriteWorkflowRun(); run != nil && h.BatchID != "" &&
+		strings.TrimSpace(run.ActiveBatchID) != "" && h.BatchID != run.ActiveBatchID {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("## Latest verification failure (authoritative)\n\n")
 	b.WriteString("The previous apply of this batch failed verification. Produce a bounded repair plan that addresses these findings on the same target files — do not restart broad exploration.\n\n")

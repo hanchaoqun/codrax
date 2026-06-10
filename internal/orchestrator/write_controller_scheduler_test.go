@@ -1076,3 +1076,287 @@ func TestLastPlanEmitRejectionSummary_PicksLatestPlanEmitFailure(t *testing.T) {
 		t.Fatalf("latest plan-emit rejection should be cited, got %q", got)
 	}
 }
+
+// G1: a resumed run must rebuild retry counts, the active plan, and the
+// verify-failure carrier from typed records + durable artifacts.
+func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing.T) {
+	planDir := t.TempDir()
+	storedPlan := &types.ChangePlan{ID: "plan-resume", Status: types.PlanStatusVerifyFailed, Summary: "resume me",
+		TargetPaths: []string{"fix.go"},
+		Changes:     []types.FileChange{{Path: "fix.go", Kind: "modify", NewContent: "package main\n"}}}
+	if err := types.WritePlanToFile(storedPlan, filepath.Join(planDir, "plan-resume.json")); err != nil {
+		t.Fatalf("seed plan: %v", err)
+	}
+	failedReport := &types.ChangeReport{PlanID: "plan-resume", Passed: false, FailureKind: types.FailureKindTestsFailed,
+		FailureSummary: "red", TestResults: []types.TestResult{{AssertionID: "TestX", Passed: false}}}
+	if err := types.WriteChangeReportToFile(failedReport, filepath.Join(planDir, "plan-resume.report.json")); err != nil {
+		t.Fatalf("seed report: %v", err)
+	}
+	active := &types.WriteWorkflowRun{
+		RunID: "wf-resume", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: "plan-resume",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-resume"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-resume"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-resume", ReportID: "plan-resume.report.json", ArtifactRef: "plan-resume.attempt-1.diff"},
+			},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState("resume hydration")
+	decisions := []writeflow.WriteWorkflowDecision{
+		// Resumed run can go straight to apply because the plan is hydrated.
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "resume_apply"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "resume_verify"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
+	o.SetWriteRetryBudget(3)
+	var handoffAtApply *types.VerifyFailureHandoff
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StageApply:
+			handoffAtApply = mu.VerifyFailureHandoff()
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-resume", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("resumed run should complete: %v", err)
+	}
+	if handoffAtApply == nil || handoffAtApply.PlanID != "plan-resume" || len(handoffAtApply.FailingTests) != 1 {
+		t.Fatalf("resume must rebuild the verify-failure carrier from the durable report, got %+v", handoffAtApply)
+	}
+	if handoffAtApply.DiffArtifactRef != "plan-resume.attempt-1.diff" {
+		t.Fatalf("resume carrier should reference the persisted attempt diff, got %q", handoffAtApply.DiffArtifactRef)
+	}
+}
+
+// G1: rebuilt retry counts must keep the budget honest across resume.
+func TestRunWriteControllerWorkflow_ResumeKeepsRetryBudgetHonest(t *testing.T) {
+	planDir := t.TempDir()
+	active := &types.WriteWorkflowRun{
+		RunID: "wf-budget", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: "plan-b",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-b"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-b"},
+			},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState("resume budget")
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "retry", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "retry"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
+	o.SetWriteRetryBudget(2) // two failures already on record → next failure exceeds
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-b2", Status: types.PlanStatusPending, Summary: "retry", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-b2", Passed: false, FailureSummary: "still red"})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "verify failed") {
+		t.Fatalf("third failure must exhaust the resumed budget, got %v", err)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "verify_retry_budget_exhausted") {
+		t.Fatalf("resumed retry budget must count prior failed attempts: %+v", store.last.ProgressLedger)
+	}
+}
+
+// G2: exhausting the exploration budget rejects the ACTION, not the run.
+func TestRunWriteControllerWorkflow_ExplorationBudgetSoftRejects(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("exploration budget")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "explore a lot"}}})
+	explore := func() writeflow.WriteWorkflowDecision {
+		return writeflow.WriteWorkflowDecision{Action: writeflow.ActionExploreCode, ExplorationRequest: &types.WriteExplorationRequest{BatchID: "batch-1", Goal: "look around"}}
+	}
+	decisions := []writeflow.WriteWorkflowDecision{
+		explore(), explore(),
+		explore(), // third: budget exhausted → rejected, run continues
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "bounded"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+		types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{}, nil
+		},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", Status: types.PlanStatusPending, Summary: "bounded", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-x", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("budget-rejected exploration must not kill the run: %v", err)
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("run should complete after the controller pivots to planning, got %s", store.last.Status)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "exploration_budget_exhausted") {
+		t.Fatalf("rejection event must be recorded: %+v", store.last.ProgressLedger)
+	}
+}
+
+// G3: switching the active batch clears the previous batch's carrier.
+func TestRunWriteControllerWorkflow_BatchSwitchClearsStaleHandoff(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("batch switch handoff")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "two batches"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionAppendBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-2", Goal: "second"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "second_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "second_applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(5)
+	var handoffAtBatch2Plan *types.VerifyFailureHandoff
+	planCount := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCount++
+			if planCount == 2 {
+				handoffAtBatch2Plan = mu.VerifyFailureHandoff()
+			}
+			mu.SetChangePlan(&types.ChangePlan{ID: fmt.Sprintf("plan-%d", planCount), Status: types.PlanStatusPending, Summary: "p", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			plan := mu.ChangePlan()
+			if planCount == 1 {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: false, FailureSummary: "batch-1 red"})
+			} else {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+			}
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	_ = o.runWriteControllerWorkflow(&steps)
+	if handoffAtBatch2Plan != nil {
+		t.Fatalf("batch-2 planning must not see batch-1's verify-failure carrier, got %+v", handoffAtBatch2Plan)
+	}
+}
+
+// G4: ask_user questions surface verbatim in the blocked result.
+func TestRunWriteControllerWorkflow_AskUserSurfacesQuestions(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("ask user")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "needs input"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionAskUser, ReasonCode: "missing_owner_decision",
+			QuestionsForUser: []string{"Which database engine should the migration target?", "Is downtime acceptable?"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil {
+		t.Fatal("ask_user pauses the run")
+	}
+	result := mu.Result()
+	if !strings.Contains(result, "Which database engine should the migration target?") ||
+		!strings.Contains(result, "Is downtime acceptable?") {
+		t.Fatalf("typed questions must surface verbatim in the result, got %q", result)
+	}
+}
+
+// G10: a batch completed on a no-tests outcome carries a finish caveat.
+func TestRunWriteControllerWorkflow_NoTestsCompletionCarriesCaveat(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no tests caveat")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "script only"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "script"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-script", Status: types.PlanStatusPending, Summary: "script", TargetPaths: []string{"tool.py"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-script", Passed: true, NoTestsRunners: []string{"python"}})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if result := mu.Result(); !strings.Contains(result, "no tests executed for: batch-1") {
+		t.Fatalf("no-tests completion must carry the typed caveat, got %q", result)
+	}
+}

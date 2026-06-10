@@ -936,6 +936,21 @@ type MetricDelta struct {
 // logs a warning and continues. The ChangeReport still lives on
 // Mutable, which is what the REPL renderer / single-shot stdout
 // summary actually consumes for user display.
+// LoadChangeReportFromFile reads a persisted ChangeReport JSON. Used by
+// workflow resume to rebuild typed verify-failure context from the durable
+// artifact chain.
+func LoadChangeReportFromFile(path string) (*ChangeReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var report ChangeReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse change report %s: %w", path, err)
+	}
+	return &report, nil
+}
+
 func WriteChangeReportToFile(report *ChangeReport, path string) error {
 	if report == nil {
 		return fmt.Errorf("WriteChangeReportToFile: nil report")

@@ -143,17 +143,24 @@ func AllWorkflowActions() []WorkflowAction {
 // model never has to learn the restriction from a runtime rejection. Every
 // other mode keeps the full set.
 func WorkflowActionsForMode(mode types.PipelineMode) []WorkflowAction {
-	if mode != types.ModePlan {
+	switch mode {
+	case types.ModePlan:
+		out := make([]WorkflowAction, 0, 8)
+		for _, action := range AllWorkflowActions() {
+			if action == ActionApplyPlan || action == ActionVerifyBatch {
+				continue
+			}
+			out = append(out, action)
+		}
+		return out
+	case types.ModeVerify:
+		// Verify-only lane: the run exists to give an already-applied (or
+		// imported) plan its verdict. Planning, applying, and exploration
+		// are structurally absent from the schema.
+		return []WorkflowAction{ActionVerifyBatch, ActionAskUser, ActionFinish, ActionBlock}
+	default:
 		return AllWorkflowActions()
 	}
-	out := make([]WorkflowAction, 0, 8)
-	for _, action := range AllWorkflowActions() {
-		if action == ActionApplyPlan || action == ActionVerifyBatch {
-			continue
-		}
-		out = append(out, action)
-	}
-	return out
 }
 
 // WorkflowActionAllowedInMode reports whether the typed action is in the
