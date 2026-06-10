@@ -207,3 +207,39 @@ results here next to (not over) the pre-hardening rows.
 - Canonical needs_replan state + verify-failure handoff lead section render
   in live controller/planner prompts; attempt diffs + reports persist on
   failure.
+
+## Remote Main Recheck - 2026-06-10 (pre-`3a6aef83` observation)
+
+After updating local `main` to `origin/main@a89ce192`, the stashed local
+GitHub issue cases and the pre-hardening gap ledger were already present on
+main. The current main copy is strictly newer than the stash for this ledger
+because it also contains the expected post-hardening outcomes section above.
+
+One local post-update recheck was run before the "do not run eval" instruction.
+It should be interpreted as a residual-gap audit, not as a replacement for the
+trusted pre-hardening evidence table.
+
+| Case | Local summary result | Deeper typed evidence | Residual gap |
+| --- | --- | --- | --- |
+| C libgit2 | PASS | Single-file operator-precedence fix applied and verified. | Functional pass, but the generated C formatting compressed `return` onto the `if` line; edit rendering quality still needs tightening. |
+| C++ nlohmann | Summary FAIL | `plan-1781105516804877000-99870.report.json` shows `passed=true`, selected `make@.`, and approval was `medium/auto_execute`. | Eval runner read the older `run-1.plan.json`/worktree view instead of the final dynamic-DAG success artifact. |
+| Java commons-lang | FAIL | `run-1.plan.json` stayed `pending_approval` even though `affects_public_api=false` and the plan was a two-file source+test bugfix. | Approval policy still over-blocks full-file `modify` plans; low/medium auto-exec intent is not fully honored. |
+| TS Zod | Summary FAIL | A later replan `plan-1781105831216715000-5355` passed, selected a real Makefile surface, and the controller emitted `finish/all_verified`. | Eval runner does not follow the final replan artifact; repair also satisfied the fixture by adding marker comments, which is acceptable for the fixture but not an ideal product-quality edit. |
+
+Residual follow-ups observed at `a89ce192`, with the later live-ledger status:
+
+1. Teach the eval runner to resolve the final workflow artifact rather than
+   only `run-1.plan.json`. It should follow the latest applied/verified
+   plan id, durable report, and preserved worktree ref emitted by the
+   controller DAG. Later status: covered by F3 live plan mirror and F5 harness
+   reader in `3a6aef83`.
+2. Recalibrate approval for source+test plans where typed diff risk is
+   medium but the change representation is full-file `modify`; current Java
+   case showed this could land in `pending_approval` at `a89ce192`. Later
+   status: the live ledger should be treated as the newer source of truth.
+3. Add formatting-quality checks for structured/raw edit output so functional
+   passes do not collapse adjacent statements onto one line.
+4. Keep the typed TestSurface and failure-handoff work: the C++ and Zod
+   traces show those mechanisms are now active and useful.
+
+No additional eval runs should be started unless explicitly requested.

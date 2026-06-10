@@ -514,3 +514,15 @@ update here.
   command rows) so the audit chain and verify state machine see parser
   failures as reports, not just tool summaries. Full `go test ./...` +
   `make eval-runner-test` green. All report follow-up tasks 1-10 delivered.
+- 2026-06-10: Remote-main recheck note. At `origin/main@a89ce192`, the
+  systemic hardening was materially active: body-only public-header risk
+  auto-executed as medium, Makefile TestSurface candidates persisted on
+  reports, verify-failure replan could reach a later verified finish, and
+  durable reports existed for both passing and failing attempts. That recheck
+  still exposed final-artifact mirroring and harness-reader gaps; the later
+  `origin/main@3a6aef83` live ledger records the follow-up fixes (budget
+  completion verify lane, live plan mirror, command exit-code correction, and
+  worktree content reader fix). Remaining watch items are narrower:
+  approval behavior for full-file source+test `modify` plans and formatting
+  quality for functional edit passes. No further eval reruns were started
+  after the operator requested not to run eval.
