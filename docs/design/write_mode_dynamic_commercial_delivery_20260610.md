@@ -1,7 +1,7 @@
 # Write Mode Dynamic Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 1 ready to commit
+Status: Batch 2 ready to commit
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Goal
@@ -181,19 +181,21 @@ Consumers render only their relevant Top-N view; full context is persisted.
 - [x] Update `/approve` to record explicit user approval with the current
       fingerprint.
 - [x] Add plan-file apply tests for auto, manual, deny, and stale approval.
-- [ ] Commit, push, and update this ledger.
+- [x] Commit, push, and update this ledger.
 
 ### Batch 2: Structured Risk Policy
 
-- [ ] Introduce a small shared safety package for structured write policy.
-- [ ] Preserve deterministic path classification.
-- [ ] Parse `package.json` with `encoding/json` for lifecycle scripts.
-- [ ] Parse workflow YAML with `yaml.v3` for privilege escalation.
-- [ ] Parse Android manifests with `encoding/xml` for sensitive permissions.
-- [ ] Detect PEM/private key material through exact boundary signatures.
-- [ ] Reuse operation-lane command approval ideas for write-mode
+- [x] Introduce a small shared safety package for structured write policy.
+- [x] Preserve deterministic path classification.
+- [x] Parse `package.json` with `encoding/json` for lifecycle scripts.
+- [x] Parse workflow YAML with `yaml.v3` for privilege escalation.
+- [x] Parse Android manifests with `encoding/xml` for sensitive permissions.
+- [x] Detect PEM/private key material through exact boundary signatures.
+- [x] Reuse operation-lane command approval ideas for write-mode
       `exec_command` policy without widening read-mode `exec_command`.
-- [ ] Add unit matrix tests for parser-backed high/critical signals.
+- [x] Reuse the existing agent-level `LoopPolicy` doom-loop guard for repeated
+      identical tool calls, repeated structural error classes, and hint floods.
+- [x] Add unit matrix tests for parser-backed high/critical signals.
 - [ ] Commit, push, and update this ledger.
 
 ### Batch 3: Priority Handoff
@@ -253,8 +255,8 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | Batch | Status | Commit | Push | Tests |
 | --- | --- | --- | --- | --- |
 | 0 | complete | 81b7ebef | pushed | not run |
-| 1 | ready_to_commit | pending | pending | `go test ./internal/types`, `./internal/writeflow`, focused `./internal/orchestrator`, focused `./internal/repl` |
-| 2 | pending | pending | pending | pending |
+| 1 | complete | b4ab2eb7 | pushed | `go test ./internal/types -run 'TestPlanStatus\|Test.*ChangePlan\|Test.*Approval\|Test.*Fingerprint'`; `go test ./internal/writeflow`; focused `./internal/orchestrator`; focused `./internal/repl` |
+| 2 | ready_to_commit | pending | pending | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; focused `./internal/orchestrator` |
 | 3 | pending | pending | pending | pending |
 | 4 | pending | pending | pending | pending |
 | 5 | pending | pending | pending | pending |

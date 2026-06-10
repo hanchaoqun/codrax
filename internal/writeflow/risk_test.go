@@ -102,7 +102,7 @@ func TestAssessWriteRiskExecutableScriptMedium(t *testing.T) {
 	}
 }
 
-func TestAssessWriteRiskPrivateKeyMaterialHigh(t *testing.T) {
+func TestAssessWriteRiskPrivateKeyMaterialCritical(t *testing.T) {
 	plan := planWithChanges(types.FileChange{
 		Path:       "internal/config/testdata/key.txt",
 		Kind:       "create",
@@ -110,8 +110,8 @@ func TestAssessWriteRiskPrivateKeyMaterialHigh(t *testing.T) {
 	})
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
-	if got.Level != RiskHigh {
-		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	if got.Level != RiskCritical {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskCritical, got.Reasons)
 	}
 	if !hasRiskReason(got, "secret_material_in_change") {
 		t.Fatalf("missing secret_material_in_change reason: %+v", got.Reasons)
@@ -120,11 +120,9 @@ func TestAssessWriteRiskPrivateKeyMaterialHigh(t *testing.T) {
 
 func TestAssessWriteRiskDependencyLifecycleScriptHigh(t *testing.T) {
 	plan := planWithChanges(types.FileChange{
-		Path: "package.json",
-		Kind: "modify",
-		Patch: `+  "scripts": {
-+    "postinstall": "node scripts/bootstrap.js"
-+  }`,
+		Path:       "package.json",
+		Kind:       "modify",
+		NewContent: `{"scripts":{"postinstall":"node scripts/bootstrap.js"}}`,
 	})
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
@@ -136,17 +134,18 @@ func TestAssessWriteRiskDependencyLifecycleScriptHigh(t *testing.T) {
 	}
 }
 
-func TestAssessWriteRiskWorkflowPrivilegeEscalationHigh(t *testing.T) {
+func TestAssessWriteRiskWorkflowPrivilegeEscalationCritical(t *testing.T) {
 	plan := planWithChanges(types.FileChange{
 		Path: ".github/workflows/release.yml",
 		Kind: "modify",
-		Patch: `+on: pull_request_target
-+permissions: write-all`,
+		NewContent: `on:
+  - pull_request_target
+permissions: write-all`,
 	})
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
-	if got.Level != RiskHigh {
-		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	if got.Level != RiskCritical {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskCritical, got.Reasons)
 	}
 	if !hasRiskReason(got, "workflow_privilege_escalation") {
 		t.Fatalf("missing workflow_privilege_escalation reason: %+v", got.Reasons)
@@ -155,9 +154,11 @@ func TestAssessWriteRiskWorkflowPrivilegeEscalationHigh(t *testing.T) {
 
 func TestAssessWriteRiskPermissionPolicyEscalationHigh(t *testing.T) {
 	plan := planWithChanges(types.FileChange{
-		Path:  "app/src/main/AndroidManifest.xml",
-		Kind:  "modify",
-		Patch: `+<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />`,
+		Path: "app/src/main/AndroidManifest.xml",
+		Kind: "modify",
+		NewContent: `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>`,
 	})
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
@@ -169,7 +170,7 @@ func TestAssessWriteRiskPermissionPolicyEscalationHigh(t *testing.T) {
 	}
 }
 
-func TestAssessWriteRiskDownloadExecutePayloadHigh(t *testing.T) {
+func TestAssessWriteRiskDownloadExecutePayloadCritical(t *testing.T) {
 	plan := planWithChanges(types.FileChange{
 		Path:       "scripts/install.sh",
 		Kind:       "modify",
@@ -177,8 +178,8 @@ func TestAssessWriteRiskDownloadExecutePayloadHigh(t *testing.T) {
 	})
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
-	if got.Level != RiskHigh {
-		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	if got.Level != RiskCritical {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskCritical, got.Reasons)
 	}
 	if !hasRiskReason(got, "download_execute_payload") {
 		t.Fatalf("missing download_execute_payload reason: %+v", got.Reasons)

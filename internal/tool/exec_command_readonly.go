@@ -79,6 +79,13 @@ func shouldGateExecCommandAsReadOnly(ctx *types.BusContext) bool {
 	return true
 }
 
+func shouldGateExecCommandAsWriteReadOnly(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	return ctx.PipelineStage.IsWrite()
+}
+
 func validateReadOnlyExecCommand(command string) error {
 	tokens, err := lexShellCommand(command)
 	if err != nil {
@@ -185,6 +192,30 @@ func readOnlyExecRefusal(ctx *types.BusContext, command string, err error) types
 			"exec_command refused: read-mode shell commands must be read-only and stay inside the active repository command root. %v. exec_command already runs from %s; use repo-relative paths, plain `git log` / `git show` / `git diff`, or built-in read_file / grep / repo_map / git_log / git_show / git_diff / git_history_search. The rejected command was: %s",
 			err, rootHint, sanitizeForBanner(command)),
 	}
+}
+
+func writeModeExecRefusal(ctx *types.BusContext, command string, err error) types.ToolResult {
+	rootHint := "the write worktree or repository root"
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		rootHint = fmt.Sprintf("the active command root (%s)", ctx.RepoRoot)
+	}
+	return types.ToolResult{
+		ToolName: "exec_command",
+		Success:  false,
+		Summary: fmt.Sprintf(
+			"exec_command refused: write-mode shell commands are restricted to read-only observation commands. %s. Use apply_patch for file edits and run_tests for validation; exec_command is not an apply channel in write mode. The command would have run from %s. The rejected command was: %s",
+			writeModeExecPolicyError(err), rootHint, sanitizeForBanner(command)),
+	}
+}
+
+func writeModeExecPolicyError(err error) string {
+	if err == nil {
+		return "command violates write-mode observation policy"
+	}
+	msg := err.Error()
+	msg = strings.ReplaceAll(msg, "read mode exec_command", "write-mode observation exec_command")
+	msg = strings.ReplaceAll(msg, "read mode", "write-mode observation policy")
+	return msg
 }
 
 func shellWords(tokens []shellToken) []string {

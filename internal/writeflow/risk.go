@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -291,22 +292,19 @@ func (a *RiskAssessment) assessPathPolicyDetails(path string) {
 }
 
 func (a *RiskAssessment) assessContentPolicyDetails(path, newContent, patch string) {
-	if containsPrivateKeyMaterial(newContent) || containsPrivateKeyMaterial(patch) {
-		a.add(RiskHigh, "secret_material_in_change", "plan content contains private-key material", path)
+	for _, signal := range safety.AnalyzeWriteContent(path, newContent, patch) {
+		a.add(riskLevelFromSafetySignal(signal.Level), signal.Code, signal.Detail, path)
 	}
-	clean, _ := normalizePlanPath(path)
-	content := newContent + "\n" + patch
-	if containsDependencyLifecycleScript(clean, content) {
-		a.add(RiskHigh, "dependency_lifecycle_script", "plan content adds or changes dependency lifecycle execution", path)
-	}
-	if containsWorkflowPrivilegeEscalation(clean, content) {
-		a.add(RiskHigh, "workflow_privilege_escalation", "plan content grants broad workflow privileges or sensitive token permissions", path)
-	}
-	if containsPermissionPolicyEscalation(clean, content) {
-		a.add(RiskHigh, "permission_policy_escalation", "plan content requests sensitive platform permission or entitlement", path)
-	}
-	if containsDownloadExecutePayload(clean, content) {
-		a.add(RiskHigh, "download_execute_payload", "plan content downloads remote data and executes it in a script or workflow surface", path)
+}
+
+func riskLevelFromSafetySignal(level string) RiskLevel {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case safety.SignalLevelCritical:
+		return RiskCritical
+	case safety.SignalLevelHigh:
+		return RiskHigh
+	default:
+		return RiskMedium
 	}
 }
 
@@ -520,109 +518,6 @@ func isExecutableScriptPath(clean, base string) bool {
 	default:
 		return false
 	}
-}
-
-func containsPrivateKeyMaterial(s string) bool {
-	if s == "" {
-		return false
-	}
-	upper := strings.ToUpper(s)
-	return strings.Contains(upper, "-----BEGIN PRIVATE KEY-----") ||
-		strings.Contains(upper, "-----BEGIN ENCRYPTED PRIVATE KEY-----") ||
-		strings.Contains(upper, "-----BEGIN RSA PRIVATE KEY-----") ||
-		strings.Contains(upper, "-----BEGIN DSA PRIVATE KEY-----") ||
-		strings.Contains(upper, "-----BEGIN EC PRIVATE KEY-----") ||
-		strings.Contains(upper, "-----BEGIN OPENSSH PRIVATE KEY-----")
-}
-
-func containsDependencyLifecycleScript(clean, s string) bool {
-	if s == "" {
-		return false
-	}
-	base := strings.ToLower(filepath.Base(clean))
-	if base != "package.json" {
-		return false
-	}
-	lower := strings.ToLower(s)
-	for _, token := range []string{`"preinstall"`, `"install"`, `"postinstall"`, `"prepare"`} {
-		if strings.Contains(lower, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsWorkflowPrivilegeEscalation(clean, s string) bool {
-	if s == "" {
-		return false
-	}
-	base := strings.ToLower(filepath.Base(clean))
-	if !isWorkflowOrAutomationPath(clean, base) {
-		return false
-	}
-	lower := strings.ToLower(s)
-	for _, token := range []string{
-		"pull_request_target",
-		"permissions: write-all",
-		"contents: write",
-		"actions: write",
-		"id-token: write",
-	} {
-		if strings.Contains(lower, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsPermissionPolicyEscalation(clean, s string) bool {
-	if s == "" {
-		return false
-	}
-	lowerPath := strings.ToLower(clean)
-	lower := strings.ToLower(s)
-	if strings.HasSuffix(lowerPath, "androidmanifest.xml") {
-		for _, token := range []string{
-			"android.permission.request_install_packages",
-			"android.permission.system_alert_window",
-			"android.permission.manage_external_storage",
-			"android.permission.write_secure_settings",
-			"android.permission.bind_accessibility_service",
-			"android.permission.bind_device_admin",
-		} {
-			if strings.Contains(lower, token) {
-				return true
-			}
-		}
-	}
-	if strings.HasSuffix(lowerPath, ".entitlements") || strings.HasSuffix(lowerPath, "info.plist") {
-		for _, token := range []string{
-			"com.apple.security.get-task-allow",
-			"com.apple.security.cs.disable-library-validation",
-			"com.apple.security.cs.allow-dyld-environment-variables",
-			"com.apple.security.automation.apple-events",
-		} {
-			if strings.Contains(lower, token) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func containsDownloadExecutePayload(clean, s string) bool {
-	if s == "" {
-		return false
-	}
-	base := strings.ToLower(filepath.Base(clean))
-	if !isWorkflowOrAutomationPath(clean, base) && !isExecutableScriptPath(clean, base) {
-		return false
-	}
-	lower := strings.ToLower(s)
-	normalized := strings.Join(strings.Fields(lower), " ")
-	return (strings.Contains(normalized, "curl ") || strings.Contains(normalized, "wget ")) &&
-		(strings.Contains(normalized, "| sh") || strings.Contains(normalized, "| bash") ||
-			strings.Contains(normalized, " sh -") || strings.Contains(normalized, " bash -"))
 }
 
 func rankRisk(level RiskLevel) int {

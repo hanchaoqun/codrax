@@ -845,7 +845,7 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 		}
 	})
 
-	t.Run("write stage keeps worktree debug escape hatch", func(t *testing.T) {
+	t.Run("write stage refuses shell mutation before execution", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		ctx := newBusContext()
 		ctx.RepoRoot = tmpDir
@@ -859,11 +859,34 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !result.Success {
-			t.Fatalf("write-stage exec_command should run in the worktree context; got %q", result.Summary)
+		if result.Success {
+			t.Fatalf("write-stage exec_command mutation must be refused; got %q", result.Summary)
 		}
-		if _, err := os.Stat(filepath.Join(tmpDir, "out", "result.txt")); err != nil {
-			t.Fatalf("write-stage command did not create expected temp file: %v", err)
+		if !strings.Contains(result.Summary, "write-mode shell commands are restricted to read-only") {
+			t.Fatalf("expected write-mode refusal, got %q", result.Summary)
+		}
+		if strings.Contains(result.Summary, "read mode") {
+			t.Fatalf("write-mode refusal should not leak read-mode wording, got %q", result.Summary)
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "out", "result.txt")); !os.IsNotExist(err) {
+			t.Fatalf("refused write-stage command must not create file; stat err=%v", err)
+		}
+	})
+
+	t.Run("write stage allows read-only observation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		ctx := newBusContext()
+		ctx.RepoRoot = tmpDir
+		ctx.Mode = types.ModeApply
+		ctx.PipelineStage = types.StageApply
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "pwd"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("write-stage read-only exec_command should run; got %q", result.Summary)
 		}
 	})
 }

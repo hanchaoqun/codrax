@@ -443,6 +443,14 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			return result, nil
 		}
 	}
+	if shouldGateExecCommandAsWriteReadOnly(ctx) {
+		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
+		if err := validateReadOnlyExecCommand(command); err != nil {
+			result := writeModeExecRefusal(ctx, command, err)
+			result.Timestamp = time.Now()
+			return result, nil
+		}
+	}
 
 	// Multi-repo active-set gate: the path gate covers read_file /
 	// grep / list_files / repo_map but exec_command is the free-form
