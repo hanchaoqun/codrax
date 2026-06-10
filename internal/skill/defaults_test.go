@@ -60,6 +60,16 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 		"typed workflow action",
 		"action is the only controller routing signal",
 		"emit_write_workflow_decision",
+		"explore_code",
+		"plan_batch",
+		"apply_plan",
+		"verify_batch",
+		"append_batch",
+		"split_batch",
+		"replan_batch",
+		"ask_user",
+		"finish",
+		"block",
 	} {
 		if !strings.Contains(corpus, want) {
 			t.Fatalf("write-controller skill missing %q:\n%s", want, corpus)
@@ -72,6 +82,8 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 		"summary contains",
 		"rationale contains",
 		"parse prose",
+		"plan_change_batch",
+		"apply_ready_plan",
 	} {
 		if strings.Contains(corpus, banned) {
 			t.Fatalf("write-controller skill contains prose-routing smell %q:\n%s", banned, corpus)
@@ -503,11 +515,10 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	}
 }
 
-// TestChangePlanSkill_PhaseAInvestigateWorkflow verifies Module A's
-// "investigate before emit" guidance is in the planner's skill
-// workflow. Pure description-of-method (PHASE A — INVESTIGATE), no
-// if-then prescriptions.
-func TestChangePlanSkill_PhaseAInvestigateWorkflow(t *testing.T) {
+// TestChangePlanSkill_BatchLocalPlanningWorkflow verifies the planner
+// stays scoped to the active controller batch. Workflow expansion is a
+// typed controller concern; the planner emits one bounded ChangePlan.
+func TestChangePlanSkill_BatchLocalPlanningWorkflow(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
 
@@ -515,15 +526,36 @@ func TestChangePlanSkill_PhaseAInvestigateWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(change-plan-skill): %v", err)
 	}
-	wf := strings.Join(sk.Workflow, "\n")
-	if !strings.Contains(wf, "PHASE A") || !strings.Contains(wf, "INVESTIGATE") {
-		t.Fatalf("change-plan-skill workflow must mention 'PHASE A — INVESTIGATE'; got:\n%s", wf)
+	wf := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk), allProhibitionBodies(sk)}, "\n")
+	for _, want := range []string{
+		"active write workflow batch",
+		"BATCH CONTEXT FIRST",
+		"BATCH-LOCAL EXPLORATION",
+		"BOUNDED PLAN",
+		"WriteContextPack",
+		"EMIT THE BOUNDED PLAN THROUGH ONE STRUCTURED PATH",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Fatalf("change-plan-skill workflow should mention %q; got:\n%s", want, wf)
+		}
 	}
-	// Tool names the planner is expected to chain — proxies for "the
-	// model is told to use the read-only investigation toolbox".
 	for _, want := range []string{"repo_map", "grep", "read_file"} {
 		if !strings.Contains(wf, want) {
-			t.Errorf("PHASE A workflow should reference tool %q; got:\n%s", want, wf)
+			t.Errorf("batch-local exploration should reference tool %q; got:\n%s", want, wf)
+		}
+	}
+	for _, banned := range []string{
+		"PHASE A",
+		"CHOOSE EMISSION MODE",
+		"plan_change_batch",
+		"apply_ready_plan",
+		"if the user says",
+		"summary contains",
+		"rationale contains",
+		"parse prose",
+	} {
+		if strings.Contains(wf, banned) {
+			t.Fatalf("change-plan-skill contains unsupported routing smell %q:\n%s", banned, wf)
 		}
 	}
 }
@@ -542,11 +574,10 @@ func TestChangePlanSkill_RollingBatchWorkflowGuidance(t *testing.T) {
 	}
 	wf := strings.Join(sk.Workflow, "\n")
 	for _, want := range []string{
-		"ROLLING BATCH SCOPING",
-		"smallest useful next batch",
-		"## Rolling write workflow",
-		"current dispatch boundary",
-		"concrete acceptance_tests",
+		"BOUNDED PLAN",
+		"smallest useful ChangePlan",
+		"applied and verified before the controller chooses another action",
+		"acceptance_tests",
 	} {
 		if !strings.Contains(wf, want) {
 			t.Errorf("rolling batch workflow should mention %q; got:\n%s", want, wf)
@@ -567,25 +598,21 @@ func TestChangePlanSkill_DebugWorkflowOnRetry(t *testing.T) {
 		t.Fatalf("Get(change-plan-skill): %v", err)
 	}
 	wf := strings.Join(sk.Workflow, "\n")
-	if !strings.Contains(wf, "DEBUG WORKFLOW") {
-		t.Fatalf("workflow must include DEBUG WORKFLOW guidance; got:\n%s", wf)
+	if !strings.Contains(wf, "VERIFY FEEDBACK ON RETRY") {
+		t.Fatalf("workflow must include VERIFY FEEDBACK ON RETRY guidance; got:\n%s", wf)
 	}
-	// The three-tactic decision frame is the load-bearing part of
-	// this guidance — every word matters because the model uses it
-	// to classify the failure on its own.
 	for _, want := range []string{
-		"the failing test",
-		"the production code",
+		"modify the test",
+		"production code",
+		"structural wiring/config",
 	} {
 		if !strings.Contains(wf, want) {
-			t.Errorf("DEBUG WORKFLOW should mention %q; got:\n%s", want, wf)
+			t.Errorf("retry feedback guidance should mention %q; got:\n%s", want, wf)
 		}
 	}
-	// Forbidden — must NOT contain prescribed-cause prose like
-	// "Most common causes" or "do X don't do Y".
-	for _, banned := range []string{"Most common cause", "DO NOT raise the cap"} {
+	for _, banned := range []string{"Most common cause", "DO NOT raise the cap", "DEBUG WORKFLOW"} {
 		if strings.Contains(wf, banned) {
-			t.Errorf("DEBUG WORKFLOW must not contain prescriptive prose %q", banned)
+			t.Errorf("retry feedback guidance must not contain prescriptive prose %q", banned)
 		}
 	}
 }
