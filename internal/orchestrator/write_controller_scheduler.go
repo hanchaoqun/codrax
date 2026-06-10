@@ -116,6 +116,20 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
+			if writePlanDeniedByApproval(plan) {
+				run.Status = types.WriteWorkflowRunBlocked
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+				appendControllerProgress(&run, run.ActiveBatchID, "approval_denied", "typed write approval denied the plan")
+				o.persistWriteWorkflowRun(&run)
+				return fmt.Errorf("write workflow blocked: approval denied for plan %s", plan.ID)
+			}
+			if o.busCtx.Mode == types.ModeApply && writePlanNeedsManualApproval(plan) {
+				run.Status = types.WriteWorkflowRunInProgress
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
+				appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), "typed write approval requires operator confirmation")
+				o.persistWriteWorkflowRun(&run)
+				return fmt.Errorf("write workflow pending approval for plan %s: %s", plan.ID, plan.Approval.ReasonCode)
+			}
 			if o.busCtx.Mode == types.ModePlan {
 				run.Status = types.WriteWorkflowRunComplete
 				appendControllerProgress(&run, run.ActiveBatchID, "plan_mode_complete", "plan mode stops after producing a reviewable ChangePlan")
@@ -669,4 +683,24 @@ func batchIDOrDefault(raw, fallback string) string {
 		return raw
 	}
 	return fallback
+}
+
+func writePlanNeedsManualApproval(plan *types.ChangePlan) bool {
+	if plan == nil || plan.Approval == nil {
+		return false
+	}
+	if plan.Approval.Action != string(writeflow.ApprovalActionManual) {
+		return false
+	}
+	return !writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan))
+}
+
+func writePlanDeniedByApproval(plan *types.ChangePlan) bool {
+	if plan == nil {
+		return false
+	}
+	if plan.Status == types.PlanStatusBlocked {
+		return true
+	}
+	return plan.Approval != nil && plan.Approval.Action == string(writeflow.ApprovalActionDeny)
 }

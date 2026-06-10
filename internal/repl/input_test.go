@@ -421,6 +421,32 @@ func TestSlashSuggest_HtraceSubcommandsAfterSpace(t *testing.T) {
 	}
 }
 
+func TestSlashSuggest_WorkflowWriteRunSubcommands(t *testing.T) {
+	m := newTestModel()
+	for _, r := range "/workflow " {
+		sendRunes(m, r)
+	}
+	if !m.showSuggest {
+		t.Fatal("expected /workflow subcommand suggestions after a trailing space")
+	}
+	got := map[string]bool{}
+	for _, suggestion := range m.filterSuggestions(m.ti.Value()) {
+		got[suggestion.display] = true
+	}
+	for _, want := range []string{
+		"/workflow show",
+		"/workflow show <run-id>",
+		"/workflow list",
+		"/workflow resume [run-id]",
+		"/workflow clear [run-id]",
+		"/workflow cancel",
+	} {
+		if !got[want] {
+			t.Fatalf("workflow subcommand %q not suggested; got %+v", want, got)
+		}
+	}
+}
+
 func TestSubmit_BlocksWhitespaceOnly(t *testing.T) {
 	m := newTestModel()
 	sendRunes(m, ' ', '\t', ' ')

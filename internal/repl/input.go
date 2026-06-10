@@ -302,11 +302,15 @@ var slashCommands = []slashCommand{
 	{Name: "/data", HelpEn: "run one request through data processing", HelpZh: "单次强制走数据处理"},
 	{
 		Name:   "/workflow",
-		HelpEn: "show or cancel the active operation skill workflow",
-		HelpZh: "查看或取消当前 operation skill 工作流",
+		HelpEn: "show operation/write workflow state and resume saved write runs",
+		HelpZh: "查看 operation/write workflow 状态,并恢复已保存的写模式运行",
 		Subs: []slashSubcommand{
 			{"show", "show current workflow graph and queue (default)", "查看当前 workflow 图和队列(默认)"},
-			{"cancel", "cancel the active workflow", "取消当前 workflow"},
+			{"show <run-id>", "show a saved write workflow run by id", "按 ID 查看已保存的写模式 workflow run"},
+			{"list", "list saved write workflow runs", "列出已保存的写模式 workflow run"},
+			{"resume [run-id]", "resume an active or saved non-terminal write workflow run", "恢复当前或指定的未终止写模式 workflow run"},
+			{"clear [run-id]", "delete an active or saved write workflow run", "删除当前或指定的写模式 workflow run"},
+			{"cancel", "cancel the active operation workflow", "取消当前 operation workflow"},
 		},
 	},
 	{

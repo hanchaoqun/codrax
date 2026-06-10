@@ -211,11 +211,11 @@ flowchart TD
 
 ### Batch 3: Durable Pending Approval Resume
 
-- [ ] Treat manual approval as `pending_approval`, not terminal blocked.
-- [ ] Update active run lookup to include pending approval runs.
-- [ ] Ensure `/approve` can bind active workflow batch plan after CLI pause.
-- [ ] Add REPL/run-store tests for pending approval show/list/resume/approve.
-- [ ] Commit and push.
+- [x] Treat manual approval as `pending_approval`, not terminal blocked.
+- [x] Update active run lookup to include pending approval runs.
+- [x] Ensure `/approve` can bind active workflow batch plan after CLI pause.
+- [x] Add REPL/run-store tests for pending approval show/list/resume/approve.
+- [x] Commit and push.
 
 ### Batch 4: Verify Failure Handoff
 
@@ -270,3 +270,4 @@ flowchart TD
 | 0 | complete | `874200f0` | pushed | Hardening reopened from eval evidence. |
 | 1 | complete | current batch | pushed | Go parser now preserves package build failures next to passing sibling package tests. Tests: `go test ./internal/tool -run 'TestParseGoTestJSONLines|TestParseGoTest_CompileErrorMapsToBuildFailed|TestRenderBuildFailureSummary|TestFirstBuildErrorAssertionID|TestMergeChangeReports'`, `go test ./internal/tool`. |
 | 2 | complete | current batch | pushed | ModePlan now terminates after a reviewable ChangePlan and never reaches apply/verify. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`. |
+| 3 | complete | current batch | pushed | Typed manual approval pauses as active `pending_approval`; `/workflow` exposes show/list/resume/clear/cancel and pending approval stays discoverable for `/approve`. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive|TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish'`, `go test ./internal/repl -run 'TestWriteWorkflowRunStore|TestWorkflowShowDisplaysActiveWriteWorkflow|TestApproveUsesActiveWorkflowBatchPlan|TestWorkflowResumeSelectsSavedWriteWorkflow|TestWorkflowClearDeletesActiveWriteWorkflow|TestSlashSuggest_WorkflowWriteRunSubcommands|TestHelpLines_CoversEveryCommand|TestSlashCommand_HelpBothVariantsNonEmpty'`. |

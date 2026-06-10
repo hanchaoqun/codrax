@@ -128,3 +128,29 @@ func TestWriteWorkflowRunStoreSkipsTmpAndTerminalActive(t *testing.T) {
 		t.Fatalf("terminal run should not be active: %+v", active)
 	}
 }
+
+func TestWriteWorkflowRunStoreFindsPendingApprovalAsActive(t *testing.T) {
+	store := NewWriteWorkflowRunStore(t.TempDir())
+	if _, err := store.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-pending-approval",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-approval",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-approval",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-high-risk",
+		}},
+	}); err != nil {
+		t.Fatalf("Save pending approval workflow: %v", err)
+	}
+	active, err := store.FindActiveRun()
+	if err != nil {
+		t.Fatalf("FindActiveRun: %v", err)
+	}
+	if active == nil || active.RunID != "wf-pending-approval" {
+		t.Fatalf("pending approval workflow should remain active, got %+v", active)
+	}
+	if len(active.Batches) != 1 || active.Batches[0].Status != types.WriteWorkflowBatchPendingApproval {
+		t.Fatalf("active workflow should preserve pending approval batch: %+v", active)
+	}
+}

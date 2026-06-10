@@ -392,7 +392,7 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "requires approval"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
 		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "high risk batch"}},
-		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "must_not_be_reached"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -404,22 +404,26 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage == types.StagePlan {
-			mu.SetChangePlan(&types.ChangePlan{
+			plan := &types.ChangePlan{
 				ID:          "plan-needs-approval",
 				Status:      types.PlanStatusPending,
 				Summary:     "manual gate",
 				TargetPaths: []string{"go.mod"},
-			})
+			}
+			plan.Approval = &types.WriteApprovalRecord{
+				Policy:          string(writeflow.ApprovalPolicyAutoSafe),
+				RiskLevel:       string(writeflow.RiskHigh),
+				Action:          string(writeflow.ApprovalActionManual),
+				UserDecision:    "required",
+				ReasonCode:      "high_write_risk",
+				PlanFingerprint: types.PlanFingerprint(plan),
+			}
+			mu.SetChangePlan(plan)
 			*stepsUsed++
 			return &agent.StageOutput{}, nil
 		}
 		if stage == types.StageApply {
-			if plan := mu.ChangePlan(); plan != nil {
-				plan.Status = types.PlanStatusPending
-				mu.SetChangePlan(plan)
-			}
-			*stepsUsed++
-			return nil, fmt.Errorf("write approval requires operator confirmation")
+			t.Fatalf("pending approval should stop before apply stage")
 		}
 		*stepsUsed++
 		return &agent.StageOutput{}, nil
@@ -430,6 +434,9 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	}
 	if store.last == nil {
 		t.Fatal("workflow run should be persisted")
+	}
+	if controllerCalls != 1 {
+		t.Fatalf("pending approval should be decided from the typed plan approval record before another controller turn; calls=%d", controllerCalls)
 	}
 	if store.last.Status != types.WriteWorkflowRunInProgress {
 		t.Fatalf("pending approval must keep workflow active, got %+v", store.last)
