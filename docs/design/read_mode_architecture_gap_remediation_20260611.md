@@ -1,0 +1,108 @@
+# 读模式架构级 Gap 审计与系统性优化方案
+
+适用范围:读模式四阶段流水线(analyze → explore → extract → finalize)、log_triage 与 perf_triage 前置 lane、混合场景(日志+trace+代码)、emit/修复层、调度器终局与预算。
+
+审计方法:五路并行深度代码审计(handoff 链 / 日志 lane / trace lane / 修复分层 / 调度节奏)交叉验证,**每条进入本方案的 gap 都经过人工二次核实**(五路审计原始产出中约三分之一为误报或设计内行为,已剔除,见 §4);并配合代表性 eval 实测(代码 / 日志 / trace / 混合四轴,每波并行 2 个)与运行日志人工读取。
+
+## 1. 已核实的架构级 Gap
+
+### R1(P0)终局路径未全部收敛过同一质量门
+
+`checkTier1Floor` 的设计意图是"所有探索退出路径汇聚的唯一咽喉",但循环内存在绕行:
+
+- `fin == nil` 且存在 blocked 节点时直接 `break` 出调度循环,进入 force-finalize 路径——**不经过 Tier-1 floor**(orchestrator.go 调度循环 blocked 分支 → 循环外 force-finalize dispatch)。
+- hard-stall 检测(指纹连续不变)force-close 探索窗口后,floor 即使触发,requeue 重试会立刻再次 hard-stall,等价于无修复通道。
+- accepted-closure(HasEnoughFacts 提前闭合)路径绕过 floor 直达 auto-verdict(实施时复核)。
+
+这是一类问题:**质量门只覆盖"常规"终止,而非全部终止**。写模式同类问题(预算耗尽丢弃已 apply 工作)刚刚修过——同样的架构模式适用于读模式。
+
+**方案**:抽取单一 `preFinalizeGate` 函数,所有进入 finalize 的路径(常规 fin 就绪、blocked-break、hard-stall、accepted-closure、force-finalize)必须经过;无法 requeue 的路径上 floor 失败不再静默,而是注入 typed 降级 caveat(复用既有 caveat materializer),让答案明示"证据 grounding 低于阈值且无法补救"。精确信号(floor 比值、预算布尔)驱动,无散文解析。
+
+### R2(P1)重试预算跨 locus 互食,廉价重试饿死昂贵修复
+
+per-kind 重试预算(`RetryBudgetByKind`)的计数不区分重试 locus:R2.2 finalize-local 降级(只重写答案、不重新探索)同样计入 kind 主账。后果:同一 violation kind 连续两次被廉价的 finalize-only 重试消耗后,第三次真正需要 `BackToExplore`(补证据)时 kind 预算已尽,带 caveat 出答——**证据从未被重新审视**。
+
+伴随问题:force-finalize transient 重试循环直接重派 finalize,不消费探索期间排队的 `RepairDirective` / `PendingReads`(实施时核实 closure 状态可达性)。
+
+**方案**:重试记账按 (kind, locus) 分账——finalize-only 降级消耗既有的 `FinalizerLocalRetryBudget`,**不计入** kind 主账;kind 主账只记实际执行了 primary locus(explore/extract)的重试。force-finalize 重派前 drain 未消费的 pending repairs(若 closure 状态在该路径可达)。所有计数都是既有 typed 计数器的记账口径修正,不新增机制。
+
+### R3(P1)前置 lane 降级对用户不可见
+
+log_triage / perf_triage 的 emit 全部被拒时,StageOutput.Error 仅以 WARN 日志记录,Run 以"无 artifact 锚点"继续。用户明确附加了日志/trace,系统静默丢弃了它,最终答案不披露任何降级。这违反 handoff 原则:前序阶段收集(或收集失败)的关键事实必须按优先级传递到答案面。
+
+**方案**:typed `PreStageDegradation` 载体(stage 名、typed 原因类别、有界的拒绝摘要),挂 Mutable;analyzer prompt 渲染"附件处理降级"段(软引导:让分类器知道 artifact 锚点缺失的原因);finalizer 经既有 caveat lane 在答案中明示降级。全 typed,不解析散文。
+
+### R4(P1)混合场景的 Mutable 协调与坐标保真
+
+- LogTriage / PerfTrace 槽独立 set、独立 bump revision;perf 两步升级会在 Run 内 reset PerfTrace(与"至多一次"的注释矛盾),跨槽一致性无契约。
+- 前置 lane 顺序(log 先于 perf)仅由 topology 数组位置隐式决定。
+- `PerfBundle.LogFrames()` 投影丢弃时间坐标(StartTsMs/DurationMs),trace 内嵌日志帧到达下游后无法回锚到时间窗。
+- 双 artifact 同时在场时,analyzer 的 RequiredFiles 合并对 log authority 与 perf 文件的优先关系是隐式 if 顺序,无注释无契约。
+
+**方案**:(a) typed `AttachedArtifactView` 聚合只读视图——单一访问点同时取两 lane 的 typed 产物与版本号,消除两步读的不一致窗口;(b) topology 中前置 lane 顺序加显式声明注释 + 结构测试钉序;(c) LogFrame 投影补充时间坐标字段(产出端 PerfObservation 已有数据,纯字段透传);(d) RequiredFiles 合并的 authority 语义写成具名函数 + 注释 + 测试钉行为(行为不变,契约显式化)。
+
+### R5(P2)emit/修复层一致性残差
+
+统一 strict-decode 修复层(`failStrictDecode*` / `RemapStrictDecodeError`)覆盖大部分 emit 工具,但:
+
+- `emit_log_triage` 的 salvage→重解码双路径在 salvage 成功时丢失 repair 元数据;
+- `emit_perf_trace` 走 `failStrictDecodeWithError` 但不填 `Repair.Fields/Hint`(常见的 stalls/frames 字符串载体错误本可预映射提示);
+- 拒绝消息的 R6 卫生(无内部术语)只有 RemapStrictDecodeError 一处有测试,各 emit 工具手写的拒绝 Summary 无全量扫描。
+
+**方案**:(a) 封装单一 `decodeWithSalvage` 序列(尝试解码 → salvage → 重解码 → 统一 fail 包装),双路径工具迁移到该 seam;(b) emit_perf_trace 接入与 emit_log_triage 同级的 Repair 元数据;(c) 新增 hygiene 测试:枚举全部读模式 emit 工具,以非法载荷触发拒绝,对 Summary 做内部词汇扫描(测试 oracle 允许使用词表;产品逻辑不引入任何关键字匹配)。
+
+### R6(P2)终止原因无 typed 形态
+
+`stopcond.ShouldStop` 返回 `(bool, prose string)`;`InvestigationComplete` 无 Kind 字段。下游(telemetry、R1 统一收口、caveat 选择)只能拿到散文。当前没有散文被用于硬路由(合规),但 R1 的统一收口需要区分"哪条终止路径进来的"——必须 typed。
+
+**方案**:`TerminationKind` typed enum(stop_condition / idle / soft_stop / budget / hard_stall / accepted_closure / blocked_dag),由各终止点写入,R1 的 `preFinalizeGate` 与 telemetry 消费;仅作软消费与计量,不驱动硬路由。
+
+### R7(P2)Handoff 截断的可观测性
+
+extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时提示行存在,但无计量、无分数分布。在改动 cap 之前先量化:typed overflow 计数(被截条数、截断线上下的分数)进 telemetry 与提示行("score ≥ X 的还有 N 条未展示")。**不动 cap**——是否扩容由真实运行数据决定,避免无证据的 prompt 膨胀。
+
+## 2. 设计内行为(审计候选中确认不动的)
+
+- storm 类 violation(DemotionStorm/ForcedReadStorm)默认映射 FailLoud 是防误提升的安全网(代码注释明示);可选改进为 typed 不可提升类,列为后续候选,不进本轮。
+- `IsExternalSource` 日志清空 RequiredFiles:外部系统日志没有本仓锚点,强制读本仓文件是噪声——设计意图,补一行注释即可。
+- trace_query 平台/口味检测的字符串启发仅影响软提示与 caveat,不驱动硬行为,合规;优先级链改 typed enum 列为候选。
+- PredicateAxis / ArtifactObservationProfile / DiagnosticProfile 均有下游消费点(extractor 词汇注入、finalizer 评估器渲染),审计原始断言不成立。
+
+## 3. 任务列表(分批交付)
+
+### 批 1 — R1 统一终局收口 + R6 TerminationKind(P0)
+- [ ] `TerminationKind` enum + 各终止点写入(typed,软消费)。
+- [ ] 抽取 `preFinalizeGate`;blocked-break / hard-stall / accepted-closure / force-finalize 路径全部接入;无法 requeue 的路径 floor 失败 → typed caveat 注入。
+- [ ] 结构测试:枚举全部进入 finalize 的路径,断言均经过同一 gate;L1 结构测试同步。
+
+### 批 2 — R2 预算分账(P1)
+- [ ] 重试记账 (kind, locus) 分离;finalize-only 降级不计 kind 主账。
+- [ ] force-finalize 重派前 drain pending repairs(核实可达性后实施)。
+- [ ] 回归:既有 fallback/重试测试全绿,新增分账行为测试。
+
+### 批 3 — R3 降级可见性 + R4 混合协调(P1)
+- [ ] `PreStageDegradation` 载体 + analyzer 渲染段 + finalizer caveat。
+- [ ] `AttachedArtifactView` 聚合视图;前置顺序显式化 + 钉序测试。
+- [ ] LogFrame 时间坐标透传;RequiredFiles 合并语义具名化 + 测试。
+
+### 批 4 — R5 emit 一致性 + R7 溢出计量(P2)
+- [ ] `decodeWithSalvage` 统一 seam;emit_log_triage / emit_perf_trace 迁移。
+- [ ] emit 拒绝消息 R6 hygiene 全量测试。
+- [ ] extractor 溢出 typed 计数 + 分数分布提示行。
+
+### 批 5 — 实测回归
+- [ ] 代表性 eval 四轴复跑(每波 2 个):s1a / logtri_goroutine_dump / trace_query_blocked_reason_chain / logtri_line_current_code / qf_architecture / trace_query_state_churn_root_cause_rank / logtri_cpp_asan / trace_query_donghu_mixed_platform。
+- [ ] 运行日志人工复核 R1/R2/R3 行为变化;账本记录观测结果。
+
+## 4. 审计误报剔除记录
+
+进入方案前被人工核实剔除的审计断言:emit_analysis 未用统一修复层(实际在解码处即用 `failStrictDecodeWithError`)、PredicateAxis 从未渲染给 extractor(实际大量消费)、ArtifactObservationProfile 从未渲染(finalizer 评估器渲染)、storm FailLoud 映射为缺陷(实为注释明示的安全网)。
+
+## 5. 实测记录
+
+- 第一波:s1a(代码)PASS;logtri_goroutine_dump(日志)PASS。
+- 第二波及后续:见进度附记。
+
+## 6. 进度
+
+- 方案落盘,待分批交付。
