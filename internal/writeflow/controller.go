@@ -3,6 +3,7 @@ package writeflow
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -159,9 +160,11 @@ func ensureWorkflowBatch(run *types.WriteWorkflowRun, id, goal string, status ty
 		}
 	}
 	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-		ID:     id,
-		Goal:   strings.TrimSpace(goal),
-		Status: status,
+		ID:        id,
+		Goal:      strings.TrimSpace(goal),
+		Status:    status,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	})
 	return true
 }
@@ -181,12 +184,18 @@ func updateWorkflowBatch(run *types.WriteWorkflowRun, id, goal string, status ty
 		if status != "" {
 			run.Batches[i].Status = status
 		}
+		if run.Batches[i].CreatedAt.IsZero() {
+			run.Batches[i].CreatedAt = time.Now()
+		}
+		run.Batches[i].UpdatedAt = time.Now()
 		return
 	}
 	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-		ID:     id,
-		Goal:   strings.TrimSpace(goal),
-		Status: status,
+		ID:        id,
+		Goal:      strings.TrimSpace(goal),
+		Status:    status,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	})
 }
 
@@ -209,5 +218,6 @@ func appendWorkflowProgress(run *types.WriteWorkflowRun, batchID, stage, status,
 		Status:     strings.TrimSpace(status),
 		ReasonCode: strings.TrimSpace(reasonCode),
 		Message:    strings.TrimSpace(message),
+		At:         time.Now(),
 	})
 }

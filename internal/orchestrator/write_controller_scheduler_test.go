@@ -14,6 +14,7 @@ import (
 type fakeWorkflowRunStore struct {
 	saveCount int
 	last      *types.WriteWorkflowRun
+	active    *types.WriteWorkflowRun
 }
 
 func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error) {
@@ -23,6 +24,14 @@ func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error)
 		s.last = &cp
 	}
 	return "/tmp/" + run.RunID + ".json", nil
+}
+
+func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) {
+	if s.active == nil {
+		return nil, nil
+	}
+	cp := types.CloneWriteWorkflowRun(*s.active)
+	return &cp, nil
 }
 
 func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
@@ -380,6 +389,43 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	}
 	if store.last.Batches[0].PlanID != "plan-needs-approval" {
 		t.Fatalf("pending batch should keep plan id: %+v", store.last.Batches[0])
+	}
+}
+
+func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
+	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
+		RunID:         "wf-active",
+		Goal:          "resume me",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-9",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-9",
+			Goal:   "existing batch",
+			Status: types.WriteWorkflowBatchPendingApproval,
+		}},
+	}}
+	mu := types.NewMutableState("new request should resume active run")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "new seed"}}})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		}, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if store.last == nil || store.last.RunID != "wf-active" {
+		t.Fatalf("workflow should resume active run, got %+v", store.last)
+	}
+	if store.last.ActiveBatchID != "batch-9" || len(store.last.ProgressLedger) == 0 ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") {
+		t.Fatalf("resume progress should be persisted: %+v", store.last)
 	}
 }
 

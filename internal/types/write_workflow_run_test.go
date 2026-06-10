@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
@@ -15,7 +16,20 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 		Batches: []WriteWorkflowBatch{{
 			ID:             " batch-1 ",
 			Status:         WriteWorkflowBatchNeedsExploration,
+			DependsOn:      []string{" batch-0 ", "batch-0"},
+			PlanRef:        " plan-ref ",
+			ApplyRef:       " apply-ref ",
+			VerifyRef:      " verify-ref ",
+			ApprovalRef:    " approval-ref ",
 			ContextPackIDs: []string{" pack-1 ", "pack-1"},
+			Attempts: []WriteWorkflowAttempt{{
+				ID:         " attempt-1 ",
+				Kind:       " plan ",
+				Status:     " complete ",
+				ReasonCode: " ok ",
+				PlanID:     " plan-1 ",
+				StartedAt:  time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC),
+			}},
 		}},
 		Edges: []WriteWorkflowEdge{{
 			FromBatchID: "seed",
@@ -41,6 +55,7 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 			BatchID: " batch-1 ",
 			Stage:   " explore ",
 			Status:  " complete ",
+			At:      time.Date(2026, 6, 10, 1, 3, 0, 0, time.UTC),
 		}},
 	}
 	got := NormalizeWriteWorkflowRun(run)
@@ -52,6 +67,20 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	}
 	if len(got.Batches) != 1 || len(got.Batches[0].ContextPackIDs) != 1 || got.Batches[0].ContextPackIDs[0] != "pack-1" {
 		t.Fatalf("batch context pack ids not normalized: %+v", got.Batches)
+	}
+	if len(got.Batches[0].DependsOn) != 1 || got.Batches[0].DependsOn[0] != "batch-0" {
+		t.Fatalf("batch dependencies not normalized: %+v", got.Batches[0].DependsOn)
+	}
+	if got.Batches[0].PlanRef != "plan-ref" || got.Batches[0].ApplyRef != "apply-ref" ||
+		got.Batches[0].VerifyRef != "verify-ref" || got.Batches[0].ApprovalRef != "approval-ref" {
+		t.Fatalf("batch refs not normalized: %+v", got.Batches[0])
+	}
+	if len(got.Batches[0].Attempts) != 1 || got.Batches[0].Attempts[0].ID != "attempt-1" ||
+		got.Batches[0].Attempts[0].PlanID != "plan-1" || got.Batches[0].Attempts[0].StartedAt.IsZero() {
+		t.Fatalf("attempts not normalized/preserved: %+v", got.Batches[0].Attempts)
+	}
+	if len(got.ProgressLedger) != 1 || got.ProgressLedger[0].At.IsZero() {
+		t.Fatalf("progress timestamp not preserved: %+v", got.ProgressLedger)
 	}
 	if got.Budget.BatchesUsed != 0 || got.Budget.ExplorationRoundsUsed != 0 {
 		t.Fatalf("negative budget usage not clamped: %+v", got.Budget)

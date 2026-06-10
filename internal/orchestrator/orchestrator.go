@@ -1148,6 +1148,10 @@ type WriteWorkflowRunSaver interface {
 	Save(run *types.WriteWorkflowRun) (string, error)
 }
 
+type WriteWorkflowRunActiveLoader interface {
+	FindActiveRun() (*types.WriteWorkflowRun, error)
+}
+
 func (o *Orchestrator) SetWriteWorkflowRunStore(s WriteWorkflowRunSaver) {
 	o.writeWorkflowRunStore = s
 }

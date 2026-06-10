@@ -30,7 +30,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	if !o.busCtx.Mode.IsWrite() {
 		return fmt.Errorf("write controller workflow requires write mode, got %q", o.busCtx.Mode)
 	}
-	run := o.seedWriteWorkflowRun()
+	run := o.loadOrSeedWriteWorkflowRun()
 	o.persistWriteWorkflowRun(&run)
 	explorationRounds := map[string]int{}
 	verifyFailures := map[string]int{}
@@ -219,6 +219,38 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	return fmt.Errorf("write workflow blocked after controller turn budget")
 }
 
+func (o *Orchestrator) loadOrSeedWriteWorkflowRun() types.WriteWorkflowRun {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return types.WriteWorkflowRun{}
+	}
+	if strings.TrimSpace(o.busCtx.PlanPath) == "" {
+		if loader, ok := o.writeWorkflowRunStore.(WriteWorkflowRunActiveLoader); ok && loader != nil {
+			run, err := loader.FindActiveRun()
+			if err != nil {
+				logging.Warning("[orchestrator] write workflow resume lookup failed: %v", err)
+			} else if isResumableWriteWorkflowRun(run) {
+				normalized := types.NormalizeWriteWorkflowRun(*run)
+				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
+				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed", "resumed active workflow run from store")
+				return normalized
+			}
+		}
+	}
+	return o.seedWriteWorkflowRun()
+}
+
+func isResumableWriteWorkflowRun(run *types.WriteWorkflowRun) bool {
+	if run == nil || strings.TrimSpace(run.RunID) == "" {
+		return false
+	}
+	switch run.Status {
+	case types.WriteWorkflowRunComplete, types.WriteWorkflowRunBlocked:
+		return false
+	default:
+		return true
+	}
+}
+
 func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 	seed := writeflow.WorkflowSeedFromWriteAnalysis(o.busCtx.Mutable.WriteAnalysisIR())
 	goal := strings.TrimSpace(seed.Goal)
@@ -259,6 +291,8 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		Goal:          goal,
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-1",
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 		Budget: types.WriteWorkflowBudget{
 			MaxBatches:           defaultWriteWorkflowMaxBatches,
 			MaxExplorationRounds: defaultWriteWorkflowMaxExplorationRounds,
@@ -266,26 +300,33 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 	}
 	if importedPlan != nil {
 		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-			ID:     run.ActiveBatchID,
-			Goal:   strings.TrimSpace(importedPlan.Summary),
-			Status: types.WriteWorkflowBatchPlanned,
-			PlanID: importedPlan.ID,
+			ID:        run.ActiveBatchID,
+			Goal:      strings.TrimSpace(importedPlan.Summary),
+			Status:    types.WriteWorkflowBatchPlanned,
+			PlanID:    importedPlan.ID,
+			PlanRef:   importedPlan.ID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		})
 		run.Budget.BatchesUsed = 1
 		run = attachPlanContextPackToWorkflowRun(run, importedPlan)
 	} else if seed.NextBatch != nil {
 		run.ActiveBatchID = batchIDOrDefault(seed.NextBatch.ID, "batch-1")
 		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-			ID:     run.ActiveBatchID,
-			Goal:   seed.NextBatch.Goal,
-			Status: types.WriteWorkflowBatchNeedsExploration,
+			ID:        run.ActiveBatchID,
+			Goal:      seed.NextBatch.Goal,
+			Status:    types.WriteWorkflowBatchNeedsExploration,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		})
 		run.Budget.BatchesUsed = 1
 	} else {
 		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-			ID:     run.ActiveBatchID,
-			Goal:   goal,
-			Status: types.WriteWorkflowBatchReadyToPlan,
+			ID:        run.ActiveBatchID,
+			Goal:      goal,
+			Status:    types.WriteWorkflowBatchReadyToPlan,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		})
 		run.Budget.BatchesUsed = 1
 	}
@@ -490,6 +531,10 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
 		return
 	}
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = time.Now()
+	}
+	run.UpdatedAt = time.Now()
 	normalized := types.NormalizeWriteWorkflowRun(*run)
 	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 	if o.writeWorkflowRunStore == nil {
@@ -538,10 +583,19 @@ func updateWorkflowRunBatchStatus(run *types.WriteWorkflowRun, batchID string, s
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].Status = status
+			if run.Batches[i].CreatedAt.IsZero() {
+				run.Batches[i].CreatedAt = time.Now()
+			}
+			run.Batches[i].UpdatedAt = time.Now()
 			return
 		}
 	}
-	run.Batches = append(run.Batches, types.WriteWorkflowBatch{ID: batchID, Status: status})
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		Status:    status,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
 }
 
 func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID string) {
@@ -551,10 +605,42 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID str
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].PlanID = strings.TrimSpace(planID)
+			run.Batches[i].PlanRef = strings.TrimSpace(planID)
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", strings.TrimSpace(planID), "")
 			return
 		}
 	}
-	run.Batches = append(run.Batches, types.WriteWorkflowBatch{ID: batchID, PlanID: strings.TrimSpace(planID)})
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		PlanID:    strings.TrimSpace(planID),
+		PlanRef:   strings.TrimSpace(planID),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
+			ID:         fmt.Sprintf("attempt-%d", 1),
+			Kind:       "plan",
+			Status:     "complete",
+			PlanID:     strings.TrimSpace(planID),
+			FinishedAt: time.Now(),
+		}},
+	})
+}
+
+func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID string) {
+	if batch == nil {
+		return
+	}
+	batch.Attempts = append(batch.Attempts, types.WriteWorkflowAttempt{
+		ID:         fmt.Sprintf("attempt-%d", len(batch.Attempts)+1),
+		Kind:       strings.TrimSpace(kind),
+		Status:     strings.TrimSpace(status),
+		ReasonCode: strings.TrimSpace(reasonCode),
+		PlanID:     strings.TrimSpace(planID),
+		ReportID:   strings.TrimSpace(reportID),
+		StartedAt:  time.Now(),
+		FinishedAt: time.Now(),
+	})
 }
 
 func appendControllerProgress(run *types.WriteWorkflowRun, batchID, reasonCode, message string) {
@@ -567,6 +653,7 @@ func appendControllerProgress(run *types.WriteWorkflowRun, batchID, reasonCode, 
 		Status:     "progress",
 		ReasonCode: strings.TrimSpace(reasonCode),
 		Message:    strings.TrimSpace(message),
+		At:         time.Now(),
 	})
 }
 

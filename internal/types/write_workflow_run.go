@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // WriteWorkflowRun is the outer write-controller persistence envelope. Batch 3
 // introduces the schema so priority context packs have a durable home; Batch 4
@@ -10,6 +13,8 @@ type WriteWorkflowRun struct {
 	Goal           string                  `json:"goal,omitempty"`
 	Status         WriteWorkflowRunStatus  `json:"status,omitempty"`
 	ActiveBatchID  string                  `json:"active_batch_id,omitempty"`
+	CreatedAt      time.Time               `json:"created_at,omitempty"`
+	UpdatedAt      time.Time               `json:"updated_at,omitempty"`
 	Batches        []WriteWorkflowBatch    `json:"batches,omitempty"`
 	Edges          []WriteWorkflowEdge     `json:"edges,omitempty"`
 	ContextPacks   []WriteContextPack      `json:"context_packs,omitempty"`
@@ -56,8 +61,27 @@ type WriteWorkflowBatch struct {
 	ID             string                   `json:"id"`
 	Goal           string                   `json:"goal,omitempty"`
 	Status         WriteWorkflowBatchStatus `json:"status,omitempty"`
+	DependsOn      []string                 `json:"depends_on,omitempty"`
 	PlanID         string                   `json:"plan_id,omitempty"`
+	PlanRef        string                   `json:"plan_ref,omitempty"`
+	ApplyRef       string                   `json:"apply_ref,omitempty"`
+	VerifyRef      string                   `json:"verify_ref,omitempty"`
+	ApprovalRef    string                   `json:"approval_ref,omitempty"`
 	ContextPackIDs []string                 `json:"context_pack_ids,omitempty"`
+	Attempts       []WriteWorkflowAttempt   `json:"attempts,omitempty"`
+	CreatedAt      time.Time                `json:"created_at,omitempty"`
+	UpdatedAt      time.Time                `json:"updated_at,omitempty"`
+}
+
+type WriteWorkflowAttempt struct {
+	ID         string    `json:"id,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	ReasonCode string    `json:"reason_code,omitempty"`
+	PlanID     string    `json:"plan_id,omitempty"`
+	ReportID   string    `json:"report_id,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitempty"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
 }
 
 type WriteWorkflowEdge struct {
@@ -75,11 +99,12 @@ type WriteWorkflowBudget struct {
 }
 
 type WriteWorkflowProgress struct {
-	BatchID    string `json:"batch_id,omitempty"`
-	Stage      string `json:"stage,omitempty"`
-	Status     string `json:"status,omitempty"`
-	ReasonCode string `json:"reason_code,omitempty"`
-	Message    string `json:"message,omitempty"`
+	BatchID    string    `json:"batch_id,omitempty"`
+	Stage      string    `json:"stage,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	ReasonCode string    `json:"reason_code,omitempty"`
+	Message    string    `json:"message,omitempty"`
+	At         time.Time `json:"at,omitempty"`
 }
 
 func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
@@ -148,10 +173,34 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 			continue
 		}
 		batch.Goal = trimWriteWorkflowRunText(batch.Goal)
+		batch.DependsOn = dedupTrimWriteWorkflowRunStrings(batch.DependsOn)
 		batch.PlanID = trimWriteWorkflowRunText(batch.PlanID)
+		batch.PlanRef = trimWriteWorkflowRunText(batch.PlanRef)
+		batch.ApplyRef = trimWriteWorkflowRunText(batch.ApplyRef)
+		batch.VerifyRef = trimWriteWorkflowRunText(batch.VerifyRef)
+		batch.ApprovalRef = trimWriteWorkflowRunText(batch.ApprovalRef)
 		batch.Status = normalizeWriteWorkflowBatchStatus(batch.Status)
 		batch.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(batch.ContextPackIDs)
+		batch.Attempts = normalizeWriteWorkflowAttempts(batch.Attempts)
 		out = append(out, batch)
+	}
+	return out
+}
+
+func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAttempt {
+	out := make([]WriteWorkflowAttempt, 0, len(in))
+	for _, attempt := range in {
+		attempt.ID = trimWriteWorkflowRunText(attempt.ID)
+		attempt.Kind = trimWriteWorkflowRunText(attempt.Kind)
+		attempt.Status = trimWriteWorkflowRunText(attempt.Status)
+		attempt.ReasonCode = trimWriteWorkflowRunText(attempt.ReasonCode)
+		attempt.PlanID = trimWriteWorkflowRunText(attempt.PlanID)
+		attempt.ReportID = trimWriteWorkflowRunText(attempt.ReportID)
+		if attempt.ID == "" && attempt.Kind == "" && attempt.Status == "" && attempt.ReasonCode == "" &&
+			attempt.PlanID == "" && attempt.ReportID == "" && attempt.StartedAt.IsZero() && attempt.FinishedAt.IsZero() {
+			continue
+		}
+		out = append(out, attempt)
 	}
 	return out
 }
@@ -191,7 +240,7 @@ func normalizeWriteWorkflowProgress(in []WriteWorkflowProgress) []WriteWorkflowP
 		item.Status = trimWriteWorkflowRunText(item.Status)
 		item.ReasonCode = trimWriteWorkflowRunText(item.ReasonCode)
 		item.Message = trimWriteWorkflowRunText(item.Message)
-		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" {
+		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" && item.At.IsZero() {
 			continue
 		}
 		out = append(out, item)

@@ -1,7 +1,7 @@
 # Write Mode Dynamic DAG Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 1 implemented
+Status: Batch 2 implemented
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Delivery Goal
@@ -149,12 +149,12 @@ not stuffed into prompts directly.
 
 ### Batch 2: Durable DAG Store And Resume
 
-- [ ] Extend `WriteWorkflowRun` with attempts, refs, timestamps, and replan
+- [x] Extend `WriteWorkflowRun` with attempts, refs, timestamps, and replan
       metadata.
-- [ ] Add atomic load-active-or-create/resume behavior.
-- [ ] Preserve pending approval, verify failure, active batch, context refs, and
+- [x] Add atomic load-active-or-create/resume behavior.
+- [x] Preserve pending approval, verify failure, active batch, context refs, and
       budget state across process restart.
-- [ ] Add tests for resume, stale approval, and run normalization.
+- [x] Add tests for resume, stale approval, and run normalization.
 
 ### Batch 3: Action Executors
 
@@ -223,4 +223,5 @@ not stuffed into prompts directly.
 | Batch | Status | Commit | Push | Notes |
 | --- | --- | --- | --- | --- |
 | 0 | complete | `d4dc7840` | pushed | New controller-first ledger created. |
-| 1 | implemented | pending | pending | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |
+| 1 | complete | `24db3c62` | pushed | Write modes route through controller-first scheduler; canonical action executors handle plan/apply/verify; legacy engine config is compatibility-only. Tests: `go test ./internal/types ./internal/config ./internal/skill ./internal/writeflow ./internal/orchestrator`. |
+| 2 | implemented | pending | pending | Workflow run schema now carries timestamps, refs, and attempts; scheduler resumes active runs when no plan-file seed is supplied. Tests: `go test ./internal/types ./internal/writeflow ./internal/repl ./internal/orchestrator`. |
