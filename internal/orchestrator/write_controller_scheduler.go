@@ -115,7 +115,13 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if lastInnerErr == nil {
 					lastInnerErr = fmt.Errorf("%s", o.busCtx.TaskState.LastError)
 				}
-				if plan != nil && (plan.Status == types.PlanStatusPending || plan.Status == types.PlanStatusBlocked) {
+				if plan != nil && plan.Status == types.PlanStatusPending {
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
+					appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), lastInnerErr.Error())
+					o.persistWriteWorkflowRun(&run)
+					return lastInnerErr
+				}
+				if plan != nil && plan.Status == types.PlanStatusBlocked {
 					run.Status = types.WriteWorkflowRunBlocked
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 					appendControllerProgress(&run, run.ActiveBatchID, string(plan.Status), lastInnerErr.Error())

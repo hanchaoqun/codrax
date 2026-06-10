@@ -235,11 +235,15 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 ### Batch 6: CLI/REPL UX And Docs
 
-- [ ] Add `/workflow show`.
-- [ ] Route workflow-local approve/reject without discarding the whole run.
-- [ ] Update `docs/user_guide.md`, `docs/architecture.md`, and
+- [x] Add `/workflow show` / `/workflow list` backed by persisted
+      `.codrax/plans/workflows/` state.
+- [x] Route workflow-local approve/reject through the active batch `PlanID`;
+      `/reject` marks only that batch blocked and keeps the run active.
+- [x] Keep controller pending-approval runs `in_progress` instead of terminal
+      `blocked`; only deterministic blocked/critical plans terminalize the run.
+- [x] Update `docs/user_guide.md`, `docs/architecture.md`, and
       `codrax.yaml.example`.
-- [ ] Add REPL tests for workflow visibility and approval UX.
+- [x] Add REPL tests for workflow visibility and approval UX.
 - [ ] Commit, push, and update this ledger.
 
 ### Batch 7: Commercial Hardening

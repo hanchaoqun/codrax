@@ -1458,6 +1458,7 @@ func runREPL(_ *cobra.Command) error {
 		PlanStore:                     planStore,
 		OperationPendingStore:         operationPendingStore,
 		PlanGroupStore:                planGroupStore,
+		WriteWorkflowRunStore:         writeWorkflowRunStore,
 		FailureTaxonomy:               app.orch.FailureTaxonomyStore(),
 		AttachedLogMaxBytes:           maxAttachedLogBytes,
 		AttachedTraceMaxBytes:         maxAttachedTraceBytes,

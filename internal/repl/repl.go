@@ -359,6 +359,12 @@ type Config struct {
 	// PlanStore.
 	PlanGroupStore *PlanGroupStore
 
+	// WriteWorkflowRunStore persists the controller-engine write
+	// workflow DAG under <runtime-anchor>/plans/workflows/. Nil
+	// disables the write half of /workflow while leaving operation
+	// provider workflows unchanged.
+	WriteWorkflowRunStore *WriteWorkflowRunStore
+
 	// FailureTaxonomy is the stage-3 reader interface for
 	// /pitfalls inspection. The REPL only reads (list / clear);
 	// the orchestrator owns Append. Nil = /pitfalls reports
@@ -729,6 +735,12 @@ type REPL struct {
 	// planStore.
 	planGroupStore *PlanGroupStore
 
+	// writeWorkflowRunStore persists controller-engine write
+	// workflow DAGs. /workflow show/list reads this store; /approve
+	// and /reject use it only to bind the active batch's typed
+	// PlanID when the operator did not pass a plan id explicitly.
+	writeWorkflowRunStore *WriteWorkflowRunStore
+
 	// failureTaxonomy is the read-side handle for /pitfalls.
 	// Same interface the orchestrator's FailureTaxonomyStore
 	// satisfies; REPL only reads (list / clear).
@@ -838,6 +850,7 @@ func New(cfg Config) *REPL {
 		userMode:              cfg.UserMode.Normalize(),
 		planStore:             cfg.PlanStore,
 		planGroupStore:        cfg.PlanGroupStore,
+		writeWorkflowRunStore: cfg.WriteWorkflowRunStore,
 		failureTaxonomy:       cfg.FailureTaxonomy,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
@@ -4295,14 +4308,22 @@ func (r *REPL) pendingOperationBannerLine() string {
 
 func (r *REPL) handleWorkflowCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/workflow"))
-	switch rest {
-	case "", "show":
+	switch {
+	case rest == "" || rest == "show" || strings.HasPrefix(rest, "show "):
+		if r.renderWriteWorkflowShow(rest) {
+			return
+		}
 		if r.providerWorkflow == nil {
 			r.info(workflowNoActiveMsg(r.language))
 			return
 		}
 		r.renderBordered(providerWorkflowMarkdown(r.language, *r.providerWorkflow))
-	case "cancel":
+	case rest == "list":
+		if r.handleWriteWorkflowList() {
+			return
+		}
+		r.info(workflowHelpMsg(r.language))
+	case rest == "cancel":
 		if r.providerWorkflow == nil {
 			r.info(workflowNoActiveMsg(r.language))
 			return
@@ -8052,6 +8073,9 @@ func (r *REPL) handleApproveCmd(line string) {
 	// at most one such plan; we auto-rebind to it. If somehow
 	// multiple pending plans exist (legacy data), pick the newest
 	// — PlanStore.List is newest-first.
+	if planArg == "" && r.pendingPlanPath == "" {
+		r.bindActiveWriteWorkflowPlanIfIdle("/approve")
+	}
 	if r.pendingPlanPath == "" {
 		if recovered, ok := r.recoverPendingPlanFromStore(); ok {
 			r.pendingPlanPath = recovered.Path
@@ -8393,6 +8417,11 @@ func (r *REPL) handleApproveCmd(line string) {
 	// pointer is harmless and lets /plan show display the failed
 	// plan + diff for post-mortem inspection.
 	cleanSuccess := busCtx != nil && busCtx.TaskState.LastError == ""
+	lastErr := ""
+	if busCtx != nil {
+		lastErr = busCtx.TaskState.LastError
+	}
+	r.markWriteWorkflowBatchAfterApprove(plan.ID, cleanSuccess, lastErr)
 
 	// `--merge-to=<branch>` opt-in chains the merge step right
 	// after a successful approve. Skipped on any failure path
@@ -10331,6 +10360,9 @@ func (r *REPL) handleRejectCmd(line string) {
 		r.info(commandDisabled(r.language, "/reject", noPlanStoreReason(r.language)))
 		return
 	}
+	if r.pendingPlanPath == "" {
+		r.bindActiveWriteWorkflowPlanIfIdle("/reject")
+	}
 	// Same cold-start recovery /approve uses. Single-pending
 	// invariant means at most one match.
 	if r.pendingPlanPath == "" {
@@ -10370,6 +10402,7 @@ func (r *REPL) handleRejectCmd(line string) {
 	// reclaims the disk space. Best-effort: a discard failure logs
 	// but doesn't block the reject decision.
 	r.discardWorktreeForRejected(id)
+	r.markWriteWorkflowBatchRejected(id, reason)
 	r.pendingPlanPath = ""
 
 	var msg string

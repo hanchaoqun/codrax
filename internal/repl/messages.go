@@ -1478,9 +1478,9 @@ func operationHelpMsg(lang string) string {
 
 func workflowNoActiveMsg(lang string) string {
 	if isZh(lang) {
-		return "当前没有 active operation workflow。"
+		return "当前没有 active write workflow 或 operation workflow。"
 	}
-	return "No active operation workflow."
+	return "No active write workflow or operation workflow."
 }
 
 func workflowCancelledMsg(lang, id string) string {
@@ -1492,9 +1492,9 @@ func workflowCancelledMsg(lang, id string) string {
 
 func workflowHelpMsg(lang string) string {
 	if isZh(lang) {
-		return "/workflow [show|cancel] — 查看或取消当前 operation skill 工作流。日常继续执行仍使用 /approve。"
+		return "/workflow [show|list|cancel] — show 优先展示 active write workflow；cancel 仅取消当前 operation skill workflow。写模式批次继续使用 /approve 或 /reject。"
 	}
-	return "/workflow [show|cancel] — show or cancel the active operation skill workflow. Continue one step with /approve."
+	return "/workflow [show|list|cancel] — show prefers the active write workflow; cancel only cancels the current operation skill workflow. Continue write batches with /approve or /reject."
 }
 
 func providerWorkflowMarkdown(lang string, wf operation.WorkflowInstance) string {

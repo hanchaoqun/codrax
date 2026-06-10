@@ -1744,6 +1744,8 @@ write_enabled: true
 
 写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。在 plan 之前还有两个隐式分类阶段——`analyze`(读模式 analyzer 复用作请求分类)+ `write_analyze`(写模式专属,产 `WriteAnalysisIR`:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。
 
+默认 `write_workflow_engine: legacy` 保持这条稳定路径。复杂写任务可以在 yaml 里显式设 `write_workflow_engine: controller` 开启外层动态 DAG:controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`/workflow show` 会展示 active batch、queued batches、审批记录、handoff 摘要和剩余预算;没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
+
 REPL 实际流程:
 
 ### 第 1 步:进入写模式并描述要做的事
@@ -2148,6 +2150,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
 | `write_auto_approval` | `false` | 兼容旧布尔配置;仅未设置 `write_approval_policy` 时生效。`true` 映射 `auto_safe`,`false` 映射 `manual` |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
+| `write_workflow_engine` | `legacy` | 外层写模式调度器:`legacy` 保持现有稳定路径;`controller` 开启动态 DAG、持久 workflow run 和 `/workflow show` 批次视图 |
 | `pipeline_write_retry_budget` | 3 | verify 失败后自动重 plan 的最大次数 |
 | `pipeline_write_retry_budget_ceil` | 5 | 上面那个 budget 的硬上限 |
 | `pipeline_baseline_capture_enabled` | `false` | 写模式开启前先跑一次基准测试,用于回归判定(双倍测试时间) |
@@ -2382,10 +2385,10 @@ operation_skills:
 
 `next_actions` 和 `return_action` 是 provider 给 Codrax 的后续建议,不是绕过策略的执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 `next_actions` 写入 workflow DAG 并按顺序串行排队;如果 `return_action` 有效,会作为 return edge 排在子动作之后。可执行且低风险的节点会继续自动推进;遇到风险节点、显式 gate、策略拒绝、失败或预算耗尽时才停下。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments`,以及 `return_to_action` / `callback_action` 等常见别名。
 
-工作流相关 REPL 命令:
+operation 工作流相关 REPL 命令:
 
 - `/approve`:执行当前 workflow action。
-- `/workflow show`:查看当前 workflow 的节点、边、队列和当前 action。
+- `/workflow show`:查看当前 workflow 的节点、边、队列和当前 action；如果同时存在 active write workflow,会优先展示 write workflow,这时用 `/operation show` 查看 operation workflow。
 - `/workflow cancel`:取消当前 workflow。
 - `/operation show`:也会优先展示当前 workflow 状态。
 
@@ -2542,6 +2545,8 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/approve --skip-verify` | 仅 apply,跳过 verify |
 | `/approve --merge-to=<branch>` | apply 通过后立即 merge |
 | `/reject [reason]` | 拒绝当前 pending plan(理由记入 memory) |
+| `/workflow show` | 查看 active write workflow 的 batch、approval、handoff 和 budget;无 active write workflow 时回落到 operation workflow |
+| `/workflow list` | 列出 `.codrax/plans/workflows/` 下保存的 write workflow runs |
 | `/verify [<id>]` | 对已 apply 的 plan 重跑 verify |
 | `/worktree list` | 列出保留的 worktree |
 | `/worktree discard <id>` | 删除指定 worktree |

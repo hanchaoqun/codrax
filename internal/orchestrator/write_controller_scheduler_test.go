@@ -199,6 +199,49 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	}
 }
 
+func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("requires approval")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "requires approval"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanChangeBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "high risk batch"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-needs-approval",
+			Status:      types.PlanStatusPending,
+			Summary:     "manual gate",
+			TargetPaths: []string{"go.mod"},
+		})
+		*stepsUsed++
+		return fmt.Errorf("write approval requires operator confirmation")
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("pending approval should return the apply-pre gate error to the caller")
+	}
+	if store.last == nil {
+		t.Fatal("workflow run should be persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("pending approval must keep workflow active, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchPendingApproval {
+		t.Fatalf("active batch should await approval: %+v", store.last.Batches)
+	}
+	if store.last.Batches[0].PlanID != "plan-needs-approval" {
+		t.Fatalf("pending batch should keep plan id: %+v", store.last.Batches[0])
+	}
+}
+
 func scriptedController(t *testing.T, decisions []writeflow.WriteWorkflowDecision, calls *int) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 	t.Helper()
 	return func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
