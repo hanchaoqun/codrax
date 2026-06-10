@@ -1,7 +1,7 @@
 # Write Mode Dynamic Commercial Delivery
 
 Date: 2026-06-10
-Status: Batch 2 ready to commit
+Status: Batch 2 complete
 Branch: codex/write-mode-commercial-workflow
 
 ## 1. Goal
@@ -196,7 +196,7 @@ Consumers render only their relevant Top-N view; full context is persisted.
 - [x] Reuse the existing agent-level `LoopPolicy` doom-loop guard for repeated
       identical tool calls, repeated structural error classes, and hint floods.
 - [x] Add unit matrix tests for parser-backed high/critical signals.
-- [ ] Commit, push, and update this ledger.
+- [x] Commit, push, and update this ledger.
 
 ### Batch 3: Priority Handoff
 
@@ -256,7 +256,7 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | --- | --- | --- | --- | --- |
 | 0 | complete | 81b7ebef | pushed | not run |
 | 1 | complete | b4ab2eb7 | pushed | `go test ./internal/types -run 'TestPlanStatus\|Test.*ChangePlan\|Test.*Approval\|Test.*Fingerprint'`; `go test ./internal/writeflow`; focused `./internal/orchestrator`; focused `./internal/repl` |
-| 2 | ready_to_commit | pending | pending | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; focused `./internal/orchestrator` |
+| 2 | complete | 5dd96bb3 | pending | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
 | 3 | pending | pending | pending | pending |
 | 4 | pending | pending | pending | pending |
 | 5 | pending | pending | pending | pending |
