@@ -224,13 +224,14 @@ Consumers render only their relevant Top-N view; full context is persisted.
 
 ### Batch 5: Dynamic Batch Loop
 
-- [ ] Add outer controller scheduler for enabled runs.
-- [ ] Keep the existing `plan/apply/verify` graph as inner executor.
-- [ ] Support append, split, replan, and follow-up batches.
-- [ ] Enforce default budgets: 5 batches, 2 exploration rounds per batch.
-- [ ] Wrap current write exploration subflow as `ReadExplorationRunner`.
-- [ ] Add E2E dynamic two-batch test and verify-failure re-explore test.
-- [ ] Commit, push, and update this ledger.
+- [x] Add outer controller scheduler for enabled apply-mode runs.
+- [x] Keep the existing `plan/apply/verify` graph as inner executor.
+- [x] Support append/follow-up batches and same-batch replan after verify
+      failure; split metadata is carried through typed batch dependencies.
+- [x] Enforce default budgets: 5 batches, 2 exploration rounds per batch.
+- [x] Wrap current write exploration subflow as `ReadExplorationRunner`.
+- [x] Add E2E dynamic two-batch test and verify-failure replan test.
+- [x] Commit, push, and update this ledger.
 
 ### Batch 6: CLI/REPL UX And Docs
 
@@ -261,7 +262,7 @@ Consumers render only their relevant Top-N view; full context is persisted.
 | 2 | complete | 5dd96bb3 | pushed | `go test ./internal/safety`; `go test ./internal/writeflow`; `go test ./internal/tool -run 'TestExecCommand_ReadModeShellWriteGate\|TestWritePolicy\|Test.*Risk\|Test.*PromptHygiene'`; `go test ./internal/agent -run 'TestDefaultLoopPolicy_HasHistoricalValues\|TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately\|TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries\|TestLoopPolicy_IdenticalErrorStreak_ForcesStop\|TestLoopPolicy_MaxPerKey'`; focused `./internal/orchestrator` |
 | 3 | complete | e9c0d509 / 52f34ac3 | pushed | `go test ./internal/types -run 'TestWriteContextPack\|TestWriteWorkflowRun\|TestWriteExploration\|TestMutableStateWriteExploration'`; `go test ./internal/writeflow -run 'TestContextPack\|TestAssessWriteRisk\|TestDecideWriteApproval'`; focused `./internal/agent`; focused `./internal/orchestrator` |
 | 4 | complete | e6fe4bf9 / ed07efe9 | pushed | `go test ./...`; focused `./internal/types`; focused `./internal/writeflow`; focused `./internal/tool`; focused `./internal/repl`; focused `./internal/agent`; focused `./internal/skill`; focused `./internal/config`; focused `./internal/orchestrator`; focused `./internal/context`; focused `./cmd` |
-| 5 | pending | pending | pending | pending |
+| 5 | complete | d8e33b8c | pending | `go test ./...`; `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow\|TestWriteWorkflowEngine\|TestRunTaskGraph_HappyPath'`; affected package sweep `./cmd ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/context ./internal/repl ./internal/tool ./internal/skill ./internal/config` |
 | 6 | pending | pending | pending | pending |
 | 7 | pending | pending | pending | pending |
 
