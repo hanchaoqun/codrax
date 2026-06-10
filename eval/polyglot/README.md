@@ -3,7 +3,8 @@
 Drivers for running codrax write-mode against [Aider's polyglot
 benchmark](https://github.com/Aider-AI/polyglot-benchmark) (sourced
 from Exercism language tracks: cpp / go / java / javascript / python /
-rust). Used to validate the `--mode=plan` + `--mode=apply` end-to-end
+rust). Used to validate the `--mode=write --write-phase=plan` +
+`--mode=write --write-phase=apply` end-to-end
 pipeline on real exercises with concrete pass/fail signals.
 
 ## Setup
@@ -74,7 +75,8 @@ done
 
 ## Verdict-extraction quirks the driver handles
 
-- **retry-aware report lookup** — `--mode=apply` with retries writes a
+- **retry-aware report lookup** — `--mode=write --write-phase=apply`
+  with retries writes a
   fresh `<plan-id>.report.json` per retry attempt; the original
   `plan.json` from the plan-stage names the FIRST attempt's plan-id
   only. `run-task.sh` extracts the LAST plan-id mentioned in the

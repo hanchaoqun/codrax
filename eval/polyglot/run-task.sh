@@ -73,7 +73,7 @@ export CODRAX_SETTINGS="$SETTINGS_FILE"
 T0=$(date +%s)
 echo "===== TASK: $TASK (retry=$RETRY) ====="
 echo "[1/2] plan"
-"$CODRAX" --repo "$WORKDIR" --mode=plan --request "$REQUEST" --plan-out "$PLAN_OUT" >/tmp/codrax-eval/runs/$TASK-r$RETRY.plan.out 2>&1 || true
+"$CODRAX" --repo "$WORKDIR" --mode=write --write-phase=plan --request "$REQUEST" --plan-out "$PLAN_OUT" >/tmp/codrax-eval/runs/$TASK-r$RETRY.plan.out 2>&1 || true
 PLAN_DUR=$(($(date +%s) - T0))
 if [[ ! -s "$PLAN_OUT" ]]; then
   echo "VERDICT: $TASK retry=$RETRY PLAN_FAIL ($PLAN_DUR s) -- plan tail:"
@@ -84,12 +84,12 @@ echo "  plan ok ($(wc -c < $PLAN_OUT) bytes, ${PLAN_DUR}s)"
 
 T1=$(date +%s)
 echo "[2/2] apply (auto, retry=$RETRY)"
-"$CODRAX" --repo "$WORKDIR" --mode=apply --plan-file "$PLAN_OUT" --auto-apply --request "$REQUEST" \
+"$CODRAX" --repo "$WORKDIR" --mode=write --write-phase=apply --plan-file "$PLAN_OUT" --auto-apply --request "$REQUEST" \
   >/tmp/codrax-eval/runs/$TASK-r$RETRY.apply.out 2>&1 || true
 APPLY_DUR=$(($(date +%s) - T1))
 
 # Try report.json first (success path); fall back to stderr regex (failure path).
-# In --mode=apply --plan-file workflow, saveChangeReport writes to the
+# In --mode=write --write-phase=apply --plan-file workflow, saveChangeReport writes to the
 # plan file's directory (= /tmp/codrax-eval/runs/), not WORKDIR/.codrax/plans/.
 #
 # Lookup order matters when verify→plan retry fires:

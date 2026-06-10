@@ -235,3 +235,13 @@ flowchart TD
   `applyStructuredPayloadCompat` repair layer and strict decode repair metadata,
   aligning write-mode apply calls with the existing unified emit-tool JSON
   repair path.
+- 2026-06-10 Batch 7 complete: eval and documentation call sites now use the
+  current write-mode CLI contract (`--mode=write --write-phase=...`) instead of
+  obsolete `--mode=plan/apply` examples. Verified:
+  `make eval-runner-test`,
+  `make eval-patch-python SAMPLES=1`,
+  `bash eval/run.sh eval/cases/patch_c_typo.case 1`,
+  `bash eval/run.sh eval/cases/patch_cpp_typo.case 1`, and
+  `bash eval/run.sh eval/cases/patch_java_typo.case 1`; all four non-Go
+  write-mode eval cases passed through plan/apply/report verdict extraction.
+  Full regression also passed via `go test ./...` and `make test`.

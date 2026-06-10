@@ -1,7 +1,7 @@
 // Tiny greeting CLI in Java used as a write-mode eval fixture.
 //
 // Contains a one-character typo inside the greet method that prevents
-// compilation. A real LLM driven through codrax --mode=plan should
+// compilation. A real LLM driven through codrax --mode=write --write-phase=plan should
 // identify it and emit a ChangePlan with Kind="patch" carrying a
 // unified diff that fixes only that line. (Full apply requires javac
 // at runtime; the plan-stage eval only needs the source file.) The

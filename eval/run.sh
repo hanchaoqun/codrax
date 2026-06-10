@@ -70,7 +70,8 @@ if [[ -n "$LOG" && -n "$HTRACE" ]]; then
   exit 2
 fi
 # Write-mode eval vars (session 35). MODE=plan|apply switches the
-# runner from the default read-mode dispatch to the write pipeline;
+# runner from the default read-mode dispatch to the write pipeline
+# through the current CLI contract: --mode=write --write-phase=<phase>;
 # FIXTURE points at a source tree under eval/fixtures/ that gets
 # cloned into a scratch git repo per-run. PLAN_EXPECT_REGEX runs
 # against the emitted ChangePlan JSON (always checked when MODE is
@@ -379,7 +380,7 @@ run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "=== plan step (run $i) ===" >"$out"
   "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
-    --mode=plan --plan-out "$plan" \
+    --mode=write --write-phase=plan --plan-out "$plan" \
     --log-level debug \
     --log-dir "$logdir" \
     --request "$QUESTION" \
@@ -391,7 +392,7 @@ run_apply_step() {
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
   "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
-    --mode=apply --plan-file "$plan" --auto-apply \
+    --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
     --log-level debug \
     --log-dir "$logdir" \
     --request "$QUESTION" \

@@ -1,7 +1,7 @@
 """Tiny greeting CLI in Python used as a write-mode eval fixture.
 
 Contains a one-character typo inside the greet function that triggers
-a SyntaxError on import. A real LLM driven through codrax --mode=plan
+a SyntaxError on import. A real LLM driven through codrax --mode=write --write-phase=plan
 should identify it and emit a ChangePlan with Kind="patch" carrying a
 unified diff that fixes only that line. (Full apply requires
 pytest + pytest-json-report to execute the verify stage; the plan-

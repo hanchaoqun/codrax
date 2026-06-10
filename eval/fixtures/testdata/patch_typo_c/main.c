@@ -1,7 +1,7 @@
 // Tiny greeting CLI in C used as a write-mode eval fixture.
 //
 // Contains a one-character typo inside the greet function that
-// prevents compilation. A real LLM driven through codrax --mode=apply
+// prevents compilation. A real LLM driven through codrax --mode=write --write-phase=apply
 // should identify it, emit a ChangePlan with Kind="patch" carrying a
 // unified diff that fixes only that line, and have apply_patch feed
 // the diff to git apply successfully. The comments deliberately avoid

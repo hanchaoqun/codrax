@@ -2,7 +2,7 @@
 //
 // The file contains a one-character typo inside the greet function that
 // prevents it from compiling. A real LLM driven through codrax
-// --mode=apply should identify it, emit a ChangePlan with Kind="patch"
+// --mode=write --write-phase=apply should identify it, emit a ChangePlan with Kind="patch"
 // carrying a unified diff that fixes only that line, and have apply_patch
 // feed the diff to git apply successfully — leaving the rest of the
 // file byte-identical. The eval verdict grep-checks the post-apply file
