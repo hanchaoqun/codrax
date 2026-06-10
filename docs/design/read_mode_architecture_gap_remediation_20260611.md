@@ -102,9 +102,11 @@ logtri_line_current_code 复跑:同一问题("日志第 3 行的 first_byte_time
 
 **方案**:`RequestModel.ReferencedArtifactLines`(source enum + 行区间)由 analyzer 在 emit_analysis 中 typed 声明(模型分类,非系统关键字扫描);finalizer 答案面渲染软指令"问题引用了附件第 N 行,请以 artifact-local 坐标锚定解释,与 repo 引用保持两轨"。软引导 + typed 信号,不设硬门。
 
-### 批 5 — 实测回归
-- [ ] 代表性 eval 四轴复跑(每波 2 个):s1a / logtri_goroutine_dump / trace_query_blocked_reason_chain / logtri_line_current_code / qf_architecture / trace_query_state_churn_root_cause_rank / logtri_cpp_asan / trace_query_donghu_mixed_platform。
-- [ ] 运行日志人工复核 R1/R2/R3 行为变化;账本记录观测结果。
+**已交付**:`ArtifactLineRef` + 共享 normalizer(source 枚举、行界、跨度钳制)、emit_analysis schema/解析/IR 赋值、analyzer skill 声明规则、finalizer `Referenced artifact lines` 答案面段落;活体验证混合案与专项锚点案双 PASS。
+
+### 批 5 — 实测回归【已交付】
+- [x] 四轴八案逐波实测:s1a PASS / logtri_goroutine_dump PASS / trace_query_blocked_reason_chain PASS / qf_architecture PASS / trace_query_state_churn_root_cause_rank PASS / logtri_cpp_asan PASS / trace_query_donghu_mixed_platform PASS;logtri_line_current_code 经 spec 放宽 + R9 typed 坐标通道后 PASS。**最终 8/8**。
+- [x] 实测过程贡献两项新 gap(R8 条件引用拒绝、R9 坐标通道),均已交付并活体验证。
 
 ## 4. 审计误报剔除记录
 
@@ -124,4 +126,5 @@ logtri_line_current_code 复跑:同一问题("日志第 3 行的 first_byte_time
 - 实测第四波:logtri_cpp_asan PASS、trace_query_donghu_mixed_platform PASS。四轴八案 7/8,唯一 FAIL 为 case spec 词汇钉死(非系统缺陷)。
 - 批 4 交付:emit 一致性 + 溢出可观测 + R8 条件引用拒绝;全量测试绿。
 - 实测第五轮(spec 放宽后混合案复跑):FAIL 转移为真实抖动——artifact 行号锚点一轮在一轮丢 → 立项 R9(typed 坐标通道),见上。
+- R9 交付并活体验证:logtri_line_current_code PASS、logtri_artifact_line_anchor PASS。全部批次完成,四轴 8/8。
 - 实测第二、三波:trace_query_blocked_reason_chain PASS、qf_architecture PASS、trace_query_state_churn_root_cause_rank PASS;logtri_line_current_code FAIL 判定为 case spec 词汇钉死(答案以精确 file:line 引用结合源码,优于字面"源码"一词;spec 待放宽)+ 顺带挖出 R8:emit_hypothesis_verdict 对 artifact-local 锚点的条件接受,拒绝消息未说明条件分支,归入批 4 的拒绝消息精度项。
