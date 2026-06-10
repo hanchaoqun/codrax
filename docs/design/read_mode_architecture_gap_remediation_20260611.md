@@ -76,10 +76,10 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 - [x] 降级可见:`appendSystemCaveatsToAnswer` 统一 caveat 汇点(替换全部 11 处 inactive-scope 调用点),降级时注入中英文用户 caveat;内部诊断细节(比值/阈值)只入日志与 telemetry,不漏入答案。
 - [x] 实施期复核修正:accepted-closure 路径经 `continue` 仍达 floor,审计的"绕过"断言不成立,未做无谓改动;默认 grounding profile(permissive,floor=0)行为零变化,收敛只对启用 floor 的 profile 生效。
 
-### 批 2 — R2 预算分账(P1)
-- [ ] 重试记账 (kind, locus) 分离;finalize-only 降级不计 kind 主账。
-- [ ] force-finalize 重派前 drain pending repairs(核实可达性后实施)。
-- [ ] 回归:既有 fallback/重试测试全绿,新增分账行为测试。
+### 批 2 — R2 预算分账(P1)【已交付】
+- [x] `shouldBillKindRetryLedger` 具名判定:R2.2 降级轮(picker 要 primary locus 但被降为 finalize-only)豁免 kind 主账——该轮已由 FinalizerLocalRetryBudget 计量,双重计费会让两次廉价重写耗尽该 kind 昂贵通道的预算;原生 finalizer-only 选择保持 kind 记账与边界。
+- [x] force-finalize 派发前 drain `runForcedReads()`(closure 已排队的确定性文件读取,组合式 finalize 前最后一次充实证据池);可达性已核实(函数自包含)。
+- [x] 全量回归绿 + 判定矩阵测试。
 
 ### 批 3 — R3 降级可见性 + R4 混合协调(P1)
 - [ ] `PreStageDegradation` 载体 + analyzer 渲染段 + finalizer caveat。
@@ -108,3 +108,5 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 
 - 方案落盘并推送。
 - 批 1 交付:终止画像 + 终局 floor 收敛 + 降级 caveat 汇点;全量测试绿。
+- 批 2 交付:kind/locus 分账 + force-finalize 前 drain;全量测试绿。
+- 实测第二、三波:trace_query_blocked_reason_chain PASS、qf_architecture PASS、trace_query_state_churn_root_cause_rank PASS;logtri_line_current_code FAIL 判定为 case spec 词汇钉死(答案以精确 file:line 引用结合源码,优于字面"源码"一词;spec 待放宽)+ 顺带挖出 R8:emit_hypothesis_verdict 对 artifact-local 锚点的条件接受,拒绝消息未说明条件分支,归入批 4 的拒绝消息精度项。

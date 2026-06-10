@@ -607,3 +607,18 @@ func TestFinalizerLocalRetryBudget_SetGet(t *testing.T) {
 		t.Errorf("negative must reset to 2: got %d", got)
 	}
 }
+
+func TestShouldBillKindRetryLedger_DowngradeExempt(t *testing.T) {
+	if shouldBillKindRetryLedger(FallbackFinalizerOnly, FallbackBackToExplore) {
+		t.Fatal("R2.2 downgraded round must not bill the per-kind ledger")
+	}
+	if shouldBillKindRetryLedger(FallbackFinalizerOnly, FallbackBackToExtract) {
+		t.Fatal("R2.2 downgraded round (extract) must not bill the per-kind ledger")
+	}
+	if !shouldBillKindRetryLedger(FallbackFinalizerOnly, FallbackFinalizerOnly) {
+		t.Fatal("natively finalizer-only picks keep per-kind accounting")
+	}
+	if !shouldBillKindRetryLedger(FallbackBackToExplore, FallbackBackToExplore) {
+		t.Fatal("primary-locus retries bill the per-kind ledger")
+	}
+}

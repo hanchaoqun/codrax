@@ -757,3 +757,14 @@ func PolicySnapshot() []struct {
 	}
 	return out
 }
+
+// shouldBillKindRetryLedger reports whether the current retry round
+// consumes the per-kind retry budget. R2.2 downgraded rounds (the
+// picker wanted a primary-locus remediation but the downgrade lane
+// substituted a finalize-only rewrite) are exempt — they are metered
+// by FinalizerLocalRetryBudget, and double-billing them lets cheap
+// rewrites exhaust the budget the kind's expensive lane needs.
+// Natively finalizer-only picks keep their per-kind accounting.
+func shouldBillKindRetryLedger(fallback, preDowngrade FallbackTarget) bool {
+	return !(fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly)
+}

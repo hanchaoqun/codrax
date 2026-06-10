@@ -6028,7 +6028,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			SummarizeRepairPlan(BuildRepairPlan(retryRes.Violations)), fallback)
 		logging.Info("[orchestrator] repair_exec: %s",
 			SummarizeRepairExecutionPlan(execPlan))
-		if fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly {
+		downgradedToFinalizerOnly := fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly
+		if downgradedToFinalizerOnly {
 			finalizerLocalRetriesUsed++
 			logging.Info("[orchestrator] R2.2 finalize-local priority: primary-locus pick=%s downgraded to finalizer_only (used %d/%d)",
 				preDowngrade, finalizerLocalRetriesUsed, FinalizerLocalRetryBudget())
@@ -6148,7 +6149,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		// C6: bump the per-kind counter for the dominant violation
 		// so subsequent iterations see the cap getting tighter.
-		if kind := dominantViolationKind(retryRes); kind != "" {
+		// R2.2 downgraded rounds are exempt: a downgrade swaps the
+		// kind's PRIMARY remediation (re-explore / re-extract) for a
+		// cheap answer rewrite and is already metered by
+		// FinalizerLocalRetryBudget. Billing it to the kind ledger
+		// too would let two cheap rewrites exhaust the budget the
+		// expensive lane needs when the same kind fires a third time.
+		// Natively finalizer-only kinds (no downgrade involved) keep
+		// their per-kind accounting and bound.
+		if kind := dominantViolationKind(retryRes); kind != "" && shouldBillKindRetryLedger(fallback, preDowngrade) {
 			state.recordRetryByKind(kind)
 		}
 		if class := dominantViolationClass(retryRes); class != "" {
@@ -6283,6 +6292,14 @@ contractFailureBreak:
 		// bailing out promptly when the upstream is genuinely down.
 		// Operator override via codrax.yaml ::
 		// pipeline_force_finalize_attempts (default 3, capped at 5).
+		// Drain repairs the explore phase queued but never consumed:
+		// pending forced reads are deterministic file fetches the
+		// closure already decided the answer needs. Running them here
+		// is the last chance to enrich the evidence pool before the
+		// composition-only finalize dispatch.
+		if drained := o.runForcedReads(); drained > 0 {
+			logging.Info("[orchestrator] force-finalize: drained %d pending forced read(s) before dispatch", drained)
+		}
 		forceFinalizeMaxAttempts := o.forceFinalizeAttempts
 		if forceFinalizeMaxAttempts <= 0 {
 			forceFinalizeMaxAttempts = types.DefaultForceFinalizeAttempts
