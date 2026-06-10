@@ -501,6 +501,9 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				hint += "\n\n"
 			}
 			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded repair plan via emit_change_plan that addresses the verification failure section above; do not finish the round without the emit."
+			if rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults()); rejection != "" {
+				hint += "\n\nThe previous round's plan emit was rejected by validation with this exact reason — correct it in the re-emit:\n" + rejection
+			}
 			o.busCtx.Mutable.SetPlanningHint(hint)
 			logging.Warning("[orchestrator] controller replan round produced no plan; granting one re-dispatch with typed failure context")
 			continue
@@ -1196,4 +1199,35 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	o.persistVerifyFailureEvidence(run, report, len(active.Attempts))
 	o.persistWriteWorkflowRun(run)
 	return false
+}
+
+// lastPlanEmitRejectionSummary returns the most recent failed plan-emit
+// tool result summary (system-generated validation text, bounded), so a
+// no-plan re-dispatch can cite the exact typed rejection instead of a
+// generic "emit something" nudge. Reads tool-result records only — never
+// model prose.
+func lastPlanEmitRejectionSummary(results []types.ToolResult) string {
+	for i := len(results) - 1; i >= 0; i-- {
+		r := results[i]
+		switch r.ToolName {
+		case "emit_change_plan", "emit_plan_skeleton", "emit_plan_change":
+		default:
+			continue
+		}
+		// The newest plan-emit outcome decides: a success means any older
+		// rejection was already resolved and must not be re-cited.
+		if r.Success {
+			return ""
+		}
+		summary := strings.TrimSpace(r.Summary)
+		if summary == "" {
+			return ""
+		}
+		const maxLen = 600
+		if len(summary) > maxLen {
+			summary = summary[:maxLen] + "…"
+		}
+		return summary
+	}
+	return ""
 }

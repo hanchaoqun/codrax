@@ -26,7 +26,62 @@ func BuildTestSurface(repoRoot, walkRoot string) types.TestSurface {
 	for _, plan := range detectRunnerPlanCandidates(repoRoot, walkRoot) {
 		surface.Candidates = append(surface.Candidates, testSurfaceCandidateForPlan(repoRoot, plan))
 	}
+	surface.Candidates = appendSyntheticPythonCandidates(repoRoot, surface.Candidates)
 	return types.NormalizeTestSurface(surface)
+}
+
+// appendSyntheticPythonCandidates closes two typed gaps the manifest walk
+// cannot see:
+//
+//   - a bare Python directory (test files by convention, no manifest at
+//     all) yields ZERO candidates, so a missing-binary or zero-test dead
+//     end has nowhere to escalate;
+//   - a python/pytest candidate whose host lacks pytest has a runnable
+//     stdlib sibling — python/unittest — that shares the directory but a
+//     framework-blind candidate set hides it.
+//
+// Both syntheses read the same typed detectors the executor uses
+// (hasPythonTestInfrastructure, detectPythonTestFramework,
+// hasPythonUnittestSignal); python is the only runner synthesized because
+// the stdlib unittest runner is the one framework that needs no installed
+// dependency.
+func appendSyntheticPythonCandidates(repoRoot string, cands []types.TestSurfaceCandidate) []types.TestSurfaceCandidate {
+	seen := map[string]bool{}
+	for _, c := range cands {
+		seen[testSurfaceCandidateKey(c.Runner, c.Framework, c.WorkingDir)] = true
+	}
+	addPython := func(framework string) {
+		key := testSurfaceCandidateKey("python", framework, ".")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		plan := runnerPlan{Runner: "python", Root: repoRoot, Framework: framework, Priority: 7}
+		cand := testSurfaceCandidateForPlan(repoRoot, plan)
+		cand.Source = "test-file convention"
+		cands = append(cands, cand)
+	}
+	hasRootPython := false
+	rootPytest := false
+	for _, c := range cands {
+		if c.Runner == "python" && c.WorkingDir == "." {
+			hasRootPython = true
+			if c.Framework == pythonFrameworkPytest {
+				rootPytest = true
+			}
+		}
+	}
+	if !hasRootPython && hasPythonTestInfrastructure(repoRoot) {
+		addPython(detectPythonTestFramework(repoRoot))
+		if detectPythonTestFramework(repoRoot) == pythonFrameworkPytest && hasPythonUnittestSignal(repoRoot) {
+			addPython(pythonFrameworkUnittest)
+		}
+		return cands
+	}
+	if rootPytest && hasPythonUnittestSignal(repoRoot) {
+		addPython(pythonFrameworkUnittest)
+	}
+	return cands
 }
 
 // testSurfaceCandidateForPlan converts one detected runnerPlan into the typed
@@ -64,11 +119,17 @@ func testSurfaceCandidateForPlan(repoRoot string, plan runnerPlan) types.TestSur
 }
 
 // testSurfaceCandidateKey is the executed-set key for escalation decisions:
-// one execution per (runner, working_dir) pair.
-func testSurfaceCandidateKey(runner, workingDir string) string {
+// one execution per (runner, framework, working_dir) triple. Framework is
+// part of the key so a python/pytest dead end can escalate to the
+// python/unittest candidate of the same directory.
+func testSurfaceCandidateKey(runner, framework, workingDir string) string {
 	workingDir = strings.TrimSpace(workingDir)
 	if workingDir == "" {
 		workingDir = "."
+	}
+	framework = strings.TrimSpace(framework)
+	if framework != "" {
+		runner += "/" + framework
 	}
 	return runner + "@" + workingDir
 }
@@ -82,7 +143,7 @@ func nextTestSurfaceEscalation(surface types.TestSurface, executed map[string]bo
 		if !c.HasTestSignal {
 			continue
 		}
-		if executed[testSurfaceCandidateKey(c.Runner, c.WorkingDir)] {
+		if executed[testSurfaceCandidateKey(c.Runner, c.Framework, c.WorkingDir)] {
 			continue
 		}
 		out := c

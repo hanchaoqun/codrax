@@ -130,12 +130,12 @@ func TestNextTestSurfaceEscalation_SkipsExecutedAndNoSignal(t *testing.T) {
 			{ID: "go@sub", Runner: "go", WorkingDir: "sub", Priority: 1, HasTestSignal: true},
 		},
 	})
-	executed := map[string]bool{testSurfaceCandidateKey("go", "sub"): true}
+	executed := map[string]bool{testSurfaceCandidateKey("go", "", "sub"): true}
 	next := nextTestSurfaceEscalation(surface, executed)
 	if next == nil || next.Runner != "make" {
 		t.Fatalf("escalation should pick make (unexecuted, has signal), got %+v", next)
 	}
-	executed[testSurfaceCandidateKey("make", ".")] = true
+	executed[testSurfaceCandidateKey("make", "", ".")] = true
 	if got := nextTestSurfaceEscalation(surface, executed); got != nil {
 		t.Fatalf("no candidate should remain, got %+v", got)
 	}
@@ -252,5 +252,61 @@ func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
 func TestExtractExitCode_SuccessIsZero(t *testing.T) {
 	if got := extractExitCode(nil); got != 0 {
 		t.Fatalf("nil error must report exit 0, got %d", got)
+	}
+}
+
+
+// A bare Python directory (no manifest at all) must still produce a
+// runnable surface candidate from test-file conventions, and a pytest
+// candidate gains a stdlib unittest sibling when the unittest signal is
+// present — that sibling is the escalation target when pytest's binary is
+// missing.
+func TestBuildTestSurface_BarePythonDirSynthesizesCandidates(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "relativedelta.py", "class relativedelta:\n    pass\n")
+	writeSurfaceFile(t, root, "test_relativedelta.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
+
+	surface := BuildTestSurface(root, "")
+	if len(surface.Candidates) == 0 {
+		t.Fatal("bare python dir must synthesize a candidate")
+	}
+	py := surfaceCandidate(t, surface, "python")
+	if !py.HasTestSignal {
+		t.Fatalf("synthesized python candidate must carry the test signal: %+v", py)
+	}
+	if py.Framework != "unittest" {
+		t.Fatalf("unittest-signal repo should synthesize the unittest framework, got %q", py.Framework)
+	}
+	if py.Source != "test-file convention" {
+		t.Fatalf("synthesized candidate must declare its provenance, got %q", py.Source)
+	}
+}
+
+func TestBuildTestSurface_PytestCandidateGainsUnittestSibling(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "pytest.ini", "[pytest]\n")
+	writeSurfaceFile(t, root, "test_sample.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
+
+	surface := BuildTestSurface(root, "")
+	var sawPytest, sawUnittest bool
+	for _, c := range surface.Candidates {
+		if c.Runner != "python" {
+			continue
+		}
+		switch c.Framework {
+		case "pytest":
+			sawPytest = true
+		case "unittest":
+			sawUnittest = true
+		}
+	}
+	if !sawPytest || !sawUnittest {
+		t.Fatalf("expected pytest + unittest sibling candidates, got %+v", surface.Candidates)
+	}
+	// pytest dead end escalates to the unittest sibling of the same dir.
+	executed := map[string]bool{testSurfaceCandidateKey("python", "pytest", "."): true}
+	next := nextTestSurfaceEscalation(surface, executed)
+	if next == nil || next.Framework != "unittest" {
+		t.Fatalf("pytest dead end must escalate to the unittest sibling, got %+v", next)
 	}
 }

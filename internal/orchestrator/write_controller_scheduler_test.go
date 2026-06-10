@@ -1057,3 +1057,22 @@ func TestRunWriteControllerWorkflow_MirrorsActivePlanToImportFile(t *testing.T) 
 		t.Fatalf("mirror must carry the final verified status, got %s", mirrored.Status)
 	}
 }
+
+
+func TestLastPlanEmitRejectionSummary_PicksLatestPlanEmitFailure(t *testing.T) {
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: false, Summary: "irrelevant"},
+		{ToolName: "emit_change_plan", Success: false, Summary: "emit_change_plan rejected: task.scope=micro forbids kind=modify"},
+		{ToolName: "emit_change_plan", Success: true, Summary: "stored"},
+		{ToolName: "grep", Success: false, Summary: "noise"},
+	}
+	got := lastPlanEmitRejectionSummary(results)
+	if got != "" {
+		t.Fatalf("latest emit succeeded; no rejection should be cited, got %q", got)
+	}
+	results = append(results, types.ToolResult{ToolName: "emit_plan_skeleton", Success: false, Summary: "emit_plan_skeleton rejected: bounded body missing"})
+	got = lastPlanEmitRejectionSummary(results)
+	if !strings.Contains(got, "bounded body missing") {
+		t.Fatalf("latest plan-emit rejection should be cited, got %q", got)
+	}
+}

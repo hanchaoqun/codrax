@@ -24,7 +24,9 @@ for idx, line in enumerate(lines):
 if not re.search(r"0x(?:4e00|370|400)", tests, re.IGNORECASE):
     errors.append("missing non-ASCII letter regression test")
 
-if not re.search(r"0x0?66[0a]", tests, re.IGNORECASE):
+# Arabic-Indic (0x660/0x66A), Extended Arabic (0x6F0), Devanagari (0x966),
+# or fullwidth (0xFF10) digits all exercise the non-ASCII digit range.
+if not re.search(r"0x0?(66[0a]|6f[0-9a]|96[6-f]|ff1[0-9])", tests, re.IGNORECASE):
     errors.append("missing non-ASCII digit regression test")
 
 if errors:

@@ -25,9 +25,16 @@ has_existence_check = (
 if not has_existence_check:
     errors.append("implementation must use a typed existence check for _prefault")
 
-for snippet in ["prefault(false)", "prefault(0)", 'prefault("")']:
-    if snippet not in tests:
-        errors.append(f"missing regression test snippet: {snippet}")
+# Accept either regression shape: a prefault(value) helper call, or the
+# fixture's natural literal style `_prefault: value`. Demanding the helper
+# spelling alone rejects correct tests written in the file's own idiom.
+for label, variants in [
+    ("false", ["prefault(false)", "_prefault: false"]),
+    ("0", ["prefault(0)", "_prefault: 0"]),
+    ('""', ['prefault("")', '_prefault: ""']),
+]:
+    if not any(v in tests for v in variants):
+        errors.append(f"missing regression test for prefault {label}")
 
 for snippet in ["default: false", "default: 0", 'default: ""']:
     if snippet not in tests:

@@ -297,7 +297,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return errResult(t.Name(), rej), nil
 		}
 		plans = []runnerPlan{choice}
-		planSources[testSurfaceCandidateKey(choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))] = "llm_choice"
+		planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = "llm_choice"
 		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
 			choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))
 	} else {
@@ -351,13 +351,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		surfaceEscalated = true
 		next := runnerPlanFromSurfaceCandidate(ctx.RepoRoot, *cand)
-		planSources[testSurfaceCandidateKey(next.Runner, runnerPlanRel(ctx.RepoRoot, next))] = source
+		planSources[testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(ctx.RepoRoot, next))] = source
 		logging.Info("[run_tests] test-surface escalation (%s): queueing %s after current candidate produced no real verification",
 			source, cand.ID)
 		return &next
 	}
 	planSourceFor := func(plan runnerPlan) string {
-		if src, ok := planSources[testSurfaceCandidateKey(plan.Runner, runnerPlanRel(ctx.RepoRoot, plan))]; ok {
+		if src, ok := planSources[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))]; ok {
 			return src
 		}
 		return "auto_detect"
@@ -366,7 +366,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		plan := plans[planIdx]
 		runnerRoot := plan.Root
 		runner := plan.Runner
-		executedKeys[testSurfaceCandidateKey(runner, runnerPlanRel(ctx.RepoRoot, plan))] = true
+		executedKeys[testSurfaceCandidateKey(runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
 
 		if runner == "cmake" || runner == "meson" {
 			if detectNativeBuildDir(runnerRoot) == "" {
