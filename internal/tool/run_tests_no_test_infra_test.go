@@ -302,6 +302,83 @@ func TestRunTestsDryRunFlagIgnoredOutsideStagePlan(t *testing.T) {
 	}
 }
 
+func TestDetectPythonTestFramework(t *testing.T) {
+	t.Run("pytest config wins", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "pytest.ini"), []byte("[pytest]\n"), 0o644); err != nil {
+			t.Fatalf("write pytest.ini: %v", err)
+		}
+		if got := detectPythonTestFramework(root); got != pythonFrameworkPytest {
+			t.Fatalf("framework = %q, want pytest", got)
+		}
+	})
+	t.Run("unittest source signal", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "test_widget.py"), []byte("import unittest\n\nclass WidgetTests(unittest.TestCase):\n    pass\n"), 0o644); err != nil {
+			t.Fatalf("write test: %v", err)
+		}
+		if got := detectPythonTestFramework(root); got != pythonFrameworkUnittest {
+			t.Fatalf("framework = %q, want unittest", got)
+		}
+	})
+	t.Run("pytest style default", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "test_widget.py"), []byte("def test_widget():\n    assert True\n"), 0o644); err != nil {
+			t.Fatalf("write test: %v", err)
+		}
+		if got := detectPythonTestFramework(root); got != pythonFrameworkPytest {
+			t.Fatalf("framework = %q, want pytest", got)
+		}
+	})
+}
+
+func TestRunTestsPythonUnittestFrameworkPasses(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	testFile := filepath.Join(root, "test_sample.py")
+	if err := os.WriteFile(testFile, []byte(`import unittest
+
+class SampleTests(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(1 + 1, 2)
+`), 0o644); err != nil {
+		t.Fatalf("write unittest file: %v", err)
+	}
+	mu := types.NewMutableState("unittest verify")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "unittest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("unittest run should pass, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.Channel != types.ChangeReportChannelPostApplyVerify {
+		t.Fatalf("report channel = %q, want post_apply_verify", report.Channel)
+	}
+	if !report.Passed || len(report.TestResults) != 1 || !report.TestResults[0].Passed {
+		t.Fatalf("unexpected unittest report: %+v", report)
+	}
+	if !strings.Contains(report.TestResults[0].Suite, "SampleTests") {
+		t.Fatalf("unittest suite should identify the TestCase, got %+v", report.TestResults[0])
+	}
+}
+
 // TestPythonInterpreter_InterleavedVenvOrdering locks fix A: when
 // both worktree and main_repo carry venvs, the probe interleaves
 // per dir-name (.venv across all roots before falling to venv across

@@ -204,3 +204,7 @@ flowchart TD
   pipeline stage, so controller apply-mode planning probes stay in
   `PlanStageProbeReports`; authoritative controller artifacts filter to the
   current plan's post-apply `ChangeReport`.
+- 2026-06-10 Batch 2 complete: `run_tests` now carries typed Python framework
+  selection (`pytest` vs `unittest`), detects standard-library unittest suites
+  from repo test-surface signals, parses unittest output into `ChangeReport`,
+  and keeps Makefile verification on the existing typed runner path.

@@ -30,7 +30,7 @@ func TestResolveLLMRunnerChoice_HappyPath(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			plan, rej := resolveLLMRunnerChoice(repo, c.runner, c.workingDir)
+			plan, rej := resolveLLMRunnerChoice(repo, c.runner, "", c.workingDir)
 			if rej != "" {
 				t.Fatalf("unexpected rejection: %s", rej)
 			}
@@ -56,7 +56,7 @@ func TestResolveLLMRunnerChoice_RejectsBadRunner(t *testing.T) {
 	cases := []string{"pytest", "jest", "kotlin", "", "invalid"}
 	for _, r := range cases {
 		t.Run("runner="+r, func(t *testing.T) {
-			_, rej := resolveLLMRunnerChoice(repo, r, "")
+			_, rej := resolveLLMRunnerChoice(repo, r, "", "")
 			if rej == "" {
 				t.Fatalf("expected rejection for runner=%q", r)
 			}
@@ -89,7 +89,7 @@ func TestResolveLLMRunnerChoice_RejectsTraversal(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, rej := resolveLLMRunnerChoice(repo, "go", c.workingDir)
+			_, rej := resolveLLMRunnerChoice(repo, "go", "", c.workingDir)
 			if rej == "" {
 				t.Fatalf("expected rejection for working_dir=%q", c.workingDir)
 			}
@@ -105,12 +105,29 @@ func TestResolveLLMRunnerChoice_RejectsTraversal(t *testing.T) {
 // silently running tests in the wrong place.
 func TestResolveLLMRunnerChoice_RejectsMissingDir(t *testing.T) {
 	repo := t.TempDir()
-	_, rej := resolveLLMRunnerChoice(repo, "go", "does-not-exist")
+	_, rej := resolveLLMRunnerChoice(repo, "go", "", "does-not-exist")
 	if rej == "" {
 		t.Fatalf("expected rejection for missing dir")
 	}
 	if !strings.Contains(rej, "does not exist") {
 		t.Errorf("rejection should mention nonexistence, got: %s", rej)
+	}
+}
+
+func TestResolveLLMRunnerChoice_PythonFramework(t *testing.T) {
+	repo := t.TempDir()
+	plan, rej := resolveLLMRunnerChoice(repo, "python", "unittest", "")
+	if rej != "" {
+		t.Fatalf("unexpected rejection: %s", rej)
+	}
+	if plan.Framework != pythonFrameworkUnittest {
+		t.Fatalf("Framework = %q, want unittest", plan.Framework)
+	}
+	if _, rej := resolveLLMRunnerChoice(repo, "go", "unittest", ""); rej == "" {
+		t.Fatal("non-python framework should be rejected")
+	}
+	if _, rej := resolveLLMRunnerChoice(repo, "python", "nose", ""); rej == "" {
+		t.Fatal("unsupported python framework should be rejected")
 	}
 }
 

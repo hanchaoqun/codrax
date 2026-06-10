@@ -50,10 +50,11 @@ type RunTests struct {
 }
 
 type runnerPlan struct {
-	Runner   string
-	Root     string
-	Manifest string
-	Priority int
+	Runner    string
+	Root      string
+	Manifest  string
+	Priority  int
+	Framework string
 }
 
 type runnerManifest struct {
@@ -93,6 +94,12 @@ type runTestsParams struct {
 	// reasoning. Symmetric to log_triage / perf_triage: LLM
 	// extracts, system validates + executes.
 	Runner string `json:"runner,omitempty"`
+
+	// Framework refines a runner when the runner has multiple common
+	// test frameworks behind the same language command. Currently
+	// only meaningful for runner=python, where empty means the system
+	// selects pytest vs unittest from typed repo/test-surface signals.
+	Framework string `json:"framework,omitempty"`
 
 	// WorkingDir is the LLM-decided test root, repo-relative. Empty
 	// or "." means RepoRoot. A nested module path (e.g. "backend/")
@@ -137,6 +144,11 @@ var allowedRunners = map[string]struct{}{
 	"cjpm":   {},
 }
 
+const (
+	pythonFrameworkPytest   = "pytest"
+	pythonFrameworkUnittest = "unittest"
+)
+
 // allowedRunnerList returns the sorted runner whitelist for prompt /
 // rejection text. Computed once on demand; tiny enough to skip
 // caching.
@@ -156,7 +168,7 @@ func (t *RunTests) Name() string { return "run_tests" }
 // operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
 	return "Run the detected project test suites inside the active worktree and emit a structured ChangeReport. " +
-		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path — build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test → JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test → cargo-style text)."
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report or standard-library unittest), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path — build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test → JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test → cargo-style text)."
 }
 
 // Parameters returns the JSON schema.
@@ -177,6 +189,11 @@ func (t *RunTests) Parameters() json.RawMessage {
       "type": "string",
       "enum": ["go", "node", "python", "rust", "java", "ruby", "swift", "cmake", "meson", "make", "hvigor", "cjpm"],
       "description": "Test runner you have decided to use after inspecting the repo. STRONGLY PREFERRED — if you supply this, the system skips manifest auto-detect and runs your choice directly (works for repos without a canonical manifest, e.g. a bare Python directory with *_test.py files). Empty falls back to manifest auto-detect (brittle; misses bare repos)."
+    },
+    "framework": {
+      "type": "string",
+      "enum": ["pytest", "unittest"],
+      "description": "Optional framework refinement for runner=python. Empty lets codrax select from typed repository signals. Use unittest for Python standard-library unittest suites; use pytest for pytest suites."
     },
     "working_dir": {
       "type": "string",
@@ -247,7 +264,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	//       working.
 	var plans []runnerPlan
 	if strings.TrimSpace(p.Runner) != "" {
-		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, p.Runner, p.WorkingDir)
+		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, p.Runner, p.Framework, p.WorkingDir)
 		if rej != "" {
 			return errResult(t.Name(), rej), nil
 		}
@@ -351,7 +368,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// excludes gitignored paths (`.venv/` typically is), so the
 		// venv lives at the user's main repo root, not under the
 		// worktree. pythonInterpreter probes both roots in order.
-		cmdStr, extraFile := buildRunCommand(runner, p.Suite, runnerRoot, ctx.MainRepoRoot)
+		cmdStr, extraFile := buildRunCommandForPlan(plan, p.Suite, ctx.MainRepoRoot)
 
 		// Same root cause as the python venv lookup — but for runners
 		// where the dep is consumed by name from cwd (Node's
@@ -479,7 +496,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// can't install software — fail-loud with a clean install hint
 		// and let the verify→plan retry loop short-circuit on the new
 		// FailureKindRunnerMissing tag.
-		if missing, missingBinary, missingReason := detectRunnerMissing(runner, runErr, output); missing {
+		if missing, missingBinary, missingReason := detectRunnerMissingForPlan(plan, runErr, output); missing {
 			// Surface which detection signal fired so operators (and
 			// support engineers triaging "but pytest IS installed!"
 			// reports) can tell apart the three failure modes —
@@ -514,7 +531,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// recommend output. Falls through to the legacy hint on
 			// disable / error so behaviour is byte-identical with
 			// env_recommend_enabled=false.
-			hint := runnerInstallHint(runner, ctx.Language)
+			hint := runnerInstallHintForPlan(plan, missingBinary, ctx.Language)
 			if envRec := envRecommendOutput(ctx, runner, output); envRec != "" {
 				hint = envRec
 			}
@@ -566,7 +583,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 
-		report, err := parseRunnerOutput(runner, output, extraFile, cmdStr, runErr)
+		report, err := parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
 		if err != nil {
 			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
 			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
@@ -635,12 +652,25 @@ func detectRunner(repoRoot string) string {
 // validators). Manifest existence is NOT checked — that's the whole
 // point of the LLM path: the LLM may run pytest on a bare directory
 // even when `pyproject.toml` is missing.
-func resolveLLMRunnerChoice(repoRoot, runner, workingDir string) (runnerPlan, string) {
+func resolveLLMRunnerChoice(repoRoot, runner, framework, workingDir string) (runnerPlan, string) {
 	runner = strings.ToLower(strings.TrimSpace(runner))
 	if _, ok := allowedRunners[runner]; !ok {
 		return runnerPlan{}, fmt.Sprintf(
 			"run_tests rejected: runner=%q is not one of the supported runners (%s)",
 			runner, strings.Join(allowedRunnerList(), ", "))
+	}
+	framework = strings.ToLower(strings.TrimSpace(framework))
+	if framework != "" {
+		if runner != "python" {
+			return runnerPlan{}, fmt.Sprintf(
+				"run_tests rejected: framework=%q is only supported with runner=python", framework)
+		}
+		switch framework {
+		case pythonFrameworkPytest, pythonFrameworkUnittest:
+		default:
+			return runnerPlan{}, fmt.Sprintf(
+				"run_tests rejected: framework=%q is not one of the supported python frameworks (pytest, unittest)", framework)
+		}
 	}
 
 	dir := strings.TrimSpace(workingDir)
@@ -675,11 +705,16 @@ func resolveLLMRunnerChoice(repoRoot, runner, workingDir string) (runnerPlan, st
 			"run_tests rejected: working_dir=%q does not exist or is not a directory", workingDir)
 	}
 
+	if runner == "python" && framework == "" {
+		framework = detectPythonTestFramework(target)
+	}
+
 	return runnerPlan{
-		Runner:   runner,
-		Root:     target,
-		Manifest: "(LLM-selected)",
-		Priority: 0, // LLM choice always wins over auto-detect priorities
+		Runner:    runner,
+		Root:      target,
+		Manifest:  "(LLM-selected)",
+		Priority:  0, // LLM choice always wins over auto-detect priorities
+		Framework: framework,
 	}, ""
 }
 
@@ -728,6 +763,9 @@ func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
 		}
 		root := filepath.Dir(path)
 		plan := runnerPlan{Runner: manifest.Runner, Root: root, Manifest: info.Name(), Priority: manifest.Priority}
+		if plan.Runner == "python" {
+			plan.Framework = detectPythonTestFramework(root)
+		}
 		if prev, ok := plansByRoot[root]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
 			plansByRoot[root] = plan
 		}
@@ -817,12 +855,20 @@ func runnerPlanRel(repoRoot string, plan runnerPlan) string {
 }
 
 func runnerPlanLabel(repoRoot string, plan runnerPlan) string {
-	return fmt.Sprintf("%s@%s", plan.Runner, runnerPlanRel(repoRoot, plan))
+	runner := plan.Runner
+	if plan.Runner == "python" && strings.TrimSpace(plan.Framework) != "" {
+		runner += "/" + strings.TrimSpace(plan.Framework)
+	}
+	return fmt.Sprintf("%s@%s", runner, runnerPlanRel(repoRoot, plan))
 }
 
 func renderRunnerOutputSection(plan runnerPlan, output string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "### %s (%s)\n", plan.Runner, filepath.ToSlash(plan.Root))
+	runner := plan.Runner
+	if plan.Runner == "python" && strings.TrimSpace(plan.Framework) != "" {
+		runner += "/" + strings.TrimSpace(plan.Framework)
+	}
+	fmt.Fprintf(&b, "### %s (%s)\n", runner, filepath.ToSlash(plan.Root))
 	b.WriteString(output)
 	return b.String()
 }
@@ -1132,6 +1178,48 @@ func detectRunnerMissing(runner string, runErr error, output string) (bool, stri
 	return false, "", ""
 }
 
+func detectRunnerMissingForPlan(plan runnerPlan, runErr error, output string) (bool, string, string) {
+	bin := runnerPrimaryBinaryForPlan(plan)
+	if bin == "" {
+		return false, "", ""
+	}
+	if missing, missingBin, reason := detectRunnerMissing(plan.Runner, runErr, output); missing {
+		if plan.Runner == "python" && plan.Framework == pythonFrameworkUnittest && missingBin == "pytest" {
+			return false, "", ""
+		}
+		return true, missingBin, reason
+	}
+	if exitCode := extractExitCode(runErr); exitCode == 127 || exitCode == 126 {
+		return true, bin, fmt.Sprintf("exit_code_%d", exitCode)
+	}
+	if outputIndicatesMissingBinary(output, bin) {
+		return true, bin, "output_pattern"
+	}
+	return false, "", ""
+}
+
+func outputIndicatesMissingBinary(output, bin string) bool {
+	bin = strings.TrimSpace(bin)
+	if bin == "" {
+		return false
+	}
+	patterns := []string{
+		bin + ": command not found",
+		bin + ": not found",
+		bin + " not found",
+		"executable file not found",
+		"is not recognized as an internal or external command",
+		"No such file or directory: '" + bin + "'",
+	}
+	lower := strings.ToLower(output)
+	for _, p := range patterns {
+		if strings.Contains(lower, strings.ToLower(p)) {
+			return true
+		}
+	}
+	return false
+}
+
 // extractExitCode best-effort pulls the process exit code out of an
 // exec error chain. *exec.ExitError is the typical wrapper; other
 // shapes return -1.
@@ -1217,13 +1305,20 @@ func runnerPrimaryBinary(runner string) string {
 	return ""
 }
 
+func runnerPrimaryBinaryForPlan(plan runnerPlan) string {
+	if plan.Runner == "python" && plan.Framework == pythonFrameworkUnittest {
+		return "python"
+	}
+	return runnerPrimaryBinary(plan.Runner)
+}
+
 // hasPythonTestInfrastructure returns true when the given root
-// contains any signal that this project intends to be tested with
-// pytest. The detector is a superset of file-name discovery (per
-// fix B in the user's design spec): test source files
-// (test_*.py / *_test.py / conftest.py) AND project configuration
-// hints (pytest.ini / pyproject.toml / setup.cfg / tox.ini /
-// noxfile.py) all count. Any one signal flips the result to true.
+// contains any signal that this project intends to run Python tests.
+// The detector is a superset of file-name discovery (per fix B in
+// the user's design spec): test source files (test_*.py / *_test.py /
+// conftest.py) AND project configuration hints (pytest.ini /
+// pyproject.toml / setup.cfg / tox.ini / noxfile.py) all count. Any
+// one signal flips the result to true.
 //
 // Rationale: a pyproject.toml without test files still implies the
 // operator has a pytest workflow they expect to drive — bare
@@ -1287,12 +1382,105 @@ func hasPythonTestInfrastructure(root string) bool {
 	return errors.Is(err, stop)
 }
 
+func detectPythonTestFramework(root string) string {
+	if hasPythonPytestConfig(root) {
+		return pythonFrameworkPytest
+	}
+	if hasPythonUnittestSignal(root) {
+		return pythonFrameworkUnittest
+	}
+	return pythonFrameworkPytest
+}
+
+func hasPythonPytestConfig(root string) bool {
+	if root == "" {
+		return false
+	}
+	stop := errors.New("found pytest config")
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := info.Name()
+		if info.IsDir() {
+			if shouldSkipPythonProbeDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		switch name {
+		case "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini", "noxfile.py", "conftest.py":
+			return stop
+		}
+		return nil
+	})
+	return errors.Is(err, stop)
+}
+
+func hasPythonUnittestSignal(root string) bool {
+	if root == "" {
+		return false
+	}
+	stop := errors.New("found unittest signal")
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := info.Name()
+		if info.IsDir() {
+			if shouldSkipPythonProbeDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !(strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py")) && !strings.HasSuffix(name, "_test.py") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if len(data) > 64*1024 {
+			data = data[:64*1024]
+		}
+		text := string(data)
+		if strings.Contains(text, "unittest.TestCase") ||
+			strings.Contains(text, "import unittest") ||
+			strings.Contains(text, "from unittest") {
+			return stop
+		}
+		return nil
+	})
+	return errors.Is(err, stop)
+}
+
+func shouldSkipPythonProbeDir(name string) bool {
+	switch name {
+	case ".git", ".hg", ".svn",
+		"node_modules", "vendor", "target",
+		"dist", "build", "out", ".tox",
+		".venv", "venv", "env", ".virtualenv",
+		"__pycache__", ".pytest_cache", ".mypy_cache",
+		".idea", ".vscode", ".gradle", ".mvn",
+		".codrax":
+		return true
+	}
+	return false
+}
+
 // runnerHasNoTestWork is the unified "is there test work for this
 // runner under root?" predicate used by both the pre-flight skip
 // and the runner_missing tier (fix C). For python it consults
-// hasPythonTestInfrastructure (the broader signal); for other
-// runners it falls through to hasNoTestSources's file-name walk.
-// Returns true when there is NO test work.
+// hasPythonTestInfrastructure (then a separate typed framework
+// decision chooses pytest or unittest); for other runners it falls
+// through to hasNoTestSources's file-name walk. Returns true when
+// there is NO test work.
 func runnerHasNoTestWork(runner, root string) bool {
 	if runner == "python" {
 		return !hasPythonTestInfrastructure(root)
@@ -1941,6 +2129,48 @@ func pythonInterpreter(roots ...string) (string, bool) {
 	return "pytest", false
 }
 
+func pythonRuntimeInterpreter(roots ...string) string {
+	venvDirs := []string{".venv", "venv", "env", ".virtualenv"}
+	venvSubpaths := []string{
+		filepath.Join("bin", "python"),
+		filepath.Join("bin", "python3"),
+		filepath.Join("Scripts", "python.exe"),
+	}
+	seen := make(map[string]bool, len(roots))
+	dedupedRoots := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" || seen[root] {
+			continue
+		}
+		seen[root] = true
+		dedupedRoots = append(dedupedRoots, root)
+	}
+	for _, dir := range venvDirs {
+		for _, root := range dedupedRoots {
+			for _, sub := range venvSubpaths {
+				candidate := filepath.Join(root, dir, sub)
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					logging.Info("[run_tests/python] runtime resolved: venv=%q (root=%q dir=%q sub=%q; probed roots=%v interleaved)",
+						filepath.ToSlash(candidate), root, dir, sub, dedupedRoots)
+					return filepath.ToSlash(candidate)
+				}
+			}
+		}
+	}
+	if path, err := exec.LookPath("python3"); err == nil {
+		logging.Info("[run_tests/python] runtime resolved: PATH python3=%q (no venv at: %v)", path, dedupedRoots)
+		return "python3"
+	}
+	if path, err := exec.LookPath("python"); err == nil {
+		logging.Info("[run_tests/python] runtime resolved: PATH python=%q (no venv/python3 at: %v)", path, dedupedRoots)
+		return "python"
+	}
+	logging.Warning("[run_tests/python] no python runtime found (probed venv at: %v; python3 / python absent from PATH); falling back to python3 which will fail loudly",
+		dedupedRoots)
+	return "python3"
+}
+
 // runnerInstallHint maps a runner to a short install suggestion the
 // user-facing error embeds. Bilingual zh (default) / en. Drift-guard
 // test TestRunnerInstallHint_AllRunnersCovered asserts every
@@ -2019,6 +2249,22 @@ func runnerInstallHint(runner, lang string) string {
 		return "安装该 runner 的 CLI 二进制"
 	}
 	return "install the runner's CLI binary"
+}
+
+func runnerInstallHintForPlan(plan runnerPlan, missingBinary, lang string) string {
+	if plan.Runner == "python" && plan.Framework == pythonFrameworkUnittest {
+		if isZh(lang) {
+			return "安装 Python 3 或确保项目 venv 里的 python 可执行；unittest 是 Python 标准库，不需要安装 pytest"
+		}
+		return "install Python 3 or ensure the project venv python is executable; unittest is in the Python standard library and does not require pytest"
+	}
+	if plan.Runner == "python" && strings.TrimSpace(missingBinary) != "" && strings.TrimSpace(missingBinary) != "pytest" {
+		if isZh(lang) {
+			return "安装 Python 3 或修复项目 venv；pytest 项目还需要 pytest 与 pytest-json-report"
+		}
+		return "install Python 3 or repair the project venv; pytest projects also need pytest and pytest-json-report"
+	}
+	return runnerInstallHint(plan.Runner, lang)
 }
 
 // runnerMissingToolResultSummary builds the bilingual ToolResult.
@@ -2360,7 +2606,19 @@ func firstXMLDescendant(dir string, maxDepth int) bool {
 // — only used by the python branch, where the user's venv often
 // lives at mainRoot/.venv/ but never reaches the worktree because
 // .venv/ is gitignored.
+func buildRunCommandForPlan(plan runnerPlan, suite, mainRoot string) (string, string) {
+	return buildRunCommandWithFramework(plan.Runner, plan.Framework, suite, plan.Root, mainRoot)
+}
+
 func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) {
+	framework := ""
+	if runner == "python" {
+		framework = detectPythonTestFramework(repoRoot)
+	}
+	return buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot)
+}
+
+func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot string) (string, string) {
 	switch runner {
 	case "go":
 		pkg := strings.TrimSpace(suite)
@@ -2378,6 +2636,17 @@ func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) 
 		}
 		return fmt.Sprintf("npm test -- --json --silent -t %q", filter), ""
 	case "python":
+		if framework == pythonFrameworkUnittest {
+			interp := pythonRuntimeInterpreter(repoRoot, mainRoot)
+			filter := strings.TrimSpace(suite)
+			if filter == "" {
+				return fmt.Sprintf("%s -m unittest discover -v", interp), ""
+			}
+			if strings.HasSuffix(filter, ".py") || strings.Contains(filter, "/") {
+				return fmt.Sprintf("%s -m unittest discover -s %q -v", interp, filter), ""
+			}
+			return fmt.Sprintf("%s -m unittest %q -v", interp, filter), ""
+		}
 		// pytest-json-report writes to a file specified by
 		// --json-report-file. We use a temp file in the repo's
 		// worktree so the report doesn't escape.

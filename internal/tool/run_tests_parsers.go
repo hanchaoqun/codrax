@@ -24,12 +24,20 @@ import (
 // *exec.Cmd.Run error — populated for every runner but only the
 // make parser (no structured output) inspects it.
 func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (*types.ChangeReport, error) {
+	return parseRunnerOutputForPlan(runnerPlan{Runner: runner}, stdout, extraFile, cmdStr, runErr)
+}
+
+func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string, runErr error) (*types.ChangeReport, error) {
+	runner := plan.Runner
 	switch runner {
 	case "go":
 		return parseGoTestJSONLines(stdout)
 	case "node":
 		return parseJestJSON(stdout)
 	case "python":
+		if plan.Framework == pythonFrameworkUnittest {
+			return parseUnittestOutput(stdout, runErr)
+		}
 		return parsePytestJSONReport(extraFile, stdout, cmdStr)
 	case "rust":
 		return parseCargoTestText("rust", stdout)
@@ -69,6 +77,82 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (
 		return parseSwiftOutput(stdout, runErr)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
+}
+
+var (
+	reUnittestCaseLine = regexp.MustCompile(`^(.+?) \(([^)]+)\) \.\.\. (ok|FAIL|ERROR|skipped\b.*)$`)
+	reUnittestRan      = regexp.MustCompile(`(?m)^Ran (\d+) tests?`)
+)
+
+func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, error) {
+	lines := strings.Split(stdout, "\n")
+	results := make([]types.TestResult, 0)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		m := reUnittestCaseLine.FindStringSubmatch(line)
+		if len(m) != 4 {
+			continue
+		}
+		name := strings.TrimSpace(m[1])
+		suite := strings.TrimSpace(m[2])
+		status := strings.TrimSpace(m[3])
+		passed := status == "ok" || strings.HasPrefix(status, "skipped")
+		detail := ""
+		if !passed {
+			detail = stdoutHead(stdout, 4000)
+		}
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   name,
+			Suite:         suite,
+			Passed:        passed,
+			FailureDetail: detail,
+		})
+	}
+	total := len(results)
+	if m := reUnittestRan.FindStringSubmatch(stdout); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			total = n
+		}
+	}
+	failed := countFailed(results)
+	passed := runErr == nil && failed == 0
+	report := &types.ChangeReport{
+		TestResults: results,
+		Passed:      passed,
+	}
+	if total == 0 && runErr == nil {
+		report.Passed = true
+		report.NoTestsRunners = []string{"python"}
+		return report, nil
+	}
+	if len(results) == 0 {
+		report.TestResults = []types.TestResult{{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   "unittest",
+			Suite:         "unittest",
+			Passed:        passed,
+			FailureDetail: stdoutHead(stdout, 4000),
+		}}
+		if !passed {
+			failed = 1
+		}
+	}
+	if !report.Passed {
+		passedCount := 0
+		for _, result := range report.TestResults {
+			if result.Passed {
+				passedCount++
+			}
+		}
+		denom := total
+		if len(report.TestResults) > denom {
+			denom = len(report.TestResults)
+		}
+		report.FailureSummary = fmt.Sprintf("unittest failed — %d passed, %d failed/error of %d total.",
+			passedCount, failed, denom)
+	}
+	return report, nil
 }
 
 // parseMakeOutput synthesises a ChangeReport from `make <target>`
