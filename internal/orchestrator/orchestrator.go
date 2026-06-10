@@ -4702,6 +4702,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					logging.Info("[orchestrator] stop condition fired: %s", reason)
 					state.forceCloseExploreWindow()
 					forceFinalizeTriggered = true
+					o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationStopCondition})
 					// No `continue` here — fall through in the SAME
 					// iteration so readyExplorerWindow (below) sees the
 					// just-closed nodes and firstFinalizeReadyMerged
@@ -5145,6 +5146,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// Hard stall — break out of the explore loop and
 					// let the finalize path run with whatever evidence
 					// was gathered.
+					o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationHardStall})
 					state.forceCloseExploreWindow()
 					continue
 				}
@@ -5165,8 +5167,21 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// finalize.
 			if len(blocked) > 0 {
 				logging.Warning("[orchestrator] %d node(s) blocked on entry conditions; forcing finalize", len(blocked))
+				o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationBlockedDAG})
 			} else {
 				logging.Warning("[orchestrator] DAG scheduler stalled; forcing finalize")
+				o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationSchedulerStalled})
+			}
+			// The forced-finalize path skips the regular pre-finalize
+			// flow, so the grounding floor must be evaluated HERE —
+			// every path into finalize converges through the same
+			// gate. No remediation lane exists on this path (the DAG
+			// cannot unblock in a pure-read environment), so a floor
+			// failure degrades with a typed, user-visible caveat
+			// instead of requeueing.
+			if msg, proceed, _ := o.checkTier1Floor(ir, state); !proceed {
+				logging.Warning("[orchestrator] grounding floor failed on forced-finalize path: %s", msg)
+				o.busCtx.Mutable.MarkTerminationFloorDegraded(msg)
 			}
 			break
 		}
@@ -5196,8 +5211,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			return stepsUsed
 		}
 		if !proceed {
-			if exhausted {
-				logging.Warning("[orchestrator] pre-finalize Tier-1 floor failed but retry budget exhausted: %s", msg)
+			stalledTermination := false
+			if tp := o.busCtx.Mutable.TerminationProfile(); tp != nil && tp.Kind == types.TerminationHardStall {
+				// Hard stall means the evidence fingerprint is pinned:
+				// requeueing exploration replays the identical state and
+				// re-stalls. Degrade directly instead of burning retry
+				// budget on a no-op lane.
+				stalledTermination = true
+			}
+			if exhausted || stalledTermination {
+				logging.Warning("[orchestrator] pre-finalize Tier-1 floor failed without a remediation lane (exhausted=%v stalled=%v): %s", exhausted, stalledTermination, msg)
+				o.busCtx.Mutable.MarkTerminationFloorDegraded(msg)
 			} else {
 				state.requeue(fin.ID)
 				for _, n := range ir.TaskGraph.Nodes {
@@ -5425,7 +5449,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if out.SkipAnswerChecks {
 			logging.Warning("[orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=%s",
 				out.DegradeReason)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:       render.EventOrchestratorNotice,
 				Timestamp:  time.Now(),
@@ -5685,7 +5709,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if actionable := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx); len(actionable) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), actionable)
 			}
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
 				Timestamp:       time.Now(),
@@ -5700,7 +5724,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 		if res.Passed {
 			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
 			// deterministic re-render). Erase the preview area
@@ -5726,7 +5750,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
 			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
 				Timestamp:       time.Now(),
@@ -5806,7 +5830,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// status line into the answer body, and do not collapse
 			// concrete violations back into one generic family caveat.
 			o.injectResidualConcernsCaveat(out, retryRes.Violations)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
 				state.retryUsed, hardCap)
 			lastFinalize = out
@@ -5826,7 +5850,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if IncrementAttemptsAndCheckExhausted(retryRes.Violations, o.busCtx.Mutable.RepairAttempts()) {
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
 				len(retryRes.Violations))
 			lastFinalize = out
@@ -5843,7 +5867,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// sees natural-language caveats only.
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(retryRes.Violations))
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -5864,7 +5888,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					kind, state.retryUsedForKind(kind), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+				out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
@@ -5887,7 +5911,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					class, state.retryUsedForClass(class), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+				out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
@@ -5927,7 +5951,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -6037,7 +6061,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
 			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
-			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")

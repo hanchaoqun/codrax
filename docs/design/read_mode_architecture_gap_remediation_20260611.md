@@ -70,10 +70,11 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 
 ## 3. 任务列表(分批交付)
 
-### 批 1 — R1 统一终局收口 + R6 TerminationKind(P0)
-- [ ] `TerminationKind` enum + 各终止点写入(typed,软消费)。
-- [ ] 抽取 `preFinalizeGate`;blocked-break / hard-stall / accepted-closure / force-finalize 路径全部接入;无法 requeue 的路径 floor 失败 → typed caveat 注入。
-- [ ] 结构测试:枚举全部进入 finalize 的路径,断言均经过同一 gate;L1 结构测试同步。
+### 批 1 — R1 统一终局收口 + R6 TerminationKind(P0)【已交付】
+- [x] `TerminationProfile`(Kind enum + FloorDegraded + 有界 Detail)typed 载体;stop_condition / hard_stall / blocked_dag / scheduler_stalled 四个终止点写入;kind 重写不丢降级标志。
+- [x] 终局收敛:blocked/stalled break 路径在 force-finalize 前执行同一 grounding floor;floor 失败标记降级。floor 常规分支:预算耗尽、或终止类别为 hard_stall(指纹静止,requeue 必然复 stall)时直接降级,不再烧重试预算。
+- [x] 降级可见:`appendSystemCaveatsToAnswer` 统一 caveat 汇点(替换全部 11 处 inactive-scope 调用点),降级时注入中英文用户 caveat;内部诊断细节(比值/阈值)只入日志与 telemetry,不漏入答案。
+- [x] 实施期复核修正:accepted-closure 路径经 `continue` 仍达 floor,审计的"绕过"断言不成立,未做无谓改动;默认 grounding profile(permissive,floor=0)行为零变化,收敛只对启用 floor 的 profile 生效。
 
 ### 批 2 — R2 预算分账(P1)
 - [ ] 重试记账 (kind, locus) 分离;finalize-only 降级不计 kind 主账。
@@ -105,4 +106,5 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 
 ## 6. 进度
 
-- 方案落盘,待分批交付。
+- 方案落盘并推送。
+- 批 1 交付:终止画像 + 终局 floor 收敛 + 降级 caveat 汇点;全量测试绿。

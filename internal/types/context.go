@@ -609,6 +609,11 @@ type MutableState struct {
 	// skipped, or stage degraded" — every reader MUST nil-check.
 	logTriage *LogBundle
 
+	// terminationProfile records which scheduler path carried the read
+	// run into finalize and whether the grounding floor was waived.
+	// Soft consumption only (telemetry, degradation caveats).
+	terminationProfile *TerminationProfile
+
 	// logSegments is the opaque payload produced by the two-step
 	// log-triage controller's Step A (segmentation). It carries a
 	// JSON-marshalled []tool.LogSegment slice so the types package
