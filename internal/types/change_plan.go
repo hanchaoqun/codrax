@@ -699,6 +699,18 @@ type ChangeReport struct {
 	// gives it a corrective direction the symptoms alone don't.
 	FailureKind FailureKind `json:"failure_kind,omitempty"`
 
+	// ExecutedCommands records each verification command this report's
+	// run executed — or decided not to execute — with typed provenance
+	// and exit data. Durable command evidence for audit and for the
+	// verify-failure replan handoff; never derived from prose.
+	ExecutedCommands []ExecutedCommand `json:"executed_commands,omitempty"`
+
+	// TestSurface is the typed runnable-candidate inventory computed
+	// before command selection for this run. Persisted with the report
+	// so a failed attempt keeps the full decision context (what else
+	// could have run), and so replan can suggest the next candidate.
+	TestSurface *TestSurface `json:"test_surface,omitempty"`
+
 	// GeneratedAt is the verify-stage completion timestamp.
 	GeneratedAt time.Time `json:"generated_at"`
 }

@@ -615,6 +615,12 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 		}
 		fmt.Fprintf(&b, "### Probe %d\n\n", i+1)
 		fmt.Fprintf(&b, "Tests: %d passed, %d failed.\n\n", passed, failed)
+		for _, cmd := range r.ExecutedCommands {
+			if strings.TrimSpace(cmd.Command) == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "Command: `%s` (cwd=%s, exit=%d)\n\n", cmd.Command, cmd.WorkingDir, cmd.ExitCode)
+		}
 		if r.FailureSummary != "" {
 			b.WriteString("Failure summary (verbatim):\n")
 			b.WriteString(r.FailureSummary)

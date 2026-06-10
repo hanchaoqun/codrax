@@ -218,6 +218,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	var p runTestsParams
 	if len(params) > 0 {
+		params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 		if err := json.Unmarshal(params, &p); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
 		}
@@ -262,6 +263,33 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	//       detect. Brittle for bare-directory repos; kept as a
 	//       backstop so old eval cases / direct CLI calls keep
 	//       working.
+	// Multi-repo: confine manifest discovery to ActiveSubRepo's
+	// root when set (write-mode plan/apply/verify converged the
+	// target). Read-mode + single-repo: ActiveSubRepo == nil →
+	// walkRoot empty → walk repoRoot (byte-identical to pre-multi-
+	// repo behaviour).
+	walkRoot := ""
+	if ctx.ActiveSubRepo != nil && ctx.ActiveSubRepo.RootAbs != "" {
+		walkRoot = ctx.ActiveSubRepo.RootAbs
+	}
+
+	// Typed test surface: the runnable-candidate inventory for this
+	// verification root. Computed once per Execute from filesystem
+	// signals only; attached to every outgoing ChangeReport for audit,
+	// and consulted by the typed dead-end escalation below (a zero-test
+	// or runner-missing outcome must not stand as verification while an
+	// unexecuted candidate with real test work exists).
+	surface := BuildTestSurface(ctx.RepoRoot, walkRoot)
+
+	// planSources tags each queued plan with its typed provenance for
+	// the ExecutedCommands audit rows; executedKeys feeds the
+	// escalation picker; surfaceEscalated bounds escalation to one
+	// extra candidate per Execute.
+	planSources := map[string]string{}
+	executedKeys := map[string]bool{}
+	surfaceEscalated := false
+	var executedCmds []types.ExecutedCommand
+
 	var plans []runnerPlan
 	if strings.TrimSpace(p.Runner) != "" {
 		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, p.Runner, p.Framework, p.WorkingDir)
@@ -269,18 +297,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return errResult(t.Name(), rej), nil
 		}
 		plans = []runnerPlan{choice}
+		planSources[testSurfaceCandidateKey(choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))] = "llm_choice"
 		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
 			choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))
 	} else {
-		// Multi-repo: confine manifest discovery to ActiveSubRepo's
-		// root when set (write-mode plan/apply/verify converged the
-		// target). Read-mode + single-repo: ActiveSubRepo == nil →
-		// walkRoot empty → walk repoRoot (byte-identical to pre-multi-
-		// repo behaviour).
-		walkRoot := ""
-		if ctx.ActiveSubRepo != nil && ctx.ActiveSubRepo.RootAbs != "" {
-			walkRoot = ctx.ActiveSubRepo.RootAbs
-		}
 		plans = detectRunnerPlans(ctx.RepoRoot, walkRoot)
 		if len(plans) == 0 {
 			return errResult(t.Name(),
@@ -296,9 +316,57 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		projectReports  []*types.ChangeReport
 		combinedOutputs []string
 	)
-	for _, plan := range plans {
+	// finishReport attaches the typed execution evidence (surface +
+	// command rows + timestamp) to an outgoing ChangeReport before it
+	// is installed. Every install site in this Execute goes through it
+	// so early-return reports (timeout / OOM / runner missing / parser
+	// error) carry the same durable evidence as the aggregate path.
+	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
+		if report == nil {
+			return nil
+		}
+		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		surfaceCopy := surface
+		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
+		report.TestSurface = &surfaceCopy
+		if report.GeneratedAt.IsZero() {
+			report.GeneratedAt = time.Now()
+		}
+		return report
+	}
+	// escalateToSurfaceCandidate appends the highest-ranked unexecuted
+	// candidate with typed test work to the plan queue, at most once
+	// per Execute. Both trigger sites are typed dead ends: a runner
+	// with zero test work, or a missing runner binary while test work
+	// exists elsewhere. The model's explicit runner choice always runs
+	// first; this only adds a candidate after that choice produced no
+	// real verification.
+	escalateToSurfaceCandidate := func(source string) *runnerPlan {
+		if surfaceEscalated {
+			return nil
+		}
+		cand := nextTestSurfaceEscalation(surface, executedKeys)
+		if cand == nil {
+			return nil
+		}
+		surfaceEscalated = true
+		next := runnerPlanFromSurfaceCandidate(ctx.RepoRoot, *cand)
+		planSources[testSurfaceCandidateKey(next.Runner, runnerPlanRel(ctx.RepoRoot, next))] = source
+		logging.Info("[run_tests] test-surface escalation (%s): queueing %s after current candidate produced no real verification",
+			source, cand.ID)
+		return &next
+	}
+	planSourceFor := func(plan runnerPlan) string {
+		if src, ok := planSources[testSurfaceCandidateKey(plan.Runner, runnerPlanRel(ctx.RepoRoot, plan))]; ok {
+			return src
+		}
+		return "auto_detect"
+	}
+	for planIdx := 0; planIdx < len(plans); planIdx++ {
+		plan := plans[planIdx]
 		runnerRoot := plan.Root
 		runner := plan.Runner
+		executedKeys[testSurfaceCandidateKey(runner, runnerPlanRel(ctx.RepoRoot, plan))] = true
 
 		if runner == "cmake" || runner == "meson" {
 			if detectNativeBuildDir(runnerRoot) == "" {
@@ -308,6 +376,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					"then re-run verify.", runner, runnerRoot)
 				projectReports = append(projectReports, qualifyChangeReport(makeExecutionFailureReport("build", msg, true), plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, msg))
+				executedCmds = append(executedCmds, types.ExecutedCommand{
+					Runner:     runner,
+					Framework:  plan.Framework,
+					WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Source:     planSourceFor(plan),
+					Outcome:    "not_configured",
+				})
 				continue
 			}
 		}
@@ -346,6 +421,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					if ok {
 						projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 						combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, syntaxOutput))
+						executedCmds = append(executedCmds, types.ExecutedCommand{
+							Runner:     runner,
+							Framework:  plan.Framework,
+							WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+							Source:     planSourceFor(plan),
+							Outcome:    "syntax_check_fallback",
+						})
 						continue
 					}
 				}
@@ -360,6 +442,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
 				fmt.Sprintf("[run_tests: %s] no %s test work in %s; runner not invoked",
 					label, runner, runnerRoot)))
+			executedCmds = append(executedCmds, types.ExecutedCommand{
+				Runner:     runner,
+				Framework:  plan.Framework,
+				WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+				Source:     planSourceFor(plan),
+				Outcome:    "synthetic_no_tests",
+			})
+			// Typed dead end: this candidate had zero test work. When the
+			// surface still holds an unexecuted candidate with real test
+			// work, queue it so a zero-test outcome never stands as the
+			// whole verification while a runnable contract exists.
+			if next := escalateToSurfaceCandidate("no_tests_escalation"); next != nil {
+				plans = append(plans, *next)
+			}
 			continue
 		}
 
@@ -425,6 +521,21 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			runnerPlanLabel(ctx.RepoRoot, plan), execExit, execDuration, len(output),
 			truncateForLog(output, 300))
 		combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, output))
+		executedCmds = append(executedCmds, types.ExecutedCommand{
+			Runner:     runner,
+			Framework:  plan.Framework,
+			WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+			Command:    cmdStr,
+			ExitCode:   execExit,
+			DurationMS: execDuration.Milliseconds(),
+			Source:     planSourceFor(plan),
+			Outcome:    "executed",
+		})
+		setLastExecOutcome := func(outcome string) {
+			if len(executedCmds) > 0 {
+				executedCmds[len(executedCmds)-1].Outcome = outcome
+			}
+		}
 
 		// Resource-exhaustion exits get classified explicitly so the
 		// verify→plan retry hint surfaces "OOM" / "CPU limit" / "wall
@@ -434,13 +545,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// in the heuristic hint.
 		switch supRes.ExitKind {
 		case SupervisedExitTimeout:
+			setLastExecOutcome("timeout")
 			_, ref := StoreBlob(ctx, t.Name()+"-timeout", strings.Join(combinedOutputs, "\n\n"))
 			report := makeResourceExhaustionReport("timeout", fmt.Sprintf(
 				"command timed out after %v (set timeout_seconds to bump)", timeout))
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
+			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -449,6 +561,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		case SupervisedExitOOM:
+			setLastExecOutcome("oom")
 			_, ref := StoreBlob(ctx, t.Name()+"-oom", strings.Join(combinedOutputs, "\n\n"))
 			// Neutral structural label — no prescribed-cause list.
 			// The model reads ChangeReport.FailureDetail (raw stderr)
@@ -461,7 +574,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
+			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -470,6 +583,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		case SupervisedExitCPULimit:
+			setLastExecOutcome("cpu_limit")
 			_, ref := StoreBlob(ctx, t.Name()+"-cpu", strings.Join(combinedOutputs, "\n\n"))
 			// Neutral structural label — see OOM branch above for
 			// the rationale. Raw stderr is in FailureDetail.
@@ -478,7 +592,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
+			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -522,6 +636,27 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					fmt.Sprintf("[run_tests: %s] runner_missing %q, but no test work to do — verify pass-with-warning",
 						label, missingBinary)))
 				_ = ref
+				// A missing binary with zero test work is also a typed
+				// dead end — queue the next runnable candidate when the
+				// surface has one, so the warning pass never stands
+				// alone while a real test contract exists elsewhere.
+				if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+					plans = append(plans, *next)
+				}
+				continue
+			}
+			// Typed dead end with test work present: the runner binary is
+			// missing but the surface may hold a different runnable
+			// candidate (e.g. a Makefile check target when mvn is not
+			// installed). Record the missing-runner outcome as command
+			// evidence and continue with the escalation candidate instead
+			// of failing the whole verification on an uninstallable tool.
+			setLastExecOutcome("runner_missing")
+			if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+					fmt.Sprintf("[run_tests: %s] runner binary %q missing (%s, exit=%d) — continuing with %s",
+						label, missingBinary, missingReason, execExit, next.Runner)))
+				plans = append(plans, *next)
 				continue
 			}
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
@@ -536,7 +671,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				hint = envRec
 			}
 			report.FailureSummary = updateFailureSummaryWithHint(report.FailureSummary, hint)
-			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
+			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			summary := runnerMissingToolResultSummary(
 				ctx.Language, label,
 				missingBinary, hint,
@@ -585,6 +720,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 		report, err := parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
 		if err != nil {
+			setLastExecOutcome("parser_error")
 			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
 			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
 			return types.ToolResult{
@@ -613,7 +749,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if ref != "" {
 		report.FailureSummaryBlobRef = ref
 	}
-	installRunTestsReport(ctx, report, dryRunProbe)
+	installRunTestsReport(ctx, finishReport(report), dryRunProbe)
 
 	success := report.Passed
 	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",
@@ -730,6 +866,29 @@ func resolveLLMRunnerChoice(repoRoot, runner, framework, workingDir string) (run
 // relative to it). Single-repo / non-multi-repo callers pass walkRoot
 // = "" and behaviour is byte-identical to the pre-multi-repo signature.
 func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
+	candidates := detectRunnerPlanCandidates(repoRoot, walkRoot)
+	plansByRoot := make(map[string]runnerPlan)
+	for _, plan := range candidates {
+		if prev, ok := plansByRoot[plan.Root]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
+			plansByRoot[plan.Root] = plan
+		}
+	}
+	plans := make([]runnerPlan, 0, len(plansByRoot))
+	for _, plan := range plansByRoot {
+		plans = append(plans, plan)
+	}
+	sortRunnerPlans(repoRoot, plans)
+	return plans
+}
+
+// detectRunnerPlanCandidates returns every manifest hit without the
+// one-runner-per-root collapse detectRunnerPlans applies for execution. The
+// typed TestSurface needs the full inventory: an alternative runnable
+// contract at the same root (e.g. a Makefile next to a pom.xml) is exactly
+// what the zero-test / missing-runner escalation has to see. Within one root
+// the candidates are deduped per runner (lowest manifest priority wins) so
+// Makefile/makefile/GNUmakefile do not produce three make entries.
+func detectRunnerPlanCandidates(repoRoot, walkRoot string) []runnerPlan {
 	if walkRoot == "" {
 		walkRoot = repoRoot
 	}
@@ -743,7 +902,7 @@ func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
 		manifestIndex[strings.ToLower(m.File)] = m
 	}
 
-	plansByRoot := make(map[string]runnerPlan)
+	plansByRootRunner := make(map[string]runnerPlan)
 	_ = filepath.Walk(rootAbs, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			if info != nil && info.IsDir() {
@@ -766,16 +925,24 @@ func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
 		if plan.Runner == "python" {
 			plan.Framework = detectPythonTestFramework(root)
 		}
-		if prev, ok := plansByRoot[root]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
-			plansByRoot[root] = plan
+		key := root + "\x00" + plan.Runner
+		if prev, ok := plansByRootRunner[key]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
+			plansByRootRunner[key] = plan
 		}
 		return nil
 	})
 
-	plans := make([]runnerPlan, 0, len(plansByRoot))
-	for _, plan := range plansByRoot {
+	plans := make([]runnerPlan, 0, len(plansByRootRunner))
+	for _, plan := range plansByRootRunner {
 		plans = append(plans, plan)
 	}
+	sortRunnerPlans(repoRoot, plans)
+	return plans
+}
+
+// sortRunnerPlans orders plans by manifest priority, then depth relative to
+// repoRoot, then path — the pre-existing detection order.
+func sortRunnerPlans(repoRoot string, plans []runnerPlan) {
 	sort.Slice(plans, func(i, j int) bool {
 		relI := runnerPlanRel(repoRoot, plans[i])
 		relJ := runnerPlanRel(repoRoot, plans[j])
@@ -793,9 +960,11 @@ func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
 		if depthI != depthJ {
 			return depthI < depthJ
 		}
-		return relI < relJ
+		if relI != relJ {
+			return relI < relJ
+		}
+		return plans[i].Runner < plans[j].Runner
 	})
-	return plans
 }
 
 func supportedRunnerManifests() []runnerManifest {
@@ -911,6 +1080,9 @@ func isMoreSevereFailureKind(candidate, current types.FailureKind) bool {
 func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dryRunProbe bool) {
 	if ctx == nil || ctx.Mutable == nil || report == nil {
 		return
+	}
+	if report.GeneratedAt.IsZero() {
+		report.GeneratedAt = time.Now()
 	}
 	if dryRunProbe {
 		report.Channel = types.ChangeReportChannelPlannerProbe
@@ -2833,6 +3005,17 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 // $(eval)) may hide the target from this scan; those projects can
 // override via the Suite parameter.
 func detectMakeTestTarget(repoRoot string) string {
+	target, _ := detectMakeTestTargetFound(repoRoot)
+	return target
+}
+
+// detectMakeTestTargetFound is detectMakeTestTarget plus the typed
+// found-signal: found=true only when the Makefile declares one of the
+// conventional test targets as a top-level rule. The TestSurface uses the
+// signal to rank a Makefile with a real check/test target above manifests
+// whose trees carry no test work; the default-"check" fallback keeps the
+// executor behaviour unchanged.
+func detectMakeTestTargetFound(repoRoot string) (string, bool) {
 	candidates := []string{"Makefile", "makefile", "GNUmakefile"}
 	var makefilePath string
 	for _, name := range candidates {
@@ -2843,11 +3026,11 @@ func detectMakeTestTarget(repoRoot string) string {
 		}
 	}
 	if makefilePath == "" {
-		return "check"
+		return "check", false
 	}
 	data, err := os.ReadFile(makefilePath)
 	if err != nil {
-		return "check"
+		return "check", false
 	}
 	// Scan for the first target named "check", "test", or "tests"
 	// that appears as a top-level rule line (starts at column 0).
@@ -2867,10 +3050,10 @@ func detectMakeTestTarget(repoRoot string) string {
 	}
 	for _, target := range preference {
 		if found[target] {
-			return target
+			return target, true
 		}
 	}
-	return "check"
+	return "check", false
 }
 
 // renderTestSummary builds the one-paragraph string for the

@@ -8,6 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	repomaptypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -158,6 +159,9 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 				"with the python runner (or `python3 -m py_compile <file>` via exec_command if "+
 				"no test fixture exists), NOT by running the unrelated Go suite.\n")
 		}
+	}
+	if section := renderVerifierTestSurfaceSection(ctx.RepoRoot); section != "" {
+		s.WriteString(section)
 	}
 	baseline := ctx.Mutable.BaselineReport()
 	baselineFailures := types.CollectBaselineFailures(baseline)
@@ -373,4 +377,49 @@ func countFailedResults(results []types.TestResult) int {
 		}
 	}
 	return n
+}
+
+// renderVerifierTestSurfaceSection renders the typed runnable-candidate
+// inventory for the verification root so the runner choice starts from
+// detected facts instead of language guesses. The same detectors feed
+// run_tests itself, so the listed commands match what would execute. The
+// section is soft guidance — run_tests still validates the model's choice
+// and escalates typed dead ends (zero tests / missing binary) to the next
+// candidate with test work on its own.
+func renderVerifierTestSurfaceSection(repoRoot string) string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return ""
+	}
+	surface := tool.BuildTestSurface(repoRoot, "")
+	if len(surface.Candidates) == 0 {
+		return ""
+	}
+	var s strings.Builder
+	s.WriteString("\n## Detected test surface\n\n")
+	s.WriteString("Runnable verification candidates detected from repository manifests, " +
+		"test-file conventions, and Makefile targets, ranked with real test work first:\n\n")
+	const maxCandidates = 8
+	for i, c := range surface.Candidates {
+		if i >= maxCandidates {
+			fmt.Fprintf(&s, "- … (+%d more)\n", len(surface.Candidates)-i)
+			break
+		}
+		signal := "no"
+		if c.HasTestSignal {
+			signal = "yes"
+		}
+		line := fmt.Sprintf("- %s — test_work=%s", c.ID, signal)
+		if c.Source != "" {
+			line += " source=" + c.Source
+		}
+		if c.Runner == "make" && c.MakeTarget != "" {
+			line += " target=" + c.MakeTarget
+		}
+		s.WriteString(line + "\n")
+	}
+	s.WriteString("\nPrefer the highest-ranked candidate with test_work=yes; pass its runner " +
+		"(plus working_dir when it is not \".\"). Only deviate when the plan-touched language " +
+		"clearly requires another listed candidate. If your choice reports zero tests or a " +
+		"missing binary, the system runs the next candidate with test work automatically.\n")
+	return s.String()
 }

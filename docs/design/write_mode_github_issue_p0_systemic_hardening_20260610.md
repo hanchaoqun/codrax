@@ -328,15 +328,24 @@ update here.
 - [x] Audit code, write this document, commit, push.
 
 ### Batch 1 — Typed TestSurface + selection + escalation (P0-1, P1-3)
-- [ ] `types.TestSurface` / `TestSurfaceCandidate`; `ExecutedCommand` +
-      `TestSurfaceID` + `ExecutedCommands` on ChangeReport.
-- [ ] `BuildTestSurface` composing existing detectors; selection ordering.
-- [ ] `run_tests`: surface-aware auto-detect ordering, no-tests escalation,
-      `ExecutedCommands` rows, `GeneratedAt` stamp, params through
+- [x] `types.TestSurface` / `TestSurfaceCandidate`; `ExecutedCommand` +
+      `TestSurface` + `ExecutedCommands` on ChangeReport (surface embedded in
+      the report instead of a separate `TestSurfaceID`, so the report JSON is
+      a self-contained durable artifact).
+- [x] `BuildTestSurface` composing existing detectors over the new
+      `detectRunnerPlanCandidates` (full per-root inventory; the executor's
+      one-runner-per-root collapse in `detectRunnerPlans` is unchanged).
+- [x] `run_tests`: typed dead-end escalation (zero-test outcome or missing
+      runner binary → top unexecuted candidate with test work, bounded to one
+      per Execute), `ExecutedCommands` provenance rows on every report path,
+      `GeneratedAt` stamped at the install seam, params through
       `applyStructuredPayloadCompat`.
-- [ ] Verifier + planner dry-run prompt sections render the surface (typed).
-- [ ] Tests: make-vs-maven shape, script-vs-zero-tests shape, escalation gate,
-      LLM-choice precedence, dry-run channel untouched.
+- [x] Verifier prompt renders the detected surface; planner probe history
+      renders executed commands.
+- [x] Tests: test-work-outranks-priority, priority tiebreak, make-target
+      signal, unconfigured cmake, python framework, escalation picker, e2e
+      zero-test escalation (pass + fail directions), auto-detect non-escalation;
+      full `go test ./...` green.
 
 ### Batch 2 — Attempt state, finish gate, ModePlan mask (P0-2, P1-2)
 - [ ] `DeriveBatchAttemptState` + controller prompt canonical rendering.
@@ -402,3 +411,10 @@ update here.
 ## 7. Progress ledger
 
 - 2026-06-10: Batch 0 — code audit complete; this design recorded.
+- 2026-06-10: Batch 1 — typed TestSurface shipped. Selection rule "runnable
+  test work dominates manifest priority"; typed dead-end escalation in
+  run_tests (zero tests / missing binary → next candidate with test work,
+  once per Execute); ExecutedCommands + TestSurface embedded on every
+  ChangeReport path; GeneratedAt stamped at the install seam; run_tests
+  params now route through the unified payload repair layer; verifier prompt
+  lists detected candidates. `go test ./...` green.
