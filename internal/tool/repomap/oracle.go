@@ -133,3 +133,45 @@ func (o *graphOracle) buildFlatIndex() {
 		}
 	}
 }
+
+// NewDeclSpanSource returns a types.DeclSpanSource backed by the graph's
+// per-file symbol index. Only declaration LINES of exported symbols are
+// reported (Symbol.Line — the signature line), never body spans: a hunk
+// inside an exported function's body must not read as API impact. Files
+// parsed at low-confidence fallback tiers (regex-only / path-only) report
+// ok=false so risk consumers degrade to softer signals instead of trusting
+// unreliable spans. nil graph yields a source that always reports ok=false.
+func NewDeclSpanSource(g *rmtypes.Graph) types.DeclSpanSource {
+	return &graphDeclSpans{graph: g}
+}
+
+type graphDeclSpans struct{ graph *rmtypes.Graph }
+
+func (s *graphDeclSpans) ExportedDeclLines(relPath string) ([]int, bool) {
+	if s == nil || s.graph == nil || s.graph.FileIndex == nil {
+		return nil, false
+	}
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return nil, false
+	}
+	fi, ok := s.graph.FileIndex[relPath]
+	if !ok || fi == nil {
+		return nil, false
+	}
+	// Tier 0 (single-grammar languages) and tiers 1-2 (primary/secondary
+	// grammar) carry trustworthy line positions; tier 3 (regex) and tier 4
+	// (path-only) do not.
+	if fi.ParseTier > 2 {
+		return nil, false
+	}
+	var lines []int
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if !sym.Exported || sym.Line <= 0 {
+			continue
+		}
+		lines = append(lines, sym.Line)
+	}
+	return lines, true
+}

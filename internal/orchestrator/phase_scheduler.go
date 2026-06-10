@@ -350,7 +350,7 @@ func (o *Orchestrator) evaluateWritePhaseWorkflow(group *types.PlanGroup, phase 
 		}
 	}
 	batch := phaseToWriteBatchPlan(phase, workflow.SuccessCriteria)
-	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
 	policy := writeflow.ApprovalPolicyAutoSafe
 	if o != nil && o.writeApprovalPolicy != "" {
 		policy = writeflow.NormalizeApprovalPolicy(o.writeApprovalPolicy)

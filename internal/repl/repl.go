@@ -8182,6 +8182,19 @@ func (r *REPL) handleApproveCmd(line string) {
 
 	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
 	decision := writeflow.DecideWriteApproval(r.writeApprovalPolicy, assessment)
+	// Stricter-wins: the plan-time gate may have read typed graph evidence
+	// (declaration-span corroboration) the REPL does not have. When the
+	// recorded approval for this exact plan fingerprint demanded a manual
+	// decision and the local recompute would auto-execute, keep the
+	// stricter recorded requirement instead of silently downgrading.
+	if plan.Approval != nil &&
+		plan.Approval.Action == string(writeflow.ApprovalActionManual) &&
+		plan.Approval.PlanFingerprint == types.PlanFingerprint(plan) &&
+		decision.Action == writeflow.ApprovalActionAutoExecute {
+		decision.Action = writeflow.ApprovalActionManual
+		decision.ReasonCode = plan.Approval.ReasonCode
+		decision.Reason = "recorded plan-time approval requires manual confirmation"
+	}
 	if decision.Action == writeflow.ApprovalActionDeny {
 		r.warn("%s", writeApprovalDenied(r.language, plan.ID, assessment, decision))
 		return

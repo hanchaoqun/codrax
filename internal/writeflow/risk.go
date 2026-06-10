@@ -73,6 +73,12 @@ type ApprovalDecision struct {
 // AssessmentInput supplies structured write artifacts to the risk assessor.
 type AssessmentInput struct {
 	Plan *types.ChangePlan
+
+	// Decls optionally provides exported-declaration line positions from
+	// the typed repository graph. Nil-safe: when absent, API impact has no
+	// precise corroboration channel and the analyzer's classification
+	// booleans stand at their medium (advisory) grade.
+	Decls types.DeclSpanSource
 }
 
 // AssessWriteRisk computes deterministic write risk from plan shape, path
@@ -122,19 +128,42 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 		}
 	}
 
+	// Precise corroboration channel: a patch hunk that modifies or deletes
+	// an exported declaration line (typed graph evidence) is hard API
+	// impact. Body-only edits inside exported symbols do not fire it.
+	declTouched := assessExportedDeclImpact(&a, plan, input.Decls)
+
+	// The WriteAnalysisIR risk axes are LLM classification booleans —
+	// noisy signals per the architecture red line. They grade at medium
+	// (advisory, auto-executable under auto_safe) instead of hard-forcing
+	// manual approval; the hard high grades come only from precise typed
+	// signals: the declaration-line intersection above and the path-class
+	// policy (build manifests, persistence schemas, CI, hooks, secrets).
 	if ir := plan.WriteAnalysisIR; ir != nil {
 		if ir.Request.Risk.AffectsPublicAPI {
-			a.add(RiskHigh, "affects_public_api", "write analyzer marked public API impact", "")
+			if declTouched {
+				a.add(RiskMedium, "affects_public_api", "write analyzer marked public API impact (corroborated by declaration-line change)", "")
+			} else {
+				a.add(RiskMedium, "affects_public_api_uncorroborated", "write analyzer marked public API impact; no declaration-line change detected", "")
+			}
 		}
 		if ir.Request.Risk.ChangesPersistence {
-			a.add(RiskHigh, "changes_persistence", "write analyzer marked persistence impact", "")
+			if planHasPathClass(plan, isPersistenceSchemaPath) {
+				a.add(RiskMedium, "changes_persistence", "write analyzer marked persistence impact (corroborated by schema/migration path)", "")
+			} else {
+				a.add(RiskMedium, "changes_persistence_uncorroborated", "write analyzer marked persistence impact; no schema/migration path in plan", "")
+			}
 		}
 		if ir.Request.Risk.ChangesBuildSystem {
-			a.add(RiskHigh, "changes_build_system", "write analyzer marked build-system impact", "")
+			if planHasPathClass(plan, func(clean, base string) bool { return isBuildOrDependencyManifest(base) }) {
+				a.add(RiskMedium, "changes_build_system", "write analyzer marked build-system impact (corroborated by manifest path)", "")
+			} else {
+				a.add(RiskMedium, "changes_build_system_uncorroborated", "write analyzer marked build-system impact; no build manifest in plan", "")
+			}
 		}
 		switch ir.Request.Risk.Overall {
 		case types.RiskBandHigh:
-			a.add(RiskHigh, "write_analyzer_high", "write analyzer overall risk is high", "")
+			a.add(RiskMedium, "write_analyzer_high", "write analyzer overall risk is high (advisory)", "")
 		case types.RiskBandMedium:
 			a.add(RiskMedium, "write_analyzer_medium", "write analyzer overall risk is medium", "")
 		case types.RiskBandLow:
@@ -143,6 +172,30 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 	}
 
 	return a.normalized()
+}
+
+// planHasPathClass reports whether any planned path (including rename
+// targets) matches the given typed path classifier.
+func planHasPathClass(plan *types.ChangePlan, match func(clean, base string) bool) bool {
+	if plan == nil || match == nil {
+		return false
+	}
+	check := func(path string) bool {
+		clean, ok := normalizePlanPath(path)
+		if !ok {
+			return false
+		}
+		return match(clean, strings.ToLower(filepath.Base(clean)))
+	}
+	for _, c := range plan.Changes {
+		if check(c.Path) {
+			return true
+		}
+		if c.NewPath != "" && check(c.NewPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // DecideWriteApproval applies policy semantics to an assessment. Critical risk
@@ -299,6 +352,8 @@ func (a *RiskAssessment) assessPathPolicyDetails(path string) {
 		a.add(RiskHigh, "ci_or_workflow_change", "plan changes CI/workflow automation", path)
 	case isHookPolicyPath(clean, base):
 		a.add(RiskHigh, "hook_policy_change", "plan changes hook or local automation policy", path)
+	case isPersistenceSchemaPath(clean, base):
+		a.add(RiskHigh, "persistence_schema_change", "plan changes a persistence schema/migration surface", path)
 	case isExecutableScriptPath(clean, base):
 		a.add(RiskMedium, "executable_script_change", "plan changes executable/script surface", path)
 	}
@@ -373,6 +428,9 @@ func riskForCleanPath(clean string) RiskLevel {
 	if isWorkflowOrAutomationPath(clean, base) || isHookPolicyPath(clean, base) {
 		return RiskHigh
 	}
+	if isPersistenceSchemaPath(clean, base) {
+		return RiskHigh
+	}
 	if isExecutableScriptPath(clean, base) {
 		return RiskMedium
 	}
@@ -393,6 +451,8 @@ func pathClass(clean string) string {
 		return "ci_or_workflow_path"
 	case isHookPolicyPath(clean, base):
 		return "hook_policy_path"
+	case isPersistenceSchemaPath(clean, base):
+		return "persistence_schema_path"
 	case isExecutableScriptPath(clean, base):
 		return "executable_script_path"
 	case isDocsPath(clean):
@@ -451,6 +511,27 @@ func isTestPath(clean string) bool {
 		strings.HasSuffix(base, ".spec.tsx") ||
 		strings.HasSuffix(base, "_test.py") ||
 		strings.HasSuffix(base, "test.java")
+}
+
+// isPersistenceSchemaPath classifies persistence-surface files by the same
+// well-known-convention approach as the CI/hook classifiers: database
+// migration directories and SQL/schema definition files. Typed path
+// structure only — file content and prose are never consulted.
+func isPersistenceSchemaPath(clean, base string) bool {
+	lower := strings.ToLower(clean)
+	if strings.HasPrefix(lower, "migrations/") || strings.Contains(lower, "/migrations/") ||
+		strings.HasPrefix(lower, "db/migrate/") || strings.Contains(lower, "/db/migrate/") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".sql", ".ddl":
+		return true
+	}
+	switch base {
+	case "schema.rb", "schema.prisma", "structure.sql":
+		return true
+	}
+	return false
 }
 
 func isBuildOrDependencyManifest(base string) bool {

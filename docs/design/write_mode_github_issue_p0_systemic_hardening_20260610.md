@@ -377,13 +377,24 @@ update here.
       workflow leaving a durable failed report when hooks are bypassed.
 
 ### Batch 4 — Approval risk decomposition (P0-4)
-- [ ] Hunk/edit span parser (deterministic) + `DeclSpanSource` interface +
-      repomap adapter + orchestrator wiring (nil-safe).
-- [ ] Risk re-grading: uncorroborated LLM axes → Medium; decl-span
-      intersection → High; persistence path class.
-- [ ] Skill wording soft update; tests for body-only public-header patch
-      (medium/auto), decl-line patch (high/manual), nil-graph fallback,
-      unchanged critical/path-policy behavior.
+- [x] Deterministic pre-image line parser (unified-diff '-' rows walked per
+      hunk + structured-edit ranges; pure insertions excluded) +
+      `types.DeclSpanSource` + `repomap.NewDeclSpanSource` (declaration LINES
+      of exported symbols only — body spans never count; parse tiers 3/4
+      report ok=false) + orchestrator wiring via `writeRiskAssessmentInput`
+      (nil-safe, both plan-post and phase scheduler sites).
+- [x] Risk re-grading: all three IR booleans + Overall=high now grade Medium
+      with corroborated/uncorroborated reason codes; `public_decl_line_changed`
+      is the precise High; `isPersistenceSchemaPath` joins the typed path
+      taxonomy as a hard High. REPL /approve keeps the stricter recorded
+      plan-time decision for the same plan fingerprint (graph asymmetry
+      cannot silently downgrade manual to auto).
+- [x] Analyzer skill wording marks the axes as advisory-and-corroborated;
+      tests: body-only public-header patch auto-executes, decl-line patch
+      requires approval, nil-graph degrades to medium, unindexed files skip,
+      structured-edit spans, path-policy hard grades unchanged (manifest
+      High / .git Critical / migration High). Old axes-high contract test
+      re-pinned to the new behavior. Full `go test ./...` green.
 
 ### Batch 5 — Verify-failure handoff + replan resilience (P0-5, P1-5)
 - [ ] `VerifyFailureHandoff` carrier + scheduler set/clear lifecycle.
@@ -443,3 +454,8 @@ update here.
   apply-checkpoint patch as `<stem>.attempt-N.diff` before any cleanup; the
   diff ref attaches to the verify attempt record. Worktree cleanup semantics
   unchanged. `go test ./...` green.
+- 2026-06-10: Batch 4 — approval risk decomposition shipped. LLM risk axes
+  are advisory medium; hard High comes from typed declaration-line
+  intersection and path policy (now including persistence schemas); REPL
+  approve applies stricter-wins against the recorded fingerprint. Full
+  `go test ./...` green.

@@ -199,14 +199,27 @@ func TestAssessWriteRiskDownloadExecutePayloadCritical(t *testing.T) {
 	}
 }
 
-func TestAssessWriteRiskAnalysisAxesHigh(t *testing.T) {
+func TestAssessWriteRiskAnalysisAxesAdvisoryMedium(t *testing.T) {
+	// The analyzer's risk booleans are LLM classification — noisy signals.
+	// Uncorroborated they grade medium (advisory, visible) instead of
+	// hard-forcing manual approval; the hard high grades come from typed
+	// signals only (declaration-line intersection, path policy).
 	plan := planWithChanges(types.FileChange{Path: "internal/foo/bar.go", Kind: "modify"})
 	plan.WriteAnalysisIR = &types.WriteAnalysisIR{}
 	plan.WriteAnalysisIR.Request.Risk.AffectsPublicAPI = true
 
 	got := AssessWriteRisk(AssessmentInput{Plan: plan})
-	if got.Level != RiskHigh {
-		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	if got.Level != RiskMedium {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskMedium, got.Reasons)
+	}
+	found := false
+	for _, r := range got.Reasons {
+		if r.Code == "affects_public_api_uncorroborated" && r.Level == RiskMedium {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("uncorroborated analyzer claim must stay visible at medium: %+v", got.Reasons)
 	}
 }
 

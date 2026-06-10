@@ -10,6 +10,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -256,7 +258,7 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 	if o.busCtx.Mode != types.ModeApply {
 		return nil
 	}
-	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
 	policy := o.writeApprovalPolicy
 	if policy == "" {
 		policy = writeflow.ApprovalPolicyAutoSafe
@@ -1520,4 +1522,19 @@ func appendReflectorObservationToClosure(mut *types.MutableState, observation st
 			Confidence: 0.6,
 		},
 	})
+}
+
+// writeRiskAssessmentInput assembles the typed inputs for write risk
+// assessment. The declaration-span source rides on the repository graph when
+// one is loaded for this Run; without it the assessor degrades to the softer
+// medium-grade analyzer axes (nil-safe by contract).
+func (o *Orchestrator) writeRiskAssessmentInput(plan *types.ChangePlan) writeflow.AssessmentInput {
+	input := writeflow.AssessmentInput{Plan: plan}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return input
+	}
+	if g, ok := o.busCtx.Mutable.SearchGraph().(*repotypes.Graph); ok && g != nil {
+		input.Decls = repomap.NewDeclSpanSource(g)
+	}
+	return input
 }
