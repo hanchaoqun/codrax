@@ -226,3 +226,12 @@ flowchart TD
   insertion points, invalid ranges, and no-op edits, while raw `patch`
   remains available for complex diffs. Apply re-compiles edits inside the
   worktree as defense in depth.
+- 2026-06-10 Batch 6 complete: apply/report audit is now typed and
+  consistent. Each `FileChange` can persist an `apply` record with actual
+  source (`raw_patch`, `structured_builder`, `full_content`, etc.) and engine
+  (`git_apply`, `patch_fallback`, `file_write`, etc.); successful apply
+  snapshots are saved before verify so reports, workflow refs, and plan JSON
+  agree. `apply_patch` now routes model-emitted JSON through the shared
+  `applyStructuredPayloadCompat` repair layer and strict decode repair metadata,
+  aligning write-mode apply calls with the existing unified emit-tool JSON
+  repair path.

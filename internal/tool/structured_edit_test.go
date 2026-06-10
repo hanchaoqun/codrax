@@ -131,6 +131,13 @@ func TestApplyPatch_StructuredEditsOnlyPlan(t *testing.T) {
 	if string(got) != "one\nTWO\nthree\n" {
 		t.Fatalf("file content mismatch: %q", string(got))
 	}
+	rec := ctx.Mutable.ChangePlan().Changes[0].Apply
+	if rec == nil {
+		t.Fatal("structured edit apply should record per-change apply audit")
+	}
+	if rec.Status != "applied" || rec.Source != "structured_builder" || rec.Engine != "git_apply" {
+		t.Fatalf("unexpected structured edit apply record: %+v", rec)
+	}
 }
 
 func TestEmitPlanChange_StructuredEditsFinalize(t *testing.T) {

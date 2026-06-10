@@ -529,6 +529,23 @@ type FileChange struct {
 	// at runtime that every DependsOn target is already in
 	// WriteClosure.AppliedSet before the tool accepts the unit.
 	DependsOn []string `json:"depends_on,omitempty"`
+
+	// Apply records the actual apply engine/outcome for this change.
+	// It is populated by apply_patch after the plan is approved and
+	// written back to the plan artifact for audit. Planner-authored
+	// plans leave this empty.
+	Apply *FileChangeApplyRecord `json:"apply,omitempty"`
+}
+
+// FileChangeApplyRecord is the per-change apply audit trail. Source
+// describes the plan payload shape; Engine describes the executor that
+// actually touched bytes in the worktree.
+type FileChangeApplyRecord struct {
+	Status    string    `json:"status"`
+	Source    string    `json:"source,omitempty"`
+	Engine    string    `json:"engine,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	AppliedAt time.Time `json:"applied_at,omitempty"`
 }
 
 // StructuredEdit is a line-addressed edit inside a single existing file.

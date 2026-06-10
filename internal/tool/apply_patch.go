@@ -104,13 +104,13 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 
 	// Strict decode so any schema drift (LLM emits a new field)
 	// fails loud instead of silently losing data.
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	var p applyPatchParams
 	err := dec.Decode(&p)
 	if err != nil {
-		err = RemapStrictDecodeError(err, nil)
-		return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
 
 	path := strings.TrimSpace(p.Path)
@@ -225,26 +225,33 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	// patch at line N").
 	if kind == "patch" {
 		patchText := unit.Patch
+		source := "raw_patch"
 		if len(unit.Edits) > 0 {
 			compiled, err := compileStructuredEditsToPatch(ctx.RepoRoot, unit)
 			if err != nil {
+				recordFileChangeApply(unit, "failed", "structured_builder", "structured_builder", err.Error())
 				return errResult(t.Name(),
 					fmt.Sprintf("apply_patch rejected: structured edits for %q did not compile: %v", path, err)), nil
 			}
 			patchText = compiled
 			unit.Patch = compiled
+			source = "structured_builder"
 		}
 		if strings.TrimSpace(patchText) == "" {
+			recordFileChangeApply(unit, "failed", source, "", "empty_patch")
 			return errResult(t.Name(),
 				fmt.Sprintf("apply_patch rejected: plan ChangeUnit for %q has empty Patch (planner bug — kind=patch must carry a unified diff)", path)), nil
 		}
-		if err := applyUnifiedDiff(ctx.RepoRoot, patchText); err != nil {
+		engine, err := applyUnifiedDiffWithEngine(ctx.RepoRoot, patchText)
+		if err != nil {
+			recordFileChangeApply(unit, "failed", source, engine, err.Error())
 			return errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error(), patchText)), nil
 		}
+		recordFileChangeApply(unit, "applied", source, engine, "")
 		ctx.Mutable.WriteClosure().MarkApplied(path)
-		logging.Info("[apply_patch] patch %s (worktree=%s)", path, ctx.RepoRoot)
+		logging.Info("[apply_patch] patch %s source=%s engine=%s (worktree=%s)", path, source, engine, ctx.RepoRoot)
 		return okResult(t.Name(),
-			fmt.Sprintf("apply_patch: patch %q applied to worktree via git apply", path)), nil
+			fmt.Sprintf("apply_patch: patch %q applied to worktree (source=%s engine=%s)", path, source, engine)), nil
 	}
 
 	// Resolve absolute path against the swapped RepoRoot. Day-2
@@ -286,11 +293,14 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", path, err)), err
 		}
 		if err := os.MkdirAll(filepath.Dir(absPathCanonical), 0o755); err != nil {
+			recordFileChangeApply(unit, "failed", "full_content", "file_write", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: mkdir parent of %s: %v", path, err)), err
 		}
 		if err := os.WriteFile(absPathCanonical, []byte(unit.NewContent), 0o644); err != nil {
+			recordFileChangeApply(unit, "failed", "full_content", "file_write", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: write %s: %v", path, err)), err
 		}
+		recordFileChangeApply(unit, "applied", "full_content", "file_write", "")
 	case "modify":
 		// modify: file should exist. A plan that emits modify for
 		// a missing file is likely confused (meant create) —
@@ -304,8 +314,10 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", path, err)), err
 		}
 		if err := os.WriteFile(absPathCanonical, []byte(unit.NewContent), 0o644); err != nil {
+			recordFileChangeApply(unit, "failed", "full_content", "file_write", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: write %s: %v", path, err)), err
 		}
+		recordFileChangeApply(unit, "applied", "full_content", "file_write", "")
 	case "delete":
 		// delete: file should exist. Missing-file delete is legal
 		// (idempotency) but we log so a planner bug doesn't hide.
@@ -316,8 +328,10 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 				return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", path, err)), err
 			}
 		} else if err := os.Remove(absPathCanonical); err != nil {
+			recordFileChangeApply(unit, "failed", "delete", "file_remove", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: remove %s: %v", path, err)), err
 		}
+		recordFileChangeApply(unit, "applied", "delete", "file_remove", "")
 	case "rename":
 		// rename: move Path → NewPath. Old path must exist; new path
 		// must not. Both are validated by emit_change_plan at plan
@@ -357,11 +371,14 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", newPath, err)), err
 		}
 		if err := os.MkdirAll(filepath.Dir(newAbsCanonical), 0o755); err != nil {
+			recordFileChangeApply(unit, "failed", "rename", "filesystem_rename", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: mkdir parent of %s: %v", newPath, err)), err
 		}
 		if err := os.Rename(absPathCanonical, newAbsCanonical); err != nil {
+			recordFileChangeApply(unit, "failed", "rename", "filesystem_rename", err.Error())
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: rename %s → %s: %v", path, newPath, err)), err
 		}
+		recordFileChangeApply(unit, "applied", "rename", "filesystem_rename", "")
 		// Mark BOTH paths applied so downstream W1b checks see
 		// dependents on either name as satisfied: a follow-on
 		// modify(NewPath) sees AppliedSet[NewPath]=true; an early
@@ -384,6 +401,19 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	logging.Info("[apply_patch] %s %s (worktree=%s)", kind, path, ctx.RepoRoot)
 	return okResult(t.Name(),
 		fmt.Sprintf("apply_patch: %s %q applied to worktree", kind, path)), nil
+}
+
+func recordFileChangeApply(unit *types.FileChange, status, source, engine, reason string) {
+	if unit == nil {
+		return
+	}
+	unit.Apply = &types.FileChangeApplyRecord{
+		Status:    strings.TrimSpace(status),
+		Source:    strings.TrimSpace(source),
+		Engine:    strings.TrimSpace(engine),
+		Reason:    strings.TrimSpace(reason),
+		AppliedAt: time.Now(),
+	}
 }
 
 // containsPath returns true when needle appears in haystack.
@@ -444,6 +474,11 @@ func okResult(name, summary string) types.ToolResult {
 // point the diff is plain-text content (no git-specific features
 // to preserve).
 func applyUnifiedDiff(worktreeRoot, patchText string) error {
+	_, err := runUnifiedDiff(worktreeRoot, patchText, false)
+	return err
+}
+
+func applyUnifiedDiffWithEngine(worktreeRoot, patchText string) (string, error) {
 	return runUnifiedDiff(worktreeRoot, patchText, false)
 }
 
@@ -461,7 +496,8 @@ func applyUnifiedDiff(worktreeRoot, patchText string) error {
 // session-35 failure mode where 2/3 of patches were rejected by git
 // apply AFTER a successful-looking plan emission.
 func CheckUnifiedDiff(repoRoot, patchText string) error {
-	return runUnifiedDiff(repoRoot, patchText, true)
+	_, err := runUnifiedDiff(repoRoot, patchText, true)
+	return err
 }
 
 // runUnifiedDiff is the chained applier: git apply first, patch(1)
@@ -471,27 +507,27 @@ func CheckUnifiedDiff(repoRoot, patchText string) error {
 // than patch(1)'s error — surfacing the git message gives the LLM
 // precise guidance for regeneration, and we only landed in the
 // fallback because git rejected.
-func runUnifiedDiff(repoRoot, patchText string, checkOnly bool) error {
+func runUnifiedDiff(repoRoot, patchText string, checkOnly bool) (string, error) {
 	if repaired, changed := normalizeUnifiedDiffContextMarkers(repoRoot, patchText); changed {
 		logging.Info("[apply_patch] normalized unified-diff context marker omissions before git apply")
 		patchText = repaired
 	}
 	gitErr := runGitApply(repoRoot, patchText, checkOnly)
 	if gitErr == nil {
-		return nil
+		return "git_apply", nil
 	}
 	// Fallback to patch(1). If patch(1) succeeds, the content is
 	// semantically fine — git's rejection was an LLM-diff-artifact
 	// we can tolerate. Log the fallback so operators see the signal.
 	if err := runPatchTool(repoRoot, patchText, checkOnly); err == nil {
 		logging.Info("[apply_patch] git rejected but patch(1) accepted; applied via fallback")
-		return nil
+		return "patch_fallback", nil
 	}
 	// Both rejected — report the git error as primary. It's the
 	// strictest validator and its stderr ("patch failed: file:line",
 	// "corrupt patch at line N") is what the planner-retry pipeline
 	// is wired to consume in composePatchRejection.
-	return gitErr
+	return "failed", gitErr
 }
 
 func normalizeUnifiedDiffContextMarkers(repoRoot, patchText string) (string, bool) {

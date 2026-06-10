@@ -30,6 +30,8 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		"emit_change_plan.go",
 		"emit_plan_skeleton.go",
 		"emit_plan_change.go",
+		"emit_write_workflow_decision.go",
+		"apply_patch.go",
 		"emit_test_results.go",
 	}
 	for _, name := range files {
@@ -67,6 +69,8 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		"emit_change_plan.go",
 		"emit_plan_skeleton.go",
 		"emit_plan_change.go",
+		"emit_write_workflow_decision.go",
+		"apply_patch.go",
 		"emit_test_results.go",
 	}
 	for _, name := range files {

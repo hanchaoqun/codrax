@@ -878,6 +878,43 @@ func TestSaveChangeReport_PersistsPlanThroughSaverWhenNoPlanPath(t *testing.T) {
 	}
 }
 
+func TestPersistCurrentChangePlanSnapshot_PreservesApplyRecord(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.SetPlanSaver(&testPlanSaver{dir: tmp})
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("probe"),
+	}
+	plan := &types.ChangePlan{
+		ID:     "plan-apply-record",
+		Status: types.PlanStatusPending,
+		Changes: []types.FileChange{{
+			Path: "file.txt",
+			Kind: "patch",
+			Apply: &types.FileChangeApplyRecord{
+				Status: "applied",
+				Source: "structured_builder",
+				Engine: "git_apply",
+			},
+		}},
+		TargetPaths: []string{"file.txt"},
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+
+	o.persistCurrentChangePlanSnapshot()
+
+	loaded, err := types.LoadChangePlanFromFile(filepath.Join(tmp, "plan-apply-record.json"))
+	if err != nil {
+		t.Fatalf("load persisted plan: %v", err)
+	}
+	if loaded.Changes[0].Apply == nil {
+		t.Fatal("apply record should persist with full plan snapshot")
+	}
+	if loaded.Changes[0].Apply.Source != "structured_builder" || loaded.Changes[0].Apply.Engine != "git_apply" {
+		t.Fatalf("unexpected persisted apply record: %+v", loaded.Changes[0].Apply)
+	}
+}
+
 func TestSaveChangeReport_WorkDirFallbackWhenNoPlanStore(t *testing.T) {
 	tmp := t.TempDir()
 	o := New(types.PipelineSettings{}, nil, nil, nil)

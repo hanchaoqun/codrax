@@ -784,6 +784,7 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		worktree.AppliedRef(plan.ID), o.keepWorktreeOnSuccess || o.skipVerify, o.busCtx.Language))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
+	o.persistCurrentChangePlanSnapshot()
 	// Warm-worktree retry checkpoint: commit the applied content as a
 	// git commit inside the worktree, capture the HEAD SHA, and stash
 	// it on the orchestrator. If this iteration turns out to be the
@@ -822,9 +823,9 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			// reviewed plan file. Best-effort: log on failure, the
 			// ref above is still recoverable.
 			if o.busCtx.PlanPath != "" {
-				if perr := types.PersistAppliedRecoveryOnDisk(o.busCtx.PlanPath, sha); perr != nil {
-					logging.Warning("[orchestrator] apply post-hook: persist applied SHA failed: %v", perr)
-				}
+				plan.AppliedCommitSHA = sha
+				o.busCtx.Mutable.SetChangePlan(plan)
+				o.persistCurrentChangePlanSnapshot()
 			}
 		}
 	}

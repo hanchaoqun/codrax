@@ -3124,7 +3124,24 @@ func (o *Orchestrator) persistPlanStatusWithApplied(status string, appliedAt *ti
 	if o.busCtx == nil {
 		return
 	}
-	path := o.busCtx.PlanPath
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		plan.Status = status
+		if appliedAt != nil {
+			plan.AppliedAt = appliedAt
+		}
+		if status == types.PlanStatusApplied &&
+			(o.keepWorktreeOnSuccess || o.skipVerify) &&
+			o.busCtx.WorktreePath != "" {
+			plan.WorktreePath = o.busCtx.WorktreePath
+		}
+		if appliedPaths != nil {
+			plan.AppliedPaths = appliedPaths
+		}
+		o.busCtx.Mutable.SetChangePlan(plan)
+		o.persistCurrentChangePlanSnapshot()
+		return
+	}
+	path := o.ensureChangePlanPath()
 	if path == "" {
 		return
 	}
@@ -3171,7 +3188,21 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 	if o.busCtx == nil {
 		return
 	}
-	path := o.busCtx.PlanPath
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		plan.Status = status
+		if appliedAt != nil {
+			plan.AppliedAt = appliedAt
+		}
+		if status == types.PlanStatusApplied &&
+			(o.keepWorktreeOnSuccess || o.skipVerify) &&
+			o.busCtx.WorktreePath != "" {
+			plan.WorktreePath = o.busCtx.WorktreePath
+		}
+		o.busCtx.Mutable.SetChangePlan(plan)
+		o.persistCurrentChangePlanSnapshot()
+		return
+	}
+	path := o.ensureChangePlanPath()
 	if path == "" {
 		// In REPL plan-mode flow, the PlanStore writes the file AFTER
 		// Run returns, so there's nothing on disk to update from here.
@@ -3702,24 +3733,74 @@ func (o *Orchestrator) ensureChangeReportDir() string {
 	if dir := strings.TrimSpace(o.reportDir); dir != "" {
 		return dir
 	}
-	if o.planSaver != nil && o.busCtx.Mutable != nil {
-		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && strings.TrimSpace(plan.ID) != "" {
-			path, err := o.planSaver.Save(plan)
-			if err != nil {
-				logging.Warning("[orchestrator] ChangeReport plan persist fallback failed: %v", err)
-			} else if strings.TrimSpace(path) != "" {
-				o.busCtx.PlanPath = path
-				o.planPath = path
-				o.reportDir = filepath.Dir(path)
-				return o.reportDir
-			}
-		}
+	if path := o.ensureChangePlanPath(); path != "" {
+		return filepath.Dir(path)
 	}
 	if workDir := strings.TrimSpace(o.busCtx.WorkDir); workDir != "" {
 		o.reportDir = filepath.Join(workDir, "plans")
 		return o.reportDir
 	}
 	return ""
+}
+
+func (o *Orchestrator) ensureChangePlanPath() string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	if path := strings.TrimSpace(o.busCtx.PlanPath); path != "" {
+		o.planPath = path
+		o.reportDir = filepath.Dir(path)
+		return path
+	}
+	if o.busCtx.Mutable == nil {
+		return ""
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil || strings.TrimSpace(plan.ID) == "" {
+		return ""
+	}
+	if o.planSaver != nil {
+		path, err := o.planSaver.Save(plan)
+		if err != nil {
+			logging.Warning("[orchestrator] ChangePlan persist fallback failed: %v", err)
+		} else if strings.TrimSpace(path) != "" {
+			o.busCtx.PlanPath = path
+			o.planPath = path
+			o.reportDir = filepath.Dir(path)
+			return path
+		}
+	}
+	if workDir := strings.TrimSpace(o.busCtx.WorkDir); workDir != "" {
+		stem := writeWorkflowArtifactFileStem(plan.ID)
+		if stem == "" {
+			return ""
+		}
+		path := filepath.Join(workDir, "plans", stem+".json")
+		o.busCtx.PlanPath = path
+		o.planPath = path
+		o.reportDir = filepath.Dir(path)
+		return path
+	}
+	return ""
+}
+
+func (o *Orchestrator) persistCurrentChangePlanSnapshot() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	path := o.ensureChangePlanPath()
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := types.WritePlanToFile(plan, path); err != nil {
+		logging.Warning("[orchestrator] ChangePlan snapshot persist failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] ChangePlan snapshot persisted: %s", path)
 }
 
 func writeWorkflowArtifactFileStem(id string) string {

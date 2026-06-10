@@ -213,6 +213,23 @@ func TestApplyPatch_Idempotent(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_UsesStructuredPayloadCompatEnvelopeRepair(t *testing.T) {
+	plan := simplePlan("create", "compat.txt", "content")
+	ctx := applyPatchFixture(t, plan)
+	tool := &ApplyPatch{}
+	params := json.RawMessage(`{"arguments":{"path":"compat.txt","kind":"create"}}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("envelope carrier should be repaired by shared compat layer: %q", res.Summary)
+	}
+	if _, err := os.Stat(filepath.Join(ctx.RepoRoot, "compat.txt")); err != nil {
+		t.Fatalf("expected file to be created after envelope repair: %v", err)
+	}
+}
+
 // TestApplyPatch_NoPlan verifies reject when Mutable.ChangePlan is
 // nil (caller misuse — apply tool outside apply stage).
 func TestApplyPatch_NoPlan(t *testing.T) {
@@ -313,6 +330,16 @@ func TestApplyPatch_PatchHappyPath(t *testing.T) {
 	}
 	if !ctx.Mutable.WriteClosure().HasApplied("file.txt") {
 		t.Error("WriteClosure should record the patched path")
+	}
+	rec := ctx.Mutable.ChangePlan().Changes[0].Apply
+	if rec == nil {
+		t.Fatal("patch apply should record per-change apply audit")
+	}
+	if rec.Status != "applied" || rec.Source != "raw_patch" || rec.Engine != "git_apply" {
+		t.Fatalf("unexpected apply record: %+v", rec)
+	}
+	if !strings.Contains(res.Summary, "source=raw_patch") || !strings.Contains(res.Summary, "engine=git_apply") {
+		t.Fatalf("summary should expose typed source/engine; got %q", res.Summary)
 	}
 }
 
