@@ -2913,7 +2913,7 @@ func sortedRuntimeResources(in map[string]*RuntimeResourceSummary, max int) []Ru
 }
 
 func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
-	if !isFileIOEvent(ev) || !fileIOCountsAsActivity(ev) {
+	if !isFileIOEvent(ev) {
 		return
 	}
 	inode := firstNonEmpty(ev.Inode, "unknown")
@@ -2937,11 +2937,15 @@ func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
 		}
 		out[key] = item
 	}
-	item.Count++
-	if ev.FileLen > 0 {
-		item.Bytes += ev.FileLen
-	} else if ev.ResourceBytes > 0 {
-		item.Bytes += ev.ResourceBytes
+	if fileIOCountsAsActivity(ev) {
+		item.Count++
+		if ev.FileLen > 0 {
+			item.Bytes += ev.FileLen
+		} else if ev.ResourceBytes > 0 {
+			item.Bytes += ev.ResourceBytes
+		}
+	} else {
+		item.CompletionCount++
 	}
 	item.TotalLatencyMs += ev.ResourceLatencyMs
 	if ev.ResourceLatencyMs > item.MaxLatencyMs {
@@ -2973,6 +2977,9 @@ func sortedFileIOSummaries(in map[string]*FileIOSummary, max int) []FileIOSummar
 	out := make([]FileIOSummary, 0, len(in))
 	for _, item := range in {
 		item.Summary = fmt.Sprintf("inode=%s dev=%s op=%s count=%d bytes=%d thread=%s", item.Inode, item.Dev, item.Operation, item.Count, item.Bytes, threadLabel(item.Thread))
+		if item.CompletionCount > 0 {
+			item.Summary = fmt.Sprintf("%s completions=%d", item.Summary, item.CompletionCount)
+		}
 		if item.EntryName != "" {
 			item.Summary = fmt.Sprintf("%s name=%s", item.Summary, item.EntryName)
 		}
@@ -3202,7 +3209,7 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 	var topFile FileIOSummary
 	for _, item := range stats.FileIOByInode {
 		fileBytes += item.Bytes
-		fileEvents += item.Count
+		fileEvents += fileIOEffectiveEventCount(item)
 		if topFile.Inode == "" || item.Bytes > topFile.Bytes || (item.Bytes == topFile.Bytes && item.Count > topFile.Count) {
 			topFile = item
 		}
@@ -3817,7 +3824,14 @@ func rootCauseTypeWeight(typ string) float64 {
 }
 
 func fileIOAdvisoryImpactMs(file FileIOSummary) float64 {
-	return float64(file.Count)*0.25 + float64(file.Bytes)/(1024*1024)*2
+	return float64(fileIOEffectiveEventCount(file))*0.25 + float64(file.Bytes)/(1024*1024)*2
+}
+
+func fileIOEffectiveEventCount(file FileIOSummary) int {
+	if file.Count >= file.CompletionCount {
+		return file.Count
+	}
+	return file.CompletionCount
 }
 
 func stateChurnRankImpactMs(churn ThreadStateChurnSummary) float64 {

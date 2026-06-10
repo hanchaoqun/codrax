@@ -26,7 +26,8 @@ var (
 var spaceKVKeys = map[string]struct{}{
 	"addr": {}, "address": {}, "bytes": {}, "cmdline": {}, "dev": {}, "entry_name": {},
 	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
-	"ino": {}, "inode": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
+	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
+	"ino": {}, "inode": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
 	"operation": {}, "op": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "pino": {},
 	"pos": {}, "ret": {}, "rw": {}, "rwbs": {}, "size": {}, "type": {},
 }
@@ -810,8 +811,34 @@ func parseKV(fields string) map[string]string {
 			out[m[1]] = cleanTraceValue(m[2])
 		}
 	}
+	parseColonKV(fields, out)
 	parseSpaceKV(fields, out)
 	return out
+}
+
+func parseColonKV(fields string, out map[string]string) {
+	tokens := strings.Fields(fields)
+	for _, token := range tokens {
+		token = strings.Trim(strings.TrimSpace(token), ",")
+		if strings.Contains(token, "=") {
+			continue
+		}
+		idx := strings.IndexByte(token, ':')
+		if idx <= 0 || idx >= len(token)-1 {
+			continue
+		}
+		key := strings.ToLower(strings.Trim(strings.TrimSpace(token[:idx]), ":,"))
+		if _, ok := spaceKVKeys[key]; !ok {
+			continue
+		}
+		value := cleanTraceValue(token[idx+1:])
+		if value == "" || value == "=" || strings.Contains(value, "==>") {
+			continue
+		}
+		if _, exists := out[key]; !exists {
+			out[key] = value
+		}
+	}
 }
 
 func parseSpaceKV(fields string, out map[string]string) {

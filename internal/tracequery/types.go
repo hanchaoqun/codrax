@@ -487,25 +487,26 @@ type IOLatencySummary struct {
 }
 
 type FileIOSummary struct {
-	Dev            string    `json:"dev,omitempty"`
-	Inode          string    `json:"inode,omitempty"`
-	ParentInode    string    `json:"parent_inode,omitempty"`
-	EntryName      string    `json:"entry_name,omitempty"`
-	Operation      string    `json:"operation,omitempty"`
-	Thread         ThreadRef `json:"thread,omitempty"`
-	Count          int       `json:"count,omitempty"`
-	Bytes          int64     `json:"bytes,omitempty"`
-	TotalLatencyMs float64   `json:"total_latency_ms,omitempty"`
-	MaxLatencyMs   float64   `json:"max_latency_ms,omitempty"`
-	MinOffset      int64     `json:"min_offset,omitempty"`
-	MaxOffset      int64     `json:"max_offset,omitempty"`
-	Ret            int64     `json:"ret,omitempty"`
-	LineStart      int       `json:"line_start,omitempty"`
-	LineEnd        int       `json:"line_end,omitempty"`
-	StartTs        float64   `json:"start_ts,omitempty"`
-	EndTs          float64   `json:"end_ts,omitempty"`
-	Example        string    `json:"example,omitempty"`
-	Summary        string    `json:"summary,omitempty"`
+	Dev             string    `json:"dev,omitempty"`
+	Inode           string    `json:"inode,omitempty"`
+	ParentInode     string    `json:"parent_inode,omitempty"`
+	EntryName       string    `json:"entry_name,omitempty"`
+	Operation       string    `json:"operation,omitempty"`
+	Thread          ThreadRef `json:"thread,omitempty"`
+	Count           int       `json:"count,omitempty"`
+	CompletionCount int       `json:"completion_count,omitempty"`
+	Bytes           int64     `json:"bytes,omitempty"`
+	TotalLatencyMs  float64   `json:"total_latency_ms,omitempty"`
+	MaxLatencyMs    float64   `json:"max_latency_ms,omitempty"`
+	MinOffset       int64     `json:"min_offset,omitempty"`
+	MaxOffset       int64     `json:"max_offset,omitempty"`
+	Ret             int64     `json:"ret,omitempty"`
+	LineStart       int       `json:"line_start,omitempty"`
+	LineEnd         int       `json:"line_end,omitempty"`
+	StartTs         float64   `json:"start_ts,omitempty"`
+	EndTs           float64   `json:"end_ts,omitempty"`
+	Example         string    `json:"example,omitempty"`
+	Summary         string    `json:"summary,omitempty"`
 }
 
 type PageCacheSummary struct {

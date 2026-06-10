@@ -67,6 +67,8 @@ Compact text output lines:
 - Extend key/value parsing to accept:
   - `key=value`
   - `key = value`
+  - selected compact colon keys such as `dev:260:136`, `ino:0xb9b8e`,
+    `entry_name:foo.db`, and `offset:0`
   - selected space-separated keys such as `dev 260:136`, `ino 0x478e5`,
     `ofs=12288`, `offset 0`, `bytes 4096`.
 - Recognize:
@@ -94,6 +96,27 @@ Compact text output lines:
   IO pressure when their effective impact dominates other IO candidates.
 - Evidence pack: include the top file IO, page-cache, storage latency, and IO
   pressure facts.
+
+## Trace convert round-trip
+
+The text parser path is only half of the contract. Binary HiTrace conversion must
+also preserve the IO fields that `trace_query` depends on after conversion to
+systrace text.
+
+Converter renderers must keep the output official-compatible while explicitly
+rendering high-value IO families instead of falling back to header-only rows:
+
+- `android_fs_dataread_start/end` and `android_fs_datawrite_start/end` render
+  `dev`, `ino`, `entry_name`, `offset`, `bytes`, `rw`, `ret`, and `latency_us`.
+- `f2fs_direct_IO_enter/exit` and `f2fs_sync_file_*` render `dev`, `ino`,
+  `offset`, `len`, `rw`, `ret`, and `latency_us`.
+- `scsi_dispatch_cmd_start/done` renders `tag`, `dev`, `lba`, `len`, `opcode`,
+  `ret`, and `latency_us`.
+
+`file_io_by_inode` counts start/enter rows for activity and bytes. Completion
+rows (`*_end`, `*_exit`, `*_done`) merge `ret`, latency, line range, and example
+onto the same dev+inode+op+pid summary via `completion_count` without double
+counting bytes.
 
 ## Model-facing contract
 
@@ -148,6 +171,8 @@ them like `state_churn`.
 - [x] Update Explorer/default skill/final-answer guidance.
 - [x] Update ObservationLedger parsing/projection.
 - [x] Add parser/query/tool/compat/ledger tests.
+- [x] Add trace convert renderer, parser-colon, completion-merge, and converted
+      binary round-trip tests.
 - [x] Run targeted tests.
 
 ## Verification

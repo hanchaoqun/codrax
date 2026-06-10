@@ -1,0 +1,32 @@
+# Trace query — converted binary HiTrace inode IO pressure
+#
+# Coverage target: converted systrace output from hitraceconv should preserve
+# IO query fields for trace_query consumption instead of losing unsupported
+# rows as header-only events.
+ID="trace_query_converted_inode_io_pressure"
+NAME="trace query — converted inode IO pressure"
+QUESTION="请只基于这段由 binary hitrace convert 后的 systrace 文本，用 trace_query 分析 12.000s 到 12.0105s 的 IO 根因：请指出 inode/dev/entry_name、file_io bytes/completion latency、page-cache churn、f2fs/scsi storage latency，以及 io_pressure_summary 的 top inode；不要分析当前仓库代码，也不要把 entry_name=foo.db 改成绝对路径。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-20   (   20) [001] .... 12.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 12.001000: android_fs_datawrite_start: dev=260:136 ino=0xb9b8e entry_name=foo.db offset=0 bytes=4096 rw=write
+        app-20   (   20) [001] .... 12.001700: android_fs_datawrite_end: dev=260:136 ino=0xb9b8e entry_name=foo.db offset=0 bytes=4096 rw=write ret=4096 latency_us=700
+        app-20   (   20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0x0 pfn=3062260 ofs=0
+        app-20   (   20) [001] .... 12.003000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e page=0x0 pfn=3062260 ofs=0
+        app-20   (   20) [001] .... 12.004000: f2fs_direct_IO_enter: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write
+        app-20   (   20) [001] .... 12.009700: f2fs_direct_IO_exit: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write ret=8192 latency_us=5700
+        app-20   (   20) [001] .... 12.006000: scsi_dispatch_cmd_start: tag=7 dev=12:80 lba=4096 len=8192 opcode=WRITE
+        app-20   (   20) [001] .... 12.009500: scsi_dispatch_cmd_done: tag=7 dev=12:80 lba=4096 len=8192 opcode=WRITE ret=0 latency_us=3500
+        app-20   (   20) [001] .... 12.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=D ==> next_comm=worker next_pid=30 next_prio=120
+     worker-30   (   30) [001] d..3 12.010500: sched_blocked_reason: pid=20 iowait=1 caller=__filemap_fdatawait_range+0x134/0x150
+'
+EXPECT_CONTAINS="0xb9b8e 260:136 foo.db iowait"
+EXPECT_MATCHES_REGEX="(ino=0xb9b8e|0xb9b8e).*(dev=260:136|260:136).*(entry_name=foo\\.db|foo\\.db)
+(file_io|file IO|文件层|文件 IO|file_io_bytes_total).*(12288|12KB|12 KB|bytes|字节)
+(4096|4KB|4 KB).*(0\\.7|0\\.700|700|6\\.4|6\\.400|completion|completions|完成|latency|耗时)
+(page_cache|page cache|页缓存).*(add|delete|churn|新增|删除|抖动)
+(f2fs|scsi|storage|存储).*(5\\.7|5700|3\\.5|3500|max|最大|latency|耗时)
+(io_pressure|IO pressure|io pressure|top inode|top_inode|主因 inode).*(0xb9b8e)"
+EXPECT_NOT_CONTAINS="/foo.db /data/foo.db /data/"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
+EXPECT_LOG_NOT_MATCHES_REGEX="phase=toolcall .*tool=(read_file|grep|repo_map|list_files).*internal/(hitraceconv|tracequery|tool)"

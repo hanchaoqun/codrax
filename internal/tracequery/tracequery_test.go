@@ -366,6 +366,14 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.SubsystemKind == "fs_ext4" },
 		},
 		{
+			name: "colon file io",
+			line: `      app-20   (   20) [001] .... 2.127500: android_fs_dataread_end: dev:260:136 ino:0xb9b8e entry_name:foo.db offset:0 bytes:4096 ret:4096 latency_us:700 rw:R`,
+			want: EventFilesystem,
+			check: func(ev Event) bool {
+				return ev.FSDev == "260:136" && ev.Inode == "0xb9b8e" && ev.EntryName == "foo.db" && ev.FileOffset == 0 && ev.FileLen == 4096 && ev.FileRet == 4096 && near(ev.ResourceLatencyMs, 0.700, 0.001) && ev.FileRW == "read"
+			},
+		},
+		{
 			name:  "power",
 			line:  `      waker-10   (   10) [000] .... 2.128000: thermal_power_allocator: actor=cpu power=300`,
 			want:  EventPower,
@@ -1066,7 +1074,7 @@ func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
 	idx := buildTraceIndex(t, "inode_io.systrace", `
 	app-20 (20) [001] .... 12.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
 	app-20 (20) [001] .... 12.001000: android_fs_dataread_start: entry_name=foo.db offset=0 bytes=4096 cmdline=app pid=20 i_size=8192 ino=0xb9b8e
-	app-20 (20) [001] .... 12.001400: android_fs_dataread_end: ino=0xb9b8e offset=0 bytes=4096
+	app-20 (20) [001] .... 12.001400: android_fs_dataread_end: entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700 ino=0xb9b8e
 	app-20 (20) [001] .... 12.002000: f2fs_direct_IO_enter: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write
 	app-20 (20) [001] .... 12.003000: f2fs_direct_IO_exit: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write ret = 8192
 	app-20 (20) [001] .... 12.003100: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0000000000000000 pfn=3062260 ofs=0
@@ -1091,7 +1099,7 @@ func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
 			f2fs = &stats.FileIOByInode[i]
 		}
 	}
-	if android == nil || android.EntryName != "foo.db" || android.Bytes != 4096 {
+	if android == nil || android.EntryName != "foo.db" || android.Bytes != 4096 || android.CompletionCount != 1 || android.Ret != 4096 || !near(android.MaxLatencyMs, 0.700, 0.001) {
 		t.Fatalf("android_fs read should aggregate by inode/name/bytes: %+v", stats.FileIOByInode)
 	}
 	if f2fs == nil || f2fs.Dev != "260:136" || f2fs.Bytes != 8192 {

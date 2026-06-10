@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -474,6 +475,120 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 			t.Fatalf("data_loc offset string: known=%v body=%q", known, body)
 		}
 	})
+
+	t.Run("android_fs_file_io", func(t *testing.T) {
+		format := eventFormat{ID: 70, Name: "android_fs_dataread_end", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "dev", Offset: 8, Size: 8},
+			{Name: "ino", Offset: 16, Size: 8},
+			{Name: "entry_name[16]", Offset: 24, Size: 16},
+			{Name: "offset", Offset: 40, Size: 8, Signed: true},
+			{Name: "bytes", Offset: 48, Size: 8},
+			{Name: "rw[8]", Offset: 56, Size: 8},
+			{Name: "ret", Offset: 64, Size: 4, Signed: true},
+			{Name: "latency_us", Offset: 68, Size: 4},
+		}}
+		content := syntheticAndroidFSContent(70, "foo.db", "read", true)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		for _, want := range []string{"dev=260:136", "ino=0xb9b8e", "entry_name=foo.db", "offset=0", "bytes=4096", "rw=read", "ret=4096", "latency_us=700"} {
+			if !known || !strings.Contains(body, want) {
+				t.Fatalf("android fs body missing %q: known=%v body=%q", want, known, body)
+			}
+		}
+	})
+
+	t.Run("f2fs_direct_io", func(t *testing.T) {
+		format := eventFormat{ID: 71, Name: "f2fs_direct_IO_exit", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "dev", Offset: 8, Size: 8},
+			{Name: "ino", Offset: 16, Size: 8},
+			{Name: "pos", Offset: 24, Size: 8, Signed: true},
+			{Name: "len", Offset: 32, Size: 8},
+			{Name: "rw[8]", Offset: 40, Size: 8},
+			{Name: "ret", Offset: 48, Size: 4, Signed: true},
+			{Name: "latency_us", Offset: 52, Size: 4},
+		}}
+		content := syntheticF2FSContent(71, true)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		for _, want := range []string{"dev=260:136", "ino=0xb9b8e", "offset=4096", "len=8192", "rw=write", "ret=8192", "latency_us=5700"} {
+			if !known || !strings.Contains(body, want) {
+				t.Fatalf("f2fs body missing %q: known=%v body=%q", want, known, body)
+			}
+		}
+	})
+
+	t.Run("scsi_dispatch_cmd", func(t *testing.T) {
+		format := eventFormat{ID: 72, Name: "scsi_dispatch_cmd_done", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "tag", Offset: 8, Size: 4, Signed: true},
+			{Name: "dev", Offset: 12, Size: 8},
+			{Name: "lba", Offset: 20, Size: 8},
+			{Name: "len", Offset: 28, Size: 4},
+			{Name: "opcode[16]", Offset: 32, Size: 16},
+			{Name: "ret", Offset: 48, Size: 4, Signed: true},
+			{Name: "latency_us", Offset: 52, Size: 4},
+		}}
+		content := syntheticSCSIContent(72, true)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		for _, want := range []string{"tag=7", "dev=12:80", "lba=4096", "len=8192", "opcode=WRITE", "ret=0", "latency_us=3500"} {
+			if !known || !strings.Contains(body, want) {
+				t.Fatalf("scsi body missing %q: known=%v body=%q", want, known, body)
+			}
+		}
+	})
+}
+
+func TestConvertFileRoundTripsInodeIOThroughTraceQuery(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "inode-io.htrace")
+	var b bytes.Buffer
+	writeFileHeader(&b, 1)
+	writeSegment(&b, segmentEventsFormat, []byte(syntheticIOEventFormat()))
+	writeSegment(&b, segmentCmdlines, []byte("20 app\n"))
+	writeSegment(&b, segmentTGIDs, []byte("20 20\n"))
+	writeSegment(&b, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{
+		{EventID: 80, OffsetNS: 1_000_000, Content: syntheticAndroidFSContent(80, "foo.db", "write", false)},
+		{EventID: 81, OffsetNS: 2_000_000, Content: syntheticAndroidFSContent(81, "foo.db", "write", true)},
+		{EventID: 82, OffsetNS: 3_000_000, Content: syntheticMMFilemapContent(82, 0)},
+		{EventID: 83, OffsetNS: 4_000_000, Content: syntheticMMFilemapContent(83, 0)},
+		{EventID: 84, OffsetNS: 5_000_000, Content: syntheticF2FSContent(84, false)},
+		{EventID: 85, OffsetNS: 8_000_000, Content: syntheticF2FSContent(85, true)},
+	}))
+	if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if result.UnknownEventCount != 0 {
+		t.Fatalf("IO renderer rows should not be header-only: %+v", result)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), output)
+	if err != nil {
+		t.Fatalf("tracequery parse converted IO output: %v", err)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{PID: 20, TimeStart: 2942.124, TimeEnd: 2942.140})
+	if len(stats.FileIOByInode) == 0 || stats.FileIOByInode[0].Inode != "0xb9b8e" || stats.FileIOByInode[0].Bytes == 0 || stats.FileIOByInode[0].CompletionCount == 0 || stats.FileIOByInode[0].MaxLatencyMs == 0 {
+		t.Fatalf("converted file IO did not aggregate inode bytes/completion/latency: %+v", stats.FileIOByInode)
+	}
+	if len(stats.PageCacheByInode) == 0 || stats.PageCacheByInode[0].Inode != "0xb9b8e" || stats.PageCacheByInode[0].Churn != 2 {
+		t.Fatalf("converted page-cache rows did not aggregate: %+v", stats.PageCacheByInode)
+	}
+	foundF2FS := false
+	for _, item := range stats.StorageLatencyByLayer {
+		if item.Layer == "f2fs" && item.PairedCount == 1 && item.MaxLatencyMs > 0 {
+			foundF2FS = true
+		}
+	}
+	if !foundF2FS {
+		t.Fatalf("converted f2fs rows did not produce storage latency: %+v", stats.StorageLatencyByLayer)
+	}
+	if stats.IOPressureSummary == nil || stats.IOPressureSummary.TopInode != "0xb9b8e" {
+		t.Fatalf("converted IO rows did not produce IO pressure summary: %+v", stats.IOPressureSummary)
+	}
 }
 
 func syntheticBinaryHitrace(t *testing.T) []byte {
@@ -518,6 +633,181 @@ func syntheticUnsupportedEventFormat() string {
 		`print fmt: "foo=%d"`,
 		"",
 	}, "\n")
+}
+
+func syntheticIOEventFormat() string {
+	var lines []string
+	lines = append(lines, syntheticFormatBlock("android_fs_datawrite_start", 80, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("char", "entry_name[16]", 24, 16, false),
+		syntheticField("long", "offset", 40, 8, true),
+		syntheticField("unsigned long", "bytes", 48, 8, false),
+		syntheticField("char", "rw[8]", 56, 8, false),
+		syntheticField("int", "ret", 64, 4, true),
+		syntheticField("unsigned int", "latency_us", 68, 4, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("android_fs_datawrite_end", 81, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("char", "entry_name[16]", 24, 16, false),
+		syntheticField("long", "offset", 40, 8, true),
+		syntheticField("unsigned long", "bytes", 48, 8, false),
+		syntheticField("char", "rw[8]", 56, 8, false),
+		syntheticField("int", "ret", 64, 4, true),
+		syntheticField("unsigned int", "latency_us", 68, 4, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("mm_filemap_add_to_page_cache", 82, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "s_dev", 8, 8, false),
+		syntheticField("unsigned long", "i_ino", 16, 8, false),
+		syntheticField("unsigned long", "index", 24, 8, false),
+		syntheticField("unsigned long", "pfn", 32, 8, false),
+		syntheticField("unsigned long", "pg", 40, 8, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("mm_filemap_delete_from_page_cache", 83, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "s_dev", 8, 8, false),
+		syntheticField("unsigned long", "i_ino", 16, 8, false),
+		syntheticField("unsigned long", "index", 24, 8, false),
+		syntheticField("unsigned long", "pfn", 32, 8, false),
+		syntheticField("unsigned long", "pg", 40, 8, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("f2fs_direct_IO_enter", 84, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("long", "pos", 24, 8, true),
+		syntheticField("unsigned long", "len", 32, 8, false),
+		syntheticField("char", "rw[8]", 40, 8, false),
+		syntheticField("int", "ret", 48, 4, true),
+		syntheticField("unsigned int", "latency_us", 52, 4, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("f2fs_direct_IO_exit", 85, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("long", "pos", 24, 8, true),
+		syntheticField("unsigned long", "len", 32, 8, false),
+		syntheticField("char", "rw[8]", 40, 8, false),
+		syntheticField("int", "ret", 48, 4, true),
+		syntheticField("unsigned int", "latency_us", 52, 4, false),
+	})...)
+	return strings.Join(lines, "\n")
+}
+
+func syntheticFormatBlock(name string, id int, fields []string) []string {
+	out := []string{nameLine(name), fmt.Sprintf("ID: %d", id), "format:"}
+	out = append(out, fields...)
+	out = append(out, `print fmt: "synthetic"`, "")
+	return out
+}
+
+func nameLine(name string) string {
+	return "name: " + name
+}
+
+func syntheticField(typ, name string, offset, size int, signed bool) string {
+	signedFlag := 0
+	if signed {
+		signedFlag = 1
+	}
+	return fmt.Sprintf("\tfield:%s %s;\toffset:%d;\tsize:%d;\tsigned:%d;", typ, name, offset, size, signedFlag)
+}
+
+type syntheticRawEvent struct {
+	EventID  uint16
+	OffsetNS uint32
+	Content  []byte
+}
+
+func syntheticRawPageEvents(events []syntheticRawEvent) []byte {
+	page := make([]byte, tracePageSize)
+	binary.LittleEndian.PutUint64(page[0:8], 2942124416000) // ns, renders 2942.124416
+	binary.LittleEndian.PutUint64(page[8:16], tracePageSize)
+	page[16] = 1
+	off := pageHeaderSize
+	for _, ev := range events {
+		content := append([]byte(nil), ev.Content...)
+		if len(content) < 2 {
+			continue
+		}
+		binary.LittleEndian.PutUint16(content[0:2], ev.EventID)
+		aligned := int((uint32(len(content)) + 3) &^ 3)
+		if off+eventHeaderSize+aligned > len(page) {
+			break
+		}
+		binary.LittleEndian.PutUint32(page[off:off+4], ev.OffsetNS)
+		binary.LittleEndian.PutUint16(page[off+4:off+6], uint16(len(content)))
+		copy(page[off+eventHeaderSize:], content)
+		off += eventHeaderSize + aligned
+	}
+	return page
+}
+
+func syntheticAndroidFSContent(eventID uint16, entryName, rw string, done bool) []byte {
+	content := make([]byte, 72)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 20)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
+	copy(content[24:40], []byte(entryName))
+	binary.LittleEndian.PutUint64(content[40:48], 0)
+	binary.LittleEndian.PutUint64(content[48:56], 4096)
+	copy(content[56:64], []byte(rw))
+	if done {
+		binary.LittleEndian.PutUint32(content[64:68], 4096)
+		binary.LittleEndian.PutUint32(content[68:72], 700)
+	}
+	return content
+}
+
+func syntheticF2FSContent(eventID uint16, done bool) []byte {
+	content := make([]byte, 56)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 20)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
+	binary.LittleEndian.PutUint64(content[24:32], 4096)
+	binary.LittleEndian.PutUint64(content[32:40], 8192)
+	copy(content[40:48], []byte("write"))
+	if done {
+		binary.LittleEndian.PutUint32(content[48:52], 8192)
+		binary.LittleEndian.PutUint32(content[52:56], 5700)
+	}
+	return content
+}
+
+func syntheticSCSIContent(eventID uint16, done bool) []byte {
+	content := make([]byte, 56)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 20)
+	binary.LittleEndian.PutUint32(content[8:12], 7)
+	binary.LittleEndian.PutUint64(content[12:20], syntheticDev(12, 80))
+	binary.LittleEndian.PutUint64(content[20:28], 4096)
+	binary.LittleEndian.PutUint32(content[28:32], 8192)
+	copy(content[32:48], []byte("WRITE"))
+	if done {
+		binary.LittleEndian.PutUint32(content[52:56], 3500)
+	}
+	return content
+}
+
+func syntheticMMFilemapContent(eventID uint16, index uint64) []byte {
+	content := make([]byte, 48)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 20)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
+	binary.LittleEndian.PutUint64(content[24:32], index)
+	binary.LittleEndian.PutUint64(content[32:40], 3062260)
+	return content
+}
+
+func syntheticDev(major, minor uint64) uint64 {
+	return (major << 20) | minor
 }
 
 func syntheticRawPage() []byte {

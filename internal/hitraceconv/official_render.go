@@ -9,6 +9,7 @@ import (
 
 func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, bool) {
 	name := ev.format.Name
+	lowerName := strings.ToLower(name)
 	switch {
 	case name == "sched_switch" && hasCleanField(ev, "prev_comm"):
 		return fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d expeller_type=%d",
@@ -76,6 +77,12 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 		return renderBlockRemap(ev), true
 	case name == "block_rq_issue" || name == "block_rq_insert" || name == "block_rq_complete":
 		return renderBlockRequest(ev, content), true
+	case strings.HasPrefix(lowerName, "android_fs_dataread") || strings.HasPrefix(lowerName, "android_fs_datawrite"):
+		return renderAndroidFSIO(ev, content), true
+	case strings.HasPrefix(lowerName, "f2fs_direct_io") || strings.HasPrefix(lowerName, "f2fs_sync_file"):
+		return renderF2FSIO(ev, content), true
+	case strings.HasPrefix(lowerName, "scsi_dispatch_cmd"):
+		return renderSCSIDispatchCmd(ev, content), true
 	case strings.HasPrefix(name, "ufshcd_command"):
 		if hasCleanField(ev, "group_id") {
 			opcode := intByCleanName(ev, "opcode", false)
@@ -208,6 +215,126 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 		}
 	}
 	return "", false
+}
+
+func renderAndroidFSIO(ev decodedEvent, content []byte) string {
+	var parts []string
+	parts = appendStringKV(parts, "dev", traceIODev(ev, content))
+	parts = appendHexCleanIntKV(parts, "ino", ev, false, "ino", "inode", "i_ino")
+	parts = appendStringKV(parts, "entry_name", stringByCleanName(ev, content, "entry_name", "name", "file", "filename"))
+	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
+	parts = appendCleanIntKV(parts, "bytes", ev, false, "bytes", "len", "length", "size")
+	parts = appendStringKV(parts, "rw", firstNonEmpty(stringByCleanName(ev, content, "rw", "rwbs", "op", "operation"), traceIOOperationFromName(ev.format.Name)))
+	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
+	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
+	parts = appendCleanIntKV(parts, "i_size", ev, false, "i_size", "file_size")
+	return strings.Join(parts, " ")
+}
+
+func renderF2FSIO(ev decodedEvent, content []byte) string {
+	var parts []string
+	parts = appendStringKV(parts, "dev", traceIODev(ev, content))
+	parts = appendHexCleanIntKV(parts, "ino", ev, false, "ino", "inode", "i_ino")
+	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
+	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "size")
+	parts = appendStringKV(parts, "rw", firstNonEmpty(stringByCleanName(ev, content, "rw", "rwbs", "op", "operation"), traceIOOperationFromName(ev.format.Name)))
+	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
+	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
+	return strings.Join(parts, " ")
+}
+
+func renderSCSIDispatchCmd(ev decodedEvent, content []byte) string {
+	var parts []string
+	parts = appendCleanIntKV(parts, "tag", ev, true, "tag")
+	parts = appendStringKV(parts, "dev", traceIODev(ev, content))
+	parts = appendCleanIntKV(parts, "lba", ev, false, "lba", "sector")
+	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "transfer_len")
+	opcode := firstNonEmpty(stringByCleanName(ev, content, "opcode", "op", "rw", "rwbs"), traceIOOpcodeName(firstCleanInt(ev, false, "opcode")))
+	parts = appendStringKV(parts, "opcode", opcode)
+	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
+	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
+	return strings.Join(parts, " ")
+}
+
+func traceIODev(ev decodedEvent, content []byte) string {
+	if s := stringByCleanName(ev, content, "dev_name", "devname"); s != "" {
+		return s
+	}
+	for _, name := range []string{"dev", "s_dev", "dev_t"} {
+		if hasCleanField(ev, name) {
+			return devByCleanName(ev, name, ":")
+		}
+	}
+	return ""
+}
+
+func traceIOOperationFromName(name string) string {
+	name = strings.ToLower(name)
+	switch {
+	case strings.Contains(name, "dataread"):
+		return "read"
+	case strings.Contains(name, "datawrite"):
+		return "write"
+	case strings.Contains(name, "read"):
+		return "read"
+	case strings.Contains(name, "write"):
+		return "write"
+	case strings.Contains(name, "sync"):
+		return "sync"
+	default:
+		return ""
+	}
+}
+
+func traceIOOpcodeName(v int64, ok bool) string {
+	if !ok {
+		return ""
+	}
+	if name := ufsOpcodeName(v); name != "" {
+		return name
+	}
+	return fmt.Sprintf("0x%x", v)
+}
+
+func firstCleanInt(ev decodedEvent, signed bool, names ...string) (int64, bool) {
+	for _, name := range names {
+		if hasCleanField(ev, name) {
+			return intByCleanName(ev, name, signed), true
+		}
+	}
+	return 0, false
+}
+
+func appendStringKV(parts []string, key, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%s", key, value))
+}
+
+func appendIntKV(parts []string, key string, value int64, ok bool) []string {
+	if !ok {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%d", key, value))
+}
+
+func appendCleanIntKV(parts []string, key string, ev decodedEvent, signed bool, names ...string) []string {
+	value, ok := firstCleanInt(ev, signed, names...)
+	return appendIntKV(parts, key, value, ok)
+}
+
+func appendHexIntKV(parts []string, key string, value int64, ok bool) []string {
+	if !ok {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=0x%x", key, value))
+}
+
+func appendHexCleanIntKV(parts []string, key string, ev decodedEvent, signed bool, names ...string) []string {
+	value, ok := firstCleanInt(ev, signed, names...)
+	return appendHexIntKV(parts, key, value, ok)
 }
 
 func renderMMCRequestStart(ev decodedEvent, content []byte) string {
