@@ -208,3 +208,8 @@ flowchart TD
   selection (`pytest` vs `unittest`), detects standard-library unittest suites
   from repo test-surface signals, parses unittest output into `ChangeReport`,
   and keeps Makefile verification on the existing typed runner path.
+- 2026-06-10 Batch 3 complete: write workflow exploration now has a typed
+  read-only tool view. `exec_command`, apply, plan, test, and verifier tools are
+  filtered from the StageExplore schema when a `WriteExplorationRequest` is
+  active, and runtime validation rejects bypass attempts with typed repair
+  metadata.

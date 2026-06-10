@@ -2689,6 +2689,46 @@ func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool
 	return false
 }
 
+func writeExplorationReadOnlyBlocksTool(ctx *types.AgentContext, name string) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil || !ctx.Mode.IsWrite() {
+		return false
+	}
+	if ctx.Mutable.WriteExplorationRequest() == nil {
+		return false
+	}
+	switch types.CanonicalToolName(name) {
+	case "exec_command", "run_tests", "apply_patch", "emit_change_plan", "emit_test_results":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateWriteExplorationReadOnlyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if !writeExplorationReadOnlyBlocksTool(ctx, tc.Name) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	msg := fmt.Sprintf(
+		"%s rejected: write workflow exploration is a read-only source-discovery lane. "+
+			"Use typed repository read tools such as repo_map, grep, list_files, read_file, and git read tools; planning, applying, tests, and shell commands belong to later typed write stages.",
+		tc.Name)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Summary:   msg,
+		Success:   false,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: "write_exploration_read_only_tool",
+			Hint: "Continue the write exploration with bounded read tools only. Do not try to write files, run tests, or use shell commands from this lane.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"policy": "write_exploration_read_only",
+			},
+		},
+	}
+}
+
 func validateExternalObservationOnlyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
 	if !observationOnlyRuntimeBlocksTool(ctx, tc.Name) {
 		return nil
@@ -2782,6 +2822,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	if b.deps.Tools != nil {
 		for _, toolName := range sk.ToolSuggestions {
 			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
+				continue
+			}
+			if writeExplorationReadOnlyBlocksTool(ctx, toolName) {
 				continue
 			}
 			if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
@@ -3399,6 +3442,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 		return violation, nil
 	}
 	if violation := validateExternalObservationOnlyToolCall(ctx, tc); violation != nil {
+		return violation, nil
+	}
+	if violation := validateWriteExplorationReadOnlyToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
 

@@ -250,14 +250,14 @@ func TestBuildToolSchemas_WriteExplorationSubflowDoesNotExposeWriteTools(t *test
 	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
 	schemas := base.buildToolSchemas(&skill.Config{
 		Name:            "explore-skill",
-		ToolSuggestions: []string{"repo_map", "grep", "read_file", "emit_evidence", "emit_investigation_complete"},
+		ToolSuggestions: []string{"repo_map", "grep", "read_file", "exec_command", "emit_evidence", "emit_investigation_complete"},
 	}, &types.AgentContext{
 		Stage:   types.StageExplore,
 		Mutable: mut,
 		Mode:    types.ModeApply,
 	})
 
-	for _, forbidden := range []string{"emit_change_plan", "apply_patch", "emit_test_results"} {
+	for _, forbidden := range []string{"exec_command", "emit_change_plan", "apply_patch", "emit_test_results"} {
 		if schemaNamesContain(schemas, forbidden) {
 			t.Fatalf("write exploration subflow must not expose %q; got %+v", forbidden, schemaNames(schemas))
 		}
@@ -266,6 +266,35 @@ func TestBuildToolSchemas_WriteExplorationSubflowDoesNotExposeWriteTools(t *test
 		if !schemaNamesContain(schemas, want) {
 			t.Fatalf("write exploration subflow should still expose %q; got %+v", want, schemaNames(schemas))
 		}
+	}
+}
+
+func TestExecuteTool_WriteExplorationSubflowRejectsShellCommand(t *testing.T) {
+	mut := types.NewMutableState("write needs source exploration first")
+	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "inspect existing tests before planning edits",
+		CandidatePaths: []string{"internal/foo_test.go"},
+	})
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	result, _ := base.executeTool(&types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: mut,
+		Mode:    types.ModeApply,
+	}, llm.ToolCall{
+		Name:   "exec_command",
+		Params: json.RawMessage(`{"command":"python3 -m unittest"}`),
+	})
+	if result == nil {
+		t.Fatal("expected write exploration read-only rejection")
+	}
+	if result.Success {
+		t.Fatalf("exec_command should be rejected in write exploration, got %+v", result)
+	}
+	if result.Repair == nil || result.Repair.Code != "write_exploration_read_only_tool" {
+		t.Fatalf("rejection should carry typed repair metadata, got %+v", result)
 	}
 }
 
