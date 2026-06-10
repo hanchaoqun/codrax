@@ -1125,7 +1125,7 @@ violation 集中在 `internal/types/violation.go::ViolationKind` enum 里注册�
 
 **为什么 answer-aware（不是 evidence-only 的 pre-finalize advisory）**:pre-finalize 只能看 evidence 池而看不到答案——LLM 可能在 mid-explore 跑过 `exec_command` 但 ToolResults 投影丢了它，或 LLM 的答案本身已经把缺失的维度自然覆盖（例如把 `MissingRequestedRoles` 信息 inline 进 Summary）。post-finalize answer-aware 直接读 *已组装的答案*：答案里数字真有 + 来源真是工具 → Tier 1 命中 → 不 fire；答案缺失 → fire。**false-positive 安全**——只在答案*确实*缺维度时触发。
 
-**LayerDepth 维度被刻意丢弃**(2026-05-09 可移植性审计):原设计的"必须 3 层(default / config-file / CLI override)"是 codrax 自己的 config-precedence 模型,但其它项目场景层数不一(Spring Boot 多 profile + env + cmdline / Kubernetes ConfigMap+Secret+env+volume / 远程配置中心 / 静态前端零配置...)。LLM 已通过 `AnswerDocumentV2.MissingRequestedRoles` typed 槽自然披露缺失层,加 explorer skill 的 `CONFIG PRECEDENCE` 规则给出抽象指引(prompt P2.9),无需 system-side 硬卡。
+**LayerDepth 维度被刻意丢弃**(可移植性考量):原设计的"必须 3 层(default / config-file / CLI override)"是 codrax 自己的 config-precedence 模型,但其它项目场景层数不一(Spring Boot 多 profile + env + cmdline / Kubernetes ConfigMap+Secret+env+volume / 远程配置中心 / 静态前端零配置...)。LLM 已通过 `AnswerDocumentV2.MissingRequestedRoles` typed 槽自然披露缺失层,加 explorer skill 的 `CONFIG PRECEDENCE` 规则给出抽象指引(prompt P2.9),无需 system-side 硬卡。
 
 **双层 ERM 关系**:Tier 1（`internal/agent/explorer_erm.go` 的 breadth heuristic）让 explorer 知道何时停止采证（≥2/3 evidence items per family）；Tier 2（本节）让 finalize 知道答案是否真覆盖了维度。两层正交——explorer 可能 Tier 1 满足后停下而 Tier 2 fail（s7b/s8a 经典形态），retry 把 LLM 拉回 explore/extract 重新采证或重新组答。
 
@@ -1366,7 +1366,7 @@ const (
 
 controller 是唯一公开写模式调度器。它通过 typed `emit_write_workflow_decision` 在 `explore_code / plan_batch / apply_plan / verify_batch / append_batch / split_batch / replan_batch / ask_user / finish / block` 间推进；调度器只消费结构化 decision、ChangePlan、ChangeReport、approval record、permission decision 和 context pack,不解析模型散文。`--plan-file` 被导入为单 batch workflow seed,同样经过最终 apply-pre gate。run 持久化到 `.codrax/plans/workflows/`，REPL `/workflow show/list/resume/clear` 读取并管理该持久态。
 
-2026-06-10 系统性加固（GitHub issue eval P0 收口,详见 `docs/design/write_mode_github_issue_p0_systemic_hardening_20260610.md`）：
+控制器调度的几项结构性机制：
 
 - **Action enum 按 mode 投影**：`EmitWriteWorkflowDecision.ParametersFor(ctx)` 经 `WorkflowActionsForMode` 投影 schema——ModePlan 下 `apply_plan` / `verify_batch` 在模型看到 schema 之前就被移除；emit 时 typed 拒绝（`workflow_action_not_in_mode` repair）与调度器 guard 是第二、三层,三层读同一动作集来源。
 - **Canonical attempt state**：controller prompt 的 batch 行经 `DeriveBatchAttemptState` 渲染单一 phase——`ready_to_plan` + 最近 post-apply verify attempt failed 推导为 `needs_replan` + typed cause,状态与事件（`last_event`）不再同时呈现两种解读。
@@ -1458,7 +1458,7 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 
 **LLM-driven runner 选择**（首选）：verifier agent 看 worktree 后调 `run_tests` 时带 `runner=<choice>` + 可选 `working_dir`，系统验证 runner ∈ allowedRunners 白名单 + working_dir 在 worktree 内（`resolveLLMRunnerChoice`）。不传 runner 时回退 manifest 自动探测（`detectRunnerPlans`）；裸目录会失败。
 
-**Typed TestSurface（2026-06-10）**：`BuildTestSurface` 复用既有探测器（`detectRunnerPlanCandidates`——同 root 的全清单,不做执行路径的 one-runner-per-root 折叠——加 `runnerHasNoTestWork` / `detectMakeTestTargetFound` / `detectNativeBuildDir`）产出 typed 候选清单,排序规则为"**可运行测试工作支配 manifest 优先级**"：带 check/test 目标的 Makefile 排在零测试工作的 `pom.xml` 之前。verifier prompt 渲染该清单（typed 事实,soft 引导）。`run_tests` 内置 typed 死端逃逸：模型选择执行后落得零测试结果（NoTestsRunners）或 runner 二进制缺失,且 surface 还有未执行的 HasTestSignal 候选时,确定性追加执行最高位候选（每次 Execute 至多一次）。每条 ChangeReport 携带 `ExecutedCommands`（命令/cwd/exit/来源/结局 typed 行）与内嵌 `TestSurface`,dry-run probe 通道同样受益。
+**Typed TestSurface**：`BuildTestSurface` 复用既有探测器（`detectRunnerPlanCandidates`——同 root 的全清单,不做执行路径的 one-runner-per-root 折叠——加 `runnerHasNoTestWork` / `detectMakeTestTargetFound` / `detectNativeBuildDir`）产出 typed 候选清单,排序规则为"**可运行测试工作支配 manifest 优先级**"：带 check/test 目标的 Makefile 排在零测试工作的 `pom.xml` 之前。verifier prompt 渲染该清单（typed 事实,soft 引导）。`run_tests` 内置 typed 死端逃逸：模型选择执行后落得零测试结果（NoTestsRunners）或 runner 二进制缺失,且 surface 还有未执行的 HasTestSignal 候选时,确定性追加执行最高位候选（每次 Execute 至多一次）。每条 ChangeReport 携带 `ExecutedCommands`（命令/cwd/exit/来源/结局 typed 行）与内嵌 `TestSurface`,dry-run probe 通道同样受益。
 
 ### 8.8 Write Closure — W1 / W1b 不变量
 
@@ -1669,7 +1669,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 
 顺序多阶段语义由 controller batch 体系承载：`WorkflowSeedFromWriteAnalysis` 把 `WriteAnalysisIR.PhaseProposal`（split=sequential/parallel）的每个 phase 转成一个 planned batch,controller 按 batch 推进（每 batch 独立 plan→apply→verify attempt 记录、retry 预算、canonical attempt state、finish 硬门、失败证据落盘）。
 
-**历史（2026-06-11 退役）**：stage-II 的 `PlanGroup` 调度通道（`runPhaseGroup` + per-phase LLM acceptance check）在 controller-first 迁移后零调用,已删除。该通道的 LLM acceptance verdict 曾作为阶段推进硬门——按 §1.5 噪声信号不得驱动硬门,不再移植；acceptance criteria 仍以 `ChangePlan.AcceptanceTests` 渲染进 verifier prompt 并喂给 reflector。遗留 `.codrax/plans/groups/` 工件保持可读：`/phase show [<group-id>]` 只读展示（带 retirement 横幅）,`/merge group` 与 `/reject group` 仍可结算/清理；执行队列动词 `next/rollback/resume/skip` 已退役（会指引到 `/workflow`）。`PhaseGroupID`/`PhaseIndex` 字段保留（/history 分组、单 pending 豁免照常）。controller 探索子流程（`runWriteExplorationSubflow` 一族）是该文件存活的部分,已迁至 `write_exploration_subflow.go`。
+**遗留 PlanGroup 工件兼容**：早期版本以 `PlanGroup` 调度多阶段,其 per-phase LLM acceptance verdict 曾作为阶段推进硬门——按 §1.5 噪声信号不得驱动硬门,该模型已被 batch 体系取代；acceptance criteria 以 `ChangePlan.AcceptanceTests` 渲染进 verifier prompt 并喂给 reflector。磁盘上的 `.codrax/plans/groups/` 工件保持可读：`/phase show [<group-id>]` 只读展示（带提示横幅）,`/merge group` 与 `/reject group` 可结算/清理；执行队列动词 `next/rollback/resume/skip` 不再可用（输出会指引到 `/workflow`）。`PhaseGroupID`/`PhaseIndex` 字段保留（/history 分组、单 pending 豁免照常）。controller 探索子流程（`runWriteExplorationSubflow` 一族）位于 `write_exploration_subflow.go`。
 
 ### 8.21 红线总结
 
@@ -2756,9 +2756,9 @@ multi_repo_min_files: 1                 # 子仓 file count 下限,过滤空目�
 
 若用户通过 `--focus` 或 `/repos focus` 明确 pin 了子仓,系统严格遵守该 active set,不会自动补其它子仓。显式 focus 超过 cap 会 fail-loud,提示用户减少 focus 或提高 cap(硬上限 5),不静默裁剪。
 
-启动性能约束(2026-05-18):拓扑缓存只用“父目录存在 + 子仓 root 存在 + 子仓 manifest 指纹未变”判新鲜,**不再使用父目录 mtime**。原因是默认 `<cwd>/.codrax` 会写 logs/blob/cache,父目录 mtime 会被运行时文件频繁 bump,不能作为 hard stale 信号。冷启动发现多个子仓时,子仓 Tier-1 metadata probe (`git ls-files`) 以有界并行执行(默认 4 路);若 REPL 启动前发现耗时超过 2s,CLI 会先输出“正在发现工作区子仓拓扑(仅元数据,不构建 repo_map 索引)”和完成行,避免 banner 前长时间无反馈。
+启动性能约束:拓扑缓存只用“父目录存在 + 子仓 root 存在 + 子仓 manifest 指纹未变”判新鲜,**不再使用父目录 mtime**。原因是默认 `<cwd>/.codrax` 会写 logs/blob/cache,父目录 mtime 会被运行时文件频繁 bump,不能作为 hard stale 信号。冷启动发现多个子仓时,子仓 Tier-1 metadata probe (`git ls-files`) 以有界并行执行(默认 4 路);若 REPL 启动前发现耗时超过 2s,CLI 会先输出“正在发现工作区子仓拓扑(仅元数据,不构建 repo_map 索引)”和完成行,避免 banner 前长时间无反馈。
 
-**CLI flag**(2026-05-08 add):
+**CLI flag**:
 - `--focus <slug-or-path>`(repeatable / 逗号分隔)— 启动时预 pin 子仓,等价 REPL 启动后立即 `/repos focus`,但适用 scripted / non-REPL 调用。每 token 经 `topology.Resolve` 解 slug-or-RootRel,匹配不到的 token 一行 Warning + 丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略**(无 sub-repo 可匹配)。
 - `--multi-repo=false` — per-Run 关闭 multigraph routing;当父目录发现多个子仓但本次只要单仓语义时优先使用。该 flag 不靠用户/模型文本意图推断,只读 CLI typed bool 覆盖 `multi_repo_enabled`。
 
@@ -2876,7 +2876,7 @@ multigraph: mode=multi discovered=3 active=2 cap=2 evicted_in_60s=0 pending=[rep
 
 **剩余 raw consumer migration**(P4.B/C/D/E 设计原始任务)→ 重新分类为 **cross-sub-repo opt-in 增强**,非半成品。LRU + routing 架构使每个 Run 见到正确路由的子仓,跨仓 fan-out API 全部 wired,消费方按需消费。
 
-### 16.12 e2e eval 覆盖(2026-05-08 ship)
+### 16.12 e2e eval 覆盖
 
 **Fixture**:`eval/fixtures/multirepo-basic/` — 三子仓种子(repo-greet-go Go interface+impl、repo-tools-py Python `process_request`、repo-stub-rust Rust 哨兵)。**不含** `.git/` —`eval/run.sh::setup_multirepo_scratch` 在每次 run 时 `git init` 每个 immediate child 子目录。父目录(scratch)留作普通 dir(不是 git repo),正是 topology BFS layer 期望的形状。
 
@@ -2892,7 +2892,7 @@ multigraph: mode=multi discovered=3 active=2 cap=2 evicted_in_60s=0 pending=[rep
 
 **与单元测试的分工**:`internal/tool/repomap/topology/topology_test.go` 已覆盖 BFS / prune-nested / skip-excluded / cache-fresh 等 deterministic 单元行为;e2e eval cases 覆盖 LLM-面 fan-out:Implementers oracle 跨仓分派、keyword search 跨仓 grep、负向纪律(单焦点不串音)。两层互补,不重复。
 
-## 17. 跨输入源 negative knowledge — TypedDenials + BugClass(2026-05-08)
+## 17. 跨输入源 negative knowledge — TypedDenials + BugClass
 
 R3 红线第二维度落地:**precise typed signals 必须在每个 LLM 接触面都被 hard-enforce**,而不是 prose 引导。否则 LLM 可以从某个面绕过另一个面的 typed gate(例如 log_triage 清空 `frame.File` 但 `frame.Raw` 里的路径字符串保留 → LLM 抠出来 `read_file` 绕过)。
 
@@ -2985,7 +2985,7 @@ modality `"log"` / `"trace"` 各自调整术语(frames vs spans / exception type
 
 ---
 
-### 16.11 Cross-sub-repo fan-out — 6 类场景全启用(2026-05-08 收尾)
+### 16.11 Cross-sub-repo fan-out — 6 类场景全启用
 
 为多仓 workflow 核心用户,所有 cross-sub-repo 自动 fan-out 全部启用(不再 opt-in 状态):
 
