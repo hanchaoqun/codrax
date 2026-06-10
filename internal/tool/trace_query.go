@@ -53,6 +53,7 @@ var (
 	traceQueryLargeRecipeDiscoveryMinBytes int64 = 128 << 20
 	traceQueryWindowedIndexMinBytes        int64 = 64 << 20
 	traceQueryObjectiveKVTokenRE                 = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_./:-]*=[^\s,，。；;"'）)]+`)
+	traceQueryObjectiveFrameIDRE                 = regexp.MustCompile(`(?i)Choreographer#doFrame\D{0,32}([0-9]{3,})`)
 	traceQueryTimestampRE                        = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
 )
 
@@ -143,6 +144,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
+	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
 	storeStart := time.Now()
 	payload, _ := json.MarshalIndent(result, "", "  ")
 	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
@@ -267,6 +269,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
+	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
 	storeStart := time.Now()
 	payload, _ := json.MarshalIndent(result, "", "  ")
 	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
@@ -570,6 +573,7 @@ func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQ
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
+	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
 	storeStart := time.Now()
 	payload, _ := json.MarshalIndent(result, "", "  ")
 	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
@@ -1027,6 +1031,34 @@ func traceQueryObjectiveText(ctx *types.BusContext) string {
 		return ""
 	}
 	return ctx.Mutable.Objective()
+}
+
+func traceQueryObjectiveExactTokenCaveats(ctx *types.BusContext, p traceQueryParams, result tracequery.Result) []string {
+	if strings.TrimSpace(result.View) != "event_search" {
+		return nil
+	}
+	frameID := traceQueryObjectiveFrameID(ctx)
+	if frameID == "" {
+		return nil
+	}
+	pattern := strings.TrimSpace(p.Pattern)
+	if strings.Contains(pattern, frameID) {
+		return nil
+	}
+	return []string{fmt.Sprintf("objective_exact_frame_hint=user request names Choreographer#doFrame %s, but this event_search pattern %q does not include requested token %q; returned rows are not evidence that frame %s is absent. Rerun trace_query(view=\"frame_window\", pattern=%q, event_types=[\"trace_mark\"]) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
+		frameID, pattern, frameID, frameID, frameID, frameID)}
+}
+
+func traceQueryObjectiveFrameID(ctx *types.BusContext) string {
+	text := traceQueryObjectiveText(ctx)
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	m := traceQueryObjectiveFrameIDRE.FindStringSubmatch(text)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
 }
 
 func scanTraceQueryRecipeMarkers(ctx context.Context, path string, tokens []traceQueryRecipeDiscoveryToken, maxMarkers int) ([]traceQueryRecipeDiscoveryMarker, int, bool, error) {

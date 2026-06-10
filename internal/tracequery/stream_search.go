@@ -150,7 +150,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
 	if matchedTotal > len(events) {
 		res.Caveats = append(res.Caveats,
-			fmt.Sprintf("event_search stream compacted from %d to %d row(s); rerun with a narrower time/line/event filter for later matches", matchedTotal, len(events)))
+			fmt.Sprintf("event_search_stream_compacted=true; matched %d row(s) but returned the first %d chronological match(es) only; omitted rows may contain later frame/span ids, so do not infer absence without rerunning an exact literal token", matchedTotal, len(events)))
 	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, platformCaveats...)

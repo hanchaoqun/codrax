@@ -5256,6 +5256,12 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"event_search\", thread=%q, time_start=%.6f, time_end=%.6f, event_types=[\"sched_switch\",\"sched_wakeup\"]) or use pid if visible in the trace row", q.Thread, q.TimeStart, q.TimeEnd))
 		}
 	}
+	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit {
+		out = append(out, fmt.Sprintf("event_search_limit_reached=true; returned rows are the first %d chronological matches only, not an exhaustive result set; do not infer that a frame id/span label is absent from omitted rows", q.Limit))
+		if strings.TrimSpace(q.Pattern) != "" {
+			out = append(out, "event_search_exact_token_hint=for a requested frame id, jank id, span id, inode, or timestamp, rerun event_search or frame_window/span_window with that exact literal token before making any absence claim")
+		}
+	}
 	if q.LineStart > 0 || q.LineEnd > 0 {
 		out = append(out, "line-window filtering was used; time-window statistics only cover parsed rows inside that line window")
 	}

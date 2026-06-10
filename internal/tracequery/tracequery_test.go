@@ -473,6 +473,31 @@ func TestEventSearchPatternMatchesFrameIDsAndFields(t *testing.T) {
 	}
 }
 
+func TestEventSearchLimitCaveatPreventsAbsenceInference(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_pattern_limit.systrace", `
+      app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 170048
+      app-20 (20) [000] .... 9.001000: print: E|20
+      app-20 (20) [000] .... 9.010000: print: B|20|Choreographer#doFrame 170323
+      app-20 (20) [000] .... 9.011000: print: E|20
+      app-20 (20) [000] .... 9.020000: print: B|20|Choreographer#doFrame 173073
+      app-20 (20) [000] .... 9.021000: print: E|20
+`)
+	res := Run(idx, Query{View: "event_search", Pattern: "Choreographer#doFrame", Limit: 2})
+	if len(res.Events) != 2 {
+		t.Fatalf("expected limited event search to return two rows, got %+v", res.Events)
+	}
+	for _, want := range []string{
+		"event_search_limit_reached=true",
+		"first 2 chronological matches only",
+		"do not infer that a frame id/span label is absent",
+		"event_search_exact_token_hint",
+	} {
+		if !containsSubstring(res.Caveats, want) {
+			t.Fatalf("event_search limit caveat missing %q: %+v", want, res.Caveats)
+		}
+	}
+}
+
 func TestBuildIndexWithOptionsParsesOnlySelectedTimeWindow(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "windowed.systrace")
@@ -653,6 +678,38 @@ func TestStreamEventSearchFindsPatternWithoutFullIndex(t *testing.T) {
 	}
 	if !containsSubstring(res.Caveats, "streamed_event_search=true") {
 		t.Fatalf("stream search should disclose memory-safe mode: %+v", res.Caveats)
+	}
+}
+
+func TestStreamEventSearchCompactedCaveatPreventsAbsenceInference(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream_search_compacted.systrace")
+	body := strings.Join([]string{
+		`      app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 170048`,
+		`      app-20 (20) [000] .... 9.001000: print: E|20`,
+		`      app-20 (20) [000] .... 9.010000: print: B|20|Choreographer#doFrame 173073`,
+		`      app-20 (20) [000] .... 9.011000: print: E|20`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := StreamEventSearch(context.Background(), path, Query{Pattern: "Choreographer#doFrame", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 1 {
+		t.Fatalf("expected stream search to return one limited row, got %+v", res.Events)
+	}
+	for _, want := range []string{
+		"event_search_stream_compacted=true",
+		"matched 2 row(s) but returned the first 1 chronological match(es) only",
+		"omitted rows may contain later frame/span ids",
+		"do not infer absence",
+	} {
+		if !containsSubstring(res.Caveats, want) {
+			t.Fatalf("stream compact caveat missing %q: %+v", want, res.Caveats)
+		}
 	}
 }
 

@@ -532,6 +532,47 @@ func TestTraceQueryEventSearchPatternEmptyGivesRecoveryHint(t *testing.T) {
 	}
 }
 
+func TestTraceQueryEventSearchBroadPatternWithObjectiveFrameIDGivesExactHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "frame_broad.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.100000: print: B|20|Choreographer#doFrame 170048`,
+		`app-20 (20) [001] .... 1.120000: print: E|20`,
+		`app-20 (20) [001] .... 2.100000: print: B|20|Choreographer#doFrame 173073`,
+		`app-20 (20) [001] .... 2.120000: print: E|20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState(`分析 Choreographer#doFrame 173073 这一帧丢帧的深层次原因`),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "frame_broad.systrace",
+		"view":    "event_search",
+		"pattern": "Choreographer#doFrame",
+		"limit":   1,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"event_search_limit_reached=true",
+		"objective_exact_frame_hint",
+		`pattern "Choreographer#doFrame" does not include requested token "173073"`,
+		"not evidence that frame 173073 is absent",
+		`trace_query(view="frame_window", pattern="173073"`,
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("broad event_search should warn against absence inference, missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryLargeExplicitTimeWindowUsesWindowedIndex(t *testing.T) {
 	oldThreshold := traceQueryWindowedIndexMinBytes
 	traceQueryWindowedIndexMinBytes = 1
