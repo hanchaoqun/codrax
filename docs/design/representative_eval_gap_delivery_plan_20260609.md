@@ -974,3 +974,242 @@ Batches U-V are implemented through typed stage authority, deterministic
 answer-surface carrier coverage, and structural tests. They do not introduce
 prompt-only fixes, eval-regex branches, user-intent keyword matching,
 model-output prose hard gates, file-name constants, or case-value patches.
+
+## Delta D20. Locator-Safe Relation Matching And Guard Handoff
+
+The 2026-06-09 20:30 CST representative rerun exposed a data-lane failure:
+`data_multifile_reference_projection` reached terminal `complete`, but emitted
+`17,0,4` rather than `17,0,5`. Manual audit found that the output projection and
+reference universe were correct; the contribution input had already been
+polluted by a locator-like enrichment mismatch.
+
+Typed behavior for this delta:
+
+- locator-like fields are row identity carriers, not fuzzy text;
+- `enrich_records` uses exact locator keys when the spec pairs generated row
+  locators with composite locator fields;
+- ordinary semantic text/value enrich specs keep their existing match modes;
+- `artifact_schema_incompatible` guard output now forwards ranked executable
+  record candidates through `candidate_artifacts`;
+- candidate ranking uses typed field contracts, record-shaped artifact
+  projections, executable-record status, lineage overlap, and row counts;
+- no hard decision reads user intent keywords, eval strings, file names,
+  business values, model repair prose, or model-authored answer prose.
+
+Run large-repo/eval validation with an explicit soft heap target, for example:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax ...
+```
+
+`GOMEMLIMIT` is a Go heap target rather than an RSS hard cap; pair it with a
+container/cgroup/ulimit cap below the host memory limit when running on
+memory-constrained large repositories. The large-repo details remain in
+`docs/design/large_repo_memory_resilience.md`, `docs/architecture.md`,
+`docs/user_guide.md`, and `codrax.yaml.example`.
+
+### Batch W - Locator-Safe Enrichment
+
+Tasks:
+
+1. Add locator-like spec detection in `enrich_records`.
+   - Detect generated row/index/line/source locator fields.
+   - Detect composite locator fields such as `item_id`.
+   - Route only locator-like specs to exact locator-key matching.
+
+2. Derive exact locator keys.
+   - Use current action-record index for generated index-like base fields.
+   - Parse lookup composite locator values into source-row keys.
+   - Preserve ordinary field values for non-locator fuzzy matching.
+
+3. Preserve audit metadata.
+   - Mark locator mapping rows with `locator_match_mode=exact`.
+   - Keep existing fuzzy match diagnostics for ordinary enrich specs.
+
+4. Add regression coverage.
+   - A filtered base row with stale `_source_index` enriches by current row
+     identity against `item_id`.
+   - A shifted duplicate label does not bind to another row's canonical label.
+
+Validation:
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataquery -run 'EnrichRecords|JoinRecords'
+
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/data_multifile_reference_projection.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_data_after_locator_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Acceptance:
+
+- focused data eval returns `17,0,5`;
+- terminal data status is `complete`;
+- contribution and reconcile ledgers remain present;
+- no case-value patch, file-name branch, prompt-only change, or user/model
+  prose hard gate is introduced.
+
+### Batch X - Record Candidate Handoff For Schema Guards
+
+Tasks:
+
+1. Add `ActionInputExpectedFields`.
+   - Reuse the existing field-ref helpers for single-record, join, normalize,
+     enrich, and contribution actions.
+   - Return no candidate-driving fields when an action has no structured field
+     contract.
+
+2. Add executable record candidate ranking.
+   - Filter to record-shaped/action-usable projections.
+   - Prefer all-field matches, then structural lineage overlap, then row count.
+   - Format candidates as audit-safe structural labels.
+
+3. Attach candidates to guard output.
+   - Populate `WorkflowViolation.CandidateArtifacts`.
+   - Include the candidate summary in the guard reason.
+   - Preserve the existing hard rejection and repair action hints.
+
+4. Add regression coverage.
+   - A wrapper artifact rejected by `artifact_schema_incompatible` reports the
+     same-lineage executable record alias and matching fields.
+
+Validation:
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataworkflow -run 'ActionSchemaShapeGuard|FieldContract|ArtifactSchema|Completion|Projection'
+```
+
+Acceptance:
+
+- schema guards become more informative without weakening hard gates;
+- repair planners receive structured candidate handoff instead of generic-only
+  hints;
+- no auto-acceptance is based on noisy ranker scores.
+
+### Final Batch W-X Verification Plan
+
+1. Run the focused data and workflow tests above.
+2. Rebuild `codrax` with `GOMEMLIMIT=6GiB`.
+3. Rerun the four representative cases with `PARALLEL=2`.
+4. Manually audit answers and logs:
+   - data answer must be `17,0,5`;
+   - data terminal must be complete with reconcile pass;
+   - qf and trace answers must remain rich and semantically correct;
+   - multi-repo scope answer must stay bucketed by active subrepo.
+5. Commit and push each batch to `main`.
+
+## Delta D21. Terminal Journal Hygiene And Canonical Provenance Handoff
+
+Post W-X validation exposed two remaining systemic gaps:
+
+- terminal complete data snapshots could still expose stale top-level
+  violation summaries from superseded repair attempts;
+- entity-resolution ledgers did not preserve the source/reference field
+  provenance needed by later apply/contribution/reference stages.
+
+Typed behavior for this delta:
+
+- active terminal violations are cleared only when typed completion and
+  completion-satisfied state agree;
+- historical repair evidence remains in process history for audit;
+- `normalize_entities` materializes `source_field`,
+  `canonical_id_field`, and `canonical_label_field` per resolution row;
+- `apply_entity_resolutions` honors that provenance when deciding whether a
+  target label field should receive the canonical id value or canonical label
+  value;
+- old explicit resolution artifacts without provenance remain compatible and
+  keep existing behavior;
+- no decision is based on prompt wording, user-intent keywords, eval values,
+  file names, model repair prose, or final-answer prose.
+
+### Batch Y - Terminal Journal Active-State Cleanup
+
+Tasks:
+
+1. Identify complete terminal snapshots with precise signals.
+   - Use workflow completion satisfaction.
+   - Use typed complete decision status.
+
+2. Reset only active violation fields.
+   - Clear top-level `WorkflowViolations`.
+   - Reset top-level `WorkflowViolationSummary`.
+   - Preserve previous attempts in historical journal/process fields.
+
+3. Add regression coverage.
+   - A completed snapshot with stale active violations must serialize with
+     zero active violations.
+
+Validation:
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataworkflow -run 'WorkflowJournal|ActionSchemaShapeGuard|FieldContract|ArtifactSchema|Completion|Projection'
+```
+
+Acceptance:
+
+- terminal complete artifacts do not advertise already-resolved blockers as
+  active violations;
+- audit history remains available;
+- no answer richness or finalizer surface is reduced.
+
+### Batch Z - Canonical Resolution Provenance Handoff
+
+Tasks:
+
+1. Extend `EntityResolutionRecord`.
+   - Add optional provenance fields: `source_field`, `canonical_id_field`,
+     and `canonical_label_field`.
+   - Parse common structured aliases for explicit JSON resolution artifacts.
+
+2. Populate provenance at normalization time.
+   - Reference-mode normalization records the source field and reference
+     canonical fields used for each row.
+   - Single-input normalization records declared or inferred canonical fields.
+   - Empty ledger payloads expose the same headers for downstream schema
+     visibility.
+
+3. Use provenance at apply time.
+   - If `target_label_field` equals the recorded canonical id source field,
+     materialize the canonical id into that target field.
+   - Otherwise keep materializing the canonical label.
+   - Keep existing behavior for resolution rows without provenance.
+
+4. Add regression coverage.
+   - A downstream grouping field that matches the reference canonical key field
+     must receive canonical keys, not source/display aliases.
+   - Contributions must reconcile to the canonical-key universe.
+
+Validation:
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataquery -run 'PreservesCanonicalKeyProvenance|NormalizeEntitiesReferenceMode|ApplyEntityResolutions|EnrichRecords|JoinRecords|Contribution'
+
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -run 'Projection|Completion|Contribution|Enrich|Join|Reference|ActionSchemaShapeGuard|FieldContract|ArtifactSchema|WorkflowJournal|PreservesCanonicalKeyProvenance'
+```
+
+Acceptance:
+
+- focused data eval returns `17,0,5`;
+- terminal data snapshot is complete and has no stale active violations;
+- representative sweep stays all-pass with trace/qf answer richness preserved;
+- code uses structured provenance and typed contracts, not prompt-only or
+  case-value patches.
+
+### Final Batch Y-Z Verification Plan
+
+1. Run focused dataquery/dataworkflow regression tests.
+2. Rebuild `codrax` with `GOMEMLIMIT=6GiB`.
+3. Run focused `data_multifile_reference_projection` eval.
+4. Audit the terminal artifact:
+   - final answer `17,0,5`;
+   - `output_projection_graph.status=satisfied`;
+   - top-level active violation summary is empty in complete state.
+5. Rerun the four representative cases with `PARALLEL=2`.
+6. Commit scoped dataquery/dataworkflow/docs changes on `main` and push.

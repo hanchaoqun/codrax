@@ -1081,3 +1081,285 @@ Closed by this delta:
 - G26: trace richness was preserved; no dedupe/trim fix was introduced.
 - G27: architecture prose sections with equivalent parenthetical-stripped labels
   now suppress competing principal-enum supplements.
+
+## Current Hardening Rerun - 2026-06-09 20:30 CST
+
+The representative set was run again with two cases in parallel and an explicit
+large-repo memory guard:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_hardening_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Summary path:
+`eval/results/representative_eval_20260609_hardening_summary.md`
+
+| case | verdict | data status | flags | manual audit |
+|---|---|---|---|---|
+| `qf_architecture` | PASS | - | `contract_warning` | Semantically correct. Stage responsibility richness stayed visible; warning remained advisory answer-contract telemetry. |
+| `read_combo_trace_current_source_explanation` | PASS | - | `finalizer auto_repair context_prune` | Semantically correct and intentionally rich. The repeated carriers preserved requested parse/jank/evidence-boundary dimensions. |
+| `data_multifile_reference_projection` | FAIL | `complete` | `verdict` | Terminal status was `complete`, but the final answer was `17,0,4` instead of `17,0,5`. |
+| `mr_cross_repo_compare` | PASS | - | `contract_warning` | Scope and subrepo buckets remained correct. |
+
+### G28. Locator-Like Enrichment Keys Were Treated As Fuzzy Text
+
+The data workflow failure was upstream of final projection. The final reference
+path was correct and the output contract preserved the three target rows, but a
+prior enrichment step polluted the contribution table.
+
+The problematic action used `enrich_records` with
+`base_fields=["_source_index"]`, `lookup_fields=["item_id"]`, and
+`match_mode="contains"`. After filtering inactive rows, the surviving base row
+for `Beta` still carried the original locator `_source_index=4`; the
+normalization ledger's `item_id` locators referred to the current source-row
+identity. Fuzzy contains matching therefore allowed a locator/value mismatch:
+`Beta` attached to the `#4` canonical row, while the real `Gamma alt` row was
+dropped. Contribution, reconcile, and assemble then became internally
+consistent over polluted input and emitted `17,0,4`.
+
+This is not a projection repair problem and not an answer dedupe problem. The
+deep root cause is that locator-like fields encode row identity and must not be
+interpreted as fuzzy text just because an action requested `contains`.
+
+Generic fix direction: relation actions should classify structured locator
+fields separately from ordinary value fields. When a lookup spec pairs generated
+row locators (`_source_index`, `row_index`, `source_locator`, line/index
+variants) with composite locator fields such as `item_id`, matching must derive
+exact locator keys from the current record identity and source locator
+metadata. Fuzzy `contains` remains available for ordinary semantic text/value
+fields. The hard behavior uses field roles, locator structure, artifact row
+identity, and typed action params; it does not inspect user intent keywords,
+model prose, eval strings, file names, or case business values.
+
+### Batch W - Locator-Safe Enrichment
+
+1. Detect locator-like enrich specs.
+   - Treat generated index/line/source locator fields and composite locator
+     strings as row-identity fields.
+   - Leave ordinary text/value fields on the existing match-mode path.
+
+2. Build exact locator keys for base and lookup sides.
+   - For generated index-like base fields, derive the key from the current
+     action record index rather than stale source-field values.
+   - For composite lookup values, parse structured row locators into exact
+     keys.
+
+3. Preserve auditability.
+   - Annotate mapping child rows with `locator_match_mode=exact` when locator
+     matching is active.
+   - Keep existing fuzzy metadata for non-locator matches.
+
+4. Add regression coverage.
+   - A filtered base artifact with stale `_source_index` values must enrich by
+     current row identity when the lookup side is a composite locator.
+   - Duplicate/shifted rows must not bind to the wrong canonical row.
+
+### G29. Complete Answers Can Still Carry Costly Alias-Repair Handoff Gaps
+
+After Batch W, the focused data case passed with the correct final answer, but
+the run still required five data repair rounds. Logs show early plans consumed
+`observations_raw` / `labels_mapped` as typed record inputs even though the
+artifact schema projected those aliases as wrapper artifacts with
+`node_class=artifact`. The workflow eventually recovered by selecting
+record-shaped aliases, but the `artifact_schema_incompatible` violation only
+reported generic repair hints (`extract_records`, `inspect_material`) instead
+of handing the repair planner concrete executable record candidates.
+
+This is a convergence and handoff gap, not a semantic answer defect. The final
+answer should remain rich and correct; the system should reduce avoidable guard
+collisions by forwarding the structured evidence it already has.
+
+Generic fix direction: admission guards that reject non-record artifacts should
+include ranked `candidate_artifacts` built from typed action field contracts,
+record-shaped artifact projections, executable record-input status, and
+lineage overlap. This is a soft repair hint attached to an existing hard gate;
+it does not auto-accept noisy candidates and does not parse model-authored
+repair prose.
+
+### Batch X - Record Candidate Handoff For Schema Guards
+
+1. Extract expected fields for each typed action input.
+   - Reuse existing single-record, join, enrich, normalize, and contribution
+     field-contract helpers.
+   - Keep the result empty when the action has no structured field contract.
+
+2. Rank executable record candidates.
+   - Require record-shaped/executable artifact projections.
+   - Prefer candidates matching all expected fields.
+   - Break ties with structural lineage overlap and row count.
+
+3. Attach candidates to guard output.
+   - Populate `WorkflowViolation.CandidateArtifacts`.
+   - Add the same candidate summary to the guard reason for audit logs.
+   - Preserve existing repair action hints and rejection behavior.
+
+4. Add regression coverage.
+   - A wrapper artifact input rejected by `artifact_schema_incompatible` must
+     hand off the same-lineage executable record alias with its matching fields.
+
+## Verification After Batches W-X
+
+Focused unit validation:
+
+```bash
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataworkflow -run 'ActionSchemaShapeGuard|FieldContract|ArtifactSchema|Completion|Projection'
+
+GOMEMLIMIT=6GiB GOCACHE=/private/tmp/codrax-gocache GOTMPDIR=/private/tmp \
+go test ./internal/dataquery -run 'EnrichRecords|JoinRecords'
+```
+
+Focused data eval after Batch W:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/data_multifile_reference_projection.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_data_after_locator_summary.md \
+bash eval/convergence_audit.sh
+```
+
+Result: `data_multifile_reference_projection` PASS, terminal
+`status=complete`, `data_rounds=11`, `repair_rounds=5`, final answer
+`17,0,5`, and terminal artifact
+`.codrax/data-audit/20260609-205132-896452-53357-terminal.json` reports
+`expected_answer=17,0,5` and `actual_answer=17,0,5`.
+
+## Post W-X Full Sweep - 2026-06-09 21:05 CST
+
+Command:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/qf_architecture.case eval/cases/read_combo_trace_current_source_explanation.case eval/cases/data_multifile_reference_projection.case eval/cases/mr_cross_repo_compare.case' \
+PARALLEL=2 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_after_locator_handoff_summary.md \
+bash eval/convergence_audit.sh
+```
+
+All four representative cases passed. Manual audit kept answer richness intact:
+the qf and trace answers preserved their multi-dimensional explanations, the
+multi-repo answer stayed bucketed by active subrepo, and the data answer was
+`17,0,5` with `output_projection_graph.status=satisfied`.
+
+### G30. Complete Terminal Snapshots Kept Stale Top-Level Violations
+
+The data terminal snapshot was complete, reconcile passed, and output
+projection was satisfied, but the top-level
+`workflow_violation_summary` still contained stale earlier
+`action_dependency` violations. The latest decision and final answer were
+correct; the stale violations only came from earlier repair attempts that were
+superseded by a later complete state.
+
+This is a journal-state hygiene gap, not an answer-generation gap. Leaving stale
+top-level violations in a complete terminal artifact weakens downstream
+handoff: later audit/repair consumers can treat already-resolved issues as
+active blockers, while the richer historical evidence should remain available
+inside prior process entries.
+
+Generic fix direction: terminal journal snapshots should clear top-level active
+violation fields only when a typed complete decision and completion-satisfied
+state agree. Historical violations stay in process history and
+`last_nonterminal_error` for auditability. The decision uses typed status and
+completion booleans, not text matching over model prose.
+
+### Batch Y - Terminal Journal Active-State Cleanup
+
+1. Detect terminal complete snapshots structurally.
+   - Require `WorkflowStateSnapshotCompletionSatisfied(state)`.
+   - Require a complete-looking typed decision status.
+
+2. Clear only active top-level violations.
+   - Reset `WorkflowViolations` and `WorkflowViolationSummary` in the terminal
+     snapshot.
+   - Preserve process history and nonterminal error lineage.
+
+3. Add regression coverage.
+   - A completed snapshot with stale violations must serialize with zero active
+     top-level violations.
+   - Historical context remains available for audit.
+
+## Focused Data Rerun After Batch Y - 2026-06-09 21:11 CST
+
+Command:
+
+```bash
+GOMEMLIMIT=6GiB CODRAX_BIN=/Users/han/opt/codrax/codrax \
+CASES='eval/cases/data_multifile_reference_projection.case' \
+PARALLEL=1 RUNS=1 TIMEOUT=1200 \
+SUMMARY=eval/results/representative_eval_20260609_data_after_journal_summary.md \
+bash eval/convergence_audit.sh
+```
+
+The focused data rerun failed with terminal `status=complete`,
+`repair_rounds=1`, and final answer `0` instead of `17,0,5`. Terminal artifact:
+`.codrax/data-audit/20260609-211124-031639-79134-terminal.json`.
+
+Manual audit found a different data path from the earlier locator failure:
+
+- `normalize_entities` correctly derived `canonical_id` values from the
+  reference table's canonical key field.
+- The same resolution rows carried `canonical_label` values from the reference
+  table's match/display alias field.
+- `apply_entity_resolutions` wrote the alias value into the downstream
+  `target_label_field` even when that target field represented the canonical
+  key field expected by later contribution/reference projection stages.
+- `compute_contributions` grouped by the alias values, creating internally
+  valid but reference-incompatible groups.
+- `assemble_answer` later projected against the wrong group universe and
+  emitted `0`.
+
+### G31. Canonical Resolution Provenance Was Not Preserved Across Apply
+
+The deep root cause is missing field provenance in the entity-resolution
+ledger. A resolution row had two values, `canonical_id` and `canonical_label`,
+but downstream actions could not tell which source/reference fields produced
+those values. When a target field name matches the reference canonical-key
+field, writing the display/match alias into that field corrupts the structural
+group key before contribution and assemble stages run.
+
+This cannot be fixed safely by answer dedupe, by changing `compute_contributions`
+for one field name, or by adding prompt instructions. The generic system needs
+resolution ledgers to self-describe canonical value provenance and apply stages
+to honor that schema contract.
+
+Generic fix direction: `normalize_entities` should materialize per-row
+`source_field`, `canonical_id_field`, and `canonical_label_field` provenance.
+`apply_entity_resolutions` should use those typed fields to decide whether a
+target label field should receive the canonical id value or the canonical label
+value. Existing resolution artifacts without provenance keep the old behavior.
+The hard behavior reads exact structured fields and declared target fields; it
+does not inspect user intent keywords, model-authored prose, eval business
+values, or final-answer text.
+
+### Batch Z - Canonical Provenance Handoff
+
+1. Extend entity-resolution records with provenance fields.
+   - Add optional `source_field`, `canonical_id_field`, and
+     `canonical_label_field`.
+   - Keep backward compatibility for existing explicit JSON/CSV resolution
+     artifacts.
+
+2. Populate provenance in typed normalization.
+   - Reference-mode normalization records the matched source field and the
+     reference fields that produced canonical id and label values.
+   - Single-input normalization records the inferred or declared canonical
+     fields.
+
+3. Honor provenance in resolution application.
+   - When `target_label_field` equals the recorded canonical id source field,
+     write the canonical id value to that target field.
+   - Otherwise preserve existing canonical label behavior.
+
+4. Add regression coverage.
+   - A reference table whose canonical key field is the downstream group field
+     must group contributions by canonical keys, not display/match aliases.
+
+5. Re-run focused and representative evals.
+   - Focused data eval must return `17,0,5`.
+   - Representative sweep must keep all four cases passing with answer
+     richness preserved.
