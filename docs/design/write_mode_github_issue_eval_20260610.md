@@ -243,3 +243,46 @@ Residual follow-ups observed at `a89ce192`, with the later live-ledger status:
    traces show those mechanisms are now active and useful.
 
 No additional eval runs should be started unless explicitly requested.
+
+## Round 3 + Final Tally — 2026-06-11 (binary at `940656a6`)
+
+dateutil round-2 exposed two further gaps, fixed and re-verified:
+
+- **Bare-dir surface synthesis + framework-aware escalation**: a bare Python
+  directory produced an empty TestSurface, so `runner=python framework=pytest`
+  on a pytest-less host dead-ended with nowhere to escalate.
+  `BuildTestSurface` now synthesizes python candidates from the typed
+  convention detectors, candidate keys carry the framework, and a pytest
+  dead end escalates to the stdlib unittest sibling of the same directory.
+- **Rejection-citing no-plan retry**: the bounded no-plan re-dispatch fired
+  but its generic hint let the planner repeat the exact rejected shape
+  (micro-scope `kind=modify`). The retry hint now carries the newest
+  plan-emit rejection summary verbatim (typed tool-result records; a newer
+  successful emit suppresses stale citations).
+
+Round-3 dateutil: PASS (`python/unittest exit=0 llm_choice executed`).
+
+### Final tally — latest run per case: 8 / 8 PASS
+
+| Case | Verdict | Load-bearing mechanism in the passing run |
+| --- | --- | --- |
+| C libgit2 #7216 | PASS | single-file patch, make surface |
+| C++ nlohmann #3929 | PASS | medium/auto approval (decomposed risk), two-header patch, harness reader fix |
+| Java commons-lang #1273 | PASS | surface-driven make choice; broadened digit oracle |
+| TS zod #5824 | PASS | replan convergence within budget; F2 pacing + completion lane |
+| Java gson (issue 627 class) | PASS | make oracle on a JRE-less host |
+| JS dayjs #1611 | PASS | live runner-missing escalation node→make |
+| C++ fmt #2564 | PASS | real compile+run verification (-fwrapv deterministic reduction) |
+| Python dateutil gh-411/553 | PASS | bare-dir synthesized surface, unittest lane |
+
+### Open watch items (cross-ref: remote-main recheck note of 2026-06-10)
+
+1. Approval behavior for full-file source+test `modify` plans observed once
+   as `pending_approval` at `a89ce192` in the sibling workspace; not
+   reproduced in this clone's rounds (all plans here emitted `kind=patch`
+   and auto-executed at medium). Needs a typed repro before changing the
+   gate.
+2. Formatting quality of functional edits (one libgit2 pass compressed a
+   `return` onto the `if` line). Any check here reads style — a noisy
+   signal — so per the architecture red line it can only ever be soft
+   advisory, never a hard gate.
