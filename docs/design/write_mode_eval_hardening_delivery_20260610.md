@@ -204,10 +204,10 @@ flowchart TD
 
 ### Batch 2: ModePlan Terminal Gate
 
-- [ ] After successful plan in `ModePlan`, mark workflow complete and return.
-- [ ] Persist reviewable plan/run context without applying or blocking.
-- [ ] Add controller scheduler tests for `ModePlan` ignoring later apply actions.
-- [ ] Commit and push.
+- [x] After successful plan in `ModePlan`, mark workflow complete and return.
+- [x] Persist reviewable plan/run context without applying or blocking.
+- [x] Add controller scheduler tests for `ModePlan` ignoring later apply actions.
+- [x] Commit and push.
 
 ### Batch 3: Durable Pending Approval Resume
 
@@ -269,3 +269,4 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | 0 | complete | `874200f0` | pushed | Hardening reopened from eval evidence. |
 | 1 | complete | current batch | pushed | Go parser now preserves package build failures next to passing sibling package tests. Tests: `go test ./internal/tool -run 'TestParseGoTestJSONLines|TestParseGoTest_CompileErrorMapsToBuildFailed|TestRenderBuildFailureSummary|TestFirstBuildErrorAssertionID|TestMergeChangeReports'`, `go test ./internal/tool`. |
+| 2 | complete | current batch | pushed | ModePlan now terminates after a reviewable ChangePlan and never reaches apply/verify. Tests: `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'`. |

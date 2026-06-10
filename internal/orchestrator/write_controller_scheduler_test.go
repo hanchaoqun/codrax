@@ -178,6 +178,56 @@ func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	}
 }
 
+func TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("plan only")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "plan only"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce reviewable plan"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "must_not_be_reached"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModePlan, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("ModePlan should not dispatch %s after plan_batch", stage)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-mode-only",
+			Status:      types.PlanStatusPending,
+			Summary:     "review me",
+			TargetPaths: []string{"fix.go"},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if controllerCalls != 1 {
+		t.Fatalf("ModePlan should stop after the first plan decision, controller calls=%d", controllerCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("ModePlan workflow should complete after plan, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchPlanned {
+		t.Fatalf("batch should remain reviewable/planned, got %+v", store.last.Batches)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "plan_mode_complete") {
+		t.Fatalf("plan_mode_complete progress should be recorded: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "apply_not_allowed_in_plan_mode") {
+		t.Fatalf("ModePlan should not reach apply blocking path: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("repair failing verify")

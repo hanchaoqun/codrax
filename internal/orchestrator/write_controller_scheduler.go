@@ -116,6 +116,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
+			if o.busCtx.Mode == types.ModePlan {
+				run.Status = types.WriteWorkflowRunComplete
+				appendControllerProgress(&run, run.ActiveBatchID, "plan_mode_complete", "plan mode stops after producing a reviewable ChangePlan")
+				o.persistWriteWorkflowRun(&run)
+				return nil
+			}
 		case writeflow.ActionApplyPlan:
 			if o.busCtx.Mode == types.ModePlan {
 				run.Status = types.WriteWorkflowRunBlocked
