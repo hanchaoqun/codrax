@@ -264,6 +264,14 @@ type LogFrame struct {
 	// in polyglot stacks — e.g. JNI code in a Java trace).
 	Lang string `json:"lang,omitempty"`
 
+	// ArtifactStartTsMs / ArtifactDurationMs carry the artifact-local
+	// time window when the frame was projected from a performance
+	// trace (PerfStall keeps its timing; a plain log frame leaves
+	// these zero). Downstream consumers can re-anchor a trace-derived
+	// frame back to its moment without re-reading the trace.
+	ArtifactStartTsMs   float64 `json:"artifact_start_ts_ms,omitempty"`
+	ArtifactDurationMs  float64 `json:"artifact_duration_ms,omitempty"`
+
 	// File is the source file path. The LLM emits the raw form as it
 	// appears in the log (may be absolute build path or basename or
 	// repo-relative); ValidateBundle normalises via StripBuildPathPrefix

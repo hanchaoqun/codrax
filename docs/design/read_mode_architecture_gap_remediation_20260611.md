@@ -81,10 +81,12 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 - [x] force-finalize 派发前 drain `runForcedReads()`(closure 已排队的确定性文件读取,组合式 finalize 前最后一次充实证据池);可达性已核实(函数自包含)。
 - [x] 全量回归绿 + 判定矩阵测试。
 
-### 批 3 — R3 降级可见性 + R4 混合协调(P1)
-- [ ] `PreStageDegradation` 载体 + analyzer 渲染段 + finalizer caveat。
-- [ ] `AttachedArtifactView` 聚合视图;前置顺序显式化 + 钉序测试。
-- [ ] LogFrame 时间坐标透传;RequiredFiles 合并语义具名化 + 测试。
+### 批 3 — R3 降级可见性 + R4 混合协调(P1)【已交付】
+- [x] `PreStageDegradation` typed 载体(stage + dispatch_error/emit_rejected 枚举 + 400 字节有界摘要),前置失败两个分支记录;prompt 侧 `attachedTriageUnavailable` 状态追加"结构化解析未被接受(原因)"说明;答案侧经统一 caveat 汇点输出中英文降级披露。
+- [x] `Mutable.AttachedArtifacts()` 单锁原子读双 lane;builder 与 analyzer 合并点改用之,消除两步读不一致窗口。
+- [x] preStages 声明序契约注释 + `TestPreStageOrder_LogBeforePerf` 钉序。
+- [x] trace 投影 `LogFrame` 补 `ArtifactStartTsMs/ArtifactDurationMs`(产出端已有数据,纯透传),trace 帧可回锚时间窗。
+- [x] 实施期复核修正:审计的"log authority 排除 perf 文件"断言错误——perf union 发生在 authoritative ceiling 返回之前,perf 文件随 ceiling 一同返回;补澄清注释,无行为改动。
 
 ### 批 4 — R5 emit 一致性 + R7 溢出计量(P2)
 - [ ] `decodeWithSalvage` 统一 seam;emit_log_triage / emit_perf_trace 迁移。
@@ -109,4 +111,6 @@ extractor 侧三个硬上限(evidence 24 / notes 6 / flow findings 10)溢出时�
 - 方案落盘并推送。
 - 批 1 交付:终止画像 + 终局 floor 收敛 + 降级 caveat 汇点;全量测试绿。
 - 批 2 交付:kind/locus 分账 + force-finalize 前 drain;全量测试绿。
+- 批 3 交付:前置降级全链路可见 + 混合场景原子读/钉序/时间坐标;全量测试绿。
+- 实测第四波:logtri_cpp_asan PASS、trace_query_donghu_mixed_platform PASS。四轴八案 7/8,唯一 FAIL 为 case spec 词汇钉死(非系统缺陷)。
 - 实测第二、三波:trace_query_blocked_reason_chain PASS、qf_architecture PASS、trace_query_state_churn_root_cause_rank PASS;logtri_line_current_code FAIL 判定为 case spec 词汇钉死(答案以精确 file:line 引用结合源码,优于字面"源码"一词;spec 待放宽)+ 顺带挖出 R8:emit_hypothesis_verdict 对 artifact-local 锚点的条件接受,拒绝消息未说明条件分支,归入批 4 的拒绝消息精度项。

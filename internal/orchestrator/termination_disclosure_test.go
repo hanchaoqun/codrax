@@ -38,3 +38,17 @@ func TestAppendSystemCaveats_NoDegradationNoCaveat(t *testing.T) {
 		t.Fatalf("non-degraded termination must not add caveats, got %q", got)
 	}
 }
+
+func TestAppendSystemCaveats_PreStageDegradationVisible(t *testing.T) {
+	mu := types.NewMutableState("prestage")
+	mu.AddPreStageDegradation(types.PreStageDegradation{Stage: types.StageLogTriage, Kind: types.PreStageDegradationEmitRejected, Summary: "structured rows rejected"})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "zh"}}
+	got := o.appendSystemCaveatsToAnswer("body")
+	if !strings.Contains(got, "未能完成结构化解析") {
+		t.Fatalf("zh degradation caveat missing, got %q", got)
+	}
+	o2 := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "en"}}
+	if got2 := o2.appendSystemCaveatsToAnswer("body"); !strings.Contains(got2, "could not be structurally parsed") {
+		t.Fatalf("en degradation caveat missing, got %q", got2)
+	}
+}

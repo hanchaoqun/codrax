@@ -246,7 +246,7 @@ func TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty(t *testing.T) {
 // no blob.
 func TestFormatAttachedLog_InlineSmall(t *testing.T) {
 	payload := "panic: boom\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/a.go:1 +0x1\n"
-	got := formatAttachedLog(payload, "", attachedTriageStructured)
+	got := formatAttachedLog(payload, "", attachedTriageStructured, "")
 	if !strings.Contains(got, "main.x()") || !strings.Contains(got, "/src/a.go:1") {
 		t.Errorf("small payload not rendered: %s", got)
 	}
@@ -264,7 +264,7 @@ func TestFormatAttachedLog_InlineSmall(t *testing.T) {
 func TestFormatAttachedLog_PreambleTracksTriageState(t *testing.T) {
 	payload := "panic: boom\nmain.x()\n\t/src/a.go:1\n"
 
-	missing := formatAttachedLog(payload, "", attachedTriageUnavailable)
+	missing := formatAttachedLog(payload, "", attachedTriageUnavailable, "")
 	if !strings.Contains(missing, "No structured log summary is available") {
 		t.Fatalf("missing-bundle preamble should say raw log is unparsed: %s", missing)
 	}
@@ -272,12 +272,12 @@ func TestFormatAttachedLog_PreambleTracksTriageState(t *testing.T) {
 		t.Fatalf("missing-bundle preamble must not claim triage success: %s", missing)
 	}
 
-	structured := formatAttachedLog(payload, "", attachedTriageStructured)
+	structured := formatAttachedLog(payload, "", attachedTriageStructured, "")
 	if !strings.Contains(structured, "structured log summary is already available") {
 		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
 	}
 
-	producer := formatAttachedLog(payload, "", attachedTriageProducer)
+	producer := formatAttachedLog(payload, "", attachedTriageProducer, "")
 	if !strings.Contains(producer, "Prepare a structured summary") {
 		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}
@@ -291,7 +291,7 @@ func TestFormatAttachedLog_BlobOffload(t *testing.T) {
 	// 8 KB payload above the 4 KB inline cap.
 	const N = 8 * 1024
 	payload := strings.Repeat("A", N)
-	got := formatAttachedLog(payload, dir, attachedTriageStructured)
+	got := formatAttachedLog(payload, dir, attachedTriageStructured, "")
 	if !strings.Contains(got, "bytes elided") {
 		t.Errorf("large payload missing elision marker")
 	}
@@ -315,7 +315,7 @@ func TestFormatAttachedLog_BlobPreviewKeepsArtifactLineGutters(t *testing.T) {
 		lines[i] = fmt.Sprintf("line-%03d %s", i+1, strings.Repeat("x", 12))
 	}
 	payload := strings.Join(lines, "\n")
-	got := formatAttachedLog(payload, dir, attachedTriageStructured)
+	got := formatAttachedLog(payload, dir, attachedTriageStructured, "")
 	if !strings.Contains(got, "     1│ line-001") {
 		t.Fatalf("head preview missing artifact line gutter:\n%s", got)
 	}
@@ -334,7 +334,7 @@ func TestFormatAttachedLog_BlobPreviewKeepsArtifactLineGutters(t *testing.T) {
 func TestFormatAttachedLog_NoWorkDirFallsBack(t *testing.T) {
 	const N = 10 * 1024
 	payload := strings.Repeat("B", N)
-	got := formatAttachedLog(payload, "", attachedTriageUnavailable)
+	got := formatAttachedLog(payload, "", attachedTriageUnavailable, "")
 	if strings.Contains(got, AttachedLogBlobName) {
 		t.Errorf("no-workdir fallback should not reference blob path")
 	}
@@ -350,7 +350,7 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	dir := t.TempDir()
 	const N = 8 * 1024
 	payload := strings.Repeat("T", N)
-	got := formatAttachedTrace(payload, dir, attachedTriageStructured)
+	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "")
 	if !strings.Contains(got, AttachedTraceBlobName) {
 		t.Fatalf("trace blob path not referenced: %s", got)
 	}
@@ -371,7 +371,7 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 
 func TestFormatAttachedTrace_InlineSmallHasArtifactLineGutters(t *testing.T) {
 	payload := "sched_switch: prev_comm=main next_comm=RenderThread\ntracing_mark_write: B|1|H:GC\n"
-	got := formatAttachedTrace(payload, "", attachedTriageStructured)
+	got := formatAttachedTrace(payload, "", attachedTriageStructured, "")
 	if !strings.Contains(got, "     1│ sched_switch") || !strings.Contains(got, "     2│ tracing_mark_write") {
 		t.Fatalf("trace prompt should expose artifact-local event line gutters:\n%s", got)
 	}
@@ -383,7 +383,7 @@ func TestFormatAttachedTrace_InlineSmallHasArtifactLineGutters(t *testing.T) {
 func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
 	payload := "sched_switch: prev_comm=main next_comm=RenderThread\n"
 
-	missing := formatAttachedTrace(payload, "", attachedTriageUnavailable)
+	missing := formatAttachedTrace(payload, "", attachedTriageUnavailable, "")
 	if !strings.Contains(missing, "No structured performance summary is available") {
 		t.Fatalf("missing-bundle preamble should say raw trace is unparsed: %s", missing)
 	}
@@ -391,12 +391,12 @@ func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
 		t.Fatalf("missing-bundle preamble must not claim perf triage success: %s", missing)
 	}
 
-	structured := formatAttachedTrace(payload, "", attachedTriageStructured)
+	structured := formatAttachedTrace(payload, "", attachedTriageStructured, "")
 	if !strings.Contains(structured, "structured performance summary is already available") {
 		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
 	}
 
-	producer := formatAttachedTrace(payload, "", attachedTriageProducer)
+	producer := formatAttachedTrace(payload, "", attachedTriageProducer, "")
 	if !strings.Contains(producer, "Prepare a structured summary") {
 		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}

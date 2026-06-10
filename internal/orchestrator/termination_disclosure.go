@@ -1,5 +1,11 @@
 package orchestrator
 
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
 // Degraded-termination disclosure: when the read run ships an answer
 // after the grounding floor failed without a remediation lane (budget
 // exhausted, forced finalize on a blocked DAG, or a hard evidence
@@ -21,6 +27,36 @@ func degradedTerminationSystemCaveat(o *Orchestrator) string {
 	return "This answer was produced with a verified-evidence ratio below the configured floor, and no further verification lane was available. Treat the conclusions with caution; re-running with more specific files or directions may improve grounding."
 }
 
+// preStageDegradationSystemCaveat tells the user their attached
+// artifact could not be processed, so the answer was produced without
+// its anchors. Reads the typed degradation records only.
+func preStageDegradationSystemCaveat(o *Orchestrator) string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	degraded := o.busCtx.Mutable.PreStageDegradations()
+	if len(degraded) == 0 {
+		return ""
+	}
+	var kinds []string
+	for _, d := range degraded {
+		switch d.Stage {
+		case types.StageLogTriage:
+			kinds = append(kinds, map[bool]string{true: "日志", false: "log"}[isChineseLang(o.busCtx.Language)])
+		case types.StagePerfTriage:
+			kinds = append(kinds, map[bool]string{true: "trace", false: "trace"}[isChineseLang(o.busCtx.Language)])
+		default:
+			kinds = append(kinds, string(d.Stage))
+		}
+	}
+	joined := strings.Join(kinds, "、")
+	if isChineseLang(o.busCtx.Language) {
+		return "你附加的 " + joined + " 内容未能完成结构化解析,本回答未使用其中的运行时锚点;可检查附件格式或重试后再问。"
+	}
+	joined = strings.Join(kinds, ", ")
+	return "The attached " + joined + " content could not be structurally parsed; this answer was produced without its runtime anchors. Check the attachment format or retry."
+}
+
 // appendSystemCaveatsToAnswer is the single chokepoint chaining every
 // system-side answer caveat: inactive-scope disclosure plus the
 // degraded-termination disclosure. All final-answer assembly paths in
@@ -29,6 +65,9 @@ func degradedTerminationSystemCaveat(o *Orchestrator) string {
 func (o *Orchestrator) appendSystemCaveatsToAnswer(answer string) string {
 	answer = o.appendInactiveScopeSystemCaveatToAnswer(answer)
 	if caveat := degradedTerminationSystemCaveat(o); caveat != "" {
+		answer = AppendSystemCaveatString(answer, caveat, o.busCtx.Language)
+	}
+	if caveat := preStageDegradationSystemCaveat(o); caveat != "" {
 		answer = AppendSystemCaveatString(answer, caveat, o.busCtx.Language)
 	}
 	return answer

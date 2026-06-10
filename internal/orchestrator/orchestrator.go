@@ -2129,9 +2129,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		if err != nil {
 			logging.Warning("[orchestrator] pre-stage %s failed: %v (main pipeline continues)",
 				pre.Stage, err)
+			o.busCtx.Mutable.AddPreStageDegradation(types.PreStageDegradation{
+				Stage: pre.Stage, Kind: types.PreStageDegradationDispatchError, Summary: err.Error()})
 		} else if out != nil && out.Error != "" {
 			logging.Warning("[orchestrator] pre-stage %s degraded: %s (main pipeline continues)",
 				pre.Stage, out.Error)
+			o.busCtx.Mutable.AddPreStageDegradation(types.PreStageDegradation{
+				Stage: pre.Stage, Kind: types.PreStageDegradationEmitRejected, Summary: out.Error})
 		}
 		stepsUsed++
 	}

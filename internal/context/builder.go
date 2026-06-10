@@ -97,8 +97,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// degraded, the field stays nil and every consumer's nil-check is
 	// a no-op.
 	if bus.Mutable != nil {
-		ac.LogTriage = bus.Mutable.LogTriage()
-		ac.PerfTrace = bus.Mutable.PerfTrace()
+		ac.LogTriage, ac.PerfTrace = bus.Mutable.AttachedArtifacts()
+		ac.PreStageDegradations = bus.Mutable.PreStageDegradations()
 	}
 
 	// Read-mode stage artifact propagation. The explore→extract→
@@ -679,7 +679,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//
 	// Empty AttachedLog is a no-op.
 	if !shouldSuppressAttachedRuntimeLog(ac) {
-		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac)); section != "" {
+		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage)); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
@@ -698,7 +698,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// timestamps, event ids) that bait the LLM into spurious
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
-		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac)); section != "" {
+		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage)); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				// Title order matches the user-facing CLI flag order:
@@ -3100,12 +3100,40 @@ func renderAttachedArtifactPreviewBlock(preview attachedArtifactPreview, blobPat
 // Returns "" for empty input so the caller can skip the section.
 // Falls back to head+tail inline when workDir is empty or the blob
 // write fails (no-op degrade, no error surfaces to the caller).
-func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) string {
+// preStageDegradationSummaryFor returns the bounded degradation
+// summary for the given pre-stage, empty when that stage did not
+// degrade. Typed records only.
+func preStageDegradationSummaryFor(ac *types.AgentContext, stage types.PipelineStage) string {
+	if ac == nil {
+		return ""
+	}
+	for _, d := range ac.PreStageDegradations {
+		if d.Stage == stage {
+			return d.Summary
+		}
+	}
+	return ""
+}
+
+// degradedTriageNote renders the why-absent line appended to the
+// unavailable-state preamble when the pre-stage degraded.
+func degradedTriageNote(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	return "The structured parsing stage ran but its output was not accepted (" + summary + "). " +
+		"Anchors must therefore be established from the raw text below.\n\n"
+}
+
+func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
 	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedLogPreamble(state)
+	if state == attachedTriageUnavailable {
+		preamble += degradedTriageNote(degradedSummary)
+	}
 
 	if len(raw) <= attachedLogInlineCap {
 		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"
@@ -3147,12 +3175,15 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) st
 // channel. This avoids prompt leakage from the runtime-log wording
 // and prevents blob-path collisions when a run carries both
 // attachments.
-func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState) string {
+func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
 	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedTracePreamble(state)
+	if state == attachedTriageUnavailable {
+		preamble += degradedTriageNote(degradedSummary)
+	}
 
 	if len(raw) <= attachedLogInlineCap {
 		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"

@@ -63,6 +63,11 @@ type preStageEntry struct {
 // The list is explicitly a slice (not a map) so ordering is stable
 // and future additions (e.g. a profiler-output ingester, a strace
 // decoder) land in a predictable position relative to log triage.
+// preStages run in DECLARATION ORDER, and that order is a contract:
+// log_triage runs before perf_triage so that when both artifacts are
+// attached, the perf lane (and every later consumer) can observe the
+// already-populated log bundle. A structural test pins this order —
+// reordering the slice is an API change, not a refactor.
 var preStages = []preStageEntry{
 	{
 		Stage: types.StageLogTriage,

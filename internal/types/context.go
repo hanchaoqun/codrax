@@ -614,6 +614,10 @@ type MutableState struct {
 	// Soft consumption only (telemetry, degradation caveats).
 	terminationProfile *TerminationProfile
 
+	// preStageDegradations records attached-artifact pre-stages that
+	// failed to produce their bundle (the run proceeds artifact-blind).
+	preStageDegradations []PreStageDegradation
+
 	// logSegments is the opaque payload produced by the two-step
 	// log-triage controller's Step A (segmentation). It carries a
 	// JSON-marshalled []tool.LogSegment slice so the types package
@@ -1393,6 +1397,20 @@ func (m *MutableState) SetSymbolOracle(o SymbolOracle) {
 // (none exist today) would be a contract violation. Keeping the
 // pointer lets downstream consumers type-assert and cache without
 // an allocation.
+// AttachedArtifacts returns both artifact-lane bundles under ONE lock
+// acquisition. Consumers building a joint log+trace view must use this
+// instead of sequential LogTriage()/PerfTrace() calls: the two-step
+// read has a window where a pre-stage retry or the perf two-step
+// escalation rewrites one slot between the reads.
+func (m *MutableState) AttachedArtifacts() (*LogBundle, *PerfBundle) {
+	if m == nil {
+		return nil, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.logTriage, m.perfTrace
+}
+
 func (m *MutableState) LogTriage() *LogBundle {
 	if m == nil {
 		return nil
@@ -5936,6 +5954,12 @@ type AgentContext struct {
 	// attached, the triage stage was skipped, or the stage degraded.
 	// Readers MUST nil-check.
 	LogTriage *LogBundle `json:"-"`
+
+	// PreStageDegradations mirrors Mutable.PreStageDegradations for
+	// prompt builders: when an attached-artifact pre-stage failed, the
+	// prompt explains WHY the structured summary is absent instead of
+	// leaving the model to guess.
+	PreStageDegradations []PreStageDegradation `json:"-"`
 
 	// PerfTrace mirrors Mutable.PerfTrace() for consumers that want
 	// the validated PerfBundle. Nil when no trace was attached, the

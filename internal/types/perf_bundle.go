@@ -80,9 +80,11 @@ func (b *PerfBundle) LogFrames() []LogFrame {
 			continue
 		}
 		out = append(out, LogFrame{
-			File: s.File,
-			Line: s.Line,
-			Func: s.Symbol,
+			File:               s.File,
+			Line:               s.Line,
+			Func:               s.Symbol,
+			ArtifactStartTsMs:  s.StartTsMs,
+			ArtifactDurationMs: s.DurationMs,
 		})
 	}
 	for i := range b.Janks {

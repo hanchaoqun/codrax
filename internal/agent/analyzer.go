@@ -2696,7 +2696,8 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	var logAuthoritative bool
 	var externalSource bool
 	if ctx.Mutable != nil {
-		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+		bundle, perfBundle := ctx.Mutable.AttachedArtifacts()
+		if bundle != nil {
 			logFiles = bundle.ResolvedFiles
 			logAuthoritative = logBundleAuthoritativeFrames(bundle)
 			externalSource = bundle.IsExternalSource()
@@ -2706,7 +2707,10 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		// resolved to entry/src/main/ets/services/DataLoader.ets is as
 		// load-bearing as a panic frame; both should anchor the file
 		// ceiling. The two seeds union (de-dup on append).
-		if perf := ctx.Mutable.PerfTrace(); perf != nil && len(perf.ResolvedFiles) > 0 {
+		// NOTE: the union below runs BEFORE the authoritative-ceiling
+		// return, so perf-resolved files ride an authoritative log
+		// ceiling rather than being excluded by it.
+		if perf := perfBundle; perf != nil && len(perf.ResolvedFiles) > 0 {
 			seen := map[string]bool{}
 			for _, f := range logFiles {
 				seen[f] = true
