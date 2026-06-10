@@ -348,13 +348,20 @@ update here.
       full `go test ./...` green.
 
 ### Batch 2 — Attempt state, finish gate, ModePlan mask (P0-2, P1-2)
-- [ ] `DeriveBatchAttemptState` + controller prompt canonical rendering.
-- [ ] `FinishDisposition` typed field + scheduler finish gate + typed repair.
-- [ ] `EmitWriteWorkflowDecision.ParametersFor(ctx)` mode-masked action enum +
-      execute-time typed rejection; scheduler guard stays.
-- [ ] Tests: contradictory-state rendering gone, finish-after-failed-verify
-      rejected then accepted via typed disposition, ModePlan schema masking,
-      alias normalization unaffected.
+- [x] `DeriveBatchAttemptState` (ready_to_plan + latest failed verify attempt
+      derives `needs_replan` with the attempt's typed cause) + controller
+      prompt canonical rendering; progress ledger renders as labeled events.
+- [x] `FinishDisposition` typed field (schema enum with semantics in the
+      description) + scheduler finish gate evaluated BEFORE
+      `ApplyWorkflowDecisionToRun` mutates the run; accept_unverified
+      completes with a typed caveat in the result.
+- [x] `EmitWriteWorkflowDecision.ParametersFor(ctx)` mode-masked action enum
+      via `WorkflowActionsForMode` (single source of truth) + execute-time
+      typed rejection (`workflow_action_not_in_mode` repair); scheduler guard
+      stays as the third layer.
+- [x] Tests: derived-state unit matrix, finish gate blocked/escape/clean
+      paths e2e, ModePlan schema masking + runtime rejection, canonical
+      prompt rendering; full `go test ./...` green.
 
 ### Batch 3 — Durable failure evidence (P0-3, P2 timestamps)
 - [ ] Worktree diff capture helper + persistence at verify-failure branch.
@@ -418,3 +425,9 @@ update here.
   ChangeReport path; GeneratedAt stamped at the install seam; run_tests
   params now route through the unified payload repair layer; verifier prompt
   lists detected candidates. `go test ./...` green.
+- 2026-06-10: Batch 2 — canonical attempt state + finish gate + ModePlan mask
+  shipped. One derived phase per batch (needs_replan carries the typed verify
+  cause); finish hard-gated on typed attempt records with the
+  finish_disposition=accept_unverified escape lane; ModePlan action enum
+  masked at schema-projection, emit-validation, and scheduler layers from one
+  action-set source. `go test ./...` green.

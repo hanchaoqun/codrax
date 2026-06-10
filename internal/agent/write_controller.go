@@ -161,12 +161,27 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 				fmt.Fprintf(&b, "  - ... +%d more batch(es)\n", len(run.Batches)-i)
 				break
 			}
-			fmt.Fprintf(&b, "  - %s status=%s goal=%s plan=%s\n", batch.ID, batch.Status, limitWriteControllerText(batch.Goal, 120), batch.PlanID)
+			// Canonical single-phase view: state and the typed cause of
+			// that state come from one derivation, so a batch can never
+			// read as two contradictory phases at once.
+			st := writeflow.DeriveBatchAttemptState(batch)
+			line := fmt.Sprintf("  - %s state=%s", batch.ID, st.Phase)
+			if st.Cause != "" {
+				line += " cause=" + st.Cause
+			}
+			if st.FailedVerifyAttempts > 0 {
+				line += fmt.Sprintf(" failed_verify_attempts=%d", st.FailedVerifyAttempts)
+			}
+			line += fmt.Sprintf(" goal=%s plan=%s", limitWriteControllerText(batch.Goal, 120), batch.PlanID)
+			b.WriteString(line + "\n")
 		}
 	}
 	if len(run.ProgressLedger) > 0 {
 		last := run.ProgressLedger[len(run.ProgressLedger)-1]
-		fmt.Fprintf(&b, "- last_progress: batch=%s status=%s reason=%s\n", last.BatchID, last.Status, last.ReasonCode)
+		fmt.Fprintf(&b, "- last_event: batch=%s event=%s\n", last.BatchID, last.ReasonCode)
+		if msg := strings.TrimSpace(last.Message); msg != "" {
+			fmt.Fprintf(&b, "- last_event_detail: %s\n", limitWriteControllerText(msg, 220))
+		}
 	}
 	return strings.TrimSpace(b.String())
 }

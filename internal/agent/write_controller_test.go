@@ -124,3 +124,45 @@ func TestWriteControllerPromptFiltersPlannerProbeReports(t *testing.T) {
 		t.Fatalf("post-apply report should render as authoritative controller artifact:\n%s", got)
 	}
 }
+
+func TestRenderWriteControllerRunSection_CanonicalAttemptState(t *testing.T) {
+	mu := types.NewMutableState("canonical state")
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-canon",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair verify",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			PlanID: "plan-1",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", ReportID: "plan-1.report.json"},
+			},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			Status:     "progress",
+			ReasonCode: "verify_failed",
+			Message:    "verify failed: red tests",
+		}},
+	}
+	mu.SetWriteWorkflowRun(&run)
+	ctx := &types.AgentContext{Mutable: mu}
+	section := renderWriteControllerRunSection(ctx)
+	if !strings.Contains(section, "state=needs_replan") {
+		t.Fatalf("active batch must render the canonical derived phase, got:\n%s", section)
+	}
+	if !strings.Contains(section, "cause=tests_failed") {
+		t.Fatalf("derived phase must carry the typed cause, got:\n%s", section)
+	}
+	if !strings.Contains(section, "failed_verify_attempts=1") {
+		t.Fatalf("failed verify attempt count missing:\n%s", section)
+	}
+	if strings.Contains(section, "state=ready_to_plan") {
+		t.Fatalf("contradictory ready_to_plan reading must not render for a failed-verify batch:\n%s", section)
+	}
+	if !strings.Contains(section, "last_event: batch=batch-1 event=verify_failed") {
+		t.Fatalf("progress should render as a labeled event, got:\n%s", section)
+	}
+}

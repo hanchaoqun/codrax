@@ -643,3 +643,94 @@ func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring str
 	}
 	return false
 }
+
+func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("finish after failed verify")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "finish gate"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "one attempt"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		// Bare finish after a failed verify must be rejected by the typed gate…
+		{Action: writeflow.ActionFinish, ReasonCode: "premature"},
+		// …and the schema-validated escape lane completes the run with a caveat.
+		{Action: writeflow.ActionFinish, ReasonCode: "accepted", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(3)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-finish-gate", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-finish-gate", Passed: false, FailureSummary: "red tests"})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if controllerCalls != 5 {
+		t.Fatalf("controller calls = %d, want 5 (finish rejected once, accepted once)", controllerCalls)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
+		t.Fatalf("typed finish rejection should be recorded: %+v", store.last.ProgressLedger)
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("accept_unverified finish should complete the run, got %+v", store.last.Status)
+	}
+	result := mu.Result()
+	if !strings.Contains(result, "accepted with failed verification") || !strings.Contains(result, "batch-1") {
+		t.Fatalf("result should carry the typed unverified caveat, got %q", result)
+	}
+}
+
+func TestRunWriteControllerWorkflow_FinishAfterPassedVerifyNeedsNoDisposition(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("clean finish")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "clean finish"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-clean", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-clean", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
+		t.Fatalf("clean finish must not trip the gate: %+v", store.last.ProgressLedger)
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("run should complete, got %+v", store.last.Status)
+	}
+}

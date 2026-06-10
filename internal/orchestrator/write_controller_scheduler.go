@@ -53,6 +53,21 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		if err != nil {
 			return err
 		}
+		// Typed finish gate, evaluated BEFORE the decision mutates the run
+		// (ApplyWorkflowDecisionToRun marks the active batch complete on
+		// finish): a batch whose latest post-apply verify attempt failed
+		// cannot be silently finished past. The model's typed escape lane
+		// is finish_disposition=accept_unverified (schema-validated enum);
+		// the rejection is surfaced through the progress ledger the next
+		// controller turn renders.
+		if decision.Action == writeflow.ActionFinish {
+			if blocked := writeflow.FinishBlockedReason(run, decision); blocked != "" {
+				lastInnerErr = fmt.Errorf("finish rejected: %s", blocked)
+				appendControllerProgress(&run, run.ActiveBatchID, "finish_rejected_failed_verify", blocked)
+				o.persistWriteWorkflowRun(&run)
+				continue
+			}
+		}
 		before := run
 		run, err = writeflow.ApplyWorkflowDecisionToRun(run, decision)
 		if err != nil {
@@ -226,7 +241,13 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			run.Status = types.WriteWorkflowRunComplete
 			o.persistWriteWorkflowRun(&run)
 			if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-				o.busCtx.Mutable.SetResult("write workflow complete")
+				result := "write workflow complete"
+				if decision.FinishDisposition == writeflow.FinishDispositionAcceptUnverified {
+					if unverified := writeflow.UnverifiedBatchSummaries(run); len(unverified) > 0 {
+						result += " — accepted with failed verification: " + strings.Join(unverified, ", ")
+					}
+				}
+				o.busCtx.Mutable.SetResult(result)
 			}
 			return nil
 		case writeflow.ActionBlock, writeflow.ActionAskUser:

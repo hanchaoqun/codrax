@@ -71,3 +71,37 @@ func TestEmitWriteWorkflowDecisionRejectsMissingTypedPayload(t *testing.T) {
 		t.Fatal("rejected decision must not be stored")
 	}
 }
+
+func TestEmitWriteWorkflowDecision_ModePlanMasksApplyVerify(t *testing.T) {
+	tl := &EmitWriteWorkflowDecision{}
+
+	schema := string(tl.ParametersFor(&types.AgentContext{Mode: types.ModePlan}))
+	if strings.Contains(schema, `"apply_plan"`) || strings.Contains(schema, `"verify_batch"`) {
+		t.Fatalf("ModePlan dispatch schema must not offer apply/verify actions: %s", schema)
+	}
+	full := string(tl.ParametersFor(&types.AgentContext{Mode: types.ModeApply}))
+	if !strings.Contains(full, `"apply_plan"`) {
+		t.Fatalf("ModeApply dispatch schema must keep apply_plan: %s", full)
+	}
+
+	mu := types.NewMutableState("mask")
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModePlan}
+	res, err := tl.Execute(ctx, json.RawMessage(`{"action":"apply_plan"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("apply_plan in ModePlan must be rejected, got %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Code != "workflow_action_not_in_mode" {
+		t.Fatalf("rejection must carry the typed repair code, got %+v", res.Repair)
+	}
+	if len(mu.WriteWorkflowDecisionJSON()) != 0 {
+		t.Fatal("masked action must not be stored as a decision")
+	}
+
+	res, err = tl.Execute(ctx, json.RawMessage(`{"action":"plan_batch","batch":{"id":"b1","goal":"bounded"}}`))
+	if err != nil || !res.Success {
+		t.Fatalf("plan_batch in ModePlan must pass, got res=%+v err=%v", res, err)
+	}
+}
