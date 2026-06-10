@@ -157,7 +157,7 @@ const (
 
 	// Acceptance-review lifecycle (commit 44). Pre-commit-44
 	// the orchestrator's acceptance-check call (a synchronous
-	// 5-30s LLM dispatch in phase_scheduler.go) emitted ZERO
+	// 5-30s LLM dispatch in the retired PlanGroup scheduler) emitted ZERO
 	// events while running — dock row 1 froze at the prior
 	// stage's "请求模型中" / "调用工具中" activity for the entire
 	// review window, indistinguishable from a stalled request.

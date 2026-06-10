@@ -842,11 +842,11 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "  · 多阶段方案 (%d 个 phase): /approve 后用 `/phase show` 追踪进度,`/phase rollback` 回退当前 phase。", phaseCount),
+			formatN(lang, "  · 多阶段方案 (%d 个 phase): /approve 后按 workflow batch 推进,用 `/workflow show` 追踪进度;失败的 batch 用 `/reject` 让 controller 重新规划。", phaseCount),
 		}
 	}
 	return []string{
-		formatN(lang, "  · Multi-phase proposal (%d phases): after /approve, use `/phase show` to track progress and `/phase rollback` to reset the active phase.", phaseCount),
+		formatN(lang, "  · Multi-phase proposal (%d phases): after /approve the phases run as workflow batches — use `/workflow show` to track progress; `/reject` a failed plan to let the controller replan the batch.", phaseCount),
 	}
 }
 

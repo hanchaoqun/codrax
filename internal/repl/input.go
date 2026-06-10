@@ -418,15 +418,11 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/phase",
-		HelpEn: "inspect / advance / rollback / resume a multi-phase plan when one is in flight (write mode only)",
-		HelpZh: "查看 / 推进 / 回退 / 续跑正在执行的多阶段方案(写模式专属)",
+		HelpEn: "show write phases: the active workflow run's batches, or a legacy plan group read-only (write mode only)",
+		HelpZh: "查看写阶段:活跃 workflow run 的 batch 视图,或只读查看遗留方案组(写模式专属)",
 		Subs: []slashSubcommand{
-			{"show", "show the active group + each phase status (default)", "查看当前方案组 + 每个阶段状态(默认)"},
-			{"show <group-id>", "show a specific group by id", "按 id 查看指定方案组"},
-			{"next", "manually advance past the current phase", "手动跳过当前阶段,推进到下一个"},
-			{"rollback", "rewind the worktree to the previous phase's commit and reset the phase to pending", "把 worktree 回退到上一阶段的提交,并将当前阶段重置为待执行"},
-			{"resume", "show the next-step hint for resuming a pending phase after rollback", "提示如何续跑被 rollback 重置的阶段"},
-			{"skip <phase-idx>", "mark a phase as skipped so it is stepped over", "把指定阶段标记为跳过"},
+			{"show", "show the active workflow run's batches; falls back to the latest legacy group read-only (default)", "查看活跃 workflow run 的 batch 阶段;无活跃 run 时只读回落最近的遗留方案组(默认)"},
+			{"show <group-id>", "show a legacy plan group by id (read-only)", "按 id 只读查看遗留方案组"},
 		},
 	},
 	{

@@ -1665,13 +1665,11 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 
 读模式 Run 这 4 个 env slot 都 nil，对应 evaluator 直接 Satisfied=true（保持 read mode 字节级行为）。
 
-### 8.20 多阶段方案组（可选）
+### 8.20 多阶段（顺序阶段 = workflow batches）
 
-`WriteAnalysisIR.PhaseProposal.Split == "sequential"` 且 ≥2 个阶段且 ModeApply 且 `PlanGroupStore` wired 时，`runPhaseGroup` 启动多阶段循环：
+顺序多阶段语义由 controller batch 体系承载：`WorkflowSeedFromWriteAnalysis` 把 `WriteAnalysisIR.PhaseProposal`（split=sequential/parallel）的每个 phase 转成一个 planned batch,controller 按 batch 推进（每 batch 独立 plan→apply→verify attempt 记录、retry 预算、canonical attempt state、finish 硬门、失败证据落盘）。
 
-每个阶段一份独立 3 节点 plan→apply→verify graph + 独立 retry budget；同一 worktree 跨阶段累积；每阶段 verify 后跑可选 LLM-driven acceptance check（`acceptance_checker.go`）分类 verdict：`PhaseAccepted` / `PhaseRolledBack` / `PhaseAcceptanceUnverified`。Accept → 进下个阶段；Reject → group 立即失败。
-
-参数 `pipeline_max_phases_per_run`（默认 5，硬顶 12）。
+**历史（2026-06-11 退役）**：stage-II 的 `PlanGroup` 调度通道（`runPhaseGroup` + per-phase LLM acceptance check）在 controller-first 迁移后零调用,已删除。该通道的 LLM acceptance verdict 曾作为阶段推进硬门——按 §1.5 噪声信号不得驱动硬门,不再移植；acceptance criteria 仍以 `ChangePlan.AcceptanceTests` 渲染进 verifier prompt 并喂给 reflector。遗留 `.codrax/plans/groups/` 工件保持可读：`/phase show [<group-id>]` 只读展示（带 retirement 横幅）,`/merge group` 与 `/reject group` 仍可结算/清理；执行队列动词 `next/rollback/resume/skip` 已退役（会指引到 `/workflow`）。`PhaseGroupID`/`PhaseIndex` 字段保留（/history 分组、单 pending 豁免照常）。controller 探索子流程（`runWriteExplorationSubflow` 一族）是该文件存活的部分,已迁至 `write_exploration_subflow.go`。
 
 ### 8.21 红线总结
 
@@ -2494,7 +2492,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
 
-**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/resume/clear` 读取 `.codrax/plans/workflows/` 展示、恢复或清理 active write workflow，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 多阶段方案进度；`/pitfalls` 列出 active pitfall。
+**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/resume/clear` 读取 `.codrax/plans/workflows/` 展示、恢复或清理 active write workflow，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 显示活跃 workflow run 的 batch 阶段视图（无活跃 run 时只读回落遗留方案组）；`/pitfalls` 列出 active pitfall。
 
 ### 13.4 internal/tool/blob — Tool 输出落盘
 

@@ -914,9 +914,9 @@ func TestPlanShowFooter_StatusAware(t *testing.T) {
 	}
 }
 
-// TestPlanReadyMultiPhaseNudge_NamesPhaseCount pins commit 41
-// UX#1: the multi-phase nudge tells the operator how many
-// phases queued + names /phase show as the inspection tool.
+// TestPlanReadyMultiPhaseNudge_NamesPhaseCount pins the multi-phase
+// nudge: it tells the operator how many phases queued and points at the
+// LIVE inspection surface (/workflow — the PlanGroup lane is retired).
 func TestPlanReadyMultiPhaseNudge_NamesPhaseCount(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		lines := planReadyMultiPhaseNudge(lang, 3)
@@ -928,8 +928,11 @@ func TestPlanReadyMultiPhaseNudge_NamesPhaseCount(t *testing.T) {
 		if !strings.Contains(joined, "3") {
 			t.Errorf("%s: nudge should name phase count; got %q", lang, joined)
 		}
-		if !strings.Contains(joined, "/phase show") {
-			t.Errorf("%s: nudge should point at /phase show; got %q", lang, joined)
+		if !strings.Contains(joined, "/workflow show") {
+			t.Errorf("%s: nudge should point at /workflow show; got %q", lang, joined)
+		}
+		if strings.Contains(joined, "/phase rollback") {
+			t.Errorf("%s: nudge must not advertise retired verbs; got %q", lang, joined)
 		}
 	}
 }

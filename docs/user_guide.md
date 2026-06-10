@@ -2558,7 +2558,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/merge --include-failed` / `--force` | 把 verify_failed plan 纳入候选 |
 | `/baseline` | 显示当前 baseline 测试快照(`pipeline_baseline_capture_enabled` 打开时可用) |
 | `/baseline clear` | 清掉 baseline 缓存 |
-| `/phase` | 多阶段方案组的当前进度;每阶段独立 retry 预算,同 worktree 累积 |
+| `/phase` | 活跃 workflow run 的 batch 阶段视图;无活跃 run 时只读回落遗留方案组(PlanGroup 通道已退役,`next/rollback/resume/skip` 不再可用) |
 | `/pitfalls` | 列出本仓积累的 active failure pattern(写模式 planner 会自动看到) |
 | `/pitfalls clear` | 清掉本仓 failure taxonomy |
 

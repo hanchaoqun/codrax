@@ -1093,7 +1093,12 @@ func (o *Orchestrator) SetPlanCritic(c PlanCritic) {
 	o.planCritic = c
 }
 
-// SetAcceptanceChecker installs the per-phase verdict LLM used
+// SetAcceptanceChecker installs the per-phase verdict LLM. With the
+// PlanGroup scheduler retired (2026-06-11) nothing dispatches this checker;
+// the wiring is kept deliberately as the seam for a future ADVISORY
+// acceptance lane — per the architecture red line an LLM verdict must never
+// gate batch advancement, which is exactly how the retired lane used it.
+// Historical doc: it was the per-phase verdict LLM used
 // by stage II's runPhaseGroup. Nil is legal and disables
 // per-phase acceptance gating (every phase auto-advances after
 // verify passes). cmd/root.go wires this from providers.yaml ::

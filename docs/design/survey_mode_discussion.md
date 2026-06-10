@@ -125,7 +125,7 @@
 - **L1 byte-identity 红线**:survey 在外层 wrap 不破红线 — `runReadSchedulerLoop` body 完全不动
 - **`pipeline_max_steps`**:**per-Run** 而非 process-global(`*stepsUsed` 在每个 Run 栈帧分配)— survey 100 spawn × 50 step = 5000 step 自然支持
 - **pre-stage 自动跳过**:`AttachedLog / AttachedHitrace` 为空时 log_triage / perf_triage 自动跳(`topology.go:66-83`)— survey 不需禁用,设空即可
-- **Write mode 已是 spawn 模式**:`phase_scheduler.go:60-225` 多次调 `runner(stepsUsed) = o.runTaskPhase()` — survey 直接学这个 pattern
+- **Write mode 已是 spawn 模式**:`phase_scheduler.go:60-225（已于 2026-06-11 随 PlanGroup 通道退役删除;模式参考见 git 历史）` 多次调 `runner(stepsUsed) = o.runTaskPhase()` — survey 直接学这个 pattern
 - **唯一缺口**:`SetAmbientKnowledge(glossary, priorChapters)` setter 需新加(~30 LOC) — 让后续章节能 consult 前面章节
 
 ### 3.3 现有 store 全景(7 个)— ArtifactStore 学 FailureTaxonomyStore pattern

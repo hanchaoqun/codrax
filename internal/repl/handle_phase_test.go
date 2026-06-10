@@ -124,24 +124,6 @@ func threePhaseTestGroup(id string) *types.PlanGroup {
 	}
 }
 
-// TestHandlePhaseCmd_NoStoreDisables pins the no-store path:
-// /phase commands surface a clear "disabled" warn rather than
-// crashing. writeEnabled=true so the upstream write-gate
-// passes and the no-store branch fires.
-func TestHandlePhaseCmd_NoStoreDisables(t *testing.T) {
-	out := &bytes.Buffer{}
-	r := &REPL{
-		out:          out,
-		in:           strings.NewReader(""),
-		colorMode:    render.ColorNever,
-		language:     "en",
-		writeEnabled: true,
-	}
-	r.handlePhaseCmd("/phase show")
-	if !strings.Contains(out.String(), "disabled") {
-		t.Errorf("expected 'disabled' warn; got %q", out.String())
-	}
-}
 
 // TestHandlePhaseCmd_WriteDisabled pins the write-gated path:
 // when codrax.yaml has write_enabled=false, /phase refuses
@@ -231,147 +213,6 @@ func TestHandlePhaseCmd_ShowExplicitID(t *testing.T) {
 	}
 }
 
-// TestHandlePhaseCmd_Next advances ActiveIdx past the current
-// phase and persists the change.
-func TestHandlePhaseCmd_Next(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-next-test")
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase next")
-	got := out.String()
-	if !strings.Contains(got, "advanced past phase 2") {
-		t.Errorf("expected advancement message; got %q", got)
-	}
-	// Reload from disk to verify persistence.
-	loaded, err := store.Load("group-next-test")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if loaded.ActiveIdx != 2 {
-		t.Errorf("ActiveIdx persistence drift; got %d", loaded.ActiveIdx)
-	}
-	if loaded.Phases[1].Status != types.PhaseAccepted {
-		t.Errorf("phase 2 should be Accepted; got %q", loaded.Phases[1].Status)
-	}
-}
-
-// TestHandlePhaseCmd_NextSkipsTerminalGroups pins the
-// active-group lookup behaviour: a terminal group is invisible
-// to FindActiveGroup, so /phase next (which uses
-// FindActiveGroup) surfaces "no active plan group" rather than
-// touching the completed group. This is the right behaviour —
-// terminal groups should not be advanceable through the
-// operator's default `/phase next` invocation.
-func TestHandlePhaseCmd_NextSkipsTerminalGroups(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-done")
-	g.Status = types.PlanGroupCompleted
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase next")
-	if !strings.Contains(out.String(), "no active plan group") {
-		t.Errorf("expected 'no active plan group'; got %q", out.String())
-	}
-}
-
-// TestHandlePhaseCmd_RollbackFirstPhaseRefuses pins the
-// red-line guard: rolling back phase 1 has no prior SHA to
-// rewind to; refuse and point at /reject.
-func TestHandlePhaseCmd_RollbackFirstPhaseRefuses(t *testing.T) {
-	r, store, planStore, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-rollback-first")
-	g.ActiveIdx = 0
-	g.Phases[0].Status = types.PhaseInProgress
-	g.Phases[0].PlanID = "plan-phase0"
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	// Seed a plan with WorktreePath so findGroupWorktree returns
-	// non-empty (otherwise the earlier "no worktree" branch
-	// fires and shadows the "phase 1 no prior SHA" branch).
-	plan := &types.ChangePlan{
-		ID:           "plan-phase0",
-		Status:       types.PlanStatusApplied,
-		CreatedAt:    time.Now(),
-		WorktreePath: t.TempDir(),
-		TargetPaths:  []string{"x.go"},
-		Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
-	}
-	if _, err := planStore.Save(plan); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase rollback")
-	got := out.String()
-	if !strings.Contains(got, "cannot roll back phase 1") {
-		t.Errorf("expected first-phase refusal; got %q", got)
-	}
-	if !strings.Contains(got, "/reject") {
-		t.Errorf("expected /reject hint; got %q", got)
-	}
-}
-
-// TestHandlePhaseCmd_Skip marks a phase Skipped and persists.
-func TestHandlePhaseCmd_Skip(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-skip-test")
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase skip 3")
-	if !strings.Contains(out.String(), "phase 3 marked skipped") {
-		t.Errorf("expected skip success; got %q", out.String())
-	}
-	loaded, _ := store.Load("group-skip-test")
-	if loaded.Phases[2].Status != types.PhaseSkipped {
-		t.Errorf("phase 3 should be Skipped; got %q", loaded.Phases[2].Status)
-	}
-}
-
-// TestHandlePhaseCmd_SkipOutOfRange pins the index-bounds
-// guard.
-func TestHandlePhaseCmd_SkipOutOfRange(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-skip-oob")
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase skip 99")
-	if !strings.Contains(out.String(), "out of range") {
-		t.Errorf("expected out-of-range error; got %q", out.String())
-	}
-}
-
-// TestHandlePhaseCmd_SkipNonNumeric pins the integer-parse
-// guard.
-func TestHandlePhaseCmd_SkipNonNumeric(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-skip-bad")
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase skip abc")
-	if !strings.Contains(out.String(), "not a number") {
-		t.Errorf("expected non-numeric error; got %q", out.String())
-	}
-}
-
-// TestHandlePhaseCmd_SkipTerminalPhaseRefuses pins the
-// already-terminal guard.
-func TestHandlePhaseCmd_SkipTerminalPhaseRefuses(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-skip-terminal")
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	// Phase 1 (index 0) is already PhaseAccepted in the fixture.
-	r.handlePhaseCmd("/phase skip 1")
-	if !strings.Contains(out.String(), "already terminal") {
-		t.Errorf("expected terminal refusal; got %q", out.String())
-	}
-}
 
 // TestHandlePhaseCmd_UnknownSubcommand pins the catch-all warn.
 func TestHandlePhaseCmd_UnknownSubcommand(t *testing.T) {
@@ -382,80 +223,6 @@ func TestHandlePhaseCmd_UnknownSubcommand(t *testing.T) {
 	}
 }
 
-// TestHandlePhaseCmd_RollbackResetsPhaseToPending pins the
-// resumability contract: after rollback succeeds the active
-// phase is PhasePending and the group is PlanGroupInFlight, so
-// the scheduler can re-enter that phase on the next /mode apply
-// instead of the previous deadlock where both became terminal.
-func TestHandlePhaseCmd_RollbackResetsPhaseToPending(t *testing.T) {
-	r, store, planStore, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-rollback-resume")
-	// Active phase = 1 (index 1, "update ORM"). Phase 0 has
-	// AppliedSHA=abc1234567890def from the fixture so rollback
-	// has a target.
-	g.Phases[1].Status = types.PhaseInProgress
-	g.Phases[1].PlanID = "plan-phase1"
-	g.Phases[1].AppliedSHA = "deadbeef00000000"
-	now := time.Now()
-	g.Phases[1].StartedAt = &now
-	g.Phases[1].AcceptanceCheck = &types.AcceptanceCheck{Passed: false, Reasoning: "stale"}
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	// Seed a real git worktree so worktree.ResetHard succeeds —
-	// init the dir, seed a file, two commits at SHAs we know.
-	wt := initTestWorktree(t)
-	plan := &types.ChangePlan{
-		ID:           "plan-phase1",
-		Status:       types.PlanStatusApplied,
-		CreatedAt:    time.Now(),
-		WorktreePath: wt.path,
-		TargetPaths:  []string{"x.go"},
-		Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
-	}
-	if _, err := planStore.Save(plan); err != nil {
-		t.Fatal(err)
-	}
-	// The fixture's prev.AppliedSHA (phase 0) is the literal
-	// "abc1234567890def" string, which is not a real git SHA in
-	// the seeded worktree. To actually exercise the success path
-	// we patch it to the worktree's real first-commit SHA.
-	g.Phases[0].AppliedSHA = wt.firstSHA
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-
-	r.handlePhaseCmd("/phase rollback")
-	got := out.String()
-	if !strings.Contains(got, "reset to pending") {
-		t.Errorf("expected 'reset to pending' wording; got %q", got)
-	}
-	if !strings.Contains(got, "replay with /mode apply") {
-		t.Errorf("expected replay hint; got %q", got)
-	}
-	loaded, err := store.Load("group-rollback-resume")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if loaded.Phases[1].Status != types.PhasePending {
-		t.Errorf("phase 2 should be Pending; got %q", loaded.Phases[1].Status)
-	}
-	if loaded.Status != types.PlanGroupInFlight {
-		t.Errorf("group should be InFlight; got %q", loaded.Status)
-	}
-	if loaded.Phases[1].PlanID != "" {
-		t.Errorf("PlanID should be cleared on rollback; got %q", loaded.Phases[1].PlanID)
-	}
-	if loaded.Phases[1].AppliedSHA != "" {
-		t.Errorf("AppliedSHA should be cleared on rollback; got %q", loaded.Phases[1].AppliedSHA)
-	}
-	if loaded.Phases[1].AcceptanceCheck != nil {
-		t.Errorf("AcceptanceCheck should be cleared on rollback")
-	}
-	if loaded.Phases[1].StartedAt != nil || loaded.Phases[1].FinishedAt != nil {
-		t.Errorf("phase timestamps should be cleared")
-	}
-}
 
 // TestHandlePhaseCmd_ShowRendersWorktreePath pins P2 #3 — the
 // worktree path appears in /phase show output when any phase
@@ -503,43 +270,6 @@ func TestHandlePhaseCmd_ShowWithPlanIDHints(t *testing.T) {
 	}
 }
 
-// TestHandlePhaseCmd_ResumeOnPendingPhase pins commit 25's
-// /phase resume info-only hint: when the active phase is
-// Pending (typically just after /phase rollback), surface the
-// "type /mode apply to drive plan→apply→verify" guidance.
-func TestHandlePhaseCmd_ResumeOnPendingPhase(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-resume-pending")
-	g.Phases[1].Status = types.PhasePending
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase resume")
-	got := out.String()
-	if !strings.Contains(got, "/mode apply") {
-		t.Errorf("expected /mode apply hint; got %q", got)
-	}
-	if !strings.Contains(got, "phase 2") {
-		t.Errorf("expected phase 2 mentioned; got %q", got)
-	}
-}
-
-// TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses pins the
-// guard: completed / failed / rolled-back groups cannot be
-// resumed; the operator gets a clear "nothing to resume" warn.
-func TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses(t *testing.T) {
-	r, store, _, out := newPhaseTestREPL(t)
-	g := threePhaseTestGroup("group-resume-done")
-	g.Status = types.PlanGroupCompleted
-	if _, err := store.Save(g); err != nil {
-		t.Fatal(err)
-	}
-	r.handlePhaseCmd("/phase resume")
-	got := out.String()
-	if !strings.Contains(got, "no active plan group") && !strings.Contains(got, "nothing to resume") {
-		t.Errorf("expected refusal; got %q", got)
-	}
-}
 
 // TestHandlePhaseCmd_ShowFlagsOrphanedPhase pins commit 29:
 // when a phase is in_progress with an OwnerPID that the
@@ -701,5 +431,114 @@ func TestShortSHA(t *testing.T) {
 		if got := shortSHA(in); got != want {
 			t.Errorf("shortSHA(%q) = %q; want %q", in, got, want)
 		}
+	}
+}
+
+
+// The PlanGroup execution-queue verbs were retired with the scheduler lane.
+// Every former mutation verb now explains the retirement, points at the live
+// workflow surface, and leaves the legacy group bytes UNTOUCHED — honoring
+// them would queue work nothing drains.
+func TestHandlePhaseCmd_RetiredVerbsExplainAndDoNotMutate(t *testing.T) {
+	for _, verb := range []string{"next", "rollback", "resume", "skip 2"} {
+		t.Run(verb, func(t *testing.T) {
+			r, store, _, out := newPhaseTestREPL(t)
+			g := threePhaseTestGroup("group-retired-" + strings.Fields(verb)[0])
+			if _, err := store.Save(g); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			before, err := store.Load(g.ID)
+			if err != nil {
+				t.Fatalf("Load before: %v", err)
+			}
+			r.handlePhaseCmd("/phase " + verb)
+			got := out.String()
+			if !strings.Contains(got, "retired") {
+				t.Fatalf("verb %q must explain the retirement, got %q", verb, got)
+			}
+			if !strings.Contains(got, "/workflow") {
+				t.Fatalf("verb %q must point at the live workflow surface, got %q", verb, got)
+			}
+			after, err := store.Load(g.ID)
+			if err != nil {
+				t.Fatalf("Load after: %v", err)
+			}
+			if after.Status != before.Status || after.ActiveIdx != before.ActiveIdx {
+				t.Fatalf("retired verb %q mutated the legacy group: before %+v after %+v", verb, before, after)
+			}
+			for i := range before.Phases {
+				if after.Phases[i].Status != before.Phases[i].Status {
+					t.Fatalf("retired verb %q mutated phase %d status", verb, i)
+				}
+			}
+		})
+	}
+}
+
+// Bare /phase with no group store and no workflow store degrades to a clear
+// no-data message instead of a hard "disabled" wall.
+func TestHandlePhaseCmd_NoStoresShowsNoData(t *testing.T) {
+	out := &bytes.Buffer{}
+	r := &REPL{
+		out:          out,
+		in:           strings.NewReader(""),
+		colorMode:    render.ColorNever,
+		language:     "en",
+		writeEnabled: true,
+	}
+	r.handlePhaseCmd("/phase show")
+	if !strings.Contains(out.String(), "no legacy plan group store") {
+		t.Errorf("expected no-data message; got %q", out.String())
+	}
+}
+
+// Legacy groups render read-only with the retirement banner.
+func TestHandlePhaseCmd_LegacyShowCarriesBanner(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-banner")
+	if _, err := store.Save(g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "read-only") || !strings.Contains(got, "retired") {
+		t.Fatalf("legacy view must carry the retirement banner, got %q", got)
+	}
+	if !strings.Contains(got, "group: group-banner") {
+		t.Fatalf("legacy view must still render the group, got %q", got)
+	}
+}
+
+// With an active write-workflow run on disk, bare /phase shows the batch
+// view (the live phases) instead of any legacy group.
+func TestHandlePhaseCmd_ActiveWorkflowRunWinsOverLegacy(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-shadowed")
+	if _, err := store.Save(g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	wfStore := NewWriteWorkflowRunStore(t.TempDir())
+	r.writeWorkflowRunStore = wfStore
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-live-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		Goal:          "live workflow goal",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "first live batch",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	if _, err := wfStore.Save(run); err != nil {
+		t.Fatalf("workflow save: %v", err)
+	}
+	r.handlePhaseCmd("/phase")
+	got := out.String()
+	if !strings.Contains(got, "wf-live-1") && !strings.Contains(got, "first live batch") {
+		t.Fatalf("active run must render the batch view, got %q", got)
+	}
+	if strings.Contains(got, "group-shadowed") {
+		t.Fatalf("legacy group must not shadow the live run, got %q", got)
 	}
 }
