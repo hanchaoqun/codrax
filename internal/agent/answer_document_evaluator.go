@@ -543,6 +543,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "referenced_artifact_lines", func() string {
+		return renderAnswerDocReferencedArtifactLines(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "runtime_trace_answer_guidance", func() string {
 		return renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
 	}) {
@@ -5589,6 +5594,32 @@ func truncateAnswerDocPromptText(s string, max int) string {
 		trimmed = trimmed[:len(trimmed)-1]
 	}
 	return strings.TrimSpace(trimmed) + "…[truncated]"
+}
+
+// renderAnswerDocReferencedArtifactLines reminds the finalizer to keep
+// the artifact-local coordinates the QUESTION referenced anchored in the
+// visible answer. Soft guidance from a typed analyzer declaration; no
+// hard gate reads it.
+func renderAnswerDocReferencedArtifactLines(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	refs := ctx.AnalysisIR.RequestModel.ReferencedArtifactLines
+	if len(refs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Referenced artifact lines\n\n")
+	b.WriteString("The question references these attached-artifact line coordinates. Anchor the explanation to them explicitly (e.g. 「日志第 N 行」 / \"log line N\") so the user can map the answer back to their artifact; keep them artifact-local — they are NOT repository citations.\n")
+	for _, r := range refs {
+		if r.EndLine > r.StartLine {
+			fmt.Fprintf(&b, "- %s lines %d-%d\n", r.Source, r.StartLine, r.EndLine)
+		} else {
+			fmt.Fprintf(&b, "- %s line %d\n", r.Source, r.StartLine)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string {

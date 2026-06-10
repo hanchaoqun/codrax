@@ -75,6 +75,7 @@ type emitAnalysisParams struct {
 	Predicates                   *emitPredicatesParam                   `json:"predicates"`
 	DiagnosticProfile            *emitDiagnosticProfileParam            `json:"diagnostic_profile"`
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
+	ReferencedArtifactLines      []emitArtifactLineRefParam             `json:"referenced_artifact_lines,omitempty"`
 	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
 	AnswerVisibilityProfile      *emitAnswerVisibilityProfileParam      `json:"answer_visibility_profile,omitempty"`
 	SourceInventoryProfile       *emitSourceInventoryProfileParam       `json:"source_inventory_profile,omitempty"`
@@ -145,6 +146,12 @@ type emitDiagnosticProfileParam struct {
 	CurrentVersionCheck  *bool    `json:"current_version_check"`
 	ObservationSummary   string   `json:"observation_summary,omitempty"`
 	Confidence           *float64 `json:"confidence"`
+}
+
+type emitArtifactLineRefParam struct {
+	Source    string `json:"source"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line,omitempty"`
 }
 
 type emitConversationReferenceProfileParam struct {
@@ -428,6 +435,19 @@ func buildEmitAnalysisSchema() {
 					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this diagnostic profile in [0,1]."},
 				},
 				"required": []string{"is_diagnostic", "current_risk", "historical_regression", "current_version_check", "confidence"},
+			},
+			"referenced_artifact_lines": map[string]any{
+				"type":        "array",
+				"description": "Artifact-local line coordinates the QUESTION itself references (for example 'log line 3' / '日志第 3 行' / 'trace 第 5-6 行'). Declare one entry per referenced span so the answer keeps the user's coordinate anchored. Only for attached log/trace lines the user pointed at — not for stack-frame file:line tokens inside the artifact text.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"source":     map[string]any{"type": "string", "enum": []string{"log", "trace"}, "description": "Which attached artifact the span addresses."},
+						"start_line": map[string]any{"type": "integer", "minimum": 1, "description": "1-based artifact-local line the user referenced."},
+						"end_line":   map[string]any{"type": "integer", "minimum": 1, "description": "Inclusive span end; omit for a single line."},
+					},
+					"required": []string{"source", "start_line"},
+				},
 			},
 			"conversation_reference_profile": map[string]any{
 				"type":        "object",
@@ -1359,6 +1379,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		KindConfidence:                  p.KindConfidence,
 		Predicates:                      predicates,
 		DiagnosticProfile:               diagnosticProfile,
+		ReferencedArtifactLines:         normalizeEmitArtifactLineRefs(p.ReferencedArtifactLines),
 		ConversationReferenceProfile:    conversationReferenceProfile,
 		SourceScopeProfile:              sourceScopeProfile,
 		AnswerVisibilityProfile:         answerVisibilityProfile,
@@ -4083,4 +4104,18 @@ func validateAndBuildIrrelevantFiles(in []string, val *analysisValidationResult)
 		return nil
 	}
 	return out
+}
+
+// normalizeEmitArtifactLineRefs converts the wire shape into the typed
+// IR refs through the shared normalizer (source enum bound, positive
+// lines, end >= start; invalid entries drop).
+func normalizeEmitArtifactLineRefs(in []emitArtifactLineRefParam) []types.ArtifactLineRef {
+	if len(in) == 0 {
+		return nil
+	}
+	refs := make([]types.ArtifactLineRef, 0, len(in))
+	for _, r := range in {
+		refs = append(refs, types.ArtifactLineRef{Source: r.Source, StartLine: r.StartLine, EndLine: r.EndLine})
+	}
+	return types.NormalizeArtifactLineRefs(refs)
 }

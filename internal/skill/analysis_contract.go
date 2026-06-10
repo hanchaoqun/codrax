@@ -398,6 +398,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("These predicates are the structural intent signal — be honest, `false` is a valid answer. A wrong predicate produces a wrong answer because every later choice keys on these typed flags rather than re-reading the question text.\n\n")
 	of.WriteString("## Diagnostic profile (REQUIRED)\n\n")
 	of.WriteString("Emit `diagnostic_profile` on every call with fields `is_diagnostic`, `current_risk`, `historical_regression`, `current_version_check`, and `confidence`. Every boolean MUST be present and true OR false.\n")
+	of.WriteString("When the question itself points at specific attached-artifact lines (e.g. asks about log line 3 or trace lines 5-6), declare each referenced span in `referenced_artifact_lines` with its source (log/trace) and 1-based line numbers — the answer keeps the user's coordinate anchored only when this lane is filled. Do not declare stack-frame file:line tokens that merely appear inside the artifact text.\n")
 	of.WriteString("- `is_diagnostic`: true when the CURRENT request expects diagnosis, cause, remediation, or risk analysis. Keep it aligned with `predicates.is_diagnostic_question`.\n")
 	of.WriteString("- `current_risk`: true when the user asks whether a known / observed issue can still happen in the current checkout.\n")
 	of.WriteString("- `historical_regression`: true when the user references a prior log / trace / previous run / earlier answer and asks whether the same class of problem remains or regressed.\n")

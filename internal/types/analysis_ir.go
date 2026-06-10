@@ -94,6 +94,14 @@ type RequestModel struct {
 	// observation exists.
 	ArtifactObservationProfile *ArtifactObservationProfile `json:"artifact_observation_profile,omitempty"`
 
+	// ReferencedArtifactLines are artifact-local line coordinates the
+	// QUESTION itself references (e.g. "日志第 3 行" / "trace line 5").
+	// Declared by the analyzer as typed classification output — the
+	// system never scans request prose for line numbers. Downstream
+	// answer-surface guidance uses them to keep the user's coordinate
+	// anchored in the answer, distinct from repository citations.
+	ReferencedArtifactLines []ArtifactLineRef `json:"referenced_artifact_lines,omitempty"`
+
 	// ConversationReferenceProfile is the analyzer LLM's typed
 	// resolution of current-turn references to prior conversation. It
 	// lets non-observation follow-up questions carry resolved subjects
