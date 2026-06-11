@@ -44,7 +44,8 @@
 - [x] 批 2:tracequery 韧性——行级 panic recover(typed `ParseLinePanics` 计数,注入式测试缝)+ 时钟回退 typed `ClockRegressions` 计数,两者经查询层 caveat 向用户披露;"截断尾行被忽略"经核实为审计误报(`len(line)>0` 已处理无换行尾行),剔除;窗口派生共享底层移入批 5 一并核实。
 - [x] 批 3:multigraph——核实后 3 条中 2 条为误报(EnsureMany 入口即有 Cap 上界;EnsureLoaded 的 loading map 就是 singleflight);**真问题比审计更重**:per-slug oracle 缓存不校验图身份,LRU 逐出重载后返回陈旧 oracle(旧图泄漏 + 答案陈旧)——修为图指针校验缓存,身份变更即重建,附身份变更测试。
 - [x] 批 4(核实处置):scanWalk symlink 环为**误报**(`filepath.Walk` 不跟随符号链接,stdlib 语义);剩余为常数级优化(stripTypeWrappers 单遍化 / populateImplementers 预索引 / 缓存目录上界),列为低优先待办,实施前逐项基准验证。
-- [ ] 批 5(低优先待办):读管线热路常数优化(指纹增量化 / 不变段渲染缓存)+ tracequery 窗口派生共享底层 + 缓存目录上界;每项须先建基准基线再动手,无基准不改。
+- [x] 批 5a(基准先行,已交付):基线落盘于 `perf_baseline_bench_test.go`×2。**stripTypeWrappers 37ns/0 allocs → 记录后弃**(无优化价值);**populateImplementers 二次项坐实**(2000T×500I 20.7ms,10× 规模 38× 耗时)→ 按方法名倒排预筛 + 命中计数等值匹配,4.9× 提速且近线性,map 迭代非确定性以排序收口(输出与朴素双层循环逐字节一致);**tracequery 窗口派生坐实为最大内存热点**(Event 968B,200k 事件中段窗口单次 165MB 分配)→ 连续区间零拷贝共享底层(append 行序 + 单趟验证连续性,时钟回退穿窗自动回落拷贝路径),165MB→224B、9.9ms→3.1ms,双向正确性测试。
+- [ ] 批 5b(待办):closure 指纹基准(预判每轮一次、输入有界,趋零收益则记录后弃)/ 缓存目录上界 / 不变段渲染缓存(需先量化)。
 
 ## 4. 进度
 

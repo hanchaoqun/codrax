@@ -1,6 +1,8 @@
 package index
 
 import (
+	"sort"
+
 	"fmt"
 	"path/filepath"
 	"time"
@@ -216,9 +218,33 @@ func populateImplementers(g *types.Graph) {
 	if len(byLang) == 0 {
 		return
 	}
+	// Per-language inverted index: required-method name → interface
+	// positions. The naive loop tested every (type, interface) pair —
+	// O(types × interfaces × methods), measured 38× superlinear when
+	// scaling the fixture 10× (20.7ms at 2000 types × 500 interfaces,
+	// seconds at large-monorepo scale). With the index, each concrete
+	// type only touches interfaces that share at least one method
+	// name, counting hits per interface: an interface qualifies when
+	// its hit count equals its requirement count — set-equality
+	// semantics identical to methodSet.Implements.
+	type ifaceMethodIndex struct {
+		byMethod map[string][]int
+		reqLen   []int
+	}
+	indexByLang := make(map[string]ifaceMethodIndex, len(byLang))
+	for lang, ifaces := range byLang {
+		mi := ifaceMethodIndex{byMethod: make(map[string][]int), reqLen: make([]int, len(ifaces))}
+		for idx, iface := range ifaces {
+			mi.reqLen[idx] = len(iface.req)
+			for m := range iface.req {
+				mi.byMethod[m] = append(mi.byMethod[m], idx)
+			}
+		}
+		indexByLang[lang] = mi
+	}
 	// For each file, group its method symbols by Receiver/Parent
 	// to derive per-type method sets. Then match against same-
-	// language interfaces.
+	// language interfaces via the inverted index.
 	for _, fi := range g.Files {
 		if fi == nil {
 			continue
@@ -227,10 +253,13 @@ func populateImplementers(g *types.Graph) {
 		if len(ifaces) == 0 {
 			continue
 		}
+		mi := indexByLang[fi.Language]
 		methodsByOwner := buildMethodSetsForFile(fi)
 		if len(methodsByOwner) == 0 {
 			continue
 		}
+		hits := make(map[int]int)
+		var matched []int
 		for i := range fi.Symbols {
 			sym := &fi.Symbols[i]
 			if sym.Kind == "interface" || sym.Kind == "trait" {
@@ -240,11 +269,24 @@ func populateImplementers(g *types.Graph) {
 			if !ok || len(ownerMethods) == 0 {
 				continue
 			}
-			for _, iface := range ifaces {
-				if !ownerMethods.Implements(iface.req) {
-					continue
+			clear(hits)
+			for m := range ownerMethods {
+				for _, idx := range mi.byMethod[m] {
+					hits[idx]++
 				}
-				sym.Implements = appendUniqueSymbolID(sym.Implements, iface.id)
+			}
+			// Deterministic output: map iteration order is random, so
+			// qualifying interfaces append in index order (the same
+			// order the naive pairwise loop produced).
+			matched := matched[:0]
+			for idx, n := range hits {
+				if n == mi.reqLen[idx] {
+					matched = append(matched, idx)
+				}
+			}
+			sort.Ints(matched)
+			for _, idx := range matched {
+				sym.Implements = appendUniqueSymbolID(sym.Implements, ifaces[idx].id)
 			}
 		}
 	}

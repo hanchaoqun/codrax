@@ -184,26 +184,86 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		FlavorSignals:    append([]string(nil), full.FlavorSignals...),
 	}
 	firstLine, lastLine := 0, 0
-	for _, ev := range full.Events {
-		if !eventInBuildWindow(ev, out) {
-			continue
+	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
+	// copying a large window allocates window×1KB per derived query
+	// (165MB for a 170k-event window measured on the baseline bench).
+	// Events append in line order and trace timestamps are normally
+	// monotonic, so the in-window rows usually form one contiguous run
+	// [firstIdx..lastIdx]; when a single verification pass confirms
+	// every row inside that run matches the window, the derived index
+	// shares the parent's backing array (indices are immutable after
+	// build; all consumers read events by value or via read-only
+	// pointers). Clock regressions or holes fall back to the copying
+	// path so correctness never depends on monotonicity.
+	firstIdx, lastIdx := -1, -1
+	for i := range full.Events {
+		if eventInBuildWindow(full.Events[i], out) {
+			firstIdx = i
+			break
 		}
-		if out.FirstTs == 0 || ev.Ts < out.FirstTs {
-			out.FirstTs = ev.Ts
+	}
+	if firstIdx >= 0 {
+		for i := len(full.Events) - 1; i >= firstIdx; i-- {
+			if eventInBuildWindow(full.Events[i], out) {
+				lastIdx = i
+				break
+			}
 		}
-		if ev.Ts > out.LastTs {
-			out.LastTs = ev.Ts
+	}
+	contiguous := firstIdx >= 0
+	if contiguous {
+		for i := firstIdx; i <= lastIdx; i++ {
+			ev := &full.Events[i]
+			if !eventInBuildWindow(*ev, out) {
+				contiguous = false
+				break
+			}
+			if out.FirstTs == 0 || ev.Ts < out.FirstTs {
+				out.FirstTs = ev.Ts
+			}
+			if ev.Ts > out.LastTs {
+				out.LastTs = ev.Ts
+			}
+			if ev.Type != EventUnknown {
+				out.ParsedKnown++
+			}
+			if firstLine == 0 || ev.Line < firstLine {
+				firstLine = ev.Line
+			}
+			if ev.Line > lastLine {
+				lastLine = ev.Line
+			}
 		}
-		if ev.Type != EventUnknown {
-			out.ParsedKnown++
+	}
+	if contiguous && firstIdx >= 0 {
+		out.Events = full.Events[firstIdx : lastIdx+1 : lastIdx+1]
+	} else if firstIdx >= 0 {
+		// Non-contiguous window (clock regression inside the span):
+		// reset the stats accumulated during the failed verification
+		// pass and rebuild via the copying path.
+		out.FirstTs, out.LastTs, out.ParsedKnown = 0, 0, 0
+		firstLine, lastLine = 0, 0
+		for _, ev := range full.Events {
+			if !eventInBuildWindow(ev, out) {
+				continue
+			}
+			if out.FirstTs == 0 || ev.Ts < out.FirstTs {
+				out.FirstTs = ev.Ts
+			}
+			if ev.Ts > out.LastTs {
+				out.LastTs = ev.Ts
+			}
+			if ev.Type != EventUnknown {
+				out.ParsedKnown++
+			}
+			if firstLine == 0 || ev.Line < firstLine {
+				firstLine = ev.Line
+			}
+			if ev.Line > lastLine {
+				lastLine = ev.Line
+			}
+			out.Events = append(out.Events, ev)
 		}
-		if firstLine == 0 || ev.Line < firstLine {
-			firstLine = ev.Line
-		}
-		if ev.Line > lastLine {
-			lastLine = ev.Line
-		}
-		out.Events = append(out.Events, ev)
 	}
 	if out.IndexLineStart > 0 && out.IndexLineEnd > 0 {
 		out.ScannedLineCount = out.IndexLineEnd - out.IndexLineStart + 1
