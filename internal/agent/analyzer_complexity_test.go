@@ -122,7 +122,7 @@ func TestReconcileComplexity(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := reconcileComplexity(c.declared, c.entities, c.keywords, c.subTopics, c.questionKind, c.preds)
+			got, reason := reconcileComplexity(c.declared, 0, c.entities, c.keywords, c.subTopics, c.questionKind, c.preds)
 			if got != c.wantResult {
 				t.Errorf("result = %q, want %q (reason=%q)", got, c.wantResult, reason)
 			}
@@ -133,5 +133,36 @@ func TestReconcileComplexity(t *testing.T) {
 				t.Errorf("expected no reason when result unchanged; got %q", reason)
 			}
 		})
+	}
+}
+
+// Batch-6 E2 (§1.6 typed escape): the Rule 6 entity-count heuristic
+// yields to a high-confidence model declaration of simple — a typo
+// request structurally carries the wrong+right token pair as 2+
+// entities, which must not override simple@0.98. Low confidence and
+// moderate declarations still escalate; precise structural rules
+// (is_cross_component) are unaffected by the ceiling.
+func TestReconcileComplexity_Rule6ConfidenceEscape(t *testing.T) {
+	ents := []string{"retrun", "return", "main.go", "greet"}
+	preds := types.SemanticPredicates{}
+
+	got, reason := reconcileComplexity(types.ComplexitySimple, 0.98, ents, nil, 0, "mechanism", preds)
+	if got != types.ComplexitySimple || reason != "" {
+		t.Fatalf("high-confidence simple must survive Rule 6, got %q (%q)", got, reason)
+	}
+
+	got, _ = reconcileComplexity(types.ComplexitySimple, 0.5, ents, nil, 0, "mechanism", preds)
+	if got != types.ComplexityComplex {
+		t.Fatalf("low-confidence simple must still escalate, got %q", got)
+	}
+
+	got, _ = reconcileComplexity(types.ComplexityModerate, 0.98, ents, nil, 0, "mechanism", preds)
+	if got != types.ComplexityComplex {
+		t.Fatalf("moderate declaration must still escalate, got %q", got)
+	}
+
+	got, _ = reconcileComplexity(types.ComplexitySimple, 0.98, ents, nil, 0, "mechanism", types.SemanticPredicates{IsCrossComponent: true})
+	if got != types.ComplexityComplex {
+		t.Fatalf("typed is_cross_component must escalate regardless of confidence, got %q", got)
 	}
 }

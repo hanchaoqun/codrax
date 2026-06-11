@@ -67,8 +67,17 @@ const (
 //
 // Returns (resolved, reason). When resolved == declared the rule did
 // not fire and reason is empty.
+// complexityEscalationConfidenceCeiling is the §1.6 typed-escape
+// floor for NOISY escalation rules: when the model declared simple
+// with at least this ComplexityConfidence, heuristic count-based
+// upgrades (Rule 6) yield to the declaration. Precise structural
+// rules (sub-topic floor, is_cross_component) are unaffected — they
+// read typed signals, not counts.
+const complexityEscalationConfidenceCeiling = 0.9
+
 func reconcileComplexity(
 	declared types.Complexity,
+	declaredConfidence float64,
 	entities, keywords []string,
 	subTopics int,
 	questionKind string,
@@ -129,8 +138,20 @@ func reconcileComplexity(
 	// package C). The LLM frequently picks moderate for these because
 	// the question READS like a simple "how does X work" — but the
 	// answer requires 6+ files across 3+ packages.
+	// §1.6 typed escape (batch-6 E2): the entity count is a NOISY
+	// signal for this rule — a rename/typo request structurally
+	// carries both the wrong and the right token as entities, so the
+	// 2+ floor is always met and a one-line single-file request was
+	// escalated to complex (inflating read budgets and the write-lane
+	// planner soft cap) against the model's simple declaration at
+	// 0.98 confidence. A high-confidence typed simple declaration
+	// wins over the count heuristic; precise rules above (sub-topic
+	// floor, is_cross_component) still escalate regardless.
 	if declared != types.ComplexityComplex && entCount >= 2 &&
 		(questionKind == "mechanism" || questionKind == "call_chain") {
+		if declared == types.ComplexitySimple && declaredConfidence >= complexityEscalationConfidenceCeiling {
+			return declared, ""
+		}
 		return types.ComplexityComplex,
 			"mechanism/call_chain question with 2+ entities implies cross-component dispatch chain"
 	}

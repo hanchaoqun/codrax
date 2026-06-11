@@ -1911,6 +1911,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			rm.Predicates = predsResolved
 		}
 		resolved, reason := reconcileComplexity(rm.Complexity,
+			rm.ComplexityConfidence,
 			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics),
 			rm.AnalyzerHints.Kind, rm.Predicates)
 		if resolved != rm.Complexity {

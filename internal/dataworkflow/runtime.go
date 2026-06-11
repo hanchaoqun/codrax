@@ -305,6 +305,45 @@ func blockedIdempotencyKeysFromRecords(records []WorkflowRecord) []string {
 		if !blocked {
 			continue
 		}
+		// Action-attributed failures poison only the named actions.
+		// The previous behaviour poisoned EVERY action key of a
+		// blocked plan, so a correct sibling action resubmitted in a
+		// repair plan was rejected as "repeats a previously blocked
+		// or failed workflow edge" — observed live: a valid decimal
+		// multiply custom_transform was refused solely because it
+		// shared a plan with one rejected action, forcing the planner
+		// into hardcoded-constant workarounds. Violations carry a
+		// typed ActionID; when at least one names an action present
+		// in the plan, only those actions' keys are poisoned. Records
+		// with no action attribution (plan-shape rejections) keep the
+		// conservative whole-plan poisoning.
+		attributed := map[string]bool{}
+		for _, violation := range record.Violations {
+			if id := strings.TrimSpace(violation.ActionID); id != "" {
+				attributed[id] = true
+			}
+		}
+		if len(attributed) > 0 {
+			matched := false
+			addAttributed := func(plan dataquery.TaskPlan) {
+				for _, action := range plan.Actions {
+					if attributed[strings.TrimSpace(action.ID)] {
+						addAction(action)
+						matched = true
+					}
+				}
+			}
+			addAttributed(record.Plan)
+			if record.Admission != nil {
+				addAttributed(record.Admission.Plan)
+				addAttributed(record.Admission.Original)
+			}
+			if matched {
+				continue
+			}
+			// Attribution named no action in the plan (stale or
+			// foreign ID) — fall through to whole-plan poisoning.
+		}
 		addPlan(record.Plan)
 		if record.Admission != nil {
 			addPlan(record.Admission.Plan)
