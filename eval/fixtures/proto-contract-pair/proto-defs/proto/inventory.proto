@@ -1,0 +1,47 @@
+// inventory.proto — contract v3 (source of truth).
+//
+// v3 changes vs v2:
+//   - rpc HoldItem RENAMED to ReserveItem (same request/reply shapes)
+//   - rpc ReleaseItem ADDED
+//   - ItemReply field warehouse_id (tag 4) ADDED
+syntax = "proto3";
+
+package inventory.v3;
+
+service Inventory {
+  rpc GetItem(ItemRequest) returns (ItemReply);
+  rpc ListItems(ListRequest) returns (ListReply);
+  rpc ReserveItem(ReserveRequest) returns (ItemReply);
+  rpc ReleaseItem(ReleaseRequest) returns (ItemReply);
+}
+
+message ItemRequest {
+  string sku = 1;
+}
+
+message ListRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ReserveRequest {
+  string sku = 1;
+  int32 quantity = 2;
+}
+
+message ReleaseRequest {
+  string sku = 1;
+  string reservation_id = 2;
+}
+
+message ItemReply {
+  string sku = 1;
+  int32 available = 2;
+  bool reserved = 3;
+  string warehouse_id = 4;  // v3 addition
+}
+
+message ListReply {
+  repeated ItemReply items = 1;
+  string next_page_token = 2;
+}

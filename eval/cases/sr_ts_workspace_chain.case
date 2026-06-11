@@ -1,0 +1,14 @@
+# Single-repo TS workspace — cross-package call chain + path alias
+#
+# Coverage target: the call chain crosses three workspace packages
+# through barrel re-exports, and the @app/core alias resolves via
+# tsconfig.base.json paths — the answer must anchor both.
+ID="sr_ts_workspace_chain"
+NAME="ts workspace — cli to transport call chain"
+FIXTURE="eval/fixtures/ts-monorepo-ws"
+QUESTION="从 CLI 入口到底层 HTTP 重试发送的完整调用链是怎样的？@app/core 这个导入路径是在哪里定义解析的？"
+EXPECT_CONTAINS="run fetchUser send tsconfig.base.json"
+EXPECT_MATCHES_REGEX="(run).*(fetchUser)
+(fetchUser).*(send|HttpTransport)
+(@app/core).*(tsconfig|paths|别名|alias)|(tsconfig|paths|别名|alias).*(@app/core)
+(nextDelay|RetryPolicy|FixedDelay|重试|retry)"

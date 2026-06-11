@@ -1,0 +1,10 @@
+/* X-macro command list — the single source of truth for the command
+ * set. Consumers #define CMD(name, handler, arity) and #include this
+ * file; dispatch.c expands it twice (declarations + table).
+ *
+ * Columns: command name literal, handler function, expected argc. */
+CMD(ping,  cmd_ping,  0)
+CMD(echo,  cmd_echo,  1)
+CMD(stat,  cmd_stat,  0)
+CMD(sleep, cmd_sleep, 1)
+CMD(quit,  cmd_quit,  0)

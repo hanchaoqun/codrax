@@ -1,0 +1,13 @@
+# Single-repo Python — cooperative MRO order
+#
+# Coverage target: multiple-inheritance method resolution. The answer
+# must give the four-class MRO order and the role of each mixin —
+# flattening the chain or reversing the mixins is a wrong answer.
+ID="sr_py_mro_order"
+NAME="python mro — JsonPlugin handle resolution order"
+FIXTURE="eval/fixtures/python-plugin-mro"
+QUESTION="调用 JsonPlugin().handle(payload) 时，方法解析顺序（MRO）是怎样的？TimestampMixin 和 ValidationMixin 各自做什么、谁先执行？"
+EXPECT_CONTAINS="JsonPlugin TimestampMixin ValidationMixin BasePlugin"
+EXPECT_MATCHES_REGEX="(TimestampMixin).*(ValidationMixin).*(BasePlugin)
+(TimestampMixin).*(时间|戳|timestamp|ingested)|(时间戳|timestamp|ingested).*(TimestampMixin)
+(ValidationMixin).*(校验|验证|valid|body)|(校验|验证|valid).*(ValidationMixin)"

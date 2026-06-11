@@ -1,0 +1,13 @@
+# Single-repo Java — interface implementers with per-impl attribute
+#
+# Coverage target: implementers enumeration where each member carries
+# an annotation attribute (its route path). Tests member+attribute
+# pairing across three files in one package.
+ID="sr_java_handler_impls"
+NAME="java router — Handler implementers and paths"
+FIXTURE="eval/fixtures/java-annotation-router"
+QUESTION="Handler 接口有哪些实现类？每个实现各自负责哪个路径？"
+EXPECT_CONTAINS="EchoHandler UpperHandler StatsHandler /echo /upper /stats"
+EXPECT_MATCHES_REGEX="(EchoHandler).*(/echo)|(/echo).*(EchoHandler)
+(UpperHandler).*(/upper)|(/upper).*(UpperHandler)
+(StatsHandler).*(/stats)|(/stats).*(StatsHandler)"

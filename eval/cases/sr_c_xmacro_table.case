@@ -1,0 +1,13 @@
+# Single-repo C — X-macro expansion membership
+#
+# Coverage target: preprocessor-generated command table. The answer
+# must enumerate the five commands from cmds.def and explain the
+# double-expansion pattern in dispatch.c.
+ID="sr_c_xmacro_table"
+NAME="c xmacro — command table membership"
+FIXTURE="eval/fixtures/c-macro-platform"
+QUESTION="这个程序支持哪些命令？命令表是怎么从 cmds.def 生成出来的？"
+EXPECT_CONTAINS="ping echo stat sleep quit cmds.def"
+EXPECT_MATCHES_REGEX="(ping).*(echo).*(stat).*(sleep).*(quit)|(5|五).*(命令|command)
+(CMD|宏|macro|X-macro|展开|expand).*(cmds\\.def|dispatch)|(cmds\\.def).*(CMD|宏|macro|展开|expand)
+(两次|twice|两遍|声明|declar).*(展开|expand|table|表)|(展开|expand).*(两次|twice|声明|declar|table|表)"

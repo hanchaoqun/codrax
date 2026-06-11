@@ -1,0 +1,13 @@
+# Single-repo C++ — virtual call chain + factory selection
+#
+# Coverage target: Logger::log dispatches through the virtual
+# Sink::write; the concrete sink is chosen by SinkRegistry::create
+# from a config name. The answer must connect both ends.
+ID="sr_cpp_virtual_chain"
+NAME="cpp sink — log call path and factory"
+FIXTURE="eval/fixtures/cpp-sink-hierarchy"
+QUESTION="Logger::log 写一条日志到 console 后端的完整调用路径是怎样的？运行时具体的 sink 是如何被选择出来的？"
+EXPECT_CONTAINS="Logger write ConsoleSink create"
+EXPECT_MATCHES_REGEX="(Logger::log|Logger).*(write)
+(SinkRegistry|create|工厂|factory|registry).*(console|ConsoleSink)|(console|ConsoleSink).*(SinkRegistry|create|工厂|factory|registry)
+(virtual|虚函数|虚调用|动态分发|多态|dispatch)"

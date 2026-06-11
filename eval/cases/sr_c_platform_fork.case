@@ -1,0 +1,14 @@
+# Single-repo C — #ifdef platform fork boundary
+#
+# Coverage target: three-way preprocessor fork. The answer must name
+# all three branches with their platform APIs and which handler
+# consumes the clock.
+ID="sr_c_platform_fork"
+NAME="c platform — monotonic clock forks"
+FIXTURE="eval/fixtures/c-macro-platform"
+QUESTION="monotonic_now_ns 在不同平台上分别用什么实现？哪个命令处理函数用到了它？"
+EXPECT_CONTAINS="QueryPerformanceCounter mach_absolute_time clock_gettime cmd_sleep"
+EXPECT_MATCHES_REGEX="(_WIN32|Windows|win).*(QueryPerformanceCounter)|(QueryPerformanceCounter).*(_WIN32|Windows)
+(__APPLE__|macOS|Apple|apple).*(mach_absolute_time)|(mach_absolute_time).*(__APPLE__|macOS|Apple)
+(POSIX|fallback|其他|else|默认).*(clock_gettime|CLOCK_MONOTONIC)|(clock_gettime|CLOCK_MONOTONIC).*(POSIX|fallback|默认)
+(cmd_sleep|sleep).*(monotonic_now_ns|时钟|clock)|(monotonic_now_ns).*(cmd_sleep|sleep)"

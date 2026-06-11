@@ -1,0 +1,13 @@
+# Single-repo C++ — virtual hierarchy implementers + second-level inheritance
+#
+# Coverage target: C++ virtual dispatch hierarchy. RotatingSink derives
+# from FileSink (not directly from Sink) — the answer must state the
+# two-level relationship instead of flattening it.
+ID="sr_cpp_sink_impls"
+NAME="cpp sink — hierarchy members and relationship"
+FIXTURE="eval/fixtures/cpp-sink-hierarchy"
+QUESTION="Sink 的具体实现类有哪些？RotatingSink 和 Sink 之间是什么继承关系？"
+EXPECT_CONTAINS="ConsoleSink FileSink RotatingSink"
+EXPECT_MATCHES_REGEX="(RotatingSink).*(FileSink)
+(ConsoleSink).*(Sink|console_sink)|(Sink|console_sink).*(ConsoleSink)
+(继承|派生|derives|inherits|subclass|extends|二级|间接|transitiv)"

@@ -1,0 +1,13 @@
+# Single-repo Python — decorator registry dynamic dispatch
+#
+# Coverage target: import-time @register decorator population +
+# resolve() lookup + async executor handoff. The answer must connect
+# the chain instead of stopping at the registry dict.
+ID="sr_py_registry_dispatch"
+NAME="python registry — json dispatch chain"
+FIXTURE="eval/fixtures/python-plugin-mro"
+QUESTION="处理 kind=json 的输入时，最终由哪个类处理？从 run_pipeline 到这个类的解析链路是什么？@register 装饰器在这条链路里起什么作用？"
+EXPECT_CONTAINS="JsonPlugin resolve REGISTRY register run_pipeline"
+EXPECT_MATCHES_REGEX="(run_pipeline).*(resolve)
+(resolve|REGISTRY).*(JsonPlugin)|(JsonPlugin).*(resolve|REGISTRY)
+(register|装饰器|decorator).*(REGISTRY|注册|import)|(REGISTRY|注册).*(register|装饰器|decorator)"

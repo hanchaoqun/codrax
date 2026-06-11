@@ -1,0 +1,13 @@
+# Single-repo Java — annotation routing + field injection
+#
+# Coverage target: @Route reflection scan + @Inject field DI. The
+# answer must name the handler, how the path binds, and how AuditLog
+# arrives in the field without a constructor.
+ID="sr_java_annotation_route"
+NAME="java router — /stats routing and injection"
+FIXTURE="eval/fixtures/java-annotation-router"
+QUESTION="/stats 请求由哪个类处理？路由表是如何通过注解建立起来的？StatsHandler 里的 AuditLog 字段是怎么被赋值的？"
+EXPECT_CONTAINS="StatsHandler Route Inject AuditLog register"
+EXPECT_MATCHES_REGEX="(/stats|stats).*(StatsHandler)|(StatsHandler).*(/stats|stats)
+(@Route|Route).*(path|注解|annotation|路由)|(path|注解|annotation).*(@Route|Route)
+(@Inject|Inject|injectFields|反射|reflect).*(AuditLog)|(AuditLog).*(@Inject|Inject|injectFields|反射|reflect)"

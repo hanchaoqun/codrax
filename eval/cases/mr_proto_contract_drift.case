@@ -1,0 +1,15 @@
+# Multi-repo — IDL contract drift detection across three sub-repos
+#
+# Coverage target: cross-sub-repo comparison anchored on a .proto
+# source of truth. The answer must identify the renamed rpc, the
+# missing rpc, and the missing message field on the stale side.
+ID="mr_proto_contract_drift"
+NAME="proto pair — which side drifted and how"
+MULTIREPO="proto-contract-pair"
+CAP=3
+QUESTION="对比 proto-defs 里的 inventory.proto 和两个使用方（java-server、py-client）的 stub：哪一侧与契约不一致？具体差异有哪些？"
+EXPECT_CONTAINS="py-client HoldItem ReserveItem ReleaseItem warehouse_id"
+EXPECT_MATCHES_REGEX="(py-client|python|stubs\\.py).*(过时|落后|stale|滞后|v2|不一致|漂移|drift)|(过时|落后|stale|滞后|不一致|漂移|drift).*(py-client|python)
+(HoldItem).*(ReserveItem|改名|重命名|rename)|(ReserveItem|改名|重命名|rename).*(HoldItem)
+(ReleaseItem).*(缺|没有|不存在|missing|lack)|(缺|没有|不存在|missing|lack).*(ReleaseItem)
+(warehouse_id|warehouseId)"

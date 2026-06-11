@@ -1,0 +1,14 @@
+# Multi-repo — which consumer matches the contract
+#
+# Coverage target: positive-side verification (java-server matches v3)
+# with per-method evidence, not just the negative drift finding.
+ID="mr_proto_current_side"
+NAME="proto pair — current side verification"
+MULTIREPO="proto-contract-pair"
+CAP=3
+QUESTION="java-server 的 stub 与 inventory.proto 当前版本一致吗？逐个 rpc 方法对照说明。"
+EXPECT_CONTAINS="GetItem ListItems ReserveItem ReleaseItem"
+EXPECT_MATCHES_REGEX="(java-server|InventoryGrpc).*(一致|匹配|对应|当前|consistent|match|v3)|(一致|匹配|对应|current|consistent|match).*(java-server|InventoryGrpc)
+(reserveItem|ReserveItem)
+(releaseItem|ReleaseItem)
+(warehouse_id|warehouseId)"

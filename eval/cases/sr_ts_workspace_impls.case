@@ -1,0 +1,14 @@
+# Single-repo TS workspace — interface implementers enumeration
+#
+# Coverage target: TS monorepo (workspaces + tsconfig path aliases +
+# barrel re-exports). The implementers question must surface exactly
+# the two RetryPolicy implementations and not promote the JitterHelper
+# helper class into the implementer set.
+ID="sr_ts_workspace_impls"
+NAME="ts workspace — RetryPolicy implementers"
+FIXTURE="eval/fixtures/ts-monorepo-ws"
+QUESTION="RetryPolicy 接口有哪些实现类？分别在哪个文件定义？JitterHelper 算它的实现吗？"
+EXPECT_CONTAINS="ExponentialBackoff FixedDelay retry.ts JitterHelper"
+EXPECT_MATCHES_REGEX="(ExponentialBackoff).*(retry\\.ts|packages/core)|(retry\\.ts|packages/core).*(ExponentialBackoff)
+(FixedDelay).*(retry\\.ts|packages/core)|(retry\\.ts|packages/core).*(FixedDelay)
+(JitterHelper).*(不是|不算|并非|不属于|helper|辅助|NOT)|(不是|不算|并非|不属于|helper|辅助).*(JitterHelper)"
