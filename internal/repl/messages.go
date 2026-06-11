@@ -412,6 +412,47 @@ func autoInitProceeding(lang, repoRoot string) string {
 	return formatN(lang, "initializing git repo: %s ...", repoRoot)
 }
 
+// autoInitScaffoldConsentTitle — consent prompt variant for an
+// effectively-empty target: the single y/N covers BOTH bare-dir
+// tiers (git init + from-scratch scaffold) so the user is not walled
+// twice. The wording must name both effects — informed consent.
+func autoInitScaffoldConsentTitle(lang, repoRoot, stateLabel string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"目标目录 %s 状态:%s,且目录为空。可以自动 `git init` + 空 initial commit,并授权本次从零生成新项目文件,在沙箱 worktree 里执行。是否同意?",
+			repoRoot, stateLabel)
+	}
+	return formatN(lang,
+		"target %s is %s and effectively empty. I can run `git init` + an empty initial commit and authorize generating a brand-new project from scratch for this run, inside a sandbox worktree. Proceed?",
+		repoRoot, stateLabel)
+}
+
+// autoInitDeclinedPreRun — decline lines for the pre-dispatch
+// consent (a plan/apply/verify-mode request against a bare dir).
+// Unlike autoInitDeclined there is no pending plan to point at yet.
+func autoInitDeclinedPreRun(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"已取消本次请求,目录未被改动。",
+			"  下次想直接同意:在 codrax.yaml 设 write_auto_init_repo: true,或启动时加 --auto-init-repo;空目录从零建项目还需 write_scaffold_enabled: true 或 --allow-scaffold。",
+		}
+	}
+	return []string{
+		"cancelled — the directory was not touched.",
+		"  to pre-authorize next time: set write_auto_init_repo: true in codrax.yaml or pass --auto-init-repo; an empty dir additionally needs write_scaffold_enabled: true or --allow-scaffold to scaffold from scratch.",
+	}
+}
+
+// autoInitAuthorizedPreRun — printed after a pre-dispatch consent.
+// git init itself is deferred to the apply stage (plan needs no git
+// index), so this deliberately does NOT say "initializing".
+func autoInitAuthorizedPreRun(lang, repoRoot string) string {
+	if isZh(lang) {
+		return formatN(lang, "已授权本次自动 git init: %s (实际执行在 apply 阶段)。", repoRoot)
+	}
+	return formatN(lang, "authorized automatic git init for this run: %s (executed at the apply stage).", repoRoot)
+}
+
 // mergeNothingToDo — printed when /merge runs against a worktree
 // that hasn't produced any commits beyond the base. This usually
 // means /merge fired before /approve, or /approve produced an empty
@@ -1069,6 +1110,26 @@ func operationUnavailableMsg(lang string, policy TurnPolicy) string {
 		return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Because the request may have side effects, Codrax will not reroute it into source analysis or execute it automatically.", kind)
 	}
 	return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Codrax will not reroute it into source analysis or execute it automatically.", kind)
+}
+
+// operationWritePipelineGuidance returns a one-line soft pointer to
+// the auditable write pipeline for confidently classified
+// file-artifact generation turns. All three gate inputs are typed
+// turn-policy fields (operation_kind / target_surface / confidence)
+// — no prose sniffing. Returns "" when the gate does not fire;
+// callers append the line verbatim to their panel. The guidance
+// never switches modes on its own: write activation stays an
+// explicit user action.
+func operationWritePipelineGuidance(lang string, policy TurnPolicy) string {
+	if policy.OperationKind != "artifact_generation" ||
+		policy.TargetSurface != "file_artifact" ||
+		policy.Confidence < operationWriteGuidanceConfidenceFloor {
+		return ""
+	}
+	if isZh(lang) {
+		return "如需以可审计的写管线处理（plan→apply→verify、可回退 diff），先运行 `/mode plan`，再重新发送这条请求。"
+	}
+	return "To route this through the auditable write pipeline (plan→apply→verify, revertible diffs), run `/mode plan` and re-send the request."
 }
 
 func operationPlanMarkdown(lang string, plan operation.Plan) string {

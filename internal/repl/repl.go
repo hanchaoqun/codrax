@@ -1278,6 +1278,9 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 		oneLineClamp(policy.Reason, 120))
 	r.finishOperationRouteSpinner(operation.StatusBlocked)
 	msg := operationUnavailableMsg(r.language, policy)
+	if g := operationWritePipelineGuidance(r.language, policy); g != "" {
+		msg += "\n\n" + g
+	}
 	r.warn("%s\n", msg)
 	r.lastAnswerOrigin = replAnswerOriginLocal
 	r.recordTurn(display, line, msg, memory.KindPipeline)
@@ -2273,6 +2276,9 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		oneLineClamp(plan.Provider, 80),
 		oneLineClamp(plan.MissingCapability, 160))
 	msg := operationPlanMarkdown(r.language, plan)
+	if g := operationWritePipelineGuidance(r.language, policy); g != "" {
+		msg += "\n\n" + g
+	}
 	r.finishProviderOperationPlanHeader(plan)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
@@ -6306,6 +6312,19 @@ func (r *REPL) dispatch(line, display string) {
 		return
 	}
 
+	// Bare-directory write consent (pytest forensics #2, 2026-06-12):
+	// a write-phase request against a target that still needs git
+	// init asks for consent in place of the --auto-init-repo /
+	// --allow-scaffold flag ceremony. Interactive REPL only; the
+	// prompt must run BEFORE the spinner takes over the terminal.
+	proceed, restoreBareDirAuth := r.preRunBareDirConsent()
+	if !proceed {
+		return
+	}
+	if restoreBareDirAuth != nil {
+		defer restoreBareDirAuth()
+	}
+
 	spinnerStarted := false
 	if r.renderer != nil {
 		r.setRendererTotalStagesForCurrentMode()
@@ -8263,24 +8282,40 @@ func (r *REPL) handleApproveCmd(line string) {
 	// the repo has no HEAD commit yet, `git worktree add --detach HEAD`
 	// inside worktree.Create will fail. Three-tier authorization:
 	//
-	//   1. yaml/CLI pre-authorized (writeAutoInitRepo == true) →
-	//      forward the flag to the orchestrator and proceed silently.
-	//   2. interactive REPL → prompt y/N; on yes, forward; on no,
-	//      print the recovery hint and bail (plan stays pending).
-	//   3. non-interactive REPL (scripted) without pre-auth → bail
-	//      with the same hint.
+	//   1. yaml/CLI pre-authorized on every needed tier → forward to
+	//      the orchestrator and proceed silently.
+	//   2. interactive REPL → prompt y/N (the title covers the
+	//      scaffold tier too when the dir is effectively empty, so
+	//      consent is informed and the user is not walled twice);
+	//      on yes, forward; on no, print the recovery hint and bail
+	//      (plan stays pending).
+	//   3. non-interactive REPL (scripted) without init pre-auth →
+	//      bail with the same hint. With init pre-auth but the
+	//      scaffold tier missing, fall through and let the apply
+	//      pre-hook fail loud with the precise scaffold recovery
+	//      text — scripted runs keep the flag ceremony.
 	//
 	// The orchestrator's apply pre-hook does the actual EnsureInitialCommit
 	// + worktree.Create call so all writes happen in one place.
 	if state, derr := worktree.DetectRepoState(r.repoRoot); derr == nil && state.NeedsInit() {
-		if !r.writeAutoInitRepo {
-			if !r.interactive() {
+		empty := worktree.DirIsEffectivelyEmpty(r.repoRoot)
+		scaffoldConsent := r.writeScaffoldEnabled
+		switch {
+		case !bareDirConsentNeeded(r.writeAutoInitRepo, r.writeScaffoldEnabled, empty):
+			// Tier 1: pre-authorized — forward silently below.
+		case !r.interactive():
+			if !r.writeAutoInitRepo {
 				r.errorf("%s", approveBareDirNoAuthMsg(r.language, r.repoRoot, state.String()))
 				return
 			}
+		default:
+			title := autoInitConsentTitle(r.language, r.repoRoot, state.String())
+			if empty {
+				title = autoInitScaffoldConsentTitle(r.language, r.repoRoot, state.String())
+			}
 			autoConsent := false
 			if err := huh.NewConfirm().
-				Title(autoInitConsentTitle(r.language, r.repoRoot, state.String())).
+				Title(title).
 				Affirmative("Yes").
 				Negative("No").
 				Value(&autoConsent).
@@ -8294,15 +8329,16 @@ func (r *REPL) handleApproveCmd(line string) {
 				return
 			}
 			r.info(autoInitProceeding(r.language, r.repoRoot))
+			if empty {
+				scaffoldConsent = true
+			}
 		}
-		// Per-Run authorization: forward to orchestrator. We restore
-		// the prior value in the defer so subsequent /approve calls
+		// Per-Run authorization: forward to orchestrator. The defer
+		// restores boot-time values so subsequent /approve calls
 		// against a different (already-initialized) repo don't keep
-		// the gate lifted.
-		if setter, ok := r.runner.(autoInitRepoSetter); ok {
-			setter.SetAutoInitRepo(true)
-			defer setter.SetAutoInitRepo(r.writeAutoInitRepo)
-		}
+		// the gates lifted.
+		restoreBareDirAuth := r.forwardBareDirAuthorization(empty && scaffoldConsent)
+		defer restoreBareDirAuth()
 	}
 
 	originalMode := r.currentMode

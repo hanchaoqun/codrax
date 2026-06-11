@@ -126,7 +126,7 @@ func DetectRepoState(repoRoot string) (RepoState, error) {
 //   - RepoNotInitialized: `git init` → configure local identity if
 //     missing → `git commit --allow-empty -m <message>`
 //   - RepoNoCommits:      configure local identity if missing →
-//                         `git commit --allow-empty -m <message>`
+//     `git commit --allow-empty -m <message>`
 //   - RepoReady:          no-op (idempotent).
 //
 // message is the commit subject; callers should pass something
@@ -137,8 +137,8 @@ func DetectRepoState(repoRoot string) (RepoState, error) {
 // repo only. The synthetic values are chosen to make later
 // override obvious:
 //
-//   user.email = codrax@local
-//   user.name  = codrax
+//	user.email = codrax@local
+//	user.name  = codrax
 //
 // Errors are wrapped with the failed step name so the caller's
 // surfaced message tells the operator what to fix.
@@ -326,4 +326,77 @@ func hasGitConfig(dir, key string) bool {
 	cmd := exec.Command("git", "config", key)
 	cmd.Dir = dir
 	return cmd.Run() == nil
+}
+
+// DirIsEffectivelyEmpty reports whether path contains no files the
+// pipeline could analyse. "Effectively empty" means: directory is
+// missing, unreadable, or its contents (after filtering out the
+// canonical `.git` directory + the codrax-managed `.codrax/` runtime
+// directory) carry no regular files at any depth.
+//
+// Canonical home for the probe: the orchestrator stage hooks use it
+// to pick the scaffold authorization tier, and the REPL uses it to
+// decide whether a bare-dir consent prompt must also cover the
+// scaffold tier. Both sides MUST agree on emptiness or a consent
+// granted in the REPL would not match the gate that later fires.
+//
+// Cross-platform: os.ReadDir + the recursive walk both use the
+// OS-native path machinery (Windows / macOS / Linux).
+//
+// Walk depth caps: stops descending after 256 entries TOTAL across
+// the whole walk so a deeply nested non-empty tree returns false
+// quickly without scanning every file.
+func DirIsEffectivelyEmpty(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	const maxScan = 256
+	scanned := 0
+	var walk func(string) bool
+	walk = func(dir string) bool {
+		es, err := os.ReadDir(dir)
+		if err != nil {
+			return true // unreadable subtree counts as "no usable files"
+		}
+		for _, e := range es {
+			scanned++
+			if scanned > maxScan {
+				return false
+			}
+			name := e.Name()
+			if e.IsDir() {
+				if name == ".git" || name == ".codrax" {
+					continue
+				}
+				if !walk(filepath.Join(dir, name)) {
+					return false
+				}
+				continue
+			}
+			return false
+		}
+		return true
+	}
+	for _, e := range entries {
+		scanned++
+		if scanned > maxScan {
+			return false
+		}
+		name := e.Name()
+		if e.IsDir() {
+			if name == ".git" || name == ".codrax" {
+				continue
+			}
+			if !walk(filepath.Join(path, name)) {
+				return false
+			}
+			continue
+		}
+		return false
+	}
+	return true
 }

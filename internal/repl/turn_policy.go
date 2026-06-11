@@ -987,6 +987,15 @@ func stripPreTerminatorCommas(raw []byte) []byte {
 // Above 0.4 the model has committed and we honour it.
 const turnPolicyConfidenceFloor = 0.4
 
+// operationWriteGuidanceConfidenceFloor gates the soft "/mode plan"
+// pointer appended to file-artifact generation panels. The
+// turn-policy prompt teaches confidence≈0.85 for canonical operation
+// routes, so 0.7 keeps the guidance on confidently classified
+// artifact turns while staying quiet on hesitant ones. This is soft
+// guidance only: the route decision is untouched and write
+// activation remains an explicit user action (/mode plan).
+const operationWriteGuidanceConfidenceFloor = 0.7
+
 // presentationDirectiveCap caps the runes of the LLM-emitted
 // directive that propagate downstream. Defends against a runaway
 // LLM that produces multi-paragraph "directives" — these would be

@@ -11,7 +11,9 @@
 4. **plan 面板无下一步**(已修):`renderChangePlanSummary` 尾部加一行 `/plan show · /approve · /reject` 双语提示。自动 approve 不做默认(approval_policy=auto_safe 已存在,用户可配置;面板提示先解决心智负担)。
 
 ## 状态
-- [x] #3 #4 已修(本 commit)。
-- [ ] #1 路由软引导、#2 REPL auto-init 询问——下一 session 按上述设计实施(均有精确 typed 信号锚点)。
-- [ ] s11b → L4 reviewer 扩展(typed-vs-typed 一致性检查)。
-- [ ] read_combo 22 案 + trace_query 变体 6 案待扫。
+- [x] #3 #4 已修(`5bd36903`)。
+- [x] #1 路由软引导(2026-06-12):`operationWritePipelineGuidance` 三 typed 信号门(operation_kind=artifact_generation + target_surface=file_artifact + confidence≥0.7 named const),双语单行,接 operationDispatch 制品 lane + operationUnavailableMsg 两个面;REPL-only by construction(单发 CLI 走 commandOperationPlanMarkdown 不同 builder)。
+- [x] #2 REPL auto-init 询问(2026-06-12):`preRunBareDirConsent` 挂 dispatch spinner 前,write 模式 + NeedsInit + 交互态当场 y/N;**单 consent 覆盖双层**(init + 空目录 scaffold,`worktree.DirIsEffectivelyEmpty` 上移为 canonical 探针)否则空目录场景 consent 后仍死端第二道墙;/approve lane 同步扩展 scaffold 层;脚本态/单发保持 flag 仪式 fail-loud;per-Run defer-restore 防泄漏。
+- [x] s11b → L4(2026-06-12):落在确定性 V2 oracle 链(非 opt-in reviewer——那默认关),`validateExactResolutionGrounding` typed-vs-typed:exact/alias anchor ∩ {citation enclosing_function, evidence anchors, edge endpoints}(排除 reviewer 侧 regex 行提取噪声源),negative_pattern 同符号 = 同文自證自反;空池 no-op(集合侧缺失是噪声);`ViolExactResolutionUngrounded` SoftByDefault+Promotable,LocusFinalizer。
+- [x] trace_query 余 6 案:5 首跑 PASS + inode_event_search spec 否定词表第 7 例(答案"无法直接…对应…路径"实质正确)拓宽后对既有输出验证 PASS。
+- [ ] read_combo 21 案扫批进行中(本 session)。

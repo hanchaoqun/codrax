@@ -43,8 +43,10 @@ func bareDirAuthorizationMessage(ctx *types.BusContext, state worktree.RepoState
 
 	// Stage-aware option list. The y/N interactive option is only
 	// available in apply stage; advertising it during plan stage
-	// would be a dead-lock (user is blocked at plan, can never
-	// reach /approve to see the y/N prompt).
+	// would mislead — an interactive REPL asks its own consent
+	// BEFORE dispatching a write-mode Run (repl preRunBareDirConsent),
+	// so a user who actually sees this plan-stage text is in a
+	// scripted/one-shot context where no prompt can ever appear.
 	if zh {
 		var b strings.Builder
 		fmt.Fprintf(&b, "目录 %s 还不是 git 仓库。改代码前需要先把它变成 git 仓库,请任选一种授权方式:\n\n", repo)
