@@ -104,3 +104,15 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 4. **copylocks**:用户并行工作已修(`ShallowClone`,vet 干净)——并附带消除了值拷贝继承父 bus answer-surface 缓存的实质问题,划掉。
 5. **B1 splitter 实测**:诚实维持"等自然复现"(诱导 case = 拟合);单元 9 pin + near-cap 补充为当前证据水位。
 6. **data-planner 专项 3 案**:确认独立 session 量级,不塞入。
+
+## §8 数据批决策(2026-06-12 续二)
+
+9 案数据批(seq×4 + config×2 + artifact×3):
+- **#1 硬面判据成立**:seq_table 软层累计 3/6 PASS(<约定 4/4)。两根残余轴:(轴1)隐含 stage 成员依赖 explorer 自觉发 member_set;(轴2)斜杠对载体 token(run4 analyzer 实体又无 Mutable,B2.3 skill 规则不稳)。run4 无融合(独立三块,B1 无需触发),表格 6 行正常渲染。
+- **#2 B3 验证**:3 个此前各烧 1 轮的 artifact 案,2 案 hypothesis_verdict_rejects=0;残余 1 例为模型仍以 artifact 锚确认 current-repo verdict(契约已前置,模型未遵)。23%→1/3 样本,继续观察。
+- **#3 config 模板维持现状**:qf_config 108s/two_knobs 164s 双 PASS,grep-led 稳定不慢,调权无据。
+- **附**:#6 完成门弹回取证落地(`5c988a19`,全部弹回为 aggregate_facts 形状契约首发违规,五不变式前置);#7 收窄定案(`2f5fe950`,窗口为 sibling 组按 cap 池化非过配;预期取消 WARN→DEBUG typed 降级)。
+
+**硬面设计(实施中)**:
+1. 轴2 确定性修:analyzer post-processing 链加斜杠对实体 normalizer——RawRequest 中 `A/B` 双 identifier 形态且一侧已在 entities → 补另一侧(expandEntities path 先例,mention 派生同级,服务既有下游)。
+2. 轴1 typed 通道:新 LLM-emitted `predicates.has_per_member_table`(R2' 6 处同步);消费 = explorer 完成门:predicate 为真且无 member_set aggregate fact 且无 absence_justification(现成 §1.6 typed 逃生道)→ typed 拒因引导补 member_set。finalizer 侧复用既有物化器+硬 gate,零新面。
