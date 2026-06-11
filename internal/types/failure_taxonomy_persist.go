@@ -37,13 +37,8 @@ func WriteFailureTaxonomyToFile(t *FailureTaxonomy, path string) error {
 	if err != nil {
 		return fmt.Errorf("WriteFailureTaxonomyToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WriteFailureTaxonomyToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WriteFailureTaxonomyToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteFailureTaxonomyToFile: write %s: %w", path, err)
 	}
 	return nil
 }

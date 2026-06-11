@@ -8247,6 +8247,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		"repl_approve",
 		userDecision,
 		types.PlanFingerprint(plan),
+		worktree.OperatorIdentity(r.repoRoot),
 	)
 	if strings.TrimSpace(r.pendingPlanPath) != "" {
 		if err := types.WritePlanToFile(plan, r.pendingPlanPath); err != nil {

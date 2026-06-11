@@ -35,13 +35,8 @@ func WritePlanGroupToFile(g *PlanGroup, path string) error {
 	if err != nil {
 		return fmt.Errorf("WritePlanGroupToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WritePlanGroupToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WritePlanGroupToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WritePlanGroupToFile: write %s: %w", path, err)
 	}
 	return nil
 }
@@ -98,13 +93,8 @@ func WriteWorkflowRunToFile(run *WriteWorkflowRun, path string) error {
 	if err != nil {
 		return fmt.Errorf("WriteWorkflowRunToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WriteWorkflowRunToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WriteWorkflowRunToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteWorkflowRunToFile: write %s: %w", path, err)
 	}
 	return nil
 }
@@ -153,13 +143,8 @@ func WriteContextPackToFile(pack *WriteContextPack, path string) error {
 	if err != nil {
 		return fmt.Errorf("WriteContextPackToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WriteContextPackToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WriteContextPackToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteContextPackToFile: write %s: %w", path, err)
 	}
 	return nil
 }

@@ -268,7 +268,7 @@ func PermissionFromWriteApproval(decision ApprovalDecision) safety.PermissionDec
 // persisted ChangePlan approval audit shape. Callers supply the source and
 // userDecision so REPL confirmations, automatic policy decisions, and scheduler
 // gates remain distinguishable without duplicating record assembly.
-func NewApprovalRecord(assessment RiskAssessment, decision ApprovalDecision, source, userDecision, fingerprint string) *types.WriteApprovalRecord {
+func NewApprovalRecord(assessment RiskAssessment, decision ApprovalDecision, source, userDecision, fingerprint, operator string) *types.WriteApprovalRecord {
 	now := time.Now()
 	reasons := make([]types.WriteApprovalReason, 0, len(assessment.Reasons))
 	for _, reason := range assessment.Reasons {
@@ -279,7 +279,7 @@ func NewApprovalRecord(assessment RiskAssessment, decision ApprovalDecision, sou
 			Level:  string(reason.Level),
 		})
 	}
-	return &types.WriteApprovalRecord{
+	record := &types.WriteApprovalRecord{
 		Policy:          string(decision.Policy),
 		RiskLevel:       string(assessment.Level),
 		Action:          string(decision.Action),
@@ -290,7 +290,10 @@ func NewApprovalRecord(assessment RiskAssessment, decision ApprovalDecision, sou
 		Source:          strings.TrimSpace(source),
 		PlanFingerprint: fingerprint,
 		DecidedAt:       &now,
+		Operator:        strings.TrimSpace(operator),
 	}
+	record.RecordFingerprint = types.ApprovalRecordFingerprint(record)
+	return record
 }
 
 // NormalizeApprovalPolicy returns a safe policy default.

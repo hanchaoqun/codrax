@@ -230,6 +230,51 @@ type WriteApprovalRecord struct {
 	Source          string                `json:"source,omitempty"`
 	PlanFingerprint string                `json:"plan_fingerprint,omitempty"`
 	DecidedAt       *time.Time            `json:"decided_at,omitempty"`
+
+	// Operator identifies who the decision was recorded for (the main
+	// repo's git identity, falling back to the OS user). Deterministic
+	// capture at record time; no flag.
+	Operator string `json:"operator,omitempty"`
+
+	// RecordFingerprint is the record's own tamper-evidence hash over
+	// the canonical decision fields (see ApprovalRecordFingerprint).
+	// Post-hoc edits to user_decision / decided_at / operator no
+	// longer go unnoticed: apply re-verifies it next to the plan
+	// fingerprint.
+	RecordFingerprint string `json:"record_fingerprint,omitempty"`
+}
+
+// ApprovalRecordFingerprint computes the canonical tamper-evidence
+// hash of the decision fields. Reasons[] is excluded (advisory detail,
+// frequently re-rendered); everything that changes WHAT was decided,
+// BY WHOM, and FOR WHICH plan is included.
+func ApprovalRecordFingerprint(r *WriteApprovalRecord) string {
+	if r == nil {
+		return ""
+	}
+	decidedUnix := int64(0)
+	if r.DecidedAt != nil {
+		decidedUnix = r.DecidedAt.Unix()
+	}
+	canonical := strings.Join([]string{
+		r.Policy, r.RiskLevel, r.Action, r.UserDecision, r.ReasonCode,
+		r.Source, r.PlanFingerprint, fmt.Sprintf("%d", decidedUnix), r.Operator,
+	}, "|")
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
+}
+
+// ApprovalRecordIntegrityOK reports whether the persisted record still
+// matches its own fingerprint. Records written before fingerprinting
+// (empty RecordFingerprint) are treated as legacy-valid.
+func (p *ChangePlan) ApprovalRecordIntegrityOK() bool {
+	if p == nil || p.Approval == nil {
+		return true
+	}
+	if p.Approval.RecordFingerprint == "" {
+		return true
+	}
+	return p.Approval.RecordFingerprint == ApprovalRecordFingerprint(p.Approval)
 }
 
 // ApprovalMatchesCurrentFingerprint reports whether the persisted approval was
@@ -999,13 +1044,8 @@ func WritePlanToFile(plan *ChangePlan, path string) error {
 	if err != nil {
 		return fmt.Errorf("WritePlanToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WritePlanToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WritePlanToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WritePlanToFile: write %s: %w", path, err)
 	}
 	return nil
 }
@@ -1050,13 +1090,8 @@ func WriteBestPlanReportPair(plan *ChangePlan, report *ChangeReport, planFilePat
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("WriteBestPlanReportPair: mkdir %s: %w", dir, err)
 	}
-	tmp := bestPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WriteBestPlanReportPair: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, bestPath); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WriteBestPlanReportPair: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(bestPath, data, 0o644); err != nil {
+		return fmt.Errorf("WriteBestPlanReportPair: write %s: %w", bestPath, err)
 	}
 	return nil
 }

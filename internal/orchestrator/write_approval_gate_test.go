@@ -165,7 +165,7 @@ func TestApplyPreHook_PlanFileApprovedManualPassesFingerprintGate(t *testing.T) 
 	}
 	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
 	decision := writeflow.DecideWriteApproval(writeflow.ApprovalPolicyManual, assessment)
-	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "test", "approved", types.PlanFingerprint(plan))
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "test", "approved", types.PlanFingerprint(plan), "")
 	path := writeApprovalTempPlan(t, plan)
 	o := writeApprovalApplyPreFixture(path, writeflow.ApprovalPolicyManual)
 
@@ -188,7 +188,7 @@ func TestApplyPreHook_PlanFileStaleManualApprovalBlocks(t *testing.T) {
 	}
 	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
 	decision := writeflow.DecideWriteApproval(writeflow.ApprovalPolicyManual, assessment)
-	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "test", "approved", "stale-fingerprint")
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "test", "approved", "stale-fingerprint", "")
 	path := writeApprovalTempPlan(t, plan)
 	o := writeApprovalApplyPreFixture(path, writeflow.ApprovalPolicyManual)
 

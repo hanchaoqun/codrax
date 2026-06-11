@@ -639,7 +639,24 @@ func pruneOldFileInfoChunkDirs(dir, keep string) {
 // alongside the destination to keep the rename on one filesystem.
 func writeFileAtomic(path string, data []byte) error {
 	tmp := path + ".tmp-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	// fsync before rename: tmp+rename alone keeps readers safe but a
+	// power loss after return could still leave the renamed file with
+	// truncated content sitting only in the page cache.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}

@@ -268,12 +268,12 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 	fingerprint := types.PlanFingerprint(plan)
 	switch decision.Action {
 	case writeflow.ApprovalActionAutoExecute:
-		stampWriteApprovalRecord(plan, assessment, decision, source, "auto", fingerprint)
+		stampWriteApprovalRecord(o, plan, assessment, decision, source, "auto", fingerprint)
 		persistWriteApprovalRecord(o, plan)
 		mergeWritePlanContextPack(o, plan)
 		return nil
 	case writeflow.ApprovalActionDeny:
-		stampWriteApprovalRecord(plan, assessment, decision, source, "denied", fingerprint)
+		stampWriteApprovalRecord(o, plan, assessment, decision, source, "denied", fingerprint)
 		plan.Status = types.PlanStatusBlocked
 		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
 		o.busCtx.Mutable.SetResultPlain(msg)
@@ -283,7 +283,14 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 		mergeWritePlanContextPack(o, plan)
 		return fmt.Errorf("write approval denied for plan %s: %s", plan.ID, decision.ReasonCode)
 	case writeflow.ApprovalActionManual:
-		if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
+		if !plan.ApprovalRecordIntegrityOK() {
+			// The persisted record fails its own tamper-evidence hash:
+			// whatever user_decision it claims cannot be trusted. Fall
+			// through to the manual-approval-required lane with a typed
+			// reason instead of honoring the record.
+			decision.ReasonCode = "approval_record_integrity_failed"
+			decision.Reason = "the persisted approval record does not match its own fingerprint; re-approve the plan"
+		} else if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
 			mergeWritePlanContextPack(o, plan)
 			return nil
 		}
@@ -293,7 +300,7 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 			decision.Reason = "previous manual approval was for a different plan fingerprint"
 			userDecision = "stale"
 		}
-		stampWriteApprovalRecord(plan, assessment, decision, source, userDecision, fingerprint)
+		stampWriteApprovalRecord(o, plan, assessment, decision, source, userDecision, fingerprint)
 		plan.Status = types.PlanStatusPending
 		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
 		o.busCtx.Mutable.SetResultPlain(msg)
@@ -329,11 +336,19 @@ func mergeWriteRiskContextPack(o *Orchestrator, plan *types.ChangePlan, assessme
 	o.busCtx.Mutable.MergeWriteContextPack(pack)
 }
 
-func stampWriteApprovalRecord(plan *types.ChangePlan, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision, source, userDecision, fingerprint string) {
+func stampWriteApprovalRecord(o *Orchestrator, plan *types.ChangePlan, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision, source, userDecision, fingerprint string) {
 	if plan == nil {
 		return
 	}
-	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, source, userDecision, fingerprint)
+	operator := ""
+	if o != nil && o.busCtx != nil {
+		root := o.busCtx.MainRepoRoot
+		if strings.TrimSpace(root) == "" {
+			root = o.busCtx.RepoRoot
+		}
+		operator = worktree.OperatorIdentity(root)
+	}
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, source, userDecision, fingerprint, operator)
 }
 
 func writeApprovalRecordAllowsManualApply(plan *types.ChangePlan, fingerprint string) bool {

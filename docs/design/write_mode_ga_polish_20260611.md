@@ -44,7 +44,7 @@
 
 - [x] 批 1:`publishBlockedRunGuidance` 合成器(typed attempt 记录 + 静态 reason→旋钮表)接线全部 10 个终态出口;双语;追加式不覆盖既有 Result;测试钉工件/动词/旋钮齐全。**活体确认**:3 步预算逼出 blocked,输出含"恢复指引"段(旋钮 + plan id + /plan show + /workflow show);6 步预算时完成 lane 直接全程成功(顺带再证完成 lane 价值)。
 - [x] 批 2:`applyCommitMessage`(plan 摘要首行 72 字符有界 subject + `plan: <id>` trailer,空摘要回退旧格式,钉测试);`analyzePatchLineCompression` 行结构 advisory(只比较 removed/added 的括号·分号·换行排布,相对原文才触发——原文本就单行风格不报;成功 Summary 追加 compat 注记"accepted as-is",永不拒绝;四类负样本钉死不误报)。
-- [ ] 批 3:第 4+5 项(记录身份+自指纹+apply 校验+测试;AtomicWriteFileSync 统一迁移+测试)。
+- [x] 批 3:`WriteApprovalRecord.Operator`(主仓 git 身份,回退 OS 用户;`worktree.OperatorIdentity`)+ `RecordFingerprint` 自指纹(`ApprovalRecordFingerprint` 规范化字段串 SHA256,Reasons 除外);`NewApprovalRecord` 统一计算,REPL /approve 与 orchestrator 双路径落 operator;apply 的 manual 分支前置 `ApprovalRecordIntegrityOK` 校验(失败 → typed reason `approval_record_integrity_failed`,回到人工批准 lane;旧记录无指纹按 legacy 放行);篡改测试覆盖 user_decision/decided_at 两向。`AtomicWriteFileSync`(tmp→fsync→close→rename 单 seam)迁移 types 七处持久化写入 + repomap cache writer 补 Sync;helper 测试。
 - [ ] 批 4:第 6 项文档 + 全量回归 + 实测复跑(github_issue 一案全绿确认无回归)。
 
 ## 8. 进度

@@ -33,13 +33,8 @@ func WriteAnswerTaxonomyToFile(t *AnswerTaxonomy, path string) error {
 	if err != nil {
 		return fmt.Errorf("WriteAnswerTaxonomyToFile: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("WriteAnswerTaxonomyToFile: write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("WriteAnswerTaxonomyToFile: rename %s: %w", tmp, err)
+	if err := AtomicWriteFileSync(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteAnswerTaxonomyToFile: write %s: %w", path, err)
 	}
 	return nil
 }
