@@ -322,6 +322,53 @@ func (e *explorerEvaluator) ensureHeuristics() {
 	e.heuristics = types.ResolvedExploreHeuristics(e.heuristics)
 }
 
+// renderExplorerToolBudgetPlan surfaces the analyzer-compiled
+// per-tool budget plan as soft guidance. The caps already act as a
+// hard ceiling at dispatch time (sourcemix.BudgetForTool); what was
+// missing is the PLAN side — the model never saw which tools the
+// question shape expects to carry the investigation, so grep-first
+// habits burned 25+ calls on shapes whose plan weighted repo_map
+// highest (2026-06-12 sweep: zero-repo_map runs took ~3x the LLM
+// rounds of the repo_map-first counter-example). Guidance only: the
+// wording stays advisory and never forbids a tool.
+func renderExplorerToolBudgetPlan(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	budget := ctx.Mutable.ExploreBudget()
+	if budget == nil || len(budget.PerToolCap) == 0 {
+		return ""
+	}
+	type toolCap struct {
+		name string
+		cap  int
+	}
+	caps := make([]toolCap, 0, len(budget.PerToolCap))
+	for name, c := range budget.PerToolCap {
+		if c > 0 {
+			caps = append(caps, toolCap{name: name, cap: c})
+		}
+	}
+	if len(caps) == 0 {
+		return ""
+	}
+	sort.Slice(caps, func(i, j int) bool {
+		if caps[i].cap != caps[j].cap {
+			return caps[i].cap > caps[j].cap
+		}
+		return caps[i].name < caps[j].name
+	})
+	parts := make([]string, 0, len(caps))
+	for _, tc := range caps {
+		parts = append(parts, fmt.Sprintf("`%s` ×%d", tc.name, tc.cap))
+	}
+	var b strings.Builder
+	b.WriteString("### Tool Budget Plan\n\n")
+	fmt.Fprintf(&b, "This question shape carries a per-tool call plan: %s.", strings.Join(parts, ", "))
+	b.WriteString(" The largest allowance marks the tool expected to carry discovery for this shape — lead with it before spending the smaller allowances; the caps are enforced at dispatch time, so a plan-aligned order avoids burning the budget on the wrong lane.\n\n")
+	return b.String()
+}
+
 func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// CROSS-RUN STATE RESET (REPL turn boundary fix).
 	//
@@ -670,6 +717,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString(renderExplorerRepoMapNavigationPrimer(ctx))
+	b.WriteString(renderExplorerToolBudgetPlan(ctx))
 	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 	b.WriteString("**Non-English questions:** When you use text search (`grep`), search with BOTH the original terms AND their English programming equivalents because most codebases use English identifiers. This bilingual grep guidance does not override the typed repo_map route above; for relation / call-flow shapes, start from the typed repo_map `query` terms when a structural map is the cheaper first hop.\n\n")
 	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")

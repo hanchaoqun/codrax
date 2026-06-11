@@ -86,7 +86,7 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 - [x] B1 融合 block 拆分器(P0)— 三调用方接线 + 全字段分区 reflection pin + patch 双 op 语义测试
 - [x] B2 anchor lane 三层收口(P1)— Cells 抑制面 + post-emit rendered 复查 oracle + analyzer skill 枚举标识符规则 + cap 截断 DEBUG
 - [x] B3 extractor 契约前置 + 完成门观测(P1)— prompt 分支与 verdict 工具同读 HasRuntimeArtifactWithoutRequiredCurrentSource;弹回痕迹核实已在 DEBUG toolresult(修正"无痕迹"认知),新增 investigation_complete_calls/rejects + hypothesis_verdict_rejects 三计数(对真实日志验证 calls=5 rejects=2);另发现 ok=true 后循环仍续的 floor 重定向形态
-- [ ] B4 repo_map 软引导双层(P1)
+- [x] B4 repo_map 软引导(P1)— 修正认知:skill 散文层已有 repo_map-first(不重复造轮子);真缺口=per-dispatch typed plan 不可见。新 renderExplorerToolBudgetPlan 把 analyzer 编译的 SourceMix→PerToolCap 渲染进 explorer prompt(最大份额工具领跑,advisory;cap 本就硬 enforce);无预算路径字节不变
 - [ ] B5 修复层可观测三件(P2)
 - [ ] B6 fixtures: ts-monorepo-ws + cpp-sink-hierarchy + 4 cases + 实测
 - [ ] B7 fixtures: python-plugin-mro + java-annotation-router + 4 cases + 实测
