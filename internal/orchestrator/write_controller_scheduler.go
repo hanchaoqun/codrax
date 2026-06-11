@@ -68,6 +68,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			run.Status = types.WriteWorkflowRunBlocked
 			appendControllerProgress(&run, run.ActiveBatchID, "budget_exhausted", "global step budget exhausted")
 			o.persistWriteWorkflowRun(&run)
+			o.publishBlockedRunGuidance(&run, "budget_exhausted")
 			return fmt.Errorf("write workflow blocked: global step budget exhausted")
 		}
 		controllerTurns++
@@ -148,6 +149,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				run.Status = types.WriteWorkflowRunBlocked
 				appendControllerProgress(&run, run.ActiveBatchID, "max_batches_reached", "controller attempted to append beyond max_batches")
 				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "max_batches_reached")
 				return fmt.Errorf("write workflow blocked: max batch budget reached")
 			}
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
@@ -173,6 +175,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 				appendControllerProgress(&run, run.ActiveBatchID, "approval_denied", "typed write approval denied the plan")
 				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "approval_denied")
 				return fmt.Errorf("write workflow blocked: approval denied for plan %s", plan.ID)
 			}
 			if o.busCtx.Mode == types.ModeApply && writePlanNeedsManualApproval(plan) {
@@ -180,6 +183,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
 				appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), "typed write approval requires operator confirmation")
 				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "pending_approval")
 				return fmt.Errorf("write workflow pending approval for plan %s: %s", plan.ID, plan.Approval.ReasonCode)
 			}
 			if o.busCtx.Mode == types.ModePlan {
@@ -194,6 +198,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 				appendControllerProgress(&run, run.ActiveBatchID, "apply_not_allowed_in_plan_mode", "")
 				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "apply_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: apply_plan is not valid in plan mode")
 			}
 			innerErr := o.runControllerApplyPlan(stepsUsed)
@@ -210,12 +215,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
 					appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), innerErr.Error())
 					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "pending_approval")
 					return innerErr
 				case plan != nil && plan.Status == types.PlanStatusBlocked:
 					run.Status = types.WriteWorkflowRunBlocked
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 					appendControllerProgress(&run, run.ActiveBatchID, string(plan.Status), innerErr.Error())
 					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "approval_denied")
 					return innerErr
 				default:
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
@@ -235,6 +242,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_not_allowed_in_plan_mode", "")
 				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "verify_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: verify_batch is not valid in plan mode")
 			}
 			innerErr := o.runControllerVerifyBatch(stepsUsed)
@@ -270,6 +278,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 					appendControllerProgress(&run, run.ActiveBatchID, "verify_retry_budget_exhausted", innerErr.Error())
 					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "verify_retry_budget_exhausted")
 					return innerErr
 				}
 				o.busCtx.TaskState.LastError = ""
@@ -325,6 +334,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	run.Status = types.WriteWorkflowRunBlocked
 	appendControllerProgress(&run, run.ActiveBatchID, "controller_turn_budget_exhausted", "")
 	o.persistWriteWorkflowRun(&run)
+	o.publishBlockedRunGuidance(&run, "controller_turn_budget_exhausted")
 	if lastInnerErr != nil {
 		return fmt.Errorf("write workflow blocked after controller turn budget: %w", lastInnerErr)
 	}

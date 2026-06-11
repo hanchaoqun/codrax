@@ -42,7 +42,7 @@
 
 ## 7. 任务列表
 
-- [ ] 批 1:第 1 项(出口收口函数 + 静态旋钮表 + 双语恢复段 + 测试);真实场景确认:低预算跑一个 github_issue 案逼出 blocked,人工读输出。
+- [x] 批 1:`publishBlockedRunGuidance` 合成器(typed attempt 记录 + 静态 reason→旋钮表)接线全部 10 个终态出口;双语;追加式不覆盖既有 Result;测试钉工件/动词/旋钮齐全。**活体确认**:3 步预算逼出 blocked,输出含"恢复指引"段(旋钮 + plan id + /plan show + /workflow show);6 步预算时完成 lane 直接全程成功(顺带再证完成 lane 价值)。
 - [ ] 批 2:第 2+3 项(提交信息具名函数 + 钉测试;diff 行结构 advisory + 双向测试:压缩触发/正常不触发/只注记不拒)。
 - [ ] 批 3:第 4+5 项(记录身份+自指纹+apply 校验+测试;AtomicWriteFileSync 统一迁移+测试)。
 - [ ] 批 4:第 6 项文档 + 全量回归 + 实测复跑(github_issue 一案全绿确认无回归)。
