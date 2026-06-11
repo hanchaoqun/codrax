@@ -17,4 +17,4 @@ HTRACE='# tracer: nop
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(HiTrace|trace|RenderService|DoFrame|86\.111|耗时).*(当前源码|源码|internal/)|(当前源码|源码|internal/).*(HiTrace|trace|RenderService|DoFrame|86\.111|耗时)
 (性能线索|span|解析|判断|边界).*(trace|HiTrace|源码|internal/)|(trace|HiTrace|源码|internal/).*(性能线索|span|解析|判断|边界)
-internal/(analysis|tool|agent|orchestrator|types)/[^[:space:]]+\.go:[0-9]+"
+internal/[^[:space:]]+\.go:[0-9]+"
