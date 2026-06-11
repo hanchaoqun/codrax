@@ -89,9 +89,9 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 - [x] B4 repo_map 软引导(P1)— 修正认知:skill 散文层已有 repo_map-first(不重复造轮子);真缺口=per-dispatch typed plan 不可见。新 renderExplorerToolBudgetPlan 把 analyzer 编译的 SourceMix→PerToolCap 渲染进 explorer prompt(最大份额工具领跑,advisory;cap 本就硬 enforce);无预算路径字节不变
 - [x] B5 修复层可观测(P2)— G6 detach 引用补双语 caveat 披露;G7 facet 降级在 finalizer prompt 标注 "(downgraded from HARD…)"(typed telemetry 驱动,tier 不动);G9 核实机制已存在(currentTurnToolSurfaceDirective + typed Repair)残余为模型同轮混批,不重复造轮子
 - [x] B6 fixtures: ts-monorepo-ws + cpp-sink-hierarchy + 4 cases — **首跑 4/4 PASS**
-- [ ] B7 fixtures: python-plugin-mro + java-annotation-router + 4 cases + 实测
-- [ ] B8 fixtures: proto-contract-pair + c-macro-platform + 4 cases + 实测
+- [x] B7 fixtures: python-plugin-mro + java-annotation-router + 4 cases — **首跑 4/4 PASS**(MRO 顺序/注册表链/注解路由/实现者+路径配对全对)
+- [x] B8 fixtures: proto-contract-pair + c-macro-platform + 4 cases — **首跑 4/4 PASS**(跨仓契约漂移定位 py-client + 改名/缺失/缺字段三差异、X-macro 5 命令、三平台分叉)。**新 12 案累计 12/12 首跑 PASS** — 多语言/跨语言/多仓读模式无新架构 gap
 - [x] B9 观测补全(P2)— run-i.wall 落盘 + summary.md wall 列 + metrics wall_seconds/pipeline_dispatches(0 dispatch = 非管线路由标记,真实日志验证=5)
-- [ ] B10 验收:pipeline_sequence_table + zero-repo_map 案重跑;新 12 案首跑;回归抽样(qf_arch / s1a / logtri / trace 各 1)
+- [x] B10 验收(部分):pipeline_sequence_table 新 binary 重跑 — **表格 surface 完整渲染**(6 行含状态载体列,Mutable/BusContext/AnalysisIR 全保住;上轮静默丢表形态未复现),但本轮模型未发 fused block(splitter 未触发,B1 验证停留在 9 个单元 pin)且暴露**新形态**:答案整轮 0 处提及 explore/extract 阶段(表行组织为 Run→Analyze→Scheduler→Finalizer)→ FAIL missing:explorer/extractor。定性:47-call 重负载"全管线 explain"案的 stage 枚举覆盖缺失,层级在 finalizer 内容组织,非 anchor lane 范畴(用户点名 token 是状态载体,B2 已保);候选机制 = 管线 stage 枚举类问题的 required-coverage 通道,留下一 session 专项(避免无取证仓促机制)。zero-repo_map 6 案重跑 + 回归抽样亦留待(本 session LLM 预算已重)
 
 每批独立 commit+push;ledger(本文件 §6)逐批勾选。
