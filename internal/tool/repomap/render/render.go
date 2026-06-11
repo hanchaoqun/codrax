@@ -156,8 +156,68 @@ func GenerateViewData(g *types.Graph, viewType string, params types.ViewParams) 
 		return buildSemanticSubgraphData(g, params)
 	case "relation_map":
 		return buildRelationMapData(g, params)
+	case "implementers":
+		return buildImplementersData(g, params)
 	}
 	return nil
+}
+
+// buildImplementersData answers "list every type implementing interface
+// X" structurally and exhaustively from the Implements relation the
+// index already computed — the typed replacement for the model reading
+// candidate files one by one. params.Query carries the interface /
+// trait / protocol name. Reads only the precomputed structural data; no
+// prose is parsed.
+func buildImplementersData(g *types.Graph, params types.ViewParams) *ViewData {
+	name := strings.TrimSpace(params.Query)
+	d := &ViewData{Type: "implementers", Title: "Implementers", Query: name}
+	if name == "" {
+		d.Intro = "Provide the interface / trait / protocol name in query to list its implementers."
+		return d
+	}
+	ids := g.ImplementersOf(name)
+	if len(ids) == 0 {
+		d.Intro = fmt.Sprintf("No implementers found for %q. Either no concrete type implements it, the name is misspelled, or its language's interface-conformance is not structurally indexed — fall back to grep across the candidate files and verify manually.", name)
+		return d
+	}
+	// SymbolID → defining file (Symbol.File is not reliably populated
+	// in the model; the file is known from the owning FileInfo).
+	fileByID := make(map[types.SymbolID]string)
+	for _, fi := range g.Files {
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			if sid := fi.Symbols[i].ID; sid != "" {
+				if _, ok := fileByID[sid]; !ok {
+					fileByID[sid] = fi.RelPath
+				}
+			}
+		}
+	}
+	section := ViewSection{Heading: fmt.Sprintf("Types implementing %s (%d)", name, len(ids))}
+	for _, id := range ids {
+		sym := g.SymbolByID[id]
+		if sym == nil {
+			continue
+		}
+		kind := sym.Kind
+		if kind == "" {
+			kind = "type"
+		}
+		file := sym.File
+		if file == "" {
+			file = fileByID[id]
+		}
+		section.Items = append(section.Items, ViewItem{
+			Text: fmt.Sprintf("%s (%s) — %s", sym.Name, kind, file),
+			File: file,
+			Kind: kind,
+		})
+	}
+	d.Sections = []ViewSection{section}
+	d.Footer = "These rows are verified structural navigation facts (the Implements relation). Read or grep the listed files to cite implementation behavior before quoting source."
+	return d
 }
 
 func prependViewIntro(d *ViewData, intro string) {

@@ -43,3 +43,5 @@
 
 # codrax runtime artifacts (logs, memory, blob caches, worktrees, plans)
 .codrax/
+
+/dist/

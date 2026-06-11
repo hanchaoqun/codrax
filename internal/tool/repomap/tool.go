@@ -31,8 +31,8 @@ type RepoMapV2 struct {
 
 type repoMapParams struct {
 	Path              string                       `json:"path"`
-	View              string                       `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph, relation_map, source_inventory
-	Query             string                       `json:"query,omitempty"`       // for task_map / relation_map / source_inventory ranking hint
+	View              string                       `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph, relation_map, source_inventory, implementers
+	Query             string                       `json:"query,omitempty"`       // for task_map / relation_map / source_inventory ranking hint; for implementers, the interface/trait/protocol name
 	TargetFile        string                       `json:"target_file,omitempty"` // for edit_impact
 	EntryPoint        string                       `json:"entry_point,omitempty"` // for call_path
 	Scope             string                       `json:"scope,omitempty"`       // for source_inventory
@@ -58,7 +58,8 @@ func (t *RepoMapV2) Description() string {
 		"edit_impact (what changes to a file would affect), " +
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
 		"relation_map (advisory structural edges around model-chosen sources/scopes: calls, imports, inheritance, implements, references), " +
-		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
+		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts), " +
+		"implementers (exhaustive list of concrete types implementing an interface/trait/protocol named in query). " +
 		"Use source_inventory for scoped candidate-universe/member checklists, including broad lists when the question asks for them; reserve attribute_roles for narrowed scopes or selected members because they attach row-local details. " +
 		"For top-level architecture or module overviews, start with overview/file_map/task_map and then inspect selected files. " +
 		"Use semantic_subgraph for topology questions about hubs/bridges/chains, edit_impact for changed-file impact, and call_path for a concrete entry-point path trace. " +
@@ -77,12 +78,12 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "view": {
       "type": "string",
-      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "relation_map", "source_inventory"],
+      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "relation_map", "source_inventory", "implementers"],
       "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists; broad member lists are supported when the question asks for them, while attribute_roles are best after narrowing. Use relation_map for advisory structural edges around selected sources/scopes."
     },
     "query": {
       "type": "string",
-      "description": "Search query for task_map / relation_map source discovery. Use a short whitespace-separated set of exact code surfaces such as identifiers, file/module/package names, routes, or config keys; do not paste a natural-language sentence. The query matches file names, symbol names, and docstrings."
+      "description": "Search query for task_map / relation_map source discovery, or the interface/trait/protocol name for the implementers view. Use a short whitespace-separated set of exact code surfaces such as identifiers, file/module/package names, routes, or config keys; do not paste a natural-language sentence. The query matches file names, symbol names, and docstrings."
     },
     "target_file": {
       "type": "string",
@@ -1146,6 +1147,11 @@ func ToolDescription(view, query string) string {
 		return fmt.Sprintf("Generating task map for %q", query)
 	case "source_inventory":
 		return "Preparing source inventory lens"
+	case "implementers":
+		if query != "" {
+			return fmt.Sprintf("Listing implementers of %q", query)
+		}
+		return "Listing interface implementers"
 	case "relation_map":
 		return "Preparing relation map lens"
 	case "edit_impact":

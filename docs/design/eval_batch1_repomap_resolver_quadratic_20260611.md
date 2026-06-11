@@ -48,3 +48,19 @@
 
 - 批 1 交付:repomap 调用解析二次方修复(`902e3ff2`)。
 - 客户现象插队:同根因确认 + build_graph 进展透明度加固(本 commit)。
+
+## 7. 批 2(6 案)+ 工具使用观察:implementers 视图缺口
+
+批 2 六案 6/6 PASS(s5a / u7a / trace_query_state_churn_window_stats / logtri_rust / mr_cross_repo_compare / data_multifile_reference_projection)。
+
+**工具使用 gap(s5a 暴露)**:"列出本仓所有实现 `LoopController` 的具体类型"——模型用了 **13 次 read_file + 6 次 grep,零次 repo_map**;小接口侥幸答对,大接口必漏且烧预算。根因:系统 `populateImplementers` 已构建 `Symbol.Implements`、`Graph.ImplementersOf` 已实现(analyzer 内部在用),但**从未作为 repo_map 视图暴露给模型**;skill 的 EXHAUSTIVE ENUMERATION 规则只能把实现者枚举指向 `source_inventory`(成员清单,不是实现者关系)。这是一类通用反模式:**结构已算出但未暴露为视图,模型被迫手动重做**。
+
+**修法(系统级)**:新增 `repo_map(view="implementers", query="<Interface>")`——直接消费既有 `ImplementersOf`,SymbolID→file 一次性映射(不依赖未必填充的 `Symbol.File`),未命中时引导 grep 回退。enum/schema/ToolDescription/query 描述同步;explorer skill 的枚举规则软引导实现者/conformer/subclass 形态走该视图(analyzer 已 typed 分类 `is_category_enumeration` 形态 b,这里只是软提示,非关键字匹配)。多仓经既有 path→子仓单图解析,`ImplementersOf` 单图即可,无需另接 MultiGraph。
+
+**活体验证**:对 codrax 自身 `repo_map(view="implementers", query="LoopController")` 一次列出 13 个实现者(含 s5a 期望的 `analyzerEvaluator`)。
+
+## 8. 任务列表(累计)
+
+- [x] 批 1:repomap 调用解析二次方修复 + build_graph 进展透明度。
+- [x] 批 2:implementers 视图暴露 + skill 软引导 + 双向测试 + 活体验证。
+- [ ] 批 3 起:继续按优先级跑 6 案/批,挖下一类 gap。
