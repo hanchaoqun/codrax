@@ -116,3 +116,18 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 **硬面设计(实施中)**:
 1. 轴2 确定性修:analyzer post-processing 链加斜杠对实体 normalizer——RawRequest 中 `A/B` 双 identifier 形态且一侧已在 entities → 补另一侧(expandEntities path 先例,mention 派生同级,服务既有下游)。
 2. 轴1 typed 通道:新 LLM-emitted `predicates.has_per_member_table`(R2' 6 处同步);消费 = explorer 完成门:predicate 为真且无 member_set aggregate fact 且无 absence_justification(现成 §1.6 typed 逃生道)→ typed 拒因引导补 member_set。finalizer 侧复用既有物化器+硬 gate,零新面。
+
+## §9 硬面 ×4 实测与链路取证(2026-06-12 续三,`1027ef2d`)
+
+| run | predicate | 完成门弹回 | member_set | verdict |
+|---|---|---|---|---|
+| 1 | false | 0 | 5 | PASS |
+| 2 | **true** | 0 | **0** | FAIL(extractor+finalizer) |
+| 3 | false | 0 | 2(四 stage 完整!) | FAIL(extractor) |
+| 4 | true | 0 | 2 | PASS |
+
+定案:
+- **门本体四向 pin 全过、声明时链路工作**(run 4)。
+- **P-A 绕门路径(真 gap,下一机制点)**:run 2 explorer 跑满迭代上限(iter=28/29)从未调用 emit_investigation_complete,经预算耗尽收口直接进入 extract——完成门结构性可绕。修法方向(对位 write 模式 F1 budget-completion-lane 先例 + 既有 budget-exhausted explorer signal):predicate=true 且预算耗尽且无 member_set 时,授予**一次有界 completion-only dispatch**(emit-only 窗口)。涉及 orchestrator 收口点(checkTier1Floor 邻域),独立批交付。
+- **P-B 词形轴(case 设计层)**:run 3 member_set 完整携带四 stage 却 FAIL——spec CONTAINS 要求 agent 名词(extractor)而答案全程用 Stage* 词形。问题主语是 stage,agent 名是否核心实质待 case 设计复审;不单方面放宽。
+- **predicate 声明率 2/4**:模型对该复合形态的识别仍抖(skill 解释器已在,观察更多案后定;不加关键词匹配)。
