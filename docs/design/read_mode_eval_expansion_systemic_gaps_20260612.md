@@ -95,3 +95,12 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 - [x] B10 验收(部分):pipeline_sequence_table 新 binary 重跑 — **表格 surface 完整渲染**(6 行含状态载体列,Mutable/BusContext/AnalysisIR 全保住;上轮静默丢表形态未复现),但本轮模型未发 fused block(splitter 未触发,B1 验证停留在 9 个单元 pin)且暴露**新形态**:答案整轮 0 处提及 explore/extract 阶段(表行组织为 Run→Analyze→Scheduler→Finalizer)→ FAIL missing:explorer/extractor。定性:47-call 重负载"全管线 explain"案的 stage 枚举覆盖缺失,层级在 finalizer 内容组织,非 anchor lane 范畴(用户点名 token 是状态载体,B2 已保);候选机制 = 管线 stage 枚举类问题的 required-coverage 通道,留下一 session 专项(避免无取证仓促机制)。zero-repo_map 6 案重跑 + 回归抽样亦留待(本 session LLM 预算已重)
 
 每批独立 commit+push;ledger(本文件 §6)逐批勾选。
+
+## §7 残余项执行记录(2026-06-12 续,用户授权按序执行)
+
+1. **B4 验证 + 回归 10 案(干净 HEAD worktree binary)**:9/10 PASS。回归 4 案(qf_architecture / s1a / logtri_goroutine_dump / trace_query_blocked_reason_chain)全 PASS = **B1-B5 零回归**;原 2 个 spec 修复案(git_current_source / bucketed_units)活体 PASS。**B4 采用率数据**:6 个 zero-repo_map 案中 4 案 repo_map 0→≥1,bucketed_units 显著(grep 11→2 / read 13→4 / explorer 轮次 28→5 量级);两个 config 案仍 0——config 模板 SourceMix 本身 grep 领跑(grep:50/repomap:20),软引导忠实呈现 plan,非失效;模板权重调整需独立数据支撑,记录不动。
+2. **唯一 FAIL = config_absent_present_mix**:答案实质满分(幻影键三层 bounded 零命中、真键示例值+锚点、两键分条目分值呈现),挂在第 3 条"字面区分句"回声钉——**词表/回声钉死类第 9 例**;regex 1+2 联合已使混淆不可能通过(幻影被赋真值则必挂 absence 模式),删冗余第 3 条(`59676454`),非降 bar。
+3. **A 项(sequence_table)取证定案 + 软层交付(`ada2c6a2`)**:两轮 analyzer 均 `is_category_enumeration=false`、零 buckets(实体 16→5 只是表象);**buckets(label verbatim-from-request)与 anchors(mention-filter)按设计排除范围隐含成员——原则性边界**;对位通道 = explorer `member_set` aggregate fact(物化器+硬 gate 现成)。软层两句:analyzer skill 复合 explain+table 形态(成员进 entities 且限定所问范围)+ explorer skill per-member 表格 = member_set 义务。**实测 ×2:FAIL(仅缺 extractor,较前缩小)→ PASS(该案历史首 PASS)**;PASS 轮 member_set 通道活动 12 vs FAIL 轮 6 —— explorer 侧规则是承重半边,analyzer 实体对隐含成员仍抖动。硬面升级(typed 复合形态信号)凭 4/4 稳定数据再投资。
+4. **copylocks**:用户并行工作已修(`ShallowClone`,vet 干净)——并附带消除了值拷贝继承父 bus answer-surface 缓存的实质问题,划掉。
+5. **B1 splitter 实测**:诚实维持"等自然复现"(诱导 case = 拟合);单元 9 pin + near-cap 补充为当前证据水位。
+6. **data-planner 专项 3 案**:确认独立 session 量级,不塞入。
