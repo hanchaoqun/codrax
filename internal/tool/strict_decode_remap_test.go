@@ -189,7 +189,7 @@ func TestStrictDecodeToolRepair_MisplacedField(t *testing.T) {
 		Field:          "citation_ref",
 		ContainerNames: []string{"claim_use", "claim_uses"},
 		CorrectPaths:   []string{"items[i].citation_ref", "value.citation_ref"},
-	}})
+	}}, nil)
 	if repair == nil {
 		t.Fatal("expected structured repair metadata")
 	}
@@ -209,7 +209,7 @@ func TestStrictDecodeToolRepair_MisplacedField(t *testing.T) {
 
 func TestStrictDecodeToolRepair_UnknownField(t *testing.T) {
 	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
-	repair := strictDecodeToolRepair(original, nil)
+	repair := strictDecodeToolRepair(original, nil, nil)
 	if repair == nil || repair.Code != "tool_param_unknown_field" {
 		t.Fatalf("expected unknown-field repair metadata, got %+v", repair)
 	}
@@ -224,7 +224,7 @@ func TestStrictDecodeToolRepair_UnknownField(t *testing.T) {
 func TestStrictDecodeToolRepair_JSONStringCarrier(t *testing.T) {
 	original := errors.New(
 		`json: cannot unmarshal string into Go struct field emitAnswerDocumentV2Params.blocks of type []tool.emitAnswerBlockV2`)
-	repair := strictDecodeToolRepair(original, nil)
+	repair := strictDecodeToolRepair(original, nil, nil)
 	if repair == nil || repair.Code != "tool_param_json_string_carrier" {
 		t.Fatalf("expected JSON-string carrier repair metadata, got %+v", repair)
 	}
@@ -240,7 +240,7 @@ func TestStrictDecodeToolRepair_JSONStringCarrier(t *testing.T) {
 func TestFailStrictDecode_AttachesRepairAndSanitizedSummary(t *testing.T) {
 	original := errors.New(
 		`json: cannot unmarshal string into Go struct field emitAnswerDocumentV2Params.blocks of type []tool.emitAnswerBlockV2`)
-	res, err := failStrictDecode("emit_answer_document", time.Now(), original, nil)
+	res, err := failStrictDecode("emit_answer_document", time.Now(), original, nil, nil)
 	if err != nil {
 		t.Fatalf("failStrictDecode should return tool-level failure without Go error: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestFailStrictDecode_AttachesRepairAndSanitizedSummary(t *testing.T) {
 
 func TestFailStrictDecodeWithError_AttachesRepairAndReturnsError(t *testing.T) {
 	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
-	res, err := failStrictDecodeWithError("emit_perf_trace", time.Now(), original, nil)
+	res, err := failStrictDecodeWithError("emit_perf_trace", time.Now(), original, nil, nil)
 	if err == nil {
 		t.Fatal("failStrictDecodeWithError must preserve the historical non-nil error return")
 	}
@@ -276,7 +276,7 @@ func TestFailStrictDecodeWithError_AttachesRepairAndReturnsError(t *testing.T) {
 
 func TestFailStrictDecodeWithErrorMessage_PreservesReminderAndRepair(t *testing.T) {
 	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
-	res, err := failStrictDecodeWithErrorMessage("emit_change_plan", time.Now(), original, nil, "emit_change_plan rejected: ", ". REQUIRED schema: {...}")
+	res, err := failStrictDecodeWithErrorMessage("emit_change_plan", time.Now(), original, nil, nil, "emit_change_plan rejected: ", ". REQUIRED schema: {...}")
 	if err == nil {
 		t.Fatal("expected non-nil decode error")
 	}
@@ -320,5 +320,48 @@ func TestRemapStrictDecodeError_CleanErrorPassesThrough(t *testing.T) {
 	got := RemapStrictDecodeError(original, nil)
 	if got != original {
 		t.Errorf("clean err MUST return verbatim; got %v", got)
+	}
+}
+
+// The live qf_diagram_pipeline shape: required_files emitted as a
+// native array of plain strings while the schema wants []{path,...}.
+// Go's decode error cites the element struct type, which the kind
+// classifier reads as "object" — without the raw-params check the
+// model is told to quote-strip a wrapper that never existed and to
+// emit a native OBJECT when the correct shape is an array of objects.
+func TestRemapStrictDecode_ArrayElementShapeNotStringCarrier(t *testing.T) {
+	type arrayElementShapeParams struct {
+		RequiredFiles []emitRequiredFileParam `json:"required_files"`
+	}
+	raw := []byte(`{"required_files":["a.go","b.go"]}`)
+	var p arrayElementShapeParams
+	original := json.Unmarshal(raw, &p)
+	if original == nil {
+		t.Fatal("expected decode error for string elements into []struct")
+	}
+	remapped := RemapStrictDecodeErrorWithRaw(original, nil, raw)
+	msg := remapped.Error()
+	if strings.Contains(msg, "wrapped your") || strings.Contains(msg, "JSON-encoded string") {
+		t.Fatalf("array-element mismatch must not be diagnosed as string-carrier: %q", msg)
+	}
+	if !strings.Contains(msg, "array") || !strings.Contains(msg, "object") {
+		t.Fatalf("guidance must steer to an array of objects: %q", msg)
+	}
+
+	repair := strictDecodeToolRepair(original, nil, raw)
+	if repair == nil || repair.Code != "tool_param_array_element_shape" {
+		t.Fatalf("repair code = %+v, want tool_param_array_element_shape", repair)
+	}
+
+	// Genuine string-carrier (field value IS a string) keeps the
+	// original diagnosis.
+	rawCarrier := []byte(`{"required_files":"[\"a.go\"]"}`)
+	carrierErr := json.Unmarshal(rawCarrier, &p)
+	if carrierErr == nil {
+		t.Fatal("expected decode error for string field into []struct")
+	}
+	carrierMsg := RemapStrictDecodeErrorWithRaw(carrierErr, nil, rawCarrier).Error()
+	if !strings.Contains(carrierMsg, "JSON-encoded string") {
+		t.Fatalf("true string-carrier must keep the stringify diagnosis: %q", carrierMsg)
 	}
 }

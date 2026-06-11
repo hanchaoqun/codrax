@@ -103,7 +103,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
 	if reject != nil {

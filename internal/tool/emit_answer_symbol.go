@@ -183,7 +183,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	dec.DisallowUnknownFields()
 	var p emitAnswerSymbolParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecode(t.Name(), now, err, nil)
+		return failStrictDecode(t.Name(), now, err, nil, params)
 	}
 
 	// Completeness is REQUIRED (P2.1 honesty contract). The schema

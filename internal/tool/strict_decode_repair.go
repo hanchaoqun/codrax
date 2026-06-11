@@ -8,25 +8,25 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint) (types.ToolResult, error) {
-	return strictDecodeFailure(name, now, err, hints, "", "", false)
+func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, raw, "", "", false)
 }
 
-func failStrictDecodeWithError(name string, now time.Time, err error, hints []MisplacedFieldHint) (types.ToolResult, error) {
-	return strictDecodeFailure(name, now, err, hints, "", "", true)
+func failStrictDecodeWithError(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, raw, "", "", true)
 }
 
-func failStrictDecodeMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string) (types.ToolResult, error) {
-	return strictDecodeFailure(name, now, err, hints, prefix, suffix, false)
+func failStrictDecodeMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, prefix, suffix string) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, raw, prefix, suffix, false)
 }
 
-func failStrictDecodeWithErrorMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string) (types.ToolResult, error) {
-	return strictDecodeFailure(name, now, err, hints, prefix, suffix, true)
+func failStrictDecodeWithErrorMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, prefix, suffix string) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, raw, prefix, suffix, true)
 }
 
-func strictDecodeFailure(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string, returnErr bool) (types.ToolResult, error) {
-	repair := strictDecodeToolRepair(err, hints)
-	remapped := RemapStrictDecodeError(err, hints)
+func strictDecodeFailure(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, prefix, suffix string, returnErr bool) (types.ToolResult, error) {
+	repair := strictDecodeToolRepair(err, hints, raw)
+	remapped := RemapStrictDecodeErrorWithRaw(err, hints, raw)
 	res := types.ToolResult{
 		ToolName:  name,
 		Success:   false,
@@ -40,7 +40,7 @@ func strictDecodeFailure(name string, now time.Time, err error, hints []Misplace
 	return res, nil
 }
 
-func strictDecodeToolRepair(err error, hints []MisplacedFieldHint) *types.ToolRepair {
+func strictDecodeToolRepair(err error, hints []MisplacedFieldHint, raw []byte) *types.ToolRepair {
 	if err == nil {
 		return nil
 	}
@@ -69,6 +69,16 @@ func strictDecodeToolRepair(err error, hints []MisplacedFieldHint) *types.ToolRe
 		}
 	}
 	if field := extractCannotUnmarshalStringField(err); field != "" {
+		if rawFieldValueKind(raw, field) == '[' {
+			return &types.ToolRepair{
+				Code:   "tool_param_array_element_shape",
+				Fields: []string{field},
+				Hint:   "Keep this field as a native JSON array, but re-emit every entry as an object carrying the schema's per-entry fields — plain-string entries are not accepted.",
+				Metadata: map[string]string{
+					"field": field,
+				},
+			}
+		}
 		return &types.ToolRepair{
 			Code:   "tool_param_json_string_carrier",
 			Fields: []string{field},

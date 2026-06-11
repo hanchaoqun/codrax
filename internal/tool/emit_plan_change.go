@@ -110,7 +110,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	dec.DisallowUnknownFields()
 	var p emitPlanChangeParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, "emit_plan_change rejected: ", ". "+emitPlanChangeSchemaReminder)
+		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_plan_change rejected: ", ". "+emitPlanChangeSchemaReminder)
 	}
 
 	path := strings.TrimSpace(p.Path)

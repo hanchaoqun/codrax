@@ -121,7 +121,7 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 
 	var p emitPerfSegmentationParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 
 	traceLen := len(ctx.AttachedHitrace)

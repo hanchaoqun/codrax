@@ -523,7 +523,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecode(t.Name(), now, err, emitEvidenceMisplacedHints)
+		return failStrictDecode(t.Name(), now, err, emitEvidenceMisplacedHints, params)
 	}
 	if len(p.Items) == 0 {
 		return failEmit(t.Name(), now, "items is empty; emit at least one evidence object per call")

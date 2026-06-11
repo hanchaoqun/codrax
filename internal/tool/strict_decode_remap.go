@@ -76,6 +76,18 @@ type MisplacedFieldHint struct {
 // Callers may pass nil/empty hints — in that case the function
 // still sanitizes the error message (R4 always applies).
 func RemapStrictDecodeError(err error, hints []MisplacedFieldHint) error {
+	return RemapStrictDecodeErrorWithRaw(err, hints, nil)
+}
+
+// RemapStrictDecodeErrorWithRaw is RemapStrictDecodeError with the raw
+// tool params available. The raw bytes disambiguate the
+// cannot-unmarshal-string class: when the failing field's value is
+// ALREADY a native JSON array, no stringify ever happened — the array
+// ELEMENTS have the wrong shape (plain strings where the schema wants
+// objects), and the quote-wrapping diagnosis would be doubly wrong
+// (blaming an artefact that never occurred and steering toward a
+// native object when the correct shape is an array of objects).
+func RemapStrictDecodeErrorWithRaw(err error, hints []MisplacedFieldHint, raw []byte) error {
 	if err == nil {
 		return err
 	}
@@ -99,7 +111,7 @@ func RemapStrictDecodeError(err error, hints []MisplacedFieldHint) error {
 		}
 	}
 	// Step 2: try the cannot-unmarshal-string artefact pattern.
-	if rewritten, matched := remapCannotUnmarshalStringIntoNativeJSON(err); matched {
+	if rewritten, matched := remapCannotUnmarshalStringIntoNativeJSON(err, raw); matched {
 		return rewritten
 	}
 	// Step 3: sanitize the error message — strip Go-internal
@@ -154,11 +166,25 @@ const (
 // the LLM JSON.stringify'd a structured value before putting it in the tool
 // call. It uses the decoder's target type only to choose array/object guidance;
 // the Go type name never appears in the LLM-facing message.
-func remapCannotUnmarshalStringIntoNativeJSON(err error) (error, bool) {
+func remapCannotUnmarshalStringIntoNativeJSON(err error, raw []byte) (error, bool) {
 	field, kind := extractCannotUnmarshalStringTarget(err)
 	if field == "" || kind == "" {
 		return nil, false
 	}
+	// Disambiguate against the raw params: a field whose raw value is
+	// already a native array was never stringified — the decode error
+	// came from a string ELEMENT where the schema wants an object. Go's
+	// error cites the element struct type (package-qualified), which the
+	// kind classifier reads as "object", so without this check the model
+	// is told to quote-strip a wrapper that does not exist and to emit a
+	// native OBJECT when the correct shape is an array of objects.
+	if rawFieldValueKind(raw, field) == '[' {
+		logging.Info("[strict_decode_remap] array-element shape field %q", field)
+		return fmt.Errorf(
+			"each entry in the %q array must be a native JSON object carrying this tool's schema fields for that entry (e.g. %q), not a plain string — keep the array, re-emit every entry as an object",
+			field, field+`: [{...}, {...}]`), true
+	}
+	logging.Info("[strict_decode_remap] string-carrier field %q kind=%s", field, kind)
 	if kind == jsonStringCarrierObject {
 		return fmt.Errorf(
 			"the %q field must be a native JSON object (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native object (no surrounding quotes, no escaped inner quotes)",
@@ -167,6 +193,53 @@ func remapCannotUnmarshalStringIntoNativeJSON(err error) (error, bool) {
 	return fmt.Errorf(
 		"the %q field must be a native JSON array of objects (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native array (no surrounding quotes, no escaped inner quotes)",
 		field, field+`: [{...}, {...}]`, field, field), true
+}
+
+// rawFieldValueKind reports the first byte of the JSON value following
+// the first `"<field>"` key occurrence in raw: '"' for a string, '['
+// for an array, '{' for an object, 0 when absent or raw is nil. A
+// byte-level scan, not a full parse — raw may be the very bytes that
+// failed strict decode, but the key/value syntax up to the failing
+// field is well-formed (encoding/json validated it before erroring on
+// the type mismatch).
+func rawFieldValueKind(raw []byte, field string) byte {
+	if len(raw) == 0 || field == "" {
+		return 0
+	}
+	key := []byte(`"` + field + `"`)
+	idx := 0
+	for {
+		j := indexBytesFrom(raw, key, idx)
+		if j < 0 {
+			return 0
+		}
+		k := j + len(key)
+		for k < len(raw) && (raw[k] == ' ' || raw[k] == '\t' || raw[k] == '\n' || raw[k] == '\r') {
+			k++
+		}
+		if k < len(raw) && raw[k] == ':' {
+			k++
+			for k < len(raw) && (raw[k] == ' ' || raw[k] == '\t' || raw[k] == '\n' || raw[k] == '\r') {
+				k++
+			}
+			if k < len(raw) {
+				return raw[k]
+			}
+			return 0
+		}
+		idx = j + 1
+	}
+}
+
+func indexBytesFrom(haystack, needle []byte, from int) int {
+	if from >= len(haystack) {
+		return -1
+	}
+	i := strings.Index(string(haystack[from:]), string(needle))
+	if i < 0 {
+		return -1
+	}
+	return from + i
 }
 
 func extractCannotUnmarshalStringField(err error) string {

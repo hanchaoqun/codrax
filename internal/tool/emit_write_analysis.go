@@ -117,7 +117,7 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 
 	// Required field checks. RawRequest must be non-empty (the LLM

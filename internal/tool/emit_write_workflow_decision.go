@@ -56,7 +56,7 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&decision); err != nil {
-		return failStrictDecodeWithError(t.Name(), now, err, nil)
+		return failStrictDecodeWithError(t.Name(), now, err, nil, params)
 	}
 	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
 	if errs := writeflow.ValidateWriteWorkflowDecision(decision); len(errs) > 0 {

@@ -138,7 +138,7 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	dec.DisallowUnknownFields()
 	var p emitHypothesisVerdictParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecode(t.Name(), now, err, nil)
+		return failStrictDecode(t.Name(), now, err, nil, params)
 	}
 	if len(p.Items) == 0 {
 		return failEmit(t.Name(), now, "items is empty; emit at least one verdict object per call")

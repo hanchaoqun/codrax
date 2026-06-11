@@ -5,6 +5,6 @@ EXPECT_MATCHES_REGEX="(操作系统|OS|macOS|Linux|Windows)
 (CPU|核心|core)
 (内存|memory|RAM)
 (GPU|显卡|graphics)"
-EXPECT_LOG_MATCHES_REGEX="\\[cmd/operation\\] single-shot turn policy .*route=operation
+EXPECT_LOG_MATCHES_REGEX="\\[cmd/route\\] single-shot turn policy .*route=operation
 \\[cli/operation\\] command plan generated
 \\[cli/operation\\] command step result"

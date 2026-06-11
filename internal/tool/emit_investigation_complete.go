@@ -1026,7 +1026,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 
 	var p emitInvestigationCompleteParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeMessage(t.Name(), time.Now(), err, nil, "emit_investigation_complete: ", "")
+		return failStrictDecodeMessage(t.Name(), time.Now(), err, nil, params, "emit_investigation_complete: ", "")
 	}
 
 	conf := strings.ToLower(strings.TrimSpace(p.Confidence))

@@ -172,6 +172,20 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		lastError = ""
 	}
 	decision := BuildWorkflowJournalDecision(state.Decision, input.Status, input.Reason, lastError, state.DecisionFallbackReasonCode, completionSatisfied)
+	// Batch-6 B4: completion scrubbing erased the typed override
+	// trail. When the completion gate normalizes a final evaluator
+	// verdict (e.g. repair_node -> complete), the override marker
+	// "original_status=<verdict>" survives only deep inside
+	// resume.records[last].Evaluation — the top-level decision read
+	// {status:complete, reason_code:complete} and the terminal log
+	// line showed reason="", hiding that the system overrode the
+	// model's final typed request. Surface the marker on the
+	// top-level decision so the override is auditable at a glance.
+	if completionSatisfied && strings.TrimSpace(decision.Reason) == "" {
+		if note := latestEvaluationOverrideNote(records); note != "" {
+			decision.Reason = note
+		}
+	}
 	status := workflowJournalStatus(input.Status, decision)
 	reason := workflowJournalReason(input.Status, input.Reason, decision)
 	return WorkflowJournal{
@@ -197,6 +211,24 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		PlanTransitions:          rtPlanTransitions(rt),
 		Resume:                   BuildWorkflowResumePayload(records, current, deferred),
 	}
+}
+
+// latestEvaluationOverrideNote returns the completion-gate override
+// marker ("original_status=<verdict>" plus the normalization note)
+// from the newest record whose evaluation reason carries one; ""
+// when no override happened.
+func latestEvaluationOverrideNote(records []WorkflowRecord) string {
+	for i := len(records) - 1; i >= 0; i-- {
+		eval := records[i].Evaluation
+		if eval == nil {
+			continue
+		}
+		reason := strings.TrimSpace(string(eval.Reason))
+		if idx := strings.Index(reason, "original_status="); idx >= 0 {
+			return "completion gate normalized the final evaluator verdict: " + reason[idx:]
+		}
+	}
+	return ""
 }
 
 func workflowJournalPriorErrors(records []WorkflowRecord, limit int) []WorkflowPriorError {
@@ -280,6 +312,13 @@ func workflowJournalStatus(requested string, decision WorkflowDecision) string {
 func workflowJournalReason(requestedStatus, requestedReason string, decision WorkflowDecision) string {
 	reason := strings.TrimSpace(requestedReason)
 	if reason == "" && workflowJournalShouldPreserveBaseStatus(decision.Status, strings.TrimSpace(requestedStatus)) {
+		return strings.TrimSpace(decision.Reason)
+	}
+	// Batch-6 B4: on a clean completion the requested reason is empty;
+	// fall through to the decision's reason so a completion-gate
+	// override note (original_status=...) reaches the terminal log
+	// line instead of reason="".
+	if reason == "" {
 		return strings.TrimSpace(decision.Reason)
 	}
 	return reason

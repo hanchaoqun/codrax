@@ -110,7 +110,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	var p applyPatchParams
 	err := dec.Decode(&p)
 	if err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 
 	path := strings.TrimSpace(p.Path)

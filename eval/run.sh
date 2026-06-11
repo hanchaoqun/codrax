@@ -523,6 +523,13 @@ write_metrics() {
     # data — high counts here justify implementing G7, low counts
     # justify keeping it deferred.
     echo "strict_decode_remap_events=$(count_pattern 'strict_decode_remap.*misplaced field' "$log")"
+    # The other two remap classes (batch-6 A4): a stringified value
+    # where the schema wants a native array/object, and a native array
+    # whose ELEMENTS are plain strings where the schema wants objects.
+    # Both were previously uncountable (no log marker), hiding a
+    # recurring emit-friction class from every eval sweep.
+    echo "strict_decode_carrier_events=$(count_pattern 'strict_decode_remap. string-carrier field' "$log")"
+    echo "strict_decode_element_shape_events=$(count_pattern 'strict_decode_remap. array-element shape field' "$log")"
   } >"$metrics"
 }
 
@@ -980,11 +987,27 @@ SUMMARY="$OUTDIR/summary.md"
         echo "| $i | no | — | — | — |"
         continue
       fi
-      # "$N changes" where N = count of '"kind":' occurrences.
-      change_count=$(grep -c '"kind":' "$plan_path" 2>/dev/null || echo 0)
-      kinds="$(grep -oE '"kind":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([a-z]+)"$/\1/' | paste -sd, -)"
+      # Count/list ONLY the top-level changes[] entries. A bare grep
+      # over the whole plan JSON also tallies nested edits[].kind,
+      # write_analysis_ir.request.task.kind, and approval.reasons[].path,
+      # inflating every patch-style plan's summary row.
+      plan_shape="$(python3 - "$plan_path" <<'PYEOF' 2>/dev/null
+import json, sys
+try:
+    plan = json.load(open(sys.argv[1]))
+except Exception:
+    print("0\t\t")
+    raise SystemExit
+changes = plan.get("changes") or []
+kinds = ",".join(str(c.get("kind", "")) for c in changes if isinstance(c, dict))
+paths = ",".join(str(c.get("path", "")) for c in changes if isinstance(c, dict))
+print(f"{len(changes)}\t{kinds}\t{paths}")
+PYEOF
+)"
+      change_count="$(cut -f1 <<<"$plan_shape")"
+      kinds="$(cut -f2 <<<"$plan_shape")"
       kinds="${kinds:-—}"
-      paths="$(grep -oE '"path":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | paste -sd, -)"
+      paths="$(cut -f3 <<<"$plan_shape")"
       paths="${paths:-—}"
       # Collapse overly-long path lists (table readability).
       if [[ ${#paths} -gt 60 ]]; then paths="${paths:0:57}…"; fi
@@ -1036,7 +1059,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_lane_block_kind_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_lane_block_kind_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

@@ -212,6 +212,20 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, terminal))
 						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
 					}
+					// Batch-6 B3: a typed complete verdict from the
+					// evaluator (non-low declared confidence) makes the
+					// continuation planner round redundant — its prompt
+					// embeds the very status=complete line, and the round
+					// costs a full LLM call plus a duplicate env probe.
+					// The typed escape stays open: a low-confidence
+					// complete keeps the extra round, since the model
+					// itself declared uncertainty (§1.6 — confidence is
+					// a system input, not decoration).
+					if eval.Status == operation.EvalComplete && strings.TrimSpace(strings.ToLower(eval.Confidence)) != "low" {
+						logging.Info("[cli/operation] command evaluation complete confidence=%q — skipping continuation planning rounds=%d",
+							oneLineClamp(eval.Confidence, 20), len(records))
+						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+					}
 					if eval.Status == operation.EvalContinueCommand {
 						continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 						if ok {

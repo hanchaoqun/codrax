@@ -297,7 +297,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 	if !decoded {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
+			return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 		}
 	}
 

@@ -3421,8 +3421,10 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
 		tc = normalized
 	}
+	prescanGrepNormalized := false
 	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {
 		tc = normalized
+		prescanGrepNormalized = true
 	}
 
 	// Stage-specific pre-execution parameter validation. The
@@ -3506,6 +3508,18 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// the only stage that takes this path; other stages
 			// short-circuit on the trigger flag being off.
 			analyzerPostProcessToolResult(ctx, tc, &result)
+			// Batch-6 B2: the analyzer-prescan files_only rewrite was
+			// previously invisible to the model — it saw a zero-
+			// information result (the only "matching file" being the
+			// file it already named in include=) with no explanation,
+			// burned an iteration self-diagnosing, and the prompt's
+			// "such calls are rejected" contract contradicted the
+			// silently-succeeding call. Surface the rewrite as one
+			// model-facing line on the result.
+			if prescanGrepNormalized {
+				result.Summary = strings.TrimRight(result.Summary, "\n") +
+					"\n\n[note: this classification step runs grep with files_only=true — line-level matches are gathered by later evidence stages, not here. If you need that file's content examined, declare it in emit_analysis required_files instead of re-grepping.]"
+			}
 			if hint := tool.PublishSourceInventoryAdvisoryFromToolObservation(busCtx, result); hint != "" {
 				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
 			}

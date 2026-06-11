@@ -151,7 +151,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, emitPerfTraceMisplacedHints)
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, emitPerfTraceMisplacedHints, params)
 	}
 
 	// Cross-field sanity: at least one structured trace fact must be

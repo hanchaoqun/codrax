@@ -146,7 +146,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
-		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints)
+		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints, raw)
 	}
 
 	// document_model is no longer surfaced to the LLM. The system
