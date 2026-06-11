@@ -223,7 +223,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 
 ```
    CODRAX  v0.1.x  /help · /exit
-   模式: auto · code · operation · data · write (write_enabled=true) · /home/you/.../codrax.yaml
+   模式: auto · code · operation · data · write · /home/you/.../codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -506,7 +506,7 @@ REPL banner 立即提示:
 
 ```
    CODRAX  v0.1.X  /help · /exit
-   模式: auto · code · operation · data · write (write_enabled=true)
+   模式: auto · code · operation · data · write
    记忆: 3 recent + 0 compacted
    🗂  multi-repo: 5 sub-repos (active cap=2); not cross-repo? use --multi-repo=false; /repos focus
 ```
@@ -1732,13 +1732,15 @@ codrax 也会保护用户面板和上下文:
 
 ## 4.1 启用
 
-在 `codrax.yaml` 里加一行:
+写模式开箱即用,无需配置:进入写模式本身就是显式动作(`/mode write`、`/write` 或 CLI `--mode=write`),系统不会因为你的提问"听起来像改代码"就自动开写。
+
+需要全局禁写(如团队统一部署只读分析)时,在 `codrax.yaml` 里显式设置 kill switch:
 
 ```yaml
-write_enabled: true
+write_enabled: false
 ```
 
-(默认值 false 时,任何 `/mode write` / `/write` / `/approve` / `--mode=write` 都会被礼貌拒绝并指引你改 yaml。)
+设为 false 后,任何 `/mode write` / `/write` / `/approve` / `--mode=write` 都会被拒绝并说明该配置。
 
 ## 4.2 完整流程
 
@@ -2160,7 +2162,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `write_enabled` | `false` | **写模式总闸**;不设 true 任何写命令都拒绝 |
+| `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写命令都拒绝(进入写模式始终需要 per-invocation 显式动词) |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
@@ -2546,11 +2548,11 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 
 | 命令 | 用途 |
 |---|---|
-| `/mode auto` / `code` / `operation` / `data` / `write` | 切换粘滞任务模式;`write` 需要 `write_enabled: true` |
+| `/mode auto` / `code` / `operation` / `data` / `write` | 切换粘滞任务模式;`write` 在 `write_enabled: false` 时被拒绝 |
 | `/code <问题>` | 单次强制走代码/源码分析 |
 | `/op <任务>` | 单次强制走电脑操作 |
 | `/data <任务>` | 单次强制走数据处理 |
-| `/write <改动需求>` | 单次强制走写模式;需要 `write_enabled: true` |
+| `/write <改动需求>` | 单次强制走写模式;`write_enabled: false` 时被拒绝 |
 | `/plan show` | 渲染当前 pending plan(per-file diff,16 KB 上限) |
 | `/plan show <id>` | 按 ID 渲染任意 plan |
 | `/plan list` | 列出 PlanStore 里所有 plan |
@@ -2732,8 +2734,8 @@ CLI 单次模式输出:
 
 ## 8.4 写模式特有
 
-**`/mode write` 报 `write_enabled is false`**
-→ `codrax.yaml` 加 `write_enabled: true`,重启 codrax。
+**`/mode write` 报 write 被禁用**
+→ 你的 `codrax.yaml` 显式设置了 `write_enabled: false`(kill switch)。删除该行或改为 true,重启 codrax。
 
 **`/approve` 报 `target ... is needs_init`**
 → 目标目录不是 git 仓。`/approve --auto-init-repo` 一次,或 yaml 里 `write_auto_init_repo: true` 长期允许。

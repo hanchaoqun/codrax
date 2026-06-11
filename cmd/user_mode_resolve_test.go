@@ -169,3 +169,29 @@ func TestResolveUserMode_UnknownRejected(t *testing.T) {
 		t.Fatalf("unknown mode should error, got: %v", err)
 	}
 }
+
+// write_enabled semantics: absent (nil) defaults to ENABLED — the
+// per-invocation --mode=write flag is the consent; an explicit false
+// is the organisational kill switch and refuses with the config hint.
+func TestResolveUserMode_WriteEnabledDefaultsOn(t *testing.T) {
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled: nil,
+		CLIFlagMode: "write",
+	})
+	if err != nil {
+		t.Fatalf("absent write_enabled must default to enabled: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModePlan {
+		t.Fatalf("mode=%q phase=%q, want write/plan", mode, phase)
+	}
+}
+
+func TestResolveUserMode_ExplicitFalseIsKillSwitch(t *testing.T) {
+	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled: boolPtr(false),
+		CLIFlagMode: "write",
+	})
+	if err == nil || !strings.Contains(err.Error(), "kill switch") {
+		t.Fatalf("explicit false must refuse with the kill-switch hint, got %v", err)
+	}
+}

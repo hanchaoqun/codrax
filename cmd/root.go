@@ -1007,7 +1007,14 @@ type modeResolutionInputs struct {
 // This function deliberately does not infer intent from user prose. It consumes
 // only explicit CLI flags and yaml write_enabled.
 func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types.PipelineMode, error) {
-	yamlEnabled := false
+	// write_enabled defaults to TRUE: write activation already requires
+	// an explicit per-invocation opt-in (--mode=write / REPL /mode
+	// write — no classifier route ever selects write), changes land in
+	// an isolated worktree, and reaching the user's branch takes an
+	// explicit /merge or cherry-pick. The yaml knob remains as the
+	// organisational kill switch: an explicit `write_enabled: false`
+	// refuses every write lane.
+	yamlEnabled := true
 	if in.YamlEnabled != nil {
 		yamlEnabled = *in.YamlEnabled
 	}
@@ -1038,7 +1045,7 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 		return "", "", fmt.Errorf("unknown write phase %q (must be one of: plan, apply, verify)", string(phase))
 	}
 	if !yamlEnabled {
-		return "", "", fmt.Errorf("write mode disabled: set write_enabled: true in codrax.yaml before using --mode=write")
+		return "", "", fmt.Errorf("write mode disabled by configuration: codrax.yaml sets write_enabled: false (the kill switch); remove it or set true to use --mode=write")
 	}
 	if in.HasRequest && phase == types.ModeApply && !in.AutoApply {
 		return "", "", fmt.Errorf("--mode=write --write-phase=apply in single-shot (--request) requires --auto-apply for approval")
@@ -3639,10 +3646,12 @@ func initApp(cmd *cobra.Command, args []string) error {
 	}
 	// Cache the resolved yaml gate on app so the REPL Config can
 	// forward it to repl.New. nil pointer (yaml absent OR field
-	// omitted) → false (refuse non-read modes by default; matches
-	// resolveWriteMode's posture).
-	if rs != nil && rs.WriteEnabled != nil && *rs.WriteEnabled {
-		app.writeEnabled = true
+	// omitted) → true; only an explicit `write_enabled: false` (the
+	// organisational kill switch) turns the write lanes off. Matches
+	// resolveUserModeAndWritePhase's posture.
+	app.writeEnabled = true
+	if rs != nil && rs.WriteEnabled != nil && !*rs.WriteEnabled {
+		app.writeEnabled = false
 	}
 	// Resolve auto-init authorization. CLI flag overrides yaml when
 	// set explicitly (cobra reports it as "Changed"); otherwise yaml

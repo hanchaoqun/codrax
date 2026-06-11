@@ -482,10 +482,10 @@ func TestBannerCapabilityLine(t *testing.T) {
 		path        string
 		mustContain []string
 	}{
-		{"on", "en", true, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write_enabled=true", "/etc/codrax.yaml"}},
-		{"off", "en", false, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write disabled"}},
-		{"off-no-yaml", "en", false, "", []string{"write disabled"}},
-		{"zh-off", "zh", false, "", []string{"write 已禁用"}},
+		{"on", "en", true, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write", "/etc/codrax.yaml"}},
+		{"off", "en", false, "/etc/codrax.yaml", []string{"auto", "code", "operation", "data", "write disabled by write_enabled: false"}},
+		{"off-no-yaml", "en", false, "", []string{"write disabled by write_enabled: false"}},
+		{"zh-off", "zh", false, "", []string{"write 已被 write_enabled: false 禁用"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

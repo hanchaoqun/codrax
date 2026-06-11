@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repository. Detail lives in `docs/archi
 
 ## Project Overview
 
-Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (opt-in via `codrax.yaml :: write_enabled: true` + `--mode=write --write-phase=plan|apply|verify`): adds plan → apply → verify inside a git worktree; main repo HEAD bytes never change automatically.
+Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (per-invocation opt-in via `--mode=write --write-phase=plan|apply|verify`; `codrax.yaml :: write_enabled: false` is the organisational kill switch — default true): adds plan → apply → verify inside a git worktree; main repo HEAD bytes never change automatically.
 
 The analyzer makes one LLM call to classify the request; TaskGraph / EvidencePlan / hypotheses / quality gate are built deterministically by 14 sub-packages under `internal/analysis/`. Fail-loud: missing `emit_analysis` → stage errors and retries.
 
@@ -28,7 +28,7 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 # REPL: /log <path>  |  /log (paste, end /end)  |  /log clear  |  /log show
 # Same shape: --htrace / --atrace and /htrace / /atrace.
 
-# Write mode (requires write_enabled: true):
+# Write mode (per-invocation opt-in; write_enabled: false in yaml is the kill switch):
 ./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json
 ./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json --auto-apply
 ./codrax --mode=write --write-phase=verify --plan-file=/tmp/p.json
@@ -44,7 +44,7 @@ For everything else — stage table, agent contracts, retry layering, write-mode
 ## Red lines (enforced by structural tests)
 
 - **L1**: read mode byte-preserved — `runReadSchedulerLoop` is byte-identical to pre-T4 `runTaskGraph` body.
-- **L2**: `write_enabled: false` by default; write modes refuse without yaml gate.
+- **L2**: write activation is per-invocation explicit (`--mode=write` / REPL `/mode write` — no classifier route may ever select write); an explicit `write_enabled: false` in yaml is the kill switch and refuses every write lane.
 - **L3**: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem`.
 - **L5**: worktree cleanup unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit.
 - **L6**: write skills keep `exec_command` in `ToolSuggestions` (worktree contains blast radius).

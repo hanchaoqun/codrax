@@ -3,7 +3,7 @@
 codrax 是一个**代码分析 + 变更提议**工具：
 
 - **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
-- **写模式**（opt-in，需要 `codrax.yaml :: write_enabled: true`）：复用读模式的 analyzer 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
+- **写模式**（per-invocation 显式进入:`--mode=write` 或 REPL `/mode write`;`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
@@ -1331,14 +1331,14 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 ### 8.1 触发条件与用户模式
 
-> *写模式像家用电锯：(1) 厂家在出厂时把"启用电锯"开关焊在主板上（write_enabled yaml）—— 没启用，不管怎么按按钮都不通电；(2) 启用后，用户还要显式选择写入口（CLI `--mode=write` 或 REPL `/mode write` / `/write`）。两道门一起守，避免单一手滑就开锯。*
+> *写模式像家用电锯：用户必须显式按下扳机（CLI `--mode=write` 或 REPL `/mode write` / `/write`,任何自动路由都不会替用户按）;机身上另有一个物理断电开关（`write_enabled: false`）——组织可以拔掉钥匙,让谁按扳机都不通电。*
 
 写模式的入口由两个独立 gate 控制，缺一不可：
 
-1. `codrax.yaml :: write_enabled: true`
+1. `codrax.yaml :: write_enabled` 未显式设为 false（默认 true;显式 false 是组织级 kill switch）
 2. 用户显式进入写入口：CLI `--mode=write`（再用 `--write-phase=plan|apply|verify` 选择内部阶段）或 REPL `/mode write` / `/write <request>`
 
-`Run()` 入口检查；缺任一 → fail-loud。这是为了避免误改：部署时设 `write_enabled: true` 是个慎重决策，不是 per-invocation flag。
+`Run()` 入口检查；任一不满足 → fail-loud。真实 consent 是 per-invocation 的模式显式选择——分类器永远不会自动路由进写模式;kill switch 留给需要全局禁写的部署。
 
 用户模式是粘滞的：REPL `/mode auto|code|operation|data|write` 会影响后续 turns；`/code`、`/op`、`/data`、`/write` 是单次直达。内部 `PipelineMode` 仍只表示写阶段：`read`、`plan`、`apply`、`verify`。
 
@@ -1674,7 +1674,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 ### 8.21 红线总结
 
 - **L1**：读模式 Run 字节级行为不变；写模式 opt-in 从不影响读模式
-- **L2**：`write_enabled: false`（默认）下写模式阶段拒启动
+- **L2**：写模式必须 per-invocation 显式进入（无任何自动路由）;显式 `write_enabled: false` 为 kill switch,全链路拒启动
 - **L3**：写工具（emit_change_plan / apply_patch / run_tests / emit_test_results）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化
 - **L5**：worktree 清理 defer 位于 Run() 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out
 - **L6**：写模式 skill（change-plan-skill / code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius
@@ -2107,7 +2107,7 @@ sequenceDiagram
     participant LLM
 
     User->>Orch: --mode=write --write-phase=apply + --plan-file（或 /mode write 后 /approve）
-    Note over Orch: writeGate：write_enabled=true？否则 fail-loud
+    Note over Orch: writeGate：write_enabled 显式 false？是则 fail-loud
 
     rect rgb(245,245,245)
     Note over Orch: analyze（分类器复用；仅读模式字段）
@@ -2577,7 +2577,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `analysis_*` | emit_analysis 运行时验证 | `analysis_warn_below_keywords`（8）/ `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds`（3）/ `analysis_emit_only_correction_retries`（3）/ `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` / `analysis_evidence_profile`（permissive/balanced/strict/custom）/ `analysis_grounding_floor` / `analysis_evidence_tier1_floor` |
 | `evidence_*` | explorer completion gate | `evidence_grounding_floor` / `evidence_tier1_floor`（legacy numeric overrides; omitted values inherit the active evidence profile） |
 | `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_strict_answer_review_enabled`（true）/ `pipeline_self_consistency_review_enabled`（false，opt-in）系列 / `pipeline_semantic_quality_review_enabled`（false，opt-in）/ `pipeline_transient_retry_budget`（3）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（600）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
-| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` / `write_workflow_engine`（compatibility-only, always controller-first） |
+| `write_*` | 写模式 gate | `write_enabled`（true;显式 false=kill switch）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` / `write_workflow_engine`（compatibility-only, always controller-first） |
 | `gate_*` | analyzer 质量门 | `gate_coverage_min`（0.6）/ `gate_coverage_weight_{symbol,config,concept}`（1.0/0.7/0.4）/ `gate_hypothesis_min_priority` |
 | `explore_*` | explorer heuristics | `explore_per_tool_default_cap` + 15 个 ExploreHeuristics 阈值 |
 | `agent_*` | Agent 限额 | `agent_max_iterations`（20）/ `agent_max_tool_history_bytes`（150 KB）/ `agent_max_tool_history_fraction`（fraction × ctxwin × 4）/ 4 个 `agent_loop_*` / `agent_finalizer_*`（max_correction_retries / preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）/ `agent_extractor_max_correction_retries` / per-evaluator 双段 iter cap（planner 6/9 / extractor 3/5 / verifier 5/8 / coder slack=3 recovery=3）/ per-dispatch scaling（subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra + planner_complexity_extra / extractor_complexity_extra / target_paths_verifier_extra）/ scaled_iter_max ceiling 系列 / `agent_max_retry_budget_ceil`（5）/ `agent_log_triager_iter_cap`（20）/ `agent_perf_triager_iter_cap`（20）/ `agent_investigation_complete_policy`（"soft"）/ `agent_prior_conversation_policy`（"analyzer"）/ `agent_context_pressure_soft_ratio`（0.7）/ `agent_context_pressure_hard_ratio`（0.9） |

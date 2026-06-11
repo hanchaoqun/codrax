@@ -296,15 +296,15 @@ func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) s
 	cap := ""
 	if writeEnabled {
 		if zh {
-			cap = "模式: auto · code · operation · data · write (write_enabled=true)"
+			cap = "模式: auto · code · operation · data · write"
 		} else {
-			cap = "Modes: auto · code · operation · data · write (write_enabled=true)"
+			cap = "Modes: auto · code · operation · data · write"
 		}
 	} else {
 		if zh {
-			cap = "模式: auto · code · operation · data (write 已禁用)"
+			cap = "模式: auto · code · operation · data (write 已被 write_enabled: false 禁用)"
 		} else {
-			cap = "Modes: auto · code · operation · data (write disabled)"
+			cap = "Modes: auto · code · operation · data (write disabled by write_enabled: false)"
 		}
 	}
 	if settingsPath != "" {
