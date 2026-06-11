@@ -1,6 +1,10 @@
 package types
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+)
 
 const maxRequiredMechanismAnchors = 6
 
@@ -69,12 +73,16 @@ func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, f
 		}
 		add(term.Text, kind)
 		if len(out) >= maxRequiredMechanismAnchors {
+			logging.Debug("required mechanism anchors capped at %d; later candidates not carried", maxRequiredMechanismAnchors)
 			return out
 		}
 	}
-	for _, text := range ordered {
+	for i, text := range ordered {
 		add(text, InferContractTermKind(text))
 		if len(out) >= maxRequiredMechanismAnchors {
+			if i+1 < len(ordered) {
+				logging.Debug("required mechanism anchors capped at %d; %d later candidate(s) not carried", maxRequiredMechanismAnchors, len(ordered)-i-1)
+			}
 			return out
 		}
 	}
@@ -153,18 +161,28 @@ func mechanismAnchorTermKindEligible(kind ContractTermKind) bool {
 
 // MissingRequiredMechanismAnchors reports typed visible-anchor obligations not
 // represented by the structured answer carrier. It compares only exact typed
-// fields: block titles, item labels, and diagram edge endpoints. Summary /
-// section prose is deliberately ignored so free-form text does not become a
-// control signal.
+// fields: block titles, item labels, table cells, and diagram edge endpoints.
+// Summary / section prose is deliberately ignored so free-form text does not
+// become a control signal. Cells are scanned by verbatim containment of the
+// typed anchor (the must_include oracle's primitive): a table row legitimately
+// annotates its carrier ("MutableState（并行 fork 合并）"), and containment
+// only SUPPRESSES a would-be violation — false positives quiet the check,
+// they never create one.
 func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerRequiredAnchor) []AnswerRequiredAnchor {
 	if doc == nil || len(required) == 0 {
 		return nil
 	}
 	present := map[string]struct{}{}
+	var cellTexts []string
 	for _, block := range doc.Blocks {
 		recordAnchorSurface(present, block.Title)
 		for _, item := range block.Items {
 			recordAnchorSurface(present, item.Label)
+			for _, cell := range item.Cells {
+				if trimmed := strings.ToLower(strings.TrimSpace(cell)); trimmed != "" {
+					cellTexts = append(cellTexts, trimmed)
+				}
+			}
 		}
 		for _, edge := range block.EdgeAnchors {
 			recordAnchorSurface(present, edge.FromNode)
@@ -185,9 +203,26 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 		if requiredAnchorAnyKeyPresent(anchor.Text, present) {
 			continue
 		}
+		if requiredAnchorPresentInCells(key, cellTexts) {
+			continue
+		}
 		missing = append(missing, anchor)
 	}
 	return missing
+}
+
+// requiredAnchorPresentInCells reports whether the canonical anchor
+// key appears verbatim inside any table cell.
+func requiredAnchorPresentInCells(key string, cells []string) bool {
+	if key == "" {
+		return false
+	}
+	for _, cell := range cells {
+		if strings.Contains(cell, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func recordAnchorSurface(dst map[string]struct{}, text string) {

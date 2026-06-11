@@ -1882,6 +1882,46 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 	}}
 }
 
+// validateRequiredMechanismAnchorsRendered re-checks the typed
+// required-anchor obligation against the FINAL document. The
+// pre-emit chokepoint runs the same comparison, but later mutations
+// (block reclassification, salvage, system-side normalization) used
+// to escape it entirely — the 2026-06-12 pipeline_sequence_table
+// forensics showed a user-named state carrier surviving extract and
+// the pre-emit check, then vanishing from the rendered answer with
+// no violation on record. Inputs are typed on both sides: the anchor
+// list is compiled from analyzer-emitted entities/exact-targets, the
+// answer surface is block titles, item labels, table cells, and
+// diagram endpoints. Emits the soft (promotable) kind so the miss is
+// at least caveated and counted.
+func validateRequiredMechanismAnchorsRendered(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil || len(view.RequiredMechanismAnchors) == 0 {
+		return nil
+	}
+	missing := types.MissingRequiredMechanismAnchors(doc, view.RequiredMechanismAnchors)
+	if len(missing) == 0 {
+		return nil
+	}
+	labels := make([]string, 0, len(missing))
+	for _, anchor := range missing {
+		labels = append(labels, anchor.Text)
+	}
+	return []types.Violation{{
+		Kind: types.ViolPrincipalSupportMemberOmitted,
+		Detail: fmt.Sprintf(
+			"the final document carries none of these question-named anchors on a structured surface (block title, item label, table cell, or diagram endpoint): %s",
+			strings.Join(labels, ", ")),
+		Repair:     "Carry each named anchor on a structured surface — an ordered_list/table item label, a table cell, a block title, or a diagram edge endpoint — with a matching citation when available.",
+		ClusterKey: "root:required_mechanism_anchors",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_contract.required_anchors",
+			Reason:     "question-named mechanism anchors missing from the final structured surfaces",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
 // validateExactResolutionGrounding enforces the typed-vs-typed
 // consistency of the exact_resolution declaration (s11b shape,
 // 2026-06-12): an exact_match / alias_match anchor must appear in at
@@ -2242,6 +2282,9 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateExactResolutionGrounding(doc, mut) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateRequiredMechanismAnchorsRendered(doc, view) }) {
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelGrounding(doc, mut) }) {
