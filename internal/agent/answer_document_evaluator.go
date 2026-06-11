@@ -2814,6 +2814,21 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		)
 	}
 
+	// G7 (2026-06-12 sweep): a HARD facet downgraded to SOFT used to
+	// render indistinguishably from a born-SOFT facet — the model
+	// never knew the question had pinned it. Surface the typed
+	// downgrade signal (RichnessTelemetry kind=facet_softened) as an
+	// advisory annotation; guidance only, the tier itself is
+	// untouched (the downgrade decision is a noisy signal).
+	softenedKinds := map[string]bool{}
+	if ctx != nil && ctx.Mutable != nil {
+		for _, sig := range ctx.Mutable.RichnessTelemetry() {
+			if sig.Kind == "facet_softened" && sig.FacetKind != "" {
+				softenedKinds[sig.FacetKind] = true
+			}
+		}
+	}
+
 	emit := func(req types.FacetRequirement) {
 		label := types.AnswerFacetPublicLabel(req.Kind)
 		var tag string
@@ -2836,6 +2851,9 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		// model's substantive answer.
 		if req.Required == types.FacetSoftRequired && req.IsPromoted() {
 			b.WriteString(" (evidence available)")
+		}
+		if req.Required == types.FacetSoftRequired && softenedKinds[string(req.Kind)] {
+			b.WriteString(" (downgraded from HARD — the question pinned this facet but no matching evidence surfaced; if your evidence can carry it, cover it rather than skipping)")
 		}
 		if len(req.AcceptableForms) > 0 {
 			forms := make([]string, 0, len(req.AcceptableForms))

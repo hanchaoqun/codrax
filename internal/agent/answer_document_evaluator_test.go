@@ -7413,3 +7413,39 @@ func TestRenderRetryRequiredChanges_TopicMismatchSuppressesEnrichment(t *testing
 		}
 	}
 }
+
+// G7 (2026-06-12): a HARD facet downgraded to SOFT renders an
+// explicit downgrade annotation when the typed facet_softened
+// telemetry names its kind — and stays silent for born-SOFT facets.
+func TestRenderAnswerDocFacetCoverage_SoftenedAnnotation(t *testing.T) {
+	// Non-empty evidence surface whose rows match none of the
+	// config-precedence acceptable forms — the real compile path
+	// downgrades the HARD facet to SOFT and records the typed
+	// facet_softened telemetry this annotation reads.
+	mu := types.NewMutableState("q")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceRegistration, Subject: "Register", Object: "X", Source: "a.go", LineStart: 1},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentConfigQuery},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	if !strings.Contains(got, "downgraded from HARD") {
+		t.Fatalf("softened facet must carry the downgrade annotation\n----\n%s", got)
+	}
+
+	// Without the telemetry signal the annotation must not appear.
+	plain := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentConfigQuery},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	if strings.Contains(renderAnswerDocFacetCoverage(plain), "downgraded from HARD") {
+		t.Fatalf("born-SOFT facets must not be annotated as downgraded")
+	}
+}

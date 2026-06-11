@@ -549,6 +549,15 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)
+		// G6 (2026-06-12 sweep): a detached reference is a visible
+		// degradation, not a silent repair — the item keeps its text
+		// but loses its source anchor. Disclose it as a caveat so the
+		// reader knows which strength of grounding they are reading.
+		if principalEnumerationPrefersZH(ctx) {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的来源引用无法对应到任何已验证来源，已移除该引用（条目内容保留，但不再带源码锚点）。", fixed))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item source reference(s) could not be matched to a verified source and were removed (item text kept, but without a source anchor).", fixed))
+		}
 	}
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
