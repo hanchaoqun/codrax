@@ -179,7 +179,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
-	for i, rawBlock := range p.Blocks {
+	for i, rawBlock := range splitFusedDiagramBlocks(toolName, p.Blocks) {
 		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
 			persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)

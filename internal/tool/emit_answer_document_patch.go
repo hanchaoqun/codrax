@@ -193,6 +193,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failStrictDecode(t.Name(), now, err, answerDocumentV2MisplacedHints, params)
 	}
 
+	// Fused-block split runs on the raw lists BEFORE typed
+	// conversion (the normalize loop's discriminator repair destroys
+	// the declared kind). The diagram half of a fused REPLACE entry
+	// moves to add_blocks: replace merges one block per replaced id.
+	p.ReplaceBlocks, p.AddBlocks = splitFusedDiagramPatchBlocks(t.Name(), p.ReplaceBlocks, p.AddBlocks)
+
 	// Build typed AnswerDocumentV2Patch from the decoded params.
 	patch := &types.AnswerDocumentV2Patch{
 		UnchangedBlockIDs:            append([]string(nil), p.UnchangedBlockIDs...),

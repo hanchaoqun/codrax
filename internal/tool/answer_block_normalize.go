@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -228,4 +229,168 @@ func stripOuterDiagramFence(body string) string {
 		out = next
 	}
 	return out
+}
+
+// splitFusedDiagramBlocks expands every FUSED block — a valid
+// non-diagram kind that carries BOTH visible rows (items / columns)
+// AND a renderable diagram payload — into two sibling blocks before
+// NormalizeEmitAnswerBlock's discriminator repair runs. Without the
+// split, the repair overwrites the declared kind to diagram and the
+// renderer (which dispatches on Kind alone) silently drops the rows —
+// the model's table content evaporates even though it was emitted
+// correctly (2026-06-12 read_combo_pipeline_sequence_table forensics).
+//
+// Partition: the visible half keeps the declared kind plus
+// id/title/text/columns/items/claim_uses/facet_ids/surface_role and
+// every verdict field; the diagram half carries ONLY the diagram
+// payload + edge_anchors under a derived unique id, inserted
+// immediately after the visible half so narrative order survives.
+//
+// Trigger is a precise typed signal (no prose inspection):
+// diagram payload present AND non-empty body AND declared kind is a
+// valid non-diagram kind AND rows present. Anything else passes
+// through untouched — in particular an EMPTY diagram body keeps the
+// existing single-block hard-reject path so the model gets one
+// retryable error instead of a half-accepted document.
+//
+// Doctrine note: this mirrors the no-rewrite rule from
+// answer_document_table_compile.go — the system never rewrites
+// model-authored surface content; it only re-homes the two payloads
+// the model fused so BOTH stay visible.
+func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []emitAnswerBlockV2 {
+	fused := 0
+	for _, b := range blocks {
+		if isFusedDiagramBlock(b) {
+			fused++
+		}
+	}
+	if fused == 0 {
+		return blocks
+	}
+	used := make(map[string]bool, len(blocks)+fused)
+	for _, b := range blocks {
+		used[strings.TrimSpace(b.ID)] = true
+	}
+	out := make([]emitAnswerBlockV2, 0, len(blocks)+fused)
+	split := 0
+	for _, b := range blocks {
+		if !isFusedDiagramBlock(b) || len(out)+2 > maxBlocksPerDoc {
+			out = append(out, b)
+			continue
+		}
+		visible := b
+		visible.Diagram = nil
+		visible.EdgeAnchors = nil
+		diagramHalf := emitAnswerBlockV2{
+			ID:          deriveSplitDiagramBlockID(b.ID, used),
+			Kind:        string(types.BlockDiagram),
+			Diagram:     b.Diagram,
+			EdgeAnchors: b.EdgeAnchors,
+		}
+		out = append(out, visible, diagramHalf)
+		split++
+	}
+	if split > 0 {
+		logging.Warning("[%s] split %d fused diagram block(s): declared kind and visible rows preserved alongside the diagram payload", logLabel, split)
+	}
+	return out
+}
+
+// isFusedDiagramBlock reports whether raw fuses a visible-row block
+// with a diagram payload. All four conjuncts are typed-field checks.
+func isFusedDiagramBlock(raw emitAnswerBlockV2) bool {
+	if raw.Diagram == nil || strings.TrimSpace(raw.Diagram.Body) == "" {
+		return false
+	}
+	kind := types.AnswerBlockKind(strings.TrimSpace(raw.Kind))
+	if kind == types.BlockDiagram || !types.IsValidAnswerBlockKind(kind) {
+		return false
+	}
+	return len(raw.Items) > 0 || len(raw.Columns) > 0
+}
+
+// deriveSplitDiagramBlockID returns a block id unique within the
+// emit for the split-out diagram half. The suffixed form keeps the
+// pairing visible in logs and downstream telemetry.
+func deriveSplitDiagramBlockID(baseID string, used map[string]bool) string {
+	base := strings.TrimSpace(baseID)
+	if base == "" {
+		base = "block"
+	}
+	candidate := base + "_diagram"
+	for i := 2; used[candidate] && i < 100; i++ {
+		candidate = fmt.Sprintf("%s_diagram%d", base, i)
+	}
+	used[candidate] = true
+	return candidate
+}
+
+// splitFusedDiagramPatchBlocks applies the fused-block split to the
+// patch emit's two raw lists. replace_blocks merges strictly one
+// block per replaced id, so the diagram half of a fused REPLACE
+// entry cannot stay in replace_blocks — it is appended to add_blocks
+// instead (the merged doc places adds at the tail; losing adjacency
+// beats losing the payload). Fused ADD entries split in place.
+func splitFusedDiagramPatchBlocks(logLabel string, replaceBlocks, addBlocks []emitAnswerBlockV2) ([]emitAnswerBlockV2, []emitAnswerBlockV2) {
+	fused := 0
+	for _, b := range replaceBlocks {
+		if isFusedDiagramBlock(b) {
+			fused++
+		}
+	}
+	for _, b := range addBlocks {
+		if isFusedDiagramBlock(b) {
+			fused++
+		}
+	}
+	if fused == 0 {
+		return replaceBlocks, addBlocks
+	}
+	used := make(map[string]bool, len(replaceBlocks)+len(addBlocks)+fused)
+	for _, b := range replaceBlocks {
+		used[strings.TrimSpace(b.ID)] = true
+	}
+	for _, b := range addBlocks {
+		used[strings.TrimSpace(b.ID)] = true
+	}
+	outReplace := make([]emitAnswerBlockV2, 0, len(replaceBlocks))
+	outAdd := make([]emitAnswerBlockV2, 0, len(addBlocks)+fused)
+	split := 0
+	for _, b := range replaceBlocks {
+		if !isFusedDiagramBlock(b) {
+			outReplace = append(outReplace, b)
+			continue
+		}
+		visible := b
+		visible.Diagram = nil
+		visible.EdgeAnchors = nil
+		outReplace = append(outReplace, visible)
+		outAdd = append(outAdd, emitAnswerBlockV2{
+			ID:          deriveSplitDiagramBlockID(b.ID, used),
+			Kind:        string(types.BlockDiagram),
+			Diagram:     b.Diagram,
+			EdgeAnchors: b.EdgeAnchors,
+		})
+		split++
+	}
+	for _, b := range addBlocks {
+		if !isFusedDiagramBlock(b) {
+			outAdd = append(outAdd, b)
+			continue
+		}
+		visible := b
+		visible.Diagram = nil
+		visible.EdgeAnchors = nil
+		outAdd = append(outAdd, visible, emitAnswerBlockV2{
+			ID:          deriveSplitDiagramBlockID(b.ID, used),
+			Kind:        string(types.BlockDiagram),
+			Diagram:     b.Diagram,
+			EdgeAnchors: b.EdgeAnchors,
+		})
+		split++
+	}
+	if split > 0 {
+		logging.Warning("[%s] split %d fused diagram block(s) across patch ops: declared kind and visible rows preserved alongside the diagram payload", logLabel, split)
+	}
+	return outReplace, outAdd
 }

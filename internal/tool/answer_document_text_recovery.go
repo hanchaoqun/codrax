@@ -319,7 +319,7 @@ func decodeRecoveredAnswerDocumentV2(raw json.RawMessage, mode string) (AnswerDo
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
-	for i, rawBlock := range p.Blocks {
+	for i, rawBlock := range splitFusedDiagramBlocks("emit_answer_document text-recovery", p.Blocks) {
 		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
 			return AnswerDocumentTextRecovery{}, err

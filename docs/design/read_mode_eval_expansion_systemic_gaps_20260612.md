@@ -83,7 +83,7 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 
 ## §6 交付批次与状态
 - [x] B0 spec 修复 4 例(已 push:`366b82a8` `bbbdcb10` `ceb3a57c`)
-- [ ] B1 融合 block 拆分器(P0)
+- [x] B1 融合 block 拆分器(P0)— 三调用方接线 + 全字段分区 reflection pin + patch 双 op 语义测试
 - [ ] B2 anchor lane 三层收口(P1)
 - [ ] B3 extractor 契约前置 + 完成门观测(P1)
 - [ ] B4 repo_map 软引导双层(P1)
