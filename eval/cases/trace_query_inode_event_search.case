@@ -19,5 +19,5 @@ EXPECT_MATCHES_REGEX="(event_search|命中|matched|查找).*(0xb9b8e|foo\\.db)
 (file_io|android_fs|dataread|读).*(offset|0).*(4096|bytes|ret)
 (page_cache|mm_filemap|页缓存).*(add|delete|新增|删除)
 (路径|path|inode-to-path|entry_name|外部映射)
-(绝不能|不要|不能|不应).*(/foo\\.db|绝对路径|/data)"
+(绝不能|不要|不能|不应|无法|不可|没法|不会).*(/foo\\.db|绝对路径|路径|/data|映射|对应)"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
