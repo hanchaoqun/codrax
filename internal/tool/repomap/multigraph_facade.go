@@ -154,8 +154,12 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 		}
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
 			if multiGraphPrimaryFallbackAllowed(mg, repoRoot) {
+				var pending []string
+				if ctx != nil {
+					pending = ctx.PendingSubRepos
+				}
 				logging.Warning("repo_map: multi-repo caller requested parent graph; using primary sub-repo compatibility fallback")
-				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo).Slug, query)
+				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo, pending).Slug, query)
 			}
 		}
 	}
@@ -202,8 +206,12 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 		}
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
 			if multiGraphPrimaryFallbackAllowed(mg, repoRoot) {
+				var pending []string
+				if ctx != nil {
+					pending = ctx.PendingSubRepos
+				}
 				logging.Warning("repo_map: multi-repo agent requested parent graph; using primary sub-repo compatibility fallback")
-				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo).Slug, query)
+				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo, pending).Slug, query)
 			}
 		}
 	}
@@ -386,14 +394,21 @@ func sameRepoMapRoot(a, b string) bool {
 //  1. If the operator has pinned ≥1 sub-repo (mg.FocusSlugs), pick
 //     the largest pinned one. Honours user intent: "I only want
 //     these sub-repos investigated" without exception.
-//  2. Otherwise (no pin), fall back to the largest sub-repo in
-//     topology — preserves the historical best-effort behaviour
-//     for unpinned multi-repo workspaces.
+//  2. If the question's routing fold left sub-repos inactive
+//     (pendingRootRels non-empty), pick the largest ACTIVE sub-repo.
+//     Batch-6 C1: the fallback previously consulted only REPL pins,
+//     so a CLI/--focus or exact-prescan routing decision was
+//     invisible here — for a Rust question routed to the focused
+//     Rust sub-repo, the fallback scanned and injected the larger
+//     out-of-set Go sub-repo's overview and polluted the LRU.
+//  3. Otherwise fall back to the largest sub-repo in topology —
+//     preserves the historical best-effort behaviour for unpinned,
+//     unrouted multi-repo workspaces.
 //
 // Single-repo callers never reach this path (mg.IsSingle short-
 // circuits above). Empty topology is impossible at this site
 // (caller already gates on len(Repos) > 0).
-func pickPrimarySubRepo(mg *multigraph.MultiGraph, topo *topology.RepoTopology) *topology.SubRepo {
+func pickPrimarySubRepo(mg *multigraph.MultiGraph, topo *topology.RepoTopology, pendingRootRels []string) *topology.SubRepo {
 	pinned := mg.FocusSlugs()
 	if len(pinned) > 0 {
 		pinSet := make(map[string]bool, len(pinned))
@@ -415,6 +430,25 @@ func pickPrimarySubRepo(mg *multigraph.MultiGraph, topo *topology.RepoTopology) 
 		// No matching pin found in topology (stale pin set); fall
 		// through to the unpinned-largest path so the helper still
 		// returns a sub-repo rather than nil.
+	}
+	if len(pendingRootRels) > 0 {
+		pending := make(map[string]bool, len(pendingRootRels))
+		for _, r := range pendingRootRels {
+			pending[r] = true
+		}
+		var best *topology.SubRepo
+		for i := range topo.Repos {
+			if pending[topo.Repos[i].RootRel] {
+				continue
+			}
+			if best == nil || topo.Repos[i].FileCount > best.FileCount {
+				best = &topo.Repos[i]
+			}
+		}
+		if best != nil {
+			return best
+		}
+		// Every sub-repo pending (defensive): fall through to largest.
 	}
 	best := &topo.Repos[0]
 	for i := range topo.Repos {

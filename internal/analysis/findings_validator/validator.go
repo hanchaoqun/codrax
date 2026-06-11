@@ -77,23 +77,51 @@ func Validate(text, repoRoot string, graph *repomap.Graph) Result {
 	seen := make(map[string]bool)
 
 	// PATH CHECK
+	//
+	// Batch-6 C3: pathRegex anchors on well-known tree roots
+	// (internal/, src/, ...), so a multi-repo reference like
+	// `repo-stub-rust/src/lib.rs` matches starting at `src/` — the
+	// sub-repo prefix is silently truncated and the stat against the
+	// parent root fails on a CORRECT path. Scan by index and expand
+	// each match leftward over path-token bytes to recover the full
+	// slash-joined reference; a stat hit on either the full token or
+	// the anchored match verifies the path.
 	if repoRoot != "" {
-		annotated = pathRegex.ReplaceAllStringFunc(annotated, func(match string) string {
-			abs := filepath.Join(repoRoot, match)
-			if _, err := os.Stat(abs); err == nil {
-				return match // hit
+		var b strings.Builder
+		last := 0
+		for _, loc := range pathRegex.FindAllStringIndex(annotated, -1) {
+			start, end := loc[0], loc[1]
+			full := expandPathTokenLeft(annotated, start, end)
+			match := annotated[start:end]
+			hit := false
+			for _, candidate := range []string{full, match} {
+				if candidate == "" {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(repoRoot, candidate)); err == nil {
+					hit = true
+					break
+				}
 			}
-			key := "path:" + match
-			if !seen[key] {
-				seen[key] = true
-				unverified = append(unverified, types.UnverifiedFinding{
-					Token:  match,
-					Kind:   "path",
-					Reason: "file does not exist in repo",
-				})
+			b.WriteString(annotated[last:start])
+			if hit {
+				b.WriteString(match)
+			} else {
+				key := "path:" + match
+				if !seen[key] {
+					seen[key] = true
+					unverified = append(unverified, types.UnverifiedFinding{
+						Token:  match,
+						Kind:   "path",
+						Reason: "file does not exist in repo",
+					})
+				}
+				b.WriteString(annotateMiss(match, "path", useChinese))
 			}
-			return annotateMiss(match, "path", useChinese)
-		})
+			last = end
+		}
+		b.WriteString(annotated[last:])
+		annotated = b.String()
 	}
 
 	// SYMBOL CHECK
@@ -243,4 +271,29 @@ func looksLikeCodeIdentifier(s string) bool {
 		}
 	}
 	return false
+}
+
+// expandPathTokenLeft widens a pathRegex match leftward over
+// path-token bytes (letters, digits, '_', '-', '.', '/') so a
+// sub-repo-prefixed reference like repo-stub-rust/src/lib.rs is
+// recovered in full when the regex anchored mid-token at src/.
+// Returns "" when no expansion happened (caller then checks only the
+// original match). Expansion stops at whitespace, backticks, CJK, or
+// any byte outside the token set, and is only meaningful when the
+// extra prefix ends with '/'.
+func expandPathTokenLeft(text string, start, end int) string {
+	i := start
+	for i > 0 {
+		c := text[i-1]
+		if c == '/' || c == '.' || c == '-' || c == '_' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			i--
+			continue
+		}
+		break
+	}
+	if i == start || text[start-1] != '/' {
+		return ""
+	}
+	return text[i:end]
 }

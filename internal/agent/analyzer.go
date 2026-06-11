@@ -633,7 +633,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	// questions naturally without paying the deeper view's budget for
 	// every sub-repo. Single-repo posture skips this section.
 	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil && !mg.IsSingle() {
-		if header := renderMultiRepoOverviewHeader(mg); header != "" {
+		if header := renderMultiRepoOverviewHeader(mg, ctx.PendingSubRepos); header != "" {
 			output = header + "\n" + output
 		}
 	}
@@ -692,7 +692,7 @@ func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scop
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## Repository overview (pre-computed for sub-repo scopes: %s)\n\n", strings.Join(scopes, ", ")))
 	b.WriteString("The following per-sub-repo task_map shows files and symbols matching the question for each named sub-repo. Use this to inform your sub-topic decomposition and pre-scan targets. You may still call repo_map, grep, or list_files for additional verification.\n\n")
-	if header := renderMultiRepoOverviewHeader(mg); header != "" {
+	if header := renderMultiRepoOverviewHeader(mg, ctx.PendingSubRepos); header != "" {
 		b.WriteString(header)
 		b.WriteString("\n")
 	}
@@ -750,7 +750,17 @@ func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scop
 //
 // Returns "" when topology is unavailable, IsSingle, or zero
 // sub-repos. Caller falls through to per-graph rendering only.
-func renderMultiRepoOverviewHeader(mg *multigraph.MultiGraph) string {
+//
+// routedPending is the question's routing-fold inactive list
+// (ctx.PendingSubRepos). Batch-6 C2: the note previously read the
+// multigraph LRU resident set (mg.PendingSubRepoNames), a DIFFERENT
+// source of truth from the "Multi-Repo Active Set" prompt section —
+// after any compatibility-fallback scan polluted the LRU, the two
+// sections contradicted each other and the overview claimed an
+// out-of-set sub-repo was queryable while the tool gate would refuse
+// it. The routing decision is the gate-backed source; the LRU list
+// remains only a fallback when no routing decision exists.
+func renderMultiRepoOverviewHeader(mg *multigraph.MultiGraph, routedPending []string) string {
 	if mg == nil || mg.IsSingle() {
 		return ""
 	}
@@ -782,7 +792,11 @@ func renderMultiRepoOverviewHeader(mg *multigraph.MultiGraph) string {
 			b.WriteString(fmt.Sprintf("- _… and %d more_\n", len(md.SpecialFiles)-len(preview)))
 		}
 	}
-	if pending := mg.PendingSubRepoNames(); len(pending) > 0 {
+	pending := routedPending
+	if len(pending) == 0 {
+		pending = mg.PendingSubRepoNames()
+	}
+	if len(pending) > 0 {
 		b.WriteString(fmt.Sprintf("\n_Note: routing currently inactive on sub-repos: %s. Use `/repos focus <slug>` to pin._\n", strings.Join(pending, ", ")))
 	}
 	b.WriteString("\n---\n")
