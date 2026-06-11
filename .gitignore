@@ -2,6 +2,8 @@
 # never committed.
 /codrax.yaml
 /providers.yaml
+/providers.*.yaml
+!/providers.yaml.example
 
 # Build output (binary name comes from module path)
 /codrax
