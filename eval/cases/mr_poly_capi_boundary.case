@@ -1,0 +1,15 @@
+# Polyglot multi-repo — C ABI boundary inside one sub-repo (C++ impl)
+#
+# Fixture: eval/fixtures/multirepo-polyglot/native-cpp. cJSON/libgit2-
+# style flat C API: three exported fl_* functions; the C++ Lexer class
+# is internal (anonymous namespace). The answer must enumerate exactly
+# the exported C surface and state that Lexer does NOT cross the ABI.
+ID="mr_poly_capi_boundary"
+NAME="polyglot C ABI — exported fl_* surface vs internal C++ Lexer"
+QUESTION="native-cpp 子仓对外导出的 C API 有哪几个函数?C++ 的 Lexer 类是否属于导出表面?请说明 C ABI 边界是如何组织的(头文件与实现的分工)。"
+MULTIREPO="multirepo-polyglot"
+CAP="5"
+EXPECT_MATCHES_REGEX="fl_lexer_new
+fl_lexer_split
+fl_lexer_free
+(Lexer.*(内部|不导出|不属于|internal)|((内部|不导出|不属于|internal)).*Lexer)"

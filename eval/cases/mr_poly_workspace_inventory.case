@@ -1,0 +1,17 @@
+# Polyglot multi-repo — workspace inventory enumeration across 5 sub-repos
+#
+# Probes the multi-repo scan + active-set routing with MORE sub-repos
+# than the default active cap: the enumeration must cover every
+# sub-repo (language + build manifest + outward surface), so the
+# system has to widen or page the active set rather than silently
+# answering for the 2 biggest repos.
+ID="mr_poly_workspace_inventory"
+NAME="polyglot workspace inventory — every sub-repo's language and entry surface"
+QUESTION="这个 workspace 一共有哪些子仓?逐个列出每个子仓的主语言、构建清单文件,以及对外的核心入口(导出函数/类/路由表/C API 之一)。不要遗漏任何子仓。"
+MULTIREPO="multirepo-polyglot"
+CAP="5"
+EXPECT_MATCHES_REGEX="core-rs
+bindings-py
+server-java
+client-ts
+native-cpp"

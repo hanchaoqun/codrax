@@ -1,0 +1,17 @@
+# Polyglot multi-repo — cross-language API contract drift (Java vs TS)
+#
+# Fixture: eval/fixtures/multirepo-polyglot. server-java Routes declares
+# 5 routes; client-ts API_ROUTES mirrors only 4 (missing
+# /v1/admin/reindex) and drifts on /v1/search method (server POST vs
+# client GET). The question asks for the drift; the answer must catch
+# BOTH the missing route and the method mismatch — a one-sided answer
+# (only enumerating one repo) fails.
+ID="mr_poly_api_contract"
+NAME="polyglot API contract — java route table vs ts client mirror drift"
+QUESTION="对比 server-java 的 Routes 路由表与 client-ts 的 API_ROUTES 镜像:哪些路由两边不一致?请逐条指出缺失或漂移的地方,并引用两边的具体定义位置。"
+MULTIREPO="multirepo-polyglot"
+CAP="5"
+EXPECT_MATCHES_REGEX="/v1/admin/reindex
+/v1/search.*(POST|GET)|(POST|GET).*/v1/search
+Routes\.java
+routes\.ts"

@@ -1,0 +1,17 @@
+# Polyglot multi-repo — cross-language binding chain (Python → pyo3 → Rust)
+#
+# Fixture: eval/fixtures/multirepo-polyglot (tokenizers/polars-style
+# layering). The question asks HOW a Python call reaches the Rust
+# implementation. The correct chain crosses three surfaces in two
+# sub-repos: fastlex.FastTokenizer.tokenize (bindings-py) → native
+# module _fastlex.tokenize_bytes (pyo3 #[pyfunction], core-rs) →
+# pub fn tokenize_bytes (core-rs/src/lib.rs). The answer must name the
+# native module bridge, not hand-wave "calls into Rust".
+ID="mr_poly_binding_chain"
+NAME="polyglot binding chain — python facade to rust core via pyo3 module"
+QUESTION="在这个 workspace 里,Python 包 fastlex 的 FastTokenizer.tokenize 最终是怎么调到 Rust 实现的?请给出完整的跨语言调用链(包括中间的原生模块名),并说明没有原生模块时的回退行为。"
+MULTIREPO="multirepo-polyglot"
+CAP="5"
+EXPECT_MATCHES_REGEX="_fastlex
+tokenize_bytes
+(fallback|回退|_tokenize_slow|纯 ?[Pp]ython)"

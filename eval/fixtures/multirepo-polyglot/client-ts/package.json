@@ -1,0 +1,6 @@
+{
+  "name": "@acme/gateway-client",
+  "version": "2.2.7",
+  "private": true,
+  "main": "src/index.ts"
+}

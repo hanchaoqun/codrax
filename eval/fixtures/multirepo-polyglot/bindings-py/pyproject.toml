@@ -1,0 +1,4 @@
+[project]
+name = "fastlex"
+version = "0.4.1"
+description = "Python bindings for the fastlex Rust core"
