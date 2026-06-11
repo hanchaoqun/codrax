@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -2780,11 +2782,23 @@ func (b *BaseAgent) salvagePartialDispatch(
 			output = nil
 		}
 	}()
-	logging.Warning("[agent/%s] LLM call failed at iter=%d (%v) — salvaging accumulated artifacts via ParseOutput",
+	// Sibling-win reaping cancels the worker context by design —
+	// the typed context.Canceled class logs at DEBUG so an expected
+	// parallel-explore epilogue does not read as 3-6 WARN lines per
+	// occurrence. Deadline expiry and every other failure stay WARN.
+	salvageLog := logging.Warning
+	if errors.Is(llmErr, context.Canceled) {
+		salvageLog = logging.Debug
+	}
+	salvageLog("[agent/%s] LLM call failed at iter=%d (%v) — salvaging accumulated artifacts via ParseOutput",
 		b.name, iter, llmErr)
 	output, err := b.eval.ParseOutput(ctx, messages, toolResults, mcpResponses)
 	if err != nil {
-		logging.Warning("[agent/%s] ParseOutput returned error during mid-loop salvage at iter=%d (ignored): %v",
+		parseLog := logging.Warning
+		if errors.Is(err, context.Canceled) {
+			parseLog = logging.Debug
+		}
+		parseLog("[agent/%s] ParseOutput returned error during mid-loop salvage at iter=%d (ignored): %v",
 			b.name, iter, err)
 	}
 	return output
@@ -3492,9 +3506,14 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// or value type) and tools depend on them — recall_memory
 			// reads Memory; run_tests env_recommend integration reads
 			// EnvFacts + EnvRecommendSettings + Language; reports
-			// honour Preferences. All other BusContext fields stay
-			// zero-valued, so tools physically cannot mutate
-			// stage-output state.
+			// honour Preferences. TypedDenials is the second
+			// deliberately tool-WRITABLE channel besides Mutable: the
+			// projection shares the Run-level *TypedDenialSet so a
+			// denial a tool stamps (emit_log_triage / emit_perf_trace
+			// corroborate gates) reaches later calls' L1 gates, the L2
+			// prompt sanitiser, and the L3 answer validator. All other
+			// BusContext fields stay zero-valued, so tools cannot
+			// mutate stage-output state.
 			busCtx := b.buildToolBusContext(ctx)
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {

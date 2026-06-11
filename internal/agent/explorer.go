@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11560,7 +11561,11 @@ func explorerParseContextErr(ctx *types.AgentContext, section string) error {
 		return nil
 	}
 	if err := ctx.Context().Err(); err != nil {
-		logging.Warning("[diag explorer] phase=parse_output section=%s canceled: %v", section, err)
+		if errors.Is(err, context.Canceled) {
+			logging.Debug("[diag explorer] phase=parse_output section=%s canceled: %v", section, err)
+		} else {
+			logging.Warning("[diag explorer] phase=parse_output section=%s canceled: %v", section, err)
+		}
 		return err
 	}
 	return nil
