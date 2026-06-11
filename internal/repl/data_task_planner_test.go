@@ -1277,6 +1277,13 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 			Format:             dataquery.OutputPlainSingleLine,
 			ExplanationAllowed: false,
 			Delimiter:          ",",
+			// Typed declaration: the plan asks for one output element
+			// per reference key. Batch-6 D1 split the reference-gap
+			// lane on this flag — only a DECLARED full-universe intent
+			// may hard-block completion and force a zero-fill
+			// projection; an inferred answer-vs-candidate mismatch is
+			// a noisy signal and must not.
+			CompleteReference: true,
 		},
 		CoverageContract: dataquery.CoverageContract{
 			ContributionLedgerRequired: true,
@@ -1802,7 +1809,7 @@ func TestDataTaskWorkflowPreservesPriorCompleteReferenceContractAheadOfBroadFall
 			},
 		}},
 	}
-	candidate, answerItems, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
+	candidate, answerItems, _, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
 	if !ok {
 		t.Fatal("expected a reference projection gap")
 	}
@@ -2089,6 +2096,9 @@ func TestDataTaskWorkflowCompletionGateDetectsReferenceSubsetWithRollup(t *testi
 			Format:             dataquery.OutputCSVLine,
 			ExplanationAllowed: false,
 			Delimiter:          ",",
+			// Declared full-universe intent — see batch-6 D1 note in
+			// TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection.
+			CompleteReference: true,
 		},
 		CoverageContract: dataquery.CoverageContract{
 			DecisionRecordsRequired:    true,
@@ -2215,7 +2225,7 @@ func TestDataTaskReferenceProjectionPrefersAtomicCandidateOverAggregateArtifact(
 		},
 	}
 	records := []dataTaskWorkflowRecord{{Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{combinedArtifact}}}}
-	candidate, _, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
+	candidate, _, _, ok := dataTaskOutputReferenceProjectionGap(root, records, current, result)
 	if !ok {
 		t.Fatal("expected reference projection gap")
 	}
@@ -2227,7 +2237,7 @@ func TestDataTaskReferenceProjectionPrefersAtomicCandidateOverAggregateArtifact(
 	fallbackCurrent.InputPaths = []string{"combined_records"}
 	fallbackResult := result
 	fallbackResult.ConsumedPaths = []string{"combined_records"}
-	candidate, _, ok = dataTaskOutputReferenceProjectionGap(root, records, fallbackCurrent, fallbackResult)
+	candidate, _, _, ok = dataTaskOutputReferenceProjectionGap(root, records, fallbackCurrent, fallbackResult)
 	if !ok {
 		t.Fatal("expected aggregate fallback reference projection gap")
 	}
@@ -10721,4 +10731,62 @@ func testContainsDataTaskString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// Batch-6 D1 (the live "30,0" shape): a subset-scoped answer — fewer
+// items than some candidate reference's key universe, with NO typed
+// complete_reference declaration anywhere (contract or assemble
+// action) — must NOT be hard-blocked at completion nor rewritten by a
+// zero-fill projection plan. The inferred answer-vs-candidate
+// comparison is a noisy signal; only the model's typed declaration may
+// drive the hard lane.
+func TestDataTaskWorkflowCompletionGateUndeclaredSubsetAnswerCompletes(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "canonical.csv"), []byte("canonical_name\nAlpha\nBeta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"canonical.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         "30",
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"canonical.csv"},
+		Contributions: []dataquery.ContributionRecord{{
+			ItemID:        dataquery.LooseText("row-1"),
+			Source:        dataquery.LooseText("items.csv"),
+			SourceLocator: dataquery.LooseText("line:2"),
+			GroupKey:      dataquery.LooseText("Alpha"),
+			Metric:        dataquery.LooseText("amount"),
+			Value:         dataquery.LooseText("30"),
+			Operation:     dataquery.LooseText("add"),
+			Role:          dataquery.LooseText("target"),
+		}},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{{
+				GroupKey: dataquery.LooseText("Alpha"), Metric: dataquery.LooseText("amount"),
+				Expected: dataquery.LooseText("30"), Actual: dataquery.LooseText("30"), Difference: dataquery.LooseText("0"),
+			}},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+		}},
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if !guard.Empty() && guard.Code == "output_projection_incomplete_reference" {
+		t.Fatalf("undeclared subset answer must not be reference-blocked, got %q", guard.ErrorText())
+	}
+	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok && plan.OutputContract.CompleteReference {
+		t.Fatalf("undeclared subset answer must not be rewritten by zero-fill projection, plan=%+v", plan.OutputContract)
+	}
 }

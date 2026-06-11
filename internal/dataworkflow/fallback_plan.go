@@ -466,6 +466,18 @@ func RecordMaterializationPaths(contract dataquery.CoverageContract) []string {
 type ReferenceProjectionGap struct {
 	Candidate dataquery.ReferenceKeyCandidate
 	Present   bool
+	// Declared is true only when the output contract itself carries
+	// complete_reference=true — a typed, model-emitted (or workflow-
+	// carried) declaration that the final answer must cover the full
+	// reference-key universe. An INFERRED gap (answer items < some
+	// candidate reference's key count) keeps Declared=false: that
+	// comparison is a noisy completeness heuristic, and per the
+	// architecture red line it may only steer — a subset-scoped
+	// question ("return only the total for Alpha") legitimately
+	// answers with fewer items than the reference universe, and
+	// hard-applying a zero-fill projection there corrupts a correct
+	// answer (batch-6 D1: "30" became "30,0").
+	Declared bool
 }
 
 type OutputProjectionPlanInput struct {
@@ -501,7 +513,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 			Result:                 input.Result,
 			PlanHasCustomTransform: input.PlanHasCustomTransform,
 		})
-		if !needsProjection && !input.ReferenceGap.Present {
+		if !needsProjection && !(input.ReferenceGap.Present && input.ReferenceGap.Declared) {
 			return dataquery.TaskPlan{}, false
 		}
 	}
@@ -515,7 +527,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 	if delimiter := strings.TrimSpace(contract.Delimiter); delimiter != "" {
 		params["delimiter"] = delimiter
 	}
-	if input.ReferenceGap.Present {
+	if input.ReferenceGap.Present && input.ReferenceGap.Declared {
 		candidate := input.ReferenceGap.Candidate
 		contract.CompleteReference = true
 		contract.ReferencePath = candidate.Path

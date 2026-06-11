@@ -493,7 +493,7 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 	if dataTaskResultNeedsOutputProjection(records, current, result) {
 		return false
 	}
-	if _, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); hasReferenceGap {
+	if _, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); hasReferenceGap && gapDeclared {
 		return false
 	}
 	return true
@@ -5191,9 +5191,9 @@ func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records 
 		validationErr = err
 	}
 	var gap dataworkflow.ReferenceProjectionGap
-	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	candidate, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
-		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 	}
 	return dataworkflow.CompletionGateGuardResult(dataworkflow.CompletionGateGuardInput{
 		ValidationErr: validationErr,
@@ -5232,9 +5232,9 @@ func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContrac
 func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.OutputProjectionGraph {
 	var referenceGap dataworkflow.ReferenceProjectionGap
 	var answerItems int
-	candidate, count, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	candidate, count, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
-		referenceGap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		referenceGap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 		answerItems = count
 	}
 	reconcileGroups := 0
@@ -5249,23 +5249,29 @@ func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []
 		ReconcilePresent:          result.Reconcile != nil,
 		ReconcileGroups:           reconcileGroups,
 		PlanHasCustomTransform:    dataTaskPlanHasCustomTransform(current),
-		ReferenceGapPresent:       referenceGap.Present,
+		ReferenceGapPresent:       referenceGap.Present && referenceGap.Declared,
 		ReferenceKeyCount:         referenceGap.Candidate.KeyCount,
 		AnswerItemCount:           answerItems,
 	})
 }
 
-func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool) {
+// dataTaskOutputReferenceProjectionGap reports a reference-projection
+// gap plus whether it is DECLARED: true only when the output contract
+// itself carries complete_reference=true (typed declaration); false
+// for gaps inferred by comparing answer items against a candidate
+// reference's key universe. Hard consumers (completion-gate error,
+// zero-fill plan synthesis) act only on declared gaps.
+func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceKeyCandidate, int, bool, bool) {
 	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
-		return dataquery.ReferenceKeyCandidate{}, 0, false
+		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
 	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
 	if contract.Format == "" || (contract.Format == dataquery.OutputFreeform && contract.ExplanationAllowed) {
-		return dataquery.ReferenceKeyCandidate{}, 0, false
+		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
 	groupKeys := dataTaskReconcileGroupKeys(result.Reconcile)
 	if len(groupKeys) == 0 {
-		return dataquery.ReferenceKeyCandidate{}, 0, false
+		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
 	candidatePaths := dataTaskReferenceCandidatePaths(records, current, result, contract)
 	primaryCandidatePaths, aggregateCandidatePaths := dataTaskReferenceProjectionCandidatePathBuckets(records, result, candidatePaths)
@@ -5279,19 +5285,23 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		if ok {
 			answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
 			if dataTaskResultHasReferenceProjection(result, candidate, answerItems, contract) {
-				return dataquery.ReferenceKeyCandidate{}, answerItems, false
+				return dataquery.ReferenceKeyCandidate{}, answerItems, false, false
 			}
 			if dataTaskResultHasReferenceProjectionMetadata(result, candidate, answerItems, contract) {
-				return candidate, answerItems, true
+				return candidate, answerItems, true, true
 			}
 			if dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, dataworkflow.ResultAnswerPresent(result)) {
-				return candidate, answerItems, true
+				return candidate, answerItems, true, true
 			}
-			return dataquery.ReferenceKeyCandidate{}, answerItems, false
+			return dataquery.ReferenceKeyCandidate{}, answerItems, false, false
 		}
 	}
 	if candidate, answerItems, ok := dataTaskAssembleActionReferenceProjectionGap(runner, current, contract, groupKeys, result); ok {
-		return candidate, answerItems, true
+		// The model's own assemble action named the reference material
+		// as its input (with a group-key field) — a typed declaration
+		// of the intended key universe, same standing as
+		// contract.complete_reference.
+		return candidate, answerItems, true, true
 	}
 	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
 	candidate, ok := dataTaskBestReferenceProjectionGapCandidate(runner, primaryCandidatePaths, candidateFields, groupKeys, result, answerItems, contract)
@@ -5305,15 +5315,24 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		}
 	}
 	if !ok {
-		return dataquery.ReferenceKeyCandidate{}, 0, false
+		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
+	declared := dataTaskPlanDeclaresCompleteReference(current, contract)
 	if !dataworkflow.ResultAnswerPresent(result) {
-		return candidate, answerItems, true
+		return candidate, answerItems, declared, true
 	}
 	if dataTaskReferenceCandidateNeedsProjection(candidate, groupKeys, answerItems, true) {
-		return candidate, answerItems, true
+		return candidate, answerItems, declared, true
 	}
-	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+	return dataquery.ReferenceKeyCandidate{}, answerItems, false, false
+}
+
+// dataTaskPlanDeclaresCompleteReference reports the typed declaration:
+// either the resolved contract or any plan-side output contract in the
+// workflow carries complete_reference=true. Inferred gap candidates
+// never count as declared.
+func dataTaskPlanDeclaresCompleteReference(current dataquery.TaskPlan, contract dataquery.OutputContract) bool {
+	return contract.CompleteReference || current.OutputContract.CompleteReference
 }
 
 func dataTaskBestReferenceProjectionGapCandidate(runner dataquery.ActionRunner, paths, fields, groupKeys []string, result dataquery.Result, answerItems int, contract dataquery.OutputContract) (dataquery.ReferenceKeyCandidate, bool) {
@@ -5878,9 +5897,9 @@ func dataTaskRequiredOutputProjectionPlan(records []dataTaskWorkflowRecord, curr
 
 func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, bool) {
 	var gap dataworkflow.ReferenceProjectionGap
-	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	candidate, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
-		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 	}
 	return dataworkflow.BuildRequiredOutputProjectionPlan(dataworkflow.OutputProjectionPlanInput{
 		Current:                current,
@@ -5916,9 +5935,9 @@ func dataTaskValidationFailureTransitionWithRepo(repoRoot string, records []data
 
 func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.CompletionRepairTransitionInput {
 	var gap dataworkflow.ReferenceProjectionGap
-	candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
+	candidate, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
-		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 	}
 	return dataworkflow.CompletionRepairTransitionInput{
 		Current:                current,
@@ -5992,9 +6011,9 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 	}
 	var gap dataworkflow.ReferenceProjectionGap
 	if latest != nil {
-		candidate, _, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, *latest)
+		candidate, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, *latest)
 		if hasReferenceGap {
-			gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true}
+			gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 		}
 	}
 	return dataworkflow.BuildWorkflowNextStageFallbackPlan(dataworkflow.WorkflowNextStageFallbackPlanInput{
