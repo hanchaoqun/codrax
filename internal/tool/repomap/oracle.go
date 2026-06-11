@@ -2,7 +2,6 @@ package repomap
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -24,8 +23,6 @@ import (
 type graphOracle struct {
 	graph *rmtypes.Graph
 
-	flatOnce  sync.Once
-	flatIndex map[string]int
 }
 
 // NewSymbolOracle returns an oracle backed by the given graph.
@@ -82,8 +79,8 @@ func (o *graphOracle) SymbolExistsFlat(name string) (bool, int) {
 	if flatQuery == "" {
 		return false, 0
 	}
-	o.flatOnce.Do(o.buildFlatIndex)
-	if tier, ok := o.flatIndex[flatQuery]; ok {
+	idx := o.graph.FlatSymbolIndex(o.buildFlatIndex)
+	if tier, ok := idx[flatQuery]; ok {
 		return true, tier
 	}
 	return false, 0
@@ -95,8 +92,12 @@ func (o *graphOracle) SymbolExistsFlat(name string) (bool, int) {
 // differ only by separator/case) collapse into a single entry whose
 // tier is the lowest (most reliable) across the group. Tier 0
 // fallback for stale-index rows mirrors graph.SymbolExists.
-func (o *graphOracle) buildFlatIndex() {
-	o.flatIndex = make(map[string]int, len(o.graph.SymbolDefs))
+// The result is memoized at the GRAPH level (Graph.FlatSymbolIndex):
+// oracles are constructed per consumer — analyzer, every
+// contract-check round, multigraph fan-out — and all of them share
+// one build per graph instead of one per oracle.
+func (o *graphOracle) buildFlatIndex() map[string]int {
+	flatIndex := make(map[string]int, len(o.graph.SymbolDefs))
 	for name, defs := range o.graph.SymbolDefs {
 		if name == "" || len(defs) == 0 {
 			continue
@@ -128,10 +129,11 @@ func (o *graphOracle) buildFlatIndex() {
 			// Graph.SymbolExists).
 			minTier = 4
 		}
-		if existing, ok := o.flatIndex[flat]; !ok || minTier < existing {
-			o.flatIndex[flat] = minTier
+		if existing, ok := flatIndex[flat]; !ok || minTier < existing {
+			flatIndex[flat] = minTier
 		}
 	}
+	return flatIndex
 }
 
 // NewDeclSpanSource returns a types.DeclSpanSource backed by the graph's

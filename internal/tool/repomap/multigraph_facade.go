@@ -344,10 +344,25 @@ func cloneGraphForRanking(g *Graph) *Graph {
 	if g == nil {
 		return nil
 	}
-	clone := *g
+	// Field-by-field shallow clone: Graph carries an unexported
+	// sync.Once-guarded memo that must not be copied by value (the
+	// clone shares the same immutable symbol data, so it rebuilds its
+	// own memo lazily if ever asked).
+	clone := &Graph{
+		Root:           g.Root,
+		Files:          g.Files,
+		FileIndex:      g.FileIndex,
+		SymbolDefs:     g.SymbolDefs,
+		SymbolByID:     g.SymbolByID,
+		MethodIndex:    g.MethodIndex,
+		ImportGraph:    g.ImportGraph,
+		ReverseImports: g.ReverseImports,
+		RankIndex:      g.RankIndex,
+		Metadata:       g.Metadata,
+	}
 	clone.Scores = make(map[string]float64, len(g.Scores))
 	clone.QueryScores = make(map[string]float64, len(g.QueryScores))
-	return &clone
+	return clone
 }
 
 func sameRepoMapRoot(a, b string) bool {

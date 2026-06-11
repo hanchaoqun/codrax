@@ -319,6 +319,27 @@ func appendUniqueSymbolID(ids []types.SymbolID, id types.SymbolID) []types.Symbo
 // without re-walking the resolver.
 func resolveImportGraph(g *types.Graph) {
 	ctx := newResolverContext(g)
+	// Set-assisted edge insertion. AppendUnique is O(len(slice)) per
+	// call, which is fine for small fan-in but quadratic on hub files:
+	// a utility imported by k files makes ReverseImports[hub] grow to
+	// k entries with each insertion rescanning the slice — O(k²) total.
+	// The side sets keep insertion order in the slices (deterministic
+	// output) while making membership O(1); they are dropped when this
+	// function returns.
+	importSeen := make(map[string]map[string]struct{})
+	reverseSeen := make(map[string]map[string]struct{})
+	addEdge := func(m map[string][]string, seen map[string]map[string]struct{}, key, val string) {
+		set := seen[key]
+		if set == nil {
+			set = make(map[string]struct{})
+			seen[key] = set
+		}
+		if _, dup := set[val]; dup {
+			return
+		}
+		set[val] = struct{}{}
+		m[key] = append(m[key], val)
+	}
 	resolvers := defaultResolvers()
 	for _, r := range resolvers {
 		if err := r.Prepare(g, ctx); err != nil {
@@ -352,8 +373,8 @@ func resolveImportGraph(g *types.Graph) {
 				continue
 			}
 			for _, t := range targets {
-				g.ImportGraph[fi.RelPath] = types.AppendUnique(g.ImportGraph[fi.RelPath], t)
-				g.ReverseImports[t] = types.AppendUnique(g.ReverseImports[t], fi.RelPath)
+				addEdge(g.ImportGraph, importSeen, fi.RelPath, t)
+				addEdge(g.ReverseImports, reverseSeen, t, fi.RelPath)
 			}
 		}
 	}

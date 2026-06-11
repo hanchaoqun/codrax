@@ -19,6 +19,7 @@
 package types
 
 import (
+	"sync"
 	"strconv"
 	"strings"
 	"time"
@@ -418,6 +419,29 @@ type Graph struct {
 	Scores         map[string]float64    `json:"-"` // key → importance score
 	QueryScores    map[string]float64    `json:"-"` // key → query match score (>0 only for files matching the query)
 	Metadata       Metadata              `json:"metadata"`
+
+	// flatSymbolOnce / flatSymbolIndex memoize the flattened-identifier
+	// lookup table at the GRAPH level. Oracles are constructed per
+	// consumer (analyzer, every contract-check round, multigraph
+	// fan-out); before this memo each oracle rebuilt the index from all
+	// SymbolDefs — O(symbols) work plus one FlattenIdentifier per name —
+	// on its first flat lookup. Unexported: never serialized; go vet's
+	// copylocks check enforces that Graph stays pointer-passed.
+	flatSymbolOnce  sync.Once            `json:"-"`
+	flatSymbolIndex map[string]int       `json:"-"`
+}
+
+// FlatSymbolIndex returns the memoized flattened-identifier index,
+// building it once per Graph via the supplied constructor. The
+// constructor runs at most once across all oracles sharing this graph.
+func (g *Graph) FlatSymbolIndex(build func() map[string]int) map[string]int {
+	if g == nil {
+		return nil
+	}
+	g.flatSymbolOnce.Do(func() {
+		g.flatSymbolIndex = build()
+	})
+	return g.flatSymbolIndex
 }
 
 // RankIndex is the query-independent structural index used by
