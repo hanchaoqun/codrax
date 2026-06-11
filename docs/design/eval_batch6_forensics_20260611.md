@@ -50,7 +50,7 @@ round-10 答案 "30"(reconcile=pass)正确;系统 continue 转换在 round-11 �
 
 ## E. 已立项/记录,不本批修
 
-- **E1. data lane 无算术派生路径**(confirmed,fatal-by-design):derive_fields 16 个 string/lookup op 零算术;模型正确的 Decimal 乘法 custom_transform 脚本被 idempotency 毒化拒绝(blocked plan 的**所有** action key 被毒化,admission.go:91-120 + runtime.go:288),最终 LLM 用 case_when 硬编码逐行常数蒙混过关。**专项**:算术 op 词汇(multiply/divide/add/subtract)+ idempotency 毒化粒度收窄。
+- **E1. data lane 无算术派生路径** — **已修(本 session 追加)**:derive_fields 增加 multiply/divide/add/subtract(product/sum_fields 别名),big.Rat 精确十进制(与贡献账本同引擎),操作数缺失/非数值/除零 → 空(落 Default,镜像 parse_number 语义);校验复用 concat 的 source_fields 字段契约;planner skill 文档同步(明示"不要发明预计算字段或硬编码逐行常数")。**残留子项**:idempotency 毒化粒度收窄(blocked plan 全 action key 被毒化)仍归专项。
 - **E2. analyzer 复杂度 Rule 6 退化升级**(confirmed):typo 对(retrun/return)+文件+函数被数成 2+ entities → mechanism 问题硬升 complex,无视模型 typed `is_cross_component=false` + 0.98 置信 simple——§1.5/§1.6 双重张力;且写模式 planner 预算读该读侧信号(soft cap 6→10)。**专项**:Rule 6 需 §1.6 typed escape 设计(analyzer 核心,需谨慎)。
 - **E3. write_controller 确定性生命周期转换烧 LLM 轮**:单批 micro plan 4 次 emit_write_workflow_decision 有 3 次完全由 typed state 决定。**专项**(G 类优化)。
 - **E4. operation lane 零 op_* 计数器**;**E5. data planner prompt 12x 膨胀**(27.6KB→323KB/17 calls);**E6. 'Retry Directive' 首发 prompt 误标**(low);**E7. auto_low_risk 标签硬编码**(low);**E8. diagram_edges soft violation 无取证轨迹**(low);**E9. 并行 explorer 取消挽救路径继承已取消 context 必败**(low)。

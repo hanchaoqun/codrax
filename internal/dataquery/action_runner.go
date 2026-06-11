@@ -4439,7 +4439,7 @@ func validateDeriveFieldSpec(kind DataActionKind, spec deriveFieldSpec, knownFie
 			return dataActionParamError(kind, "target_field", "non-locator output field name", spec.TargetField, nil)
 		}
 		return nil
-	case "concat", "join", "join_fields", "coalesce", "first_non_empty":
+	case "concat", "join", "join_fields", "coalesce", "first_non_empty", "multiply", "product", "divide", "add", "sum_fields", "subtract":
 		if spec.TargetField == "" {
 			return dataActionMissingParamError(kind, "target_field", "output field for derived value", spec.Operation)
 		}
@@ -4496,7 +4496,7 @@ func validateDeriveFieldSpec(kind DataActionKind, spec deriveFieldSpec, knownFie
 
 func deriveFieldOperationSupported(operation string) bool {
 	switch operation {
-	case "constant", "copy", "trim", "lower", "upper", "regex_extract", "regex_replace", "parse_number", "number", "numeric", "map", "lookup", "substring", "prefix", "suffix", "year", "extract_year", "concat", "join", "join_fields", "coalesce", "first_non_empty", "case_when", "case", "conditional", "if_then", "select":
+	case "constant", "copy", "trim", "lower", "upper", "regex_extract", "regex_replace", "parse_number", "number", "numeric", "map", "lookup", "substring", "prefix", "suffix", "year", "extract_year", "concat", "join", "join_fields", "coalesce", "first_non_empty", "case_when", "case", "conditional", "if_then", "select", "multiply", "product", "divide", "add", "sum_fields", "subtract":
 		return true
 	default:
 		return false
@@ -4504,7 +4504,7 @@ func deriveFieldOperationSupported(operation string) bool {
 }
 
 func deriveFieldSupportedOperations() string {
-	return "copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, extract_year, concat, coalesce, constant, case_when"
+	return "copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, extract_year, concat, coalesce, constant, case_when, multiply, divide, add, subtract"
 }
 
 func validateDeriveCaseWhenSpec(kind DataActionKind, spec deriveFieldSpec, knownFields map[string]bool, inputAlias string) error {
@@ -4609,6 +4609,8 @@ func applyDeriveFieldSpec(fields map[string]string, spec deriveFieldSpec) string
 		out = deriveCoalesceFields(fields, spec)
 	case "case_when", "case", "conditional", "if_then", "select":
 		out = deriveCaseWhen(fields, spec)
+	case "multiply", "product", "divide", "add", "sum_fields", "subtract":
+		out = deriveArithmeticFields(fields, spec)
 	default:
 		out = source
 	}
@@ -4634,6 +4636,55 @@ func deriveCaseWhen(fields map[string]string, spec deriveFieldSpec) string {
 		return strings.TrimSpace(recordField(fields, spec.DefaultField))
 	}
 	return strings.TrimSpace(spec.Default)
+}
+
+// deriveArithmeticFields computes a row-level arithmetic combination
+// of the spec's source_fields using exact decimal arithmetic
+// (big.Rat, same engine as the contribution ledger). Batch-6 E1: the
+// derive vocabulary had 16 string/lookup operations and zero
+// arithmetic, so a task as plain as qty*unit_price had NO typed path —
+// planners invented phantom pre-computed fields, hardcoded per-row
+// constants into case_when, or burned repair rounds on rejected
+// custom_transform scripts. Operands resolve left to right; a missing
+// or non-numeric operand yields "" (falls through to spec.Default),
+// mirroring parse_number's failure semantics. Division by zero yields
+// "".
+func deriveArithmeticFields(fields map[string]string, spec deriveFieldSpec) string {
+	if len(spec.SourceFields) == 0 {
+		return ""
+	}
+	var acc *big.Rat
+	for _, field := range spec.SourceFields {
+		raw := firstDecimalTokenString(strings.TrimSpace(recordField(fields, field)))
+		if raw == "" {
+			return ""
+		}
+		operand, err := parseDecimalRat(raw)
+		if err != nil {
+			return ""
+		}
+		if acc == nil {
+			acc = operand
+			continue
+		}
+		switch spec.Operation {
+		case "multiply", "product":
+			acc.Mul(acc, operand)
+		case "divide":
+			if operand.Sign() == 0 {
+				return ""
+			}
+			acc.Quo(acc, operand)
+		case "add", "sum_fields":
+			acc.Add(acc, operand)
+		case "subtract":
+			acc.Sub(acc, operand)
+		}
+	}
+	if acc == nil {
+		return ""
+	}
+	return formatRat(acc)
 }
 
 func deriveConcatFields(fields map[string]string, spec deriveFieldSpec) string {
