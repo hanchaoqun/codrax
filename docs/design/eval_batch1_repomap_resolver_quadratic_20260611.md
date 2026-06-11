@@ -64,3 +64,18 @@
 - [x] 批 1:repomap 调用解析二次方修复 + build_graph 进展透明度。
 - [x] 批 2:implementers 视图暴露 + skill 软引导 + 双向测试 + 活体验证。
 - [ ] 批 3 起:继续按优先级跑 6 案/批,挖下一类 gap。
+
+## 9. 批 3(6 案)结论
+
+s7a / u11b / cflow_resolve_retry_storm_early_exit / logtri_oversized / trace_query_binder_ipc_peer / mcp_typed_line **6/6 PASS**。三批累计 **18/18**。
+
+- **批 1 修复 live 实证**:s7a 全量 1506 源文件,build_graph→rank 间隔 19.5s → **77ms**(新 binary)。
+- **trace_query 主动性核查**(binder 案零调用):答案全细节精确(transaction/dest/唤醒方),perf_triage pre-stage 的结构化摘要已覆盖小 trace 的全部答案事实——pre-stage 够用时不下钻是合理路径(大 trace 案如 state_churn 已证会调 trace_query),**判定非 gap,记录处置**。
+- **WARN 构成分类**:抽样全部为良性(tool_param_compat 参数规范化、重复 emit 提示)——统一修复层正常工作,无模型摩擦异常。
+- 工具分布:计数题用 exec_command、机制题 grep 主导、MCP 案正确走 mcp_read_resource + fixture 工具,均符合各家族最优路径。
+
+## 10. 任务列表(最终)
+
+- [x] 批 1:repomap 调用解析二次方修复 + build_graph 进展透明度(`902e3ff2` / `064c1cb3`)。
+- [x] 批 2:implementers 视图暴露 + skill 软引导(`c7c0196e`)。
+- [x] 批 3:无新 gap;修复 live 实证 + 两项"疑似 gap"核实为合理路径并记录处置依据。
