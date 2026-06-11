@@ -209,7 +209,58 @@ func (t *RepoTopology) Save(runtimeAnchor string) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("topology.Save: rename %s -> %s: %w", tmp, path, err)
 	}
+	pruneVanishedTopologyCaches(filepath.Dir(path), filepath.Base(path))
 	return nil
+}
+
+// topologyCachePruneGrace mirrors the fileinfo chunk-dir grace window:
+// entries younger than this are never pruned, so a topology cached for
+// a root that is mid-recreation (or a racing process that just wrote
+// it) is left alone. The prune signal itself is precise — the cached
+// parent_root no longer exists on disk.
+const topologyCachePruneGrace = 10 * time.Minute
+
+// pruneVanishedTopologyCaches removes sibling cache entries whose
+// recorded parent_root has ceased to exist (ephemeral eval scratches,
+// deleted worktrees, removed checkouts). Without this the topology
+// cache directory grows by one JSON per distinct parent path forever.
+// Runs after a successful Save — at most once per discovery, so the
+// O(entries) sibling scan is paid on a cold path. Unreadable entries
+// past the grace window are treated as vanished (corrupt files have
+// no other reclamation lane).
+func pruneVanishedTopologyCaches(dir, keep string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-topologyCachePruneGrace)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == keep || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		info, ierr := entry.Info()
+		if ierr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		data, rerr := os.ReadFile(full)
+		if rerr != nil {
+			continue
+		}
+		var probe struct {
+			ParentRoot string `json:"parent_root"`
+		}
+		vanished := false
+		if jerr := json.Unmarshal(data, &probe); jerr != nil || strings.TrimSpace(probe.ParentRoot) == "" {
+			vanished = true // corrupt or rootless entry past grace
+		} else if _, serr := os.Stat(probe.ParentRoot); os.IsNotExist(serr) {
+			vanished = true
+		}
+		if vanished {
+			_ = os.Remove(full)
+		}
+	}
 }
 
 // LoadOrDiscover prefers a cached RepoTopology if present and fresh,

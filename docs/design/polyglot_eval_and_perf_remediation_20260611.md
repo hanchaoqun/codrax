@@ -45,7 +45,7 @@
 - [x] 批 3:multigraph——核实后 3 条中 2 条为误报(EnsureMany 入口即有 Cap 上界;EnsureLoaded 的 loading map 就是 singleflight);**真问题比审计更重**:per-slug oracle 缓存不校验图身份,LRU 逐出重载后返回陈旧 oracle(旧图泄漏 + 答案陈旧)——修为图指针校验缓存,身份变更即重建,附身份变更测试。
 - [x] 批 4(核实处置):scanWalk symlink 环为**误报**(`filepath.Walk` 不跟随符号链接,stdlib 语义);剩余为常数级优化(stripTypeWrappers 单遍化 / populateImplementers 预索引 / 缓存目录上界),列为低优先待办,实施前逐项基准验证。
 - [x] 批 5a(基准先行,已交付):基线落盘于 `perf_baseline_bench_test.go`×2。**stripTypeWrappers 37ns/0 allocs → 记录后弃**(无优化价值);**populateImplementers 二次项坐实**(2000T×500I 20.7ms,10× 规模 38× 耗时)→ 按方法名倒排预筛 + 命中计数等值匹配,4.9× 提速且近线性,map 迭代非确定性以排序收口(输出与朴素双层循环逐字节一致);**tracequery 窗口派生坐实为最大内存热点**(Event 968B,200k 事件中段窗口单次 165MB 分配)→ 连续区间零拷贝共享底层(append 行序 + 单趟验证连续性,时钟回退穿窗自动回落拷贝路径),165MB→224B、9.9ms→3.1ms,双向正确性测试。
-- [ ] 批 5b(待办):closure 指纹基准(预判每轮一次、输入有界,趋零收益则记录后弃)/ 缓存目录上界 / 不变段渲染缓存(需先量化)。
+- [x] 批 5b:**closure 指纹基准 8.7µs/轮**(每轮一次、全 Run 合计 <0.5ms)→ 增量化记录后弃;**缓存目录上界**:topology 缓存按 parent_root 存在性精确修剪(每个 eval scratch/已删 worktree 永久留一个 JSON 的增长类问题;Save 后冷路径修剪,10 分钟宽限期防重建竞态,损坏条目同窗回收,五形态测试)。"不变段渲染缓存"留待真实 profile 数据(prompt 装配非当前瓶颈,无量化不动)。
 
 ## 4. 进度
 
