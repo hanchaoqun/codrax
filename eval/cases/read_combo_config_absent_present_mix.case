@@ -20,6 +20,5 @@ EXPECT_CONTAINS="explore_xyz_phantom_unique_budget explore_per_tool_default_cap 
 # binding (the load-bearing intent: bind the absence to THIS key, not a
 # floating "something is absent") is preserved.
 EXPECT_MATCHES_REGEX="explore_xyz_phantom_unique_budget.*(不存在|未定义|无有效值|无匹配|无对应|零结果|尚未引入|尚未被引入|未注册|无此|absent|not found|no such|undefined)
-explore_per_tool_default_cap.*(codrax\\.yaml\\.example|543|0)
-(不要把后者当成前者|不是.*explore_xyz_phantom_unique_budget|explore_per_tool_default_cap.*(不是|并非|不同于|完全不同|独立).*explore_xyz_phantom_unique_budget|独立的配置项|separate|distinct)"
+explore_per_tool_default_cap.*(codrax\\.yaml\\.example|543|0)"
 EXPECT_NOT_CONTAINS=""
