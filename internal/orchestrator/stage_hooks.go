@@ -796,7 +796,7 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	// reset to main" path in clearForReplan, which still works
 	// correctly without the SHA, just less effectively.
 	if o.busCtx.WorktreePath != "" && plan.ID != "" {
-		sha, err := worktree.CommitChanges(o.busCtx.WorktreePath, "codrax apply iter (plan="+plan.ID+")")
+		sha, err := worktree.CommitChanges(o.busCtx.WorktreePath, applyCommitMessage(plan))
 		if err != nil {
 			logging.Warning("[orchestrator] apply post-hook: git commit (warm-retry checkpoint) failed: %v", err)
 		} else {
@@ -1537,4 +1537,29 @@ func (o *Orchestrator) writeRiskAssessmentInput(plan *types.ChangePlan) writeflo
 		input.Decls = repomap.NewDeclSpanSource(g)
 	}
 	return input
+}
+
+// applyCommitMessage builds the checkpoint commit message. The commit
+// is what `git cherry-pick refs/codrax/applied/<id>` lands on the
+// user's branch, so its subject is the plan's own summary (first
+// line, bounded) instead of machine bookkeeping; the plan id rides as
+// a trailer for provenance. An empty summary falls back to the
+// legacy machine form.
+func applyCommitMessage(plan *types.ChangePlan) string {
+	if plan == nil {
+		return "codrax apply iter"
+	}
+	summary := strings.TrimSpace(plan.Summary)
+	if idx := strings.IndexByte(summary, '\n'); idx >= 0 {
+		summary = strings.TrimSpace(summary[:idx])
+	}
+	const subjectCap = 72
+	if summary != "" {
+		runes := []rune(summary)
+		if len(runes) > subjectCap {
+			summary = string(runes[:subjectCap-1]) + "…"
+		}
+		return summary + "\n\nplan: " + plan.ID
+	}
+	return "codrax apply iter (plan=" + plan.ID + ")"
 }

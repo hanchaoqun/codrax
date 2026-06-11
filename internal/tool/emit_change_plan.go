@@ -368,6 +368,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		"[emit_change_plan: id=%s changes=%d target_paths=%d acceptance_tests=%d]\n"+
 			"emit_change_plan recorded",
 		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests))
+	summary += patchStyleAdvisoryNote(plan.Changes)
 	logging.Info("[emit_change_plan] plan=%s changes=%d paths=%d tests=%d",
 		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests))
 
