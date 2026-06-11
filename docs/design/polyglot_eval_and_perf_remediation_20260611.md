@@ -47,6 +47,12 @@
 - [x] 批 5a(基准先行,已交付):基线落盘于 `perf_baseline_bench_test.go`×2。**stripTypeWrappers 37ns/0 allocs → 记录后弃**(无优化价值);**populateImplementers 二次项坐实**(2000T×500I 20.7ms,10× 规模 38× 耗时)→ 按方法名倒排预筛 + 命中计数等值匹配,4.9× 提速且近线性,map 迭代非确定性以排序收口(输出与朴素双层循环逐字节一致);**tracequery 窗口派生坐实为最大内存热点**(Event 968B,200k 事件中段窗口单次 165MB 分配)→ 连续区间零拷贝共享底层(append 行序 + 单趟验证连续性,时钟回退穿窗自动回落拷贝路径),165MB→224B、9.9ms→3.1ms,双向正确性测试。
 - [x] 批 5b:**closure 指纹基准 8.7µs/轮**(每轮一次、全 Run 合计 <0.5ms)→ 增量化记录后弃;**缓存目录上界**:topology 缓存按 parent_root 存在性精确修剪(每个 eval scratch/已删 worktree 永久留一个 JSON 的增长类问题;Save 后冷路径修剪,10 分钟宽限期防重建竞态,损坏条目同窗回收,五形态测试)。"不变段渲染缓存"留待真实 profile 数据(prompt 装配非当前瓶颈,无量化不动)。
 
+## 3.5 非 Go 单仓扩充与基线(批 6)
+
+- run.sh 新增 read 模式 FIXTURE 通道(复用 setup_scratch,无写门;harness 自测绿)——读模式问题可指向任意 fixture 仓,补齐"现有 eval 大多只覆盖本仓 Go"的结构性空白。
+- 新 fixture ×2(真实项目形态缩减):`java-layered-service`(petclinic 式四跳写路径 + 三层配置优先级)/`rust-cli-indexer`(ripgrep 式模块组织 + trait 双实现)。
+- 4 case 实测 **4/4 PASS**(java 调用链 / java 配置优先级 / rust trait 枚举 / rust 跨模块链);日志复核:零重试,构图 14-16ms,tier 无回退告警——Java/Rust 单仓读模式无架构 gap。
+
 ## 4. 进度
 
 - Fixture + 4 case 提交推送;实测 4/4 PASS。
@@ -55,3 +61,5 @@
 - 批 3 交付:multigraph 陈旧 oracle 修复(比审计断言更严重的正确性问题);2 条审计误报证伪并记录。
 - 批 4 处置:防环断言证伪;常数级项与批 5 合并为基准先行的低优先待办。
 - **审计误报统计**:30 条候选中 8 条经人工核实为误报或设计内行为——凡未亲手核实的审计结论不得直接实施,本账本逐条记录处置依据。
+- 批 5a/5b 交付:基准先行四项(两项重大优化 + 两项记录后弃)+ topology 缓存修剪;全量测试绿。
+- 批 6 交付:read FIXTURE 通道 + Java/Rust 单仓 fixture 与 4 case,实测 4/4 PASS。**全部余项收口**:唯一未实施项"不变段渲染缓存"以"无 profile 数据不动"原则显式挂起,触发条件(prompt 装配进入 profile 热点)已记录。
