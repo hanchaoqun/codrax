@@ -1,0 +1,10 @@
+# Single-repo Java — layered call chain (controller → service → repo → audit)
+ID="sr_java_call_chain"
+NAME="java layered service — four-hop write path"
+QUESTION="在这个 Java 服务里,从 VisitController.create 到审计落库,完整的调用链是什么?每一跳在哪个类哪个方法,容量检查发生在哪一跳?"
+FIXTURE="eval/fixtures/java-layered-service"
+EXPECT_MATCHES_REGEX="VisitController\.?(create)?
+VisitService\.?(schedule)?
+VisitRepository\.?(insert)?
+AuditLog\.?(record)?
+(容量|capacity|max).*(schedule|VisitService)|(schedule|VisitService).*(容量|capacity|max)"

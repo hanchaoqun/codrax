@@ -1,0 +1,9 @@
+# Single-repo Rust — cross-module call chain
+ID="sr_rust_cross_module_chain"
+NAME="rust cli — main to matcher across three modules"
+QUESTION="这个 CLI 从 main 启动到对每一行做匹配,跨模块的调用链是什么?walker 在链路中的角色是什么?"
+FIXTURE="eval/fixtures/rust-cli-indexer"
+EXPECT_MATCHES_REGEX="run
+collect_files
+(index_file)
+is_match"

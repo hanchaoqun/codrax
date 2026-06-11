@@ -1,0 +1,8 @@
+# Single-repo Java — three-layer config precedence
+ID="sr_java_config_precedence"
+NAME="java config precedence — default vs properties vs env"
+QUESTION="clinic 的最大就诊数 max visits 是怎么决定的?有哪几层配置,优先级从低到高分别是什么?每层的具体值或来源是什么?"
+FIXTURE="eval/fixtures/java-layered-service"
+EXPECT_MATCHES_REGEX="DEFAULT_MAX_VISITS|20
+clinic\.max-visits|50|application\.properties
+CLINIC_MAX_VISITS"

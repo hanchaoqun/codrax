@@ -712,6 +712,19 @@ run_one() {
         run_read_step "$i" "$out" "$logdir" "$scratch"
         rc=$?
         unset CODRAX_SETTINGS
+      elif [[ -n "$FIXTURE" ]]; then
+        # Read-mode single-repo fixture: the question runs against a
+        # git-init'd copy of eval/fixtures/$FIXTURE instead of the
+        # codrax repo itself. This is how non-Go single-repo coverage
+        # works — same setup_scratch as write mode, no write gating.
+        scratch="$OUTDIR/run-$i.repo"
+        if ! setup_scratch "$scratch"; then
+          echo "FAIL setup_fail" >"$verdict"
+          echo "run $i: FAIL setup_fail" >&2
+          return
+        fi
+        run_read_step "$i" "$out" "$logdir" "$scratch"
+        rc=$?
       else
         local had_settings_env=0
         local prior_settings_env=""

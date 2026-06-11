@@ -1,0 +1,8 @@
+# Single-repo Rust — trait implementation enumeration
+ID="sr_rust_trait_impls"
+NAME="rust trait impls — exactly two Matcher implementations"
+QUESTION="Matcher 这个 trait 一共有哪几个实现?分别在什么条件下被选用?请引用实现位置。"
+FIXTURE="eval/fixtures/rust-cli-indexer"
+EXPECT_MATCHES_REGEX="LiteralMatcher
+RegexLikeMatcher
+(--fixed|fixed)"

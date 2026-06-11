@@ -1,0 +1,4 @@
+[package]
+name = "cli-indexer"
+version = "0.9.3"
+edition = "2021"
