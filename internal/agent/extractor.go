@@ -337,6 +337,27 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		}
 	}
 
+	// -------- Hypothesis-verdict citation lanes (artifact turns) --------
+	// Pre-states the SAME typed condition emit_hypothesis_verdict
+	// enforces at reject time (RequestModel.CurrentSourceLaneDecision),
+	// so the first emit already picks the right citation lane. The
+	// 2026-06-12 sweep mining showed ~23% of artifact-attached runs
+	// burning one extractor round on a first-attempt rejection whose
+	// contract only reached the model inside the rejection text.
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.LogTriage != nil || rm.PerfTrace != nil || rm.HasExternalObservationArtifactReference() {
+			b.WriteString("### Hypothesis-verdict citation lanes (runtime artifact attached)\n\n")
+			// Branch on the SAME typed predicate the verdict tool's
+			// accept/reject lanes read, so prompt and gate agree.
+			if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+				b.WriteString("This question requires the current-source lane: confirmed/rejected verdicts about CURRENT code need a repo `path:line` citation or an `evidence_id` of an accepted grounded item. An artifact-local line (`log:3`, `trace:5-6`, `runtime_artifact:1-5`) is observation context only — keep it in the rationale, never in `citation` for a current-code verdict.\n\n")
+			} else {
+				b.WriteString("For observation-only verdicts about the attached log/trace, `citation` accepts an exact artifact-local gutter line: `log:3`, `trace:5-6`, or `runtime_artifact:1-5` — always with explicit line number(s); a bare `runtime_artifact` without `:line` is rejected. Prefer `evidence_id` when the accepted investigation snapshot already covers the verdict; repo `path:line` stays required for any claim about current code.\n\n")
+			}
+		}
+	}
+
 	// -------- Multi-topic explanation skeleton guide --------
 	// Render the per-dispatch sub-topic list ONLY when the analyzer
 	// resolved shape=explanation AND populated sub_topics. It is a

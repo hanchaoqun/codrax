@@ -471,6 +471,9 @@ write_metrics() {
     echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
     echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
+    echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
+    echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
+    echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"
     echo "finalizer_rewrites=$(eval_count_finalizer_rewrites "$log")"
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
     # B6-F5 (post-shape consolidated audit, 2026-05-04): per-agent

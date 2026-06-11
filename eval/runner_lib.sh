@@ -595,3 +595,15 @@ eval_wait_for_slot() {
     sleep 1
   done
 }
+
+# eval_count_tool_rejects <log> <tool> — control-plane count of
+# explicit tool-level rejections (phase=toolresult ok=false) for one
+# emit tool. Loop-churn diagnosis: each reject costs one agent round.
+eval_count_tool_rejects() {
+  local file="$1" tool="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$tool" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolresult TOOLRESULT ${tool} ok=false" "$file"
+}
