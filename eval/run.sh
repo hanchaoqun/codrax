@@ -471,6 +471,8 @@ write_metrics() {
     echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
     echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
+    echo "wall_seconds=$(cat "$OUTDIR/run-$i.wall" 2>/dev/null || echo 0)"
+    echo "pipeline_dispatches=$(count_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
     echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
     echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
     echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"
@@ -649,6 +651,8 @@ write_verdict() {
 
 run_one() {
   local i="$1"
+  local run_started_epoch
+  run_started_epoch="$(date +%s)"
   local out="$OUTDIR/run-$i.out"
   local verdict="$OUTDIR/run-$i.verdict"
   # Per-run log dir so we don't accidentally pick up an unrelated log.
@@ -778,6 +782,7 @@ run_one() {
     done
     log="$all_log"
   fi
+  echo "$(( $(date +%s) - run_started_epoch ))" >"$OUTDIR/run-$i.wall"
   write_metrics "$i" "$rc" "$log"
 
   # Verdict source bytes selection by MODE.
@@ -949,22 +954,23 @@ SUMMARY="$OUTDIR/summary.md"
   echo
   echo "## Verdicts"
   echo
-  echo "| run | result | reasons |"
-  echo "|----:|--------|---------|"
+  echo "| run | result | wall(s) | reasons |"
+  echo "|----:|--------|--------:|---------|"
   pass_count=0
   blocked_count=0
   for i in $(seq 1 "$N"); do
     v="$(cat "$OUTDIR/run-$i.verdict")"
+    w="$(cat "$OUTDIR/run-$i.wall" 2>/dev/null || echo '—')"
     if [[ "$v" == "PASS" ]]; then
       pass_count=$((pass_count + 1))
-      echo "| $i | PASS | — |"
+      echo "| $i | PASS | $w | — |"
     elif [[ "$v" == BLOCKED_PROVIDER* ]]; then
       blocked_count=$((blocked_count + 1))
       reason="${v#BLOCKED_PROVIDER }"
-      echo "| $i | BLOCKED_PROVIDER | $reason |"
+      echo "| $i | BLOCKED_PROVIDER | $w | $reason |"
     else
       reason="${v#FAIL }"
-      echo "| $i | FAIL | $reason |"
+      echo "| $i | FAIL | $w | $reason |"
     fi
   done
   echo

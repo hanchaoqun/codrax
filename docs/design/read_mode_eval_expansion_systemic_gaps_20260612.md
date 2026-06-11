@@ -88,10 +88,10 @@ Baseline:`ceb3a57c`。方法:trace_query 余 6 案 + read_combo 21 案真实运�
 - [x] B3 extractor 契约前置 + 完成门观测(P1)— prompt 分支与 verdict 工具同读 HasRuntimeArtifactWithoutRequiredCurrentSource;弹回痕迹核实已在 DEBUG toolresult(修正"无痕迹"认知),新增 investigation_complete_calls/rejects + hypothesis_verdict_rejects 三计数(对真实日志验证 calls=5 rejects=2);另发现 ok=true 后循环仍续的 floor 重定向形态
 - [x] B4 repo_map 软引导(P1)— 修正认知:skill 散文层已有 repo_map-first(不重复造轮子);真缺口=per-dispatch typed plan 不可见。新 renderExplorerToolBudgetPlan 把 analyzer 编译的 SourceMix→PerToolCap 渲染进 explorer prompt(最大份额工具领跑,advisory;cap 本就硬 enforce);无预算路径字节不变
 - [x] B5 修复层可观测(P2)— G6 detach 引用补双语 caveat 披露;G7 facet 降级在 finalizer prompt 标注 "(downgraded from HARD…)"(typed telemetry 驱动,tier 不动);G9 核实机制已存在(currentTurnToolSurfaceDirective + typed Repair)残余为模型同轮混批,不重复造轮子
-- [ ] B6 fixtures: ts-monorepo-ws + cpp-sink-hierarchy + 4 cases + 实测
+- [x] B6 fixtures: ts-monorepo-ws + cpp-sink-hierarchy + 4 cases — **首跑 4/4 PASS**
 - [ ] B7 fixtures: python-plugin-mro + java-annotation-router + 4 cases + 实测
 - [ ] B8 fixtures: proto-contract-pair + c-macro-platform + 4 cases + 实测
-- [ ] B9 观测补全(P2)
+- [x] B9 观测补全(P2)— run-i.wall 落盘 + summary.md wall 列 + metrics wall_seconds/pipeline_dispatches(0 dispatch = 非管线路由标记,真实日志验证=5)
 - [ ] B10 验收:pipeline_sequence_table + zero-repo_map 案重跑;新 12 案首跑;回归抽样(qf_arch / s1a / logtri / trace 各 1)
 
 每批独立 commit+push;ledger(本文件 §6)逐批勾选。
