@@ -42,12 +42,15 @@
 
 - [x] 批 1:Graph 级 flat 索引 memo + copylocks 值拷贝修复 + 导入边集合辅助插入;全量测试绿。
 - [x] 批 2:tracequery 韧性——行级 panic recover(typed `ParseLinePanics` 计数,注入式测试缝)+ 时钟回退 typed `ClockRegressions` 计数,两者经查询层 caveat 向用户披露;"截断尾行被忽略"经核实为审计误报(`len(line)>0` 已处理无换行尾行),剔除;窗口派生共享底层移入批 5 一并核实。
-- [ ] 批 3:multigraph 三件(EnsureMany 上限+singleflight / LRU 体积权重+逐出清 oracle / thrashing 切片修剪)。
-- [ ] 批 4:repomap 三件(scanWalk 防环 / 缓存目录上界 / stripTypeWrappers+populateImplementers 常数优化)。
-- [ ] 批 5:读管线热路(指纹增量化 / 不变段渲染缓存)+ 基准测试基线落盘。
+- [x] 批 3:multigraph——核实后 3 条中 2 条为误报(EnsureMany 入口即有 Cap 上界;EnsureLoaded 的 loading map 就是 singleflight);**真问题比审计更重**:per-slug oracle 缓存不校验图身份,LRU 逐出重载后返回陈旧 oracle(旧图泄漏 + 答案陈旧)——修为图指针校验缓存,身份变更即重建,附身份变更测试。
+- [x] 批 4(核实处置):scanWalk symlink 环为**误报**(`filepath.Walk` 不跟随符号链接,stdlib 语义);剩余为常数级优化(stripTypeWrappers 单遍化 / populateImplementers 预索引 / 缓存目录上界),列为低优先待办,实施前逐项基准验证。
+- [ ] 批 5(低优先待办):读管线热路常数优化(指纹增量化 / 不变段渲染缓存)+ tracequery 窗口派生共享底层 + 缓存目录上界;每项须先建基准基线再动手,无基准不改。
 
 ## 4. 进度
 
 - Fixture + 4 case 提交推送;实测 4/4 PASS。
 - 性能审计完成;批 1 交付(本文件同 commit)。
-- 批 2 交付:tracequery 韧性 typed 计数 + caveat;全量测试绿。批 3-5 为待办(见任务列表),每项实施前逐条人工核实。
+- 批 2 交付:tracequery 韧性 typed 计数 + caveat;全量测试绿。
+- 批 3 交付:multigraph 陈旧 oracle 修复(比审计断言更严重的正确性问题);2 条审计误报证伪并记录。
+- 批 4 处置:防环断言证伪;常数级项与批 5 合并为基准先行的低优先待办。
+- **审计误报统计**:30 条候选中 8 条经人工核实为误报或设计内行为——凡未亲手核实的审计结论不得直接实施,本账本逐条记录处置依据。

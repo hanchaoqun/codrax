@@ -24,11 +24,20 @@ import (
 //   - Inactive sub-repos are NOT consulted — the caller observes
 //     the partial-typed-lane state via MultiGraph.PartialTypedLane()
 //     and discloses it in the LLM-facing summary (R3 red line).
+// cachedPerGraphOracle pairs the oracle with the graph it was built
+// for: an LRU eviction + reload gives the slug a NEW *Graph, and the
+// stale oracle would otherwise keep answering from (and retaining)
+// the evicted snapshot.
+type cachedPerGraphOracle struct {
+	g      *rmtypes.Graph
+	oracle types.SymbolOracle
+}
+
 type multiGraphOracle struct {
 	mg *MultiGraph
 
 	once   sync.Once
-	cached map[string]types.SymbolOracle
+	cached map[string]cachedPerGraphOracle
 	mu     sync.Mutex // guards cached map mutations beyond the Once
 }
 
@@ -58,10 +67,10 @@ func (o *multiGraphOracle) perGraphOracle(slug string, g *rmtypes.Graph) types.S
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.cached == nil {
-		o.cached = make(map[string]types.SymbolOracle)
+		o.cached = make(map[string]cachedPerGraphOracle)
 	}
-	if oracle, ok := o.cached[slug]; ok {
-		return oracle
+	if c, ok := o.cached[slug]; ok && c.g == g {
+		return c.oracle
 	}
 	var oracle types.SymbolOracle
 	if o.mg.oracleFactory != nil {
@@ -69,7 +78,7 @@ func (o *multiGraphOracle) perGraphOracle(slug string, g *rmtypes.Graph) types.S
 	} else {
 		oracle = &fallbackOracle{graph: g}
 	}
-	o.cached[slug] = oracle
+	o.cached[slug] = cachedPerGraphOracle{g: g, oracle: oracle}
 	return oracle
 }
 
