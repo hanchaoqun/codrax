@@ -429,6 +429,57 @@ type Graph struct {
 	// copylocks check enforces that Graph stays pointer-passed.
 	flatSymbolOnce  sync.Once            `json:"-"`
 	flatSymbolIndex map[string]int       `json:"-"`
+
+	// receiverNameOnce / receiverNameIndex memoize the cross-package
+	// (receiver, name) → first-defining symbol lookup used by the
+	// call-target resolver's cross-package fallback. Before this index
+	// that fallback scanned the entire MethodIndex (one entry per
+	// method — tens of thousands) for EVERY unresolved call relation,
+	// which made BuildGraph quadratic on large repos (~19s on the
+	// codrax tree). Built once in file order so the pick is
+	// deterministic (the old map-iteration pick was random).
+	receiverNameOnce  sync.Once                  `json:"-"`
+	receiverNameIndex map[receiverNameKey]*Symbol `json:"-"`
+}
+
+// receiverNameKey indexes a method/function by its receiver (or parent
+// type) and name, ignoring package — the shape the cross-package call
+// fallback resolves against.
+type receiverNameKey struct {
+	Receiver string
+	Name     string
+}
+
+// resolveReceiverName returns the first symbol (in file order) whose
+// receiver/parent and name match, memoized across the graph's lifetime.
+func (g *Graph) resolveReceiverName(receiver, name string) *Symbol {
+	if g == nil || name == "" {
+		return nil
+	}
+	g.receiverNameOnce.Do(func() {
+		idx := make(map[receiverNameKey]*Symbol)
+		for _, fi := range g.Files {
+			if fi == nil {
+				continue
+			}
+			for i := range fi.Symbols {
+				sym := &fi.Symbols[i]
+				recv := sym.Receiver
+				if recv == "" {
+					recv = sym.Parent
+				}
+				if recv == "" || sym.Name == "" {
+					continue
+				}
+				key := receiverNameKey{Receiver: recv, Name: sym.Name}
+				if _, exists := idx[key]; !exists {
+					idx[key] = sym
+				}
+			}
+		}
+		g.receiverNameIndex = idx
+	})
+	return g.receiverNameIndex[receiverNameKey{Receiver: receiver, Name: name}]
 }
 
 // FlatSymbolIndex returns the memoized flattened-identifier index,

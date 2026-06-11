@@ -335,15 +335,16 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 			return s
 		}
 	}
-	// Cross-package: scan every package for (pkg, receiver, name).
-	// Deliberately linear because MethodIndex has one entry per
-	// method and the typical repo has a few hundred packages; this
-	// is still cheap compared to the full scan the extractor runs.
+	// Cross-package: a method with this (receiver, name) defined in
+	// any package. Resolved through a memoized (receiver, name) index
+	// instead of scanning the whole MethodIndex per call — the latter
+	// is O(methods) per relation and made BuildGraph quadratic on
+	// large repos. The index picks the first definition in file order
+	// (deterministic; the old map-iteration scan returned a random
+	// match among duplicates).
 	if recv != "" {
-		for k, s := range g.MethodIndex {
-			if k.Receiver == recv && k.Name == name {
-				return s
-			}
+		if s := g.resolveReceiverName(recv, name); s != nil {
+			return s
 		}
 	}
 	return nil

@@ -17,6 +17,21 @@ import (
 // lookup), ImportGraph / ReverseImports (via resolveImportGraph),
 // RankIndex, and the types.Metadata summary.
 func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
+	g := buildGraphIndexOnly(repoRoot, files)
+	resolveImportGraph(g)
+	populateImplementers(g)
+	rankBuilder := types.NewRankIndexBuilder(len(files))
+	for _, fi := range files {
+		rankBuilder.AddFileSymbols(fi)
+	}
+	for _, fi := range files {
+		rankBuilder.AddFileRelations(g, fi)
+	}
+	g.RankIndex = rankBuilder.Finish(g)
+	return g
+}
+
+func buildGraphIndexOnly(repoRoot string, files []*types.FileInfo) *types.Graph {
 	g := &types.Graph{
 		Root:           repoRoot,
 		Files:          files,
@@ -34,7 +49,6 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 	var specialFiles []string
 	symCount := 0
 	relCount := 0
-	rankBuilder := types.NewRankIndexBuilder(len(files))
 
 	for _, fi := range files {
 		g.FileIndex[fi.RelPath] = fi
@@ -84,7 +98,6 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 				g.MethodIndex[key] = s
 			}
 		}
-		rankBuilder.AddFileSymbols(fi)
 	}
 
 	g.Metadata = types.Metadata{
@@ -95,13 +108,6 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 		Languages:     langs,
 		SpecialFiles:  specialFiles,
 	}
-
-	resolveImportGraph(g)
-	populateImplementers(g)
-	for _, fi := range files {
-		rankBuilder.AddFileRelations(g, fi)
-	}
-	g.RankIndex = rankBuilder.Finish(g)
 	return g
 }
 
