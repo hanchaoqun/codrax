@@ -1831,7 +1831,17 @@ REPL 实际流程:
 
 ## 4.3 把改动合回主仓
 
-`/approve` 通过后改动**只**在 worktree 里。要让它进主仓:
+`/approve` 通过后改动落在两个地方:worktree(可选保留)与主仓的固定引用 `refs/codrax/applied/<plan-id>`(**始终存在**,不依赖任何 yaml 开关)。两条落地通道任选其一:
+
+**通道 A — ref cherry-pick(零配置,worktree 是否保留都可用):**
+
+```
+git cherry-pick refs/codrax/applied/<plan-id>
+```
+
+apply 成功的输出会原样给出这条命令(提交主题即 plan 摘要)。即使 worktree 已被清理、甚至 Run 已 blocked,这个 ref 仍固定在主仓,改动永远可取回。
+
+**通道 B — `/merge`(REPL 流程,需要保留 worktree):**
 
 ```
 [git:main]❯❯ /merge --branch=feature/refactor-bar
@@ -1853,9 +1863,15 @@ REPL 实际流程:
 - worktree 自动 discard
 - REPL 自动切回 read 模式
 
-> `/merge` 需要 yaml 里 `pipeline_keep_worktree_on_success: true`,否则 worktree 在 apply 完就清掉了。
+> `/merge` 需要 yaml 里 `pipeline_keep_worktree_on_success: true`,否则 worktree 在 apply 完就清掉了。worktree 被清不影响通道 A:`refs/codrax/applied/<plan-id>` 始终在主仓,`git cherry-pick` 随时可落地。
 
 如果主仓只有 `.codrax/` 自己写入的文件(日志、记忆、blob 缓存)显示为 dirty,`/merge` 会自动把它们 `git rm --cached` 并补一条 `.gitignore` 提交,再继续合。也就是说第一次 `git init && git add -A` 误把 `.codrax/` 纳入 git 的人,不会被 `/merge` 拒绝。
+
+## 4.3.1 能力边界
+
+- **多仓 workspace 不支持跨子仓写**:一个 ChangePlan 只能落在一个子仓;跨子仓的修改请求会在 plan 阶段被硬性拒绝(fail-loud),按子仓拆成多次运行即可。多仓的读模式(对比/枚举/跨仓问答)不受影响。
+- **写模式可以同时附加日志/trace**:`--log` / `--htrace` 的结构化解析阶段在任何模式下都按附件存在自动运行,产物供写模式的请求分类参考(如定位要修的文件);plan/apply 阶段不会把 artifact 行号当作仓库引用,主仓与 worktree 的写入边界不变。
+- **裸目录(非 git 仓)**:写模式需要 `--auto-init-repo`(或 yaml `write_auto_init_repo: true`)显式授权初始化,否则在进入 apply 前拒绝。
 
 ## 4.4 失败排错
 

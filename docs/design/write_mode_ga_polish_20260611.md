@@ -45,8 +45,10 @@
 - [x] 批 1:`publishBlockedRunGuidance` 合成器(typed attempt 记录 + 静态 reason→旋钮表)接线全部 10 个终态出口;双语;追加式不覆盖既有 Result;测试钉工件/动词/旋钮齐全。**活体确认**:3 步预算逼出 blocked,输出含"恢复指引"段(旋钮 + plan id + /plan show + /workflow show);6 步预算时完成 lane 直接全程成功(顺带再证完成 lane 价值)。
 - [x] 批 2:`applyCommitMessage`(plan 摘要首行 72 字符有界 subject + `plan: <id>` trailer,空摘要回退旧格式,钉测试);`analyzePatchLineCompression` 行结构 advisory(只比较 removed/added 的括号·分号·换行排布,相对原文才触发——原文本就单行风格不报;成功 Summary 追加 compat 注记"accepted as-is",永不拒绝;四类负样本钉死不误报)。
 - [x] 批 3:`WriteApprovalRecord.Operator`(主仓 git 身份,回退 OS 用户;`worktree.OperatorIdentity`)+ `RecordFingerprint` 自指纹(`ApprovalRecordFingerprint` 规范化字段串 SHA256,Reasons 除外);`NewApprovalRecord` 统一计算,REPL /approve 与 orchestrator 双路径落 operator;apply 的 manual 分支前置 `ApprovalRecordIntegrityOK` 校验(失败 → typed reason `approval_record_integrity_failed`,回到人工批准 lane;旧记录无指纹按 legacy 放行);篡改测试覆盖 user_decision/decided_at 两向。`AtomicWriteFileSync`(tmp→fsync→close→rename 单 seam)迁移 types 七处持久化写入 + repomap cache writer 补 Sync;helper 测试。
-- [ ] 批 4:第 6 项文档 + 全量回归 + 实测复跑(github_issue 一案全绿确认无回归)。
+- [x] 批 4:user_guide 三处边界落地——§4.3 重写为双通道落地(ref cherry-pick 零配置通道 A 前置,/merge 为通道 B;keep_worktree 注记指明 worktree 清理不影响通道 A)+ 新增 §4.3.1 能力边界(跨子仓写硬拒/log+trace 与写模式组合语义/裸目录授权)。全量 67 包测试绿;实测复跑 libgit2 案 PASS,**活体确认落地提交信息为 plan 摘要 subject(72 字符 `…` 截断)+ `plan: <id>` trailer**。
 
 ## 8. 进度
 
-- 方案落盘,待分批交付。
+- 方案落盘并推送;批 1-4 全部交付,每批独立提交推送。
+- 实测确认 ×3:blocked 恢复指引(3 步预算逼出)、完成 lane 全程成功(6 步预算)、落地提交信息(回归复跑 ref 上直接验证)。
+- GA 打磨清单六项全部闭环;商用判定报告 §3 无剩余项。
