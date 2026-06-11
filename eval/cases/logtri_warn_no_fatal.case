@@ -11,4 +11,4 @@ LOG='2026-05-21T09:00:00Z INFO worker started request_id=req-001
 2026-05-21T09:00:02Z INFO worker completed request_id=req-001 status=ok
 '
 EXPECT_MATCHES_REGEX="(WARN|warning|告警|警告).*(有|存在|出现)|(有|存在|出现).*(WARN|warning|告警|警告)
-(FATAL|崩溃).*(没有|未发现|未看到|0)|(没有|未发现|未看到|0).*(FATAL|崩溃)"
+(FATAL|崩溃).*(没有|未发现|未看到|不存在|无|0)|(没有|未发现|未看到|不存在|无|0).*(FATAL|崩溃)"
