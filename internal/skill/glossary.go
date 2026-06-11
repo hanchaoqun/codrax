@@ -11,7 +11,7 @@ package skill
 // appear in LLM-facing prompt text. Distinct from
 // InternalTermsBlocklist (which catches Go internal type names);
 // this list catches the orthogonal pattern where a writer pastes
-// a concrete project identifier ("explore_mid_loop_hint_budget" /
+// a concrete project identifier (a probe-only config key /
 // "codrax.yaml") into a worked-example block, which over-fits the
 // prompt to one eval case and violates the
 // feedback_generalization_over_project_success.md red line.
@@ -29,16 +29,26 @@ package skill
 // (TestNoInternalTermsInHints / TestNoInternalTermsInToolSchemas /
 // TestInternalTerms*) — a hit fails the test with a "rephrase as
 // a generic placeholder" suggestion.
+// Entries that are probe-only placeholders (config-shaped keys that
+// deliberately exist nowhere in the runtime config surface) are
+// assembled at runtime instead of written as one literal: a literal
+// would make the placeholder greppable in shipped source, and an
+// investigation that greps for the key then finds THIS list — meta
+// infrastructure — and mistakes it for code truth instead of tracing
+// the real config group the key's prefix belongs to (observed live:
+// an answer cited this very list as evidence the key "exists only in
+// a blocklist" and stopped investigating).
 var ProjectSpecificIdentifierBlocklist = []string{
-	// s3a (config-trace) eval case — the missing config key the
-	// question asks about.
-	"explore_mid_loop_hint_budget",
-	// s3a / m1a — the repo's canonical config sample file basename.
-	// Path-shape fixtures should use generic placeholders like
-	// `<config-file>` instead.
+	// A probe-only config key: shaped like a real explore_* knob but
+	// deliberately absent from the config surface. Prompts must not
+	// hardcode it.
+	"explore_mid_loop" + "_hint_budget",
+	// The repo's canonical config sample file basename. Path-shape
+	// fixtures should use generic placeholders like `<config-file>`
+	// instead.
 	"codrax.yaml",
-	// s3a — the structural CLI registration site. Worked examples
-	// that walk a 3-layer override chain should reference the role
+	// The structural CLI registration site. Worked examples that walk
+	// a 3-layer override chain should reference the role
 	// (`cli_registration` enum value) not the concrete repo path.
 	"cmd/root.go",
 }
