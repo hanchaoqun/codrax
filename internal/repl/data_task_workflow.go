@@ -1485,11 +1485,21 @@ func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
 			plan.CoverageContract.ContributionLedgerRequired = true
 			changed = true
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerReconcile) && !plan.CoverageContract.ReconcileRequired {
+		// Reconcile is required when the plan produces a NUMERIC
+		// contribution ledger (real aggregation) or runs an explicit
+		// reconcile action — not merely because it assembles a final
+		// answer. The previous link forced reconcile_required off
+		// LedgerFinalProjection, which the universal assemble_answer
+		// action produces, dragging pure extraction/projection tasks
+		// (list/scalar outputs with no numeric aggregation) into a
+		// numeric reconcile they structurally cannot satisfy. Tying it
+		// to LedgerContributions uses the precise structural signal:
+		// reconcile what was numerically aggregated.
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ReconcileRequired {
 			plan.CoverageContract.ReconcileRequired = true
 			changed = true
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerFinalProjection) && !plan.CoverageContract.ReconcileRequired {
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerReconcile) && !plan.CoverageContract.ReconcileRequired {
 			plan.CoverageContract.ReconcileRequired = true
 			changed = true
 		}

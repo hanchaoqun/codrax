@@ -21,7 +21,9 @@ HTRACE='# tracer: nop
      worker-30   (   30) [001] d..3 12.010500: sched_blocked_reason: pid=20 iowait=1 caller=__filemap_fdatawait_range+0x134/0x150
 '
 EXPECT_CONTAINS="0xb9b8e 260:136 foo.db iowait"
-EXPECT_MATCHES_REGEX="(ino=0xb9b8e|0xb9b8e).*(dev=260:136|260:136).*(entry_name=foo\\.db|foo\\.db)
+EXPECT_MATCHES_REGEX="(ino=0xb9b8e|0xb9b8e)
+(dev=260:136|260:136)
+(entry_name=foo\\.db|foo\\.db)
 (file_io|file IO|文件层|文件 IO|file_io_bytes_total).*(12288|12KB|12 KB|bytes|字节)
 (4096|4KB|4 KB).*(0\\.7|0\\.700|700|6\\.4|6\\.400|completion|completions|完成|latency|耗时)
 (page_cache|page cache|页缓存).*(add|delete|churn|新增|删除|抖动)

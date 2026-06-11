@@ -878,7 +878,8 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			consumed = append(consumed, paths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionReconcile:
-			artifact, report, err := r.runReconcileArtifacts(action, contributions)
+			aggregating := planHasAnyActionKind(plan, DataActionComputeContribs)
+			artifact, report, err := r.runReconcileArtifacts(action, contributions, aggregating)
 			if err != nil {
 				return failAction(action, err)
 			}
@@ -8389,7 +8390,10 @@ func missingComputeContributionFields(headers []string, records []actionRecord, 
 	return cleanStringList(missing)
 }
 
-func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []ContributionRecord) (DataArtifact, ReconcileReport, error) {
+func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []ContributionRecord, aggregating bool) (DataArtifact, ReconcileReport, error) {
+	// A reconcile with no upstream contribution records at all is a
+	// malformed plan (reconcile depends on a prior contribution-
+	// producing action), regardless of aggregation shape.
 	if len(contributions) == 0 {
 		return DataArtifact{}, ReconcileReport{}, DataActionDependencyError{
 			ActionKind:    DataActionReconcile,
@@ -8403,6 +8407,31 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 	}
 	sums := sumContributionGroups(contributions)
 	if len(sums) == 0 {
+		// Contributions exist but produce no numeric groups. The skill
+		// documents scope="answer" reconciliation for final-output
+		// extraction/projection tasks, and validateReconcileReport
+		// already passes an empty-group report when no contribution
+		// participates in numeric reconciliation. Honor that here: a
+		// structurally non-aggregating plan (no compute_contributions
+		// action) whose participating contribution set is empty
+		// reconciles at the ANSWER level instead of failing on the
+		// inapplicable numeric path. Both signals are precise — the
+		// typed plan action shape and the typed contribution roles —
+		// so a genuinely-aggregating plan that yields zero numeric
+		// groups still fails loudly.
+		if !aggregating && len(reconcileTargetContributions(contributions)) == 0 {
+			report := ReconcileReport{Status: LooseText("pass")}
+			if err := validateReconcileReport(report, contributions, ""); err != nil {
+				return DataArtifact{}, ReconcileReport{}, err
+			}
+			id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "reconcile")
+			return DataArtifact{
+				ID:      id,
+				Kind:    string(DataActionReconcile),
+				Summary: "answer-level reconciliation (no numeric contribution groups required)",
+				Fields:  map[string]string{"groups": "0", "scope": "answer"},
+			}, report, nil
+		}
 		return DataArtifact{}, ReconcileReport{}, DataActionDependencyError{
 			ActionKind:    DataActionReconcile,
 			Role:          "contribution_groups",
@@ -8444,17 +8473,25 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			},
 		})
 	}
-	answer := ""
-	if len(groups) == 1 {
-		answer = groups[0].Actual.String()
-	} else {
-		answer = strings.Join(answerParts, "; ")
-	}
+	// ExpectedAnswer/ActualAnswer is the reconciliation's claim about
+	// the FINAL answer. A single-group reconcile (one scalar total) IS
+	// the final answer, so it's set. A multi-group reconcile produces a
+	// per-group summary that is an INTERNAL reconciliation artifact, not
+	// the user-facing answer (which is assembled separately as a list /
+	// object / table). Setting the group-join string as ExpectedAnswer
+	// makes the downstream cross-check (expected_answer == result.answer)
+	// reject every multi-group extraction whose final answer is anything
+	// but that join string. Leave it empty for multi-group so the typed
+	// per-group checks still run while the answer-level cross-check
+	// correctly skips. Group cardinality is a precise structural signal.
 	report := ReconcileReport{
-		Status:         LooseText("pass"),
-		ExpectedAnswer: LooseText(answer),
-		ActualAnswer:   LooseText(answer),
-		Groups:         groups,
+		Status: LooseText("pass"),
+		Groups: groups,
+	}
+	if len(groups) == 1 {
+		answer := groups[0].Actual.String()
+		report.ExpectedAnswer = LooseText(answer)
+		report.ActualAnswer = LooseText(answer)
 	}
 	if err := validateReconcileReport(report, contributions, ""); err != nil {
 		return DataArtifact{}, ReconcileReport{}, err
