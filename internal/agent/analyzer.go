@@ -1746,6 +1746,16 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if rm.Language == "" {
 		rm.Language = detectLanguage(rm.RawRequest, ctx.Preferences)
 	}
+	// Slash-pair completion (2026-06-12 seq_table forensics): when the
+	// request names an identifier pair `A/B` and the analyzer emitted
+	// only the side that resolves in the repository, complete the
+	// other side deterministically. Runs BEFORE the PrimaryEntities
+	// capture so the completed member is a first-class primary entity
+	// and passes the MentionedEntities filter naturally (it is in
+	// RawRequest by construction). Both sides must be CamelCase or
+	// snake_case identifier shapes — path segments (`internal/agent`)
+	// never qualify.
+	rm.AnalyzerHints.Entities = completeSlashPairEntities(rm.RawRequest, rm.AnalyzerHints.Entities)
 	// Capture analyzer-authored top-level entities BEFORE deterministic
 	// augmentation so provenance stays clean: MentionedEntities answers
 	// "did the user say this in RawRequest?" while DerivedEntities later

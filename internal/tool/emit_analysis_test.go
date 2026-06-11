@@ -31,7 +31,7 @@ const v4DefaultsJSON = `,
 		"is_relational_lookup": false,
 		"is_category_enumeration": false,
 		"is_history_lookup": false,
-		"is_diagnostic_question": false
+		"is_diagnostic_question": false, "has_per_member_table": false
 	},
 	"diagnostic_profile": {
 		"is_diagnostic": false,
@@ -220,7 +220,7 @@ func TestEmitAnalysis_SetValuedRoleLocateNormalizesToEnumeration(t *testing.T) {
 			"is_relational_lookup": true,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -538,7 +538,7 @@ func TestEmitAnalysis_NormalizesDiagnosticExplainRoute(t *testing.T) {
 		"entities": ["RuntimeError"],
 		"question_kind": "mechanism",
 	}`)
-	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
 
 	res, mu := runEmitAnalysisPayload(t, "这是什么错误？", payload)
 	if !res.Success {
@@ -1578,7 +1578,7 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 		"entities": ["Orchestrator", "StageAnalyze"],
 		"question_kind": "mechanism",
 	}`)
-	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
 
 	res, mu := runEmitAnalysisPayload(t, "trace the pipeline through analyze", payload)
 	if !res.Success {
@@ -1653,7 +1653,7 @@ func TestEmitAnalysis_Execute_StringWrappedComplexProfilesWithTransportCloseTag(
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"sub_topics": "[{\"summary\":\"枚举公开函数\",\"entities\":[\"EvalAll\",\"UnknownKind\"]}]</parameter>",
 		"source_inventory_profile": "{\"is_source_inventory\":true,\"target_roles\":[\"function\"],\"requested_fields\":[\"name\",\"location\",\"summary\"],\"source_quotes\":[\"只列公开函数\"],\"confidence\":1.0}</parameter>"
@@ -1742,7 +1742,7 @@ func TestEmitAnalysis_Execute_ScalarCountStripsScopeEnumerationBoundary(t *testi
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"enumeration_boundary": {
 			"declared_count": 20,
@@ -2087,7 +2087,7 @@ func TestEmitAnalysis_Execute_ErrorGranularitySuppressesContextualEnumerationBou
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -2146,7 +2146,7 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 		"entities": ["Foo"],
 		"question_kind": "register",
 	}`)
-	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
 
 	res, _ := runEmitAnalysisPayload(t, "trace the pipeline through analyze", payload)
 	if !res.Success {
@@ -2428,7 +2428,7 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -2472,7 +2472,7 @@ func TestEmitAnalysis_Execute_DefaultsMissingDiagnosticProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": true
+			"is_diagnostic_question": true, "has_per_member_table": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
@@ -2522,7 +2522,7 @@ func TestEmitAnalysis_Execute_RejectsMissingAnswerRoleProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -2565,7 +2565,7 @@ func TestEmitAnalysis_Execute_RejectsMissingErrorGranularityProfile(t *testing.T
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -2664,7 +2664,7 @@ func TestEmitAnalysis_Execute_SchemaNormalizesLocalModelScalarArtifacts(t *testi
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -2739,7 +2739,7 @@ func TestEmitAnalysis_Execute_NormalizesEnumerateWithCountPredicate(t *testing.T
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -2790,7 +2790,7 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -2833,7 +2833,7 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -2878,7 +2878,7 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -2948,7 +2948,7 @@ func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T)
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3019,7 +3019,7 @@ func TestEmitAnalysis_Execute_DropsCurrentRequestOnlyConversationSubjects(t *tes
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3079,7 +3079,7 @@ func TestEmitAnalysis_Execute_NormalizesPriorSubjectRequiresPriorContext(t *test
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3144,7 +3144,7 @@ func TestEmitAnalysis_Execute_PersistsSourceScopeProfile(t *testing.T) {
 			"is_relational_lookup": true,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3207,7 +3207,7 @@ func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
 			"is_relational_lookup": true,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3279,7 +3279,7 @@ func TestEmitAnalysis_Execute_PersistsFieldValueProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3342,7 +3342,7 @@ func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3406,7 +3406,7 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3466,7 +3466,7 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForGenericCountCurren
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3723,7 +3723,7 @@ func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3780,7 +3780,7 @@ func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3833,7 +3833,7 @@ func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3898,7 +3898,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T)
 			"is_relational_lookup": true,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -3961,7 +3961,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4027,7 +4027,7 @@ func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4093,7 +4093,7 @@ func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4142,7 +4142,7 @@ func TestEmitAnalysis_Execute_PersistsAnswerRoleProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4199,7 +4199,7 @@ func TestEmitAnalysis_Execute_SoftensUngroundedAnswerRoleProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4251,7 +4251,7 @@ func TestEmitAnalysis_Execute_SoftensAnswerRoleProfileMissingSourceQuotes(t *tes
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4302,7 +4302,7 @@ func TestEmitAnalysis_Execute_PersistsErrorGranularityProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4365,7 +4365,7 @@ func TestEmitAnalysis_Execute_SoftensUngroundedErrorGranularityProfile(t *testin
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4420,7 +4420,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidErrorGranularityOption(t *testing.T)
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4470,7 +4470,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -4512,7 +4512,7 @@ func TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory(t 
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"exact_targets": ["internal/analysis/criterion/eval.go", "internal/analysis/criterion/grammar.go"],
 		"required_files": [
@@ -4573,7 +4573,7 @@ func TestEmitAnalysis_Execute_DemotesRequiredFileExactTargetWhenNonFileSubjectEx
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"exact_targets": ["CLAUDE.md"],
 		"required_files": [
@@ -4625,7 +4625,7 @@ func TestEmitAnalysis_Execute_KeepsRequiredFileExactTargetForFileSubject(t *test
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"exact_targets": ["CLAUDE.md"],
 		"required_files": [
@@ -4686,7 +4686,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *test
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4748,7 +4748,7 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4804,7 +4804,7 @@ func TestEmitAnalysis_Execute_DefaultsTypedRoleLocateSubjectFromQuestionKind(t *
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4851,7 +4851,7 @@ func TestEmitAnalysis_Execute_DoesNotDefaultAmbiguousRoleLocateSubject(t *testin
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -4896,7 +4896,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -4948,7 +4948,7 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -4999,7 +4999,7 @@ func TestEmitAnalysis_Execute_AllowsNonScalarHistoryLookup(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -5049,7 +5049,7 @@ func TestEmitAnalysis_Execute_RejectsScalarHistoryWithNarrativeIntent(t *testing
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -5093,7 +5093,7 @@ func TestEmitAnalysis_Execute_AllowsHistoryTraceDiagramWhenNonScalar(t *testing.
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		},
 		"diagnostic_profile": {
 			"is_diagnostic": false,
@@ -5145,7 +5145,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -5199,7 +5199,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {
@@ -5258,7 +5258,7 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": false, "has_per_member_table": false
 		}
 		,
 		"diagnostic_profile": {

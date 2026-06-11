@@ -1086,6 +1086,27 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// has_per_member_table completion obligation (2026-06-12
+	// sequence-table forensics): the analyzer-declared typed shape
+	// makes the bounded member set part of the answer, so a resolved
+	// completion must hand it over as a member_set aggregate fact —
+	// the only channel the answer-side materializer and its coverage
+	// gate consume. Typed escape lane (§1.6): absence_justification
+	// declares the set genuinely non-enumerable. All four conjuncts
+	// are typed fields; no prose is inspected.
+	if ctx != nil && ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable &&
+		strings.EqualFold(strings.TrimSpace(resultKind), "resolved") &&
+		justification == "" &&
+		!completionFactsContainMemberSet(aggregateFacts) {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_investigation_complete rejected: this question declares a per-member table (has_per_member_table), so a resolved completion must carry the complete verified member list as an aggregate_facts entry with kind=\"member_set\" (exact members; support_refs per the member contract). " +
+				"If the set genuinely cannot be enumerated from the investigation, set absence_justification explaining why instead of completing without it.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidenceSnapshot)
 	structuredRelationAuthorityFacts := cloneCompletionAggregateFacts(effectiveAggregateFacts)
 	if resultKind == "absence" {
@@ -8857,3 +8878,15 @@ func containsAnySubstr(text string, needles ...string) bool {
 // s1a regression — see the comment block above the resultKind check
 // for the architectural lesson. Function deleted to keep the file
 // honest about what's enforced and what's not.
+
+// completionFactsContainMemberSet reports whether any aggregate fact
+// hands over an exact member set (kind=member_set with at least one
+// member) — the per-member-table completion obligation's carrier.
+func completionFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
+	for _, f := range facts {
+		if strings.EqualFold(strings.TrimSpace(string(f.Kind)), "member_set") && len(f.Members) > 0 {
+			return true
+		}
+	}
+	return false
+}

@@ -617,6 +617,17 @@ type SemanticPredicates struct {
 	// attached runtime artifact; log / trace bundles are evidence when
 	// present, not the trigger source for this predicate.
 	IsDiagnosticQuestion bool `json:"is_diagnostic_question"`
+
+	// HasPerMemberTable: the request demands a per-member table or
+	// per-member rows over a bounded set ("每个 stage 一行" / "a table
+	// with one row per phase from A to B"), even when the overall
+	// intent stays explain. The member set is part of the answer:
+	// downstream completion requires a member_set aggregate fact (or
+	// an explicit absence justification) before the investigation may
+	// close, so the final table's row set cannot silently drop a
+	// member (2026-06-12 sequence-table forensics: two rounds dropped
+	// different stages with no typed signal naming the members).
+	HasPerMemberTable bool `json:"has_per_member_table"`
 }
 
 // DiagnosticIntentProfile splits diagnostic intent into the cases that

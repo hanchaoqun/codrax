@@ -131,6 +131,7 @@ type emitPredicatesParam struct {
 	IsCategoryEnumeration *bool `json:"is_category_enumeration"`
 	IsHistoryLookup       *bool `json:"is_history_lookup"`
 	IsDiagnosticQuestion  *bool `json:"is_diagnostic_question"`
+	HasPerMemberTable     *bool `json:"has_per_member_table"`
 }
 
 // emitDiagnosticProfileParam is the second typed diagnostic lane.
@@ -418,10 +419,11 @@ func buildEmitAnalysisSchema() {
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
+					"has_per_member_table":    map[string]any{"type": "boolean", "description": "True when the request demands a per-member table / per-member rows over a bounded set (\"每个 X 一行\" / \"one row per X from A to B\"), even when the overall intent is an explanation. The member set becomes a completion obligation."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the authoritative evidence source is repository history / authorship metadata (git log / blame / commit history), not a repo file:line. This is an evidence-source flag, not an answer-shape flag: pair it with is_scalar_answer=true only when the principal answer is one literal such as a commit hash/date/author/count; leave is_scalar_answer=false for feature summaries, recent-commit lists, commit comparisons, locating the changed code, explaining the code behind a commit, drawing logic/sequence diagrams from a commit, or history-backed diagnostics."},
 					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, observed bad behaviour, or whether a similar problem still exists, and expects cause / current-risk / remediation analysis. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions. This is the primary diagnostic routing predicate; the system aligns diagnostic_profile.is_diagnostic to it unless independent current-risk / historical-regression signals are present."},
 				},
-				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
+				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question", "has_per_member_table"},
 			},
 			"diagnostic_profile": map[string]any{
 				"type":        "object",
@@ -1748,7 +1750,7 @@ func normalizeMissingAnswerSubjectForNonScalarExplain(
 func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) {
 	if p == nil {
 		return types.SemanticPredicates{},
-			"predicates object missing — emit `predicates` with is_scalar_answer / is_role_locate_lookup / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup / is_diagnostic_question each set to true or false"
+			"predicates object missing — emit `predicates` with is_scalar_answer / is_role_locate_lookup / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup / is_diagnostic_question / has_per_member_table each set to true or false"
 	}
 	missing := []string{}
 	if p.IsScalarAnswer == nil {
@@ -1775,6 +1777,9 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 	if p.IsDiagnosticQuestion == nil {
 		missing = append(missing, "is_diagnostic_question")
 	}
+	if p.HasPerMemberTable == nil {
+		missing = append(missing, "has_per_member_table")
+	}
 	if len(missing) > 0 {
 		return types.SemanticPredicates{}, fmt.Sprintf(
 			"predicates missing required field(s): %s — every field must be set explicitly to true or false (no silent default)",
@@ -1790,6 +1795,7 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 		IsCategoryEnumeration: *p.IsCategoryEnumeration,
 		IsHistoryLookup:       *p.IsHistoryLookup,
 		IsDiagnosticQuestion:  *p.IsDiagnosticQuestion,
+		HasPerMemberTable:     *p.HasPerMemberTable,
 	}, ""
 }
 
