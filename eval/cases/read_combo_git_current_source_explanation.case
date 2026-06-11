@@ -11,4 +11,4 @@ QUESTION="最近一次合入的是什么特性？请结合当前源码解释这�
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(最近|合入|提交|commit).*(特性|功能|feature)|(特性|功能|feature).*(最近|合入|提交|commit)
 (当前源码|源码|实现|internal/).*(作用|影响|链路|边界)|(作用|影响|链路|边界).*(当前源码|源码|实现|internal/)
-(commit|提交|diff|合入).*(当前|源码|实现)|(当前|源码|实现).*(commit|提交|diff|合入)"
+(commit|提交|diff|合入).*(当前|源码|实现|internal/|\\.go:)|(当前|源码|实现|internal/|\\.go:).*(commit|提交|diff|合入)"

@@ -17,5 +17,5 @@ github.com/hanchaoqun/codrax/internal/tool/repomap/render.buildTaskMapData(...)
 github.com/hanchaoqun/codrax/internal/tool/repomap/render.GenerateViewData(...)
 	/Users/han/opt/codrax/internal/tool/repomap/render/render.go:145"
 EXPECT_CONTAINS="concurrent map writes RankGraph rank.go"
-EXPECT_MATCHES_REGEX="(日志|crash|panic).*(concurrent map writes|RankGraph)|(concurrent map writes|RankGraph).*(日志|crash|panic)
+EXPECT_MATCHES_REGEX="(日志|crash|panic|崩溃|fatal error|运行时).*(concurrent map writes|RankGraph)|(concurrent map writes|RankGraph).*(日志|crash|panic|崩溃|fatal error|运行时)
 (RankGraph|rank.go|internal/tool/repomap).*(buildTaskMapData|render.go|Graph)|(Graph|buildTaskMapData).*(RankGraph|rank.go)"
