@@ -215,6 +215,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	types.ViolClaimFormUnsupported:            true,
 	types.ViolBlockCoverageMissing:            true,
 	types.ViolMissingRequestedRoleUndisclosed: true,
+	types.ViolExactResolutionUngrounded:       true,
 }
 
 // composerExactFixSkipWhitelist names ViolationKind values that

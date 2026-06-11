@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -1881,6 +1882,165 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 	}}
 }
 
+// validateExactResolutionGrounding enforces the typed-vs-typed
+// consistency of the exact_resolution declaration (s11b shape,
+// 2026-06-12): an exact_match / alias_match anchor must appear in at
+// least one evidence surface of the same document — citation
+// enclosing_function, evidence-item anchor fields, or diagram edge
+// endpoints — and must not be simultaneously disproved by a
+// negative-scope citation whose negative_pattern names the same
+// symbol (the document claiming and disproving its own declared
+// target in one emit).
+//
+// Inputs are typed-only on BOTH sides (zero prose keyword matching):
+// the declaration side is AnswerExactResolution.{Status,Anchor}; the
+// support side unions Citation.EnclosingFunction (graph-derived,
+// never LLM-authored), EvidenceItem.{AnchorSymbol,Subject,Object,
+// OwnerSymbol} plus code-identity surface terms, and
+// DiagramEdgeAnchor.{FromNode,ToNode}. The reviewer-side regex
+// extraction over cited source lines is deliberately excluded so the
+// signal stays hard-gate-grade if an operator promotes the kind.
+//
+// No-ops: nil exact_resolution, status=absent (owned by
+// validateAbsenceScopeBound), empty anchor (legal for exact_match),
+// and an EMPTY support pool — pool absence is set-side noise (scalar
+// answers may legitimately carry no symbol anchors at all), and a
+// membership test against an empty set says nothing about the
+// declaration.
+func validateExactResolutionGrounding(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if doc == nil || doc.ExactResolution == nil {
+		return nil
+	}
+	status := doc.ExactResolution.Status
+	if status != types.AnswerExactResolutionExactMatch && status != types.AnswerExactResolutionAliasMatch {
+		return nil
+	}
+	anchorKeys := exactResolutionAnchorKeys(doc.ExactResolution.Anchor)
+	if len(anchorKeys) == 0 {
+		return nil
+	}
+
+	// Sub-shape (b): the SAME symbol is disproved by a bounded
+	// negative-scope citation. Checked first — an anchor that is
+	// both "supported" and explicitly negated is still a
+	// contradiction, and this shape carries the higher confidence.
+	for i, c := range doc.Citations {
+		if c.Scope != types.ScopeNegative || strings.TrimSpace(c.NegativePattern) == "" {
+			continue
+		}
+		for k := range exactResolutionAnchorKeys(c.NegativePattern) {
+			if _, hit := anchorKeys[k]; hit {
+				return []types.Violation{{
+					Kind: types.ViolExactResolutionUngrounded,
+					Detail: fmt.Sprintf(
+						"exact_resolution declares status=%s anchor %q while citations[%d] carries scope=negative with negative_pattern %q for the same symbol — the document simultaneously claims and disproves its declared target",
+						status, doc.ExactResolution.Anchor, i, c.NegativePattern),
+					Repair:     "Resolve the contradiction: if the declared target genuinely resolved, drop the negative-scope citation that disproves it; if it did not resolve, re-emit exact_resolution with status='absent' and keep the bounded negative-scope citation.",
+					ClusterKey: "root:exact_resolution.grounding",
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "exact_resolution.anchor",
+						Reason:     "declared exact target contradicted by a negative-scope citation on the same symbol",
+						Confidence: 0.8,
+					},
+					Stage: string(types.StageFinalize),
+				}}
+			}
+		}
+	}
+
+	// Sub-shape (a): anchor absent from every evidence surface.
+	support := exactResolutionSupportKeys(doc, mut)
+	if len(support) == 0 {
+		return nil
+	}
+	for k := range anchorKeys {
+		if _, ok := support[k]; ok {
+			return nil
+		}
+	}
+	return []types.Violation{{
+		Kind: types.ViolExactResolutionUngrounded,
+		Detail: fmt.Sprintf(
+			"exact_resolution declares status=%s anchor %q but the anchor appears in none of the answer's evidence surfaces (citation enclosing_function, evidence anchors, or diagram edge endpoints)",
+			status, doc.ExactResolution.Anchor),
+		Repair:     "Ground the declared anchor — cite the file:line whose enclosing function is the anchor symbol, or attach the evidence item that names it — or re-emit exact_resolution to match what the answer actually establishes (drop the anchor, or use status='absent' with a bounded negative-scope citation when the target was not found).",
+		ClusterKey: "root:exact_resolution.grounding",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "exact_resolution.anchor",
+			Reason:     "declared exact target not present in any evidence surface of the answer",
+			Confidence: 0.6,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// exactResolutionAnchorKeys canonicalizes a symbol-ish string into
+// its comparison keys: the NormalizeCodeKey of the whole string plus
+// the key of its terminal qualifier segment (NormalizeCodeKey does
+// not split `.` / `::`, so `pkg.Func` must also match a support pool
+// that only carries `Func` — last-dotted-segment precedent).
+func exactResolutionAnchorKeys(raw string) map[string]struct{} {
+	keys := make(map[string]struct{}, 2)
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return keys
+	}
+	if k := normalizer.NormalizeCodeKey(s); k != "" {
+		keys[k] = struct{}{}
+	}
+	for _, sep := range []string{"::", "."} {
+		if i := strings.LastIndex(s, sep); i >= 0 && i+len(sep) < len(s) {
+			if k := normalizer.NormalizeCodeKey(s[i+len(sep):]); k != "" {
+				keys[k] = struct{}{}
+			}
+		}
+	}
+	return keys
+}
+
+// exactResolutionSupportKeys builds the typed support pool the
+// declared anchor is intersected against. Sources are typed fields
+// only; every entry passes through the same canonicalizer as the
+// anchor side.
+func exactResolutionSupportKeys(doc *types.AnswerDocumentV2, mut *types.MutableState) map[string]struct{} {
+	keys := make(map[string]struct{}, 32)
+	add := func(raw string) {
+		for k := range exactResolutionAnchorKeys(raw) {
+			keys[k] = struct{}{}
+		}
+	}
+	for _, c := range doc.Citations {
+		add(c.EnclosingFunction)
+	}
+	for _, b := range doc.Blocks {
+		for _, e := range b.EdgeAnchors {
+			add(e.FromNode)
+			add(e.ToNode)
+		}
+	}
+	if mut != nil {
+		if ta := mut.TurnAArtifacts(); ta != nil {
+			addExactResolutionEvidenceKeys(add, ta.EvidenceItems)
+		}
+		addExactResolutionEvidenceKeys(add, mut.EmittedEvidence())
+	}
+	return keys
+}
+
+func addExactResolutionEvidenceKeys(add func(string), evidence []types.EvidenceItem) {
+	for _, ev := range evidence {
+		add(ev.AnchorSymbol)
+		add(ev.Subject)
+		add(ev.Object)
+		add(ev.OwnerSymbol)
+		for _, term := range ev.SurfaceTerms {
+			if types.IsCodeIdentitySurface(term) {
+				add(term)
+			}
+		}
+	}
+}
+
 // validateMissingRequestedRoleDisclosure enforces the typed
 // config-precedence exact-absence disclosure contract:
 // AnswerSemanticView.MissingRequestedRoles is the authoritative list
@@ -2079,6 +2239,9 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateAbsenceScopeBound(doc) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateExactResolutionGrounding(doc, mut) }) {
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelGrounding(doc, mut) }) {

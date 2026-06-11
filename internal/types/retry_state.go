@@ -428,6 +428,7 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolSubjectAnchorMissing,
 		ViolPredicateAxisMissing,
 		ViolAbsenceScopeExceeded,
+		ViolExactResolutionUngrounded,
 		ViolStepIdentifierUnverified,
 		ViolValueSecondaryCitationOffFocus,
 		ViolEnumerationLabelUngrounded,

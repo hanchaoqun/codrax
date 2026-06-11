@@ -443,6 +443,11 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// entry. Composer keeps the offending labels out of the hint
 		// (noisy); the imperative is to re-ground every item.
 		return "Every enumerated item's `label` must name something present in the evidence pool (a symbol, subject, or object an EvidenceItem actually anchors). Remove or replace any item whose label is not backed by evidence; do NOT invent list entries to round out the count."
+	case types.ViolExactResolutionUngrounded:
+		// V2 carrier — exact_resolution declares an exact_match /
+		// alias_match anchor that no evidence surface of the same
+		// document supports (or a negative-scope citation disproves).
+		return "Make exact_resolution match what the answer actually establishes: if the declared target genuinely resolved, cite the file:line whose enclosing function is the anchor symbol (or attach the evidence item naming it) and drop any negative-scope citation that disproves it; if the target did not resolve, re-emit exact_resolution with status='absent' plus one bounded negative-scope citation (non-empty negative_pattern). Do NOT keep an exact_match banner the body itself walks back."
 	case types.ViolAbsenceScopeExceeded:
 		// V2 carrier — answer prose claims a broader absence than its
 		// Scope=Negative citation supports (e.g. "not used anywhere" off

@@ -1867,6 +1867,7 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		types.ViolAuthorityOverreach:                 true,
 		types.ViolClaimFormUnsupported:               true,
 		types.ViolAbsenceScopeExceeded:               true,
+		types.ViolExactResolutionUngrounded:          true,
 		types.ViolMissingRequestedRoleUndisclosed:    true,
 		types.ViolBlockCoverageMissing:               true,
 		types.ViolPrincipalClaimUseMissing:           true,

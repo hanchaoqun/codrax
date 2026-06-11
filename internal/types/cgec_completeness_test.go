@@ -250,6 +250,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolClaimFormUnsupported:            true, // orchestrator/contract_check_block.go validateClaimFormSupport
 		ViolAbsenceScopeExceeded:            true, // orchestrator/contract_check_block.go validateAbsenceScopeBound
 		ViolMissingRequestedRoleUndisclosed: true, // orchestrator/contract_check_block.go validateMissingRequestedRoleDisclosure
+		ViolExactResolutionUngrounded:       true, // orchestrator/contract_check_block.go validateExactResolutionGrounding
 		// R10 CGEC frequency bridges (post_shape_residual_audit.md, 2026-05-04).
 		ViolDemotionStorm:   true, // orchestrator/orchestrator.go emitCGECStormViolations
 		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
@@ -369,6 +370,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolClaimFormUnsupported:            "ViolClaimFormUnsupported",
 		ViolAbsenceScopeExceeded:            "ViolAbsenceScopeExceeded",
 		ViolMissingRequestedRoleUndisclosed: "ViolMissingRequestedRoleUndisclosed",
+		ViolExactResolutionUngrounded:       "ViolExactResolutionUngrounded",
 		ViolStepIdentifierUnverified:        "ViolStepIdentifierUnverified",
 		ViolRichnessRegression:              "ViolRichnessRegression",
 		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",

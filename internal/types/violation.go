@@ -299,6 +299,24 @@ const (
 	// fix is to populate the typed field correctly.
 	ViolMissingRequestedRoleUndisclosed ViolationKind = "missing_requested_role_undisclosed"
 
+	// ViolExactResolutionUngrounded fires when exact_resolution
+	// declares an exact_match / alias_match anchor that the rest of
+	// the typed answer surface does not support: the anchor symbol
+	// appears in NO typed evidence channel (citation
+	// enclosing_function, evidence-item anchors, diagram edge
+	// endpoints) — or, worse, a negative-scope citation carries a
+	// negative_pattern for the SAME symbol, so the document
+	// simultaneously claims and disproves its declared target
+	// (finalizer self-contradiction, typed-vs-typed; s11b shape,
+	// 2026-06-12).
+	//
+	// Both comparison sides are typed fields — zero prose keyword
+	// matching. Default classification SOFT (the typed anchor pool
+	// is complete only for answers that actually carry citations /
+	// evidence; operators promote via pipeline_contract_strict_kinds
+	// once their workload proves the signal precise).
+	ViolExactResolutionUngrounded ViolationKind = "exact_resolution_ungrounded"
+
 	// ViolStepIdentifierUnverified (Phase 4 extension, 2026-05-02)
 	// fires when an AnswerStep's prose contains a backtick-quoted
 	// identifier (a load-bearing inline-code token) that does NOT
@@ -970,6 +988,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolClaimFormUnsupported,
 		ViolAbsenceScopeExceeded,
 		ViolMissingRequestedRoleUndisclosed,
+		ViolExactResolutionUngrounded,
 		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,

@@ -298,6 +298,7 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// AMPLIFIED the abstraction drift (LLM second-pass
 		// generalised more to avoid the contradiction).
 		types.ViolSelfContradiction:            FallbackFinalizerOnly,
+		types.ViolExactResolutionUngrounded:    FallbackFinalizerOnly,
 		types.ViolViewIntentMismatch:           FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:           FallbackBackToExtract,
 		types.ViolDiagramIdentifier:            FallbackFinalizerOnly,
