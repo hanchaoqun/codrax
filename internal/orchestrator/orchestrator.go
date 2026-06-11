@@ -4132,6 +4132,15 @@ func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 		}
 		b.WriteString("\n")
 	}
+	// Next-step line. The panel previously ended at the change list,
+	// leaving the operator to guess the approval verbs (observed live:
+	// a fresh user generated a plan and stalled — nothing on screen
+	// said /approve). Keep it one line, verbs only.
+	if zh {
+		b.WriteString("**下一步**:`/plan show` 查看完整计划 · `/approve` 批准并执行 · `/reject [原因]` 退回重做\n")
+	} else {
+		b.WriteString("**Next**: `/plan show` to review · `/approve` to execute · `/reject [reason]` to send back\n")
+	}
 	return b.String()
 }
 

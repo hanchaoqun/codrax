@@ -771,6 +771,17 @@ func repoMapScanEndMessage(lang, label string, ev types.RepoMapScanEvent) string
 		return fmt.Sprintf("✓ repo_map view `%s` generated: %s (%s)", label, repoMapScanCountsEN(ev, false), elapsed)
 	}
 	if !ev.OK {
+		// An empty workspace (zero discovered source files) is not a
+		// scan FAILURE — rendering it as ✗ spams a fresh/empty repo's
+		// REPL with error glyphs on every index attempt (observed
+		// live: six ✗ lines in one short session). TotalFiles is the
+		// typed signal; render a neutral skip notice instead.
+		if ev.TotalFiles == 0 {
+			if preferZhMessage(lang) {
+				return fmt.Sprintf("· %s `%s`：未发现可解析源文件（空仓库），已跳过索引 (%s)", subjectZH, label, elapsed)
+			}
+			return fmt.Sprintf("· %s `%s`: no parseable source files (empty repo), index skipped (%s)", subjectEN, label, elapsed)
+		}
 		if preferZhMessage(lang) {
 			return fmt.Sprintf("✗ %s `%s` 扫描失败 (%s)", subjectZH, label, elapsed)
 		}
