@@ -248,6 +248,7 @@
         <a href="#41-启用">4.1 启用</a>
         <a href="#42-完整流程">4.2 完整流程</a>
         <a href="#43-把改动合回主仓">4.3 把改动合回主仓</a>
+        <a href="#431-能力边界">4.3.1 能力边界</a>
         <a href="#44-失败排错">4.4 失败排错</a>
         <div class="toc-group">5. 配置参考</div>
         <a href="#51-providersyamlllm-凭证">5.1 providers.yaml(LLM 凭证)</a>
@@ -460,7 +461,7 @@ codrax --repo /path/to/repo --branch dev -r &quot;...&quot;
 <h2 id="22-看懂界面">2.2 看懂界面</h2>
 <p>启动后的屏幕(运行中的写模式 + git 仓库 + 几轮对话场景):</p>
 <pre><code>   CODRAX  v0.1.x  /help · /exit
-   模式: auto · code · operation · data · write (write_enabled=true) · /home/you/.../codrax.yaml
+   模式: auto · code · operation · data · write · /home/you/.../codrax.yaml
    记忆: 3 recent + 0 compacted, 4.8 KB
    模型: your-model · ctx=200k · timeout=10m0s
 
@@ -843,7 +844,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 <p>如果你已经明确指定 focus,系统会严格遵守你的选择,不会自动补其它子仓。显式 focus 数超过当前 cap 会直接提示你先减少 focus 或提高 <code>/repos cap</code>。</p>
 <p>REPL banner 立即提示:</p>
 <pre><code>   CODRAX  v0.1.X  /help · /exit
-   模式: auto · code · operation · data · write (write_enabled=true)
+   模式: auto · code · operation · data · write
    记忆: 3 recent + 0 compacted
    🗂  multi-repo: 5 sub-repos (active cap=2); not cross-repo? use --multi-repo=false; /repos focus
 </code></pre>
@@ -2150,10 +2151,11 @@ mcp_servers:
 </code></pre>
 <p>按当前 plan 的 status 不同,提示文案也不同 — <code>pending_approval</code> 显示 <code>/plan show · /approve · /reject · /plan clear</code>,<code>verify_failed</code> 显示 <code>/approve &lt;id&gt; · /merge --include-failed · /reject · /plan clear</code>。</p>
 <h2 id="41-启用">4.1 启用</h2>
-<p>在 <code>codrax.yaml</code> 里加一行:</p>
-<pre><code class="language-yaml">write_enabled: true
+<p>写模式开箱即用,无需配置:进入写模式本身就是显式动作(<code>/mode write</code>、<code>/write</code> 或 CLI <code>--mode=write</code>),系统不会因为你的提问"听起来像改代码"就自动开写。</p>
+<p>需要全局禁写(如团队统一部署只读分析)时,在 <code>codrax.yaml</code> 里显式设置 kill switch:</p>
+<pre><code class="language-yaml">write_enabled: false
 </code></pre>
-<p>(默认值 false 时,任何 <code>/mode write</code> / <code>/approve</code> / <code>--mode=write --write-phase=apply</code> 都会被礼貌拒绝并指引你改 yaml。)</p>
+<p>设为 false 后,任何 <code>/mode write</code> / <code>/write</code> / <code>/approve</code> / <code>--mode=write</code> 都会被拒绝并说明该配置。</p>
 <h2 id="42-完整流程">4.2 完整流程</h2>
 <p>写模式分三步:<strong>plan(产出改动方案)</strong>、<strong>apply(在 worktree 里执行)</strong>、<strong>verify(跑测试)</strong>。在 plan 之前还有两个隐式分类阶段——<code>analyze</code>(读模式 analyzer 复用作请求分类)+ <code>write_analyze</code>(写模式专属,产 <code>WriteAnalysisIR</code>:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。</p>
 <p>REPL 实际流程:</p>
@@ -2258,7 +2260,12 @@ mcp_servers:
 </tbody>
 </table></div>
 <h2 id="43-把改动合回主仓">4.3 把改动合回主仓</h2>
-<p><code>/approve</code> 通过后改动<strong>只</strong>在 worktree 里。要让它进主仓:</p>
+<p><code>/approve</code> 通过后改动落在两个地方:worktree(可选保留)与主仓的固定引用 <code>refs/codrax/applied/&lt;plan-id&gt;</code>(<strong>始终存在</strong>,不依赖任何 yaml 开关)。两条落地通道任选其一:</p>
+<p><strong>通道 A — ref cherry-pick(零配置,worktree 是否保留都可用):</strong></p>
+<pre><code>git cherry-pick refs/codrax/applied/&lt;plan-id&gt;
+</code></pre>
+<p>apply 成功的输出会原样给出这条命令(提交主题即 plan 摘要)。即使 worktree 已被清理、甚至 Run 已 blocked,这个 ref 仍固定在主仓,改动永远可取回。</p>
+<p><strong>通道 B — <code>/merge</code>(REPL 流程,需要保留 worktree):</strong></p>
 <pre><code>[git:main]❯❯ /merge --branch=feature/refactor-bar
   在主仓上拉新分支 feature/refactor-bar 并 cherry-pick 3 个 commit?
   &gt; y
@@ -2293,9 +2300,15 @@ mcp_servers:
 - worktree 自动 discard
 - REPL 自动切回 read 模式</p>
 <blockquote>
-<p><code>/merge</code> 需要 yaml 里 <code>pipeline_keep_worktree_on_success: true</code>,否则 worktree 在 apply 完就清掉了。</p>
+<p><code>/merge</code> 需要 yaml 里 <code>pipeline_keep_worktree_on_success: true</code>,否则 worktree 在 apply 完就清掉了。worktree 被清不影响通道 A:<code>refs/codrax/applied/&lt;plan-id&gt;</code> 始终在主仓,<code>git cherry-pick</code> 随时可落地。</p>
 </blockquote>
 <p>如果主仓只有 <code>.codrax/</code> 自己写入的文件(日志、记忆、blob 缓存)显示为 dirty,<code>/merge</code> 会自动把它们 <code>git rm --cached</code> 并补一条 <code>.gitignore</code> 提交,再继续合。也就是说第一次 <code>git init &amp;&amp; git add -A</code> 误把 <code>.codrax/</code> 纳入 git 的人,不会被 <code>/merge</code> 拒绝。</p>
+<h2 id="431-能力边界">4.3.1 能力边界</h2>
+<ul>
+<li><strong>多仓 workspace 不支持跨子仓写</strong>:一个 ChangePlan 只能落在一个子仓;跨子仓的修改请求会在 plan 阶段被硬性拒绝(fail-loud),按子仓拆成多次运行即可。多仓的读模式(对比/枚举/跨仓问答)不受影响。</li>
+<li><strong>写模式可以同时附加日志/trace</strong>:<code>--log</code> / <code>--htrace</code> 的结构化解析阶段在任何模式下都按附件存在自动运行,产物供写模式的请求分类参考(如定位要修的文件);plan/apply 阶段不会把 artifact 行号当作仓库引用,主仓与 worktree 的写入边界不变。</li>
+<li><strong>裸目录(非 git 仓)</strong>:写模式需要 <code>--auto-init-repo</code>(或 yaml <code>write_auto_init_repo: true</code>)显式授权初始化,否则在进入 apply 前拒绝。</li>
+</ul>
 <h2 id="44-失败排错">4.4 失败排错</h2>
 <p><strong>apply 失败</strong>(代码 patch 没打进去 / 写入冲突):
 - 屏幕会打印失败原因 + worktree 保留(<code>/worktree list</code> 可看)
@@ -2674,8 +2687,8 @@ mcp_servers:
 <tbody>
 <tr>
 <td><code>write_enabled</code></td>
-<td><code>false</code></td>
-<td><strong>写模式总闸</strong>;不设 true 任何写命令都拒绝</td>
+<td><code>true</code></td>
+<td><strong>写模式 kill switch</strong>;显式设 false 时任何写命令都拒绝(进入写模式始终需要 per-invocation 显式动词)</td>
 </tr>
 <tr>
 <td><code>write_auto_init_repo</code></td>
@@ -3492,7 +3505,7 @@ mcp_servers:
 </tr>
 </tbody>
 </table></div>
-<p><strong>写模式专用</strong>(<code>write_enabled: true</code> 才能用):</p>
+<p><strong>写模式专用</strong>(<code>write_enabled: false</code> 时全部被拒绝):</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -3857,8 +3870,8 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <p><strong>扫描超大仓库时 SSH 断连 / 远程终端卡死</strong>
 → 全量扫描会占满每个 CPU 核心,可能饿死 sshd。把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>:扫描期间 codrax 把 <code>GOMAXPROCS</code> 压低一核,让<strong>整个 Go 运行时(含 GC 线程)</strong>都留一个空闲核心给 sshd。启动日志 <code>cpu: repomap scan reserves 1 core(s)</code> 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以这里用 <code>GOMAXPROCS</code> 上限作硬保证。该键默认 <code>0</code>(不改变默认行为、不损失扫描速度);小远程机掉 SSH 就设 <code>1</code>,仍卡顿设 <code>2</code>。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
-<p><strong><code>/mode write</code> 报 <code>write_enabled is false</code></strong>
-→ <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>
+<p><strong><code>/mode write</code> 报 write 被禁用</strong>
+→ 你的 <code>codrax.yaml</code> 显式设置了 <code>write_enabled: false</code>(kill switch)。删除该行或改为 true,重启 codrax。</p>
 <p><strong><code>/approve</code> 报 <code>target ... is needs_init</code></strong>
 → 目标目录不是 git 仓。<code>/approve --auto-init-repo</code> 一次,或 yaml 里 <code>write_auto_init_repo: true</code> 长期允许。</p>
 <p><strong>plan 模式在空目录卡住或报 "scaffold 授权"</strong>
