@@ -853,6 +853,9 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 		if ev.Phase == types.RepoMapScanPhaseParse && strings.TrimSpace(ev.CurrentFile) != "" {
 			return fmt.Sprintf("正在解析 %s；已完成 %d/%d 个源文件（总文件 %d）", ev.CurrentFile, ev.ParsedFiles, parseable, total)
 		}
+		if ev.Phase == types.RepoMapScanPhaseBuildGraph && ev.ViewStepsTotal > 0 {
+			return fmt.Sprintf("解析关系并构建符号图 %d/%d 个文件（总文件 %d）", ev.ViewStepsDone, ev.ViewStepsTotal, total)
+		}
 		if ev.Phase != "" && ev.Phase != types.RepoMapScanPhaseParse {
 			return fmt.Sprintf("源文件已解析 %d/%d（总文件 %d）", parseable, parseable, total)
 		}
@@ -934,6 +937,9 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 	if progress {
 		if ev.Phase == types.RepoMapScanPhaseParse && strings.TrimSpace(ev.CurrentFile) != "" {
 			return fmt.Sprintf("parsing %s; parsed %d/%d source files (%d files total)", ev.CurrentFile, ev.ParsedFiles, parseable, total)
+		}
+		if ev.Phase == types.RepoMapScanPhaseBuildGraph && ev.ViewStepsTotal > 0 {
+			return fmt.Sprintf("resolving relations and building the symbol graph: %d/%d files (%d files total)", ev.ViewStepsDone, ev.ViewStepsTotal, total)
 		}
 		if ev.Phase != "" && ev.Phase != types.RepoMapScanPhaseParse {
 			return fmt.Sprintf("parsed %d/%d source files (%d files total)", parseable, parseable, total)

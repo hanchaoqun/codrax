@@ -878,7 +878,7 @@ func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string,
 		progress.parseableFiles = countParseableFileInfos(cached)
 		progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
 	}
-	graph := index.BuildGraph(repoRoot, cached)
+	graph := index.BuildGraphWithProgress(repoRoot, cached, buildGraphProgressFn(progress))
 	if progress != nil {
 		progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	}
@@ -982,7 +982,7 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 
 	// Build graph, rank, save
 	progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
-	graph := index.BuildGraph(repoRoot, merged)
+	graph := index.BuildGraphWithProgress(repoRoot, merged, buildGraphProgressFn(progress))
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
 	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
@@ -1106,7 +1106,7 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 
 	// Build graph
 	progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
-	graph := index.BuildGraph(repoRoot, fileInfos)
+	graph := index.BuildGraphWithProgress(repoRoot, fileInfos, buildGraphProgressFn(progress))
 
 	// Rank
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
@@ -1159,4 +1159,14 @@ func ToolDescription(view, query string) string {
 	default:
 		return "Generating repository overview"
 	}
+}
+
+// buildGraphProgressFn adapts the scan progress reporter into the
+// relation-progress callback BuildGraphWithProgress expects, nil-safe
+// when no progress sink is attached.
+func buildGraphProgressFn(progress *repoMapScanProgress) func(done, total int) {
+	if progress == nil {
+		return nil
+	}
+	return progress.buildGraphRelations
 }

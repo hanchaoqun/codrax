@@ -17,6 +17,15 @@ import (
 // lookup), ImportGraph / ReverseImports (via resolveImportGraph),
 // RankIndex, and the types.Metadata summary.
 func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
+	return BuildGraphWithProgress(repoRoot, files, nil)
+}
+
+// BuildGraphWithProgress builds the graph and, when relationProgress is
+// non-nil, reports relation-resolution progress (done, total files)
+// during the dominant AddFileRelations sub-step so a long build does
+// not show a frozen "parsed N/N" line. The callback is throttled by the
+// caller, not here — it fires once per file.
+func BuildGraphWithProgress(repoRoot string, files []*types.FileInfo, relationProgress func(done, total int)) *types.Graph {
 	g := buildGraphIndexOnly(repoRoot, files)
 	resolveImportGraph(g)
 	populateImplementers(g)
@@ -24,8 +33,12 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 	for _, fi := range files {
 		rankBuilder.AddFileSymbols(fi)
 	}
-	for _, fi := range files {
+	total := len(files)
+	for i, fi := range files {
 		rankBuilder.AddFileRelations(g, fi)
+		if relationProgress != nil {
+			relationProgress(i+1, total)
+		}
 	}
 	g.RankIndex = rankBuilder.Finish(g)
 	return g

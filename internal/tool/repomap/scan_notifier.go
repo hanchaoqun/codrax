@@ -204,6 +204,29 @@ func (p *repoMapScanProgress) activeFile(path string) {
 	notifyRepoMapScan(ev)
 }
 
+// buildGraphRelations reports relation-resolution progress within the
+// build_graph phase (done/total files). Throttled to the same min
+// interval the other per-file emitters use so a fast build stays quiet
+// and a slow one ticks visibly instead of freezing on "parsed N/N".
+func (p *repoMapScanProgress) buildGraphRelations(done, total int) {
+	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseBuildGraph {
+		return
+	}
+	now := time.Now()
+	final := total > 0 && done >= total
+	minDelta := 200
+	minInterval := 2 * time.Second
+	if !final && done-p.lastDone < minDelta && now.Sub(p.lastEmit) < minInterval {
+		return
+	}
+	p.lastDone = done
+	p.lastEmit = now
+	ev := p.event(true, false, p.parseableFiles, true, "")
+	ev.ViewStepsDone = done
+	ev.ViewStepsTotal = total
+	notifyRepoMapScan(ev)
+}
+
 func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
 	if p == nil || !p.started || phase == "" {
 		return

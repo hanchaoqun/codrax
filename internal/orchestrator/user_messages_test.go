@@ -610,3 +610,24 @@ func TestRepoMapScanMessagesUseSubRepoLabelWhenPresent(t *testing.T) {
 		t.Fatalf("multi-repo scan should use RootRel label and cache-hit wording, got %q", got)
 	}
 }
+
+func TestRepoMapScanCounts_BuildGraphRelationProgress(t *testing.T) {
+	ev := types.RepoMapScanEvent{
+		Phase: types.RepoMapScanPhaseBuildGraph, Mode: types.RepoMapScanFull,
+		TotalFiles: 1417, ParseableFiles: 430, ViewStepsDone: 600, ViewStepsTotal: 1417,
+	}
+	zh := repoMapScanCountsZH(ev, true)
+	if !strings.Contains(zh, "600/1417") || !strings.Contains(zh, "构建符号图") {
+		t.Fatalf("zh build_graph relation progress missing: %q", zh)
+	}
+	en := repoMapScanCountsEN(ev, true)
+	if !strings.Contains(en, "600/1417") || !strings.Contains(en, "symbol graph") {
+		t.Fatalf("en build_graph relation progress missing: %q", en)
+	}
+	// Without relation totals it falls back to the parsed-count line.
+	evNoSteps := ev
+	evNoSteps.ViewStepsTotal = 0
+	if got := repoMapScanCountsZH(evNoSteps, true); strings.Contains(got, "构建符号图") {
+		t.Fatalf("no relation total must fall back, got: %q", got)
+	}
+}
