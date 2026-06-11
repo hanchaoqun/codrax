@@ -287,6 +287,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	seenTimeWindow := false
+	lastParsedTs := float64(0)
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -328,7 +329,13 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 				}
 			}
 			flavor.observeRawLine(trimmed)
-			if ev, ok := ParseLine(lineNo, trimmed, intern); ok {
+			if ev, ok := safeParseLine(lineNo, trimmed, intern, idx); ok {
+				if prev := lastParsedTs; prev > 0 && ev.Ts > 0 && ev.Ts < prev {
+					idx.ClockRegressions++
+				}
+				if ev.Ts > 0 {
+					lastParsedTs = ev.Ts
+				}
 				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
 					idx.FirstTs = ev.Ts
 				}
@@ -1073,3 +1080,21 @@ func (i *stringInterner) intern(s string) string {
 	i.values[s] = s
 	return s
 }
+
+// safeParseLine isolates per-line parse panics: trace artifacts are
+// untrusted input, and a single pathological line must degrade to a
+// typed counter instead of killing the whole query. The recover is
+// function-scoped so the hot loop pays only the call overhead.
+func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) (ev Event, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			idx.ParseLinePanics++
+			ev, ok = Event{}, false
+		}
+	}()
+	return parseLineFn(lineNo, line, intern)
+}
+
+// parseLineFn indirects ParseLine so the recover seam is testable with
+// an injected panic; production always points at ParseLine.
+var parseLineFn = ParseLine

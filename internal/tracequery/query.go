@@ -277,6 +277,12 @@ func Run(idx *Index, q Query) Result {
 	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, platformCaveats...)
+	if idx.ParseLinePanics > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d trace line(s) could not be parsed and were skipped; results may undercount events near those lines", idx.ParseLinePanics))
+	}
+	if idx.ClockRegressions > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d timestamp regression(s) detected in the trace (clock moved backwards); duration and ordering metrics around those points are unreliable", idx.ClockRegressions))
+	}
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	return res

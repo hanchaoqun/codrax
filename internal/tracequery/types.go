@@ -159,6 +159,13 @@ type Index struct {
 	FirstTs          float64
 	LastTs           float64
 	ParsedKnown      int
+	// ParseLinePanics counts lines whose parse panicked (malformed
+	// artifact input is untrusted; one bad line must not kill the
+	// query). ClockRegressions counts events whose timestamp moved
+	// backwards relative to the previous parsed event — typed input
+	// for the query layer's caveat, never a hard gate.
+	ParseLinePanics  int
+	ClockRegressions int
 	TraceFlavor      TraceFlavor
 	FlavorConfidence float64
 	FlavorSignals    []string

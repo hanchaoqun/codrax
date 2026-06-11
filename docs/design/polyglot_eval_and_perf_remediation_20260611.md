@@ -41,7 +41,7 @@
 ## 3. 任务列表
 
 - [x] 批 1:Graph 级 flat 索引 memo + copylocks 值拷贝修复 + 导入边集合辅助插入;全量测试绿。
-- [ ] 批 2:tracequery 韧性三件(行级 recover+typed 计数 / 截断与时钟回退 caveat / 窗口派生共享底层)。
+- [x] 批 2:tracequery 韧性——行级 panic recover(typed `ParseLinePanics` 计数,注入式测试缝)+ 时钟回退 typed `ClockRegressions` 计数,两者经查询层 caveat 向用户披露;"截断尾行被忽略"经核实为审计误报(`len(line)>0` 已处理无换行尾行),剔除;窗口派生共享底层移入批 5 一并核实。
 - [ ] 批 3:multigraph 三件(EnsureMany 上限+singleflight / LRU 体积权重+逐出清 oracle / thrashing 切片修剪)。
 - [ ] 批 4:repomap 三件(scanWalk 防环 / 缓存目录上界 / stripTypeWrappers+populateImplementers 常数优化)。
 - [ ] 批 5:读管线热路(指纹增量化 / 不变段渲染缓存)+ 基准测试基线落盘。
@@ -50,3 +50,4 @@
 
 - Fixture + 4 case 提交推送;实测 4/4 PASS。
 - 性能审计完成;批 1 交付(本文件同 commit)。
+- 批 2 交付:tracequery 韧性 typed 计数 + caveat;全量测试绿。批 3-5 为待办(见任务列表),每项实施前逐条人工核实。
