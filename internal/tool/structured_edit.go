@@ -69,6 +69,23 @@ func compileStructuredEditsToPatch(repoRoot string, change *types.FileChange) (s
 	for _, edit := range compiled {
 		newLines = spliceLines(newLines, edit.start, edit.end, edit.insert)
 	}
+	// Line-integrity normalization. Structured edits are LINE-based and
+	// the schema tolerates a missing final "\n" on old_text as a quoting
+	// variation; mirror the same byte-level tolerance on the content
+	// side. Without this, a mid-file replacement whose content omits the
+	// trailing "\n" fuses with the following line at join time (observed
+	// live: a one-line typo fix absorbed the next line's bare `}`,
+	// synthesizing a -2/+1 line-joining diff the model never asked for).
+	// Every element except the last must end with "\n"; the last element
+	// keeps the original file's EOF-newline convention.
+	for i := 0; i < len(newLines)-1; i++ {
+		if !strings.HasSuffix(newLines[i], "\n") {
+			newLines[i] += "\n"
+		}
+	}
+	if n := len(newLines); n > 0 && strings.HasSuffix(oldContent, "\n") && !strings.HasSuffix(newLines[n-1], "\n") {
+		newLines[n-1] += "\n"
+	}
 	newContent := strings.Join(newLines, "")
 	if newContent == oldContent {
 		return "", fmt.Errorf("structured edit builder: change %q is a no-op", path)

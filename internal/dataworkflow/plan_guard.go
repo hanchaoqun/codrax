@@ -362,6 +362,54 @@ func stageProgressGuard(code, message string, state WorkflowStateView) GuardResu
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
 }
 
+type RelationNoProgressGuardInput struct {
+	State          WorkflowStateView
+	Plan           dataquery.TaskPlan
+	ProgressEvents []ProgressEvent
+	NoProgressStop int
+}
+
+// RelationNoProgressGuardResult rejects an emitted plan that would
+// repeat relation materialization (normalize/enrich/join/group
+// scaffolding) while the workflow is structurally stalled: the
+// contribution stage is pending, zero contribution records exist, and
+// the recent results are already relation artifacts with no ledger
+// progress. Every signal is precise — typed action kind, typed stage,
+// integer record counters, and event counts — and the rejection keeps
+// the full productive action vocabulary open, mirroring the
+// custom_transform_disabled guard shape. Without this gate the stall
+// detector only warns, and a planner can loop the same mapping
+// scaffold until the batch budget terminates the workflow unanswered.
+func RelationNoProgressGuardResult(input RelationNoProgressGuardInput) GuardResult {
+	facts := input.State.Facts()
+	for i, action := range input.Plan.Actions {
+		if !WouldRepeatRelationNoProgress(facts, input.ProgressEvents, action.Kind, input.NoProgressStop) {
+			continue
+		}
+		count, kinds := RecentRelationNoProgressCount(input.ProgressEvents)
+		hints := []string{
+			string(dataquery.DataActionDeriveFields),
+			string(dataquery.DataActionExtractFields),
+			string(dataquery.DataActionFilterRecords),
+			string(dataquery.DataActionQualifyRecords),
+			string(dataquery.DataActionComputeContribs),
+			string(dataquery.DataActionReconcile),
+		}
+		message := fmt.Sprintf("data planning incomplete: action %d (%s) repeats relation materialization while the workflow is stalled at %s — %d recent relation result(s) [%s] produced no contribution or reconcile progress. Work from the already-materialized artifact fields instead: %s.",
+			i+1, action.Kind, facts.NextStage(), count, strings.Join(kinds, ", "), strings.Join(hints, ", "))
+		violation := NewGenericViolation(GenericViolationInput{
+			Code:              ViolationStageNoProgress,
+			Severity:          "error",
+			Repairability:     RepairNeedsTypedAction,
+			Action:            action,
+			RepairActionHints: hints,
+			Reason:            message,
+		})
+		return NewGuardResult(ViolationStageNoProgress, "error", RepairNeedsTypedAction, message, violation)
+	}
+	return GuardResult{}
+}
+
 func CoverageLoopGuardResult(input CoverageLoopGuardInput) GuardResult {
 	state := input.State
 	if !state.MaterialCoverageSufficient ||

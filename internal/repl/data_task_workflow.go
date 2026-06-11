@@ -590,6 +590,9 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	if guard := dataTaskWorkflowStageProgressGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskWorkflowRelationNoProgressGuardResult(records, plan); !guard.Empty() {
+		return guard
+	}
 	if guard := dataTaskWorkflowNumericConstantReuseGuardResult(plan); !guard.Empty() {
 		return guard
 	}
@@ -2395,6 +2398,15 @@ func dataTaskWorkflowStageProgressGuardResult(records []dataTaskWorkflowRecord, 
 		HasScriptedCustomTransform:        dataTaskPlanHasScriptedCustomTransform(plan),
 		CrossesTypedActionRanks:           dataTaskPlanCrossesTypedActionRanks(plan),
 		NarrowSingleIntermediateTransform: dataTaskPlanIsNarrowSingleIntermediateCustomTransform(plan, state),
+	})
+}
+
+func dataTaskWorkflowRelationNoProgressGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	return dataworkflow.RelationNoProgressGuardResult(dataworkflow.RelationNoProgressGuardInput{
+		State:          dataTaskWorkflowState(records, dataquery.TaskPlan{}),
+		Plan:           plan,
+		ProgressEvents: dataTaskWorkflowProgressEvents(records),
+		NoProgressStop: DefaultDataTaskMaxNodeFailures,
 	})
 }
 

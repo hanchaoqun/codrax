@@ -692,6 +692,14 @@ type MutableState struct {
 	// render them. Cleared when SetChangePlan installs a fresh
 	// plan so retries don't accumulate stale reasons.
 	unvalidatedReasons []string
+
+	// patchStyleNudgeFired records that emit_change_plan already
+	// bounced one plan for line-structure compression this run.
+	// The nudge is a once-only soft retry-hint: the first compressed
+	// emission is rejected with re-emit guidance, every later
+	// emission is accepted as-is (advisory note only), so a planner
+	// that insists on the compressed shape is never hard-blocked.
+	patchStyleNudgeFired bool
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -1741,6 +1749,24 @@ func (m *MutableState) DrainUnvalidatedReasons() []string {
 	out := append([]string(nil), m.unvalidatedReasons...)
 	m.unvalidatedReasons = nil
 	return out
+}
+
+// TestAndSetPatchStyleNudge reports whether the once-per-run patch
+// line-structure nudge may fire now (true exactly once), marking it
+// consumed. emit_change_plan uses this to bounce the FIRST
+// line-compressing plan emission with a re-emit hint while accepting
+// any later emission unconditionally.
+func (m *MutableState) TestAndSetPatchStyleNudge() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.patchStyleNudgeFired {
+		return false
+	}
+	m.patchStyleNudgeFired = true
+	return true
 }
 
 // PlanCritique returns the pre-apply review text produced by the

@@ -291,3 +291,86 @@ func TestStructuredEditOldTextMatches_ByteRules(t *testing.T) {
 		}
 	}
 }
+
+// The live patch_go_typo root cause: a mid-file replace whose content
+// omits the trailing "\n" must NOT fuse with the following line. The
+// builder owns line integrity — the model quotes line content, with or
+// without the terminal newline, exactly like old_text.
+func TestCompileStructuredEdits_ContentWithoutNewlineDoesNotFuseNextLine(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "main.go", "func greet() string {\n\tretrun greet()\n}\n")
+	change := &types.FileChange{
+		Path: "main.go",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 2, Content: "\treturn greet()"},
+		},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if strings.Contains(patch, "return greet()}") {
+		t.Fatalf("content without trailing newline fused with the next line:\n%s", patch)
+	}
+	if strings.Contains(patch, "-}") {
+		t.Fatalf("single-line replace must not touch the closing brace line:\n%s", patch)
+	}
+	if !strings.Contains(patch, "+\treturn greet()") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+}
+
+// EOF-newline convention is preserved both ways: replacing the final
+// line of a newline-terminated file keeps the newline even when the
+// content omits it; a file without the EOF newline stays without it.
+func TestCompileStructuredEdits_EOFNewlineConventionPreserved(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "a.txt", "one\ntwo\n")
+	change := &types.FileChange{
+		Path:  "a.txt",
+		Kind:  "patch",
+		Edits: []types.StructuredEdit{{Kind: "replace", StartLine: 2, Content: "TWO"}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if strings.Contains(patch, "No newline at end of file") {
+		t.Fatalf("EOF newline must be preserved for a newline-terminated file:\n%s", patch)
+	}
+
+	writeSurfaceFile(t, root, "b.txt", "one\ntwo")
+	change = &types.FileChange{
+		Path:  "b.txt",
+		Kind:  "patch",
+		Edits: []types.StructuredEdit{{Kind: "replace", StartLine: 1, Content: "ONE"}},
+	}
+	patch, err = compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if strings.Contains(patch, "ONEtwo") {
+		t.Fatalf("mid-file fusion against no-EOF-newline file:\n%s", patch)
+	}
+}
+
+// insert_after the final line of a no-EOF-newline file historically
+// fused the new line onto the unterminated last line — same integrity
+// invariant, different edit kind.
+func TestCompileStructuredEdits_InsertAfterUnterminatedLastLine(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "a.txt", "one\ntwo")
+	change := &types.FileChange{
+		Path:  "a.txt",
+		Kind:  "patch",
+		Edits: []types.StructuredEdit{{Kind: "insert_after", StartLine: 2, Content: "three"}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if strings.Contains(patch, "twothree") {
+		t.Fatalf("insert_after fused with the unterminated last line:\n%s", patch)
+	}
+}

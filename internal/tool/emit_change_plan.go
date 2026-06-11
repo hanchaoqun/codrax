@@ -338,6 +338,27 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// 5) Line-structure nudge (once per run). When a patch compresses
+	//    the original's line structure (joins a `{`-line, absorbs a
+	//    bare `}`, merges `;`-statements), bounce the FIRST emission
+	//    with re-emit guidance instead of riding the note on a success
+	//    summary the planner has no reason to act on. Style is a noisy
+	//    class, so this stays a bounded retry-hint, never a gate: the
+	//    nudge fires at most once per run, and any later emission —
+	//    compressed or not — is accepted as-is with the advisory note.
+	//    Observed live: a typo-fix diff folded the next line's `}` onto
+	//    the fixed statement, silently rewriting line structure the
+	//    plan's own success criteria promised to preserve.
+	if note := patchStyleAdvisoryNote(fcs); note != "" && ctx.Mutable.TestAndSetPatchStyleNudge() {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: "emit_change_plan rejected (one-time line-structure check): " + strings.TrimSpace(note) +
+				" Re-emit the plan keeping every original line on its own line — replace lines in place, do not join a removed line onto a neighbouring one. If the joined form is intentional, re-emit the same patch and it will be accepted.",
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests)

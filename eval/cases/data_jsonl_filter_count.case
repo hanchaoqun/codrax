@@ -5,3 +5,6 @@ DATA_FIXTURE="data-jsonl-filter"
 EXPECT_MATCHES_REGEX="^2[[:space:]]*$"
 EXPECT_LOG_MATCHES_REGEX="route=data
 \\[.*data\\] data task result"
+
+# single-number product answer; the 20-char floor would reject it
+MIN_OUTPUT_CHARS=1

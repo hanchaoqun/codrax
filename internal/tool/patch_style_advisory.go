@@ -24,9 +24,11 @@ import (
 func analyzePatchLineCompression(path, patch string) []string {
 	var notes []string
 	removedBraceEndsLine := false
+	removedBareCloseBrace := false
 	removedMaxSemis := 0
 	flush := func() {
 		removedBraceEndsLine = false
+		removedBareCloseBrace = false
 		removedMaxSemis = 0
 	}
 	for _, line := range strings.Split(patch, "\n") {
@@ -37,6 +39,9 @@ func analyzePatchLineCompression(path, patch string) []string {
 			body := strings.TrimSpace(line[1:])
 			if strings.HasSuffix(body, "{") {
 				removedBraceEndsLine = true
+			}
+			if body == "}" {
+				removedBareCloseBrace = true
 			}
 			if n := strings.Count(body, ";"); n > removedMaxSemis {
 				removedMaxSemis = n
@@ -53,6 +58,17 @@ func analyzePatchLineCompression(path, patch string) []string {
 						continue
 					}
 				}
+			}
+			// Closing-brace join: the hunk removed a bare `}` line and
+			// an added line absorbs it as a `}` suffix on a statement
+			// (the live shape: `-stmt` `-}` → `+stmt}`). Same purely
+			// structural read as the opening-brace case.
+			if removedBareCloseBrace && body != "}" && strings.HasSuffix(body, "}") &&
+				!strings.HasSuffix(body, "{}") && strings.IndexByte(body, '{') < 0 {
+				notes = append(notes, fmt.Sprintf(
+					"%s: an added line absorbs a closing `}` the original kept on its own line", path))
+				flush()
+				continue
 			}
 			if removedMaxSemis <= 1 && strings.Count(body, ";") >= 2 {
 				notes = append(notes, fmt.Sprintf(
