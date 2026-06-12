@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"bufio"
+	"container/list"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 var (
@@ -40,9 +42,87 @@ type parseCacheKey struct {
 	windowKey string
 }
 
-var indexCache sync.Map
-
 const maxCachedTraceIndexBytes int64 = 64 << 20
+
+// traceIndexCacheBudgetBytes bounds the total Event bytes retained by the
+// index cache. Fixed package constant by design — no configuration knob:
+// eviction is pure latency (a miss re-parses through the indexBuilds
+// singleflight), never a correctness or gating signal.
+const traceIndexCacheBudgetBytes int64 = 512 << 20
+
+// eventSizeBytes is the in-memory cost of one parsed Event, computed once at
+// compile time and used only for cache accounting.
+const eventSizeBytes = int64(unsafe.Sizeof(Event{}))
+
+type traceIndexCacheEntry struct {
+	key  parseCacheKey
+	idx  *Index
+	cost int64
+}
+
+// traceIndexCache is a byte-budgeted LRU keyed by parseCacheKey. Each entry
+// is charged len(Events)*eventSizeBytes. Inserting past the budget evicts
+// least-recently-used entries; loads refresh recency. The most recent entry
+// is never evicted, so a just-built index always serves at least one repeat
+// call even when it alone exceeds the budget.
+type traceIndexCache struct {
+	mu     sync.Mutex
+	budget int64
+	used   int64
+	order  *list.List // front = most recently used
+	items  map[parseCacheKey]*list.Element
+}
+
+var indexCache = newTraceIndexCache(traceIndexCacheBudgetBytes)
+
+func newTraceIndexCache(budget int64) *traceIndexCache {
+	return &traceIndexCache{
+		budget: budget,
+		order:  list.New(),
+		items:  map[parseCacheKey]*list.Element{},
+	}
+}
+
+func traceIndexCacheCost(idx *Index) int64 {
+	if idx == nil {
+		return 0
+	}
+	return int64(len(idx.Events)) * eventSizeBytes
+}
+
+func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(el)
+	return el.Value.(*traceIndexCacheEntry).idx, true
+}
+
+func (c *traceIndexCache) Store(key parseCacheKey, idx *Index) {
+	cost := traceIndexCacheCost(idx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		entry := el.Value.(*traceIndexCacheEntry)
+		c.used += cost - entry.cost
+		entry.idx = idx
+		entry.cost = cost
+		c.order.MoveToFront(el)
+	} else {
+		c.items[key] = c.order.PushFront(&traceIndexCacheEntry{key: key, idx: idx, cost: cost})
+		c.used += cost
+	}
+	for c.used > c.budget && c.order.Len() > 1 {
+		oldest := c.order.Back()
+		entry := oldest.Value.(*traceIndexCacheEntry)
+		c.order.Remove(oldest)
+		delete(c.items, entry.key)
+		c.used -= entry.cost
+	}
+}
 
 type indexBuildCall struct {
 	done chan struct{}
@@ -97,10 +177,8 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 		windowKey: windowKey,
 	}
 	if cacheable {
-		if cached, ok := indexCache.Load(key); ok {
-			if idx, ok := cached.(*Index); ok {
-				return idx, nil
-			}
+		if idx, ok := indexCache.Load(key); ok {
+			return idx, nil
 		}
 	}
 	if opts.windowed() {
@@ -110,10 +188,8 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			modUnix: info.ModTime().UnixNano(),
 			version: ParserVersion,
 		}
-		if cached, ok := indexCache.Load(fullKey); ok {
-			if idx, ok := cached.(*Index); ok {
-				return deriveWindowedIndex(idx, opts), nil
-			}
+		if idx, ok := indexCache.Load(fullKey); ok {
+			return deriveWindowedIndex(idx, opts), nil
 		}
 	}
 	return buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts, cacheable)
@@ -389,6 +465,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 				}
 			}
 			flavor.observeRawLine(trimmed)
+			panicsBefore := idx.ParseLinePanics
 			if ev, ok := safeParseLine(lineNo, trimmed, intern, idx); ok {
 				if prev := lastParsedTs; prev > 0 && ev.Ts > 0 && ev.Ts < prev {
 					idx.ClockRegressions++
@@ -407,6 +484,8 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 				}
 				flavor.observeEvent(ev)
 				idx.Events = append(idx.Events, ev)
+			} else if trimmed != "" && idx.ParseLinePanics == panicsBefore {
+				idx.UnparsedLines++
 			}
 		}
 	nextLine:

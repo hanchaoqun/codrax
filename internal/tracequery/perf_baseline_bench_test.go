@@ -1,6 +1,11 @@
 package tracequery
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -31,6 +36,59 @@ func BenchmarkDeriveWindowedIndex_200k_MidWindow(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		deriveWindowedIndex(full, opts)
+	}
+}
+
+// BenchmarkParseFileThroughput is a baseline (no regression gate): it
+// measures full-file parse throughput over a synthetic trace mixing valid
+// sched/mark lines with unparseable noise so the UnparsedLines counter path
+// is exercised in the hot loop.
+func BenchmarkParseFileThroughput(b *testing.B) {
+	dir := b.TempDir()
+	path := filepath.Join(dir, "throughput.trace")
+	const lines = 50_000
+	var sb strings.Builder
+	for i := 0; i < lines; i++ {
+		ts := 100.0 + float64(i)*0.00001
+		switch i % 10 {
+		case 7:
+			fmt.Fprintf(&sb, "free-form noise line %d that matches no trace format\n", i)
+		case 8:
+			fmt.Fprintf(&sb, "          app-20    (  20) [001] d..3 %.6f: print: B|20|Choreographer#doFrame %d\n", ts, i)
+		default:
+			fmt.Fprintf(&sb, "          app-20    (  20) [001] d..3 %.6f: sched_switch: prev_comm=app prev_pid=20 prev_prio=100 prev_state=S ==> next_comm=worker next_pid=30 next_prio=120\n", ts)
+		}
+	}
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Logf("Event size: %d bytes; trace: %d lines / %d bytes", unsafe.Sizeof(Event{}), lines, info.Size())
+	b.ReportAllocs()
+	b.SetBytes(info.Size())
+	b.ResetTimer()
+	var idx *Index
+	for i := 0; i < b.N; i++ {
+		idx, err = parseFile(context.Background(), path, info.Size(), info.ModTime().UnixNano(), BuildOptions{})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	if idx != nil {
+		elapsed := b.Elapsed().Seconds()
+		if elapsed > 0 {
+			b.Logf("parsed_events=%d unparsed_lines=%d events_per_sec=%.0f lines_per_sec=%.0f",
+				len(idx.Events), idx.UnparsedLines,
+				float64(len(idx.Events))*float64(b.N)/elapsed,
+				float64(lines)*float64(b.N)/elapsed)
+		}
+		if idx.UnparsedLines == 0 {
+			b.Fatal("bench trace must exercise the UnparsedLines counter path")
+		}
 	}
 }
 

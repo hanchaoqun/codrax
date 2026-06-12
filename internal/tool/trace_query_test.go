@@ -812,6 +812,157 @@ func TestTraceQueryLargeHeavyViewWithoutWindowUsesGuard(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeUnboundedNewHeavyViewsUseGuard(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "new_heavy_guard.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	for _, view := range []string{"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats"} {
+		params, _ := json.Marshal(map[string]any{
+			"source": "path",
+			"path":   "new_heavy_guard.systrace",
+			"view":   view,
+			"pid":    20,
+		})
+		res, err := (&TraceQuery{}).Execute(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res.Summary, "mode=large_trace_heavy_view_guard") {
+			t.Fatalf("unbounded %s on a large trace must hit the heavy view guard:\n%s", view, res.Summary)
+		}
+		if strings.Contains(res.Summary, "parsed_events=") {
+			t.Fatalf("guard should return before parsing the heavy trace for %s:\n%s", view, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryLargeNewHeavyViewsBoundedStillRun(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "new_heavy_bounded.systrace")
+	trace := strings.Join([]string{
+		`waker-10 (10) [000] .... 2.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 2.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=worker next_pid=30 next_prio=20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	for _, view := range []string{"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats"} {
+		params, _ := json.Marshal(map[string]any{
+			"source":     "path",
+			"path":       "new_heavy_bounded.systrace",
+			"view":       view,
+			"pid":        20,
+			"time_start": 1.0,
+			"time_end":   3.0,
+		})
+		res, err := (&TraceQuery{}).Execute(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Success {
+			t.Fatalf("bounded %s must run: %s", view, res.Summary)
+		}
+		if strings.Contains(res.Summary, "mode=large_trace_heavy_view_guard") {
+			t.Fatalf("bounded %s must not be guarded:\n%s", view, res.Summary)
+		}
+		if !strings.Contains(res.Summary, "# Trace Query: "+view) {
+			t.Fatalf("bounded %s must produce its view result:\n%s", view, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryLargeNewHeavyViewWithSpanScopeSkipsGuard(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "new_heavy_span.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 2.000000: print: B|20|FrameJob`,
+		`app-20 (20) [001] .... 2.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=worker next_pid=30 next_prio=20`,
+		`app-20 (20) [001] .... 2.040000: print: E|20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":    "path",
+		"path":      "new_heavy_span.systrace",
+		"view":      "wakeup_chain",
+		"pid":       20,
+		"span_name": "FrameJob",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("span-scoped wakeup_chain must run: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "mode=large_trace_heavy_view_guard") {
+		t.Fatalf("span-scoped call is not genuinely unbounded and must not be guarded:\n%s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "# Trace Query: wakeup_chain") {
+		t.Fatalf("span-scoped wakeup_chain must produce its view result:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQuerySummaryReportsParseQualityCounters(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "quality.systrace")
+	trace := strings.Join([]string{
+		`junk line one with no trace format`,
+		`junk line two with no trace format`,
+		`junk line three with no trace format`,
+		`app-20 (20) [000] .... 9.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [000] .... 9.010000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path",
+		"path":   "quality.systrace",
+		"view":   "event_search",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"scanned_lines=5 parsed_events=2 unparsed_lines=3 parse_line_panics=0 clock_regressions=0",
+		"3 of 5 scanned lines did not match any known trace format; coverage may be incomplete",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("parse-quality summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryLargeUnboundedJankRecipeAutoAnalyzesTopMarker(t *testing.T) {
 	oldRecipeThreshold := traceQueryLargeRecipeDiscoveryMinBytes
 	oldWindowThreshold := traceQueryWindowedIndexMinBytes

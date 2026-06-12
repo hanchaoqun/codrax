@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// unparsedLineCaveatRatio is the fraction of scanned lines that must fail to
+// match any known trace format before the result carries a coverage caveat.
+// Soft guidance only: the typed UnparsedLines counter gates nothing.
+const unparsedLineCaveatRatio = 0.5
+
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
 	explicitTimeEnd := q.TimeEnd != 0
@@ -56,6 +61,9 @@ func Run(idx *Index, q Query) Result {
 		IndexLineStart:              idx.IndexLineStart,
 		IndexLineEnd:                idx.IndexLineEnd,
 		EventCount:                  len(idx.Events),
+		UnparsedLineCount:           idx.UnparsedLines,
+		ParseLinePanics:             idx.ParseLinePanics,
+		ClockRegressions:            idx.ClockRegressions,
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
 	}
@@ -282,6 +290,9 @@ func Run(idx *Index, q Query) Result {
 	}
 	if idx.ClockRegressions > 0 {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d timestamp regression(s) detected in the trace (clock moved backwards); duration and ordering metrics around those points are unreliable", idx.ClockRegressions))
+	}
+	if idx.UnparsedLines > 0 && idx.ScannedLineCount > 0 && float64(idx.UnparsedLines) > unparsedLineCaveatRatio*float64(idx.ScannedLineCount) {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d of %d scanned lines did not match any known trace format; coverage may be incomplete", idx.UnparsedLines, idx.ScannedLineCount))
 	}
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)

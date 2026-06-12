@@ -166,6 +166,11 @@ type Index struct {
 	// for the query layer's caveat, never a hard gate.
 	ParseLinePanics  int
 	ClockRegressions int
+	// UnparsedLines counts non-empty scanned lines that matched no known
+	// trace line format (ParseLine returned no event, without panicking)
+	// — typed input for the query layer's coverage caveat, never a hard
+	// gate.
+	UnparsedLines    int
 	TraceFlavor      TraceFlavor
 	FlavorConfidence float64
 	FlavorSignals    []string
@@ -222,6 +227,9 @@ type Result struct {
 	IndexLineStart              int                     `json:"index_line_start,omitempty"`
 	IndexLineEnd                int                     `json:"index_line_end,omitempty"`
 	EventCount                  int                     `json:"event_count,omitempty"`
+	UnparsedLineCount           int                     `json:"unparsed_line_count,omitempty"`
+	ParseLinePanics             int                     `json:"parse_line_panics,omitempty"`
+	ClockRegressions            int                     `json:"clock_regressions,omitempty"`
 	TimeStart                   float64                 `json:"time_start,omitempty"`
 	TimeEnd                     float64                 `json:"time_end,omitempty"`
 	Events                      []EventView             `json:"events,omitempty"`

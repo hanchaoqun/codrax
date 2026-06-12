@@ -646,7 +646,8 @@ func traceQueryWindowedIndexTimePadding(p traceQueryParams) float64 {
 
 func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
 	info, err := os.Stat(path)
-	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryIsHeavyView(p.View) || traceQueryHasBoundedTraceScope(p) {
+	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryIsHeavyView(p.View) ||
+		traceQueryHasBoundedTraceScope(p) || traceQueryHasPatternOrSpanScope(p) {
 		return types.ToolResult{}, false
 	}
 	summary := traceQueryHeavyViewGuardSummary(path, sourceLabel, p, info.Size())
@@ -663,11 +664,20 @@ func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p trac
 func traceQueryIsHeavyView(view string) bool {
 	switch strings.TrimSpace(view) {
 	case "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe",
-		"span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow":
+		"span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow",
+		"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats":
 		return true
 	default:
 		return false
 	}
+}
+
+// traceQueryHasPatternOrSpanScope reports whether the call carries a
+// pattern/span selector a narrowing path can use (the auto-window path for
+// its views, or span-derived windows inside tracequery.Run). Such calls are
+// not genuinely unbounded, so the heavy-view guard must let them run.
+func traceQueryHasPatternOrSpanScope(p traceQueryParams) bool {
+	return strings.TrimSpace(firstNonEmptyTraceString(p.Pattern, p.SpanName)) != ""
 }
 
 func traceQueryHasBoundedTraceScope(p traceQueryParams) bool {
@@ -1501,6 +1511,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
 	if result.IndexWindowed {
 		fmt.Fprintf(&b, "index_windowed=true scanned_lines=%d index_time=%.6f..%.6f index_lines=%d..%d\n", result.ScannedLineCount, result.IndexTimeStart, result.IndexTimeEnd, result.IndexLineStart, result.IndexLineEnd)
+	}
+	if result.UnparsedLineCount > 0 || result.ParseLinePanics > 0 || result.ClockRegressions > 0 {
+		fmt.Fprintf(&b, "scanned_lines=%d parsed_events=%d unparsed_lines=%d parse_line_panics=%d clock_regressions=%d\n",
+			result.ScannedLineCount, result.EventCount, result.UnparsedLineCount, result.ParseLinePanics, result.ClockRegressions)
 	}
 	if result.TraceFlavor != "" {
 		fmt.Fprintf(&b, "trace_flavor=%s confidence=%.2f\n", result.TraceFlavor, result.FlavorConfidence)
