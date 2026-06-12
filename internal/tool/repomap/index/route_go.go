@@ -1,14 +1,17 @@
 package index
 
-// route_go.go — framework route → handler resolver for Go (gin + chi).
+// route_go.go — framework route → handler resolver for Go (gin + chi
+// + gorilla/mux).
 //
 // Post-pass over an already-parsed Go AST (hooked at the end of
 // extractGo, alongside the call/type-ref post-passes) that recognises
 // LITERAL route registrations and emits:
 //
 //   - one Kind="route" types.Symbol per registration, named
-//     "<VERB> <path>" at the registration line; Parent stays empty
-//     (file_map renders Parent.Name and would mangle the display);
+//     "<VERB> <path>" at the registration line (for mux: one PER
+//     string-literal verb in the chained .Methods(...) call); Parent
+//     stays empty (file_map renders Parent.Name and would mangle the
+//     display);
 //   - one Kind="reference" route→handler types.Relation when the
 //     handler argument is an identifier or selector expression.
 //     Anonymous func literals (and any other expression shape) get
@@ -40,6 +43,7 @@ import (
 const (
 	goGinImportPath     = "github.com/gin-gonic/gin"
 	goChiImportPathBase = "github.com/go-chi/chi"
+	goMuxImportPath     = "github.com/gorilla/mux"
 )
 
 // ginRouteVerbs maps gin registration method names to HTTP verbs.
@@ -77,15 +81,27 @@ var chiRouteVerbs = map[string]string{
 	"Trace":   "TRACE",
 }
 
+// muxRouteVerbs: gorilla/mux has NO fixed-verb registration methods —
+// Router.HandleFunc / Router.Handle (mux.go; same shapes on *Route,
+// route.go) register a handler for ALL methods, and verbs arrive via
+// the chained Route.Methods(methods ...string) matcher (route.go),
+// which upper-cases every method string. Verbs are therefore read
+// from the .Methods(...) string literals (upper-cased to mirror the
+// framework), never from a method-name table; an unchained
+// registration renders verb "ANY", mirroring gin's Any.
+
 // goRouteState carries the per-file framework activation decided by
 // the import gate, plus the local package names the frameworks are
-// imported under (alias-aware, defaulting to "gin" / "chi") so the
-// root-constructor recognisers stay precise under aliased imports.
+// imported under (alias-aware, defaulting to "gin" / "chi" / "mux")
+// so the root-constructor recognisers stay precise under aliased
+// imports.
 type goRouteState struct {
 	gin    bool
 	chi    bool
+	mux    bool
 	ginPkg string
 	chiPkg string
+	muxPkg string
 }
 
 // goRouteBinding is one tracked router-valued local variable: the
@@ -102,7 +118,7 @@ type goRouteBinding struct {
 // to types, so prefix tracking needs its own value-binding map).
 func goExtractRoutes(root *sitter.Node, src []byte, file string, imps []types.Import) ([]types.Symbol, []types.Relation) {
 	st := goRouteImportState(imps)
-	if !st.gin && !st.chi {
+	if !st.gin && !st.chi && !st.mux {
 		return nil, nil
 	}
 	var syms []types.Symbol
@@ -126,7 +142,7 @@ func goExtractRoutes(root *sitter.Node, src []byte, file string, imps []types.Im
 // (the path proves the framework is in play) but cannot rebind the
 // package name used by the root-constructor recognisers.
 func goRouteImportState(imps []types.Import) *goRouteState {
-	st := &goRouteState{ginPkg: "gin", chiPkg: "chi"}
+	st := &goRouteState{ginPkg: "gin", chiPkg: "chi", muxPkg: "mux"}
 	for _, imp := range imps {
 		aliasUsable := imp.Alias != "" && imp.Alias != "_" && imp.Alias != "."
 		switch {
@@ -139,6 +155,11 @@ func goRouteImportState(imps []types.Import) *goRouteState {
 			st.chi = true
 			if aliasUsable {
 				st.chiPkg = imp.Alias
+			}
+		case imp.Path == goMuxImportPath:
+			st.mux = true
+			if aliasUsable {
+				st.muxPkg = imp.Alias
 			}
 		}
 	}
@@ -171,7 +192,9 @@ func goIsChiRootImport(path string) bool {
 // (gin.RouterGroup, chi.Router) may carry an unknown caller-side
 // prefix and are NOT seeded — their routes emit LOCAL paths flagged
 // Metadata["partial_path"]="true". This is a declared-type signal,
-// not a receiver-name heuristic.
+// not a receiver-name heuristic. mux has NO seedable type at all:
+// *mux.Router is also the SUBROUTER type (Route.Subrouter returns
+// *Router), so a mux.Router parameter never proves rootness.
 func goRouteSeedBindings(fnNode *sitter.Node, src []byte, st *goRouteState) map[string]goRouteBinding {
 	bindings := make(map[string]goRouteBinding)
 	params := fnNode.ChildByFieldName("parameters")
@@ -250,12 +273,15 @@ func goRouteHandleBinding(stmt *sitter.Node, src []byte, st *goRouteState, bindi
 // route-path prefix it carries. Returns (prefix, partial, isRouter):
 //
 //   - identifier present in the binding map → its tracked prefix;
-//   - gin.New() / gin.Default(), chi.NewRouter() / chi.NewMux()
-//     (alias-aware package match) → root, prefix "";
+//   - gin.New() / gin.Default(), chi.NewRouter() / chi.NewMux(),
+//     mux.NewRouter() (alias-aware package match) → root, prefix "";
 //   - <expr>.Group("<literal>") with gin active → resolve(expr) +
 //     literal; an unresolvable base keeps the LOCAL prefix and turns
 //     partial on; a non-literal Group path is still a router but its
 //     prefix is unknowable (partial, empty);
+//   - <expr>.PathPrefix("<literal>").Subrouter() with mux active →
+//     resolve(expr) + literal (Route.Subrouter, route.go); Subrouter
+//     over any other route shape is still a router, prefix unknowable;
 //   - anything else → not provably a router: ("", true, false), so
 //     registrations on it emit their LOCAL path flagged partial.
 func goResolveRouterExpr(expr *sitter.Node, src []byte, st *goRouteState, bindings map[string]goRouteBinding) (string, bool, bool) {
@@ -287,6 +313,10 @@ func goResolveRouterExpr(expr *sitter.Node, src []byte, st *goRouteState, bindin
 			if st.chi && pkg == st.chiPkg && (mname == "NewRouter" || mname == "NewMux") {
 				return "", false, true
 			}
+			if st.mux && pkg == st.muxPkg && mname == "NewRouter" {
+				// mux.NewRouter() (mux.go) — the only root constructor.
+				return "", false, true
+			}
 		}
 		if st.gin && mname == "Group" {
 			// gin.IRouter.Group(relativePath string, ...) *RouterGroup.
@@ -295,6 +325,30 @@ func goResolveRouterExpr(expr *sitter.Node, src []byte, st *goRouteState, bindin
 				if lit, ok := goRouteStringLiteral(args[0], src); ok && (lit == "" || strings.HasPrefix(lit, "/")) {
 					base, partial, _ := goResolveRouterExpr(op, src, st, bindings)
 					return goJoinRoutePaths(base, lit), partial, true
+				}
+			}
+			return "", true, true
+		}
+		if st.mux && mname == "Subrouter" {
+			// mux Route.Subrouter() (route.go) returns a *Router that
+			// inherits the route's matchers. Only the literal
+			// Router.PathPrefix(tpl string) *Route base (mux.go /
+			// route.go) is composable; any other route shape (Host,
+			// Path, non-literal prefix, unresolvable value) is still a
+			// router but its prefix is unknowable.
+			if op.Type() == "call_expression" {
+				if opFn := op.ChildByFieldName("function"); opFn != nil && opFn.Type() == "selector_expression" {
+					opField := opFn.ChildByFieldName("field")
+					opOperand := opFn.ChildByFieldName("operand")
+					if opField != nil && opOperand != nil && nodeText(opField, src) == "PathPrefix" {
+						args := goRouteArgs(op)
+						if len(args) >= 1 {
+							if lit, ok := goRouteStringLiteral(args[0], src); ok && strings.HasPrefix(lit, "/") {
+								base, partial, _ := goResolveRouterExpr(opOperand, src, st, bindings)
+								return goJoinRoutePaths(base, lit), partial, true
+							}
+						}
+					}
 				}
 			}
 			return "", true, true
@@ -404,6 +458,12 @@ func goRouteEmit(call *sitter.Node, src []byte, file string, st *goRouteState, b
 	mname := nodeText(field, src)
 	var verb, fw, resolvedBy string
 	switch {
+	case st.mux && (mname == "HandleFunc" || mname == "Handle"):
+		// mux registrations carry their verbs in a chained
+		// .Methods(...) call (or none → ANY) and may emit several
+		// routes — dispatched to the dedicated emitter.
+		goRouteEmitMux(call, src, file, st, bindings, syms, rels)
+		return
 	case st.gin && ginRouteVerbs[mname] != "":
 		verb, fw, resolvedBy = ginRouteVerbs[mname], "gin", "gin_route_literal"
 	case st.chi && chiRouteVerbs[mname] != "":
@@ -485,6 +545,141 @@ func goRouteEmit(call *sitter.Node, src []byte, file string, st *goRouteState, b
 		ResolvedBy: resolvedBy,
 		Metadata:   md,
 	})
+}
+
+// goRouteEmitMux recognises gorilla/mux literal registrations:
+//
+//	Router.HandleFunc(path string, f func(http.ResponseWriter, *http.Request)) *Route
+//	Router.Handle(path string, handler http.Handler) *Route
+//
+// (mux.go; identical shapes exist on *Route, route.go). The verbs
+// come from the chained Route.Methods(methods ...string) call (see
+// goRouteMuxMethodsCall): ONE route Symbol (+Relation for named
+// handlers) is emitted PER string-literal verb, upper-cased the way
+// Route.Methods upper-cases its arguments. Non-literal verbs are
+// skipped; a Methods chain with NO literal verb emits nothing for the
+// registration (verbs are never fabricated). An unchained
+// registration matches every method — mux only restricts methods when
+// a matcher says so — and renders verb "ANY", mirroring gin's Any.
+//
+// Handle's http.Handler argument follows the shared handler-shape
+// rule: identifier / selector emits the Relation; any composite
+// expression (http.StripPrefix(...), &h{}, func literals, ...) emits
+// the Symbol only.
+func goRouteEmitMux(call *sitter.Node, src []byte, file string, st *goRouteState, bindings map[string]goRouteBinding, syms *[]types.Symbol, rels *[]types.Relation) {
+	args := goRouteArgs(call)
+	if len(args) != 2 {
+		return
+	}
+	local, ok := goRouteStringLiteral(args[0], src)
+	if !ok || !strings.HasPrefix(local, "/") {
+		// Non-literal / dynamic path: emit NOTHING (never fabricate).
+		return
+	}
+	var verbs []string
+	if mcall := goRouteMuxMethodsCall(call, src); mcall != nil {
+		for _, va := range goRouteArgs(mcall) {
+			if lit, ok := goRouteStringLiteral(va, src); ok && lit != "" {
+				verbs = append(verbs, strings.ToUpper(lit))
+			}
+		}
+		if len(verbs) == 0 {
+			// Every chained verb is non-literal: emit nothing.
+			return
+		}
+	} else {
+		verbs = []string{"ANY"}
+	}
+
+	handler := args[1]
+	display := "func(...)"
+	var handlerName, handlerRecv string
+	hasTarget := false
+	switch handler.Type() {
+	case "identifier":
+		handlerName = nodeText(handler, src)
+		display = handlerName
+		hasTarget = true
+	case "selector_expression":
+		if f := handler.ChildByFieldName("field"); f != nil {
+			handlerName = nodeText(f, src)
+			if hop := handler.ChildByFieldName("operand"); hop != nil {
+				handlerRecv = nodeText(hop, src)
+			}
+			display = nodeText(handler, src)
+			hasTarget = true
+		}
+	}
+
+	fn := call.ChildByFieldName("function")
+	prefix, partial, _ := goResolveRouterExpr(fn.ChildByFieldName("operand"), src, st, bindings)
+	fullPath := goJoinRoutePaths(prefix, local)
+	line := nodeLine(call)
+	for _, verb := range verbs {
+		routeName := verb + " " + fullPath
+		*syms = append(*syms, types.Symbol{
+			Name:      routeName,
+			Kind:      "route",
+			File:      file,
+			Line:      line,
+			EndLine:   line,
+			Exported:  true,
+			Signature: routeName + " -> " + display,
+			// Parent MUST stay empty: file_map renders Parent.Name and
+			// would mangle the route display.
+		})
+		if !hasTarget {
+			// Anonymous / composite handler expression: Symbol only.
+			continue
+		}
+		md := map[string]string{"framework": "mux", "method": verb, "path": fullPath}
+		if partial {
+			md["partial_path"] = "true"
+		}
+		*rels = append(*rels, types.Relation{
+			Kind:       "reference",
+			FromEP:     types.RelationEndpoint{Name: routeName, File: file, Line: line},
+			ToEP:       types.RelationEndpoint{Name: handlerName, Receiver: handlerRecv, File: file, Line: line},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceRouteLiteral,
+			Provenance: types.ProvenanceRouteResolver,
+			ResolvedBy: "mux_route_literal",
+			Metadata:   md,
+		})
+	}
+}
+
+// goRouteMuxMethodsCall walks UP the mux method chain from a
+// registration call. In `r.HandleFunc(...).Methods("GET")` the
+// chained call sits ABOVE the registration in the AST — the
+// registration is the operand of a selector_expression whose parent
+// call_expression invokes the next chain link — and Route methods
+// return *Route, so chains may interleave other matchers
+// (`.Queries(...).Methods(...)`). Returns the first chained
+// .Methods(...) call_expression, or nil when the chain has none
+// (registration matches all methods → verb "ANY").
+func goRouteMuxMethodsCall(reg *sitter.Node, src []byte) *sitter.Node {
+	for cur := reg; ; {
+		sel := cur.Parent()
+		if sel == nil || sel.Type() != "selector_expression" {
+			return nil
+		}
+		call := sel.Parent()
+		if call == nil || call.Type() != "call_expression" {
+			return nil
+		}
+		// The selector must be the call's FUNCTION (a chain link), not
+		// some argument-position subexpression.
+		fn := call.ChildByFieldName("function")
+		if fn == nil || !fn.Equal(sel) {
+			return nil
+		}
+		if f := sel.ChildByFieldName("field"); f != nil && nodeText(f, src) == "Methods" {
+			return call
+		}
+		cur = call
+	}
 }
 
 // goRouteArgs returns the named argument expressions of a call,

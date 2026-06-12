@@ -46,6 +46,13 @@ func extractKotlin(root *sitter.Node, src []byte, file string) (pkg string, syms
 	}
 
 	walkKotlinDecls(root, src, file, "", &pkg, &syms, &imps, &rels)
+
+	// framework route → handler resolver (Spring @*Mapping annotations);
+	// gated on the @RestController / @Controller class annotation —
+	// no-op for files without an annotated controller class.
+	routeSyms, routeRels := kotlinExtractRoutes(root, src, file)
+	syms = append(syms, routeSyms...)
+	rels = append(rels, routeRels...)
 	return
 }
 

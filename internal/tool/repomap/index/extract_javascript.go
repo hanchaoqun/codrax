@@ -57,6 +57,17 @@ func extractJS(root *sitter.Node, src []byte, file string, isTS bool) (pkg strin
 	}
 
 	rels = append(rels, jsExtractCalls(root, src, file)...)
+
+	// Express + NestJS route -> handler post-pass (route_javascript.go).
+	// Runs after the top-level loop so it can gate on the per-file
+	// imports already collected. extractJS is shared with the ArkTS
+	// Tier-1 path (extract_arkts.go): the pass MUST stay inert there —
+	// its verbatim "express" / "@nestjs/common" gates structurally
+	// cannot fire on HarmonyOS imports (pinned by the ArkTS no-op
+	// regression test in route_javascript_test.go).
+	routeSyms, routeRels := jsExtractRoutes(root, src, file, imps)
+	syms = append(syms, routeSyms...)
+	rels = append(rels, routeRels...)
 	return
 }
 
