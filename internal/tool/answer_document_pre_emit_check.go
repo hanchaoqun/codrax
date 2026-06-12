@@ -617,6 +617,15 @@ func normalizeCurrentSourceCitationSupplement(doc *types.AnswerDocumentV2, ctx *
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return 0
 	}
+	// Cap headroom guard (same pattern as
+	// normalizeAggregateNegativeProofSupplement): this supplement is
+	// system-fabricated and runs before the maxBlocksPerDoc hard gate
+	// — appending to an at-cap doc would reject the emit with a count
+	// the model never produced.
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] current-source citation supplement skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return 0
+	}
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || !plan.CurrentSourceEvidenceOrigin || answerDocumentRuntimeObservationOnly(ctx) {
 		return 0
@@ -2078,6 +2087,13 @@ func aggregateMemberSetDisplayRowsByFactIndex(ctx *types.BusContext) map[int][]t
 
 func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx int, label string) int {
 	if doc == nil {
+		return -1
+	}
+	// Cap headroom guard: system-fabricated carrier blocks must not
+	// push an at-cap doc into the maxBlocksPerDoc hard reject (the
+	// caller loop can append several). Callers treat -1 as "skip".
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] aggregate member-set carrier skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return -1
 	}
 	title := strings.TrimSpace(label)
@@ -7271,6 +7287,13 @@ func requiredMechanismAnchorBlockIndex(doc *types.AnswerDocumentV2) int {
 
 func appendRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil {
+		return -1
+	}
+	// Cap headroom guard: a system-fabricated anchor block must not
+	// push an at-cap doc into the maxBlocksPerDoc hard reject. The
+	// caller treats -1 as "skip".
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] required mechanism anchor block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return -1
 	}
 	block := types.AnswerBlock{

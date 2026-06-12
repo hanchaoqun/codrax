@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -319,12 +320,23 @@ func decodeRecoveredAnswerDocumentV2(raw json.RawMessage, mode string) (AnswerDo
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
-	for i, rawBlock := range splitFusedDiagramBlocks("emit_answer_document text-recovery", p.Blocks) {
-		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))
+	// entry.modelIndex, never the loop position: validation-error
+	// fieldPaths must name the block's index in the MODEL's own
+	// blocks[] array, not its system-shifted post-split position.
+	for _, entry := range splitFusedDiagramBlocks("emit_answer_document text-recovery", p.Blocks) {
+		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
 			return AnswerDocumentTextRecovery{}, err
 		}
 		doc.Blocks = append(doc.Blocks, blk)
+	}
+	// Identical-duplicate dedup mirrors the main emit sequence — the
+	// split's duplicate memo relies on it to collapse the visible
+	// copies of a stutter pair so lossless recovery is not failed by
+	// a duplicate-id reject the emit path would absorb.
+	if changed, fields := normalizeAnswerDocumentBlockIDSurface(doc); changed {
+		logging.Warning("[emit_answer_document text-recovery] id duplicate(s) normalized via transactional tolerance: %s",
+			strings.Join(fields, ", "))
 	}
 	canonicalizeSummaryLeadBlock(doc)
 	if err := validateMergedV2Doc(doc); err != nil {

@@ -73,13 +73,40 @@ import (
 //   - ExactResolution / MissingRequestedRoles / Caveats /
 //     Snippets: replace-or-inherit.
 //
-// Block id is LLM-provided (never system-generated). Replace targets
-// existing id; Add inserts new id; Remove drops by id; Unchanged
-// flows through byte-identical. Block ordering: removed blocks drop
-// in place; replaced blocks substitute at original position;
-// unchanged blocks preserve original position; added blocks append
-// at tail. This determinism preserves the LLM's original ordering
-// when the LLM didn't intend reorganization.
+// Within the patch's op surface, block id is LLM-provided with ONE
+// sanctioned system exception: the fused-diagram split (internal/tool
+// splitFusedDiagramPatchBlocks / peekSplitDiagramBlockID, 2026-06-12)
+// re-homes a diagram payload the model fused onto a rows-carrying
+// block into a separate kind=diagram entry whose id is system-derived
+// as `<source-id>_diagram`. (Post-merge materializers separately
+// insert advisory blocks under reserved system ids — runtime trace
+// facts, citation supplements, carrier blocks, scope caveats; see the
+// maxBlocksPerDoc headroom invariant in
+// internal/tool/answer_document_mutation_runtime.go. Those are all
+// non-diagram kinds, so the split's collision discipline below
+// suffix-numbers past them.) The derivation is
+// collision-disciplined: it suffix-numbers past every id the model
+// has any claim on — the patch's own replace/add ids, every prev-doc
+// block id whose kind is not diagram, and every id named in
+// unchanged_block_ids or remove_block_ids. The ONLY id a derived
+// half may share is a prev-doc kind=diagram block the model left
+// unclaimed — typically, but not provably, a prior split's persisted
+// half (provenance is not tracked; a model-authored kind=diagram
+// block whose id matches the derivation is refreshed the same way).
+// That collision flows through the add→replace tolerance
+// (normalizeAnswerDocumentPatchBlockOps) and refreshes the stale
+// half in place — count-neutral, so it consumes no block-cap
+// headroom. Model-authored non-diagram content is therefore never
+// replaced by a derived id, removes always execute, and unchanged
+// declarations stay byte-identical (R16). On the patch path derived
+// halves flow into AddBlocks AFTER the model's own add entries so
+// add_blocks[i] error indices stay the model's. Every other block id
+// in the patch's op lists is LLM-provided. Replace targets existing id; Add inserts new id;
+// Remove drops by id; Unchanged flows through byte-identical. Block
+// ordering: removed blocks drop in place; replaced blocks substitute
+// at original position; unchanged blocks preserve original position;
+// added blocks append at tail. This determinism preserves the LLM's
+// original ordering when the LLM didn't intend reorganization.
 //
 // VALIDATION INVARIANT (post-apply)
 // ==================================

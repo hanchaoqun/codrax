@@ -28,6 +28,7 @@ package tool
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -247,37 +248,109 @@ func stripOuterDiagramFence(body string) string {
 // immediately after the visible half so narrative order survives.
 //
 // Trigger is a precise typed signal (no prose inspection):
-// diagram payload present AND non-empty body AND declared kind is a
-// valid non-diagram kind AND rows present. Anything else passes
-// through untouched — in particular an EMPTY diagram body keeps the
-// existing single-block hard-reject path so the model gets one
-// retryable error instead of a half-accepted document.
+// diagram payload present AND body non-empty even after the full
+// diagram normalization pipeline (fence strip + mermaidcompat
+// passes) AND declared kind is a valid non-diagram kind AND rows
+// present. Anything else passes through untouched — in particular a
+// body that normalizes to EMPTY (blank, fence-only, hidden-markers-
+// only) keeps the existing single-block hard-reject path so the
+// model gets one retryable "diagram.body is empty" error at its OWN
+// blocks[] index instead of a system-authored entry failing on its
+// behalf.
+//
+// At most maxBlocksPerDoc − len(blocks) fused blocks split; the rest
+// pass through unsplit to the lossy discriminator-repair path (see
+// the budget comment in the body) so the split never pushes a
+// within-cap emit over the block cap.
+//
+// Return entries carry the MODEL's original blocks[] index so callers
+// build validation-error fieldPaths against the model's own emission,
+// not the post-split physical layout — a system-inserted diagram half
+// must never shift the index a retry hint points at. A split-out
+// diagram half inherits its source block's index: its payload is the
+// model's, so an error on it is an error in that model block's
+// diagram object.
 //
 // Doctrine note: this mirrors the no-rewrite rule from
 // answer_document_table_compile.go — the system never rewrites
 // model-authored surface content; it only re-homes the two payloads
 // the model fused so BOTH stay visible.
-func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []emitAnswerBlockV2 {
+func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []splitEmitBlockEntry {
 	fused := 0
 	for _, b := range blocks {
 		if isFusedDiagramBlock(b) {
 			fused++
 		}
 	}
+	out := make([]splitEmitBlockEntry, 0, len(blocks)+fused)
 	if fused == 0 {
-		return blocks
+		for i, b := range blocks {
+			out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
+		}
+		return out
 	}
+	// Cap budget: every split adds exactly one block to the FINAL
+	// document, so the projected final count is len(blocks) + splits.
+	// Splitting must never push an emit that fits maxBlocksPerDoc over
+	// it — the merged-doc hard gate would then reject with a block
+	// count the model never emitted (system-fabricated failure,
+	// mis-attributed to the model). Fused blocks beyond the budget
+	// pass through unsplit and take the pre-split path instead: the
+	// discriminator repair accepts them lossily, which was the
+	// behavior for every fused block before the split existed. The
+	// budget is position-independent — an at-cap emit is protected
+	// wherever the fused block sits, not only in the last slot.
+	budget := maxBlocksPerDoc - len(blocks)
 	used := make(map[string]bool, len(blocks)+fused)
 	for _, b := range blocks {
 		used[strings.TrimSpace(b.ID)] = true
 	}
-	out := make([]emitAnswerBlockV2, 0, len(blocks)+fused)
-	split := 0
-	for _, b := range blocks {
-		if !isFusedDiagramBlock(b) || len(out)+2 > maxBlocksPerDoc {
-			out = append(out, b)
+	// Duplicates get identical treatment (mirror of the patch split's
+	// memo): if a stutter-emitted copy of an already-split block were
+	// classified differently at the budget boundary, the copies would
+	// stop being dedup-equal and the downstream identical-duplicate
+	// tolerance (normalizeAnswerDocumentBlockIDSurface) could no
+	// longer absorb them — a fabricated duplicate-id reject for an
+	// emit that dedups cleanly as emitted. The memo compares on the
+	// SAME canonical identity that dedup uses (the normalized typed
+	// projection), so twins differing only in normalization-erased
+	// surface (outer fences, id whitespace, cell padding) match too.
+	// A duplicate of a split block emits the same visible half only
+	// (no second system half, no second budget charge); a duplicate
+	// of a passed-through block passes through.
+	var seen []fusedSeen
+	split, dupsOfSplit := 0, 0
+	for i, b := range blocks {
+		if !isFusedDiagramBlock(b) {
+			out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
 			continue
 		}
+		canonical, canonicalOK := canonicalFusedBlock(b)
+		dup := false
+		for _, s := range seen {
+			if matchesSeenFused(s, b, canonical, canonicalOK) {
+				dup = true
+				if s.didSplit {
+					dupsOfSplit++
+					visible := b
+					visible.Diagram = nil
+					visible.EdgeAnchors = nil
+					out = append(out, splitEmitBlockEntry{raw: visible, modelIndex: i})
+				} else {
+					out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
+				}
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		if split >= budget {
+			seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: false})
+			out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
+			continue
+		}
+		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
 		visible := b
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
@@ -287,19 +360,93 @@ func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []emit
 			Diagram:     b.Diagram,
 			EdgeAnchors: b.EdgeAnchors,
 		}
-		out = append(out, visible, diagramHalf)
+		out = append(out,
+			splitEmitBlockEntry{raw: visible, modelIndex: i},
+			splitEmitBlockEntry{raw: diagramHalf, modelIndex: i})
 		split++
 	}
 	if split > 0 {
 		logging.Warning("[%s] split %d fused diagram block(s): declared kind and visible rows preserved alongside the diagram payload", logLabel, split)
 	}
+	if skipped := fused - split - dupsOfSplit; skipped > 0 {
+		logging.Warning("[%s] %d fused diagram block(s) passed through unsplit near the %d-block cap: discriminator repair keeps the diagram and drops the rows (lossy accept) instead of splitting past the cap", logLabel, skipped, maxBlocksPerDoc)
+	}
 	return out
 }
 
+// splitEmitBlockEntry pairs a (possibly split) raw block with the
+// index of the MODEL block it derives from. Callers MUST build
+// validation-error fieldPaths from modelIndex, never from the entry's
+// position in the returned slice — positions after a split are
+// system-shifted and point retry hints at the wrong block of the
+// model's emission.
+type splitEmitBlockEntry struct {
+	raw        emitAnswerBlockV2
+	modelIndex int
+}
+
+// fusedSeen records one processed fused entry for the duplicate memo.
+// canonical is the entry's NormalizeEmitAnswerBlock projection — the
+// SAME identity the downstream identical-duplicate dedup
+// (normalizePatchBlockList) compares — so a stutter pair that differs
+// only in what normalization erases (outer ``` fences, id whitespace,
+// cell padding) still memo-matches. canonicalOK=false (the probe
+// conversion errored) falls back to raw comparison.
+type fusedSeen struct {
+	raw         emitAnswerBlockV2
+	canonical   types.AnswerBlock
+	canonicalOK bool
+	didSplit    bool
+}
+
+// canonicalFusedBlock projects a fused entry onto the downstream
+// dedup's identity. The Diagram payload is copied first:
+// NormalizeEmitAnswerBlock normalizes it IN PLACE and the model's raw
+// entry must reach the eventual conversion untouched.
+func canonicalFusedBlock(b emitAnswerBlockV2) (types.AnswerBlock, bool) {
+	if b.Diagram != nil {
+		d := *b.Diagram
+		b.Diagram = &d
+	}
+	blk, err := NormalizeEmitAnswerBlock(b, "fused-memo-probe")
+	if err != nil {
+		return types.AnswerBlock{}, false
+	}
+	return blk, true
+}
+
+// matchesSeenFused reports whether b is a duplicate of s under the
+// canonical identity (falling back to raw identity when either
+// projection failed).
+func matchesSeenFused(s fusedSeen, b emitAnswerBlockV2, canonical types.AnswerBlock, canonicalOK bool) bool {
+	if s.canonicalOK && canonicalOK {
+		return reflect.DeepEqual(s.canonical, canonical)
+	}
+	return reflect.DeepEqual(s.raw, b)
+}
+
 // isFusedDiagramBlock reports whether raw fuses a visible-row block
-// with a diagram payload. All four conjuncts are typed-field checks.
+// with a diagram payload. All conjuncts are typed-field checks.
 func isFusedDiagramBlock(raw emitAnswerBlockV2) bool {
 	if raw.Diagram == nil || strings.TrimSpace(raw.Diagram.Body) == "" {
+		return false
+	}
+	// The split must never manufacture a system block that fails
+	// validation. NormalizeEmitAnswerBlock rejects "diagram.body is
+	// empty" on the body AFTER the full normalizeEmitAnswerDiagram
+	// pipeline (fence strip + mermaidcompat passes such as
+	// hidden-marker line removal), so the split predicate must judge
+	// emptiness on the SAME pipeline — a fence-only or
+	// markers-only body that empties under normalization would
+	// otherwise split into a system half that fails on an entry the
+	// model never authored. Run the pipeline on a COPY:
+	// normalizeEmitAnswerDiagram mutates its argument in place and
+	// the model's payload must reach the eventual normalize pass
+	// untouched. Keeping the block whole routes the same reject to
+	// the model's own blocks[] index via the discriminator repair.
+	probe := *raw.Diagram
+	normalizeEmitAnswerDiagram(&probe)
+	if strings.TrimSpace(probe.Body) == "" {
 		return false
 	}
 	kind := types.AnswerBlockKind(strings.TrimSpace(raw.Kind))
@@ -313,6 +460,17 @@ func isFusedDiagramBlock(raw emitAnswerBlockV2) bool {
 // emit for the split-out diagram half. The suffixed form keeps the
 // pairing visible in logs and downstream telemetry.
 func deriveSplitDiagramBlockID(baseID string, used map[string]bool) string {
+	candidate := peekSplitDiagramBlockID(baseID, used)
+	used[candidate] = true
+	return candidate
+}
+
+// peekSplitDiagramBlockID returns the id deriveSplitDiagramBlockID
+// WOULD assign, without committing it to the used map. The patch
+// split peeks so its exhaustion and budget gates can inspect the
+// candidate before committing it — committing on a pass-through
+// would burn the id and shift a later fused entry's derivation.
+func peekSplitDiagramBlockID(baseID string, used map[string]bool) string {
 	base := strings.TrimSpace(baseID)
 	if base == "" {
 		base = "block"
@@ -321,17 +479,61 @@ func deriveSplitDiagramBlockID(baseID string, used map[string]bool) string {
 	for i := 2; used[candidate] && i < 100; i++ {
 		candidate = fmt.Sprintf("%s_diagram%d", base, i)
 	}
-	used[candidate] = true
 	return candidate
 }
 
 // splitFusedDiagramPatchBlocks applies the fused-block split to the
 // patch emit's two raw lists. replace_blocks merges strictly one
 // block per replaced id, so the diagram half of a fused REPLACE
-// entry cannot stay in replace_blocks — it is appended to add_blocks
-// instead (the merged doc places adds at the tail; losing adjacency
-// beats losing the payload). Fused ADD entries split in place.
-func splitFusedDiagramPatchBlocks(logLabel string, replaceBlocks, addBlocks []emitAnswerBlockV2) ([]emitAnswerBlockV2, []emitAnswerBlockV2) {
+// entry cannot stay in replace_blocks — it lands in add_blocks (the
+// merged doc places adds at the tail; losing adjacency beats losing
+// the payload). A fused ADD entry keeps its slot as the visible half.
+//
+// EVERY system-derived diagram half — replace- and add-derived alike
+// — is appended AFTER the model's own add_blocks entries. Index
+// attribution depends on it: convertEmitBlocksToTyped builds
+// `add_blocks[i]` validation-error fieldPaths from list position, so
+// the model's entries must occupy exactly the indices the model
+// emitted them at. System halves sit at indices >= the model's count
+// and cannot fail validation by construction: isFusedDiagramBlock
+// judges body emptiness on the SAME normalization pipeline
+// NormalizeEmitAnswerBlock later applies, so a half that would
+// reject "diagram.body is empty" is never manufactured. The cost is
+// tail-of-tail placement for add-derived halves in the merged doc;
+// adjacency was already sacrificed for replace-derived halves.
+//
+// Derived-id collision discipline (prev-aware, 2026-06-12): the
+// derived `<id>_diagram` id may collide with EXACTLY ONE thing — a
+// prev-doc kind=diagram block the model has not claimed via any
+// patch op (typically, but not provably, a prior split's persisted
+// half: provenance is not tracked, so a model-authored kind=diagram
+// block whose id matches the derivation is refreshed the same way).
+// That collision is the intended steady-state refresh: the half
+// lands in add_blocks, the add→replace tolerance demotes it, and the
+// persisted diagram half is replaced in place (count-neutral — no
+// cap budget charged). Every other id is seeded into the collision
+// set so the derivation suffix-numbers past it:
+//   - the patch's own replace/add ids   (within-patch uniqueness)
+//   - prev block ids with Kind!=diagram (a collision would demote
+//     the half onto model-authored non-diagram content — silent
+//     clobber, the no-rewrite doctrine's hardest violation)
+//   - unchanged_block_ids               (R16 byte-identical promise:
+//     Apply consults replacedBy before the unchanged passthrough, so
+//     a demoted half would override the model's declaration)
+//   - remove_block_ids                  (the tolerance would convert
+//     the remove+add pair into a replace and silently DROP the
+//     model's remove op)
+//
+// budget caps how many block-ADDING splits may run: a fresh-id split
+// adds exactly one block to the MERGED document, so the caller
+// passes the remaining headroom under maxBlocksPerDoc (see
+// fusedPatchSplitBudget); refresh splits are count-neutral and run
+// budget-free. Fused entries beyond the budget pass through unsplit
+// and take the discriminator-repair (lossy-accept) path — same
+// fallback, and same rationale, as the full-emit split: the system
+// must never fabricate a cap reject for a patch whose merged count
+// was within the cap as the model emitted it.
+func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.AnswerDocumentV2, removeIDs, unchangedIDs []string, replaceBlocks, addBlocks []emitAnswerBlockV2) ([]emitAnswerBlockV2, []emitAnswerBlockV2) {
 	fused := 0
 	for _, b := range replaceBlocks {
 		if isFusedDiagramBlock(b) {
@@ -353,11 +555,126 @@ func splitFusedDiagramPatchBlocks(logLabel string, replaceBlocks, addBlocks []em
 	for _, b := range addBlocks {
 		used[strings.TrimSpace(b.ID)] = true
 	}
+	for _, id := range removeIDs {
+		used[strings.TrimSpace(id)] = true
+	}
+	for _, id := range unchangedIDs {
+		used[strings.TrimSpace(id)] = true
+	}
+	// refreshable: prev kind=diagram ids not claimed by any op above
+	// — the only ids a derived half may legitimately collide with.
+	// Computed AFTER the seeding so a claimed diagram id is excluded.
+	refreshable := map[string]bool{}
+	if prev != nil {
+		for _, pb := range prev.Blocks {
+			id := strings.TrimSpace(pb.ID)
+			if id == "" {
+				continue
+			}
+			if pb.Kind == types.BlockDiagram && !used[id] {
+				refreshable[id] = true
+				continue
+			}
+			used[id] = true
+		}
+	}
 	outReplace := make([]emitAnswerBlockV2, 0, len(replaceBlocks))
 	outAdd := make([]emitAnswerBlockV2, 0, len(addBlocks)+fused)
-	split := 0
+	systemHalves := make([]emitAnswerBlockV2, 0, fused)
+	// Duplicates get identical treatment: the downstream
+	// identical-duplicate tolerance (normalizePatchBlockList) can only
+	// absorb a model stutter-emit when both copies stay dedup-equal
+	// through the split. Classifying the copies differently (first
+	// splits, second straddles the budget/refresh boundary and passes
+	// through) would de-identicalize them and turn a cleanly-merging
+	// patch into a fabricated "duplicated" hard reject. The memo
+	// compares on the SAME canonical identity that dedup uses (the
+	// normalized typed projection), so twins differing only in
+	// normalization-erased surface (outer fences, id whitespace, cell
+	// padding) match too. It replays the first occurrence's outcome:
+	// split duplicates emit the same visible half with NO second
+	// system half and NO second budget charge; pass-through
+	// duplicates pass through.
+	var seen []fusedSeen
+	split, refreshes, dupsOfSplit := 0, 0, 0
+	// splitHalf decides one fused entry's fate. half non-nil → split
+	// (emit the visible half + record the system half); passThrough →
+	// emit the entry unchanged; both nil/false → duplicate of an
+	// already-split entry (emit the visible half only — lossless, the
+	// first occurrence's split carries the payload and the downstream
+	// identical-duplicate tolerance collapses the visible copies).
+	splitHalf := func(b emitAnswerBlockV2) (half *emitAnswerBlockV2, passThrough bool) {
+		canonical, canonicalOK := canonicalFusedBlock(b)
+		for _, s := range seen {
+			if matchesSeenFused(s, b, canonical, canonicalOK) {
+				if s.didSplit {
+					dupsOfSplit++
+				}
+				return nil, !s.didSplit
+			}
+		}
+		// Refresh-first: walk the whole suffix chain for a persisted
+		// half to refresh — an earlier turn's remove/unchanged claim
+		// can have landed the half at a suffixed id, and minting the
+		// lower suffix as a fresh id would strand the persisted half
+		// as a stale duplicate (and re-open the at-cap row loss the
+		// refresh exemption closes). Refresh is count-neutral and
+		// budget-free. The walk covers the same 99-candidate id space
+		// peekSplitDiagramBlockID mints from (_diagram, _diagram2 ..
+		// _diagram99) so the two bounds cannot drift.
+		base := strings.TrimSpace(b.ID)
+		if base == "" {
+			base = "block"
+		}
+		target := ""
+		isRefresh := false
+		for i := 1; i < 100; i++ {
+			candidate := base + "_diagram"
+			if i > 1 {
+				candidate = fmt.Sprintf("%s_diagram%d", base, i)
+			}
+			if refreshable[candidate] && !used[candidate] {
+				target = candidate
+				isRefresh = true
+				break
+			}
+		}
+		if !isRefresh {
+			target = peekSplitDiagramBlockID(b.ID, used)
+			// Suffix space exhausted (every candidate claimed): a
+			// committed collision would fabricate a "duplicated"
+			// reject for ids the model never emitted — fall back to
+			// the lossy-accept pass-through instead.
+			if used[target] {
+				seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: false})
+				return nil, true
+			}
+			if split >= budget {
+				seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: false})
+				return nil, true
+			}
+		}
+		used[target] = true
+		if isRefresh {
+			refreshes++
+		} else {
+			split++
+		}
+		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
+		return &emitAnswerBlockV2{
+			ID:          target,
+			Kind:        string(types.BlockDiagram),
+			Diagram:     b.Diagram,
+			EdgeAnchors: b.EdgeAnchors,
+		}, false
+	}
 	for _, b := range replaceBlocks {
 		if !isFusedDiagramBlock(b) {
+			outReplace = append(outReplace, b)
+			continue
+		}
+		half, passThrough := splitHalf(b)
+		if passThrough {
 			outReplace = append(outReplace, b)
 			continue
 		}
@@ -365,32 +682,108 @@ func splitFusedDiagramPatchBlocks(logLabel string, replaceBlocks, addBlocks []em
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
 		outReplace = append(outReplace, visible)
-		outAdd = append(outAdd, emitAnswerBlockV2{
-			ID:          deriveSplitDiagramBlockID(b.ID, used),
-			Kind:        string(types.BlockDiagram),
-			Diagram:     b.Diagram,
-			EdgeAnchors: b.EdgeAnchors,
-		})
-		split++
+		if half != nil {
+			systemHalves = append(systemHalves, *half)
+		}
 	}
 	for _, b := range addBlocks {
 		if !isFusedDiagramBlock(b) {
 			outAdd = append(outAdd, b)
 			continue
 		}
+		half, passThrough := splitHalf(b)
+		if passThrough {
+			outAdd = append(outAdd, b)
+			continue
+		}
 		visible := b
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
-		outAdd = append(outAdd, visible, emitAnswerBlockV2{
-			ID:          deriveSplitDiagramBlockID(b.ID, used),
-			Kind:        string(types.BlockDiagram),
-			Diagram:     b.Diagram,
-			EdgeAnchors: b.EdgeAnchors,
-		})
-		split++
+		outAdd = append(outAdd, visible)
+		if half != nil {
+			systemHalves = append(systemHalves, *half)
+		}
 	}
-	if split > 0 {
-		logging.Warning("[%s] split %d fused diagram block(s) across patch ops: declared kind and visible rows preserved alongside the diagram payload", logLabel, split)
+	outAdd = append(outAdd, systemHalves...)
+	if split+refreshes > 0 {
+		logging.Warning("[%s] split %d fused diagram block(s) across patch ops (%d refreshing a persisted diagram half): declared kind and visible rows preserved alongside the diagram payload", logLabel, split+refreshes, refreshes)
+	}
+	if skipped := fused - split - refreshes - dupsOfSplit; skipped > 0 {
+		logging.Warning("[%s] %d fused diagram block(s) in patch ops passed through unsplit (no headroom under the %d-block cap, or derived-id suffix space exhausted): discriminator repair keeps the diagram and drops the rows (lossy accept) instead of fabricating a reject", logLabel, skipped, maxBlocksPerDoc)
 	}
 	return outReplace, outAdd
+}
+
+// fusedPatchSplitBudget projects the MERGED document's block count
+// for the patch as emitted (before any splits) and returns the
+// remaining headroom under maxBlocksPerDoc — the number of
+// block-ADDING (fresh-id) fused splits the patch can absorb without
+// the merged-doc hard gate rejecting a count the model never
+// produced. Refresh-classified splits (derived id collides with an
+// unclaimed prev kind=diagram block) are count-neutral and exempt
+// from this budget — see splitFusedDiagramPatchBlocks.
+//
+// The projection mirrors — or over-estimates, never under-estimates —
+// the deterministic prev-id tolerance
+// (normalizeAnswerDocumentPatchBlockOps) and ApplyAnswerDocumentV2Patch
+// for every patch shape those layers ACCEPT:
+//
+//   - replace of an existing prev id        → count unchanged
+//   - replace of a non-prev id              → promoted to add (+1)
+//   - add of a new id                       → +1
+//   - add of an existing prev id            → demoted to replace (+0)
+//   - remove of a prev id                   → −1, EXCEPT when the same
+//     id is also in add_blocks — the tolerance turns that pair into a
+//     replace and drops the remove (net 0)
+//
+// Patch shapes outside the accepted set (overlapping ops, unknown
+// remove ids) are rejected by validatePatchStructure before the cap
+// is ever consulted, so their projection is irrelevant. Identical-
+// duplicate replace/add entries are deliberately over-counted per
+// entry: normalizeAnswerDocumentPatchIDSurface dedups them AFTER
+// this budget is computed, so the actual merged count only ever
+// comes out lower. The invariant is one-directional: this function
+// must never under-estimate the merged count (a too-small budget
+// degrades to the lossy-accept pass-through — the pre-split
+// behavior — never to a fabricated reject).
+func fusedPatchSplitBudget(prev *types.AnswerDocumentV2, removeIDs []string, replaceBlocks, addBlocks []emitAnswerBlockV2) int {
+	if prev == nil {
+		// No merge base: the patch will be rejected upstream for
+		// other reasons; an unbounded budget keeps the split's
+		// payload-preserving behavior for any recovery path.
+		return maxBlocksPerDoc
+	}
+	prevIDs := make(map[string]bool, len(prev.Blocks))
+	for _, b := range prev.Blocks {
+		prevIDs[strings.TrimSpace(b.ID)] = true
+	}
+	addIDs := make(map[string]bool, len(addBlocks))
+	adds := 0
+	for _, b := range addBlocks {
+		id := strings.TrimSpace(b.ID)
+		addIDs[id] = true
+		if !prevIDs[id] {
+			adds++
+		}
+	}
+	removes := 0
+	seenRemove := make(map[string]bool, len(removeIDs))
+	for _, raw := range removeIDs {
+		id := strings.TrimSpace(raw)
+		if seenRemove[id] {
+			continue
+		}
+		seenRemove[id] = true
+		if prevIDs[id] && !addIDs[id] {
+			removes++
+		}
+	}
+	promotions := 0
+	for _, b := range replaceBlocks {
+		if !prevIDs[strings.TrimSpace(b.ID)] {
+			promotions++
+		}
+	}
+	projected := len(prev.Blocks) - removes + adds + promotions
+	return maxBlocksPerDoc - projected
 }

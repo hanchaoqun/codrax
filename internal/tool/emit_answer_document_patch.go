@@ -197,7 +197,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// conversion (the normalize loop's discriminator repair destroys
 	// the declared kind). The diagram half of a fused REPLACE entry
 	// moves to add_blocks: replace merges one block per replaced id.
-	p.ReplaceBlocks, p.AddBlocks = splitFusedDiagramPatchBlocks(t.Name(), p.ReplaceBlocks, p.AddBlocks)
+	// The budget bounds block-ADDING splits to the merged doc's
+	// remaining headroom under maxBlocksPerDoc — system-inserted
+	// halves must never push a within-cap patch into the cap
+	// hard-reject. prev + the model's remove/unchanged claims make
+	// the derived ids collision-disciplined: a half may only ever
+	// collide with (and thereby refresh, budget-free) a prior
+	// split's unclaimed kind=diagram block.
+	p.ReplaceBlocks, p.AddBlocks = splitFusedDiagramPatchBlocks(t.Name(),
+		fusedPatchSplitBudget(prev, p.RemoveBlockIDs, p.ReplaceBlocks, p.AddBlocks),
+		prev, p.RemoveBlockIDs, p.UnchangedBlockIDs,
+		p.ReplaceBlocks, p.AddBlocks)
 
 	// Build typed AnswerDocumentV2Patch from the decoded params.
 	patch := &types.AnswerDocumentV2Patch{

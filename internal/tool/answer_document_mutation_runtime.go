@@ -220,8 +220,14 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 			return fmt.Errorf("merged blocks[%d]: id is empty", i)
 		}
 		if seenIDs[id] {
-			return fmt.Errorf("merged blocks[%d]: duplicate id %q (each block must have a unique id)",
-				i, id)
+			// No index in this message: the merged doc's physical
+			// layout includes system-inserted blocks (split diagram
+			// halves, prev-doc blocks on the patch path), so a
+			// position here does not correspond to the model's own
+			// emission — the id is the stable handle the model can
+			// act on.
+			return fmt.Errorf("merged doc: duplicate id %q (each block must have a unique id)",
+				id)
 		}
 		seenIDs[id] = true
 		if b.Diagram != nil && b.Kind != types.BlockDiagram {
@@ -250,6 +256,16 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 
 func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	// Cap headroom guard (same pattern as
+	// normalizeAggregateNegativeProofSupplement): this advisory block
+	// is system-fabricated and runs immediately before the
+	// maxBlocksPerDoc hard gate — inserting it into an at-cap doc
+	// would reject the emit with a block count the model never
+	// produced. Skipping at cap is lossy-but-safe.
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace observation block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
 	perf := ctx.Mutable.PerfTrace()
@@ -423,4 +439,13 @@ func canonicalizeSummaryLeadBlock(doc *types.AnswerDocumentV2) bool {
 // upper bound; production answers rarely exceed 10. Tests may
 // exercise the cap by constructing a doc with > maxBlocksPerDoc
 // entries.
+//
+// Headroom invariant (2026-06-12): the cap gate in
+// validateMergedV2Doc must only ever reject counts the MODEL
+// produced. Any system-side block insertion or split that runs
+// before the gate (fused-diagram splits, trace/caveat/supplement/
+// carrier materializers) MUST check remaining headroom under this
+// cap first and degrade to a guarded no-op or unsplit pass-through
+// — never push a model-fitting emit over the cap into a fabricated
+// reject.
 const maxBlocksPerDoc = 64

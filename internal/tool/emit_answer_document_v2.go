@@ -179,8 +179,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
-	for i, rawBlock := range splitFusedDiagramBlocks(toolName, p.Blocks) {
-		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))
+	// entry.modelIndex, never the loop position: validation-error
+	// fieldPaths must name the block's index in the MODEL's own
+	// blocks[] array, not its system-shifted post-split position.
+	for _, entry := range splitFusedDiagramBlocks(toolName, p.Blocks) {
+		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
 			persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
 			return failEmit(toolName, now, "%s", err.Error())
@@ -709,6 +712,13 @@ func promoteRecoveredDiagramBlocks(doc *types.AnswerDocumentV2, view *types.Answ
 	if doc == nil || view == nil || !viewRequiresDiagramBlock(view) || answerDocumentHasBlockKind(doc, types.BlockDiagram) {
 		return 0
 	}
+	// Cap headroom guard: this system-fabricated block runs before
+	// the maxBlocksPerDoc hard gate — appending to an at-cap doc
+	// would reject the emit with a count the model never produced.
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] recovered diagram promotion skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return 0
+	}
 	req := firstRequiredBlockRequirement(view, types.BlockDiagram)
 	fixed := 0
 	for _, att := range report.Attachments {
@@ -856,6 +866,15 @@ func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view 
 		return 0
 	}
 	if answerDocumentHasBlockKind(doc, types.BlockCaveat) {
+		return 0
+	}
+	// Cap headroom guard: declining to materialize at the cap keeps
+	// the model-attributable "missing caveat" hard hint standing —
+	// the model can resolve it by replacing a block. Appending here
+	// instead would trip the maxBlocksPerDoc gate with a
+	// system-fabricated count.
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] scope caveat materialization skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return 0
 	}
 	title, text := materializedScopeCaveatCopy(ctx)
