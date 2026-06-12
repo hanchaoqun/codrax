@@ -988,12 +988,14 @@ func TestMultiGraph_TypedRelationCandidatesCalledByPrefixed(t *testing.T) {
 			Package:  "main",
 			Symbols:  []rmtypes.Symbol{{Name: "Run", Kind: "function", File: "cmd/main.go", Line: 20, EndLine: 24}},
 			Relations: []rmtypes.Relation{{
-				Kind: "call",
-				From: "cmd/main.go",
-				To:   "Target",
-				File: "cmd/main.go",
-				Line: 22,
-				ToEP: rmtypes.RelationEndpoint{Name: "Target", File: "cmd/main.go", Line: 22},
+				Kind:       "call",
+				FromEP:     rmtypes.RelationEndpoint{File: "cmd/main.go"},
+				ToEP:       rmtypes.RelationEndpoint{Name: "Target", File: "cmd/main.go", Line: 22},
+				File:       "cmd/main.go",
+				Line:       22,
+				Confidence: rmtypes.ConfidenceAST,
+				Provenance: rmtypes.ProvenanceTreeSitter,
+				ResolvedBy: "test_fixture",
 			}},
 		}
 		for _, fi := range []*rmtypes.FileInfo{targetFile, callerFile} {
@@ -1062,12 +1064,14 @@ func TestMultiGraph_TypedRelationCandidatesReferencesPrefixed(t *testing.T) {
 			}
 		}
 		readerFile.Relations = []rmtypes.Relation{{
-			Kind: "type_usage",
-			From: "cmd/main.go:load",
-			To:   "RuntimeConfig",
-			File: "cmd/main.go",
-			Line: 24,
-			ToEP: rmtypes.RelationEndpoint{ID: targetFile.Symbols[0].ID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+			Kind:       "type_usage",
+			FromEP:     rmtypes.RelationEndpoint{Name: "load", File: "cmd/main.go"},
+			ToEP:       rmtypes.RelationEndpoint{ID: targetFile.Symbols[0].ID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+			File:       "cmd/main.go",
+			Line:       24,
+			Confidence: rmtypes.ConfidenceAST,
+			Provenance: rmtypes.ProvenanceTreeSitter,
+			ResolvedBy: "test_fixture",
 		}}
 		return &rmtypes.Graph{
 			Files:     []*rmtypes.FileInfo{targetFile, readerFile},
@@ -1121,12 +1125,14 @@ func TestMultiGraph_TypedRelationCandidatesExtendsPrefixed(t *testing.T) {
 			Package:  "sample",
 			Symbols:  []rmtypes.Symbol{{Name: "Child", Kind: "class", File: "impl/child.java", Line: 11, EndLine: 18}},
 			Relations: []rmtypes.Relation{{
-				Kind: "inheritance",
-				From: "impl/child.java:Child",
-				To:   "Base",
-				File: "impl/child.java",
-				Line: 12,
-				ToEP: rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.java", Line: 12},
+				Kind:       "inheritance",
+				FromEP:     rmtypes.RelationEndpoint{Name: "Child", File: "impl/child.java"},
+				ToEP:       rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.java", Line: 12},
+				File:       "impl/child.java",
+				Line:       12,
+				Confidence: rmtypes.ConfidenceAST,
+				Provenance: rmtypes.ProvenanceTreeSitter,
+				ResolvedBy: "test_fixture",
 			}},
 		}
 		for _, fi := range []*rmtypes.FileInfo{baseFile, childFile} {

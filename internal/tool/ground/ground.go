@@ -1055,9 +1055,6 @@ func recoverNearestCall(it *types.EvidenceItem, gc *Context) (string, int, bool)
 			continue
 		}
 		relName := strings.TrimSpace(rel.ToEP.Name)
-		if relName == "" {
-			relName = strings.TrimSpace(rel.To)
-		}
 		matched := false
 		for _, candidate := range candidates {
 			if relName == candidate || relName == lastDotSegment(candidate) {
@@ -2481,9 +2478,6 @@ func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {
 			continue
 		}
 		relName := strings.TrimSpace(rel.ToEP.Name)
-		if relName == "" {
-			relName = strings.TrimSpace(rel.To)
-		}
 		for _, candidate := range candidates {
 			if relName == candidate || relName == lastDotSegment(candidate) {
 				return true
@@ -2847,9 +2841,6 @@ func graphLineHasCallToAnyTarget(graph *repomap.Graph, source string, line int, 
 			continue
 		}
 		if want[rel.ToEP.Name] {
-			return true
-		}
-		if want[strings.TrimSpace(rel.To)] {
 			return true
 		}
 	}

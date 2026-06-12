@@ -1,8 +1,8 @@
 package index
 
 import (
-	"testing"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"testing"
 )
 
 // TestMakeSymbolID locks the canonical string format so no consumer
@@ -127,8 +127,10 @@ func TestCallersOfIDReceiverAware(t *testing.T) {
 			Language: types.LangGo,
 			Package:  "agent",
 			Relations: []types.Relation{
-				{Kind: "call", From: "agent/caller_a.go", To: "Execute", File: "agent/caller_a.go", Line: 20,
-					ToEP: types.RelationEndpoint{Name: "Execute", Receiver: "ToolA", File: "agent/caller_a.go", Line: 20}},
+				{Kind: "call", File: "agent/caller_a.go", Line: 20,
+					FromEP:     types.RelationEndpoint{File: "agent/caller_a.go"},
+					ToEP:       types.RelationEndpoint{Name: "Execute", Receiver: "ToolA", File: "agent/caller_a.go", Line: 20},
+					Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"},
 			},
 		},
 		{
@@ -136,18 +138,21 @@ func TestCallersOfIDReceiverAware(t *testing.T) {
 			Language: types.LangGo,
 			Package:  "agent",
 			Relations: []types.Relation{
-				{Kind: "call", From: "agent/caller_b.go", To: "Execute", File: "agent/caller_b.go", Line: 20,
-					ToEP: types.RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/caller_b.go", Line: 20}},
+				{Kind: "call", File: "agent/caller_b.go", Line: 20,
+					FromEP:     types.RelationEndpoint{File: "agent/caller_b.go"},
+					ToEP:       types.RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/caller_b.go", Line: 20},
+					Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"},
 			},
 		},
 	}
 	g := BuildGraph("/tmp/repo", files)
 
-	// Legacy CallersOf returns BOTH caller files — the pre-Phase-1
-	// receiver-drift bug. Kept for backward-compat verification.
-	legacy := g.CallersOf("Execute")
+	// Name-only CallersOfName returns BOTH caller files — the
+	// pre-Phase-1 receiver-drift bug. Kept for backward-compat
+	// verification.
+	legacy := g.CallersOfName("Execute")
 	if len(legacy) != 2 {
-		t.Errorf("legacy CallersOf(Execute) = %v, want 2 files", legacy)
+		t.Errorf("legacy CallersOfName(Execute) = %v, want 2 files", legacy)
 	}
 
 	// CallersOfID for ToolA.Execute returns ONLY caller_a.
@@ -200,7 +205,8 @@ func TestResolveCallTargetFallbacks(t *testing.T) {
 	callerFile := &types.FileInfo{RelPath: "agent/caller.go", Package: "agent", Language: types.LangGo}
 
 	// Same-package bare function: resolves via Pkg="agent", Receiver="".
-	rel := types.Relation{Kind: "call", To: "helper", ToEP: types.RelationEndpoint{Name: "helper"}}
+	rel := types.Relation{Kind: "call", ToEP: types.RelationEndpoint{Name: "helper"},
+		Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"}
 	if s := g.ResolveCallTarget(callerFile, rel); s == nil || s.Name != "helper" {
 		t.Errorf("bare-function resolution failed: got %+v", s)
 	}
@@ -208,13 +214,15 @@ func TestResolveCallTargetFallbacks(t *testing.T) {
 	// Cross-package method call: scope-resolved receiver "types.Graph" in
 	// "agent" package should resolve to the "repomap" package method
 	// via the linear cross-package scan.
-	rel = types.Relation{Kind: "call", To: "CallersOf", ToEP: types.RelationEndpoint{Name: "CallersOf", Receiver: "types.Graph"}}
+	rel = types.Relation{Kind: "call", ToEP: types.RelationEndpoint{Name: "CallersOf", Receiver: "types.Graph"},
+		Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"}
 	if s := g.ResolveCallTarget(callerFile, rel); s == nil || s.Name != "CallersOf" {
 		t.Errorf("cross-pkg resolution failed: got %+v", s)
 	}
 
 	// Unresolved: unknown method/receiver.
-	rel = types.Relation{Kind: "call", To: "NoSuchThing", ToEP: types.RelationEndpoint{Name: "NoSuchThing", Receiver: "NoSuchType"}}
+	rel = types.Relation{Kind: "call", ToEP: types.RelationEndpoint{Name: "NoSuchThing", Receiver: "NoSuchType"},
+		Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"}
 	if s := g.ResolveCallTarget(callerFile, rel); s != nil {
 		t.Errorf("unresolved call should return nil, got %+v", s)
 	}

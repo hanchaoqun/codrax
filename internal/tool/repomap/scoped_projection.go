@@ -239,11 +239,10 @@ func cloneRelationsForScope(relations []Relation, scopeRel string) []Relation {
 		if rebased, ok := projectGraphRebaseRelPath(rel.File, scopeRel); ok {
 			rel.File = rebased
 		}
-		if rebased, ok := projectGraphRebaseLegacyEndpoint(rel.From, scopeRel); ok {
-			rel.From = rebased
-		}
-		if rebased, ok := projectGraphRebaseLegacyEndpoint(rel.To, scopeRel); ok {
-			rel.To = rebased
+		if rel.FromEP.File != "" {
+			if rebased, ok := projectGraphRebaseRelPath(rel.FromEP.File, scopeRel); ok {
+				rel.FromEP.File = rebased
+			}
 		}
 		if rel.ToEP.File != "" {
 			if rebased, ok := projectGraphRebaseRelPath(rel.ToEP.File, scopeRel); ok {
@@ -284,23 +283,4 @@ func projectGraphRebaseRelPath(file, scopeRel string) (string, bool) {
 	}
 	rel := strings.TrimPrefix(file, prefix)
 	return strings.Trim(rel, "/"), rel != ""
-}
-
-func projectGraphRebaseLegacyEndpoint(value, scopeRel string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", false
-	}
-	pathPart, suffix, ok := strings.Cut(value, ":")
-	if !ok {
-		pathPart = value
-	}
-	rebased, ok := projectGraphRebaseRelPath(pathPart, scopeRel)
-	if !ok {
-		return "", false
-	}
-	if suffix != "" {
-		return rebased + ":" + suffix, true
-	}
-	return rebased, true
 }

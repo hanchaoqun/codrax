@@ -392,12 +392,14 @@ func inheritanceGraphFixture(lang string) *rmtypes.Graph {
 		Package:  "sample",
 		Symbols:  []rmtypes.Symbol{{Name: "Child", Kind: "struct", File: "impl/child.go", Line: 11, EndLine: 18}},
 		Relations: []rmtypes.Relation{{
-			Kind: "inheritance",
-			From: "impl/child.go:Child",
-			To:   "Base",
-			File: "impl/child.go",
-			Line: 12,
-			ToEP: rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.go", Line: 12},
+			Kind:       "inheritance",
+			FromEP:     rmtypes.RelationEndpoint{Name: "Child", File: "impl/child.go"},
+			File:       "impl/child.go",
+			Line:       12,
+			ToEP:       rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.go", Line: 12},
+			Confidence: rmtypes.ConfidenceAST,
+			Provenance: rmtypes.ProvenanceTreeSitter,
+			ResolvedBy: "test_fixture",
 		}},
 	}
 	for _, fi := range []*rmtypes.FileInfo{baseFile, childFile} {
@@ -431,12 +433,14 @@ func callGraphFixture(lang string) *rmtypes.Graph {
 		Package:  "main",
 		Symbols:  []rmtypes.Symbol{caller},
 		Relations: []rmtypes.Relation{{
-			Kind: "call",
-			From: "cmd/main.go",
-			To:   "Target",
-			File: "cmd/main.go",
-			Line: 22,
-			ToEP: rmtypes.RelationEndpoint{Name: "Target", File: "cmd/main.go", Line: 22},
+			Kind:       "call",
+			FromEP:     rmtypes.RelationEndpoint{File: "cmd/main.go"},
+			File:       "cmd/main.go",
+			Line:       22,
+			ToEP:       rmtypes.RelationEndpoint{Name: "Target", File: "cmd/main.go", Line: 22},
+			Confidence: rmtypes.ConfidenceAST,
+			Provenance: rmtypes.ProvenanceTreeSitter,
+			ResolvedBy: "test_fixture",
 		}},
 	}
 	targetFile.Symbols[0].ID = rmtypes.DeriveSymbolID(targetFile, &targetFile.Symbols[0])
@@ -470,8 +474,11 @@ func receiverCallGraphFixture(lang string) *rmtypes.Graph {
 		Package:  "agent",
 		Symbols:  []rmtypes.Symbol{{Name: "UseA", Kind: "function", File: "agent/caller_a.go", Line: 5, EndLine: 8}},
 		Relations: []rmtypes.Relation{{
-			Kind: "call", From: "agent/caller_a.go", To: "Execute", File: "agent/caller_a.go", Line: 6,
-			ToEP: rmtypes.RelationEndpoint{Name: "Execute", Receiver: "ToolA", File: "agent/caller_a.go", Line: 6},
+			Kind: "call", FromEP: rmtypes.RelationEndpoint{File: "agent/caller_a.go"}, File: "agent/caller_a.go", Line: 6,
+			ToEP:       rmtypes.RelationEndpoint{Name: "Execute", Receiver: "ToolA", File: "agent/caller_a.go", Line: 6},
+			Confidence: rmtypes.ConfidenceAST,
+			Provenance: rmtypes.ProvenanceTreeSitter,
+			ResolvedBy: "test_fixture",
 		}},
 	}
 	callerB := &rmtypes.FileInfo{
@@ -480,8 +487,11 @@ func receiverCallGraphFixture(lang string) *rmtypes.Graph {
 		Package:  "agent",
 		Symbols:  []rmtypes.Symbol{{Name: "UseB", Kind: "function", File: "agent/caller_b.go", Line: 5, EndLine: 8}},
 		Relations: []rmtypes.Relation{{
-			Kind: "call", From: "agent/caller_b.go", To: "Execute", File: "agent/caller_b.go", Line: 6,
-			ToEP: rmtypes.RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/caller_b.go", Line: 6},
+			Kind: "call", FromEP: rmtypes.RelationEndpoint{File: "agent/caller_b.go"}, File: "agent/caller_b.go", Line: 6,
+			ToEP:       rmtypes.RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/caller_b.go", Line: 6},
+			Confidence: rmtypes.ConfidenceAST,
+			Provenance: rmtypes.ProvenanceTreeSitter,
+			ResolvedBy: "test_fixture",
 		}},
 	}
 	files := []*rmtypes.FileInfo{targetFile, callerA, callerB}
@@ -542,20 +552,24 @@ func referenceGraphFixture(lang string) *rmtypes.Graph {
 	}
 	targetID := targetFile.Symbols[0].ID
 	readerFile.Relations = []rmtypes.Relation{{
-		Kind: "type_usage",
-		From: "cmd/main.go:load",
-		To:   "RuntimeConfig",
-		File: "cmd/main.go",
-		Line: 24,
-		ToEP: rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+		Kind:       "type_usage",
+		FromEP:     rmtypes.RelationEndpoint{Name: "load", File: "cmd/main.go"},
+		File:       "cmd/main.go",
+		Line:       24,
+		ToEP:       rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+		Confidence: rmtypes.ConfidenceAST,
+		Provenance: rmtypes.ProvenanceTreeSitter,
+		ResolvedBy: "test_fixture",
 	}}
 	validatorFile.Relations = []rmtypes.Relation{{
-		Kind: "reference",
-		From: "internal/validate.go:validate",
-		To:   "RuntimeConfig",
-		File: "internal/validate.go",
-		Line: 13,
-		ToEP: rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "internal/validate.go", Line: 13},
+		Kind:       "reference",
+		FromEP:     rmtypes.RelationEndpoint{Name: "validate", File: "internal/validate.go"},
+		File:       "internal/validate.go",
+		Line:       13,
+		ToEP:       rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "internal/validate.go", Line: 13},
+		Confidence: rmtypes.ConfidenceAST,
+		Provenance: rmtypes.ProvenanceTreeSitter,
+		ResolvedBy: "test_fixture",
 	}}
 	return &rmtypes.Graph{
 		Files: []*rmtypes.FileInfo{targetFile, readerFile, validatorFile},

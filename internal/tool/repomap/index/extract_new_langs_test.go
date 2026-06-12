@@ -88,7 +88,7 @@ def top_level_fn(x); x + 1; end
 	// Inheritance: Greeter < Object
 	hasInherit := false
 	for _, r := range rels {
-		if r.Kind == "inheritance" && r.To == "Object" {
+		if r.Kind == "inheritance" && r.ToEP.Name == "Object" {
 			hasInherit = true
 		}
 	}
@@ -133,7 +133,7 @@ func topLevel(x: Int) -> Int { return x + 1 }
 	}
 	hasInheritance := false
 	for _, r := range rels {
-		if r.Kind == "inheritance" && (r.To == "NSObject" || r.To == "Greetable") {
+		if r.Kind == "inheritance" && (r.ToEP.Name == "NSObject" || r.ToEP.Name == "Greetable") {
 			hasInheritance = true
 			break
 		}
@@ -187,7 +187,7 @@ actor Loader {
 	}
 	hasConformance := false
 	for _, r := range rels {
-		if r.Kind == "inheritance" && r.To == "CustomStringConvertible" {
+		if r.Kind == "inheritance" && r.ToEP.Name == "CustomStringConvertible" {
 			hasConformance = true
 			break
 		}

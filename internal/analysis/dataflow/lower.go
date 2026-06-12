@@ -347,15 +347,15 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 			if rel.Kind != "call" {
 				continue
 			}
-			if !contains(summary.Calls, rel.To) {
-				summary.Calls = append(summary.Calls, rel.To)
+			if !contains(summary.Calls, rel.ToEP.Name) {
+				summary.Calls = append(summary.Calls, rel.ToEP.Name)
 			}
-			summary.CallSites[rel.To] = lineNo
+			summary.CallSites[rel.ToEP.Name] = lineNo
 			summary.ProducerEvidence = append(summary.ProducerEvidence, newEvidenceItem(
 				types.EvidenceRelationship,
 				symbolKey,
 				"calls",
-				rel.To,
+				rel.ToEP.Name,
 				"",
 				file.RelPath,
 				"",
@@ -363,9 +363,9 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 				lineNo,
 				0.82,
 				"dataflow.lowerer."+file.Language,
-				fmt.Sprintf("`%s` line %d calls `%s`", symbolKey, lineNo, rel.To),
+				fmt.Sprintf("`%s` line %d calls `%s`", symbolKey, lineNo, rel.ToEP.Name),
 				types.AnchorCall,
-				callerLeafName(rel.To),
+				callerLeafName(rel.ToEP.Name),
 			))
 		}
 	}

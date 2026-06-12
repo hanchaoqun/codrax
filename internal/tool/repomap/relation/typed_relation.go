@@ -501,12 +501,12 @@ func relationInheritanceTargetPrecision(g *rmtypes.Graph, rel rmtypes.Relation, 
 		}
 		return "", false
 	}
-	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name) {
 		if relationNameResolvesUniquelyToSymbol(g, name, target) {
 			return types.TypedRelationPrecisionExactSymbolID, true
 		}
 	}
-	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name) {
 		if relationSymbolSurfaceMatches(target, name) || strings.EqualFold(strings.TrimSpace(target.Name), name) {
 			return types.TypedRelationPrecisionNameOnly, true
 		}
@@ -529,12 +529,12 @@ func relationReferenceTargetPrecision(g *rmtypes.Graph, rel rmtypes.Relation, ta
 		}
 		return "", false
 	}
-	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name) {
 		if relationNameResolvesUniquelyToSymbol(g, name, target) {
 			return types.TypedRelationPrecisionExactSymbolID, true
 		}
 	}
-	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name) {
 		if relationSymbolSurfaceMatches(target, name) || strings.EqualFold(strings.TrimSpace(target.Name), name) {
 			return types.TypedRelationPrecisionNameOnly, true
 		}
@@ -628,7 +628,7 @@ func inheritanceRelationMember(fi *rmtypes.FileInfo, file string, rel rmtypes.Re
 	if line <= 0 {
 		line = rel.ToEP.Line
 	}
-	name := strings.TrimSpace(rel.From)
+	name := strings.TrimSpace(rel.FromEP.Name)
 	kind := "type"
 	if sym != nil && strings.TrimSpace(sym.Name) != "" {
 		name = relationDisplayNameForSymbol(sym)
@@ -636,8 +636,6 @@ func inheritanceRelationMember(fi *rmtypes.FileInfo, file string, rel rmtypes.Re
 		if kind == "" {
 			kind = "type"
 		}
-	} else if idx := strings.LastIndex(name, ":"); idx >= 0 && idx+1 < len(name) {
-		name = strings.TrimSpace(name[idx+1:])
 	}
 	return types.TypedRelationMember{
 		Name:     name,
@@ -652,10 +650,7 @@ func relationFromSymbol(fi *rmtypes.FileInfo, rel rmtypes.Relation) *rmtypes.Sym
 	if fi == nil {
 		return nil
 	}
-	fromName := strings.TrimSpace(rel.From)
-	if idx := strings.LastIndex(fromName, ":"); idx >= 0 && idx+1 < len(fromName) {
-		fromName = strings.TrimSpace(fromName[idx+1:])
-	}
+	fromName := strings.TrimSpace(rel.FromEP.Name)
 	for i := range fi.Symbols {
 		sym := &fi.Symbols[i]
 		if fromName != "" {

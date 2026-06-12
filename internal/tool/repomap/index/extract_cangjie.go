@@ -66,7 +66,7 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 //   - `//` to end-of-line
 //   - `/* ... */` possibly multi-line
 //   - `"..."` double-quoted strings with `\` escapes
-//   - `'\''` single-char strings (Cangjie Rune literals)
+//   - `'\”` single-char strings (Cangjie Rune literals)
 //   - interpolated `"${...}"` — we blank the contents including
 //     any nested braces because tracking interpolation is expensive
 //     and the post-pass only cares about brace depth at top level
@@ -423,15 +423,21 @@ func scanCangjieExtendRelations(cleaned, file string) []types.Relation {
 		line := byteOffsetToLine(cleaned, m[0])
 		rels = append(rels, types.Relation{
 			Kind: "inheritance",
-			From: file + ":extend",
-			To:   target,
-			File: file,
-			Line: line,
+			FromEP: types.RelationEndpoint{
+				Name: "extend",
+				File: file,
+				Line: line,
+			},
 			ToEP: types.RelationEndpoint{
 				Name: target,
 				File: file,
 				Line: line,
 			},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceRegexSalvage,
+			Provenance: types.ProvenanceRegexFallback,
+			ResolvedBy: "cangjie_regex_extend",
 		})
 	}
 	return rels

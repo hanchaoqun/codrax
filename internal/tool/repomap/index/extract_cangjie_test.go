@@ -66,7 +66,7 @@ extend String {
 	}
 	found := false
 	for _, r := range rels {
-		if r.Kind == "inheritance" && r.To == "String" {
+		if r.Kind == "inheritance" && r.ToEP.Name == "String" {
 			found = true
 		}
 	}

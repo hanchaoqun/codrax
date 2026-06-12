@@ -1398,8 +1398,10 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
 		}},
 		Relations: []Relation{{
 			Kind: "call",
-			From: "src/alpha/alpha.go:RunAlpha",
-			To:   "src/beta/beta.go:RunBeta",
+			FromEP: RelationEndpoint{
+				Name: "RunAlpha",
+				File: "src/alpha/alpha.go",
+			},
 			File: "src/alpha/alpha.go",
 			Line: 4,
 			ToEP: RelationEndpoint{
@@ -1407,6 +1409,9 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
 				File: "src/beta/beta.go",
 				Line: 3,
 			},
+			Confidence: 1.0,
+			Provenance: "tree_sitter",
+			ResolvedBy: "test_fixture",
 		}},
 	}, {
 		RelPath:  "src/beta/beta.go",

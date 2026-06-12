@@ -94,11 +94,14 @@ func rubyExtractClassLike(node *sitter.Node, src []byte, file, kind string) (cls
 		baseName = strings.TrimSpace(baseName)
 		if baseName != "" {
 			rels = append(rels, types.Relation{
-				Kind: "inheritance",
-				From: file + ":" + name,
-				To:   baseName,
-				File: file,
-				Line: nodeLine(super),
+				Kind:       "inheritance",
+				FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(super)},
+				ToEP:       types.RelationEndpoint{Name: baseName, File: file, Line: nodeLine(super)},
+				File:       file,
+				Line:       nodeLine(super),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "ruby_superclass",
 			})
 		}
 	}

@@ -1532,11 +1532,7 @@ func emitEvidenceAnchorCandidatesFromGraph(in emitEvidenceItem, anchorKind types
 			if rel.Line != line || rel.Kind != "call" {
 				continue
 			}
-			if rel.ToEP.Name != "" {
-				add(rel.ToEP.Name)
-			} else {
-				add(rel.To)
-			}
+			add(rel.ToEP.Name)
 		}
 	case types.AnchorImport:
 		for _, imp := range fi.Imports {
@@ -2938,9 +2934,6 @@ func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string)
 			fallback = rel
 		}
 		relName := strings.TrimSpace(rel.ToEP.Name)
-		if relName == "" {
-			relName = strings.TrimSpace(rel.To)
-		}
 		if anchorSymbol == "" || relName == anchorSymbol || relName == shortAnchor {
 			return rel, true
 		}
@@ -3001,9 +2994,6 @@ func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candida
 			continue
 		}
 		relName := strings.TrimSpace(rel.ToEP.Name)
-		if relName == "" {
-			relName = strings.TrimSpace(rel.To)
-		}
 		if candSet[relName] {
 			return rel, true
 		}
@@ -3059,10 +3049,7 @@ func callRelationTargetName(graph *repomap.Graph, fi *repomap.FileInfo, rel *rep
 	if recv := strings.TrimSpace(rel.ToEP.Receiver); recv != "" && name != "" {
 		return recv + "." + name
 	}
-	if name != "" {
-		return name
-	}
-	return strings.TrimSpace(rel.To)
+	return name
 }
 
 func qualifiedEvidenceSymbolName(sym *repomap.Symbol) string {

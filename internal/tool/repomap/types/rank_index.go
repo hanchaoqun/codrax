@@ -89,16 +89,16 @@ func (b *RankIndexBuilder) AddFileRelations(g *Graph, fi *FileInfo) {
 			if resolved != nil && resolved.ID != "" {
 				b.idx.CallCountByID[resolved.ID]++
 			} else {
-				b.idx.CallCount[rel.To]++
+				b.idx.CallCount[rel.ToEP.Name]++
 			}
 		case "type_usage", "reference":
-			b.idx.RefCount[rel.To]++
+			b.idx.RefCount[rel.ToEP.Name]++
 		}
 
 		defFile := ""
 		if resolved != nil && resolved.ID != "" {
 			defFile = b.symbolIDFile[resolved.ID]
-		} else if f, ok := b.symbolNameFile[rel.To]; ok {
+		} else if f, ok := b.symbolNameFile[rel.ToEP.Name]; ok {
 			defFile = f
 		}
 		if defFile == "" || defFile == fi.RelPath {

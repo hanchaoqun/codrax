@@ -25,7 +25,13 @@ func BenchmarkBuildGraph_CrossPackageCalls(b *testing.B) {
 	for c := 0; c < callers; c++ {
 		files = append(files, &types.FileInfo{
 			RelPath: fmt.Sprintf("call%03d/use.go", c), Language: "go", Package: fmt.Sprintf("call%03d", c),
-			Relations: []types.Relation{{Kind: "call", To: "Handle", ToEP: types.RelationEndpoint{Name: "Handle", Receiver: "Store"}}},
+			Relations: []types.Relation{{
+				Kind:       "call",
+				ToEP:       types.RelationEndpoint{Name: "Handle", Receiver: "Store"},
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "test_fixture",
+			}},
 		})
 	}
 	b.ReportAllocs()

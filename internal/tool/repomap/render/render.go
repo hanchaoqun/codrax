@@ -350,6 +350,12 @@ type relationMapRow struct {
 	TargetLine   int
 	ObservedFile string
 	ObservedLine int
+	// Diag is the edge-strength annotation rendered in brackets at
+	// the row tail: construction provenance/resolver + confidence,
+	// plus the render-time resolution grade for call rows. Soft
+	// guidance for the reading model — rows remain navigation
+	// candidates either way.
+	Diag string
 }
 
 // buildRelationMapData renders a model-driven structural relation lens.
@@ -607,13 +613,14 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 				Target:       target,
 				TargetFile:   target,
 				ObservedFile: fi.RelPath,
+				Diag:         "import_resolver/" + fi.Language,
 			})
 		}
 		for _, rel := range fi.Relations {
 			switch rel.Kind {
 			case "call":
 				src := relationMapEnclosingSymbol(fi, rel.Line)
-				target := relationMapCallTarget(g, fi, rel)
+				target, typedResolution := relationMapCallTarget(g, fi, rel)
 				add(relationMapRow{
 					Kind:         "call",
 					Source:       relationMapSourceName(src, fi.RelPath),
@@ -624,6 +631,7 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					TargetLine:   target.Line,
 					ObservedFile: rel.File,
 					ObservedLine: rel.Line,
+					Diag:         relationMapRelationDiag(rel, typedResolution),
 				})
 			case "inheritance", "embedding", "reference", "type_usage":
 				src := relationMapEnclosingSymbol(fi, rel.Line)
@@ -637,6 +645,7 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					TargetLine:   rel.ToEP.Line,
 					ObservedFile: rel.File,
 					ObservedLine: rel.Line,
+					Diag:         relationMapRelationDiag(rel, false),
 				})
 			}
 		}
@@ -657,6 +666,7 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					TargetLine:   iface.Line,
 					ObservedFile: sym.File,
 					ObservedLine: sym.Line,
+					Diag:         "interface_conformance",
 				})
 			}
 		}
@@ -818,10 +828,10 @@ func relationMapEnclosingSymbol(fi *types.FileInfo, line int) *types.Symbol {
 	return best
 }
 
-func relationMapCallTarget(g *types.Graph, fi *types.FileInfo, rel types.Relation) relationMapSource {
+func relationMapCallTarget(g *types.Graph, fi *types.FileInfo, rel types.Relation) (relationMapSource, bool) {
 	if g != nil {
 		if sym := g.ResolveCallTarget(fi, rel); sym != nil {
-			return relationMapSource{Name: sym.Name, File: sym.File, Line: sym.Line, Kind: sym.Kind}
+			return relationMapSource{Name: sym.Name, File: sym.File, Line: sym.Line, Kind: sym.Kind}, true
 		}
 	}
 	return relationMapSource{
@@ -829,7 +839,29 @@ func relationMapCallTarget(g *types.Graph, fi *types.FileInfo, rel types.Relatio
 		File: rel.ToEP.File,
 		Line: rel.ToEP.Line,
 		Kind: "symbol",
+	}, false
+}
+
+// relationMapRelationDiag renders the bracketed edge-strength
+// annotation for a graph relation row: construction provenance and
+// resolver plus confidence, and — for call rows — whether the target
+// was resolved through the receiver-aware typed index (resolution=
+// typed) or remains a name-level match (resolution=name_match).
+// Confidence here is display only: it grades edge strength for the
+// reader and never gates anything.
+func relationMapRelationDiag(rel types.Relation, typedResolution bool) string {
+	if rel.Provenance == "" {
+		return ""
 	}
+	diag := fmt.Sprintf("%s/%s, confidence=%.2f", rel.Provenance, rel.ResolvedBy, rel.Confidence)
+	if rel.Kind == "call" {
+		if typedResolution {
+			diag += ", resolution=typed"
+		} else {
+			diag += ", resolution=name_match"
+		}
+	}
+	return diag
 }
 
 func relationMapRelationTargetName(rel types.Relation) string {
@@ -838,9 +870,6 @@ func relationMapRelationTargetName(rel types.Relation) string {
 			return rel.ToEP.Receiver + "." + rel.ToEP.Name
 		}
 		return rel.ToEP.Name
-	}
-	if rel.To != "" {
-		return rel.To
 	}
 	return "(unresolved)"
 }
@@ -901,10 +930,14 @@ func relationMapRowText(row relationMapRow) string {
 	if observed == "" {
 		observed = row.SourceFile
 	}
-	if observed != "" {
-		return fmt.Sprintf("%s `%s` → %s — observed @ %s", row.Kind, source, target, observed)
+	diag := ""
+	if strings.TrimSpace(row.Diag) != "" {
+		diag = " [" + row.Diag + "]"
 	}
-	return fmt.Sprintf("%s `%s` → %s", row.Kind, source, target)
+	if observed != "" {
+		return fmt.Sprintf("%s `%s` → %s — observed @ %s%s", row.Kind, source, target, observed, diag)
+	}
+	return fmt.Sprintf("%s `%s` → %s%s", row.Kind, source, target, diag)
 }
 
 func relationMapEndpointText(name, file string, line int) string {
@@ -1302,7 +1335,7 @@ func buildEditImpactData(g *types.Graph, params types.ViewParams) *ViewData {
 		if !sym.Exported {
 			continue
 		}
-		refs := len(g.CallersOf(sym.Name))
+		refs := len(g.CallersOfName(sym.Name))
 		suffix := ""
 		if refs > 0 {
 			suffix = fmt.Sprintf(" (referenced from %d files)", refs)

@@ -2891,8 +2891,7 @@ func fileInfoReferencesFile(fi *repomap.FileInfo, target string) bool {
 	}
 	for _, rel := range fi.Relations {
 		if relationEndpointFile(rel.ToEP.File) == target ||
-			relationEndpointFile(rel.File) == target ||
-			relationEndpointFile(rel.To) == target {
+			relationEndpointFile(rel.File) == target {
 			return true
 		}
 	}
@@ -4774,9 +4773,6 @@ func (e *explorerEvaluator) primaryAnchorNextHops() (local []anchorNextHop, exte
 			continue
 		}
 		symbol := strings.TrimSpace(rel.ToEP.Name)
-		if symbol == "" {
-			symbol = strings.TrimSpace(rel.To)
-		}
 		if symbol == "" {
 			continue
 		}
@@ -12243,17 +12239,6 @@ func (e *explorerEvaluator) toolConfidence(name string) float64 {
 	return t.Confidence()
 }
 
-// buildCrossReferenceMap scans investigation notes for symbol names
-// from the repo_map graph and identifies symbols that appear in 2+
-// different notes. These "bridge entities" are the connective tissue
-// for multi-hop reasoning — they tell the LLM which analyses to
-// chain together.
-//
-// Each bridge carries directional information: where the symbol is
-// defined, which evidence sets define vs. use it, and for relation-
-// based bridges, the exact relationship verb (calls, references,
-// uses_type). This lets synthesis trace chains in the right direction
-// instead of guessing which end is the source.
 // buildUniqueDefFileIndex maps each symbol name in the graph to its
 // unique defining file, skipping names whose definitions span two
 // or more files. Closes the second of the two B-bucket drift sites
@@ -12285,215 +12270,6 @@ func buildUniqueDefFileIndex(graph *repomap.Graph) map[string]string {
 	return out
 }
 
-func (e *explorerEvaluator) buildCrossReferenceMap() string {
-	if crossRefs := buildCrossReferenceMapFromEvidence(e.structuredEvidence, e.flowFindings); crossRefs != "" {
-		return crossRefs
-	}
-	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.investigationNotes) < 2 {
-		return ""
-	}
-	graph := e.searchResult.Graph
-
-	// For each symbol in the graph, check which notes mention it.
-	type symbolRef struct {
-		name     string
-		noteIdxs []int    // 0-based indices into investigationNotes
-		relKinds []string // relation kinds connecting this symbol across files
-		defFile  string   // file where the symbol is defined (for single-symbol bridges)
-		directed bool     // true for relation-based bridges (From→To)
-	}
-	bridgeMap := make(map[string]*symbolRef)
-
-	// Build symbol → definition file index for directionality
-	// annotation. Drift-safe: see buildUniqueDefFileIndex.
-	symDefFile := buildUniqueDefFileIndex(graph)
-
-	for symName := range graph.SymbolDefs {
-		// Skip short/generic names that would produce noise.
-		if len(symName) < 6 {
-			continue
-		}
-		var mentioned []int
-		for i, note := range e.investigationNotes {
-			if strings.Contains(note, symName) {
-				mentioned = append(mentioned, i)
-			}
-		}
-		if len(mentioned) >= 2 {
-			bridgeMap[symName] = &symbolRef{
-				name:     symName,
-				noteIdxs: mentioned,
-				defFile:  symDefFile[symName],
-			}
-		}
-	}
-
-	// Augment with relation graph: when a call/reference/type_usage
-	// relation links a symbol mentioned in one note to a symbol
-	// mentioned in a different note, that pair is a cross-reference
-	// even if neither symbol individually spans 2+ notes.
-	noteSymbolIndex := make(map[string]int) // symbol → note index (first mention)
-	for i, note := range e.investigationNotes {
-		for symName := range graph.SymbolDefs {
-			if len(symName) < 6 {
-				continue
-			}
-			if strings.Contains(note, symName) {
-				if _, exists := noteSymbolIndex[symName]; !exists {
-					noteSymbolIndex[symName] = i
-				}
-			}
-		}
-	}
-
-	// Relation kind → human-readable directional verb.
-	relVerb := map[string]string{
-		"call":       "calls",
-		"reference":  "references",
-		"type_usage": "uses type",
-	}
-
-	for _, fi := range graph.Files {
-		for _, rel := range fi.Relations {
-			if rel.Kind != "call" && rel.Kind != "reference" && rel.Kind != "type_usage" {
-				continue
-			}
-			// Extract symbol names from relation endpoints (format: "file:Symbol" or "Symbol").
-			fromSym := rel.From
-			if idx := strings.LastIndex(fromSym, ":"); idx >= 0 {
-				fromSym = fromSym[idx+1:]
-			}
-			toSym := rel.To
-			if idx := strings.LastIndex(toSym, ":"); idx >= 0 {
-				toSym = toSym[idx+1:]
-			}
-			if len(fromSym) < 6 || len(toSym) < 6 || fromSym == toSym {
-				continue
-			}
-			fromNote, fromOK := noteSymbolIndex[fromSym]
-			toNote, toOK := noteSymbolIndex[toSym]
-			if !fromOK || !toOK || fromNote == toNote {
-				continue
-			}
-			// Create a directed bridge with the relationship verb.
-			verb := relVerb[rel.Kind]
-			if verb == "" {
-				verb = rel.Kind
-			}
-			key := fromSym + "→" + toSym
-			if br, ok := bridgeMap[key]; ok {
-				// Add relation kind if not already present.
-				hasKind := false
-				for _, k := range br.relKinds {
-					if k == verb {
-						hasKind = true
-						break
-					}
-				}
-				if !hasKind {
-					br.relKinds = append(br.relKinds, verb)
-				}
-			} else {
-				noteIdxs := []int{fromNote, toNote}
-				sort.Ints(noteIdxs)
-				bridgeMap[key] = &symbolRef{
-					name:     fromSym + " → " + toSym,
-					noteIdxs: noteIdxs,
-					relKinds: []string{verb},
-					directed: true,
-				}
-			}
-		}
-	}
-
-	if len(bridgeMap) == 0 {
-		return ""
-	}
-
-	var bridges []symbolRef
-	for _, br := range bridgeMap {
-		bridges = append(bridges, *br)
-	}
-
-	// Sort bridges: directed relations first (more actionable), then by
-	// number of notes they span (most connected first), then alphabetically.
-	sort.Slice(bridges, func(i, j int) bool {
-		// Directed bridges before single-symbol bridges.
-		if bridges[i].directed != bridges[j].directed {
-			return bridges[i].directed
-		}
-		if len(bridges[i].noteIdxs) != len(bridges[j].noteIdxs) {
-			return len(bridges[i].noteIdxs) > len(bridges[j].noteIdxs)
-		}
-		return bridges[i].name < bridges[j].name
-	})
-
-	// Adaptive cap: scale with investigation complexity.
-	bridgeCap := 15
-	if len(e.allScoredFiles) > 10 {
-		bridgeCap = 20
-	}
-	if len(bridges) > bridgeCap {
-		bridges = bridges[:bridgeCap]
-	}
-
-	var b strings.Builder
-	b.WriteString("## Cross-References Between Evidence Sets\n\n")
-	b.WriteString("These symbols link your evidence sets. Directed entries (A —[verb]→ B) show ")
-	b.WriteString("the code-level relationship; trace them to connect facts across files:\n\n")
-	for _, br := range bridges {
-		// Deduplicate note indices.
-		seen := make(map[int]bool)
-		var unique []int
-		for _, idx := range br.noteIdxs {
-			if !seen[idx] {
-				seen[idx] = true
-				unique = append(unique, idx)
-			}
-		}
-		refs := make([]string, len(unique))
-		for i, idx := range unique {
-			refs[i] = fmt.Sprintf("Evidence Set %d", idx+1)
-		}
-
-		var entry string
-		if br.directed && len(br.relKinds) > 0 {
-			// Directed bridge: "SymA —[calls]→ SymB"
-			entry = fmt.Sprintf("- **%s** —[%s]→ %s",
-				br.name, strings.Join(br.relKinds, ", "),
-				strings.Join(refs, ", "))
-		} else {
-			// Single-symbol bridge: "SymName" with definition site.
-			entry = fmt.Sprintf("- **%s** — %s", br.name, strings.Join(refs, ", "))
-			if br.defFile != "" {
-				entry += fmt.Sprintf(" (defined in %s)", br.defFile)
-			}
-		}
-		b.WriteString(entry + "\n")
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
-// buildConcreteValuesSection scans all files from the keyword search
-// and investigation for short methods/functions (≤3 lines), extracts
-// concrete values (return values, registrations), and builds a table
-// for the synthesis prompt. Unlike LLM-generated evidence, this is
-// deterministic — it doesn't depend on which files the LLM chose to
-// read or what it extracted.
-//
-// The function also builds resolution chains: when one concrete value
-// references a symbol that has its own concrete value, the chain is
-// made explicit (e.g., RegisterX binds NewFoo → Foo.Name returns "bar").
-// concreteValuesResult holds both the markdown for synthesis prompt and
-// structured evidence items for downstream stages.
-//
-// chainAnchors is the CGEC parallel array — one entry per chain in
-// the order chains were built, listing the source-file anchors each
-// chain depends on. The chain promotion helper consults this when
-// closure is non-nil to demote chains anchored outside Turn A's
-// ReadSet, so they cannot leak into the prompt as suggestions the
-// LLM would have to cite at unread file:line coordinates.
 type concreteValuesResult struct {
 	markdown     string
 	evidence     []types.EvidenceItem
@@ -13870,16 +13646,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			if rel.Kind != "embedding" && rel.Kind != "inheritance" {
 				continue
 			}
-			childType := rel.From
-			if idx := strings.LastIndex(childType, ":"); idx >= 0 {
-				childType = childType[idx+1:]
-			}
+			childType := rel.FromEP.Name
 			verb := "embeds"
 			if rel.Kind == "inheritance" {
 				verb = "extends"
 			}
 			allRelations = append(allRelations, hierRelation{
-				childType: childType, parentType: rel.To, verb: verb,
+				childType: childType, parentType: rel.ToEP.Name, verb: verb,
 			})
 		}
 	}

@@ -246,11 +246,14 @@ func rustExtractTrait(node *sitter.Node, src []byte, file string) (traits []type
 		walkNamedChildren(bounds, true, func(ch *sitter.Node) {
 			if ch.Type() == "type_identifier" {
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   nodeText(ch, src),
-					File: file,
-					Line: nodeLine(ch),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(ch)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(ch, src), File: file, Line: nodeLine(ch)},
+					File:       file,
+					Line:       nodeLine(ch),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "rust_supertrait",
 				})
 			}
 		})
@@ -282,11 +285,14 @@ func rustExtractImpl(node *sitter.Node, src []byte, file string) (methods []type
 	if traitNode := node.ChildByFieldName("trait"); traitNode != nil {
 		traitName := nodeText(traitNode, src)
 		rels = append(rels, types.Relation{
-			Kind: "inheritance",
-			From: file + ":" + typeName,
-			To:   traitName,
-			File: file,
-			Line: nodeLine(node),
+			Kind:       "inheritance",
+			FromEP:     types.RelationEndpoint{Name: typeName, File: file, Line: nodeLine(node)},
+			ToEP:       types.RelationEndpoint{Name: traitName, File: file, Line: nodeLine(node)},
+			File:       file,
+			Line:       nodeLine(node),
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "rust_impl_trait",
 		})
 	}
 
@@ -323,30 +329,39 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		switch fn.Type() {
 		case "identifier":
 			rels = append(rels, types.Relation{
-				Kind: "call",
-				From: file,
-				To:   nodeText(fn, src),
-				File: file,
-				Line: nodeLine(fn),
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(fn, src), File: file, Line: nodeLine(fn)},
+				File:       file,
+				Line:       nodeLine(fn),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "rust_ast_identifier_call",
 			})
 		case "field_expression":
 			if field := fn.ChildByFieldName("field"); field != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(field, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(field, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "rust_ast_field_call",
 				})
 			}
 		case "scoped_identifier":
 			if nameNode := fn.ChildByFieldName("name"); nameNode != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(nameNode, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "rust_ast_scoped_call",
 				})
 			}
 		}

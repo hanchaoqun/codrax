@@ -219,21 +219,18 @@ func (g *Graph) SymbolExists(name string) (bool, int) {
 	return true, minTier
 }
 
-// CallersOf returns files that call the given symbol name.
-//
-// Legacy name-only resolver: when two methods in different files
-// share a name (the receiver drift corpus — `Execute`, `Name`,
-// `String`, etc.), a call to any of them credits every file that
-// defines a same-named method. Post-Phase-1, consumers should
-// prefer CallersOfID which filters by the canonical (pkg, receiver,
-// name) tuple. CallersOf is kept for legacy consumers migrated in
-// P1.3 and deleted in P1.4.
-func (g *Graph) CallersOf(symbolName string) []string {
+// CallersOfName returns files containing a call whose target NAME
+// matches, regardless of receiver. Name-keyed by design: same-named
+// methods on different types all count (the drift corpus — `Execute`,
+// `Name`, `String`). Used for coarse fan-in counts (edit_impact's
+// "referenced from N files"); receiver-aware consumers use
+// CallersOfID.
+func (g *Graph) CallersOfName(symbolName string) []string {
 	var callers []string
 	seen := make(map[string]bool)
 	for _, fi := range g.Files {
 		for _, rel := range fi.Relations {
-			if rel.Kind == "call" && rel.To == symbolName && !seen[rel.File] {
+			if rel.Kind == "call" && rel.ToEP.Name == symbolName && !seen[rel.File] {
 				seen[rel.File] = true
 				callers = append(callers, rel.File)
 			}
@@ -266,7 +263,7 @@ func (g *Graph) CallersOfID(id SymbolID) []string {
 	seen := make(map[string]bool)
 	for _, fi := range g.Files {
 		for _, rel := range fi.Relations {
-			if rel.Kind != "call" || rel.To != target.Name {
+			if rel.Kind != "call" || rel.ToEP.Name != target.Name {
 				continue
 			}
 			gotRecv := rel.ToEP.Receiver
@@ -314,9 +311,6 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 		return nil
 	}
 	name := rel.ToEP.Name
-	if name == "" {
-		name = rel.To
-	}
 	if name == "" {
 		return nil
 	}

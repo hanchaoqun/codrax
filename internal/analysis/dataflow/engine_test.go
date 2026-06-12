@@ -135,7 +135,16 @@ func Serve() {
 				{Name: "Serve", Kind: "function", Line: 3, EndLine: 6, Exported: true},
 			},
 			relations: []repomap.Relation{
-				{Kind: "call", From: "handler.go:Serve", To: "GetPort", File: "handler.go", Line: 4},
+				{
+					Kind:       "call",
+					FromEP:     repomap.RelationEndpoint{Name: "Serve", File: "handler.go"},
+					ToEP:       repomap.RelationEndpoint{Name: "GetPort"},
+					File:       "handler.go",
+					Line:       4,
+					Confidence: 1.0,
+					Provenance: "tree_sitter",
+					ResolvedBy: "test_fixture",
+				},
 			},
 		},
 	})
@@ -304,7 +313,16 @@ def health():
 				{Name: "health", Kind: "function", Line: 9, EndLine: 10, Exported: true},
 			},
 			relations: []repomap.Relation{
-				{Kind: "call", From: "app.py:get_users", To: "get_db_connection", File: "app.py", Line: 6},
+				{
+					Kind:       "call",
+					FromEP:     repomap.RelationEndpoint{Name: "get_users", File: "app.py"},
+					ToEP:       repomap.RelationEndpoint{Name: "get_db_connection"},
+					File:       "app.py",
+					Line:       6,
+					Confidence: 1.0,
+					Provenance: "tree_sitter",
+					ResolvedBy: "test_fixture",
+				},
 			},
 		},
 		{

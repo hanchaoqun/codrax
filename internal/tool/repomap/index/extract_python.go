@@ -165,11 +165,14 @@ func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 			baseName := nodeText(base, src)
 			if baseName != "" {
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   baseName,
-					File: file,
-					Line: nodeLine(base),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(base)},
+					ToEP:       types.RelationEndpoint{Name: baseName, File: file, Line: nodeLine(base)},
+					File:       file,
+					Line:       nodeLine(base),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "python_base_class",
 				})
 			}
 		}
@@ -259,20 +262,26 @@ func pyExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation
 		switch fn.Type() {
 		case "identifier":
 			rels = append(rels, types.Relation{
-				Kind: "call",
-				From: file,
-				To:   nodeText(fn, src),
-				File: file,
-				Line: nodeLine(fn),
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(fn, src), File: file, Line: nodeLine(fn)},
+				File:       file,
+				Line:       nodeLine(fn),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "python_ast_identifier_call",
 			})
 		case "attribute":
 			if attr := fn.ChildByFieldName("attribute"); attr != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(attr, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(attr, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "python_ast_attribute_call",
 				})
 			}
 		}

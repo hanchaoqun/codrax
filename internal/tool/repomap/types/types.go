@@ -19,9 +19,9 @@
 package types
 
 import (
-	"sync"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -168,14 +168,14 @@ type Import struct {
 // package-level calls that fail type lookup, etc.).
 //
 // `Name` is the raw identifier text at the source location (the
-// method name for calls, the type name for type_usage, the import
-// path for imports). `Receiver` is the raw receiver text for method
-// calls — e.g. for `x.Execute()` it's `"x"`, for `pkg.Fn()` it's
-// `"pkg"`. Parsers that cannot determine a receiver leave it empty.
-//
-// Introduced in Phase 1 to replace the flat `Relation.From/To`
-// string carrier; the legacy strings remain in parallel until the
-// P1.4 deletion step so consumers can migrate without flag days.
+// method name for calls, the type name for type_usage, the host type
+// for inheritance/embedding). `Receiver` is the raw receiver text for
+// method calls — e.g. for `x.Execute()` it's `"x"`, for `pkg.Fn()`
+// it's `"pkg"`. Parsers that cannot determine a receiver leave it
+// empty. For FromEP, `Name` is the source-side symbol when one exists
+// (the subtype for inheritance, the embedding host for embedding);
+// call/type_usage sources legitimately have no symbol name and carry
+// only File/Line — renderers derive the enclosing symbol positionally.
 type RelationEndpoint struct {
 	ID       SymbolID `json:"id,omitempty"`
 	Name     string   `json:"name,omitempty"`
@@ -184,19 +184,84 @@ type RelationEndpoint struct {
 	Line     int      `json:"line,omitempty"`
 }
 
-// Relation represents a relationship between code entities.
+// Relation provenance values: the construction-stage origin of an
+// edge, persisted on every relation. Resolution-stage attribution
+// (MethodIndex hits, name-only fallbacks) is computed at query/render
+// time and never persisted — fullScan streams relations into the
+// cache during parsing, before BuildGraph indices exist, so a
+// persisted resolution claim would diverge between scan modes.
+const (
+	// ProvenanceTreeSitter marks edges read from a primary or
+	// secondary tree-sitter grammar AST.
+	ProvenanceTreeSitter = "tree_sitter"
+	// ProvenanceCangjieParser marks edges from the hand-rolled
+	// Cangjie recursive-descent parser (AST-grade precision).
+	ProvenanceCangjieParser = "cangjie_parser"
+	// ProvenanceRegexFallback marks edges salvaged by regex when no
+	// AST was available for the construct.
+	ProvenanceRegexFallback = "regex_fallback"
+	// ProvenanceRouteResolver marks framework route -> handler edges
+	// recognised from static registration forms.
+	ProvenanceRouteResolver = "route_resolver"
+)
+
+// Relation confidence values share ONE scale with the parse-tier
+// discounts (index.TierDiscount): a second numeric vocabulary for the
+// same parse-quality axis would drift. Confidence is a NOISY signal —
+// it may shade rendering and soft rank discounting only, and MUST
+// NEVER feed an emit-time hard reject, contract.Check gate, or any
+// value-threshold comparison (architectural red line: precise signals
+// for hard gates). Load validation checks presence only
+// (Confidence > 0): encoding/json cannot distinguish a missing
+// float64 from 0.0, and producers are forbidden from writing 0.0 —
+// an edge whose confidence cannot be honestly assigned is not
+// emitted at all.
+const (
+	// ConfidenceAST: primary-grammar AST edges (tree-sitter Tier 1,
+	// Cangjie parser). Mirrors TierDiscount(1).
+	ConfidenceAST = 1.00
+	// ConfidenceSecondaryGrammar: edges parsed by a neighbouring
+	// grammar (ArkTS riding the TS grammar). Mirrors TierDiscount(2).
+	ConfidenceSecondaryGrammar = 0.85
+	// ConfidenceRouteLiteral: framework route edges recognised from
+	// literal registration forms (P0.4 lane).
+	ConfidenceRouteLiteral = 0.70
+	// ConfidenceRegexSalvage: regex-recovered edges. Mirrors
+	// TierDiscount(3).
+	ConfidenceRegexSalvage = 0.60
+	// ConfidencePathOnly: path-only weak signals (no producer today;
+	// reserved). Mirrors TierDiscount(4+).
+	ConfidencePathOnly = 0.30
+)
+
+// Relation represents a relationship between code entities. Every
+// durable relation carries structured endpoints plus the three
+// construction-stage diagnostic fields; cache loads reject payloads
+// missing any of them (presence check, schema v4+).
 type Relation struct {
-	Kind string `json:"kind"` // import, call, reference, type_usage, inheritance, embedding
-	From string `json:"from"` // file or file:symbol (legacy string form, deleted in P1.4)
-	To   string `json:"to"`   // file or file:symbol (legacy string form, deleted in P1.4)
+	Kind string `json:"kind"` // call, reference, type_usage, inheritance, embedding
+
+	// FromEP is the source endpoint. Name is set when the source is
+	// a symbol (inheritance subtype, embedding host); call and
+	// type_usage sources carry File/Line only.
+	FromEP RelationEndpoint `json:"from_ep,omitempty"`
+	// ToEP is the target endpoint: the callee for calls, the
+	// supertype for inheritance, the used type for type_usage.
+	ToEP RelationEndpoint `json:"to_ep,omitempty"`
+
 	File string `json:"file"` // file where the relation is observed
 	Line int    `json:"line"`
 
-	// ToEP is the structured endpoint populated by Phase 1+ extractors.
-	// Carries the receiver text (for method calls) and, once resolved,
-	// the SymbolID of the target. P1.2b rewrites CallersOf/rank to
-	// read ToEP. Legacy consumers still read To.
-	ToEP RelationEndpoint `json:"to_ep,omitempty"`
+	// Confidence, Provenance and ResolvedBy are mandatory
+	// construction-stage diagnostics. Confidence values come from the
+	// Confidence* constants above (single scale with TierDiscount);
+	// Provenance from the Provenance* constants; ResolvedBy is the
+	// extractor-granular origin (e.g. "go_ast_selector_call",
+	// "java_superclass", "gin_route_literal").
+	Confidence float64           `json:"confidence"`
+	Provenance string            `json:"provenance"`
+	ResolvedBy string            `json:"resolved_by"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 // FileInfo holds all extracted data for a single source file.
@@ -427,8 +492,8 @@ type Graph struct {
 	// SymbolDefs — O(symbols) work plus one FlattenIdentifier per name —
 	// on its first flat lookup. Unexported: never serialized; go vet's
 	// copylocks check enforces that Graph stays pointer-passed.
-	flatSymbolOnce  sync.Once            `json:"-"`
-	flatSymbolIndex map[string]int       `json:"-"`
+	flatSymbolOnce  sync.Once      `json:"-"`
+	flatSymbolIndex map[string]int `json:"-"`
 
 	// receiverNameOnce / receiverNameIndex memoize the cross-package
 	// (receiver, name) → first-defining symbol lookup used by the
@@ -438,7 +503,7 @@ type Graph struct {
 	// which made BuildGraph quadratic on large repos (~19s on the
 	// codrax tree). Built once in file order so the pick is
 	// deterministic (the old map-iteration pick was random).
-	receiverNameOnce  sync.Once                  `json:"-"`
+	receiverNameOnce  sync.Once                   `json:"-"`
 	receiverNameIndex map[receiverNameKey]*Symbol `json:"-"`
 }
 

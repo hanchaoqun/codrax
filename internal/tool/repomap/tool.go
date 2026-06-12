@@ -832,11 +832,12 @@ func countParseableEntries(entries []FileEntry) int {
 }
 
 func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string, progress *repoMapScanProgress) (*Graph, error) {
-	cached := index.LoadFileInfosWithProgress(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
+	loaded := index.LoadFileInfosResult(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
 		progress.cacheLoaded(loaded, total, chunksLoaded, chunksTotal, current)
 	})
+	cached := loaded.Files
 	if cached == nil {
-		// Cache corrupt or missing JSON → fall back to full scan
+		cacheDir = rejectedCacheRebuildDir(cacheDir, loaded.RejectReason)
 		if len(entries) == 0 {
 			var err error
 			if progress != nil {
@@ -885,10 +886,12 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	if progress != nil {
 		progress.startPhase(ctypes.RepoMapScanPhaseCacheLoad, countParseableEntries(entries))
 	}
-	cached := index.LoadFileInfosWithProgress(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
+	loaded := index.LoadFileInfosResult(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
 		progress.cacheLoaded(loaded, total, chunksLoaded, chunksTotal, current)
 	})
+	cached := loaded.Files
 	if cached == nil {
+		cacheDir = rejectedCacheRebuildDir(cacheDir, loaded.RejectReason)
 		if progress != nil {
 			progress.mode = ctypes.RepoMapScanFull
 			progress.changedFiles = len(entries)
@@ -1094,22 +1097,48 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
 
-	// Save cache (non-blocking — errors are tolerable)
-	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
-	cacheProgress := func(file string, written, total int64) {
-		progress.cacheWriteFile(file, written, total)
-	}
-	var saveErr error
-	if cacheStreamErr == nil && cacheWriter != nil {
-		saveErr = index.SaveCacheWithoutFileInfosWithProgress(cacheDir, graph, cacheProgress)
-	} else {
-		saveErr = index.SaveCacheWithProgress(cacheDir, graph, cacheProgress)
-	}
-	if saveErr != nil {
-		logging.Warning("repo_map: cache save failed: %v", saveErr)
+	// Save cache (non-blocking — errors are tolerable). cacheDir is
+	// empty when a newer-schema cache must not be overwritten: the
+	// scan stays in-memory only.
+	if cacheDir != "" {
+		progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
+		cacheProgress := func(file string, written, total int64) {
+			progress.cacheWriteFile(file, written, total)
+		}
+		var saveErr error
+		if cacheStreamErr == nil && cacheWriter != nil {
+			saveErr = index.SaveCacheWithoutFileInfosWithProgress(cacheDir, graph, cacheProgress)
+		} else {
+			saveErr = index.SaveCacheWithProgress(cacheDir, graph, cacheProgress)
+		}
+		if saveErr != nil {
+			logging.Warning("repo_map: cache save failed: %v", saveErr)
+		}
 	}
 
 	return graph, nil
+}
+
+// rejectedCacheRebuildDir maps a cache rejection onto the rebuild
+// posture: logs the typed reason (a bare nil used to be
+// indistinguishable from corruption), and for a cache written by a
+// NEWER binary returns "" so the fallback full scan stays in-memory
+// and never downgrades the on-disk cache (mixed-version deployments
+// would otherwise ping-pong full rescans; architecture.md §14.7).
+func rejectedCacheRebuildDir(cacheDir string, reason index.CacheRejectReason) string {
+	switch reason {
+	case index.CacheRejectNone, index.CacheRejectMissing:
+		return cacheDir
+	case index.CacheRejectSchemaNewer:
+		logging.Warning("repo_map: cache written by a newer codrax; scanning in-memory without overwriting (%s)", reason)
+		return ""
+	case index.CacheRejectSchemaVersion, index.CacheRejectExtractorVersion:
+		logging.Info("repo_map: old cache schema is incompatible; rebuilding index (%s)", reason)
+		return cacheDir
+	default:
+		logging.Warning("repo_map: cache rejected (%s); rebuilding index", reason)
+		return cacheDir
+	}
 }
 
 func repoMapActiveFileReporter(progress *repoMapScanProgress) func(index.FileEntry) {

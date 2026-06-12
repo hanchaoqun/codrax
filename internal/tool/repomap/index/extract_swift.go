@@ -152,11 +152,14 @@ func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.S
 					continue
 				}
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   baseName,
-					File: file,
-					Line: nodeLine(base),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(base)},
+					ToEP:       types.RelationEndpoint{Name: baseName, File: file, Line: nodeLine(base)},
+					File:       file,
+					Line:       nodeLine(base),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "swift_inheritance_clause",
 				})
 			}
 		case "class_body", "protocol_body", "enum_class_body":

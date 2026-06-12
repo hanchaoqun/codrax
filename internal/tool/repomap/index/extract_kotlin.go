@@ -104,12 +104,14 @@ func walkKotlinDecls(node *sitter.Node, src []byte, file, parent string, pkg *st
 			// Inheritance edges: `:` SUPER_TYPE list
 			for _, superName := range kotlinSuperTypes(node, src) {
 				*rels = append(*rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + sym.Name,
-					To:   superName,
-					File: file,
-					Line: sym.Line,
-					ToEP: types.RelationEndpoint{Name: superName, File: file, Line: sym.Line},
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: sym.Name, File: file, Line: sym.Line},
+					ToEP:       types.RelationEndpoint{Name: superName, File: file, Line: sym.Line},
+					File:       file,
+					Line:       sym.Line,
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "kotlin_supertype",
 				})
 			}
 		}

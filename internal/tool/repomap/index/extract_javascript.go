@@ -188,11 +188,14 @@ func jsExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 					baseName := nodeText(ch, src)
 					if baseName != "extends" && baseName != "implements" {
 						rels = append(rels, types.Relation{
-							Kind: "inheritance",
-							From: file + ":" + name,
-							To:   baseName,
-							File: file,
-							Line: nodeLine(ch),
+							Kind:       "inheritance",
+							FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(ch)},
+							ToEP:       types.RelationEndpoint{Name: baseName, File: file, Line: nodeLine(ch)},
+							File:       file,
+							Line:       nodeLine(ch),
+							Confidence: types.ConfidenceAST,
+							Provenance: types.ProvenanceTreeSitter,
+							ResolvedBy: "js_class_heritage",
 						})
 					}
 				}
@@ -391,20 +394,26 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation
 		switch fn.Type() {
 		case "identifier":
 			rels = append(rels, types.Relation{
-				Kind: "call",
-				From: file,
-				To:   nodeText(fn, src),
-				File: file,
-				Line: nodeLine(fn),
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(fn, src), File: file, Line: nodeLine(fn)},
+				File:       file,
+				Line:       nodeLine(fn),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "js_ast_identifier_call",
 			})
 		case "member_expression":
 			if prop := fn.ChildByFieldName("property"); prop != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(prop, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(prop, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "js_ast_member_call",
 				})
 			}
 		}

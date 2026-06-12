@@ -160,7 +160,7 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 		}
 		if fi := graph.FileIndex[path]; fi != nil {
 			for _, rel := range fi.Relations {
-				if defs := graph.SymbolDefs[rel.To]; len(defs) > 0 {
+				if defs := graph.SymbolDefs[rel.ToEP.Name]; len(defs) > 0 {
 					for _, def := range defs {
 						add(def.File)
 					}

@@ -642,10 +642,7 @@ func repoSurfaceRelationSurfaces(relation rmtypes.Relation) []string {
 	add(relation.ToEP.Name)
 	add(relation.ToEP.Receiver)
 	add(relation.ToEP.File)
-	add(relation.To)
-	if idx := strings.LastIndex(relation.To, ":"); idx >= 0 && idx+1 < len(relation.To) {
-		add(relation.To[idx+1:])
-	}
+	add(relation.FromEP.Name)
 	return out
 }
 

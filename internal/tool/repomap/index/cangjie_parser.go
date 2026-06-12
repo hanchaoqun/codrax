@@ -247,13 +247,17 @@ func (p *cangjieParser) parseTypeDecl(keyword string, mods, decorators []string,
 	for _, sup := range parents {
 		p.rels = append(p.rels, types.Relation{
 			Kind: "inheritance",
-			From: p.file + ":" + name,
-			To:   sup,
-			File: p.file,
-			Line: start.Line,
+			FromEP: types.RelationEndpoint{
+				Name: name, File: p.file, Line: start.Line,
+			},
 			ToEP: types.RelationEndpoint{
 				Name: sup, File: p.file, Line: start.Line,
 			},
+			File:       p.file,
+			Line:       start.Line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceCangjieParser,
+			ResolvedBy: "cangjie_inheritance_clause",
 		})
 	}
 
@@ -322,13 +326,17 @@ func (p *cangjieParser) parseExtendDecl(mods, decorators []string) {
 	idx := len(p.syms) - 1
 	p.rels = append(p.rels, types.Relation{
 		Kind: "inheritance",
-		From: p.file + ":extend",
-		To:   target,
-		File: p.file,
-		Line: start.Line,
+		FromEP: types.RelationEndpoint{
+			Name: "extend", File: p.file, Line: start.Line,
+		},
 		ToEP: types.RelationEndpoint{
 			Name: target, File: p.file, Line: start.Line,
 		},
+		File:       p.file,
+		Line:       start.Line,
+		Confidence: types.ConfidenceAST,
+		Provenance: types.ProvenanceCangjieParser,
+		ResolvedBy: "cangjie_extend_decl",
 	})
 
 	if p.cur().Kind == cjTokLBrace {

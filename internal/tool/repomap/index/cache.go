@@ -204,12 +204,17 @@ const (
 	cacheChunkDirMetaFile = "chunkdir.meta.json"
 
 	// cacheSchemaVersion tracks the cache-file layout. Bump this
-	// whenever the fileinfos.json wrapper shape changes (fields
-	// added or removed from cachePayload, not per-language
-	// extractor updates — those go in extractorVersions). Loaders
-	// reject any cache whose SchemaVersion doesn't match, forcing
-	// a full rescan on the next BuildOrLoadGraph.
-	cacheSchemaVersion = 3
+	// whenever the persisted FileInfo/Relation shape changes (fields
+	// added or removed), not per-language extractor updates — those
+	// go in extractorVersions. Loaders reject any cache whose
+	// SchemaVersion doesn't match, forcing a full rescan on the next
+	// BuildOrLoadGraph.
+	//
+	// v4: Relation requires from_ep/to_ep endpoints plus
+	// confidence/provenance/resolved_by; legacy from/to string
+	// payloads are unsupported; the single-file fileinfos.json
+	// container is retired (chunked manifest only).
+	cacheSchemaVersion = 4
 )
 
 const cacheFileInfosChunkSize = 1024
@@ -222,36 +227,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         2, // P1.0 grouped-import fix; P1.2a call receiver capture
-	types.LangJava:       1,
-	types.LangPython:     1,
-	types.LangJavaScript: 1,
-	types.LangTypeScript: 1,
-	types.LangArkTS:      2,
-	types.LangCangjie:    2,
-	types.LangKotlin:     2,
-	types.LangRuby:       1,
-	types.LangSwift:      2,
-	types.LangLua:        1,
-	types.LangProto:      1,
-	types.LangRust:       1,
-	types.LangC:          1,
-	types.LangCpp:        1,
-}
-
-// cachePayload is the wrapper around fileinfos.json. Previous
-// versions persisted the []*types.FileInfo slice bare; Phase 3 wraps it
-// in a header recording schema version, per-language extractor
-// versions, the repo HEAD SHA when the cache was written, and a
-// truncated SHA-256 checksum over the Files slice for corruption
-// detection.
-type cachePayload struct {
-	SchemaVersion     int               `json:"schema_version"`
-	ExtractorVersions map[string]int    `json:"extractor_versions"`
-	RepoHead          string            `json:"repo_head,omitempty"`
-	WrittenAt         string            `json:"written_at,omitempty"`
-	Checksum          string            `json:"checksum,omitempty"`
-	Files             []*types.FileInfo `json:"files"`
+	types.LangGo:         3, // P0.1 relation endpoint+diagnostics emission
+	types.LangJava:       2,
+	types.LangPython:     2,
+	types.LangJavaScript: 2,
+	types.LangTypeScript: 2,
+	types.LangArkTS:      3,
+	types.LangCangjie:    3,
+	types.LangKotlin:     3,
+	types.LangRuby:       2,
+	types.LangSwift:      3,
+	types.LangLua:        2,
+	types.LangProto:      2,
+	types.LangRust:       2,
+	types.LangC:          2,
+	types.LangCpp:        2,
 }
 
 type cacheFileInfosManifest struct {
@@ -400,10 +390,46 @@ func LoadFileInfos(dir string) []*types.FileInfo {
 }
 
 func LoadFileInfosWithProgress(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
-	if files := loadChunkedFileInfos(dir, progress); files != nil {
-		return files
-	}
-	return loadLegacyFileInfos(dir, progress)
+	return LoadFileInfosResult(dir, progress).Files
+}
+
+// CacheRejectReason is the precise, typed cause a cache load was
+// refused. Distinguishes upgrade-driven rebuilds from corruption in
+// logs and the index-status surface; loaders previously returned a
+// bare nil for ~10 indistinguishable conditions.
+type CacheRejectReason string
+
+const (
+	CacheRejectNone             CacheRejectReason = ""
+	CacheRejectMissing          CacheRejectReason = "cache_missing"
+	CacheRejectSchemaVersion    CacheRejectReason = "schema_version_mismatch"
+	CacheRejectSchemaNewer      CacheRejectReason = "schema_version_newer"
+	CacheRejectExtractorVersion CacheRejectReason = "extractor_version_mismatch"
+	CacheRejectManifestInvalid  CacheRejectReason = "manifest_invalid"
+	CacheRejectChunkMissing     CacheRejectReason = "chunk_missing"
+	CacheRejectChecksum         CacheRejectReason = "checksum_mismatch"
+	CacheRejectCorrupt          CacheRejectReason = "corrupt_payload"
+	CacheRejectRelationFields   CacheRejectReason = "relation_required_field_missing"
+	CacheRejectSymbolFields     CacheRejectReason = "symbol_required_field_missing"
+)
+
+// CacheLoadResult carries the loaded records plus the manifest header
+// and, when the load was refused, the typed reason. Files is nil
+// exactly when RejectReason is non-empty.
+type CacheLoadResult struct {
+	Files             []*types.FileInfo
+	RejectReason      CacheRejectReason
+	SchemaVersion     int
+	ExtractorVersions map[string]int
+	RepoHead          string
+	WrittenAt         string
+}
+
+// LoadFileInfosResult is the reason-aware loader. The legacy
+// single-file fileinfos.json container is no longer read (schema v4
+// destructive policy): the chunked manifest is the only format.
+func LoadFileInfosResult(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) CacheLoadResult {
+	return loadChunkedFileInfos(dir, progress)
 }
 
 func NewFileInfoCacheWriter(dir, repoRoot string) (*FileInfoCacheWriter, error) {
@@ -532,26 +558,32 @@ func (w *FileInfoCacheWriter) flush() error {
 	return nil
 }
 
-func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
+func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) CacheLoadResult {
+	reject := func(reason CacheRejectReason) CacheLoadResult {
+		return CacheLoadResult{RejectReason: reason}
+	}
 	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
 	if err != nil {
-		return nil
+		return reject(CacheRejectMissing)
 	}
 	var manifest cacheFileInfosManifest
 	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return nil
+		return reject(CacheRejectCorrupt)
 	}
-	if !cacheManifestVersionValid(manifest.SchemaVersion, manifest.ExtractorVersions) {
-		return nil
+	if reason := cacheManifestVersionReject(manifest.SchemaVersion, manifest.ExtractorVersions); reason != CacheRejectNone {
+		out := reject(reason)
+		out.SchemaVersion = manifest.SchemaVersion
+		out.ExtractorVersions = manifest.ExtractorVersions
+		return out
 	}
 	if manifest.TotalFiles < 0 || manifest.ChunkDir == "" || len(manifest.Chunks) == 0 {
-		return nil
+		return reject(CacheRejectManifestInvalid)
 	}
 	if filepath.Clean(manifest.ChunkDir) != manifest.ChunkDir ||
 		filepath.IsAbs(manifest.ChunkDir) ||
 		strings.HasPrefix(manifest.ChunkDir, "..") ||
 		strings.Contains(manifest.ChunkDir, string(filepath.Separator)+".."+string(filepath.Separator)) {
-		return nil
+		return reject(CacheRejectManifestInvalid)
 	}
 
 	chunkDir := filepath.Join(dir, manifest.ChunkDir)
@@ -560,22 +592,25 @@ func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded,
 	for i, chunk := range manifest.Chunks {
 		if chunk.File == "" || filepath.Clean(chunk.File) != chunk.File ||
 			filepath.IsAbs(chunk.File) || strings.Contains(chunk.File, string(filepath.Separator)) {
-			return nil
+			return reject(CacheRejectManifestInvalid)
 		}
 		data, err := os.ReadFile(filepath.Join(chunkDir, chunk.File))
 		if err != nil {
-			return nil
+			return reject(CacheRejectChunkMissing)
 		}
 		sum := sha256.Sum256(data)
 		if chunk.Checksum != hex.EncodeToString(sum[:8]) {
-			return nil
+			return reject(CacheRejectChecksum)
 		}
 		var part []*types.FileInfo
 		if err := json.Unmarshal(data, &part); err != nil {
-			return nil
+			return reject(CacheRejectCorrupt)
 		}
 		if len(part) != chunk.Count {
-			return nil
+			return reject(CacheRejectCorrupt)
+		}
+		if reason := validateCachedFileInfos(part); reason != CacheRejectNone {
+			return reject(reason)
 		}
 		files = append(files, part...)
 		overall.Write([]byte(chunk.File))
@@ -589,52 +624,72 @@ func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded,
 		}
 	}
 	if len(files) != manifest.TotalFiles {
-		return nil
+		return reject(CacheRejectCorrupt)
 	}
 	if manifest.Checksum != "" && manifest.Checksum != hex.EncodeToString(overall.Sum(nil)[:8]) {
-		return nil
+		return reject(CacheRejectChecksum)
 	}
-	return files
+	return CacheLoadResult{
+		Files:             files,
+		SchemaVersion:     manifest.SchemaVersion,
+		ExtractorVersions: manifest.ExtractorVersions,
+		RepoHead:          manifest.RepoHead,
+		WrittenAt:         manifest.WrittenAt,
+	}
 }
 
-func loadLegacyFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
-	data, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
-	if err != nil {
-		return nil
-	}
-	var payload cachePayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil
-	}
-	if !cacheManifestVersionValid(payload.SchemaVersion, payload.ExtractorVersions) {
-		return nil
-	}
-	if payload.Checksum != "" {
-		filesData, err := json.Marshal(payload.Files)
-		if err != nil {
-			return nil
+// validateCachedFileInfos enforces the schema-v4 payload contract on
+// loaded records. PRESENCE checks only (precise signals): a relation
+// must carry Kind, Provenance, ResolvedBy and a non-zero Confidence
+// (encoding/json cannot distinguish a missing float64 from 0.0, and
+// producers never write 0.0 — see types.Confidence* doc); a symbol
+// must carry Name and File. Value thresholds (e.g. confidence < 0.5)
+// are FORBIDDEN here and everywhere — confidence is a noisy signal
+// reserved for soft guidance. The primary defense is the structural
+// test asserting every construction site sets the fields; this is the
+// load-side backstop against a same-version writer bug.
+func validateCachedFileInfos(files []*types.FileInfo) CacheRejectReason {
+	for _, fi := range files {
+		if fi == nil {
+			return CacheRejectCorrupt
 		}
-		sum := sha256.Sum256(filesData)
-		if payload.Checksum != hex.EncodeToString(sum[:8]) {
-			return nil
+		for i := range fi.Relations {
+			rel := &fi.Relations[i]
+			if rel.Kind == "" || rel.Provenance == "" || rel.ResolvedBy == "" || rel.Confidence <= 0 {
+				return CacheRejectRelationFields
+			}
+		}
+		for i := range fi.Symbols {
+			if fi.Symbols[i].Name == "" || fi.Symbols[i].File == "" {
+				return CacheRejectSymbolFields
+			}
 		}
 	}
-	if progress != nil {
-		progress(len(payload.Files), len(payload.Files), 1, 1, cacheFileInfosFile)
-	}
-	return payload.Files
+	return CacheRejectNone
 }
 
-func cacheManifestVersionValid(schemaVersion int, versions map[string]int) bool {
+// cacheManifestVersionReject is the reason-returning version oracle.
+// A NEWER schema than this binary understands is distinguished from
+// an older one: the caller must not overwrite a newer cache (mixed
+// old/new binary deployments would otherwise ping-pong full rescans,
+// each reinstalling its own version — architecture.md §14.7).
+func cacheManifestVersionReject(schemaVersion int, versions map[string]int) CacheRejectReason {
+	if schemaVersion > cacheSchemaVersion {
+		return CacheRejectSchemaNewer
+	}
 	if schemaVersion != cacheSchemaVersion {
-		return false
+		return CacheRejectSchemaVersion
 	}
 	for lang, ver := range extractorVersions {
 		if versions[lang] != ver {
-			return false
+			return CacheRejectExtractorVersion
 		}
 	}
-	return true
+	return CacheRejectNone
+}
+
+func cacheManifestVersionValid(schemaVersion int, versions map[string]int) bool {
+	return cacheManifestVersionReject(schemaVersion, versions) == CacheRejectNone
 }
 
 func cloneExtractorVersions() map[string]int {
@@ -859,12 +914,23 @@ func saveRelations(dir string, g *types.Graph, progress func(file string, writte
 			return err
 		}
 
+		// Rows render from structured endpoints. The source column is
+		// the FromEP symbol when one exists (inheritance/embedding
+		// hosts), else the observing file; the diagnostics column
+		// carries provenance/resolved_by + confidence so the sidecar
+		// stays greppable by edge strength.
+		relSource := func(rel types.Relation) string {
+			if rel.FromEP.Name != "" {
+				return rel.File + ":" + rel.FromEP.Name
+			}
+			return rel.File
+		}
 		kindOrder := []string{"import", "call", "type_usage", "reference", "inheritance", "embedding"}
 		for _, kind := range kindOrder {
 			headingWritten := false
 			seen := make(map[string]bool)
 			writeRel := func(rel types.Relation) error {
-				key := rel.From + "→" + rel.To
+				key := relSource(rel) + "→" + rel.ToEP.Name
 				if seen[key] {
 					return nil
 				}
@@ -879,7 +945,11 @@ func saveRelations(dir string, g *types.Graph, progress func(file string, writte
 					}
 					headingWritten = true
 				}
-				_, err := fmt.Fprintf(w, "- %s → %s :%d\n", rel.From, rel.To, rel.Line)
+				diag := ""
+				if rel.Provenance != "" {
+					diag = fmt.Sprintf(" [%s/%s %.2f]", rel.Provenance, rel.ResolvedBy, rel.Confidence)
+				}
+				_, err := fmt.Fprintf(w, "- %s → %s :%d%s\n", relSource(rel), rel.ToEP.Name, rel.Line, diag)
 				return err
 			}
 
@@ -896,8 +966,7 @@ func saveRelations(dir string, g *types.Graph, progress func(file string, writte
 					for _, imp := range fi.Imports {
 						if err := writeRel(types.Relation{
 							Kind: "import",
-							From: fi.RelPath,
-							To:   imp.Path,
+							ToEP: types.RelationEndpoint{Name: imp.Path, Line: imp.Line},
 							File: fi.RelPath,
 							Line: imp.Line,
 						}); err != nil {
@@ -1241,6 +1310,12 @@ func loadChunkDirInto(chunkDir string, out map[string]*types.FileInfo) {
 		}
 		var part []*types.FileInfo
 		if err := json.Unmarshal(data, &part); err != nil {
+			continue
+		}
+		// Same payload contract as the manifest loader: orphan chunks
+		// from a same-version writer bug must not smuggle invalid
+		// records past validation via the resume path.
+		if validateCachedFileInfos(part) != CacheRejectNone {
 			continue
 		}
 		for _, fi := range part {

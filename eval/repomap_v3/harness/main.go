@@ -71,10 +71,10 @@ type symbolPrecision struct {
 	// (some symbols whose declaration spans multiple lines may show up
 	// on a neighbour line), but it catches the categories that matter:
 	// extractor emitting a symbol that doesn't exist, line drift, etc.
-	TotalChecked  int     `json:"total_checked"`
-	LinePresent   int     `json:"line_present"`   // file exists and line is in range
-	NameOnLine    int     `json:"name_on_line"`   // name found on or near the declared line
-	Precision     float64 `json:"precision"`      // NameOnLine / LinePresent
+	TotalChecked  int      `json:"total_checked"`
+	LinePresent   int      `json:"line_present"`             // file exists and line is in range
+	NameOnLine    int      `json:"name_on_line"`             // name found on or near the declared line
+	Precision     float64  `json:"precision"`                // NameOnLine / LinePresent
 	MissedSamples []string `json:"missed_samples,omitempty"` // up to 20 failure exemplars
 }
 
@@ -83,12 +83,12 @@ type symbolRecall struct {
 	// entry, look up the symbol in graph.SymbolDefs[name] and check
 	// whether any of the returned definitions matches the fixture's
 	// (file, line±tolerance).
-	TotalExpected   int      `json:"total_expected"`
-	Found           int      `json:"found"`
-	FoundByName     int      `json:"found_by_name"` // name present but wrong file/line
-	Recall          float64  `json:"recall"`
-	NameThenFileRecall float64 `json:"name_then_file_recall"` // FoundByName / TotalExpected
-	Missing         []string `json:"missing,omitempty"`
+	TotalExpected      int      `json:"total_expected"`
+	Found              int      `json:"found"`
+	FoundByName        int      `json:"found_by_name"` // name present but wrong file/line
+	Recall             float64  `json:"recall"`
+	NameThenFileRecall float64  `json:"name_then_file_recall"` // FoundByName / TotalExpected
+	Missing            []string `json:"missing,omitempty"`
 }
 
 type importAccuracy struct {
@@ -128,7 +128,7 @@ type callEdgeAmbiguity struct {
 	TopAmbiguous       []ambiguousRow `json:"top_ambiguous"`
 
 	// Phase 1 P1.2a additions. These read ToEP (the structured call
-	// endpoint) rather than the legacy rel.To string, and measure
+	// endpoint) rather than the legacy rel.ToEP.Name string, and measure
 	// how much receiver information the Go extractor is now capturing
 	// and how much of it is usable for disambiguation.
 	CallsWithReceiver      int     `json:"calls_with_receiver"`      // ToEP.Receiver != ""
@@ -143,9 +143,9 @@ type callEdgeAmbiguity struct {
 	// narrows the candidate defs down to exactly one. This is the
 	// direct numerical answer to "how much of the receiver-drift bug
 	// is Phase 1 actually fixing on local symbols".
-	DriftCalls          int     `json:"drift_calls"`
-	DriftCallsResolved  int     `json:"drift_calls_resolved"`
-	DriftResolvedRatio  float64 `json:"drift_resolved_ratio"`
+	DriftCalls         int     `json:"drift_calls"`
+	DriftCallsResolved int     `json:"drift_calls_resolved"`
+	DriftResolvedRatio float64 `json:"drift_resolved_ratio"`
 }
 
 type ambiguousRow struct {
@@ -154,10 +154,10 @@ type ambiguousRow struct {
 }
 
 type taskMapHitAtK struct {
-	TotalQueries int            `json:"total_queries"`
-	MeanHitAtK   float64        `json:"mean_hit_at_k"`
-	PerfectHits  int            `json:"perfect_hits"` // queries with hit@k == 1.0
-	PerQuery     []queryResult  `json:"per_query"`
+	TotalQueries int           `json:"total_queries"`
+	MeanHitAtK   float64       `json:"mean_hit_at_k"`
+	PerfectHits  int           `json:"perfect_hits"` // queries with hit@k == 1.0
+	PerQuery     []queryResult `json:"per_query"`
 }
 
 type queryResult struct {
@@ -177,14 +177,14 @@ type scanLatency struct {
 }
 
 type baseline struct {
-	Timestamp    string            `json:"timestamp"`
-	RepoRoot     string            `json:"repo_root"`
-	SymbolPrec   symbolPrecision   `json:"symbol_precision"`
-	SymbolRec    symbolRecall      `json:"symbol_recall"`
-	ImportAcc    importAccuracy    `json:"import_accuracy"`
-	CallAmbig    callEdgeAmbiguity `json:"call_edge_ambiguity"`
-	TaskMapHit   taskMapHitAtK     `json:"task_map_hit_at_k"`
-	Latency      scanLatency       `json:"scan_latency"`
+	Timestamp  string            `json:"timestamp"`
+	RepoRoot   string            `json:"repo_root"`
+	SymbolPrec symbolPrecision   `json:"symbol_precision"`
+	SymbolRec  symbolRecall      `json:"symbol_recall"`
+	ImportAcc  importAccuracy    `json:"import_accuracy"`
+	CallAmbig  callEdgeAmbiguity `json:"call_edge_ambiguity"`
+	TaskMapHit taskMapHitAtK     `json:"task_map_hit_at_k"`
+	Latency    scanLatency       `json:"scan_latency"`
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────
@@ -374,7 +374,12 @@ func fmtDefs(defs []*repomap.Symbol) string {
 	return strings.Join(parts, ", ")
 }
 
-func abs(x int) int { if x < 0 { return -x }; return x }
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
 
 // ── Metric 3: import edge accuracy ──────────────────────────────────────
 
@@ -478,7 +483,7 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 			// Legacy name-only ambiguity — the pre-Phase-1 metric.
 			// Kept so we can track it through the cutover; P1.2b
 			// replaces it.
-			n := symDefCount[rel.To]
+			n := symDefCount[rel.ToEP.Name]
 			if n == 0 {
 				out.AmbiguityHistogram[0]++
 			} else {
@@ -486,7 +491,7 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 				if n == 1 {
 					out.UnambiguousEdges++
 				} else {
-					ambigCount[rel.To] += 1
+					ambigCount[rel.ToEP.Name] += 1
 				}
 			}
 			// Phase 1 receiver-aware accounting. ToEP.Receiver is only
@@ -505,7 +510,7 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 			// different package than the caller.
 			if typeSet[rel.ToEP.Receiver] {
 				matchingDefs := 0
-				for _, d := range g.SymbolDefs[rel.To] {
+				for _, d := range g.SymbolDefs[rel.ToEP.Name] {
 					if d.Receiver == rel.ToEP.Receiver {
 						matchingDefs++
 					}
@@ -522,7 +527,7 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 			if n > 1 {
 				out.DriftCalls++
 				matchingDefs := 0
-				for _, d := range g.SymbolDefs[rel.To] {
+				for _, d := range g.SymbolDefs[rel.ToEP.Name] {
 					if d.Receiver == rel.ToEP.Receiver {
 						matchingDefs++
 					}

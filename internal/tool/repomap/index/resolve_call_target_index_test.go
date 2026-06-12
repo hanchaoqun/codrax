@@ -16,7 +16,8 @@ func TestResolveCallTarget_CrossPackageDeterministic(t *testing.T) {
 	fb := &types.FileInfo{RelPath: "b/store.go", Language: "go", Package: "b",
 		Symbols: []types.Symbol{{Name: "Get", Receiver: "Store", Kind: "method"}}}
 	caller := &types.FileInfo{RelPath: "c/use.go", Language: "go", Package: "c",
-		Relations: []types.Relation{{Kind: "call", To: "Get", ToEP: types.RelationEndpoint{Name: "Get", Receiver: "Store"}}}}
+		Relations: []types.Relation{{Kind: "call", ToEP: types.RelationEndpoint{Name: "Get", Receiver: "Store"},
+			Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"}}}
 	g := BuildGraph(".", []*types.FileInfo{fa, fb, caller})
 
 	var first *types.Symbol
@@ -38,8 +39,9 @@ func TestResolveCallTarget_CrossPackageDeterministic(t *testing.T) {
 
 func TestResolveCallTarget_SamePackagePreferred(t *testing.T) {
 	local := &types.FileInfo{RelPath: "p/a.go", Language: "go", Package: "p",
-		Symbols:   []types.Symbol{{Name: "Run", Receiver: "Job", Kind: "method"}},
-		Relations: []types.Relation{{Kind: "call", To: "Run", ToEP: types.RelationEndpoint{Name: "Run", Receiver: "Job"}}}}
+		Symbols: []types.Symbol{{Name: "Run", Receiver: "Job", Kind: "method"}},
+		Relations: []types.Relation{{Kind: "call", ToEP: types.RelationEndpoint{Name: "Run", Receiver: "Job"},
+			Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "test_fixture"}}}
 	other := &types.FileInfo{RelPath: "q/b.go", Language: "go", Package: "q",
 		Symbols: []types.Symbol{{Name: "Run", Receiver: "Job", Kind: "method"}}}
 	g := BuildGraph(".", []*types.FileInfo{local, other})

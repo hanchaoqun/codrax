@@ -253,11 +253,14 @@ func cppExtractClass(node *sitter.Node, src []byte, file string, isHeader bool) 
 		walkNamedChildren(bases, true, func(ch *sitter.Node) {
 			if ch.Type() == "type_identifier" {
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   nodeText(ch, src),
-					File: file,
-					Line: nodeLine(ch),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(ch)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(ch, src), File: file, Line: nodeLine(ch)},
+					File:       file,
+					Line:       nodeLine(ch),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "cpp_base_class",
 				})
 			}
 		})
@@ -351,30 +354,39 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 		switch fn.Type() {
 		case "identifier":
 			rels = append(rels, types.Relation{
-				Kind: "call",
-				From: file,
-				To:   nodeText(fn, src),
-				File: file,
-				Line: nodeLine(fn),
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(fn, src), File: file, Line: nodeLine(fn)},
+				File:       file,
+				Line:       nodeLine(fn),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "c_ast_identifier_call",
 			})
 		case "field_expression":
 			if field := fn.ChildByFieldName("field"); field != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(field, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(field, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "c_ast_field_call",
 				})
 			}
 		case "scoped_identifier":
 			if nameNode := fn.ChildByFieldName("name"); nameNode != nil {
 				rels = append(rels, types.Relation{
-					Kind: "call",
-					From: file,
-					To:   nodeText(nameNode, src),
-					File: file,
-					Line: nodeLine(fn),
+					Kind:       "call",
+					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), File: file, Line: nodeLine(fn)},
+					File:       file,
+					Line:       nodeLine(fn),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "cpp_ast_scoped_call",
 				})
 			}
 		}

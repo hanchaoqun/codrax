@@ -427,11 +427,14 @@ func goExtractEmbeddings(typeDecl *sitter.Node, src []byte, file string) []types
 							embedded := nodeText(t, src)
 							embedded = strings.TrimPrefix(embedded, "*")
 							rels = append(rels, types.Relation{
-								Kind: "embedding",
-								From: file + ":" + hostName,
-								To:   embedded,
-								File: file,
-								Line: nodeLine(field),
+								Kind:       "embedding",
+								FromEP:     types.RelationEndpoint{Name: hostName, File: file, Line: nodeLine(field)},
+								ToEP:       types.RelationEndpoint{Name: embedded, File: file, Line: nodeLine(field)},
+								File:       file,
+								Line:       nodeLine(field),
+								Confidence: types.ConfidenceAST,
+								Provenance: types.ProvenanceTreeSitter,
+								ResolvedBy: "go_struct_embedding",
 							})
 						}
 					}
@@ -445,11 +448,14 @@ func goExtractEmbeddings(typeDecl *sitter.Node, src []byte, file string) []types
 					if ch.Type() == "type_identifier" || ch.Type() == "qualified_type" {
 						embedded := nodeText(ch, src)
 						rels = append(rels, types.Relation{
-							Kind: "inheritance",
-							From: file + ":" + hostName,
-							To:   embedded,
-							File: file,
-							Line: nodeLine(ch),
+							Kind:       "inheritance",
+							FromEP:     types.RelationEndpoint{Name: hostName, File: file, Line: nodeLine(ch)},
+							ToEP:       types.RelationEndpoint{Name: embedded, File: file, Line: nodeLine(ch)},
+							File:       file,
+							Line:       nodeLine(ch),
+							Confidence: types.ConfidenceAST,
+							Provenance: types.ProvenanceTreeSitter,
+							ResolvedBy: "go_interface_embedding",
 						})
 					}
 				}
@@ -613,12 +619,14 @@ func goEmitCall(node *sitter.Node, src []byte, file string, scope map[string]str
 		name := nodeText(fn, src)
 		line := nodeLine(fn)
 		*out = append(*out, types.Relation{
-			Kind: "call",
-			From: file,
-			To:   name,
-			File: file,
-			Line: line,
-			ToEP: types.RelationEndpoint{Name: name, File: file, Line: line},
+			Kind:       "call",
+			FromEP:     types.RelationEndpoint{File: file, Line: line},
+			ToEP:       types.RelationEndpoint{Name: name, File: file, Line: line},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "go_ast_identifier_call",
 		})
 	case "selector_expression":
 		field := fn.ChildByFieldName("field")
@@ -645,17 +653,19 @@ func goEmitCall(node *sitter.Node, src []byte, file string, scope map[string]str
 			}
 		}
 		*out = append(*out, types.Relation{
-			Kind: "call",
-			From: file,
-			To:   name,
-			File: file,
-			Line: line,
+			Kind:   "call",
+			FromEP: types.RelationEndpoint{File: file, Line: line},
 			ToEP: types.RelationEndpoint{
 				Name:     name,
 				Receiver: receiver,
 				File:     file,
 				Line:     line,
 			},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "go_ast_selector_call",
 		})
 	}
 }
@@ -674,11 +684,14 @@ func goExtractTypeRefs(root *sitter.Node, src []byte, file string) []types.Relat
 		}
 		seen[key] = true
 		rels = append(rels, types.Relation{
-			Kind: "type_usage",
-			From: file,
-			To:   name,
-			File: file,
-			Line: nodeLine(node),
+			Kind:       "type_usage",
+			FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(node)},
+			ToEP:       types.RelationEndpoint{Name: name, File: file, Line: nodeLine(node)},
+			File:       file,
+			Line:       nodeLine(node),
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "go_ast_type_usage",
 		})
 	})
 	return rels

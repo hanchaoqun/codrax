@@ -75,11 +75,14 @@ func javaExtractClass(node *sitter.Node, src []byte, file string) (cls []types.S
 	if sc := node.ChildByFieldName("superclass"); sc != nil {
 		if id := childByType(sc, "type_identifier"); id != nil {
 			rels = append(rels, types.Relation{
-				Kind: "inheritance",
-				From: file + ":" + name,
-				To:   nodeText(id, src),
-				File: file,
-				Line: nodeLine(id),
+				Kind:       "inheritance",
+				FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(id)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(id, src), File: file, Line: nodeLine(id)},
+				File:       file,
+				Line:       nodeLine(id),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "java_superclass",
 			})
 		}
 	}
@@ -89,11 +92,14 @@ func javaExtractClass(node *sitter.Node, src []byte, file string) (cls []types.S
 		walkNamedChildren(ifaces, true, func(ch *sitter.Node) {
 			if ch.Type() == "type_identifier" {
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   nodeText(ch, src),
-					File: file,
-					Line: nodeLine(ch),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(ch)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(ch, src), File: file, Line: nodeLine(ch)},
+					File:       file,
+					Line:       nodeLine(ch),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "java_interface_impl",
 				})
 			}
 		})
@@ -128,11 +134,14 @@ func javaExtractInterface(node *sitter.Node, src []byte, file string) (cls []typ
 		walkNamedChildren(ext, true, func(ch *sitter.Node) {
 			if ch.Type() == "type_identifier" {
 				rels = append(rels, types.Relation{
-					Kind: "inheritance",
-					From: file + ":" + name,
-					To:   nodeText(ch, src),
-					File: file,
-					Line: nodeLine(ch),
+					Kind:       "inheritance",
+					FromEP:     types.RelationEndpoint{Name: name, File: file, Line: nodeLine(ch)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(ch, src), File: file, Line: nodeLine(ch)},
+					File:       file,
+					Line:       nodeLine(ch),
+					Confidence: types.ConfidenceAST,
+					Provenance: types.ProvenanceTreeSitter,
+					ResolvedBy: "java_interface_extends",
 				})
 			}
 		})
@@ -235,11 +244,14 @@ func javaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		nameNode := node.ChildByFieldName("name")
 		if nameNode != nil {
 			rels = append(rels, types.Relation{
-				Kind: "call",
-				From: file,
-				To:   nodeText(nameNode, src),
-				File: file,
-				Line: nodeLine(nameNode),
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(nameNode)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), File: file, Line: nodeLine(nameNode)},
+				File:       file,
+				Line:       nodeLine(nameNode),
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "java_method_invocation",
 			})
 		}
 	})

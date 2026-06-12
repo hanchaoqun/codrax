@@ -1,8 +1,6 @@
 package index
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -161,13 +159,41 @@ func TestCacheChecksumMismatchInvalidates(t *testing.T) {
 	}
 }
 
-func TestLegacyCachePayloadStillLoads(t *testing.T) {
+// TestChunkedRoundTripRejectsRelationMissingConfidence pins the
+// schema-v4 presence validation: a chunked cache whose relation lacks
+// Confidence (encoding/json cannot distinguish missing from 0.0, and
+// producers never write 0.0) must be refused with the typed
+// "relation_required_field_missing" reason, forcing a rescan.
+func TestChunkedRoundTripRejectsRelationMissingConfidence(t *testing.T) {
 	dir := t.TempDir()
-	files := []*types.FileInfo{{RelPath: "legacy.go", Language: types.LangGo}}
-	writeLegacyCachePayloadForTest(t, dir, files)
-	got := LoadFileInfos(dir)
-	if len(got) != 1 || got[0].RelPath != "legacy.go" {
-		t.Fatalf("legacy cache payload should still load, got %+v", got)
+	files := []*types.FileInfo{{
+		RelPath:  "a.go",
+		Language: types.LangGo,
+		Hash:     "deadbeef",
+		Relations: []types.Relation{
+			{
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: "a.go"},
+				ToEP:       types.RelationEndpoint{Name: "Beta"},
+				Line:       2,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "test_fixture",
+				// Confidence deliberately absent.
+			},
+		},
+	}}
+	if err := saveFileInfos(dir, "", files); err != nil {
+		t.Fatalf("saveFileInfos: %v", err)
+	}
+	got := LoadFileInfosResult(dir, nil)
+	if got.RejectReason != CacheRejectRelationFields {
+		t.Fatalf("RejectReason = %q, want %q", got.RejectReason, CacheRejectRelationFields)
+	}
+	if string(got.RejectReason) != "relation_required_field_missing" {
+		t.Fatalf("RejectReason string = %q, want relation_required_field_missing", got.RejectReason)
+	}
+	if got.Files != nil {
+		t.Fatalf("Files must be nil on reject, got %d files", len(got.Files))
 	}
 }
 
@@ -181,7 +207,15 @@ func TestSaveCacheWithProgressReportsSidecarBytes(t *testing.T) {
 			{Name: "Alpha", Kind: "function", File: "a.go", Line: 1, EndLine: 3, Doc: strings.Repeat("doc ", 64)},
 		},
 		Relations: []types.Relation{
-			{Kind: "call", From: "a.go", To: "Beta", Line: 2},
+			{
+				Kind:       "call",
+				FromEP:     types.RelationEndpoint{File: "a.go"},
+				ToEP:       types.RelationEndpoint{Name: "Beta"},
+				Line:       2,
+				Confidence: types.ConfidenceAST,
+				Provenance: types.ProvenanceTreeSitter,
+				ResolvedBy: "test_fixture",
+			},
 		},
 	}})
 
@@ -220,28 +254,6 @@ func writeFileInfosManifestForTest(t *testing.T, dir string, manifest cacheFileI
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosManifestFile), out, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeLegacyCachePayloadForTest(t *testing.T, dir string, files []*types.FileInfo) {
-	t.Helper()
-	filesData, err := json.Marshal(files)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(filesData)
-	payload := cachePayload{
-		SchemaVersion:     cacheSchemaVersion,
-		ExtractorVersions: cloneExtractorVersions(),
-		Checksum:          hex.EncodeToString(sum[:8]),
-		Files:             files,
-	}
-	out, err := json.Marshal(&payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
