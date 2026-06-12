@@ -269,7 +269,13 @@ func (o *Orchestrator) runExploreAgentOnFork(
 		return nil, fmt.Errorf("get skill %s: %w", skillName, err)
 	}
 
-	workerBus := *o.busCtx
+	// Field-level shallow clone (NOT `*o.busCtx`): the value copy
+	// duplicated BusContext's unexported answer-surface cache mutex
+	// (go vet copylocks) and inherited a cache keyed to the parent's
+	// MutableState revision while the next line swaps in the fork.
+	// ShallowClone copies every exported field with identical
+	// aliasing semantics and gives the worker a fresh, empty cache.
+	workerBus := o.busCtx.ShallowClone()
 	workerBus.Mutable = mut
 	workerBus.Ctx = runCtx
 	workerBus.ActiveAgent = agentName
@@ -282,7 +288,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.TaskState.Stage = stage
 	workerBus.TaskState.RetryHint = hint
 	workerBus.TaskState.LastError = ""
-	agentCtx := ctxbuilder.BuildAgentContext(&workerBus, agentName, stage)
+	agentCtx := ctxbuilder.BuildAgentContext(workerBus, agentName, stage)
 	agentCtx.ParallelGroupID = parallelGroupID
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
@@ -299,7 +305,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	}
 	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
 		logging.Info("[orchestrator] parallel explore sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
-		merged, runErr := o.subRuntime.Run(&workerBus, proposal)
+		merged, runErr := o.subRuntime.Run(workerBus, proposal)
 		if runErr != nil {
 			return output, runErr
 		}

@@ -244,10 +244,10 @@ func withAgent(base *types.AgentContext, name types.AgentName, stage types.Pipel
 	if base == nil {
 		return nil
 	}
-	cp := *base
+	cp := base.ShallowClone()
 	cp.AgentName = name
 	cp.Stage = stage
-	return &cp
+	return cp
 }
 
 // buildPromptSnapshotAgentContext returns a single, comprehensively
