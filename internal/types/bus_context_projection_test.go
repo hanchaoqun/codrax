@@ -91,6 +91,56 @@ func TestBusContextProjection_AllTypedSignalsPropagated_SubAgentContext(t *testi
 	}
 }
 
+// TestProjection_TypedDenialsSharedPointerWriteThrough pins the
+// write-side contract of the negative-knowledge channel at the
+// projection layer: both narrowing helpers must propagate the SAME
+// *TypedDenialSet, so a denial stamped through the narrowed view
+// reaches the Run-level set (and from there the L1 gates of later
+// tool calls, the L2 prompt sanitiser, and the L3 answer validator).
+//
+// Regression target: from 2026-05-08 (stamp sites shipped) until
+// 2026-06-12, ToolBusContext copied the set BY VALUE — emit_log_triage
+// / emit_perf_trace stamped a discarded per-call copy and no
+// enforcement surface ever saw a tool-originated denial.
+func TestProjection_TypedDenialsSharedPointerWriteThrough(t *testing.T) {
+	// Direction 1: AgentContext → ToolBusContext (tool dispatch).
+	runSet := NewTypedDenialSet()
+	ac := &AgentContext{TypedDenials: runSet}
+	bc := ToolBusContext(ac, AgentName("explorer"))
+	if bc.TypedDenials != runSet {
+		t.Fatal("ToolBusContext must pass the SAME *TypedDenialSet through, not a copy")
+	}
+	bc.TypedDenials.Add(TypedDenial{
+		Class: TypedDenialExternalLogFrameUnresolved,
+		Token: "external/ghost.go",
+	})
+	if !runSet.IsPathDenied("external/ghost.go") {
+		t.Fatal("denial stamped through the tool projection did not reach the Run-level set")
+	}
+
+	// Direction 2: BusContext → SubAgentContext (sub-agent dispatch).
+	bus := &BusContext{TypedDenials: runSet}
+	sub := SubAgentContext(bus, &SubAgentRequest{SubAgent: "sub_explorer"})
+	if sub.TypedDenials != runSet {
+		t.Fatal("SubAgentContext must pass the SAME *TypedDenialSet through, not a copy")
+	}
+	sub.TypedDenials.Add(TypedDenial{
+		Class: TypedDenialExternalPerfStallUnresolved,
+		Token: "external/stall.go",
+	})
+	if !bus.TypedDenials.IsPathDenied("external/stall.go") {
+		t.Fatal("denial stamped through the sub-agent view did not reach the Run-level set")
+	}
+
+	// nil discipline: an unwired channel projects as nil (disabled),
+	// never as a fresh orphan set that would silently swallow stamps
+	// while looking alive.
+	emptyBC := ToolBusContext(&AgentContext{}, AgentName("explorer"))
+	if emptyBC.TypedDenials != nil {
+		t.Fatal("ToolBusContext must propagate nil TypedDenials as nil (channel disabled), not allocate an orphan")
+	}
+}
+
 func TestToolBusContextPreservesReadOnlySearchGraph(t *testing.T) {
 	graph := struct{ marker string }{"repo-map-graph"}
 	ac := &AgentContext{SearchGraph: graph}
@@ -159,10 +209,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 }
 
 // setNonZeroFieldOnBusContext mirrors setNonZeroFieldOnAgentContext
-// for BusContext. Note TypedDenials is a value (not pointer) on
-// BusContext, so the sentinel uses an empty value (the test asserts
-// the value SHAPE propagates, not specific contents — TypedDenials
-// is shared via pointer in the AgentContext direction).
+// for BusContext. TypedDenials is a *TypedDenialSet on both types;
+// the projections propagate the same pointer in both directions.
 func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string) bool {
 	t.Helper()
 	switch fieldName {
@@ -179,11 +227,12 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 	case "MultiRepoFocusDecision":
 		bc.MultiRepoFocusDecision = &MultiRepoFocusDecision{Source: MultiRepoFocusSourceModelRecommended}
 	case "TypedDenials":
-		// AgentContext's TypedDenials is a pointer; the sub-agent
-		// helper points it back at bus.TypedDenials. To verify the
-		// pointer non-nil after projection, leave the BusContext
-		// value as zero — the helper's `&bus.TypedDenials` always
-		// produces a non-nil pointer regardless of the value.
+		// Both types now hold *TypedDenialSet and every projection
+		// passes the SAME pointer through (write-through contract:
+		// tool-stamped denials must reach the Run-level set).
+		td := NewTypedDenialSet()
+		td.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "test/sentinel.go"})
+		bc.TypedDenials = td
 	case "Memory":
 		bc.Memory = nopMemoryReader{}
 	case "Ctx":
@@ -212,10 +261,10 @@ func nonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string) bo
 }
 
 // nonZeroFieldOnAgentContext mirrors nonZeroFieldOnBusContext for
-// AgentContext. Special-case TypedDenials: the helper sets it to
-// `&bus.TypedDenials`, which is non-nil even when bus.TypedDenials
-// is zero-value. So the pointer being non-nil is the proof of
-// propagation.
+// AgentContext. Both types hold *TypedDenialSet and the sentinel is
+// a populated set, so the non-zero check is meaningful in both
+// directions; pointer IDENTITY (same set, not a copy) is pinned
+// separately by TestProjection_TypedDenialsSharedPointerWriteThrough.
 func nonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName string) bool {
 	t.Helper()
 	v := reflect.ValueOf(ac).Elem().FieldByName(fieldName)

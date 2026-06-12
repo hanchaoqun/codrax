@@ -320,7 +320,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// pipeline_contract_strict_kinds yaml.
 			if o != nil && o.busCtx != nil {
 				result.Violations = append(result.Violations,
-					runDeniedTokenAnswerCheck(docV2, &o.busCtx.TypedDenials)...)
+					runDeniedTokenAnswerCheck(docV2, o.busCtx.TypedDenials)...)
 			}
 			if rm := mut.RequestModel(); rm != nil {
 				result.Violations = append(result.Violations,

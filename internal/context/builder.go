@@ -62,9 +62,10 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 
 		// TypedDenials shares the SAME pointer (not a copy) — when
 		// a tool call mid-dispatch stamps a new denial, subsequent
-		// calls in the loop see it. Kept on bus's pointer so the
-		// orchestrator's owning channel is the single source.
-		TypedDenials:          &bus.TypedDenials,
+		// calls in the loop see it. The orchestrator's Run-entry
+		// allocation is the single owning channel; ToolBusContext
+		// passes this pointer on to every per-tool-call projection.
+		TypedDenials:          bus.TypedDenials,
 		AnalysisIR:            bus.AnalysisIR,
 		AttachedLog:           bus.AttachedLog,
 		AttachedHitrace:       bus.AttachedHitrace,

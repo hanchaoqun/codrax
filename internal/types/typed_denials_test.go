@@ -1,6 +1,11 @@
 package types
 
-import "testing"
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"testing"
+)
 
 func TestTypedDenialSet_AddDedup(t *testing.T) {
 	s := &TypedDenialSet{}
@@ -21,7 +26,7 @@ func TestTypedDenialSet_Add_RejectsInvalid(t *testing.T) {
 	s.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "  "})
 	s.Add(TypedDenial{Class: "bogus", Token: "x.go"})
 	if s.Len() != 0 {
-		t.Errorf("invalid Add not rejected: %v", s.Denials)
+		t.Errorf("invalid Add not rejected: %v", s.Snapshot())
 	}
 }
 
@@ -138,6 +143,135 @@ func TestTypedDenialSet_PathTokensSymbolTokens(t *testing.T) {
 	syms := s.SymbolTokens()
 	if len(syms) != 2 {
 		t.Errorf("SymbolTokens len = %d want 2 (got %v)", len(syms), syms)
+	}
+}
+
+// TestTypedDenialSet_ConcurrentStampAndRead pins the internal
+// synchronization contract: the Run-level set is shared by pointer
+// across parallel explore workers and parallel sub-agents, so
+// concurrent stamps (future explore-stage gate sites) and concurrent
+// reads (L1 gates, L2 sanitise, JSON marshal) must be race-free.
+// Run under -race.
+func TestTypedDenialSet_ConcurrentStampAndRead(t *testing.T) {
+	s := NewTypedDenialSet()
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for w := 0; w < 4; w++ {
+		w := w
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < 100; i++ {
+				s.Add(TypedDenial{
+					Class: TypedDenialExternalLogFrameUnresolved,
+					Token: fmt.Sprintf("external/w%d-%d.go", w, i),
+				})
+			}
+		}()
+	}
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < 100; i++ {
+				_ = s.IsPathDenied("external/w0-1.go")
+				_ = s.Sanitise("frame at external/w1-2.go:10")
+				_ = s.Snapshot()
+				_ = s.Len()
+				if _, err := json.Marshal(s); err != nil {
+					t.Errorf("marshal under concurrent stamps: %v", err)
+					return
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	if got := s.Len(); got != 400 {
+		t.Errorf("Len = %d, want 400 distinct concurrent stamps", got)
+	}
+}
+
+// TestTypedDenialSet_JSONRoundTrip pins the wire shape across the
+// unexported-slice refactor: {"denials":[...]} both directions.
+func TestTypedDenialSet_JSONRoundTrip(t *testing.T) {
+	s := NewTypedDenialSet()
+	s.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "a.go", Reason: "r"})
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"denials":[{"class":"external_log_frame_unresolved","token":"a.go","reason":"r"}]}`
+	if string(raw) != want {
+		t.Errorf("wire shape drifted:\n got  %s\n want %s", raw, want)
+	}
+	back := NewTypedDenialSet()
+	if err := json.Unmarshal(raw, back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Len() != 1 || !back.IsPathDenied("a.go") {
+		t.Errorf("round-trip lost the denial: %+v", back.Snapshot())
+	}
+}
+
+// TestTypedDenialSet_FirstPathDenial_SuffixMatchKeepsClassReason pins
+// the refusal-rendering contract: FirstPathDenial uses the SAME
+// exact/suffix match rules as IsPathDenied, so a gate that fires on a
+// repo-relative ↔ absolute mismatch still surfaces the class-specific
+// denial (and from it HumanRefusalReason) instead of a zero value.
+// Regression target: the repo_map refusal helper used exact-only
+// matching, so suffix-matched refusals degraded to the generic
+// "marked unverifiable" fallback.
+func TestTypedDenialSet_FirstPathDenial_SuffixMatchKeepsClassReason(t *testing.T) {
+	s := NewTypedDenialSet()
+	s.Add(TypedDenial{
+		Class:  TypedDenialExternalLogFrameUnresolved,
+		Token:  "internal/agent/analyzer.go",
+		Reason: "frame func missing",
+	})
+	s.Add(TypedDenial{Class: TypedDenialOracleSymbolUnverified, Token: "PhantomSym"})
+
+	queries := []string{
+		"internal/agent/analyzer.go",           // exact
+		"/abs/repo/internal/agent/analyzer.go", // absolute query, relative token
+		`internal\agent\analyzer.go`,           // cross-OS separator
+	}
+	for _, q := range queries {
+		d, ok := s.FirstPathDenial(q)
+		if !ok {
+			t.Errorf("FirstPathDenial(%q) missed; IsPathDenied=%v", q, s.IsPathDenied(q))
+			continue
+		}
+		if d.Class != TypedDenialExternalLogFrameUnresolved || d.Reason != "frame func missing" {
+			t.Errorf("FirstPathDenial(%q) returned wrong denial: %+v", q, d)
+		}
+	}
+	// Parity with the gate predicate: anything IsPathDenied accepts,
+	// FirstPathDenial must resolve (they share one implementation).
+	if _, ok := s.FirstPathDenial("internal/agent/explorer.go"); ok {
+		t.Error("FirstPathDenial matched an undenied path")
+	}
+	// Symbol-shaped denials never satisfy the path lookup and vice versa.
+	if _, ok := s.FirstPathDenial("PhantomSym"); ok {
+		t.Error("FirstPathDenial matched a symbol-shaped denial")
+	}
+	if d, ok := s.FirstSymbolDenial("PhantomSym"); !ok || d.Class != TypedDenialOracleSymbolUnverified {
+		t.Errorf("FirstSymbolDenial(PhantomSym) = %+v, %v", d, ok)
+	}
+	if _, ok := s.FirstSymbolDenial("internal/agent/analyzer.go"); ok {
+		t.Error("FirstSymbolDenial matched a path-shaped denial")
+	}
+	// nil safety mirrors the predicates.
+	var nilSet *TypedDenialSet
+	if _, ok := nilSet.FirstPathDenial("x.go"); ok {
+		t.Error("nil receiver FirstPathDenial should report no match")
+	}
+	if _, ok := nilSet.FirstSymbolDenial("X"); ok {
+		t.Error("nil receiver FirstSymbolDenial should report no match")
 	}
 }
 

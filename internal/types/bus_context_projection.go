@@ -93,12 +93,13 @@ func ProjectionTypedSignalFields() []string {
 // nil-safe: returns an empty BusContext when ctx is nil (matches the
 // pre-projection buildToolBusContext behavior).
 //
-// TypedDenials shape adapter: AgentContext stores *TypedDenialSet
-// (so a tool call mid-dispatch that stamps a fresh denial is visible
-// to subsequent calls in the same loop), BusContext stores
-// TypedDenialSet by value. Dereference when non-nil; leave zero-value
-// (empty set) when nil — the gates' nil-check semantics are
-// equivalent.
+// TypedDenials propagates as the SAME pointer (both types store
+// *TypedDenialSet): a denial the tool stamps during this call lands
+// on the Run-level set, so subsequent tool calls' L1 gates, the L2
+// prompt sanitiser, and the orchestrator's L3 answer validator all
+// see it. A value copy here is the historic bug this contract pins
+// against — tool-stamped denials silently died on the discarded
+// per-call projection from 2026-05-08 until 2026-06-12.
 func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 	if ctx == nil {
 		return &BusContext{}
@@ -135,13 +136,11 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		PendingSubRepos:               ctx.PendingSubRepos,
 		MultiRepoInactivePreviewCount: ctx.MultiRepoInactivePreviewCount,
 		MultiRepoFocusDecision:        ctx.MultiRepoFocusDecision,
+		TypedDenials:                  ctx.TypedDenials,
 		Memory:                        ctx.Memory,
 		Ctx:                           ctx.Ctx,
 		EnvFacts:                      ctx.EnvFacts,
 		EnvRecommendSettings:          ctx.EnvRecommendSettings,
-	}
-	if ctx.TypedDenials != nil {
-		bc.TypedDenials = *ctx.TypedDenials
 	}
 	return bc
 }
@@ -162,10 +161,10 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 //
 // nil-safe: returns an empty AgentContext when bus is nil.
 //
-// TypedDenials shape adapter: BusContext holds the value, AgentContext
-// holds a pointer-back-into-bus.TypedDenials so tool denials stamped
-// during sub-agent dispatch are visible to the parent. The sub-agent
-// shares the parent's denial set rather than getting a fresh copy.
+// TypedDenials propagates as the SAME pointer so tool denials stamped
+// during sub-agent dispatch are visible to the parent (and vice
+// versa). The sub-agent shares the Run-level denial set rather than
+// getting a fresh copy.
 func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 	if bus == nil {
 		return &AgentContext{}
@@ -200,7 +199,7 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		PendingSubRepos:               append([]string(nil), bus.PendingSubRepos...),
 		MultiRepoInactivePreviewCount: bus.MultiRepoInactivePreviewCount,
 		MultiRepoFocusDecision:        bus.MultiRepoFocusDecision,
-		TypedDenials:                  &bus.TypedDenials,
+		TypedDenials:                  bus.TypedDenials,
 		Memory:                        bus.Memory,
 		Ctx:                           bus.Ctx,
 		EnvFacts:                      bus.EnvFacts,

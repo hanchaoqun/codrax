@@ -1,6 +1,10 @@
 package types
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+	"sync"
+)
 
 // TypedDenialClass enumerates the typed-signal categories a TypedDenial
 // can carry. Closed enum so consumers (tool registries, prompt
@@ -90,17 +94,43 @@ type TypedDenial struct {
 	Lang   string           `json:"lang,omitempty"`   // optional language hint
 }
 
-// TypedDenialSet is the BusContext-level collection. The empty value
-// is ready to use; methods are nil-safe so consumers can call them
-// even when no denials have been stamped (the common case for
-// single-shot runs against well-formed repos).
+// TypedDenialSet is the Run-level collection. ONE set exists per Run:
+// the orchestrator allocates it at Run entry and every narrowing
+// helper (ToolBusContext / SubAgentContext / BuildAgentContext /
+// BusContext.ShallowClone) propagates the same *TypedDenialSet
+// pointer, so a denial stamped by a tool mid-dispatch is immediately
+// visible to every other consumer — the L1 tool gates of subsequent
+// calls, the L2 prompt sanitiser, and the orchestrator's L3 answer
+// validator. (Pre-2026-06-12 the tool projection copied the set BY
+// VALUE, so tool-stamped denials died on a discarded per-call copy
+// and never reached any enforcement surface.)
+//
+// Internally synchronized: parallel explore workers and parallel
+// sub-agents share the pointer, so reads (gate checks, sanitise)
+// take a read-lock and stamps take the write-lock. The denial slice
+// is unexported — consumers that need to iterate use Snapshot(),
+// which returns a private copy. JSON shape is preserved via the
+// Marshal/Unmarshal methods below ({"denials": [...]}).
+//
+// The empty value is ready to use; methods are nil-safe so consumers
+// can call them even when no set was wired (bare test fixtures) —
+// reads behave as "no denials", and Add on a nil set is a no-op
+// (the channel is disabled, not broken).
 type TypedDenialSet struct {
-	Denials []TypedDenial `json:"denials,omitempty"`
+	mu      sync.RWMutex
+	denials []TypedDenial
+}
+
+// NewTypedDenialSet returns an empty, ready-to-share set. The
+// orchestrator calls this once at Run entry; everything downstream
+// receives the pointer.
+func NewTypedDenialSet() *TypedDenialSet {
+	return &TypedDenialSet{}
 }
 
 // Add stamps a new denial. Duplicate (Class, Token) pairs are
 // silently dropped — the same token failing multiple gates of the
-// same class is one logical denial.
+// same class is one logical denial. Append-only during a Run.
 func (s *TypedDenialSet) Add(d TypedDenial) {
 	if s == nil {
 		return
@@ -109,12 +139,14 @@ func (s *TypedDenialSet) Add(d TypedDenial) {
 	if d.Token == "" || !IsValidTypedDenialClass(d.Class) {
 		return
 	}
-	for _, existing := range s.Denials {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.denials {
 		if existing.Class == d.Class && existing.Token == d.Token {
 			return
 		}
 	}
-	s.Denials = append(s.Denials, d)
+	s.denials = append(s.denials, d)
 }
 
 // Len reports the number of stamped denials.
@@ -122,7 +154,57 @@ func (s *TypedDenialSet) Len() int {
 	if s == nil {
 		return 0
 	}
-	return len(s.Denials)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.denials)
+}
+
+// Snapshot returns a copy of the stamped denials. Consumers that
+// iterate (tool refusal helpers, the L3 answer validator) use this
+// instead of reaching into the slice so iteration never races with
+// a concurrent stamp.
+func (s *TypedDenialSet) Snapshot() []TypedDenial {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.denials) == 0 {
+		return nil
+	}
+	out := make([]TypedDenial, len(s.denials))
+	copy(out, s.denials)
+	return out
+}
+
+// typedDenialSetWire is the JSON shape — identical to the pre-sync
+// struct layout so any persisted form stays readable.
+type typedDenialSetWire struct {
+	Denials []TypedDenial `json:"denials,omitempty"`
+}
+
+// MarshalJSON preserves the {"denials": [...]} wire shape across the
+// unexported-slice refactor, taking the read-lock so a marshal racing
+// a stamp cannot observe a torn slice.
+func (s *TypedDenialSet) MarshalJSON() ([]byte, error) {
+	if s == nil {
+		return []byte("null"), nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return json.Marshal(typedDenialSetWire{Denials: s.denials})
+}
+
+// UnmarshalJSON mirrors MarshalJSON.
+func (s *TypedDenialSet) UnmarshalJSON(data []byte) error {
+	var wire typedDenialSetWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.denials = wire.Denials
+	return nil
 }
 
 // IsPathDenied reports whether path matches any denial whose class is
@@ -139,24 +221,38 @@ func (s *TypedDenialSet) Len() int {
 // '/' before comparison. Substring is intentionally NOT used — too
 // noisy.
 func (s *TypedDenialSet) IsPathDenied(path string) bool {
+	_, ok := s.FirstPathDenial(path)
+	return ok
+}
+
+// FirstPathDenial returns the first path-shaped denial matching path
+// under the SAME rules as IsPathDenied — one implementation, one
+// lock acquisition. Tool refusal sites use this to render the
+// class-specific HumanRefusalReason; a gate that fired on a suffix
+// match (absolute query vs repo-relative token, or vice versa) gets
+// the same precise explanation as an exact match. ok=false means no
+// path-shaped denial matches.
+func (s *TypedDenialSet) FirstPathDenial(path string) (TypedDenial, bool) {
 	if s == nil || path == "" {
-		return false
+		return TypedDenial{}, false
 	}
 	path = normalisePathSep(strings.TrimSpace(path))
-	for _, d := range s.Denials {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, d := range s.denials {
 		if !d.classIsPathShaped() {
 			continue
 		}
 		token := normalisePathSep(d.Token)
 		if path == token {
-			return true
+			return d, true
 		}
 		// Suffix match for repo-relative ↔ absolute mismatches.
 		if strings.HasSuffix(path, "/"+token) || strings.HasSuffix(token, "/"+path) {
-			return true
+			return d, true
 		}
 	}
-	return false
+	return TypedDenial{}, false
 }
 
 // normalisePathSep converts Windows '\' to POSIX '/' so the gate
@@ -180,19 +276,29 @@ func normalisePathSep(p string) string {
 // require literal equality; case-folding belongs in the oracle's
 // flat-form bridge, not this contract layer.
 func (s *TypedDenialSet) IsSymbolDenied(name string) bool {
+	_, ok := s.FirstSymbolDenial(name)
+	return ok
+}
+
+// FirstSymbolDenial mirrors FirstPathDenial for symbol-shaped classes
+// — same exact-string match as IsSymbolDenied, returning the denial
+// so refusal sites can render its class-specific reason.
+func (s *TypedDenialSet) FirstSymbolDenial(name string) (TypedDenial, bool) {
 	if s == nil || name == "" {
-		return false
+		return TypedDenial{}, false
 	}
 	name = strings.TrimSpace(name)
-	for _, d := range s.Denials {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, d := range s.denials {
 		if !d.classIsSymbolShaped() {
 			continue
 		}
 		if name == d.Token {
-			return true
+			return d, true
 		}
 	}
-	return false
+	return TypedDenial{}, false
 }
 
 // Sanitise replaces every denied token in prose with a typed
@@ -218,11 +324,16 @@ func (s *TypedDenialSet) IsSymbolDenied(name string) bool {
 // Replacement is exact-string substitution; substring is intentional
 // here (raw log lines may contain the token mid-line).
 func (s *TypedDenialSet) Sanitise(prose string) string {
-	if s == nil || prose == "" || len(s.Denials) == 0 {
+	if s == nil || prose == "" {
+		return prose
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.denials) == 0 {
 		return prose
 	}
 	out := prose
-	for _, d := range s.Denials {
+	for _, d := range s.denials {
 		if d.Token == "" {
 			continue
 		}
@@ -264,9 +375,11 @@ func (s *TypedDenialSet) PathTokens() []string {
 	if s == nil {
 		return nil
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	seen := make(map[string]bool)
 	var out []string
-	for _, d := range s.Denials {
+	for _, d := range s.denials {
 		if !d.classIsPathShaped() {
 			continue
 		}
@@ -284,9 +397,11 @@ func (s *TypedDenialSet) SymbolTokens() []string {
 	if s == nil {
 		return nil
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	seen := make(map[string]bool)
 	var out []string
-	for _, d := range s.Denials {
+	for _, d := range s.denials {
 		if !d.classIsSymbolShaped() {
 			continue
 		}

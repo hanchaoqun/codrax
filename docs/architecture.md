@@ -2919,6 +2919,8 @@ R3 红线第二维度落地:**precise typed signals 必须在每个 LLM 接触�
    └── L3 answer validator: prose 仍 verbatim 提到 denied token 且无 caveat → ViolDeniedTokenUndeclared (SOFT,ledger)
 ```
 
+**Run-level 共享指针 contract(2026-06-12)**:`BusContext.TypedDenials` 是 `*TypedDenialSet` —— orchestrator 在 Run 入口分配 **一个** set(`NewTypedDenialSet()`),所有 narrowing helper(`ToolBusContext` / `SubAgentContext` / `BuildAgentContext` / `BusContext.ShallowClone`)透传 **同一指针**,因此 tool 在 dispatch 中 stamp 的 denial 立即对后续 tool call 的 L1 gate、L2 sanitiser、L3 validator 可见。set 内部用 `sync.RWMutex` 同步(并行 explore worker / 并行 sub-agent 共享同一 set),迭代一律走 `Snapshot()`,refusal 渲染走 `FirstPathDenial` / `FirstSymbolDenial`(与 `IsPathDenied` 同一套 exact/suffix 匹配规则)。`nil` set = channel 禁用(裸 fixture),所有方法 nil-safe。历史教训:2026-05-08 至 2026-06-12 间投影层按值拷贝该 set,tool stamp 落在被丢弃的 per-call 副本上,三层 enforcement 对 tool 来源的 denial 全部失效;回归由 `TestProjection_TypedDenialsSharedPointerWriteThrough` + `TestTypedDenials_ToolStampsReachOrchestratorBus`(走真实投影链的端到端)钉死 —— 任何回退到值拷贝的改动会让这两个测试失败。
+
 ### 17.3 BugClass 跨语言数据驱动(19 类 × 60+ pattern × 15 语言)
 
 `internal/analysis/logtriage/bug_class_registry.go`:

@@ -56,10 +56,18 @@ The critical race has already been fixed:
 - `BuildSubAgentContext` intentionally drops `Mutable`.
 - `SubAgentReducer` is the only merge point.
 
-Remaining risk: `TypedDenials` in `SubAgentContext` points at
+~~Remaining risk: `TypedDenials` in `SubAgentContext` points at
 `bus.TypedDenials`. Multiple parallel sub-agent tool calls can append denials.
 Today most sub-agent tools only read denials; nevertheless, future write paths
-must not add unsynchronized writes through this shared pointer.
+must not add unsynchronized writes through this shared pointer.~~
+
+RESOLVED 2026-06-12: `TypedDenialSet` is now internally synchronized
+(`sync.RWMutex`, unexported slice — unsynchronized external writes are
+impossible by construction), and the wiring changed from
+pointer-into-the-bus-value to one Run-level `*TypedDenialSet` shared by every
+projection. Concurrent stamps are pinned race-free by
+`TestTypedDenialSet_ConcurrentStampAndRead` (-race). See
+`docs/architecture.md` §17.2 "Run-level 共享指针 contract".
 
 ### Advisory handoff
 

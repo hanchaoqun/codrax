@@ -1728,6 +1728,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 		Memory:               o.memoryReader,
 		EnvRecommendSettings: o.envSettings,
+		// The Run-level negative-knowledge channel. ONE set per Run,
+		// allocated here and shared by pointer through every
+		// projection (ToolBusContext / SubAgentContext /
+		// BuildAgentContext / ShallowClone) so tool-stamped denials
+		// reach the L1/L2/L3 enforcement surfaces. See the field doc
+		// in internal/types/context.go.
+		TypedDenials: types.NewTypedDenialSet(),
 		// Phase 2 cancellation: BusContext.Ctx is the standard ctx
 		// surface tools / agents derive from. Cancel propagates to
 		// HTTP / subprocess / any ctx-aware path immediately rather

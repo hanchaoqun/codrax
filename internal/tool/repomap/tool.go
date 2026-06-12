@@ -156,27 +156,6 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
 }`)
 }
 
-// findFirstDenialFromCtx returns the first TypedDenial in s matching
-// `tok`. Mirrors internal/tool's findFirstDenial; duplicated rather
-// than imported to avoid the tool→tool/repomap↔tool cycle.
-func findFirstDenialFromCtx(s *ctypes.TypedDenialSet, tok string, pathShaped bool) ctypes.TypedDenial {
-	if s == nil || tok == "" {
-		return ctypes.TypedDenial{}
-	}
-	for _, d := range s.Denials {
-		if pathShaped {
-			if d.Token == tok {
-				return d
-			}
-		} else {
-			if d.Token == tok {
-				return d
-			}
-		}
-	}
-	return ctypes.TypedDenial{}
-}
-
 func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (ctypes.ToolResult, error) {
 	var p repoMapParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -198,23 +177,25 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// reason (no internal pipeline terminology, no fixture-fitted
 	// examples).
 	if ctx != nil {
-		if p.TargetFile != "" && ctx.TypedDenials.IsPathDenied(p.TargetFile) {
-			denial := findFirstDenialFromCtx(&ctx.TypedDenials, p.TargetFile, true)
-			return ctypes.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   denial.HumanRefusalReason("repo_map"),
-				Timestamp: time.Now(),
-			}, nil
+		if p.TargetFile != "" {
+			if denial, denied := ctx.TypedDenials.FirstPathDenial(p.TargetFile); denied {
+				return ctypes.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   denial.HumanRefusalReason("repo_map"),
+					Timestamp: time.Now(),
+				}, nil
+			}
 		}
-		if p.EntryPoint != "" && ctx.TypedDenials.IsSymbolDenied(p.EntryPoint) {
-			denial := findFirstDenialFromCtx(&ctx.TypedDenials, p.EntryPoint, false)
-			return ctypes.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   denial.HumanRefusalReason("repo_map"),
-				Timestamp: time.Now(),
-			}, nil
+		if p.EntryPoint != "" {
+			if denial, denied := ctx.TypedDenials.FirstSymbolDenial(p.EntryPoint); denied {
+				return ctypes.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   denial.HumanRefusalReason("repo_map"),
+					Timestamp: time.Now(),
+				}, nil
+			}
 		}
 	}
 

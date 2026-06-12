@@ -5574,10 +5574,19 @@ type BusContext struct {
 	//     finalize prose names a denied token without an "unverified"
 	//     caveat
 	//
-	// Append-only during a Run; the orchestrator ZERO-initialises at
-	// Run entry and consumers append via Add. nil-safe: empty value
-	// behaves as "no denials" everywhere.
-	TypedDenials TypedDenialSet `json:"typed_denials,omitempty"`
+	// Append-only during a Run; the orchestrator allocates ONE set at
+	// Run entry (NewTypedDenialSet) and every narrowing helper
+	// (ToolBusContext / SubAgentContext / BuildAgentContext /
+	// ShallowClone) propagates the SAME pointer, so a denial a tool
+	// stamps mid-dispatch reaches all three surfaces immediately.
+	// Pointer — never a value copy: the pre-2026-06-12 value field
+	// meant the per-tool-call projection got a slice-header copy and
+	// every tool-stamped denial died with the discarded projection.
+	// The set is internally synchronized (parallel explore workers
+	// share it). nil-safe: a nil set behaves as "no denials" on every
+	// read and ignores Add — the channel is simply disabled for bare
+	// test fixtures that never allocate it.
+	TypedDenials *TypedDenialSet `json:"typed_denials,omitempty"`
 
 	// Memory is the read-only handle into the REPL memory store. nil
 	// in single-shot CLI runs / non-REPL test fixtures (no Store to

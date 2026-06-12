@@ -48,7 +48,7 @@ func runDeniedTokenAnswerCheck(doc *types.AnswerDocumentV2, denials *types.Typed
 		IsPath   bool
 	}
 	entries := make([]denialEntry, 0, denials.Len())
-	for _, d := range denials.Denials {
+	for _, d := range denials.Snapshot() {
 		isPath := d.Class == types.TypedDenialExternalLogFrameUnresolved ||
 			d.Class == types.TypedDenialExternalPerfStallUnresolved ||
 			d.Class == types.TypedDenialDriftFrameRelocated ||
