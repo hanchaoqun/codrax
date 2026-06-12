@@ -278,10 +278,12 @@ type FileInfo struct {
 	SpecialType string     `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
 
 	// ParseTier records which fallback tier produced this FileInfo's
-	// symbols. 1 = primary grammar (best); 2 = secondary grammar
-	// (e.g. ArkTS riding on TS); 3 = regex-only; 4 = path-only (no
-	// symbols at all). Languages with a single grammar (Go, Java,
-	// Rust, …) leave this at 0 (== "not applicable, treat as Tier 1").
+	// symbols. 1 = primary grammar (best; for ArkTS the TS grammar
+	// succeeding IS the primary path by chain decision); 2 = a
+	// genuine secondary grammar (reserved — no current producer);
+	// 3 = regex-only; 4 = path-only (no symbols at all). Languages
+	// with a single grammar (Go, Java, Rust, …) leave this at 0
+	// (== "not applicable, treat as Tier 1").
 	// Used by retrieve.rank to discount lower-confidence parses so
 	// they cannot outrank fully-parsed Tier-1 files.
 	//
@@ -587,7 +589,59 @@ type Metadata struct {
 	Languages         map[string]int     `json:"languages"`     // language → file count
 	SpecialFiles      []string           `json:"special_files"` // notable files (go.mod, etc.)
 	UnresolvedImports []UnresolvedImport `json:"unresolved_imports,omitempty"`
+
+	// FallbackFileCount is how many files were parsed below Tier 1
+	// (ParseTier >= 2): their symbol/relation coverage may be
+	// incomplete. Counted once at BuildGraph metadata assembly;
+	// surfaced by the index-status banner.
+	FallbackFileCount int `json:"fallback_file_count,omitempty"`
+
+	// IndexStatus is the per-call observation of how THIS graph was
+	// obtained. Runtime-only (never persisted — the cache stores
+	// FileInfos, and a freshness claim must not outlive the call
+	// that observed it). Metadata is value-copied by graph clones,
+	// so reuse paths inherit and overwrite just the status.
+	IndexStatus RepoMapIndexStatus `json:"-"`
 }
+
+// RepoMapIndexStatus reports how the served graph came to be, so the
+// reading model can judge how much to lean on it. Freshness is a
+// 3-state observation: "fresh" = this call reconciled the graph
+// against on-disk content (full scan, hash-verified cache hit, or
+// incremental merge); "reused" = served from in-memory state without
+// re-reconciling (LRU resident clone, scoped projection); "" =
+// unknown (zero value — renderers must say "unknown", never fabricate
+// a source). There is deliberately NO "stale" state: disk loads
+// always hash-reconcile in the same call, and noisier signals (HEAD
+// drift) may inform fact lines only, never warnings (precise-signals
+// red line).
+type RepoMapIndexStatus struct {
+	Source         string // IndexSource* constant; "" = unknown
+	Freshness      string // IndexFreshness* constant; "" = unknown
+	CacheWrittenAt string // manifest written_at when loaded from cache
+	RepoHead       string // manifest repo_head when loaded from cache
+	SchemaVersion  int    // manifest schema version when loaded from cache
+	// RebuildReasons is non-empty when this call's full scan was
+	// forced by a rejected cache (typed loader reasons).
+	RebuildReasons []string
+}
+
+// IndexSource* name how the served graph was obtained. Neutral
+// vocabulary: these strings are model-visible in the index-status
+// banner and must not leak internal carrier terminology.
+const (
+	IndexSourceFullScan         = "full_scan"
+	IndexSourceCacheHit         = "cache_hit"
+	IndexSourceIncremental      = "incremental"
+	IndexSourceInMemoryReuse    = "in_memory_reuse"
+	IndexSourceScopedProjection = "scoped_projection"
+)
+
+// IndexFreshness* values for RepoMapIndexStatus.Freshness.
+const (
+	IndexFreshnessFresh  = "fresh"
+	IndexFreshnessReused = "reused"
+)
 
 // UnresolvedImport records an import statement that no registered
 // ImportResolver could map to a target file in the graph. Populated

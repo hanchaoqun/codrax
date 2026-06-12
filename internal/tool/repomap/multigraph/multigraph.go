@@ -1534,3 +1534,20 @@ func normaliseRelFromParent(rel string) string {
 	rel = strings.TrimPrefix(rel, "/")
 	return rel
 }
+
+// InvalidateResidents drops every LRU-resident sub-repo graph so the
+// next EnsureLoaded reloads from disk (and per-slug symbol oracles
+// rebuild on the new graph pointer). Wired to the REPL's explicit
+// /repos refresh — the one user affordance that promises fresh state.
+// Returns the number of graphs dropped.
+func (m *MultiGraph) InvalidateResidents() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.active == nil {
+		return 0
+	}
+	return m.active.Clear()
+}

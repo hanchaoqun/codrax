@@ -128,6 +128,20 @@ func SupportedReadLanguages() []string { return types.SupportedReadLanguages() }
 // authoritative read-mode language matrix.
 func IsSupportedReadLanguage(lang string) bool { return types.IsSupportedReadLanguage(lang) }
 
+// RepoMapIndexStatus / IndexSource* / IndexFreshness* re-export the
+// per-call index-status observation vocabulary (types package owns it).
+type RepoMapIndexStatus = types.RepoMapIndexStatus
+
+const (
+	IndexSourceFullScan         = types.IndexSourceFullScan
+	IndexSourceCacheHit         = types.IndexSourceCacheHit
+	IndexSourceIncremental      = types.IndexSourceIncremental
+	IndexSourceInMemoryReuse    = types.IndexSourceInMemoryReuse
+	IndexSourceScopedProjection = types.IndexSourceScopedProjection
+	IndexFreshnessFresh         = types.IndexFreshnessFresh
+	IndexFreshnessReused        = types.IndexFreshnessReused
+)
+
 // SetCacheDir overrides the base directory for repo map caches.
 func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 

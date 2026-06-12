@@ -113,13 +113,20 @@ func buildGraphIndexOnly(repoRoot string, files []*types.FileInfo) *types.Graph 
 		}
 	}
 
+	fallbackFiles := 0
+	for _, fi := range files {
+		if fi != nil && fi.ParseTier >= 2 {
+			fallbackFiles++
+		}
+	}
 	g.Metadata = types.Metadata{
-		ScanTime:      time.Now(),
-		FileCount:     len(files),
-		SymbolCount:   symCount,
-		RelationCount: relCount,
-		Languages:     langs,
-		SpecialFiles:  specialFiles,
+		ScanTime:          time.Now(),
+		FileCount:         len(files),
+		SymbolCount:       symCount,
+		RelationCount:     relCount,
+		Languages:         langs,
+		SpecialFiles:      specialFiles,
+		FallbackFileCount: fallbackFiles,
 	}
 	return g
 }

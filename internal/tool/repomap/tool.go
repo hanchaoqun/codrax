@@ -319,6 +319,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		})
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
+		output = prependRepoMapIndexStatusBanner(graph, output)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 		return ctypes.ToolResult{
 			ToolName:  t.Name(),
@@ -354,6 +355,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	}
 	output = prependRepoMapNavigationAdvisory(ctx, p.View, p.Query, output)
 	output = prependRepoMapParameterAdvisory(output, paramAdvisories)
+	output = prependRepoMapIndexStatusBanner(graph, output)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 	return ctypes.ToolResult{
@@ -793,6 +795,15 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
+	// Version pre-check on the manifest header alone: after a schema
+	// or extractor bump the loader would reject the cache anyway, so
+	// skip the full repo hash pass and announce the rebuild up front.
+	if reason := index.PeekCacheCompatibility(cacheDir); reason != index.CacheRejectNone {
+		dir := rejectedCacheRebuildDir(cacheDir, reason)
+		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanFull, len(entries), len(entries))
+		return fullScanAfterRejectedCache(repoRoot, dir, entries, query, progress, reason)
+	}
+
 	// Detect which files changed
 	changeProgress := newRepoMapScanProgress(repoRoot, "", len(entries), 0)
 	changeProgress.startPhase(ctypes.RepoMapScanPhaseChangeScan, 0)
@@ -837,7 +848,8 @@ func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string,
 	})
 	cached := loaded.Files
 	if cached == nil {
-		cacheDir = rejectedCacheRebuildDir(cacheDir, loaded.RejectReason)
+		reason := loaded.RejectReason
+		cacheDir = rejectedCacheRebuildDir(cacheDir, reason)
 		if len(entries) == 0 {
 			var err error
 			if progress != nil {
@@ -854,7 +866,7 @@ func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string,
 			progress.mode = ctypes.RepoMapScanFull
 			progress.changedFiles = len(entries)
 		}
-		return fullScan(repoRoot, cacheDir, entries, query, progress)
+		return fullScanAfterRejectedCache(repoRoot, cacheDir, entries, query, progress, reason)
 	}
 
 	if progress != nil {
@@ -866,6 +878,13 @@ func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string,
 		progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	}
 	retrieve.RankGraph(graph, query)
+	graph.Metadata.IndexStatus = RepoMapIndexStatus{
+		Source:         IndexSourceCacheHit,
+		Freshness:      IndexFreshnessFresh,
+		CacheWrittenAt: loaded.WrittenAt,
+		RepoHead:       loaded.RepoHead,
+		SchemaVersion:  loaded.SchemaVersion,
+	}
 	if progress != nil {
 		progress.finish(true, nil)
 	}
@@ -891,12 +910,13 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	})
 	cached := loaded.Files
 	if cached == nil {
-		cacheDir = rejectedCacheRebuildDir(cacheDir, loaded.RejectReason)
+		reason := loaded.RejectReason
+		cacheDir = rejectedCacheRebuildDir(cacheDir, reason)
 		if progress != nil {
 			progress.mode = ctypes.RepoMapScanFull
 			progress.changedFiles = len(entries)
 		}
-		return fullScan(repoRoot, cacheDir, entries, query, progress)
+		return fullScanAfterRejectedCache(repoRoot, cacheDir, entries, query, progress, reason)
 	}
 
 	// Build lookup of cached files by path
@@ -970,6 +990,13 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	graph := index.BuildGraphWithProgress(repoRoot, merged, buildGraphProgressFn(progress))
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
+	graph.Metadata.IndexStatus = RepoMapIndexStatus{
+		Source:         IndexSourceIncremental,
+		Freshness:      IndexFreshnessFresh,
+		CacheWrittenAt: loaded.WrittenAt,
+		RepoHead:       loaded.RepoHead,
+		SchemaVersion:  loaded.SchemaVersion,
+	}
 	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
 	if err := index.SaveCacheWithProgress(cacheDir, graph, func(file string, written, total int64) {
 		progress.cacheWriteFile(file, written, total)
@@ -1096,6 +1123,10 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 	// Rank
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
+	graph.Metadata.IndexStatus = RepoMapIndexStatus{
+		Source:    IndexSourceFullScan,
+		Freshness: IndexFreshnessFresh,
+	}
 
 	// Save cache (non-blocking — errors are tolerable). cacheDir is
 	// empty when a newer-schema cache must not be overwritten: the
@@ -1117,6 +1148,16 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 	}
 
 	return graph, nil
+}
+
+// fullScanAfterRejectedCache is fullScan plus the rebuild-reason
+// record: the banner tells the model WHY this call paid a full scan.
+func fullScanAfterRejectedCache(repoRoot, cacheDir string, entries []FileEntry, query string, progress *repoMapScanProgress, reason index.CacheRejectReason) (*Graph, error) {
+	g, err := fullScan(repoRoot, cacheDir, entries, query, progress)
+	if g != nil && reason != index.CacheRejectNone && reason != index.CacheRejectMissing {
+		g.Metadata.IndexStatus.RebuildReasons = []string{string(reason)}
+	}
+	return g, err
 }
 
 // rejectedCacheRebuildDir maps a cache rejection onto the rebuild
@@ -1185,4 +1226,56 @@ func buildGraphProgressFn(progress *repoMapScanProgress) func(done, total int) {
 		return nil
 	}
 	return progress.buildGraphRelations
+}
+
+// prependRepoMapIndexStatusBanner prefixes the view output with a
+// short (≤5 line) observation of how this graph was obtained, so the
+// reading model can judge how much weight the map deserves. Wording
+// rules: zero-value status renders "unknown" (never fabricates
+// full_scan); fresh + zero-fallback output carries NO warning lines
+// (anti-noise); the verify reminder reuses the existing contract
+// vocabulary and appears only when the map is reused/unknown or
+// fallback-parsed files exist. The banner is tool-result text — an
+// allowed model-facing surface — and is navigation-level metadata,
+// never citable evidence.
+func prependRepoMapIndexStatusBanner(graph *Graph, output string) string {
+	if graph == nil {
+		return output
+	}
+	st := graph.Metadata.IndexStatus
+	source := st.Source
+	if source == "" {
+		source = "unknown"
+	}
+	var b strings.Builder
+	// Head line uses the bracketed k=v banner shape the observation
+	// ledger already parses generically (toolResultBanners), so the
+	// index status survives as a typed observation with zero new
+	// ledger plumbing.
+	fmt.Fprintf(&b, "[Repo Map Index: source=%s files=%d symbols=%d relations=%d",
+		source, graph.Metadata.FileCount, graph.Metadata.SymbolCount, graph.Metadata.RelationCount)
+	if graph.Metadata.FallbackFileCount > 0 {
+		fmt.Fprintf(&b, " fallback_files=%d", graph.Metadata.FallbackFileCount)
+	}
+	if len(st.RebuildReasons) > 0 {
+		fmt.Fprintf(&b, " rebuilt=%s", strings.Join(st.RebuildReasons, ","))
+	}
+	if st.CacheWrittenAt != "" {
+		fmt.Fprintf(&b, " cache_written=%s", st.CacheWrittenAt)
+	} else if !graph.Metadata.ScanTime.IsZero() {
+		fmt.Fprintf(&b, " scanned=%s", graph.Metadata.ScanTime.Format(time.RFC3339))
+	}
+	b.WriteString("]\n")
+	if len(st.RebuildReasons) > 0 {
+		b.WriteString("- note: the previous index cache was incompatible and this call rebuilt it from a full scan\n")
+	}
+	if graph.Metadata.FallbackFileCount > 0 {
+		fmt.Fprintf(&b, "- parse fallback: %d files; edges from fallback-parsed files may be incomplete\n",
+			graph.Metadata.FallbackFileCount)
+	}
+	if graph.Metadata.FallbackFileCount > 0 || st.Freshness != IndexFreshnessFresh {
+		b.WriteString("- verify selected files with read_file or targeted grep before citing implementation behavior\n")
+	}
+	b.WriteString("\n")
+	return b.String() + output
 }

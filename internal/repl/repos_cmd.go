@@ -463,6 +463,16 @@ func (r *REPL) reposRefresh() {
 		_ = fresh.Save(anchor)
 	}
 
+	// Drop LRU-resident sub-repo graphs: an explicit refresh promises
+	// fresh state, and residents would otherwise keep serving
+	// in-memory graphs (banner source=in_memory_reuse) with ScanTimes
+	// predating this refresh until process restart or eviction.
+	if invalidator, ok := r.multigraphForListing.(interface{ InvalidateResidents() int }); ok && invalidator != nil {
+		if n := invalidator.InvalidateResidents(); n > 0 {
+			r.info(fmt.Sprintf("/repos refresh: dropped %d in-memory sub-repo graph(s); next access reloads from disk", n))
+		}
+	}
+
 	r.multiRepoMu.Lock()
 	r.topology = fresh
 	// Clean stale focus pins (slugs that no longer correspond to a

@@ -2367,7 +2367,7 @@ embedding 索引的 staleness 不是小问题：
 - **增量更新难**：embed 整个 repo 容易，找出"哪些文件变了 + 重 embed 哪些块" 需要 diff 跟踪 + 块边界对齐——chunking 策略变了或文件 rename 时，增量更新就失效了
 - **多分支**：每个 feature branch 都要独立索引 vs 共享 main 的索引但答 feature 分支的问题——两难
 
-codrax 的 repomap 用 tree-sitter 现解，per-Run 现建（首次几秒到几十秒，后续走 cache_dir），HEAD 是什么状态看到的就是什么状态——零 staleness 窗口。代价是首次启动慢一点，但**所有结果都是当下代码的事实**。
+codrax 的 repomap 用 tree-sitter 现解，per-Run 现建（首次几秒到几十秒，后续走 cache_dir）。磁盘加载路径每次调用都做内容 hash 核账，所以从盘上来的图永远反映当下代码；真正的 staleness 窗口只在**内存复用**（LRU 常驻 sub-repo 图、scoped projection 等不重跑核账的路径）——repo_map 输出头部的 `[Repo Map Index: source=…]` banner 把 full_scan/cache_hit/incremental/in_memory_reuse/scoped_projection 状态对模型可见，复用态附带 read_file/grep 复核提示；REPL `/repos refresh` 主动丢弃 LRU 常驻图。代价是首次启动慢一点，但磁盘路径的**所有结果都是当下代码的事实**，内存路径的偏差被显式标注。
 
 #### 弊端 6：黑盒相似度没法审计
 

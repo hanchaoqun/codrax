@@ -558,6 +558,23 @@ func (w *FileInfoCacheWriter) flush() error {
 	return nil
 }
 
+// PeekCacheCompatibility reads ONLY the manifest header and returns
+// the version-shaped reject reason, letting buildOrLoadGraph skip the
+// full repo hash pass after a schema/extractor bump and surface the
+// rebuild message up front. A missing or unreadable manifest returns
+// CacheRejectNone — absence is the loaders' normal business.
+func PeekCacheCompatibility(dir string) CacheRejectReason {
+	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
+	if err != nil {
+		return CacheRejectNone
+	}
+	var manifest cacheFileInfosManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return CacheRejectNone
+	}
+	return cacheManifestVersionReject(manifest.SchemaVersion, manifest.ExtractorVersions)
+}
+
 func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) CacheLoadResult {
 	reject := func(reason CacheRejectReason) CacheLoadResult {
 		return CacheLoadResult{RejectReason: reason}

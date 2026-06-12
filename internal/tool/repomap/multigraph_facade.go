@@ -334,6 +334,10 @@ func rankedLoadedGraph(mg *multigraph.MultiGraph, slug, query string) (*Graph, e
 	}
 	clone := cloneGraphForRanking(g)
 	retrieve.RankGraph(clone, query)
+	// Reuse stamp goes on the CLONE only — the LRU resident is shared
+	// with concurrent readers and must never be mutated.
+	clone.Metadata.IndexStatus.Source = IndexSourceInMemoryReuse
+	clone.Metadata.IndexStatus.Freshness = IndexFreshnessReused
 	return clone, nil
 }
 
@@ -344,6 +348,8 @@ func reusableSearchGraph(repoRoot string, handle any, query string) (*Graph, boo
 	}
 	clone := cloneGraphForRanking(g)
 	retrieve.RankGraph(clone, query)
+	clone.Metadata.IndexStatus.Source = IndexSourceInMemoryReuse
+	clone.Metadata.IndexStatus.Freshness = IndexFreshnessReused
 	logging.Info("repo_map: reused in-memory graph (%d files)", clone.Metadata.FileCount)
 	return clone, true
 }

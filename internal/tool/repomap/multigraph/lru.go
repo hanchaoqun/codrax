@@ -238,3 +238,15 @@ func (t *ThrashingTracker) ResetTrip() {
 	defer t.mu.Unlock()
 	t.tripped = false
 }
+
+// Clear drops every resident, returning how many were evicted. Used
+// by the explicit /repos refresh affordance: a user-requested refresh
+// must not keep serving in-memory graphs whose ScanTime predates it.
+func (l *LRU) Clear() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := len(l.items)
+	l.ll.Init()
+	l.items = make(map[string]*list.Element)
+	return n
+}

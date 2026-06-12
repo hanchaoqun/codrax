@@ -166,6 +166,11 @@ func projectGraphToRoot(base *Graph, parentRoot, scopeRoot, query string) (*Grap
 	}
 	graph := index.BuildGraph(scopeRootAbs, projectedFiles)
 	retrieveRankGraph(graph, query)
+	// BuildGraph rebuilt Metadata wholesale; stamp the projection
+	// observation after it. Cached projections keep this stamp on
+	// later reuse — which is accurate: they are in-memory state.
+	graph.Metadata.IndexStatus.Source = IndexSourceScopedProjection
+	graph.Metadata.IndexStatus.Freshness = IndexFreshnessReused
 	return graph, nil
 }
 

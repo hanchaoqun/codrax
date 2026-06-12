@@ -94,6 +94,7 @@ func ParseFilesWithProgressSinkAndActive(entries []FileEntry, repoRoot string, p
 			for idx := range jobs {
 				stopActive := startActiveFileHeartbeat(entries[idx], active)
 				fi := parseOneFile(entries[idx])
+				applyParseTierConfidenceCap(fi)
 				stopActive()
 				results <- result{idx: idx, info: fi}
 			}
@@ -303,7 +304,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.Imports = imps
 		fi.Relations = rels
 		if tier > 1 {
-			recordFallback(fi, 1, tier, "arkts extractor downgraded")
+			recordFallback(fi, 1, canonicalChainTier(tier), "arkts extractor downgraded")
 		} else {
 			fi.ParseTier = 1
 		}
@@ -315,7 +316,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.Imports = imps
 		fi.Relations = rels
 		if tier > 1 {
-			recordFallback(fi, 1, tier, "cangjie extractor downgraded")
+			recordFallback(fi, 1, canonicalChainTier(tier), "cangjie extractor downgraded")
 		} else {
 			fi.ParseTier = 1
 		}
@@ -470,6 +471,42 @@ func walkNamedChildren(node *sitter.Node, recurse bool, fn func(*sitter.Node)) {
 		fn(ch)
 		if recurse {
 			walkNamedChildren(ch, true, fn)
+		}
+	}
+}
+
+// canonicalChainTier maps the ArkTS/Cangjie local fallback-chain
+// numbering (1 = primary, 2 = regex-only salvage, 3 = path-only)
+// onto the canonical FileInfo.ParseTier vocabulary (1 = primary,
+// 2 = secondary grammar, 3 = regex-only, 4 = path-only) that
+// TierDiscount, rank discounting and relation confidence all read.
+// Without the mapping a path-only ArkTS file would take the
+// regex-tier discount (0.6) instead of the path-only one (0.3).
+func canonicalChainTier(chainTier int) int {
+	switch chainTier {
+	case 2:
+		return 3 // regex-only salvage
+	case 3:
+		return 4 // path-only
+	default:
+		return chainTier
+	}
+}
+
+// applyParseTierConfidenceCap clamps every relation's confidence to
+// the file's parse-tier discount once the tier is final. Extractors
+// emit their structural confidence (AST sites emit ConfidenceAST)
+// without knowing the file-level tier — the cap keeps the two on the
+// single TierDiscount scale at the one site where both are known.
+// Display/soft-ranking semantics only; never read by a gate.
+func applyParseTierConfidenceCap(fi *types.FileInfo) {
+	if fi == nil || fi.ParseTier <= 1 || len(fi.Relations) == 0 {
+		return
+	}
+	limit := TierDiscount(fi.ParseTier)
+	for i := range fi.Relations {
+		if fi.Relations[i].Confidence > limit {
+			fi.Relations[i].Confidence = limit
 		}
 	}
 }
