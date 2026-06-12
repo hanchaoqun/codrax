@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-12T09:26:53Z",
+  "timestamp": "2026-06-12T09:39:24Z",
   "repo_root": "/Users/han/opt/claude/codrax",
   "symbol_precision": {
     "total_checked": 500,
@@ -15,24 +15,17 @@
     "name_then_file_recall": 1
   },
   "import_accuracy": {
-    "total_relations": 6353,
+    "total_relations": 6351,
     "resolved": 1792,
-    "external": 4556,
-    "accuracy": 0.282071462301275,
-    "internal_accuracy": 0.9972175848636616,
+    "external": 4559,
+    "accuracy": 0.2821602897181546,
+    "internal_accuracy": 1,
     "per_language": {
-      "arkts": {
-        "total": 5,
-        "resolved": 0,
-        "external": 0,
-        "accuracy": 0,
-        "internal_accuracy": 0
-      },
       "go": {
-        "total": 6342,
+        "total": 6345,
         "resolved": 1792,
-        "external": 4550,
-        "accuracy": 0.282560706401766,
+        "external": 4553,
+        "accuracy": 0.28242710795902287,
         "internal_accuracy": 1
       },
       "python": {
@@ -44,32 +37,30 @@
       }
     },
     "unresolved_reasons": {
-      "arkts": 5,
-      "go_external": 4550,
+      "go_external": 4553,
       "python_external": 6
     }
   },
   "call_edge_ambiguity": {
-    "total_call_edges": 236613,
-    "unambiguous_edges": 57260,
-    "unambiguous_ratio": 0.24199853769657625,
+    "total_call_edges": 236560,
+    "unambiguous_edges": 57218,
+    "unambiguous_ratio": 0.24187521136286777,
     "ambiguity_histogram": {
-      "0": 148708,
-      "1": 57260,
+      "0": 148844,
+      "1": 57218,
       "10": 26,
-      "11": 296,
+      "11": 300,
       "113": 520,
-      "12": 454,
+      "12": 450,
       "120": 9,
       "13": 117,
       "14": 65,
       "149": 39,
-      "15": 179,
+      "15": 169,
       "16": 16,
-      "17": 328,
-      "18": 2911,
-      "19": 508,
-      "2": 13505,
+      "17": 1889,
+      "18": 1858,
+      "2": 13721,
       "20": 19,
       "21": 201,
       "23": 116,
@@ -78,8 +69,8 @@
       "26": 40,
       "27": 65,
       "29": 117,
-      "3": 3442,
-      "31": 34,
+      "3": 3099,
+      "31": 24,
       "39": 1,
       "4": 830,
       "41": 72,
@@ -91,12 +82,12 @@
       "6": 908,
       "64": 170,
       "69": 43,
-      "7": 208,
+      "7": 198,
       "71": 22,
       "77": 2,
       "8": 1282,
       "82": 8,
-      "9": 562
+      "9": 572
     },
     "top_ambiguous": [
       {
@@ -173,17 +164,17 @@
       },
       {
         "symbol_name": "info",
-        "count": 279
+        "count": 272
       },
       {
         "symbol_name": "insert",
         "count": 256
       }
     ],
-    "calls_with_receiver": 107142,
-    "receiver_capture_ratio": 0.4528153567217355,
+    "calls_with_receiver": 107154,
+    "receiver_capture_ratio": 0.4529675346635103,
     "unambig_by_receiver_type": 4386,
-    "unambig_by_receiver_ratio": 0.018536597735542847,
+    "unambig_by_receiver_ratio": 0.018540750760906322,
     "drift_calls": 23893,
     "drift_calls_resolved": 1335,
     "drift_resolved_ratio": 0.055874105386514876
@@ -508,10 +499,10 @@
         "top_k": 5,
         "ranked_top": [
           "internal/agent/extractor.go",
-          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj",
-          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj",
-          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
-          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj"
+          "internal/repl/repl.go",
+          "internal/types/config.go",
+          "internal/types/context.go",
+          "internal/config/runtime.go"
         ],
         "hit": 0,
         "missing": [
@@ -735,9 +726,9 @@
     ]
   },
   "scan_latency": {
-    "full_scan_seconds": 0.777578209,
-    "file_count": 1758,
-    "symbol_count": 39014,
-    "relation_count": 254219
+    "full_scan_seconds": 0.791975292,
+    "file_count": 1743,
+    "symbol_count": 38927,
+    "relation_count": 254164
   }
 }

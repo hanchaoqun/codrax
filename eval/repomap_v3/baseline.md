@@ -1,8 +1,8 @@
-# repomap_v3 baseline — 2026-06-12T09:26:53Z
+# repomap_v3 baseline — 2026-06-12T09:39:24Z
 
 - repo: `/Users/han/opt/claude/codrax`
-- files: 1758, symbols: 39014, relations: 254219
-- full scan: 0.78s
+- files: 1743, symbols: 38927, relations: 254164
+- full scan: 0.79s
 
 ## Metrics
 
@@ -11,10 +11,10 @@
 | symbol precision (sample 500 / 500 checked) | 1.000 |
 | symbol recall (125 / 125) | 1.000 |
 | symbol recall by name only | 1.000 |
-| import edge accuracy (1792 / 6353) | 0.282 |
-| call edge unambiguous ratio (57260 / 236613) | 0.242 |
-| call receiver capture ratio (107142 / 236613) | 0.453 |
-| unambiguous by receiver-type (4386 / 236613) | 0.019 |
+| import edge accuracy (1792 / 6351) | 0.282 |
+| call edge unambiguous ratio (57218 / 236560) | 0.242 |
+| call receiver capture ratio (107154 / 236560) | 0.453 |
+| unambiguous by receiver-type (4386 / 236560) | 0.019 |
 | **drift calls resolved (1335 / 23893)** | **0.056** |
 | task_map mean hit@k (32 / 35 perfect) | 0.929 |
 
@@ -22,34 +22,32 @@
 
 | language | resolved / total | accuracy |
 |---|---|---|
-| arkts | 0 / 5 | 0.000 |
-| go | 1792 / 6342 | 0.283 |
+| go | 1792 / 6345 | 0.282 |
 | python | 0 / 6 | 0.000 |
 
 ## Call edge ambiguity histogram
 
 | ambiguity | count |
 |---|---|
-| 0 | 148708 |
-| 1 | 57260 |
-| 2 | 13505 |
-| 3 | 3442 |
+| 0 | 148844 |
+| 1 | 57218 |
+| 2 | 13721 |
+| 3 | 3099 |
 | 4 | 830 |
 | 5 | 1418 |
 | 6 | 908 |
-| 7 | 208 |
+| 7 | 198 |
 | 8 | 1282 |
-| 9 | 562 |
+| 9 | 572 |
 | 10 | 26 |
-| 11 | 296 |
-| 12 | 454 |
+| 11 | 300 |
+| 12 | 450 |
 | 13 | 117 |
 | 14 | 65 |
-| 15 | 179 |
+| 15 | 169 |
 | 16 | 16 |
-| 17 | 328 |
-| 18 | 2911 |
-| 19 | 508 |
+| 17 | 1889 |
+| 18 | 1858 |
 | 20 | 19 |
 | 21 | 201 |
 | 23 | 116 |
@@ -58,7 +56,7 @@
 | 26 | 40 |
 | 27 | 65 |
 | 29 | 117 |
-| 31 | 34 |
+| 31 | 24 |
 | 39 | 1 |
 | 41 | 72 |
 | 45 | 28 |
@@ -96,7 +94,7 @@
 | isZh | 324 |
 | Add | 291 |
 | Debug | 286 |
-| info | 279 |
+| info | 272 |
 | insert | 256 |
 
 ## task_map per-query hits

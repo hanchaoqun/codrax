@@ -1,5 +1,5 @@
 {
-  "_comment": "GENERATED ground truth for repomap_v3 symbol recall — regenerate with `go run ./eval/repomap_v3/fixturegen` after large refactors (the harness warns when by-name recall far exceeds by-file recall, the moved-files signature). Selection: exported, load-bearing (graph fan-in ranked), distinctive names, package quotas, every entry independently line-verified against file bytes. Generated at HEAD 2f2947d0; 125 symbols; harness tolerates ±2 line drift.",
+  "_comment": "GENERATED ground truth for repomap_v3 symbol recall — regenerate with `go run ./eval/repomap_v3/fixturegen` after large refactors (the harness warns when by-name recall far exceeds by-file recall, the moved-files signature). Selection: exported, load-bearing (graph fan-in ranked), distinctive names, package quotas, every entry independently line-verified against file bytes. Generated at HEAD d5a9fc54; 125 symbols; harness tolerates ±2 line drift.",
   "symbols": [
     {
       "name": "StageOutput",
@@ -514,13 +514,13 @@
     {
       "name": "AnyLevelPatterns",
       "file": "internal/tool/search.go",
-      "line": 262,
+      "line": 271,
       "kind": "method"
     },
     {
       "name": "ExcludesRepoRelativePath",
       "file": "internal/tool/search.go",
-      "line": 284,
+      "line": 293,
       "kind": "method"
     },
     {

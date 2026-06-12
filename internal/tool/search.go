@@ -96,6 +96,15 @@ var ExcludeDirsAnyLevel = []string{
 	".git", ".hg", ".svn",
 	".codrax", // codrax's own per-repo state (logs / blob / worktrees / plans). Showed up in `list_files recursive=false` output and confused LLMs into thinking it was project state.
 	"node_modules", "vendor", "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
+	// Vendored third-party trees in their other common spellings —
+	// the same class as "vendor": copied-in dependency code (grammar
+	// test corpora, forked libs) that is structurally never the
+	// user's navigation target. Surfaced by the 2026-06-12 repomap_v3
+	// refresh: tree-sitter grammar corpus sources under
+	// internal/thirdparty/ outranked real extractors on path-token
+	// matches. Deliberately NOT excluding generic "corpus" dirs — a
+	// user repo can own a legitimate corpus directory.
+	"thirdparty", "third_party", "third-party",
 	".idea", ".vscode", ".vs",
 	"target", "dist", "build", ".gradle", ".cargo",
 	".next", ".nuxt", ".turbo", // common JS framework output dirs

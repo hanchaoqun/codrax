@@ -76,11 +76,15 @@ common token, flattening the query layer into alphabetical ties
 (hit@k 0.87 → 0.14 as the repo grew). Fixed in
 `retrieve/rank.go:queryMatchScoreWithTokens` by per-token saturation
 (best surface hit + log-dampened repeats, no flat cap), restoring
-hit@k to 0.93. Two residual imperfect queries are kept deliberately:
-`tree-sitter extractor go` (vendored grammar corpus files under
-`internal/thirdparty/` outrank the extractor — scanner-policy follow-up
-candidate) and the zh query (CJK canary, imperfect by design in an
-all-English codebase). The same refresh fixed a harness fidelity bug:
+hit@k to 0.93. Three residual imperfect queries are kept deliberately:
+`BuildGraph FileInfo Symbol Relation` (0.5 — types.go ranks, build.go
+sits just below the cut), `tree-sitter extractor go` (the tokenizer
+does no stemming, so the token "extractor" cannot match
+`extract_go.go`'s path token "extract" — derivational-morphology
+limitation; the vendored-corpus pollution this query originally
+exposed was fixed by excluding thirdparty trees from the scan), and
+the zh query (CJK canary, imperfect by design in an all-English
+codebase). The same refresh fixed a harness fidelity bug:
 `topKQueryFiles` ranked by raw `QueryScores` instead of the combined
 score production task_map renders, so ties degenerated to filename
 order.
