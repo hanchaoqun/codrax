@@ -12,9 +12,9 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
 
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | **全家族 eval 回归 + 工具调用效率测量**：`parallel_all.sh` 167 案全扫（P0 后首次全量；改了生产排序/banner/strict decode/教学/handoff）；FAIL 按红线修系统；用 run 指标（`tool_repo_map` 等计数）对比 P0 前历史 results，量化 steering 投资回报（§14.8 benchmark 第一步） | 进行中 | sweep 后台运行；快照二进制免受并行开发干扰 |
-| 3 | **CodeGraph 调用次数预算引导** | 代码完成 | medium≥2/large 3/very_large 4;仅探索类视图;broad_fallback 连带抑制;措辞保住"引用前必读"契约(对 CodeGraph 原文的适配而非照搬);9 测试;eval gate 待 #1 sweep 结束后补 |
-| 2 | **Route resolver 批 2** | 完成 | mux(逐 verb+ANY/PathPrefix 子路由)/Flask(methods kwarg 逐 verb+Blueprint url_prefix)/Kotlin Spring(新 annotation reader+**文法恢复怪癖修复**:多 controller 文件首类注解被拆为游离 prefix_expression,配对收割)/Express+NestJS(require AST 扫描补 CommonJS gate;JS 文法 decorator 形态差异处理;ArkTS .ets no-op 钉死);extractor bump Go5/Py4/Kt4/JS3/TS3 |
+| 1 | **全家族 eval 回归 + 效率测量** | 完成 | 167 案 2 并发全扫:154 PASS+13 FAIL→复跑分类后**实质 161/167**(7 jitter 复跑全 PASS);3 pre-existing(data-planner 残余,Tier-3 #8 在档);3 repeat-FAIL 定性列专项(见下);**6 个历史 FAIL 翻 PASS**。效率对比(tool_usage_compare.py,P0 前配对基线):repo_map +20%/trace_query +60%/read_file −6.3%——steering 方向性生效 |
+| 3 | **CodeGraph 调用次数预算引导** | 完成 | 代码 ec9f74c8;eval gate sr_cpp_sink_impls PASS(新二进制) |
+| 2 | **Route resolver 批 2** | 完成 | mux(逐 verb+ANY/PathPrefix 子路由)/Flask(methods kwarg 逐 verb+Blueprint url_prefix)/Kotlin Spring(新 annotation reader+**文法恢复怪癖修复**:多 controller 文件首类注解被拆为游离 prefix_expression,配对收割)/Express+NestJS(require AST 扫描补 CommonJS gate;JS 文法 decorator 形态差异处理;ArkTS .ets no-op 钉死);extractor bump Go5/Py4/Kt4/JS3/TS3;eval gate sr_java_annotation_route PASS(负向仍零产出,新二进制) |
 
 ## 第二梯队（短期，1-2 个 session）
 
@@ -41,4 +41,20 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
 - 2026-06-12: 按用户改令 sweep 并发 6→2 重启（167 案全量）。
 - 2026-06-12: #2 route 批 2 交付（4 框架;首轮 fan-out 被中断击杀后 mux/kotlin
   半成品验收续修——kotlin 多 controller 文法恢复怪癖由我修复;flask/express
-  补发 agent 完成）。#3/#2 的 eval gate 待 sweep 结束统一补。
+  补发 agent 完成）。
+- 2026-06-13: #1 sweep 收口(154+7复跑=161/167 实质);效率对比落账;#3/#2
+  eval gate 新二进制双 PASS。**第一梯队全部完成**。
+
+## repeat-FAIL 专项（待办,均属 prompt 级介入需 BLOCKING 流程）
+
+- `github_issue_libgit2_foreach_worktree`(2/2):write 模式修复功能正确且测试
+  通过,但第二处用语义等价 `(error=lookup_result) != 0` 而非上游 PR 规范形
+  `< 0`(apply 模式校验 fixture 字节;06-11 同案模型选了 `< 0`)。方向:write
+  planner 通用教学"参照已知上游修复时保持与上游 diff 同形"(无 prose 门控,
+  通用一句);禁忌:任何"检测 PR 引用"的关键字匹配。
+- `operation_web_manual_summary`(2/2):答案实质正确但写"完整使用手册"不含
+  断言词"用户使用手册"(用户问题原词)且无 manual/guide。方向:finalizer 教学
+  "答案复用用户问题中的关键名词指代,不做同义替换"——影响全局,需单独批次+
+  eval gate;不放松 case。
+- `s3a`(2/2 且两次失败轴不同):多断言 case 答案构成漂移,需读双 run 对比
+  定位丢失的断言来源(ExploreHeuristics 缺失 vs CLI 措辞)。
