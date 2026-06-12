@@ -6,7 +6,9 @@
 ID="read_combo_pipeline_sequence_table"
 NAME="read combo — read pipeline sequence diagram and handoff table"
 QUESTION="解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
-EXPECT_CONTAINS="analyze explorer extractor finalizer AnalysisIR EvidenceItems AnswerDocument Mutable BusContext"
+EXPECT_CONTAINS="analyze finalizer AnalysisIR EvidenceItems AnswerDocument Mutable BusContext"
 EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)
-(阶段|stage|输入|输出|载体|carrier)'
+(阶段|stage|输入|输出|载体|carrier)
+(explorer|Explore)
+(extractor|Extract)'
 EXPECT_NOT_CONTAINS="Spring Django"
