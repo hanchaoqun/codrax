@@ -166,3 +166,25 @@ E3: B5-B7 后 trace_query/perf 家族抽样 + bench 对比; repomap_v3 baseline 
   按 §4.2 顺序硬约束执行，逐步 `go test ./...` 验证。
 - B6.5 触 analyzer 预注入字节 → 先确认 L1 结构测试边界，prompt snapshot 重录评审。
 - 所有 prompt/hint 文案：ATOMIC 7 + prompt_hygiene + InternalTermsBlocklist 三关。
+
+## 完成审计裁定登记（2026-06-12 终审）
+
+- §4.3 解析期标注采用**二值** resolution=typed|name_match，不展开 method_index
+  命中步骤：模型只需要 typed-vs-name 的信任分界，步骤名会把 resolver 内部词汇
+  推进 LLM-facing 文本（render.go 注释留档）。
+- §5.3 include_relationship_summary / include_additional_candidates /
+  "additional candidates omitted" 提示推迟 P1（设计文档 §12 风险四的该项
+  mitigation 同步顺延）；mock 分类器扩展放弃（全局波及 keyword_search 分层）。
+- §6.5 /repos refresh 不需失效 Mutable.SearchGraph：MutableState 每 Run 新建,
+  无跨轮存活预热图;LRU 是唯一跨轮内存载体（repos_cmd.go 注释留档）。
+- §8 convergence_audit 基线不重跑：P0.2 只改 tiny/small 档默认值,convergence
+  audit 跑在 codrax 自仓（medium 档,历史默认值被
+  TestDefaultTopNMediumKeepsHistoricalDefaults 钉死字节不变）,tool_repo_map
+  计数无漂移来源;若未来调 medium 档则必须重录。
+- §8 eval 重跑按用户改令执行抽样制（每批并行 2 案）替代全家族两轮:
+  repomap/multirepo/trace/logtri 已覆盖 8 案 PASS;write-mode（patch_*）
+  补样于终审完成。
+- 终审补齐缺口:CLAUDE.md fallback 格式修正+源码 pin;§14.7 混版本不覆写规则
+  落账（修 tool.go 悬空引用）;三态扫描+projection Source 盖戳端到端测试;
+  schema 双向 typed reason+不覆写守卫测试;RefCount route 生产者 pin;
+  edit_impact 降权豁免不变量测试。

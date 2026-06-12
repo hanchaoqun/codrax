@@ -922,6 +922,10 @@ func relationMapCallTarget(g *types.Graph, fi *types.FileInfo, rel types.Relatio
 // resolver plus confidence, and — for call rows — whether the target
 // was resolved through the receiver-aware typed index (resolution=
 // typed) or remains a name-level match (resolution=name_match).
+// Deliberately BINARY rather than the per-step attribution the design
+// first sketched (same-package vs cross-package index steps): the
+// reading model only needs the typed-vs-name trust split, and step
+// names would push resolver-internal vocabulary into LLM-facing text.
 // Confidence here is display only: it grades edge strength for the
 // reader and never gates anything.
 func relationMapRelationDiag(rel types.Relation, typedResolution bool) string {

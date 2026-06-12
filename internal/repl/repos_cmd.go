@@ -467,6 +467,10 @@ func (r *REPL) reposRefresh() {
 	// fresh state, and residents would otherwise keep serving
 	// in-memory graphs (banner source=in_memory_reuse) with ScanTimes
 	// predating this refresh until process restart or eviction.
+	// Mutable.SearchGraph needs no invalidation here: MutableState is
+	// per-Run (a fresh one is built for every Run), so no prewarmed
+	// graph survives across REPL turns — the LRU is the only
+	// cross-turn in-memory carrier.
 	if invalidator, ok := r.multigraphForListing.(interface{ InvalidateResidents() int }); ok && invalidator != nil {
 		if n := invalidator.InvalidateResidents(); n > 0 {
 			r.info(fmt.Sprintf("/repos refresh: dropped %d in-memory sub-repo graph(s); next access reloads from disk", n))

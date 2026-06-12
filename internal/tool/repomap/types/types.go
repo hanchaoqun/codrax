@@ -8,7 +8,7 @@
 //   - language constants + DetectLanguage / GetSitterLanguage / IsExported
 //   - MakeSymbolID / DeriveSymbolID / SymbolKey / AppendUnique helpers
 //   - Graph methods for in-graph navigation: FilesImporting,
-//     FilesImportedBy, SymbolsInFile, CallersOf, CallersOfID,
+//     FilesImportedBy, SymbolsInFile, CallersOfName, CallersOfID,
 //     ResolveCallTarget, TransitiveDeps, TransitiveReverseDeps
 //
 // Methods are defined here rather than in retrieve/ because Go

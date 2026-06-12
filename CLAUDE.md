@@ -51,7 +51,7 @@ For everything else — stage table, agent contracts, retry layering, write-mode
 - **L7**: `render/mermaid` failure paths MUST rewrite the fence to ` ```text` and inject a `# ⚠ <reason>` leader.
 - **L8**: `render/mermaid` library-subset gaps absorbed by L1+L2 shims; MUST NOT propagate into LLM-facing prompts.
 
-Repomap red lines: `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds `oh-package.json5` in any ancestor; `.cjo` denied at scanner; Cangjie `FileInfo.Package` MUST come from `package_clause` (path inference forbidden); all parse fallbacks log `repomap: <file> X→Y (tier N→M): <reason>` at WARN.
+Repomap red lines: `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds `oh-package.json5` in any ancestor; `.cjo` denied at scanner; Cangjie `FileInfo.Package` MUST come from `package_clause` (path inference forbidden); all parse fallbacks log `repomap: <lang> <file> tier N→M: <reason>` at WARN (format pinned by TestFallbackWarnLogFormatPinned).
 
 Evidence-lite runtime gate: `BaseAgent.executeTool` → `validateAnalyzerPrescanToolCall` rejects `grep` in `StageAnalyze` when `files_only` is not true.
 
