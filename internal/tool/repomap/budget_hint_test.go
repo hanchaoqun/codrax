@@ -46,3 +46,52 @@ func TestBudgetHint_ExplicitLargeTopNGetsSoftNoteNeverClamped(t *testing.T) {
 		t.Errorf("missing top_n soft note:\n%s", out)
 	}
 }
+
+func TestBudgetHint_MediumScopeGetsCallBudgetOnly(t *testing.T) {
+	g := budgetTestGraph(1000) // medium
+	out := appendRepoMapBudgetHint(g, "task_map", 0, "BODY")
+	if !strings.Contains(out, "Navigation budget: ~2 narrow repo_map") {
+		t.Errorf("medium scope missing call-budget line:\n%s", out)
+	}
+	if strings.Contains(out, "Repo Map Budget Hint") {
+		t.Errorf("medium scope must not get the large-scope size hint:\n%s", out)
+	}
+	if !strings.Contains(out, "read_file before citing stays required") {
+		t.Errorf("budget line must preserve the verify-before-citing contract:\n%s", out)
+	}
+}
+
+func TestBudgetHint_TinySmallStaySilentOnCallBudget(t *testing.T) {
+	for _, files := range []int{100, 400} {
+		out := appendRepoMapBudgetHint(budgetTestGraph(files), "task_map", 0, "BODY")
+		if out != "BODY" {
+			t.Errorf("%d files: tiny/small must stay silent (anti-noise):\n%s", files, out)
+		}
+	}
+}
+
+func TestBudgetHint_TargetedViewsGetNoCallBudget(t *testing.T) {
+	g := budgetTestGraph(1000)
+	for _, view := range []string{"edit_impact", "call_path", "implementers"} {
+		out := appendRepoMapBudgetHint(g, view, 0, "BODY")
+		if strings.Contains(out, "Navigation budget") {
+			t.Errorf("%s is a targeted lookup — budget prose is noise:\n%s", view, out)
+		}
+	}
+}
+
+func TestBudgetHint_BroadFallbackSuppressesCallBudgetToo(t *testing.T) {
+	g := budgetTestGraph(1000)
+	out := appendRepoMapBudgetHint(g, "relation_map", 0, "BODY mode=broad_fallback")
+	if strings.Contains(out, "Navigation budget") {
+		t.Errorf("broad-fallback advisory present — budget line must stand down:\n%s", out)
+	}
+}
+
+func TestBudgetHint_LargeScopeStacksBudgetAndSizeHint(t *testing.T) {
+	g := budgetTestGraph(6000)
+	out := appendRepoMapBudgetHint(g, "task_map", 0, "BODY")
+	if !strings.Contains(out, "Navigation budget: ~3") || !strings.Contains(out, "Repo Map Budget Hint") {
+		t.Errorf("large scope should carry budget + size hint:\n%s", out)
+	}
+}

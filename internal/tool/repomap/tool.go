@@ -1428,22 +1428,66 @@ func repoMapDeprioritizeAuxiliary(ctx *ctypes.BusContext, graph *Graph) bool {
 // medium scopes (anti-noise). An explicit user top_n far above the
 // tier default earns one extra soft line — the value is always
 // honored, never clamped.
+// repoMapNavigationCallBudget is the soft per-scope guidance for how
+// many NARROW repo_map/source_inventory follow-ups typically cover
+// discovery at each repository size — the second half of the
+// CodeGraph-validated budget mechanism (its A/B runs showed
+// call-count steering text cuts broad-sweep fallbacks; the first
+// half, size-tiered row budgets, landed with the P0.2 matrix).
+// Tiny/small scopes get NO budget line (anti-noise ruling, design doc
+// §5.4): one or two calls obviously suffice there and every extra
+// hint line costs tokens on every call.
+func repoMapNavigationCallBudget(tier SizeTier) int {
+	switch tier {
+	case SizeTierMedium:
+		return 2
+	case SizeTierLarge:
+		return 3
+	case SizeTierVeryLarge:
+		return 4
+	default:
+		return 0
+	}
+}
+
+// repoMapBudgetHintViews are the exploration-breadth views where the
+// call-budget line earns its tokens. Targeted lookups (edit_impact,
+// call_path, implementers) answer one precise question — budget prose
+// there is noise.
+var repoMapBudgetHintViews = map[string]bool{
+	"overview":          true,
+	"task_map":          true,
+	"file_map":          true,
+	"relation_map":      true,
+	"source_inventory":  true,
+	"semantic_subgraph": true,
+}
+
 func appendRepoMapBudgetHint(graph *Graph, view string, userTopN int, output string) string {
 	if graph == nil {
 		return output
 	}
 	tier := GraphSizeTier(graph)
-	if tier < SizeTierLarge {
-		return output
-	}
 	var lines []string
-	if !strings.Contains(output, "mode=broad_fallback") {
+	// When relation_map's broad-fallback advisory already rendered its
+	// own narrowing instruction (our deterministic marker), both the
+	// budget line and the size hint stand down — at most one steering
+	// voice per result.
+	advisoryAlreadyRendered := strings.Contains(output, "mode=broad_fallback")
+	if budget := repoMapNavigationCallBudget(tier); budget > 0 && repoMapBudgetHintViews[view] && !advisoryAlreadyRendered {
+		lines = append(lines, fmt.Sprintf(
+			"Navigation budget: ~%d narrow repo_map / source_inventory follow-ups (distinct scopes, sources, or roles) typically cover discovery in a repository of this size — prefer them over broad grep sweeps. Verifying selected files with read_file before citing stays required.",
+			budget))
+	}
+	if tier >= SizeTierLarge && !advisoryAlreadyRendered {
 		lines = append(lines,
 			fmt.Sprintf("Repo Map Budget Hint: this repository scope is large (%d files indexed). Prefer follow-up relation_map / source_inventory calls with explicit sources or scopes over broader expansion.", len(graph.FileIndex)))
 	}
-	if def := DefaultTopN(view, tier); def > 0 && userTopN > 2*def {
-		lines = append(lines,
-			"Note: top_n is large for this repository scope; narrower follow-ups with scope/sources are usually cheaper.")
+	if tier >= SizeTierLarge {
+		if def := DefaultTopN(view, tier); def > 0 && userTopN > 2*def {
+			lines = append(lines,
+				"Note: top_n is large for this repository scope; narrower follow-ups with scope/sources are usually cheaper.")
+		}
 	}
 	if len(lines) == 0 {
 		return output

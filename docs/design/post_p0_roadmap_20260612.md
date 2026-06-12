@@ -13,7 +13,7 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | **全家族 eval 回归 + 工具调用效率测量**：`parallel_all.sh` 167 案全扫（P0 后首次全量；改了生产排序/banner/strict decode/教学/handoff）；FAIL 按红线修系统；用 run 指标（`tool_repo_map` 等计数）对比 P0 前历史 results，量化 steering 投资回报（§14.8 benchmark 第一步） | 进行中 | sweep 后台运行；快照二进制免受并行开发干扰 |
-| 3 | **CodeGraph 调用次数预算引导**：repo_map 结果尾按 size tier 注入"本仓建议 N 次窄查询再 fallback read_file"软引导（CodeGraph A/B 验证机制的另一半；B4 narrowing hint 为现成挂点；typed 信号驱动，措辞过三关） | 待做 | |
+| 3 | **CodeGraph 调用次数预算引导** | 代码完成 | medium≥2/large 3/very_large 4;仅探索类视图;broad_fallback 连带抑制;措辞保住"引用前必读"契约(对 CodeGraph 原文的适配而非照搬);9 测试;eval gate 待 #1 sweep 结束后补 |
 | 2 | **Route resolver 批 2**：gorilla/mux（链式 .Methods()）、Flask（@app.route+methods kwarg）、Kotlin Spring（需新写 annotation reader——extract_kotlin 现跳过 annotation 节点）、Express/NestJS（extractJS 与 ArkTS 共享，必配 .ets no-op 回归测试 + import gate 惰性证明）；extractor bump 各语言 | 待做 | B3 模式复用；消费侧零改动 |
 
 ## 第二梯队（短期，1-2 个 session）
@@ -35,4 +35,6 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
 
 ## 进度日志
 
-- 2026-06-12: 路线图落盘；#1 sweep 启动（HEAD 1210fe73）。
+- 2026-06-12: 路线图落盘；#1 sweep 启动（HEAD 1210fe73，167 案 6 并发）。
+- 2026-06-12: #3 调用预算引导代码落地（repoMapNavigationCallBudget + 视图门控
+  + 抑制联动 + 9 测试）；eval gate 排队等 sweep。
