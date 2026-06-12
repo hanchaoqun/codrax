@@ -286,13 +286,13 @@ func projectedGraphFromActiveSingle(mg *multigraph.MultiGraph, repoRoot, query s
 		return nil, false, nil
 	}
 	for _, base := range mg.AllGraphs() {
-		projected, err := projectGraphToRoot(base, mg.Root(), repoRoot, query)
+		projected, err := projectGraphToRoot(base, mg.Root(), repoRoot)
 		if err != nil {
 			return nil, false, err
 		}
 		if projected != nil {
 			logging.Info("repo_map: projected scoped graph from active in-memory graph (%d files)", projected.Metadata.FileCount)
-			return projected, true, nil
+			return serveScopedProjection(projected, query), true, nil
 		}
 	}
 	return nil, false, nil

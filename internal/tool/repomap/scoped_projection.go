@@ -22,13 +22,13 @@ func projectedGraphFromBusContext(ctx *types.BusContext, parentRoot, scopeRoot, 
 	}
 	if g, ok := ctx.SearchGraph.(*Graph); ok {
 		for _, parent := range projectionParentCandidates(g.Root, parentRoot, scopeRoot) {
-			projected, err := projectGraphToRoot(g, parent, scopeRoot, query)
+			projected, err := projectGraphToRoot(g, parent, scopeRoot)
 			if err != nil {
 				return nil, false, err
 			}
 			if projected != nil {
 				logging.Info("repo_map: projected scoped graph from bus in-memory graph (%d files)", projected.Metadata.FileCount)
-				return cloneGraphForRanking(projected), true, nil
+				return serveScopedProjection(projected, query), true, nil
 			}
 		}
 	}
@@ -46,13 +46,13 @@ func projectedGraphFromAgentContext(ctx *types.AgentContext, parentRoot, scopeRo
 	}
 	if g, ok := ctx.SearchGraph.(*Graph); ok {
 		for _, parent := range projectionParentCandidates(g.Root, parentRoot, scopeRoot) {
-			projected, err := projectGraphToRoot(g, parent, scopeRoot, query)
+			projected, err := projectGraphToRoot(g, parent, scopeRoot)
 			if err != nil {
 				return nil, false, err
 			}
 			if projected != nil {
 				logging.Info("repo_map: projected scoped graph from agent in-memory graph (%d files)", projected.Metadata.FileCount)
-				return projected, true, nil
+				return serveScopedProjection(projected, query), true, nil
 			}
 		}
 	}
@@ -69,29 +69,29 @@ func projectedGraphFromMutable(mut *types.MutableState, parentRoot, scopeRoot, q
 	}
 	parents := projectionParentCandidates(base.Root, parentRoot, scopeRoot)
 	for _, parent := range parents {
-		key := scopedGraphProjectionCacheKey(parent, scopeRoot, query)
+		key := scopedGraphProjectionCacheKey(parent, scopeRoot)
 		if key == "" {
 			continue
 		}
 		if cached, ok := mut.ScopedSearchGraph(key).(*Graph); ok && cached != nil {
-			clone := cloneGraphForRanking(cached)
+			clone := serveScopedProjection(cached, query)
 			logging.Info("repo_map: reused scoped in-memory graph (%d files)", clone.Metadata.FileCount)
 			return clone, true, nil
 		}
 	}
 	for _, parent := range parents {
-		projected, err := projectGraphToRoot(base, parent, scopeRoot, query)
+		projected, err := projectGraphToRoot(base, parent, scopeRoot)
 		if err != nil {
 			return nil, false, err
 		}
 		if projected == nil {
 			continue
 		}
-		if key := scopedGraphProjectionCacheKey(parent, scopeRoot, query); key != "" {
+		if key := scopedGraphProjectionCacheKey(parent, scopeRoot); key != "" {
 			mut.SetScopedSearchGraph(key, projected)
 		}
 		logging.Info("repo_map: projected scoped graph from in-memory graph (%d files)", projected.Metadata.FileCount)
-		return cloneGraphForRanking(projected), true, nil
+		return serveScopedProjection(projected, query), true, nil
 	}
 	return nil, false, nil
 }
@@ -119,16 +119,31 @@ func projectionParentCandidates(baseRoot, parentRoot, scopeRoot string) []string
 	return out
 }
 
-func scopedGraphProjectionCacheKey(parentRoot, scopeRoot, query string) string {
+// scopedGraphProjectionCacheKey keys run-local projections by
+// (parent, scope) ONLY: the projected structure is query-independent,
+// and including the query forced a full deep-clone + BuildGraph for
+// every new query on the same scope. Ranking happens per-call on a
+// shallow clone instead (serveScopedProjection), so cached
+// projections never leak one query's scores to another.
+func scopedGraphProjectionCacheKey(parentRoot, scopeRoot string) string {
 	parent, errParent := canonicalRepoMapPath(parentRoot)
 	scope, errScope := canonicalRepoMapPath(scopeRoot)
 	if errParent != nil || errScope != nil || parent == "" || scope == "" {
 		return ""
 	}
-	return parent + "\x00" + scope + "\x00" + query
+	return parent + "\x00" + scope
 }
 
-func projectGraphToRoot(base *Graph, parentRoot, scopeRoot, query string) (*Graph, error) {
+// serveScopedProjection hands a consumer its own ranked shallow clone
+// of a (possibly cached, unranked) projection — the same single-
+// ranking-ownership shape rankedLoadedGraph uses for LRU residents.
+func serveScopedProjection(projected *Graph, query string) *Graph {
+	clone := cloneGraphForRanking(projected)
+	retrieveRankGraph(clone, query)
+	return clone
+}
+
+func projectGraphToRoot(base *Graph, parentRoot, scopeRoot string) (*Graph, error) {
 	if base == nil || strings.TrimSpace(base.Root) == "" {
 		return nil, nil
 	}
@@ -165,10 +180,13 @@ func projectGraphToRoot(base *Graph, parentRoot, scopeRoot, query string) (*Grap
 		return nil, nil
 	}
 	graph := index.BuildGraph(scopeRootAbs, projectedFiles)
-	retrieveRankGraph(graph, query)
 	// BuildGraph rebuilt Metadata wholesale; stamp the projection
 	// observation after it. Cached projections keep this stamp on
 	// later reuse — which is accurate: they are in-memory state.
+	// NOTE: deliberately unranked — every consumer ranks its own
+	// shallow clone via serveScopedProjection, so the expensive
+	// deep-clone + BuildGraph runs once per (parent, scope) while
+	// scores stay per-query.
 	graph.Metadata.IndexStatus.Source = IndexSourceScopedProjection
 	graph.Metadata.IndexStatus.Freshness = IndexFreshnessReused
 	return graph, nil

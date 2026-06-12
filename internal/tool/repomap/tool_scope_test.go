@@ -1454,7 +1454,7 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
 	if base.FileIndex["src/alpha/alpha.go"].Symbols[0].File != "src/alpha/alpha.go" {
 		t.Fatalf("projection mutated base graph symbol file: %+v", base.FileIndex["src/alpha/alpha.go"].Symbols[0])
 	}
-	cached, ok := mut.ScopedSearchGraph(scopedGraphProjectionCacheKey(repo, filepath.Join(repo, "src", "alpha"), "RunAlpha")).(*Graph)
+	cached, ok := mut.ScopedSearchGraph(scopedGraphProjectionCacheKey(repo, filepath.Join(repo, "src", "alpha"))).(*Graph)
 	if !ok || cached == nil {
 		t.Fatalf("projected graph was not cached")
 	}
@@ -1567,7 +1567,7 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableSubRepoGraph(t *testi
 	if _, ok := graph.SymbolDefs["validateNonInteractiveAuth"]; !ok {
 		t.Fatalf("projected graph missing function symbol: %+v", graph.SymbolDefs)
 	}
-	key := scopedGraphProjectionCacheKey(subRepoRoot, scopeRoot, "validateNonInteractiveAuth W3 token")
+	key := scopedGraphProjectionCacheKey(subRepoRoot, scopeRoot)
 	if cached, ok := mut.ScopedSearchGraph(key).(*Graph); !ok || cached == nil {
 		t.Fatalf("subrepo-root projection was not cached under base graph root")
 	}

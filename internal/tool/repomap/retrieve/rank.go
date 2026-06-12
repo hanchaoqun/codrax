@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -289,10 +290,36 @@ func TopFilesByScore(g *types.Graph, scores map[string]float64, topN int) []*typ
 }
 
 // getRecentlyChanged returns files modified in the last N commits.
+// recentChangeMemo caches the git-recency file set per repo root.
+// Ranking runs several times per explore stage (tool calls, LRU-clone
+// ranks, scoped projections) and each uncached call spawns a `git
+// log` subprocess. The signal only feeds the soft wRecent ranking
+// bonus, so a bounded refresh interval is an acceptable staleness
+// window for a noisy, soft-guidance-only input — no gate reads it.
+// Process-global, mutex-guarded; entries are tiny (≤50 paths/root).
+var (
+	recentChangeMemoMu sync.Mutex
+	recentChangeMemo   = map[string]recentChangeEntry{}
+)
+
+type recentChangeEntry struct {
+	files     map[string]bool
+	fetchedAt time.Time
+}
+
+const recentChangeMemoTTL = 30 * time.Second
+
 func getRecentlyChanged(repoRoot string, n int) map[string]bool {
 	if strings.TrimSpace(repoRoot) == "" {
 		return nil
 	}
+	recentChangeMemoMu.Lock()
+	if entry, ok := recentChangeMemo[repoRoot]; ok && time.Since(entry.fetchedAt) < recentChangeMemoTTL {
+		recentChangeMemoMu.Unlock()
+		return entry.files
+	}
+	recentChangeMemoMu.Unlock()
+
 	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "log",
 		"--pretty=format:", "--name-only", "-n", itoa(n))
 	defer cancel()
@@ -307,6 +334,9 @@ func getRecentlyChanged(repoRoot string, n int) map[string]bool {
 			recent[line] = true
 		}
 	}
+	recentChangeMemoMu.Lock()
+	recentChangeMemo[repoRoot] = recentChangeEntry{files: recent, fetchedAt: time.Now()}
+	recentChangeMemoMu.Unlock()
 	return recent
 }
 

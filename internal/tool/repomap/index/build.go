@@ -145,10 +145,13 @@ func buildGraphIndexOnly(repoRoot string, files []*types.FileInfo) *types.Graph 
 // Java/Kotlin's `class T implements I` already gives an explicit
 // signal but the typed lookup remains uniform across languages.
 //
-// Performance: O(N_interfaces × N_concrete_types) per file pair,
-// bounded in practice by the number of interfaces — codrax has
-// ~50 interfaces and ~3K types, so the full pass is ~150K
-// comparisons (microseconds).
+// Performance: index-assisted since the 2026-06-11 resolver
+// overhaul — a per-language inverted index (method name →
+// interface positions) means each concrete type touches only
+// interfaces sharing at least one method name, with a
+// hit-count == required-length set-equality check. Roughly
+// linear in symbols; the naive O(types × interfaces × methods)
+// pairwise loop it replaced measured 38× superlinear.
 //
 // Per-package matching: a concrete type T at package P matches
 // interface I at any package — Go's structural typing is
