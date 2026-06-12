@@ -664,5 +664,10 @@ type ViewParams struct {
 	RelationKinds           []string // relation families for relation_map
 	TopN                    int      // max items to show (0 = default)
 	ShowSourceInventoryHint bool     // overview-only navigation hint for later-stage agents
-	ViewProgress            func(step string, done, total int)
+	// DeprioritizeAuxiliary soft-downranks test/fixture/example/doc
+	// files in ranked views. Set ONLY from the analyzer's typed
+	// SourceScopeProfile (never from prose scanning); nil profile or
+	// auxiliary-principal intent leaves it off.
+	DeprioritizeAuxiliary bool
+	ViewProgress          func(step string, done, total int)
 }

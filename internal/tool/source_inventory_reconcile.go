@@ -1398,6 +1398,11 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	topN := query.TopN
 	if topN <= 0 {
 		topN = 60
+		if query.RepoFileCount > 0 {
+			if tiered := repotypes.DefaultTopN("source_inventory", repotypes.RepoSizeTier(query.RepoFileCount)); tiered > 0 {
+				topN = tiered
+			}
+		}
 	}
 	if groupedView != "" && query.TopN <= 0 {
 		topN = 24

@@ -142,6 +142,23 @@ const (
 	IndexFreshnessReused        = types.IndexFreshnessReused
 )
 
+// Size-tier vocabulary re-exports (types package owns it).
+type SizeTier = types.SizeTier
+
+const (
+	SizeTierTiny      = types.SizeTierTiny
+	SizeTierSmall     = types.SizeTierSmall
+	SizeTierMedium    = types.SizeTierMedium
+	SizeTierLarge     = types.SizeTierLarge
+	SizeTierVeryLarge = types.SizeTierVeryLarge
+)
+
+// GraphSizeTier reports the served graph's size tier.
+func GraphSizeTier(g *Graph) SizeTier { return types.GraphSizeTier(g) }
+
+// DefaultTopN is the per-view × per-tier default row budget.
+func DefaultTopN(view string, tier SizeTier) int { return types.DefaultTopN(view, tier) }
+
 // SetCacheDir overrides the base directory for repo map caches.
 func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 

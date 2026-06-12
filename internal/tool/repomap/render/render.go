@@ -367,7 +367,7 @@ type relationMapRow struct {
 func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	topN := params.TopN
 	if topN <= 0 {
-		topN = 40
+		topN = types.DefaultTopN("relation_map", types.GraphSizeTier(g))
 	}
 	kinds := normalizeRelationMapKinds(params.RelationKinds)
 	scopes := normalizeRelationMapScopes(params.Scopes)
@@ -1378,11 +1378,13 @@ func buildEditImpactData(g *types.Graph, params types.ViewParams) *ViewData {
 // at the end of the file's Items slice with the same visible
 // prefix, giving identical rendered markdown.
 func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
-	ranking := retrieve.RankGraphScores(g, params.Query)
+	ranking := retrieve.RankGraphScoresWithOptions(g, params.Query, retrieve.RankOptions{
+		DeprioritizeAuxiliary: params.DeprioritizeAuxiliary,
+	})
 
 	topN := params.TopN
 	if topN <= 0 {
-		topN = 20
+		topN = types.DefaultTopN("task_map", types.GraphSizeTier(g))
 	}
 	relevant := retrieve.TopFilesByScore(g, ranking.Scores, topN)
 

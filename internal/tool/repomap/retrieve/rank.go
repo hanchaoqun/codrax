@@ -69,10 +69,34 @@ func RankGraph(g *types.Graph, query string) {
 	graphRankMu.Unlock()
 }
 
+// RankOptions tunes a ranking pass. The zero value is byte-identical
+// to the historical behaviour — every option is strictly opt-in.
+type RankOptions struct {
+	// DeprioritizeAuxiliary multiplies the FINAL score of files whose
+	// path classifies as auxiliary (test/fixture/example/doc — the
+	// precise types.ClassifySourcePathRole classifier, no prose
+	// scanning) by 0.35, mirroring keyword_search's auxiliary-scope
+	// multiplier. Soft downranking only: scores never zero, files
+	// stay listable. MUST stay opt-in: keyword_search applies its own
+	// 0.35x on combined scores that include these, so an
+	// unconditional core change would double-penalize to ~0.12x.
+	DeprioritizeAuxiliary bool
+}
+
+// rankAuxiliaryMultiplier mirrors keyword_search.go's auxiliary-scope
+// soft multiplier — one shared magnitude for "auxiliary under a
+// non-auxiliary request" across both ranking surfaces.
+const rankAuxiliaryMultiplier = 0.35
+
 // RankGraphScores computes query-biased ranking into fresh maps and never
 // mutates Graph. This is the safe path for concurrent repo_map rendering where
 // multiple tool calls can rank the same graph with different queries.
 func RankGraphScores(g *types.Graph, query string) Ranking {
+	return RankGraphScoresWithOptions(g, query, RankOptions{})
+}
+
+// RankGraphScoresWithOptions is RankGraphScores with opt-in tuning.
+func RankGraphScoresWithOptions(g *types.Graph, query string, opts RankOptions) Ranking {
 	if g == nil {
 		return Ranking{}
 	}
@@ -167,6 +191,14 @@ func RankGraphScores(g *types.Graph, query string) Ranking {
 		// instead of merely discounted. Default 0 = behaviour
 		// byte-identical with pre-commit-53.
 		score = applyParseTierFloor(score, fi.ParseTier)
+
+		// Opt-in auxiliary downranking (see RankOptions). Multiplies,
+		// never zeroes: task_map hides score<=0 rows, so zeroing
+		// would silently convert this into a hard exclusion.
+		if opts.DeprioritizeAuxiliary && score > 0 &&
+			coretypes.SourcePathRoleIsAuxiliary(coretypes.ClassifySourcePathRole(fi.RelPath)) {
+			score *= rankAuxiliaryMultiplier
+		}
 
 		scores[fi.RelPath] = score
 	}

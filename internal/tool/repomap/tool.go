@@ -141,7 +141,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "top_n": {
       "type": "integer",
-      "description": "Maximum number of files/items to include (default varies by view)"
+      "description": "Maximum number of files/items to include (default varies by view and scales down on small repositories; an explicit value always wins)"
     },
     "offset": {
       "type": "integer",
@@ -305,6 +305,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
 			Query:             p.Query,
+			RepoFileCount:     len(graph.FileIndex),
 		})
 		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
 			Path:              p.Path,
@@ -316,9 +317,11 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			TopN:              p.TopN,
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
+			RepoFileCount:     len(graph.FileIndex),
 		})
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
+		output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
 		output = prependRepoMapIndexStatusBanner(graph, output)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 		return ctypes.ToolResult{
@@ -340,6 +343,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RelationKinds:           append([]string(nil), p.RelationKinds...),
 		TopN:                    p.TopN,
 		ShowSourceInventoryHint: repoMapOverviewSourceInventoryHintEnabled(ctx, p.View),
+		DeprioritizeAuxiliary:   repoMapDeprioritizeAuxiliary(ctx, graph),
 	}
 	var viewProgress *repoMapScanProgress
 	if repoMapViewProgressEnabled(graph, p.View) {
@@ -355,6 +359,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	}
 	output = prependRepoMapNavigationAdvisory(ctx, p.View, p.Query, output)
 	output = prependRepoMapParameterAdvisory(output, paramAdvisories)
+	output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
 	output = prependRepoMapIndexStatusBanner(graph, output)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
@@ -1278,4 +1283,57 @@ func prependRepoMapIndexStatusBanner(graph *Graph, output string) string {
 	}
 	b.WriteString("\n")
 	return b.String() + output
+}
+
+// repoMapDeprioritizeAuxiliary decides whether ranked views softly
+// downrank test/fixture/example/doc files for this call. Inputs are
+// PRECISE typed signals only: the repo size tier (tiny/small repos
+// are where auxiliary files crowd out the implementation) and the
+// analyzer's typed SourceScopeProfile. A nil context, nil IR or nil
+// profile leaves downranking OFF — when the typed intent lane is
+// absent we never guess from prose (no-keyword-matching red line),
+// and the rank layer's existing unconditional test multiplier keeps
+// baseline noise control.
+func repoMapDeprioritizeAuxiliary(ctx *ctypes.BusContext, graph *Graph) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil {
+		return false
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceScopeProfile
+	if profile == nil || profile.AllowsAuxiliaryPrincipal() {
+		return false
+	}
+	tier := GraphSizeTier(graph)
+	return tier <= SizeTierSmall
+}
+
+// appendRepoMapBudgetHint adds a short narrowing note at the output
+// tail for large repository scopes, teaching multiple narrow queries
+// over broader single expansions (the CodeGraph-validated guidance
+// shape). Suppressed when the relation_map broad-fallback advisory
+// already rendered its own narrowing instruction (our deterministic
+// marker, not prose matching), and entirely absent for tiny/small/
+// medium scopes (anti-noise). An explicit user top_n far above the
+// tier default earns one extra soft line — the value is always
+// honored, never clamped.
+func appendRepoMapBudgetHint(graph *Graph, view string, userTopN int, output string) string {
+	if graph == nil {
+		return output
+	}
+	tier := GraphSizeTier(graph)
+	if tier < SizeTierLarge {
+		return output
+	}
+	var lines []string
+	if !strings.Contains(output, "mode=broad_fallback") {
+		lines = append(lines,
+			fmt.Sprintf("Repo Map Budget Hint: this repository scope is large (%d files indexed). Prefer follow-up relation_map / source_inventory calls with explicit sources or scopes over broader expansion.", len(graph.FileIndex)))
+	}
+	if def := DefaultTopN(view, tier); def > 0 && userTopN > 2*def {
+		lines = append(lines,
+			"Note: top_n is large for this repository scope; narrower follow-ups with scope/sources are usually cheaper.")
+	}
+	if len(lines) == 0 {
+		return output
+	}
+	return output + "\n\n" + strings.Join(lines, "\n") + "\n"
 }

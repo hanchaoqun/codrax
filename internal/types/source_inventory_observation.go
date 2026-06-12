@@ -47,6 +47,12 @@ type SourceInventoryLensQuery struct {
 	Cursor            string                `json:"cursor,omitempty"`
 	Query             string                `json:"query,omitempty"`
 	Provenance        []string              `json:"provenance,omitempty"`
+
+	// RepoFileCount is the served graph's indexed file count, filled
+	// by the repo_map tool so the graph-less renderer can size its
+	// default row budget by repo tier. Zero means "no tier info":
+	// the renderer keeps its historical defaults.
+	RepoFileCount int `json:"repo_file_count,omitempty"`
 }
 
 func (o SourceInventoryObservation) IsActive() bool {
