@@ -1094,6 +1094,15 @@ type RuntimeSettings struct {
 	// never changes scan output. nil/true → enabled.
 	RepomapResumeInterruptedScan *bool `yaml:"repomap_resume_interrupted_scan"`
 
+	// RepomapCacheGCEnabled gates the startup sweep that removes
+	// repomap cache directories whose recorded source root no longer
+	// exists (chiefly per-Run write-mode worktree caches stranded by
+	// the unconditional worktree discard). The sweep deletes only
+	// regenerable derived artifacts — worst case is one full rescan —
+	// but an operator on a flaky network mount can switch it off.
+	// nil/true → enabled.
+	RepomapCacheGCEnabled *bool `yaml:"repomap_cache_gc_enabled"`
+
 	// Scan CPU headroom. A repomap full scan of a very large repository
 	// is CPU-bound across every core; on a small remote host that can
 	// starve sshd and drop the operator's SSH session.

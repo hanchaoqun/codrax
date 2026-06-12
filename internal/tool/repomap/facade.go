@@ -131,6 +131,13 @@ func IsSupportedReadLanguage(lang string) bool { return types.IsSupportedReadLan
 // SetCacheDir overrides the base directory for repo map caches.
 func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 
+// PruneOrphanedCacheDirs removes repomap cache directories whose
+// recorded source repo root no longer exists — chiefly the per-Run
+// write-mode worktree caches stranded when the L5 unconditional
+// discard deletes the worktree. Best-effort, multi-instance safe;
+// returns the number of directories removed. Call after SetCacheDir.
+func PruneOrphanedCacheDirs() int { return index.PruneOrphanedCacheDirs() }
+
 // SetResumeInterruptedScan toggles whether a full scan reuses the
 // already-parsed chunks left behind by an earlier interrupted scan.
 // Default (unset) is enabled.

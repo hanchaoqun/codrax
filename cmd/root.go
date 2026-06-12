@@ -2152,6 +2152,22 @@ func initApp(cmd *cobra.Command, args []string) error {
 	app.worktreeKeepMaxCount = keepMaxCount
 	worktree.InstallSignalHandler()
 
+	// Repomap cache GC. Every write-mode Run scans its per-Run
+	// worktree through repo_map, minting a cache dir keyed by the
+	// worktree's absolute path (CacheDir slug); the unconditional
+	// worktree discard (L5) then strands that dir — nothing ever
+	// reads or writes a cache whose source root is gone, so it is
+	// dead weight until reaped here. Best-effort and multi-instance
+	// safe (provenance-or-skip, positively-confirmed absence, age
+	// tiers; see index.PruneOrphanedCacheDirs). Runs after
+	// repomap.SetCacheDir so the sweep walks the configured cache
+	// tree, and after the worktree pruners so caches of just-reaped
+	// worktrees are eligible in the same startup. yaml
+	// repomap_cache_gc_enabled: false switches the sweep off.
+	if rs == nil || rs.RepomapCacheGCEnabled == nil || *rs.RepomapCacheGCEnabled {
+		repomap.PruneOrphanedCacheDirs()
+	}
+
 	// One-shot environment probe: logs which external binaries
 	// (rg/grep, sh/bash/cmd, git) were actually found. Each miss
 	// carries a platform-specific install hint so operators do not

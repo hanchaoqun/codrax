@@ -123,8 +123,14 @@ func ApplyScanGOMAXPROCS() func() {
 // os.TempDir()/codrax-cache so the rest of the binary keeps
 // running with a non-persistent cache.
 func CacheDir(repoRoot string) string {
-	slug := CacheDirSlug(repoRoot)
+	return filepath.Join(cacheRepomapRoot(), CacheDirSlug(repoRoot))
+}
 
+// cacheRepomapRoot resolves the directory holding every per-repo cache
+// dir: <cache_dir>/repomap, defaulting to ~/.codrax/cache/repomap.
+// Shared by CacheDir and PruneOrphanedCacheDirs so the slug minter and
+// the orphan sweeper always agree on the tree.
+func cacheRepomapRoot() string {
 	base := cacheBaseDir
 	if base == "" {
 		home, herr := os.UserHomeDir()
@@ -134,7 +140,7 @@ func CacheDir(repoRoot string) string {
 			base = filepath.Join(home, ".codrax", "cache")
 		}
 	}
-	return filepath.Join(base, "repomap", slug)
+	return filepath.Join(base, "repomap")
 }
 
 // CacheDirSlug returns the canonical "<basename>-<8hex>" slug for a
@@ -148,6 +154,30 @@ func CacheDir(repoRoot string) string {
 // two callers pointing at the same content produce the same slug
 // regardless of relative-path or symlink form.
 func CacheDirSlug(repoRoot string) string {
+	abs := canonicalCacheRepoRoot(repoRoot)
+	if abs == "" {
+		// Preserve historical behaviour: an empty root slugs the
+		// process CWD (filepath.Abs("") semantics).
+		abs = canonicalCacheRepoRoot(".")
+	}
+	h := sha256.Sum256([]byte(abs))
+	return filepath.Base(abs) + "-" + hex.EncodeToString(h[:4])
+}
+
+// canonicalCacheRepoRoot is the single canonicaliser for the cache's
+// path identity: absolute + symlink-resolved. CacheDirSlug mints the
+// dir name from this form, and the same form is recorded as the
+// cache's source root (manifest repo_root / chunkdir.meta.json
+// sentinel) so the orphan pruner existence-checks exactly the path
+// the slug was minted from, regardless of the relative-path or
+// symlink form the scan was invoked with. Producer and consumer MUST
+// stay on this one function (shared-canonicaliser rule). Empty input
+// stays empty — canonicalising "" would fabricate the process CWD as
+// a provenance record (test fixtures save with an empty root).
+func canonicalCacheRepoRoot(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
 	abs, err := filepath.Abs(repoRoot)
 	if err != nil {
 		abs = repoRoot
@@ -155,8 +185,7 @@ func CacheDirSlug(repoRoot string) string {
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = resolved
 	}
-	h := sha256.Sum256([]byte(abs))
-	return filepath.Base(abs) + "-" + hex.EncodeToString(h[:4])
+	return abs
 }
 
 const (
@@ -226,15 +255,22 @@ type cachePayload struct {
 }
 
 type cacheFileInfosManifest struct {
-	SchemaVersion     int                   `json:"schema_version"`
-	ExtractorVersions map[string]int        `json:"extractor_versions"`
-	RepoHead          string                `json:"repo_head,omitempty"`
-	WrittenAt         string                `json:"written_at,omitempty"`
-	TotalFiles        int                   `json:"total_files"`
-	ChunkSize         int                   `json:"chunk_size"`
-	ChunkDir          string                `json:"chunk_dir"`
-	Checksum          string                `json:"checksum,omitempty"`
-	Chunks            []cacheFileInfosChunk `json:"chunks"`
+	SchemaVersion     int            `json:"schema_version"`
+	ExtractorVersions map[string]int `json:"extractor_versions"`
+	RepoHead          string         `json:"repo_head,omitempty"`
+	// RepoRoot is the canonical (absolute, symlink-resolved) source
+	// root this cache was built from. Provenance for the orphaned-
+	// cache pruner: once this path is gone the cache dir is dead
+	// weight, because scans and loads only ever target roots that
+	// exist on disk. Additive metadata — loaders never validate it,
+	// so caches written without it stay loadable.
+	RepoRoot   string                `json:"repo_root,omitempty"`
+	WrittenAt  string                `json:"written_at,omitempty"`
+	TotalFiles int                   `json:"total_files"`
+	ChunkSize  int                   `json:"chunk_size"`
+	ChunkDir   string                `json:"chunk_dir"`
+	Checksum   string                `json:"checksum,omitempty"`
+	Chunks     []cacheFileInfosChunk `json:"chunks"`
 }
 
 type cacheFileInfosChunk struct {
@@ -371,6 +407,10 @@ func LoadFileInfosWithProgress(dir string, progress func(loaded, total, chunksLo
 }
 
 func NewFileInfoCacheWriter(dir, repoRoot string) (*FileInfoCacheWriter, error) {
+	// Record the canonical root form so the chunkdir sentinel and the
+	// manifest carry the exact path identity the cache dir's slug was
+	// minted from — the orphan pruner existence-checks this value.
+	repoRoot = canonicalCacheRepoRoot(repoRoot)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -425,6 +465,7 @@ func (w *FileInfoCacheWriter) Close() error {
 		SchemaVersion:     cacheSchemaVersion,
 		ExtractorVersions: cloneExtractorVersions(),
 		RepoHead:          gitHeadSHA(w.repoRoot),
+		RepoRoot:          w.repoRoot,
 		WrittenAt:         time.Now().UTC().Format(time.RFC3339),
 		TotalFiles:        w.total,
 		ChunkSize:         cacheFileInfosChunkSize,
