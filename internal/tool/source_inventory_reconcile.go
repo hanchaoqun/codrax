@@ -3962,9 +3962,18 @@ func sourceInventoryGraphFileDirs(file string) []string {
 
 func sourceInventoryCandidateForSymbol(sym *repotypes.Symbol, role types.AnswerCandidateRole, graph *repotypes.Graph) sourceInventoryCandidate {
 	language := sourceInventoryGraphLanguageForFile(graph, sym.File)
+	key := aggregateMemberKey(sym.Name)
+	if role == types.AnswerCandidateRoleRoute {
+		// Route names are "<VERB> <path>"; the shared symbol-tail
+		// canonicaliser keys on the first whitespace field, which
+		// would collapse every GET route to "get". Key routes on the
+		// whitespace-collapsed lowercased full name — local to route
+		// candidates, the shared canonicaliser stays untouched.
+		key = strings.ToLower(strings.Join(strings.Fields(sym.Name), " "))
+	}
 	return sourceInventoryCandidate{
 		member:     strings.TrimSpace(sym.Name),
-		key:        aggregateMemberKey(sym.Name),
+		key:        key,
 		supportRef: strings.TrimSpace(sym.Name) + ": " + aggregateSupportLocationKey(sym.File, sym.Line),
 		note:       sourceInventoryCandidateNoteFromGraph(sym, language),
 		role:       role,

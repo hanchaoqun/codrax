@@ -34,6 +34,13 @@ func extractPython(root *sitter.Node, src []byte, file string) (pkg string, syms
 	}
 
 	rels = append(rels, pyExtractCalls(root, src, file)...)
+
+	// FastAPI route -> handler post-pass (route_python.go). Runs after
+	// the import loop above so the pass can gate on the per-file
+	// fastapi import before doing any AST walking.
+	routeSyms, routeRels := pyExtractFastAPIRoutes(root, src, file, imps)
+	syms = append(syms, routeSyms...)
+	rels = append(rels, routeRels...)
 	return
 }
 

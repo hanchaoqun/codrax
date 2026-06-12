@@ -50,6 +50,12 @@ func extractJava(root *sitter.Node, src []byte, file string) (pkg string, syms [
 	}
 
 	rels = append(rels, javaExtractCalls(root, src, file)...)
+	// framework route → handler resolver (Spring @*Mapping annotations);
+	// gated on the @RestController / @Controller class annotation —
+	// no-op for files without an annotated controller class.
+	routeSyms, routeRels := javaExtractRoutes(root, src, file)
+	syms = append(syms, routeSyms...)
+	rels = append(rels, routeRels...)
 	return
 }
 
@@ -129,8 +135,13 @@ func javaExtractInterface(node *sitter.Node, src []byte, file string) (cls []typ
 		Doc:      prevSiblingComment(node, src),
 	})
 
-	// extends
-	if ext := node.ChildByFieldName("type_parameters"); ext != nil {
+	// extends — tree-sitter-java parks an interface's extends clause
+	// in an `extends_interfaces` named child (not a field; verified
+	// against the vendored grammar: extends_interfaces → type_list →
+	// type_identifier+). The old read of the "type_parameters" FIELD
+	// never saw the extends clause and could fabricate bound-type
+	// edges for `interface A<T extends X>`.
+	if ext := childByType(node, "extends_interfaces"); ext != nil {
 		walkNamedChildren(ext, true, func(ch *sitter.Node) {
 			if ch.Type() == "type_identifier" {
 				rels = append(rels, types.Relation{

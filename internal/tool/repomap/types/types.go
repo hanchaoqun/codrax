@@ -72,7 +72,7 @@ func MakeSymbolID(lang, pkg, receiver, name string, arity int) SymbolID {
 // Symbol represents an extracted code symbol.
 type Symbol struct {
 	Name      string `json:"name"`
-	Kind      string `json:"kind"` // package, function, method, type, interface, class, struct, enum, const, var, field, trait
+	Kind      string `json:"kind"` // function, method, type, interface, class, struct, enum, const, var, field, trait, route, … (open vocabulary; extractors add framework kinds)
 	File      string `json:"file"` // relative path
 	Line      int    `json:"line"` // 1-based
 	EndLine   int    `json:"end_line"`

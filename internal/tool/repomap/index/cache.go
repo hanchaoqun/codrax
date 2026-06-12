@@ -227,9 +227,9 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         3, // P0.1 relation endpoint+diagnostics emission
-	types.LangJava:       2,
-	types.LangPython:     2,
+	types.LangGo:         4, // P0.4 gin/chi route resolver
+	types.LangJava:       3, // P0.4 Spring routes + interface-extends fix
+	types.LangPython:     3, // P0.4 FastAPI route resolver
 	types.LangJavaScript: 2,
 	types.LangTypeScript: 2,
 	types.LangArkTS:      3,

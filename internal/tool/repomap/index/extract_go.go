@@ -45,6 +45,11 @@ func extractGo(root *sitter.Node, src []byte, file string) (pkg string, syms []t
 	rels = append(rels, goExtractCalls(root, src, file)...)
 	// extract type references
 	rels = append(rels, goExtractTypeRefs(root, src, file)...)
+	// framework route → handler resolver (gin + chi); import-gated,
+	// no-op for files that don't import a supported framework.
+	routeSyms, routeRels := goExtractRoutes(root, src, file, imps)
+	syms = append(syms, routeSyms...)
+	rels = append(rels, routeRels...)
 
 	return
 }

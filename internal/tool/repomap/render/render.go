@@ -1132,7 +1132,7 @@ func buildFileMapData(g *types.Graph, params types.ViewParams) *ViewData {
 
 	kindOrder := []string{
 		"interface", "trait", "class", "struct", "enum",
-		"type", "function", "method", "const", "var", "field",
+		"type", "function", "method", "route", "const", "var", "field",
 	}
 
 	d := &ViewData{
