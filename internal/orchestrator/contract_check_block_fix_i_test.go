@@ -53,7 +53,7 @@ func TestFixI_S1aR1ProductionRegression(t *testing.T) {
 		"checkBudgetSanity":       1,
 		"checkHypothesisCoverage": 1,
 	}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 violation listing 5 hallucinations; got %d:\n  %+v", len(vs), vs)
 	}
@@ -95,7 +95,7 @@ func TestFixI_AllRealSymbolsPass(t *testing.T) {
 		"validateChecker":    1,
 		"dataPipelineRunner": 1,
 	}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("real graph-confirmed inline backticks MUST pass; got %+v", vs)
 	}
 }
@@ -107,7 +107,7 @@ func TestFixI_NilOracleSkips(t *testing.T) {
 			{ID: "s1", Kind: types.BlockSection, Text: "`fakeFunctionName` is not a real symbol"},
 		},
 	}
-	if vs := validateInlineIdentifierHallucination(doc, nil); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, nil, nil); len(vs) != 0 {
 		t.Errorf("nil oracle MUST disable validator; got %+v", vs)
 	}
 }
@@ -125,7 +125,7 @@ func TestFixI_ShortIdentSkipsFloor(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}} // empty
-	if vs := validateInlineIdentifierHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("identifiers <10 chars MUST skip floor; got %+v", vs)
 	}
 }
@@ -144,7 +144,7 @@ func TestFixI_DotQualifiedSkipsViaLeadingIdent(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("dot-qualified stdlib refs MUST skip via short leading ident; got %+v", vs)
 	}
 }
@@ -179,7 +179,7 @@ func TestFixI_PackageQualifiedInlineBacktickSupportedByEvidenceEndpoint(t *testi
 		},
 	}})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("package-qualified inline identifiers backed by evidence endpoints should pass; got %+v", vs)
 	}
 }
@@ -212,7 +212,7 @@ func TestFixI_InlineIdentifierInCitedCurrentSourceFilePasses(t *testing.T) {
 		},
 	})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("inline identifier present verbatim in a cited current source file should pass; got %+v", vs)
 	}
 }
@@ -235,7 +235,7 @@ func TestFixI_ChangeImpactCurrentRequestProposalSurfacePasses(t *testing.T) {
 		},
 	})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("user-proposed change-impact surface should not be treated as a fabricated existing symbol; got %+v", vs)
 	}
 }
@@ -257,7 +257,7 @@ func TestFixI_AggregateMemberSetInlineIdentifierPasses(t *testing.T) {
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("inline identifiers copied from principal member_set should not be forced through graph oracle; got %+v", vs)
 	}
 }
@@ -284,7 +284,7 @@ func TestFixI_NegativeSearchAggregateInlineSurfacesPass(t *testing.T) {
 	}})
 	mut.SetInvestigationComplete("accepted negative-search aggregate")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("inline surfaces copied from negative_search aggregate dimensions should not be forced through graph oracle; got %+v", vs)
 	}
 }
@@ -302,7 +302,7 @@ func TestFixI_NonChangeImpactCurrentRequestIdentifierStillRequiresEvidence(t *te
 		RawRequest: "ShapeScalar 是什么？",
 	})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateInlineIdentifierHallucination(doc, oracle, mut)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut)
 	if len(vs) != 1 {
 		t.Fatalf("non-change-impact request text alone must not vouch for an existing code identifier; got %+v", vs)
 	}
@@ -326,7 +326,7 @@ func TestFixI_TitleAndItemTextScanned(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realFunction": 1,
 	}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 violation listing both title + item-text fakes; got %d:\n  %+v", len(vs), vs)
 	}
@@ -355,7 +355,7 @@ func TestFixI_DiagramBlockSkips(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("Diagram blocks MUST skip Fix I (Fix D handles); got %+v", vs)
 	}
 }
@@ -372,7 +372,7 @@ func TestFixI_ScalarBlockSupported(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("scalar block hallucination MUST fire; got %d:\n  %+v", len(vs), vs)
 	}
@@ -389,7 +389,7 @@ func TestFixI_OracleTier3Rejected(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"lowConfidenceSymbol": 3,
 	}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("Tier 3 MUST NOT vouch; got %d:\n  %+v", len(vs), vs)
 	}
@@ -412,7 +412,7 @@ func TestFixI_FlatFormCrossing(t *testing.T) {
 		"PipelineMaxSteps": 1,
 		"WriteEnabled":     1,
 	}}
-	if vs := validateInlineIdentifierHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("yaml/SCREAMING forms MUST resolve Pascal Go fields via Fix E; got %+v", vs)
 	}
 }
@@ -427,7 +427,7 @@ func TestFixI_MultiBlockPerViolationClustering(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	// fakeOne is 7 chars (below floor) → skip; only fakeTwoLong fires
 	if len(vs) != 1 {
 		t.Fatalf("only b2 should fire (fakeTwoLong ≥10 chars); got %d violations:\n  %+v", len(vs), vs)
@@ -455,7 +455,7 @@ func TestFixI_DedupeAcrossSurfaces(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateInlineIdentifierHallucination(doc, oracle)
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 violation per block; got %d:\n  %+v", len(vs), vs)
 	}

@@ -34,7 +34,7 @@ func TestFixE_EnumLabelHallucination_YamlTagResolvesGoField(t *testing.T) {
 		"WriteEnabled":     1,
 		"AutoApply":        1,
 	}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("yaml-tag labels must resolve Pascal-form Go fields via Fix E; got %+v", vs)
 	}
 }
@@ -52,7 +52,7 @@ func TestFixE_EnumLabelHallucination_GoFieldResolvesYamlTag(t *testing.T) {
 		"write_enabled":      1,
 		"auto_apply":         1,
 	}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("Pascal labels must resolve snake-form indexed names via Fix E; got %+v", vs)
 	}
 }
@@ -71,7 +71,7 @@ func TestFixE_EnumLabelHallucination_ScreamingSnakeResolvesPascal(t *testing.T) 
 		"WriteEnabled":     1,
 		"CodraxDebugMode":  1,
 	}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("SCREAMING_SNAKE env vars must resolve Pascal-form fields via Fix E; got %+v", vs)
 	}
 }
@@ -93,7 +93,7 @@ func TestFixE_EnumLabelHallucination_KebabResolvesCamel(t *testing.T) {
 		"autoApplyMode":    1,
 		"writeEnabledFlag": 1,
 	}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("kebab CLI flags must resolve camel-form indexed names via Fix E; got %+v", vs)
 	}
 }
@@ -113,7 +113,7 @@ func TestFixE_EnumLabelHallucination_GenuineFabricationStillFires(t *testing.T) 
 		// pipeline_imaginary_setting flat = "pipelineimaginarysetting"
 		// — no entry in oracle under any form → Tier 0 → fire
 	}}
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("genuine fabrication must still fire; got %d:\n  %+v", len(vs), vs)
 	}
@@ -134,7 +134,7 @@ func TestFixE_DiagramEndpoint_YamlTagResolvesGoField(t *testing.T) {
 		"WriteEnabled":     1,
 		"AutoApply":        1,
 	}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("yaml-tag mermaid endpoints must resolve Pascal Go fields via Fix E; got %+v", vs)
 	}
 }
@@ -149,7 +149,7 @@ func TestFixE_DiagramEndpoint_GenuineFabricationStillFires(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realCheckCoverage": 1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("genuine diagram-endpoint fabrication must still fire; got %d:\n  %+v", len(vs), vs)
 	}

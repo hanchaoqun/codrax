@@ -400,6 +400,20 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 			DriftReason: types.DriftReasonFileMoved,
 		}, true
 	case types.DriftStatusUnmappable:
+		// Typed-denial stamp: an unmappable frame's original file is
+		// negative knowledge for the rest of the Run — the gates must
+		// not let the model keep grepping/reading a path the drift
+		// detector proved has no current-code counterpart. FileMoved
+		// deliberately does NOT stamp: the file may still exist in the
+		// current repo and be legitimately relevant (callers, related
+		// code); only the soft prompt warning covers that case.
+		if bus != nil && bus.TypedDenials != nil {
+			bus.TypedDenials.Add(types.TypedDenial{
+				Class:  types.TypedDenialDriftFrameRelocated,
+				Token:  drift.OriginalFile,
+				Reason: fmt.Sprintf("log frame %s:%s no longer maps to current code (drift: unmappable)", drift.OriginalFile, drift.OriginalFunc),
+			})
+		}
 		return Projection{
 			Origin:    types.ClaimOriginCrossSource,
 			Authority: types.AuthorityHistorical,

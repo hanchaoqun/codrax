@@ -44,7 +44,7 @@ func TestDiagramEdgeEndpointHallucination_FabricatedNodeFires(t *testing.T) {
 		"realCheckCoverage": 1,
 		// validateFakeCoherenceCheck absent → Tier 0 → fire
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 violation; got %d:\n  %+v", len(vs), vs)
 	}
@@ -77,7 +77,7 @@ func TestDiagramEdgeEndpointHallucination_AllRealSymbolsPass(t *testing.T) {
 		"realCheckBudgetSanity": 1,
 		"realCheckDAGClosure":   1,
 	}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("real graph-confirmed endpoints MUST pass; got %+v", vs)
 	}
 }
@@ -88,7 +88,7 @@ func TestDiagramEdgeEndpointHallucination_AllRealSymbolsPass(t *testing.T) {
 func TestDiagramEdgeEndpointHallucination_NilOracleSkips(t *testing.T) {
 	body := "graph TD\n    fakeFunctionName --> anotherFakeOne\n"
 	doc := docWithDiagram("call_dag", body)
-	if vs := validateDiagramEdgeEndpointHallucination(doc, nil); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, nil, nil); len(vs) != 0 {
 		t.Errorf("nil oracle MUST disable validator; got %+v", vs)
 	}
 }
@@ -108,7 +108,7 @@ func TestDiagramEdgeEndpointHallucination_ShortIdentSkipsFloor(t *testing.T) {
 	// Empty oracle would fail every endpoint, but all are below the
 	// 10-char floor, so none should fire.
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("short identifiers MUST skip the gate; got %+v", vs)
 	}
 }
@@ -131,7 +131,7 @@ func TestDiagramEdgeEndpointHallucination_NonDiagramBlocksSkip(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("non-diagram blocks MUST skip the gate; got %+v", vs)
 	}
 }
@@ -145,7 +145,7 @@ func TestDiagramEdgeEndpointHallucination_OracleTier3Rejected(t *testing.T) {
 		"fakeCompoundName": 3, // low-confidence parse → reject
 		"realFunction":     1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("Tier 3 MUST NOT vouch; got %d:\n  %+v", len(vs), vs)
 	}
@@ -159,7 +159,7 @@ func TestDiagramEdgeEndpointHallucination_OracleTier3Rejected(t *testing.T) {
 func TestDiagramEdgeEndpointHallucination_EmptyDiagramBodySkips(t *testing.T) {
 	doc := docWithDiagram("call_dag", "")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("empty diagram body MUST skip; got %+v", vs)
 	}
 }
@@ -188,7 +188,7 @@ func TestDiagramEdgeEndpointHallucination_MultiBlockSplits(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realFunction": 1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 2 {
 		t.Fatalf("expected one violation per diagram block; got %d (%+v)", len(vs), vs)
 	}
@@ -251,7 +251,7 @@ func TestDiagramEdgeEndpointHallucination_MultiLanguage(t *testing.T) {
 				tc.realSym: 1,
 				// fake absent
 			}}
-			vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+			vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 			if len(vs) != 1 {
 				t.Fatalf("[%s] expected 1 violation; got %d:\n  %+v\n  note: %s",
 					tc.lang, len(vs), vs, tc.note)

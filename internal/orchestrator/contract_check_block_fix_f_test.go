@@ -69,7 +69,7 @@ func TestFixF_M1aR1Reproduction_FlowKindWithoutTypedRelationsSkips(t *testing.T)
 	// hallucinated. With Fix F, the diagram kind is `flow` AND no
 	// edge declared `relation_kind=call`, so the whole block skips.
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("flow-kind diagram with role-label endpoints MUST skip Fix F gate; got %d violations:\n  %+v", len(vs), vs)
 	}
 }
@@ -86,7 +86,7 @@ func TestFixF_CallDAGKind_FiresOnHallucinations(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realCheckCoverage": 1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("CallDAG-kind hallucination MUST fire; got %d:\n  %+v", len(vs), vs)
 	}
@@ -101,7 +101,7 @@ func TestFixF_CallDAGKind_ExplicitDisplayLabelSkipsInternalAlias(t *testing.T) {
 		"    check_size --> check_bytes[\"字节检查\\nMAX_BYTES=50KB\"]\n"
 	doc := docWithDiagramKind("call_dag", body, types.DiagramCallDAG)
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("Mermaid internal node ids with explicit non-code display labels must not force finalizer rewrite; got %+v", vs)
 	}
 }
@@ -113,7 +113,7 @@ func TestFixF_CallDAGKind_ExplicitCodeLabelStillFires(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realCheckCoverage": 1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("explicit code-shaped display-label hallucination must still fire; got %d:\n  %+v", len(vs), vs)
 	}
@@ -147,7 +147,7 @@ func TestFixF_FlowKindWithTypedCallRelation_Skips(t *testing.T) {
 		"realCheckCoverage": 1,
 		// AbstractRoleNode / AnotherAbstractRole / validateFakeCoherenceCheck absent.
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 0 {
 		t.Fatalf("flow-kind typed-call presentation diagram must not force symbol-oracle endpoint checks; got %d:\n  %+v", len(vs), vs)
 	}
@@ -171,7 +171,7 @@ func TestFixF_FlowKindWithImportRelation_Skips(t *testing.T) {
 	doc := docWithDiagramAndEdgeAnchors("import_graph", body, types.DiagramFlow, anchors)
 	// Both names absent from oracle (they're package paths, not Go symbols).
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("import-relation edges MUST skip Fix F gate (pkg paths != Go symbols); got %+v", vs)
 	}
 }
@@ -186,7 +186,7 @@ func TestFixF_ArchitectureKindWithoutTypedRelations_Skips(t *testing.T) {
 		"    ExplorerSubsystem --> ExtractorSubsystem\n"
 	doc := docWithDiagramKind("arch", body, types.DiagramArchitecture)
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("untyped architecture diagram MUST skip; got %+v", vs)
 	}
 }
@@ -198,7 +198,7 @@ func TestFixF_SequenceKindWithoutTypedRelations_Skips(t *testing.T) {
 		"    UserActorAlpha->>SystemActorBeta: requestPayload\n"
 	doc := docWithDiagramKind("seq", body, types.DiagramSequence)
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("untyped sequence diagram MUST skip; got %+v", vs)
 	}
 }
@@ -221,7 +221,7 @@ func TestFixF_CallDAGKind_TypedCallEdgeStillFires_AdditiveSemantics(t *testing.T
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"realCheckCoverage": 1,
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("CallDAG + typed-call hallucination MUST fire; got %d:\n  %+v", len(vs), vs)
 	}
@@ -250,7 +250,7 @@ func TestFixF_FlowKindMixedEdges_AllPresentationEdgesSkip(t *testing.T) {
 		"realCheckCoverage": 1,
 		// fabricatedCallTarget / StartEventNode / ProcessingState / EndEventNode all absent
 	}}
-	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil)
 	if len(vs) != 0 {
 		t.Fatalf("mixed flow presentation diagram must not force endpoint symbol checks; got %d:\n  %+v", len(vs), vs)
 	}
@@ -390,7 +390,7 @@ func TestFixF_CallRelationDoesNotUpgradeArchitectureDiagram(t *testing.T) {
 	}
 	doc := docWithDiagramAndEdgeAnchors("arch_component_calls", body, types.DiagramArchitecture, anchors)
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Fatalf("architecture component-call diagram must not be treated as a code call DAG; got %+v", vs)
 	}
 }

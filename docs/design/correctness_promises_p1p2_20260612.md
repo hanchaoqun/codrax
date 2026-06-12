@@ -49,12 +49,12 @@ Baseline:`fd5b9e93`。来源:本线(eval 扩充 + 硬面 ×4 取证)与并行线
 | (e) perf-stall 跨类错位修复 | external_perf_stall_unresolved | classIsSymbolShaped 对齐 IsSymbolDenied 文档(:268-273 已承诺覆盖) | 行为变化 = symbol 门开始对该类生效——与文档一致即正确方向;负向 pin 防过杀 |
 
 任务:
-- [ ] 2.1 共享 stampOracleSymbolDenial helper + 三 append 点接线 + 正负 pin(LookupSymbolStem 可桥接的不 stamp 之类已由 escape-lane 前置保证,测试钉)
-- [ ] 2.2 (b) Unmappable-only stamp + 负向 pin(FileMoved 不 stamp)
-- [ ] 2.3 (c) 双条件 stamp + 修复回路不受阻测试
-- [ ] 2.4 (e) classIsSymbolShaped 对齐 + 既有 perf 案回归
-- [ ] 2.5 (d) groundwork 任务落账(typed 三态 + L1 门 + class 决策),不实现
-- [ ] 2.6 全量回归 + L1/L2/L3 三层端到端测试(stamp→gate 立即生效)
+- [x] 2.1 stampOracleSymbolDenial + 三确证点(denials 参数穿链,69 测试点机械补 nil)+ 正负 pin
+- [x] 2.2 (b) authority Unmappable-only stamp(FileMoved 显式不 stamp 注释)
+- [x] 2.3 (c) finalize-entry stampUngroundedEvidenceDenials(最终 Ungrounded + 双 oracle miss + 形状/floor;vouching oracle 抑制 = 修复回路保护测试钉)
+- [x] 2.4 (e) perf-stall 类双轴化(symbol 半边接通 L1 symbol 门;path 半边 exact-match 不受影响,双向 pin)
+- [x] 2.5 (d) MCP descope 确认落账:需 parseTypedObservationEnvelope typed 三态(当前 not-envelope 与 activated-but-malformed 同返 false)+ executeMCPReadResource 无 L1 门 + class 选型(AttachedExtractedUnscoped 语义不合,新类需 7 处 in-repo sync 含 denied_token_answer_check.go:52 重复表)——独立 groundwork 批
+- [x] 2.6 67 包绿;既有 TestTypedDenials_ToolStampsReachOrchestratorBus 端到端在卷,新站点同指针即时生效
 
 ## §3 批 3:validateScalarValueGrounding(GAP-3 单点)
 

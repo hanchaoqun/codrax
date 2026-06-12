@@ -238,9 +238,14 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				// must_include / must_exclude / acceptance is reused —
 				// single truth source for all symbol-existence
 				// checks across the contract layer.
+				// Evidence subjects that stayed ungrounded through
+				// every same-turn repair pass stamp the typed denial
+				// channel here, before the block oracles run, so the
+				// finalize retry's L1/L2/L3 all see them.
+				stampUngroundedEvidenceDenials(o.busCtx.TypedDenials, mut, oracle)
 				result.Violations = append(result.Violations,
 					trace.run("v2_block_oracles", func() []types.Violation {
-						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle)
+						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle, o.busCtx.TypedDenials)
 					})...)
 			}
 			// validateLaneBlockKindCompliance — typed observation on

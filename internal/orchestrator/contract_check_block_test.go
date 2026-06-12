@@ -1794,7 +1794,7 @@ func TestEnumerationLabelHallucination_SurfaceTermsSupportImportPathLabels(t *te
 	doc := docWithEnumItems("imports", "internal/types")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("validated import-path surface_terms should bypass declaration-symbol hallucination checks, got %+v", vs)
 	}
 }
@@ -1831,7 +1831,7 @@ func TestEnumerationLabelHallucination_EmittedSurfaceTermsSupportImportPathLabel
 	doc := docWithEnumItems("imports", "internal/tool")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("emitted surface_terms should bypass declaration-symbol hallucination checks even when TurnAArtifacts was capped, got %+v", vs)
 	}
 }
@@ -2019,7 +2019,7 @@ func TestEnumerationLabelHallucination_UserBucketLabelPassesOracleMiss(t *testin
 	doc := docWithEnumItems("frames", "ArkTS")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("user bucket label should not require code symbol oracle hit, got %+v", vs)
 	}
 }
@@ -2044,7 +2044,7 @@ func TestInlineIdentifierHallucination_RuntimeFrameIdentifierPassesOracleMiss(t 
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("runtime-frame inline identifier should not require code symbol oracle hit, got %+v", vs)
 	}
 }
@@ -2070,7 +2070,7 @@ func TestInlineIdentifierHallucination_RuntimeErrorTypePassesOracleMiss(t *testi
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("runtime error types should not require code symbol oracle hits, got %+v", vs)
 	}
 }
@@ -2095,7 +2095,7 @@ func TestInlineIdentifierHallucination_ConfigKeySnippetPassesOracleMiss(t *testi
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("grounded config-key snippet should satisfy inline identifier oracle, got %+v", vs)
 	}
 }
@@ -2120,7 +2120,7 @@ func TestInlineIdentifierHallucination_ConfigKeySnippetRequiresVerbatimSurface(t
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 
-	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) == 0 {
+	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) == 0 {
 		t.Fatalf("case-mismatched config-key surface should not pass snippet grounding")
 	}
 }

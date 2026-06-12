@@ -42,7 +42,7 @@ func TestEnumerationItemLabelHallucination_S1aR1Reproduction(t *testing.T) {
 		// checkNamingConvention + checkSignalSufficiency: absent.
 	}}
 
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 violation listing both hallucinations; got %d:\n  %+v", len(vs), vs)
 	}
@@ -74,7 +74,7 @@ func TestEnumerationItemLabelHallucination_AllRealSymbolsPass(t *testing.T) {
 		"checkContractComplete":   1,
 		"checkHypothesisCoverage": 1,
 	}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("real graph-confirmed labels MUST pass; got %+v", vs)
 	}
 }
@@ -103,7 +103,7 @@ func TestEnumerationItemLabelHallucination_PackageQualifiedCitedEvidencePasses(t
 		GroundingStatus: types.GroundingGrounded,
 	}}})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("package-qualified call label backed by cited evidence should pass; got %+v", vs)
 	}
 }
@@ -122,7 +122,7 @@ func TestEnumerationItemLabelHallucination_QualifiedIdentitySkipsQualifierOracle
 		}},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Fatalf("qualified code identities must not be checked as standalone declaration prefixes; got %+v", vs)
 	}
 }
@@ -150,7 +150,7 @@ func TestEnumerationItemLabelHallucination_AggregateMemberDisplayLabelPasses(t *
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("model-emitted aggregate member display labels must not be treated as fabricated symbols; got %+v", vs)
 	}
 }
@@ -178,7 +178,7 @@ func TestEnumerationItemLabelHallucination_AggregateDecoratorListMemberPasses(t 
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("decorator-list aggregate member display label must not be treated as fabricated, got %+v", vs)
 	}
 }
@@ -290,7 +290,7 @@ func TestEnumerationLabelHallucination_SourceLocationLabelSkipsOracle(t *testing
 		Citations: []types.Citation{{File: "veryLongDirectory/foo.cpp", Line: 12}},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Fatalf("source-location display labels should not be checked as source symbols, got %+v", vs)
 	}
 }
@@ -301,7 +301,7 @@ func TestEnumerationLabelHallucination_SourceLocationLabelSkipsOracle(t *testing
 func TestEnumerationItemLabelHallucination_NilOracleSkips(t *testing.T) {
 	doc := docWithEnumItems("list1",
 		"checkNamingConvention", "checkSignalSufficiency", "checkBudgetSanity")
-	if vs := validateEnumerationItemLabelHallucination(doc, nil); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, nil, nil); len(vs) != 0 {
 		t.Errorf("nil oracle MUST disable validator; got %+v", vs)
 	}
 }
@@ -316,7 +316,7 @@ func TestEnumerationItemLabelHallucination_ShortIdentSkipsFloor(t *testing.T) {
 	// All three are absent from the empty oracle, but all are
 	// below the 10-char floor, so none should fire.
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("identifiers <10 chars MUST skip the gate; got %+v", vs)
 	}
 }
@@ -333,7 +333,7 @@ func TestEnumerationItemLabelHallucination_ProseLabelSkips(t *testing.T) {
 	// prose-shaped (leading "Step" continues into digit prose), so
 	// labelLeadingSymbolIdentifier returns "" and the gate skips.
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("prose-shaped labels MUST skip the gate; got %+v", vs)
 	}
 }
@@ -351,7 +351,7 @@ func TestEnumerationItemLabelHallucination_LabelWithSeparator(t *testing.T) {
 		"checkBudgetSanity": 1,
 		// checkSignalSufficiency absent
 	}}
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("expected 1 hallucination violation; got %d:\n  %+v", len(vs), vs)
 	}
@@ -389,7 +389,7 @@ func TestEnumerationItemLabelHallucination_CitedCrossLanguageMemberSubjectPasses
 		{Subject: "cangjie_core", AnchorSymbol: "main", Source: "src/cangjie_core/main.cj", LineStart: 9},
 	})
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("cited package/module/directory subjects are legitimate cross-language member labels, got %+v", vs)
 	}
 }
@@ -402,7 +402,7 @@ func TestEnumerationItemLabelHallucination_AnswerSymbolCrossLanguageLabelsPass(t
 		{Name: "defaultHeader", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 8},
 	}, types.CompletenessComplete)
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("file:line-backed AnswerSymbols must bypass symbol-oracle hallucination checks for non-Go languages; got %+v", vs)
 	}
 }
@@ -420,7 +420,7 @@ func TestEnumerationItemLabelHallucination_OracleTier3Rejected(t *testing.T) {
 		"realFunctionName":       1,
 		"anotherRealOne":         1,
 	}}
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("Tier 3 MUST NOT vouch; got %d:\n  %+v", len(vs), vs)
 	}
@@ -451,7 +451,7 @@ func TestEnumerationItemLabelHallucination_NonListBlocksSkip(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil); len(vs) != 0 {
 		t.Errorf("non-list blocks MUST skip the gate; got %+v", vs)
 	}
 }
@@ -472,7 +472,7 @@ func TestEnumerationItemLabelHallucination_TableBlockScanned(t *testing.T) {
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 1 {
 		t.Fatalf("table block MUST be scanned; got %d violations: %+v", len(vs), vs)
 	}
@@ -502,7 +502,7 @@ func TestEnumerationItemLabelHallucination_MultiBlockSplitsViolations(t *testing
 		},
 	}
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
-	vs := validateEnumerationItemLabelHallucination(doc, oracle)
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil)
 	if len(vs) != 2 {
 		t.Fatalf("expected one violation per block; got %d (%+v)", len(vs), vs)
 	}

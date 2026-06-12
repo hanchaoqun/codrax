@@ -433,14 +433,19 @@ func (d TypedDenial) classIsPathShaped() bool {
 func (d TypedDenial) classIsSymbolShaped() bool {
 	switch d.Class {
 	case TypedDenialOracleSymbolUnverified,
-		TypedDenialEvidenceSubjectUnverified:
+		TypedDenialEvidenceSubjectUnverified,
+		// external_perf_stall_unresolved straddles both axes:
+		// emit_perf_trace stamps the stall FILE (path token) and the
+		// stall SYMBOL (symbol token) as two separate denials under
+		// this class, and the IsSymbolDenied contract has always
+		// claimed coverage for the symbol half. Listing the class
+		// here makes the symbol half load-bearing at the L1 symbol
+		// gates (grep pattern / repo_map entry_point); the path half
+		// is unaffected because IsSymbolDenied is exact-match and a
+		// path string never equals a bare symbol token.
+		TypedDenialExternalPerfStallUnresolved:
 		return true
 	}
-	// external_perf_stall_unresolved straddles both — when the gate
-	// fires on a Symbol miss, the stamping caller passes the symbol
-	// as Token; when the gate fires on a File miss, the path is
-	// stamped. We resolve via classIsPathShaped having precedence:
-	// callers stamp two separate denials when both axes fail.
 	return false
 }
 

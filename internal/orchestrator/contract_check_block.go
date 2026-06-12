@@ -2219,10 +2219,10 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 // path uses, so V2 block validators see the same Tier 1-2 truth
 // table as the contract.must_include / must_exclude oracles.
 func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
-	return runV2BlockOraclesWithOracleContext(context.TODO(), doc, view, mut, oracle)
+	return runV2BlockOraclesWithOracleContext(context.TODO(), doc, view, mut, oracle, nil)
 }
 
-func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
+func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle, denials *types.TypedDenialSet) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -2293,13 +2293,13 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle) }) {
 		return out
 	}
-	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelHallucination(doc, oracle, mut) }) {
+	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelHallucination(doc, oracle, denials, mut) }) {
 		return out
 	}
-	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeEndpointHallucination(doc, oracle) }) {
+	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeEndpointHallucination(doc, oracle, denials) }) {
 		return out
 	}
-	appendIfLive(func() []types.Violation { return validateInlineIdentifierHallucination(doc, oracle, mut) })
+	appendIfLive(func() []types.Violation { return validateInlineIdentifierHallucination(doc, oracle, denials, mut) })
 	return out
 }
 
@@ -3285,7 +3285,62 @@ func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bo
 // label is wrong). Operators promote to STRICT via
 // pipeline_contract_strict_kinds when answer-quality regressions
 // are intolerable.
-func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, mutOpt ...*types.MutableState) []types.Violation {
+
+// stampUngroundedEvidenceDenials records evidence subjects that
+// stayed ungrounded through every same-turn repair pass AND resolve
+// to no declared symbol in either oracle form. Runs once at finalize
+// entry — never inside the emit loop, where a mere line/quote
+// mismatch is the designed same-turn repair signal and a premature
+// symbol denial would gate the model's own correction (grep's L1
+// pattern gate reads the same set). Both guards are typed: the final
+// GroundingStatus enum and the dual oracle truth table.
+func stampUngroundedEvidenceDenials(denials *types.TypedDenialSet, mut *types.MutableState, oracle types.SymbolOracle) {
+	if denials == nil || mut == nil || oracle == nil {
+		return
+	}
+	for _, ev := range mut.EmittedEvidence() {
+		if ev.GroundingStatus != types.GroundingUngrounded {
+			continue
+		}
+		token := strings.TrimSpace(ev.AnchorSymbol)
+		if token == "" {
+			token = strings.TrimSpace(ev.Subject)
+		}
+		if len(token) < labelHallucinationGateLengthFloor || !contract.IsIdentifierShaped(token) {
+			continue
+		}
+		if found, tier := oracle.SymbolExists(token); found && tier < 3 {
+			continue
+		}
+		if found, tier := oracle.SymbolExistsFlat(token); found && tier < 3 {
+			continue
+		}
+		denials.Add(types.TypedDenial{
+			Class:  types.TypedDenialEvidenceSubjectUnverified,
+			Token:  token,
+			Reason: fmt.Sprintf("evidence row %s stayed ungrounded after repair and %q resolves to no declared symbol", ev.ID, token),
+		})
+	}
+}
+
+// stampOracleSymbolDenial records a confirmed-fabricated identifier
+// on the Run's typed denial channel. Called ONLY at the
+// post-escape-lane hallucination-confirmed sites — a raw oracle miss
+// on a support probe must never stamp (false denials would gate
+// legitimate searches). nil-safe: a nil set (tests, legacy callers)
+// is a no-op.
+func stampOracleSymbolDenial(denials *types.TypedDenialSet, ident, surface string) {
+	if denials == nil {
+		return
+	}
+	denials.Add(types.TypedDenial{
+		Class:  types.TypedDenialOracleSymbolUnverified,
+		Token:  ident,
+		Reason: fmt.Sprintf("identifier %q failed symbol-oracle verification on the %s surface after every escape lane", ident, surface),
+	})
+}
+
+func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet, mutOpt ...*types.MutableState) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
 	}
@@ -3347,6 +3402,7 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			if found && tier < 3 {
 				continue
 			}
+			stampOracleSymbolDenial(denials, ident, "enumeration item label")
 			blockHits = append(blockHits, hallucinated{
 				itemID: it.ID,
 				label:  label,
@@ -3469,7 +3525,7 @@ func isCodeContextDiagramKind(k types.DiagramKind) bool {
 // Default classification: Medium severity, retry-eligible
 // finalizer-only. Operators promote via
 // pipeline_contract_strict_kinds.
-func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
 	}
@@ -3543,6 +3599,7 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 				return
 			}
 			seen[ident] = struct{}{}
+			stampOracleSymbolDenial(denials, ident, "diagram edge endpoint")
 			blockHits = append(blockHits, hallucinated{
 				endpoint: surface,
 				ident:    ident,
@@ -3634,7 +3691,7 @@ var inlineBacktickIdentRE = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_]*)`")
 // Default classification: Medium severity, retry-eligible
 // finalizer-only. Operators promote via
 // pipeline_contract_strict_kinds.
-func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, mutOpt ...*types.MutableState) []types.Violation {
+func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet, mutOpt ...*types.MutableState) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
 	}
@@ -3691,6 +3748,7 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 				continue
 			}
 			seen[ident] = struct{}{}
+			stampOracleSymbolDenial(denials, ident, "inline identifier")
 			*hits = append(*hits, hallucinated{ident: ident, surface: surface})
 		}
 	}
