@@ -1,130 +1,755 @@
 {
-  "_comment": "Curated symbol ground truth for repomap_v3 eval. Each entry was verified against HEAD 7a60dd4 via Grep. Line numbers are the declaration line (first line of `func`/`type`/`const` keyword). The harness tolerates \u00b12 line drift to absorb cosmetic edits.",
+  "_comment": "GENERATED ground truth for repomap_v3 symbol recall — regenerate with `go run ./eval/repomap_v3/fixturegen` after large refactors (the harness warns when by-name recall far exceeds by-file recall, the moved-files signature). Selection: exported, load-bearing (graph fan-in ranked), distinctive names, package quotas, every entry independently line-verified against file bytes. Generated at HEAD 2f2947d0; 125 symbols; harness tolerates ±2 line drift.",
   "symbols": [
-    {"name": "TaskItem", "file": "internal/types/task.go", "line": 10, "kind": "type"},
-    {"name": "TaskList", "file": "internal/types/task.go", "line": 19, "kind": "type"},
-    {"name": "TaskState", "file": "internal/types/task.go", "line": 36, "kind": "type"},
-    {"name": "MutableState", "file": "internal/types/context.go", "line": 32, "kind": "type"},
-    {"name": "AnalyzerClassification", "file": "internal/types/context.go", "line": 55, "kind": "type"},
-    {"name": "StageReport", "file": "internal/types/context.go", "line": 226, "kind": "type"},
-    {"name": "RepoFact", "file": "internal/types/context.go", "line": 233, "kind": "type"},
-    {"name": "ToolResult", "file": "internal/types/context.go", "line": 242, "kind": "type"},
-    {"name": "MCPResponse", "file": "internal/types/context.go", "line": 251, "kind": "type"},
-    {"name": "ExecutionSignals", "file": "internal/types/context.go", "line": 261, "kind": "type"},
-    {"name": "PolicyContext", "file": "internal/types/context.go", "line": 274, "kind": "type"},
-    {"name": "BusContext", "file": "internal/types/context.go", "line": 287, "kind": "type"},
-    {"name": "AgentContext", "file": "internal/types/context.go", "line": 340, "kind": "type"},
-    {"name": "AnalysisIR", "file": "internal/types/analysis_ir.go", "line": 29, "kind": "type"},
-    {"name": "RequestModel", "file": "internal/types/analysis_ir.go", "line": 48, "kind": "type"},
-    {"name": "AnalyzerHints", "file": "internal/types/analysis_ir.go", "line": 73, "kind": "type"},
-    {"name": "Intent", "file": "internal/types/analysis_ir.go", "line": 80, "kind": "type"},
-    {"name": "Scenario", "file": "internal/types/analysis_ir.go", "line": 95, "kind": "type"},
-    {"name": "Complexity", "file": "internal/types/analysis_ir.go", "line": 107, "kind": "type"},
-    {"name": "TaskGraph", "file": "internal/types/analysis_ir.go", "line": 156, "kind": "type"},
-    {"name": "TaskNode", "file": "internal/types/analysis_ir.go", "line": 162, "kind": "type"},
-    {"name": "AnswerContract", "file": "internal/types/analysis_ir.go", "line": 244, "kind": "type"},
-    {"name": "AnswerShape", "file": "internal/types/analysis_ir.go", "line": 253, "kind": "type"},
-    {"name": "Hypothesis", "file": "internal/types/analysis_ir.go", "line": 278, "kind": "type"},
-    {"name": "HypothesisStatus", "file": "internal/types/analysis_ir.go", "line": 287, "kind": "type"},
-    {"name": "RiskMatrix", "file": "internal/types/analysis_ir.go", "line": 297, "kind": "type"},
-    {"name": "RunPolicy", "file": "internal/types/analysis_ir.go", "line": 314, "kind": "type"},
-    {"name": "PipelineStage", "file": "internal/types/enums.go", "line": 4, "kind": "type"},
-    {"name": "AgentName", "file": "internal/types/enums.go", "line": 42, "kind": "type"},
-    {"name": "TaskStatus", "file": "internal/types/enums.go", "line": 75, "kind": "type"},
-    {"name": "MissingPiece", "file": "internal/types/enums.go", "line": 91, "kind": "type"},
-    {"name": "StageConfig", "file": "internal/types/config.go", "line": 4, "kind": "type"},
-    {"name": "Transition", "file": "internal/types/config.go", "line": 13, "kind": "type"},
-    {"name": "SubAgentProposal", "file": "internal/types/subagent.go", "line": 7, "kind": "type"},
-    {"name": "EvidenceRequirement", "file": "internal/agent/erm.go", "line": 25, "kind": "type"},
-    {"name": "EvidenceItem", "file": "internal/types/evidence.go", "line": 29, "kind": "type"},
-    {"name": "FlowFindingDigest", "file": "internal/types/evidence.go", "line": 49, "kind": "type"},
-    {"name": "AnswerSymbol", "file": "internal/types/evidence.go", "line": 91, "kind": "type"},
-    {"name": "SubAgentRuntime", "file": "internal/agent/subagent_runtime.go", "line": 86, "kind": "type"},
-    {"name": "Symbol", "file": "internal/tool/repomap/types/types.go", "line": 72, "kind": "type"},
-    {"name": "Import", "file": "internal/tool/repomap/types/types.go", "line": 94, "kind": "type"},
-    {"name": "Relation", "file": "internal/tool/repomap/types/types.go", "line": 125, "kind": "type"},
-    {"name": "FileInfo", "file": "internal/tool/repomap/types/types.go", "line": 140, "kind": "type"},
-    {"name": "Graph", "file": "internal/tool/repomap/types/types.go", "line": 165, "kind": "type"},
-    {"name": "Metadata", "file": "internal/tool/repomap/types/types.go", "line": 180, "kind": "type"},
-    {"name": "ViewParams", "file": "internal/tool/repomap/types/types.go", "line": 202, "kind": "type"},
-    {"name": "RepoMapV2", "file": "internal/tool/repomap/tool.go", "line": 17, "kind": "type"},
-    {"name": "FileEntry", "file": "internal/tool/repomap/index/scanner.go", "line": 15, "kind": "type"},
-    {"name": "TodoWrite", "file": "internal/tool/todo_write.go", "line": 24, "kind": "type"},
-    {"name": "ProposeSubAgents", "file": "internal/tool/propose_sub_agents.go", "line": 18, "kind": "type"},
-    {"name": "ExecCommand", "file": "internal/tool/builtin.go", "line": 32, "kind": "type"},
-    {"name": "GrepTool", "file": "internal/tool/builtin.go", "line": 115, "kind": "type"},
-    {"name": "ReadFile", "file": "internal/tool/builtin.go", "line": 375, "kind": "type"},
-    {"name": "ListFiles", "file": "internal/tool/builtin.go", "line": 493, "kind": "type"},
-    {"name": "determineActivePolicy", "file": "internal/orchestrator/orchestrator.go", "line": 724, "kind": "function"},
-    {"name": "decideNextStage", "file": "internal/orchestrator/orchestrator.go", "line": 685, "kind": "function"},
-    {"name": "applyStageOutput", "file": "internal/orchestrator/orchestrator.go", "line": 588, "kind": "function"},
-    {"name": "dispatchStage", "file": "internal/orchestrator/orchestrator.go", "line": 449, "kind": "function"},
-    {"name": "nextPendingTask", "file": "internal/orchestrator/orchestrator.go", "line": 431, "kind": "function"},
-    {"name": "recordTaskFinalize", "file": "internal/orchestrator/orchestrator.go", "line": 396, "kind": "function"},
-    {"name": "runTaskPipeline", "file": "internal/orchestrator/orchestrator.go", "line": 274, "kind": "function"},
-    {"name": "runTaskPhase", "file": "internal/orchestrator/orchestrator.go", "line": 240, "kind": "function"},
-    {"name": "runAnalyzePhase", "file": "internal/orchestrator/orchestrator.go", "line": 219, "kind": "function"},
-    {"name": "Run", "file": "internal/orchestrator/orchestrator.go", "line": 127, "kind": "function"},
-    {"name": "extractSubAgentProposal", "file": "internal/orchestrator/orchestrator.go", "line": 841, "kind": "function"},
-    {"name": "BuildAgentContext", "file": "internal/context/builder.go", "line": 14, "kind": "function"},
-    {"name": "buildAnalysisIR", "file": "internal/agent/analyzer.go", "line": 240, "kind": "function"},
-    {"name": "buildRequestModel", "file": "internal/agent/analyzer.go", "line": 315, "kind": "function"},
-    {"name": "mapIntent", "file": "internal/agent/analyzer.go", "line": 357, "kind": "function"},
-    {"name": "mapComplexity", "file": "internal/agent/analyzer.go", "line": 380, "kind": "function"},
-    {"name": "mapAnswerShape", "file": "internal/agent/analyzer.go", "line": 395, "kind": "function"},
-    {"name": "irKeywords", "file": "internal/agent/ir_accessor.go", "line": 13, "kind": "function"},
-    {"name": "irEntities", "file": "internal/agent/ir_accessor.go", "line": 20, "kind": "function"},
-    {"name": "irQuestionKind", "file": "internal/agent/ir_accessor.go", "line": 27, "kind": "function"},
-    {"name": "irAnswerShape", "file": "internal/agent/ir_accessor.go", "line": 34, "kind": "function"},
-    {"name": "extractConcreteValues", "file": "internal/agent/explorer.go", "line": 3921, "kind": "function"},
-    {"name": "keywordSearch", "file": "internal/agent/keyword_search.go", "line": 58, "kind": "function"},
-    {"name": "buildTodoItems", "file": "internal/tool/todo_write.go", "line": 152, "kind": "function"},
-    {"name": "pickClassification", "file": "internal/tool/todo_write.go", "line": 190, "kind": "function"},
-    {"name": "pickCurrentTaskID", "file": "internal/tool/todo_write.go", "line": 229, "kind": "function"},
-    {"name": "normalizeQuestionKind", "file": "internal/tool/todo_write.go", "line": 269, "kind": "function"},
-    {"name": "normalizeAnswerShape", "file": "internal/tool/todo_write.go", "line": 295, "kind": "function"},
-    {"name": "normalizeComplexity", "file": "internal/tool/todo_write.go", "line": 333, "kind": "function"},
-    {"name": "BuildOrLoadGraph", "file": "internal/tool/repomap/tool.go", "line": 128, "kind": "function"},
-    {"name": "BuildGraph", "file": "internal/tool/repomap/facade.go", "line": 69, "kind": "function"},
-    {"name": "RankGraph", "file": "internal/tool/repomap/facade.go", "line": 128, "kind": "function"},
-    {"name": "SymbolKey", "file": "internal/tool/repomap/facade.go", "line": 85, "kind": "function"},
-    {"name": "ScanFiles", "file": "internal/tool/repomap/facade.go", "line": 74, "kind": "function"},
-    {"name": "ParseFiles", "file": "internal/tool/repomap/facade.go", "line": 80, "kind": "function"},
-    {"name": "GenerateView", "file": "internal/tool/repomap/facade.go", "line": 108, "kind": "function"},
-    {"name": "IsSpecialFile", "file": "internal/tool/repomap/facade.go", "line": 100, "kind": "function"},
-    {"name": "CacheDir", "file": "internal/tool/repomap/index/cache.go", "line": 33, "kind": "function"},
-    {"name": "SaveCache", "file": "internal/tool/repomap/index/cache.go", "line": 108, "kind": "function"},
-    {"name": "LoadFileInfos", "file": "internal/tool/repomap/index/cache.go", "line": 182, "kind": "function"},
-    {"name": "ChangedFiles", "file": "internal/tool/repomap/index/cache.go", "line": 371, "kind": "function"},
-    {"name": "NeedsFullRescan", "file": "internal/tool/repomap/index/cache.go", "line": 445, "kind": "function"},
-    {"name": "DerivePolicy", "file": "internal/analysis/risk/policy.go", "line": 19, "kind": "function"},
-    {"name": "Evaluate", "file": "internal/analysis/risk/matrix.go", "line": 22, "kind": "function"},
-    {"name": "Normalize", "file": "internal/analysis/normalizer/normalizer.go", "line": 64, "kind": "function"},
-    {"name": "Compile", "file": "internal/analysis/compiler/compile.go", "line": 36, "kind": "function"},
-    {"name": "InferScenario", "file": "internal/analysis/compiler/scenario.go", "line": 21, "kind": "function"},
-    {"name": "Plan", "file": "internal/analysis/hdp/planner.go", "line": 37, "kind": "function"},
-    {"name": "Bind", "file": "internal/analysis/hdp/planner.go", "line": 149, "kind": "function"},
-    {"name": "ShouldExpand", "file": "internal/analysis/counterfactual/expander.go", "line": 38, "kind": "function"},
-    {"name": "Expand", "file": "internal/analysis/counterfactual/expander.go", "line": 59, "kind": "function"},
-    {"name": "CurrentTask", "file": "internal/types/task.go", "line": 26, "kind": "method", "receiver": "TaskList"},
-    {"name": "IsZero", "file": "internal/types/context.go", "line": 69, "kind": "method", "receiver": "AnalyzerClassification"},
-    {"name": "Classification", "file": "internal/types/context.go", "line": 84, "kind": "method", "receiver": "MutableState"},
-    {"name": "SetClassification", "file": "internal/types/context.go", "line": 98, "kind": "method", "receiver": "MutableState"},
-    {"name": "TaskList", "file": "internal/types/context.go", "line": 110, "kind": "method", "receiver": "MutableState"},
-    {"name": "SetTaskList", "file": "internal/types/context.go", "line": 120, "kind": "method", "receiver": "MutableState"},
-    {"name": "UpdateTaskStatus", "file": "internal/types/context.go", "line": 132, "kind": "method", "receiver": "MutableState"},
-    {"name": "UpdateTaskResult", "file": "internal/types/context.go", "line": 166, "kind": "method", "receiver": "MutableState"},
-    {"name": "SetCurrentTask", "file": "internal/types/context.go", "line": 209, "kind": "method", "receiver": "MutableState"},
-    {"name": "SetEmitter", "file": "internal/orchestrator/orchestrator.go", "line": 47, "kind": "method", "receiver": "Orchestrator"},
-    {"name": "SetMaxSteps", "file": "internal/orchestrator/orchestrator.go", "line": 55, "kind": "method", "receiver": "Orchestrator"},
-    {"name": "SetLanguage", "file": "internal/orchestrator/orchestrator.go", "line": 64, "kind": "method", "receiver": "Orchestrator"},
-    {"name": "BusContext", "file": "internal/orchestrator/orchestrator.go", "line": 833, "kind": "method", "receiver": "Orchestrator"},
-    {"name": "Execute", "file": "internal/agent/agent.go", "line": 317, "kind": "method", "receiver": "BaseAgent"},
-    {"name": "Name", "file": "internal/agent/agent.go", "line": 219, "kind": "method", "receiver": "BaseAgent"},
-    {"name": "FilesImporting", "file": "internal/tool/repomap/types/graph.go", "line": 64, "kind": "method", "receiver": "Graph"},
-    {"name": "FilesImportedBy", "file": "internal/tool/repomap/types/graph.go", "line": 69, "kind": "method", "receiver": "Graph"},
-    {"name": "SymbolsInFile", "file": "internal/tool/repomap/types/graph.go", "line": 74, "kind": "method", "receiver": "Graph"},
-    {"name": "CallersOf", "file": "internal/tool/repomap/types/graph.go", "line": 91, "kind": "method", "receiver": "Graph"},
-    {"name": "TransitiveDeps", "file": "internal/tool/repomap/types/graph.go", "line": 213, "kind": "method", "receiver": "Graph"}
+    {
+      "name": "StageOutput",
+      "file": "internal/agent/agent.go",
+      "line": 26,
+      "kind": "struct"
+    },
+    {
+      "name": "Dependencies",
+      "file": "internal/agent/agent.go",
+      "line": 151,
+      "kind": "struct"
+    },
+    {
+      "name": "BaseAgent",
+      "file": "internal/agent/agent.go",
+      "line": 215,
+      "kind": "struct"
+    },
+    {
+      "name": "LoopObservation",
+      "file": "internal/agent/agent.go",
+      "line": 313,
+      "kind": "struct"
+    },
+    {
+      "name": "LoopSignal",
+      "file": "internal/agent/agent.go",
+      "line": 398,
+      "kind": "struct"
+    },
+    {
+      "name": "NewBaseAgent",
+      "file": "internal/agent/agent.go",
+      "line": 477,
+      "kind": "function"
+    },
+    {
+      "name": "FilterToolSchemas",
+      "file": "internal/agent/analyzer.go",
+      "line": 1015,
+      "kind": "method"
+    },
+    {
+      "name": "FilterToolSchemas",
+      "file": "internal/agent/answer_document_evaluator.go",
+      "line": 7198,
+      "kind": "method"
+    },
+    {
+      "name": "FilterToolSchemas",
+      "file": "internal/agent/explorer.go",
+      "line": 6371,
+      "kind": "method"
+    },
+    {
+      "name": "DefaultLogTriageSettings",
+      "file": "internal/agent/log_triager.go",
+      "line": 76,
+      "kind": "function"
+    },
+    {
+      "name": "DefaultLoopPolicy",
+      "file": "internal/agent/loop_policy.go",
+      "line": 137,
+      "kind": "function"
+    },
+    {
+      "name": "SetMentionCountMaxGrep",
+      "file": "internal/agent/mentioned_file_entities.go",
+      "line": 125,
+      "kind": "function"
+    },
+    {
+      "name": "RegisterDefaults",
+      "file": "internal/agent/registry.go",
+      "line": 69,
+      "kind": "function"
+    },
+    {
+      "name": "LookupRepoSurface",
+      "file": "internal/agent/symbol_resolver.go",
+      "line": 159,
+      "kind": "method"
+    },
+    {
+      "name": "LookupSymbolStem",
+      "file": "internal/agent/symbol_resolver.go",
+      "line": 980,
+      "kind": "method"
+    },
+    {
+      "name": "Amplify",
+      "file": "internal/analysis/amplifier/amplifier.go",
+      "line": 100,
+      "kind": "function"
+    },
+    {
+      "name": "BudgetSignals",
+      "file": "internal/analysis/budget/budget.go",
+      "line": 20,
+      "kind": "struct"
+    },
+    {
+      "name": "Analyze",
+      "file": "internal/analysis/dataflow/engine.go",
+      "line": 22,
+      "kind": "function"
+    },
+    {
+      "name": "ClassifyPath",
+      "file": "internal/analysis/declarative/classifier.go",
+      "line": 156,
+      "kind": "method"
+    },
+    {
+      "name": "RunOptions",
+      "file": "internal/analysis/gate/gate.go",
+      "line": 38,
+      "kind": "struct"
+    },
+    {
+      "name": "Render",
+      "file": "internal/analysis/hint/composer.go",
+      "line": 202,
+      "kind": "method"
+    },
+    {
+      "name": "NormalizeCodeKey",
+      "file": "internal/analysis/normalizer/canonicalize.go",
+      "line": 200,
+      "kind": "function"
+    },
+    {
+      "name": "SymbolResolver",
+      "file": "internal/analysis/normalizer/normalizer.go",
+      "line": 32,
+      "kind": "interface"
+    },
+    {
+      "name": "SymbolHit",
+      "file": "internal/analysis/normalizer/normalizer.go",
+      "line": 39,
+      "kind": "struct"
+    },
+    {
+      "name": "Submit",
+      "file": "internal/analysis/patcher/patcher.go",
+      "line": 133,
+      "kind": "method"
+    },
+    {
+      "name": "RuntimeSettings",
+      "file": "internal/config/runtime.go",
+      "line": 34,
+      "kind": "struct"
+    },
+    {
+      "name": "IsNotExist",
+      "file": "internal/config/runtime.go",
+      "line": 1434,
+      "kind": "function"
+    },
+    {
+      "name": "BuildAgentContext",
+      "file": "internal/context/builder.go",
+      "line": 23,
+      "kind": "function"
+    },
+    {
+      "name": "BuildPromptContext",
+      "file": "internal/context/builder.go",
+      "line": 404,
+      "kind": "function"
+    },
+    {
+      "name": "ToMessages",
+      "file": "internal/context/builder.go",
+      "line": 1162,
+      "kind": "function"
+    },
+    {
+      "name": "BuildSubAgentContext",
+      "file": "internal/context/builder.go",
+      "line": 1225,
+      "kind": "function"
+    },
+    {
+      "name": "ProbeTypedRelations",
+      "file": "internal/context/typed_relations.go",
+      "line": 162,
+      "kind": "function"
+    },
+    {
+      "name": "Adapter",
+      "file": "internal/memory/adapter.go",
+      "line": 17,
+      "kind": "struct"
+    },
+    {
+      "name": "NewStore",
+      "file": "internal/memory/store.go",
+      "line": 415,
+      "kind": "function"
+    },
+    {
+      "name": "NewCancelToken",
+      "file": "internal/orchestrator/cancel.go",
+      "line": 41,
+      "kind": "function"
+    },
+    {
+      "name": "SetSoftViolationKinds",
+      "file": "internal/orchestrator/contract_check.go",
+      "line": 2029,
+      "kind": "function"
+    },
+    {
+      "name": "FallbackTarget",
+      "file": "internal/orchestrator/fallback_policy.go",
+      "line": 39,
+      "kind": "type"
+    },
+    {
+      "name": "SetFallbackPolicyOverrides",
+      "file": "internal/orchestrator/fallback_policy.go",
+      "line": 491,
+      "kind": "function"
+    },
+    {
+      "name": "Orchestrator",
+      "file": "internal/orchestrator/orchestrator.go",
+      "line": 49,
+      "kind": "struct"
+    },
+    {
+      "name": "SetMaxSteps",
+      "file": "internal/orchestrator/orchestrator.go",
+      "line": 695,
+      "kind": "method"
+    },
+    {
+      "name": "SetMode",
+      "file": "internal/orchestrator/orchestrator.go",
+      "line": 945,
+      "kind": "method"
+    },
+    {
+      "name": "SetAutoInitRepo",
+      "file": "internal/orchestrator/orchestrator.go",
+      "line": 1545,
+      "kind": "method"
+    },
+    {
+      "name": "BusContext",
+      "file": "internal/orchestrator/orchestrator.go",
+      "line": 8370,
+      "kind": "method"
+    },
+    {
+      "name": "AppendSoftContractCaveatsToAnswerForBus",
+      "file": "internal/orchestrator/repair_caveat_materializer.go",
+      "line": 223,
+      "kind": "function"
+    },
+    {
+      "name": "RepairExecutionPlan",
+      "file": "internal/orchestrator/repair_execution_plan.go",
+      "line": 68,
+      "kind": "struct"
+    },
+    {
+      "name": "RepairCluster",
+      "file": "internal/orchestrator/repair_plan.go",
+      "line": 44,
+      "kind": "struct"
+    },
+    {
+      "name": "BuildRepairPlan",
+      "file": "internal/orchestrator/repair_plan.go",
+      "line": 108,
+      "kind": "function"
+    },
+    {
+      "name": "SelfConsistencyContradiction",
+      "file": "internal/orchestrator/self_consistency_reviewer.go",
+      "line": 162,
+      "kind": "struct"
+    },
+    {
+      "name": "NewPlanStore",
+      "file": "internal/repl/plans.go",
+      "line": 68,
+      "kind": "function"
+    },
+    {
+      "name": "REPL",
+      "file": "internal/repl/repl.go",
+      "line": 494,
+      "kind": "struct"
+    },
+    {
+      "name": "Loop",
+      "file": "internal/repl/repl.go",
+      "line": 5705,
+      "kind": "method"
+    },
+    {
+      "name": "TurnPolicy",
+      "file": "internal/repl/turn_policy.go",
+      "line": 98,
+      "kind": "struct"
+    },
+    {
+      "name": "RegisterDefaults",
+      "file": "internal/skill/defaults.go",
+      "line": 12,
+      "kind": "function"
+    },
+    {
+      "name": "TierBItem",
+      "file": "internal/skill/skill.go",
+      "line": 51,
+      "kind": "struct"
+    },
+    {
+      "name": "AppliesToFilter",
+      "file": "internal/skill/skill.go",
+      "line": 65,
+      "kind": "struct"
+    },
+    {
+      "name": "MatchesAppliesTo",
+      "file": "internal/skill/skill.go",
+      "line": 111,
+      "kind": "method"
+    },
+    {
+      "name": "KeywordHitRatio",
+      "file": "internal/tool/analysis_limits.go",
+      "line": 266,
+      "kind": "method"
+    },
+    {
+      "name": "SetAnalysisLimits",
+      "file": "internal/tool/analysis_limits.go",
+      "line": 412,
+      "kind": "function"
+    },
+    {
+      "name": "CurrentAnalysisLimits",
+      "file": "internal/tool/analysis_limits.go",
+      "line": 420,
+      "kind": "function"
+    },
+    {
+      "name": "NormalizeEmitAnswerBlock",
+      "file": "internal/tool/answer_block_normalize.go",
+      "line": 51,
+      "kind": "function"
+    },
+    {
+      "name": "ReadFile",
+      "file": "internal/tool/builtin.go",
+      "line": 2797,
+      "kind": "struct"
+    },
+    {
+      "name": "EmitAnswerDocument",
+      "file": "internal/tool/emit_answer_document.go",
+      "line": 30,
+      "kind": "struct"
+    },
+    {
+      "name": "EmitEvidence",
+      "file": "internal/tool/emit_evidence.go",
+      "line": 45,
+      "kind": "struct"
+    },
+    {
+      "name": "Bool",
+      "file": "internal/tool/flex_bool.go",
+      "line": 15,
+      "kind": "method"
+    },
+    {
+      "name": "Seconds",
+      "file": "internal/tool/flex_trace_second.go",
+      "line": 25,
+      "kind": "method"
+    },
+    {
+      "name": "GroundItem",
+      "file": "internal/tool/ground/ground.go",
+      "line": 334,
+      "kind": "function"
+    },
+    {
+      "name": "CanonicalRepoRelative",
+      "file": "internal/tool/ground/path.go",
+      "line": 15,
+      "kind": "function"
+    },
+    {
+      "name": "SetGroundingPolicy",
+      "file": "internal/tool/grounding_policy.go",
+      "line": 185,
+      "kind": "function"
+    },
+    {
+      "name": "SymbolOracle",
+      "file": "internal/tool/multipath/decision.go",
+      "line": 291,
+      "kind": "interface"
+    },
+    {
+      "name": "BuildGraph",
+      "file": "internal/tool/repomap/facade.go",
+      "line": 96,
+      "kind": "function"
+    },
+    {
+      "name": "BuildGraph",
+      "file": "internal/tool/repomap/index/build.go",
+      "line": 19,
+      "kind": "function"
+    },
+    {
+      "name": "EnsureLoaded",
+      "file": "internal/tool/repomap/multigraph/multigraph.go",
+      "line": 256,
+      "kind": "method"
+    },
+    {
+      "name": "EnsureMany",
+      "file": "internal/tool/repomap/multigraph/multigraph.go",
+      "line": 401,
+      "kind": "method"
+    },
+    {
+      "name": "AllGraphs",
+      "file": "internal/tool/repomap/multigraph/multigraph.go",
+      "line": 451,
+      "kind": "method"
+    },
+    {
+      "name": "RenderMarkdown",
+      "file": "internal/tool/repomap/render/render.go",
+      "line": 105,
+      "kind": "function"
+    },
+    {
+      "name": "SubRepo",
+      "file": "internal/tool/repomap/topology/topology.go",
+      "line": 28,
+      "kind": "struct"
+    },
+    {
+      "name": "Lookup",
+      "file": "internal/tool/repomap/topology/topology.go",
+      "line": 89,
+      "kind": "method"
+    },
+    {
+      "name": "DeriveSymbolID",
+      "file": "internal/tool/repomap/types/graph.go",
+      "line": 23,
+      "kind": "function"
+    },
+    {
+      "name": "ImplementersOf",
+      "file": "internal/tool/repomap/types/graph.go",
+      "line": 103,
+      "kind": "method"
+    },
+    {
+      "name": "SupportedReadLanguages",
+      "file": "internal/tool/repomap/types/lang.go",
+      "line": 118,
+      "kind": "function"
+    },
+    {
+      "name": "SymbolID",
+      "file": "internal/tool/repomap/types/types.go",
+      "line": 46,
+      "kind": "type"
+    },
+    {
+      "name": "Import",
+      "file": "internal/tool/repomap/types/types.go",
+      "line": 157,
+      "kind": "struct"
+    },
+    {
+      "name": "RelationEndpoint",
+      "file": "internal/tool/repomap/types/types.go",
+      "line": 179,
+      "kind": "struct"
+    },
+    {
+      "name": "FileInfo",
+      "file": "internal/tool/repomap/types/types.go",
+      "line": 268,
+      "kind": "struct"
+    },
+    {
+      "name": "Graph",
+      "file": "internal/tool/repomap/types/types.go",
+      "line": 476,
+      "kind": "struct"
+    },
+    {
+      "name": "AnyLevelPatterns",
+      "file": "internal/tool/search.go",
+      "line": 262,
+      "kind": "method"
+    },
+    {
+      "name": "ExcludesRepoRelativePath",
+      "file": "internal/tool/search.go",
+      "line": 284,
+      "kind": "method"
+    },
+    {
+      "name": "ReadOnly",
+      "file": "internal/tool/tool.go",
+      "line": 41,
+      "kind": "struct"
+    },
+    {
+      "name": "NonEvidenceTool",
+      "file": "internal/tool/tool.go",
+      "line": 72,
+      "kind": "struct"
+    },
+    {
+      "name": "Strings",
+      "file": "internal/tool/trace_query_event_types.go",
+      "line": 15,
+      "kind": "method"
+    },
+    {
+      "name": "BuildOptions",
+      "file": "internal/tracequery/parse.go",
+      "line": 138,
+      "kind": "struct"
+    },
+    {
+      "name": "BuildIndex",
+      "file": "internal/tracequery/parse.go",
+      "line": 152,
+      "kind": "function"
+    },
+    {
+      "name": "ParseLine",
+      "file": "internal/tracequery/parse.go",
+      "line": 550,
+      "kind": "function"
+    },
+    {
+      "name": "ComputeWindowStats",
+      "file": "internal/tracequery/query.go",
+      "line": 1007,
+      "kind": "function"
+    },
+    {
+      "name": "BuildWakeupChain",
+      "file": "internal/tracequery/query.go",
+      "line": 3455,
+      "kind": "function"
+    },
+    {
+      "name": "EventType",
+      "file": "internal/tracequery/types.go",
+      "line": 7,
+      "kind": "type"
+    },
+    {
+      "name": "Event",
+      "file": "internal/tracequery/types.go",
+      "line": 53,
+      "kind": "struct"
+    },
+    {
+      "name": "FileIOSummary",
+      "file": "internal/tracequery/types.go",
+      "line": 504,
+      "kind": "struct"
+    },
+    {
+      "name": "AnswerDocumentV2",
+      "file": "internal/types/answer_document_v2.go",
+      "line": 41,
+      "kind": "struct"
+    },
+    {
+      "name": "BuildAnswerSemanticView",
+      "file": "internal/types/answer_semantic_view_compile.go",
+      "line": 61,
+      "kind": "function"
+    },
+    {
+      "name": "BuildAnswerSupportPlan",
+      "file": "internal/types/answer_support_plan.go",
+      "line": 146,
+      "kind": "function"
+    },
+    {
+      "name": "NormalizedSurfaceSymbolTail",
+      "file": "internal/types/answer_surface_plan.go",
+      "line": 3565,
+      "kind": "function"
+    },
+    {
+      "name": "ChangePlan",
+      "file": "internal/types/change_plan.go",
+      "line": 309,
+      "kind": "struct"
+    },
+    {
+      "name": "TurnAArtifacts",
+      "file": "internal/types/context.go",
+      "line": 829,
+      "kind": "struct"
+    },
+    {
+      "name": "NewMutableState",
+      "file": "internal/types/context.go",
+      "line": 1008,
+      "kind": "function"
+    },
+    {
+      "name": "AppendEvidence",
+      "file": "internal/types/context.go",
+      "line": 2154,
+      "kind": "method"
+    },
+    {
+      "name": "EmittedEvidence",
+      "file": "internal/types/context.go",
+      "line": 2294,
+      "kind": "method"
+    },
+    {
+      "name": "AnswerDocumentV2",
+      "file": "internal/types/context.go",
+      "line": 2732,
+      "kind": "method"
+    },
+    {
+      "name": "ChangePlan",
+      "file": "internal/types/context.go",
+      "line": 2885,
+      "kind": "method"
+    },
+    {
+      "name": "SetTurnAArtifacts",
+      "file": "internal/types/context.go",
+      "line": 3688,
+      "kind": "method"
+    },
+    {
+      "name": "SetInvestigationComplete",
+      "file": "internal/types/context.go",
+      "line": 4596,
+      "kind": "method"
+    },
+    {
+      "name": "SetInvestigationAggregateFacts",
+      "file": "internal/types/context.go",
+      "line": 4895,
+      "kind": "method"
+    },
+    {
+      "name": "RetainInvestigationAggregateFacts",
+      "file": "internal/types/context.go",
+      "line": 4911,
+      "kind": "method"
+    },
+    {
+      "name": "ToolResult",
+      "file": "internal/types/context.go",
+      "line": 5126,
+      "kind": "struct"
+    },
+    {
+      "name": "BusContext",
+      "file": "internal/types/context.go",
+      "line": 5361,
+      "kind": "struct"
+    },
+    {
+      "name": "AgentContext",
+      "file": "internal/types/context.go",
+      "line": 5681,
+      "kind": "struct"
+    },
+    {
+      "name": "AgentName",
+      "file": "internal/types/enums.go",
+      "line": 127,
+      "kind": "type"
+    },
+    {
+      "name": "EvidenceItem",
+      "file": "internal/types/evidence.go",
+      "line": 552,
+      "kind": "struct"
+    },
+    {
+      "name": "StableEvidenceID",
+      "file": "internal/types/evidence.go",
+      "line": 899,
+      "kind": "function"
+    },
+    {
+      "name": "EvidenceClosure",
+      "file": "internal/types/evidence_closure.go",
+      "line": 44,
+      "kind": "struct"
+    },
+    {
+      "name": "NewEvidenceClosure",
+      "file": "internal/types/evidence_closure.go",
+      "line": 378,
+      "kind": "function"
+    },
+    {
+      "name": "ResolveQuestionFamily",
+      "file": "internal/types/facet_plan.go",
+      "line": 593,
+      "kind": "function"
+    },
+    {
+      "name": "RegisterViolKind",
+      "file": "internal/types/violation_registry.go",
+      "line": 300,
+      "kind": "function"
+    },
+    {
+      "name": "MergeFromRefOptions",
+      "file": "internal/worktree/merge.go",
+      "line": 488,
+      "kind": "struct"
+    },
+    {
+      "name": "Create",
+      "file": "internal/worktree/session.go",
+      "line": 86,
+      "kind": "function"
+    }
   ]
 }

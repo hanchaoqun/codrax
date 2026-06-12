@@ -89,6 +89,14 @@ type symbolRecall struct {
 	Recall             float64  `json:"recall"`
 	NameThenFileRecall float64  `json:"name_then_file_recall"` // FoundByName / TotalExpected
 	Missing            []string `json:"missing,omitempty"`
+	// FixtureFreshnessWarning is set when by-name recall far exceeds
+	// by-file recall — the signature of MOVED files (the symbol still
+	// exists, the pinned location doesn't). At that point the metric
+	// measures repository drift, not extractor quality: regenerate
+	// the fixture (go run ./eval/repomap_v3/fixturegen) instead of
+	// reading the number as a regression. Additive diagnostics only;
+	// the metric definitions are unchanged.
+	FixtureFreshnessWarning string `json:"fixture_freshness_warning,omitempty"`
 }
 
 type importAccuracy struct {
@@ -363,8 +371,20 @@ func computeSymbolRecall(g *repomap.Graph, fx symbolsFixture) symbolRecall {
 		out.Recall = float64(out.Found) / float64(out.TotalExpected)
 		out.NameThenFileRecall = float64(out.FoundByName) / float64(out.TotalExpected)
 	}
+	if out.NameThenFileRecall-out.Recall > fixtureFreshnessGap && out.NameThenFileRecall >= 0.5 {
+		out.FixtureFreshnessWarning = fmt.Sprintf(
+			"fixtures appear STALE: %d/%d symbols found by name but not at the pinned (file,line) — the moved-files signature. Recall is measuring repository drift, not extractor quality; regenerate with `go run ./eval/repomap_v3/fixturegen` and re-record the baseline.",
+			out.FoundByName-out.Found, out.TotalExpected)
+		fmt.Fprintln(os.Stderr, "WARNING:", out.FixtureFreshnessWarning)
+	}
 	return out
 }
+
+// fixtureFreshnessGap is the by-name-vs-by-file recall gap above which
+// the fixture is presumed stale rather than the extractor regressed: a
+// genuine extraction regression loses symbols by NAME too, while file
+// moves keep names alive at new coordinates.
+const fixtureFreshnessGap = 0.25
 
 func fmtDefs(defs []*repomap.Symbol) string {
 	parts := make([]string, 0, len(defs))
@@ -621,10 +641,18 @@ func topKQueryFiles(g *repomap.Graph, k int) []string {
 		f string
 		s float64
 	}
+	// Rank query-matched files by the COMBINED score (g.Scores), the
+	// same ordering production task_map renders (qScore*wQueryMatch +
+	// structural tie-break). Ranking by raw QueryScores alone broke on
+	// large repos: common query tokens saturate hundreds of files to
+	// the per-file query-score cap, and an all-tied top-K degenerates
+	// to alphabetical order — the metric then measured filename
+	// position, not rank quality. QueryScores>0 still decides WHICH
+	// files count as query matches (unchanged metric intent).
 	rows := make([]kv, 0, len(g.QueryScores))
 	for f, s := range g.QueryScores {
 		if s > 0 {
-			rows = append(rows, kv{f, s})
+			rows = append(rows, kv{f, g.Scores[f]})
 		}
 	}
 	// Fall back to structural Scores when no query match surfaced.

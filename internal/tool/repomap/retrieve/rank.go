@@ -373,36 +373,57 @@ func queryMatchScoreWithTokens(fi *types.FileInfo, tokens []QueryToken, salience
 		return 0.0
 	}
 
+	// Per-token saturation: each token contributes its BEST surface
+	// hit (path 3 > symbol 2 > doc 1) plus a log-dampened bonus for
+	// additional occurrences. The previous per-symbol accumulation
+	// with a flat Min(score, 20) cap rewarded FILE SIZE — on a
+	// 1700-file repo, hundreds of large files saturated the cap on
+	// any query containing a common token, flattening the layer into
+	// ties that buried exact-identifier matches (repomap_v3 hit@k
+	// collapsed from 0.87 to 0.14 as the repo grew). Per-token
+	// scoring keeps the existing IDF salience discriminative: a rare
+	// identifier token (salience 2.5) now always outweighs piles of
+	// common-token repeats, and the total is naturally bounded by the
+	// token count — no flat cap needed.
 	score := 0.0
 	pathLower := strings.ToLower(fi.RelPath)
 	for _, t := range tokens {
+		w := t.Weight * queryTokenSalienceWeight(t, salience)
+		if w <= 0 {
+			continue
+		}
+		best := 0.0
+		extra := 0
 		if strings.Contains(pathLower, t.Text) {
-			score += 3.0 * t.Weight * queryTokenSalienceWeight(t, salience)
+			best = 3.0
 		}
-	}
-
-	for _, sym := range fi.Symbols {
-		nameLower := strings.ToLower(sym.Name)
-		for _, t := range tokens {
-			if strings.Contains(nameLower, t.Text) {
-				score += 2.0 * t.Weight * queryTokenSalienceWeight(t, salience)
+		for _, sym := range fi.Symbols {
+			if strings.Contains(strings.ToLower(sym.Name), t.Text) {
+				if best < 2.0 {
+					best = 2.0
+				} else {
+					extra++
+				}
 			}
-		}
-		if sym.Doc != "" {
-			docLower := strings.ToLower(sym.Doc)
-			for _, t := range tokens {
-				if strings.Contains(docLower, t.Text) {
-					score += 1.0 * t.Weight * queryTokenSalienceWeight(t, salience)
+			if sym.Doc != "" && strings.Contains(strings.ToLower(sym.Doc), t.Text) {
+				if best < 1.0 {
+					best = 1.0
+				} else {
+					extra++
 				}
 			}
 		}
+		if best == 0 {
+			continue
+		}
+		score += w * (best + 0.5*math.Log1p(float64(extra)))
 	}
 
 	if isTestFile(fi.RelPath) {
 		score *= 0.5
 	}
 
-	return math.Min(score, 20.0)
+	return score
 }
 
 func queryTokenSalience(g *types.Graph, tokens []QueryToken) map[string]float64 {

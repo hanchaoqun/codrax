@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-12T06:58:24Z",
+  "timestamp": "2026-06-12T09:26:53Z",
   "repo_root": "/Users/han/opt/claude/codrax",
   "symbol_precision": {
     "total_checked": 500,
@@ -9,127 +9,17 @@
   },
   "symbol_recall": {
     "total_expected": 125,
-    "found": 17,
-    "found_by_name": 91,
-    "recall": 0.136,
-    "name_then_file_recall": 0.728,
-    "missing": [
-      "TaskItem (no definitions extracted)",
-      "TaskList (no definitions extracted)",
-      "TaskState @ internal/types/task.go:36 (found at internal/types/context.go:13, internal/types/context.go:5348)",
-      "MutableState @ internal/types/context.go:32 (found at internal/types/context.go:71)",
-      "AnalyzerClassification (no definitions extracted)",
-      "StageReport @ internal/types/context.go:226 (found at internal/agent/agent.go:131, internal/types/context.go:5091)",
-      "RepoFact @ internal/types/context.go:233 (found at internal/types/context.go:5098)",
-      "ToolResult @ internal/types/context.go:242 (found at internal/types/context.go:5121)",
-      "MCPResponse @ internal/types/context.go:251 (found at internal/types/context.go:5131)",
-      "ExecutionSignals @ internal/types/context.go:261 (found at internal/types/context.go:5272)",
-      "PolicyContext (no definitions extracted)",
-      "BusContext @ internal/types/context.go:287 (found at internal/orchestrator/orchestrator.go:8370, internal/types/context.go:5341)",
-      "AgentContext @ internal/types/context.go:340 (found at internal/types/context.go:5661)",
-      "AnalyzerHints @ internal/types/analysis_ir.go:73 (found at internal/types/analysis_ir.go:205, internal/types/analysis_ir.go:706)",
-      "Intent @ internal/types/analysis_ir.go:80 (found at internal/render/structured_tool_summary.go:742, internal/skill/skill.go:83, internal/tool/emit_analysis.go:52, internal/types/analysis_ir.go:50, internal/types/analysis_ir.go:888)",
-      "Scenario @ internal/types/analysis_ir.go:95 (found at internal/orchestrator/answer_reviewer.go:54, internal/render/structured_tool_summary.go:743, internal/tool/emit_analysis.go:53, internal/types/analysis_ir.go:51, internal/types/analysis_ir.go:908)",
-      "Complexity @ internal/types/analysis_ir.go:107 (found at internal/analysis/budget/budget.go:21, internal/render/structured_tool_summary.go:744, internal/tool/emit_analysis.go:54, internal/types/analysis_ir.go:52, internal/types/analysis_ir.go:924)",
-      "TaskGraph @ internal/types/analysis_ir.go:156 (found at internal/analysis/compiler/compile.go:24, internal/types/analysis_ir.go:33, internal/types/analysis_ir.go:1015)",
-      "TaskNode @ internal/types/analysis_ir.go:162 (found at internal/types/analysis_ir.go:1021)",
-      "AnswerContract @ internal/types/analysis_ir.go:244 (found at internal/analysis/compiler/compile.go:26, internal/types/analysis_ir.go:35, internal/types/analysis_ir.go:1281, internal/types/observation_ledger.go:292)",
-      "AnswerShape (no definitions extracted)",
-      "Hypothesis @ internal/types/analysis_ir.go:278 (found at internal/types/analysis_ir.go:1501)",
-      "HypothesisStatus @ internal/types/analysis_ir.go:287 (found at internal/types/analysis_ir.go:1510)",
-      "RiskMatrix @ internal/types/analysis_ir.go:297 (found at internal/types/analysis_ir.go:55, internal/types/analysis_ir.go:1569)",
-      "RunPolicy (no definitions extracted)",
-      "AgentName @ internal/types/enums.go:42 (found at internal/types/context.go:5662, internal/types/context.go:6054, internal/types/enums.go:127)",
-      "TaskStatus (no definitions extracted)",
-      "MissingPiece @ internal/types/enums.go:91 (found at internal/agent/agent.go:88, internal/types/context.go:5786, internal/types/enums.go:184)",
-      "StageConfig (no definitions extracted)",
-      "Transition (no definitions extracted)",
-      "EvidenceRequirement @ internal/agent/erm.go:25 (found at internal/agent/explorer_erm.go:38)",
-      "EvidenceItem @ internal/types/evidence.go:29 (found at internal/types/evidence.go:552)",
-      "FlowFindingDigest @ internal/types/evidence.go:49 (found at internal/types/evidence.go:876)",
-      "AnswerSymbol @ internal/types/evidence.go:91 (found at internal/types/evidence.go:1340)",
-      "SubAgentRuntime @ internal/agent/subagent_runtime.go:86 (found at internal/agent/subagent_runtime.go:188)",
-      "Import @ internal/tool/repomap/types/types.go:94 (found at internal/tool/repomap/types/types.go:157)",
-      "Relation @ internal/tool/repomap/types/types.go:125 (found at internal/orchestrator/contract_check_block.go:597, internal/tool/emit_investigation_complete.go:2669, internal/tool/repomap/types/types.go:241, internal/types/analysis_ir.go:1009, internal/types/typed_relation_hint.go:33, internal/types/typed_relation_hint.go:478)",
-      "FileInfo @ internal/tool/repomap/types/types.go:140 (found at internal/tool/repomap/types/types.go:268)",
-      "Graph @ internal/tool/repomap/types/types.go:165 (found at internal/agent/keyword_search.go:49, internal/tool/ground/ground.go:86, internal/tool/repomap/types/types.go:474)",
-      "Metadata @ internal/tool/repomap/types/types.go:180 (found at internal/tool/repomap/multigraph/multigraph.go:676, internal/tool/repomap/types/types.go:264, internal/tool/repomap/types/types.go:486, internal/tool/repomap/types/types.go:582, internal/types/context.go:5118)",
-      "ViewParams @ internal/tool/repomap/types/types.go:202 (found at internal/tool/repomap/types/types.go:604)",
-      "RepoMapV2 @ internal/tool/repomap/tool.go:17 (found at internal/tool/repomap/tool.go:27)",
-      "TodoWrite (no definitions extracted)",
-      "ExecCommand @ internal/tool/builtin.go:32 (found at internal/tool/builtin.go:406)",
-      "GrepTool @ internal/tool/builtin.go:115 (found at internal/tool/builtin.go:1015)",
-      "ReadFile @ internal/tool/builtin.go:375 (found at internal/tool/builtin.go:2797)",
-      "ListFiles @ internal/tool/builtin.go:493 (found at internal/tool/builtin.go:3095)",
-      "determineActivePolicy (no definitions extracted)",
-      "decideNextStage (no definitions extracted)",
-      "applyStageOutput @ internal/orchestrator/orchestrator.go:588 (found at internal/orchestrator/orchestrator.go:8189)",
-      "dispatchStage @ internal/orchestrator/orchestrator.go:449 (found at internal/orchestrator/orchestrator.go:7751)",
-      "nextPendingTask (no definitions extracted)",
-      "recordTaskFinalize @ internal/orchestrator/orchestrator.go:396 (found at internal/orchestrator/orchestrator.go:7685)",
-      "runTaskPipeline (no definitions extracted)",
-      "runTaskPhase @ internal/orchestrator/orchestrator.go:240 (found at internal/orchestrator/orchestrator.go:3016)",
-      "runAnalyzePhase @ internal/orchestrator/orchestrator.go:219 (found at internal/orchestrator/orchestrator.go:2404)",
-      "Run @ internal/orchestrator/orchestrator.go:127 (found at internal/agent/sub_explorer.go:36, internal/agent/subagent_runtime.go:220, internal/analysis/gate/gate.go:127, internal/dataquery/action_runner.go:595, internal/dataquery/dataquery.go:1788, internal/env/probe/probe.go:35, internal/orchestrator/orchestrator.go:1173, internal/orchestrator/orchestrator.go:1635, internal/repl/approve_reject_test.go:28, internal/repl/approve_reject_test.go:443, internal/repl/repl_test.go:24, internal/repl/repl_test.go:38, internal/repl/repl_test.go:51, internal/repl/repl_test.go:63, internal/repl/repl_test.go:79, internal/repl/repl_test.go:88, internal/repl/turn_policy_test.go:210, internal/tracequery/query.go:11)",
-      "extractSubAgentProposal @ internal/orchestrator/orchestrator.go:841 (found at internal/orchestrator/orchestrator.go:8378)",
-      "BuildAgentContext @ internal/context/builder.go:14 (found at internal/context/builder.go:23)",
-      "buildAnalysisIR @ internal/agent/analyzer.go:240 (found at internal/agent/analyzer.go:1730)",
-      "buildRequestModel (no definitions extracted)",
-      "mapIntent (no definitions extracted)",
-      "mapComplexity (no definitions extracted)",
-      "mapAnswerShape (no definitions extracted)",
-      "irQuestionKind @ internal/agent/ir_accessor.go:27 (found at internal/agent/ir_accessor.go:76)",
-      "irAnswerShape (no definitions extracted)",
-      "extractConcreteValues @ internal/agent/explorer.go:3921 (found at internal/agent/explorer.go:15695)",
-      "keywordSearch @ internal/agent/keyword_search.go:58 (found at internal/agent/keyword_search.go:230)",
-      "buildTodoItems (no definitions extracted)",
-      "pickClassification (no definitions extracted)",
-      "pickCurrentTaskID (no definitions extracted)",
-      "normalizeQuestionKind @ internal/tool/todo_write.go:269 (found at internal/tool/emit_analysis.go:3663)",
-      "normalizeAnswerShape (no definitions extracted)",
-      "normalizeComplexity @ internal/tool/todo_write.go:333 (found at internal/tool/emit_analysis.go:3646)",
-      "BuildOrLoadGraph @ internal/tool/repomap/tool.go:128 (found at internal/tool/repomap/tool.go:737)",
-      "BuildGraph @ internal/tool/repomap/facade.go:69 (found at internal/tool/repomap/facade.go:96, internal/tool/repomap/index/build.go:19)",
-      "RankGraph @ internal/tool/repomap/facade.go:128 (found at internal/tool/repomap/facade.go:183, internal/tool/repomap/retrieve/rank.go:61)",
-      "SymbolKey @ internal/tool/repomap/facade.go:85 (found at internal/analysis/dataflow/types.go:77, internal/tool/repomap/facade.go:112, internal/tool/repomap/types/graph.go:53)",
-      "ScanFiles @ internal/tool/repomap/facade.go:74 (found at internal/tool/repomap/facade.go:101, internal/tool/repomap/index/scanner.go:77)",
-      "ParseFiles @ internal/tool/repomap/facade.go:80 (found at internal/tool/repomap/facade.go:107, internal/tool/repomap/index/parser.go:40)",
-      "GenerateView @ internal/tool/repomap/facade.go:108 (found at internal/tool/repomap/facade.go:163, internal/tool/repomap/render/views.go:16)",
-      "IsSpecialFile @ internal/tool/repomap/facade.go:100 (found at internal/tool/repomap/facade.go:155, internal/tool/repomap/index/scanner.go:258)",
-      "CacheDir @ internal/tool/repomap/index/cache.go:33 (found at internal/config/runtime.go:50, internal/tool/repomap/index/cache.go:125)",
-      "SaveCache @ internal/tool/repomap/index/cache.go:108 (found at internal/tool/repomap/index/cache.go:302)",
-      "LoadFileInfos @ internal/tool/repomap/index/cache.go:182 (found at internal/tool/repomap/index/cache.go:388)",
-      "ChangedFiles @ internal/tool/repomap/index/cache.go:371 (found at internal/tool/repomap/index/cache.go:1083, internal/types/change_plan.go:186, internal/types/repomap_scan.go:58)",
-      "NeedsFullRescan @ internal/tool/repomap/index/cache.go:445 (found at internal/tool/repomap/index/cache.go:1202)",
-      "DerivePolicy (no definitions extracted)",
-      "Normalize @ internal/analysis/normalizer/normalizer.go:64 (found at internal/analysis/normalizer/normalizer.go:72, internal/dataquery/dataquery.go:43, internal/repl/user_mode.go:32, internal/tool/answer_document_json_repair.go:20, internal/toolparam/normalize.go:78, internal/types/pipeline_mode.go:97)",
-      "Plan @ internal/analysis/hdp/planner.go:37 (found at internal/analysis/hdp/planner.go:45, internal/dataworkflow/action_input.go:14, internal/dataworkflow/admission.go:10, internal/dataworkflow/admission.go:20, internal/dataworkflow/deferred.go:19, internal/dataworkflow/deferred.go:57, internal/dataworkflow/evaluation.go:168, internal/dataworkflow/evaluation.go:189, internal/dataworkflow/failure.go:81, internal/dataworkflow/failure.go:98, internal/dataworkflow/failure.go:142, internal/dataworkflow/failure.go:152, internal/dataworkflow/fallback_plan.go:70, internal/dataworkflow/fallback_plan.go:86, internal/dataworkflow/plan_guard.go:44, internal/dataworkflow/plan_guard.go:367, internal/dataworkflow/prefix_fallback.go:10, internal/dataworkflow/prefix_fallback.go:15, internal/dataworkflow/prefix_fallback.go:22, internal/dataworkflow/process_event.go:15, internal/dataworkflow/record.go:8, internal/dataworkflow/runtime.go:36, internal/dataworkflow/runtime.go:62, internal/dataworkflow/runtime.go:72, internal/dataworkflow/runtime.go:82, internal/dataworkflow/stage.go:194, internal/dataworkflow/stage.go:252, internal/dataworkflow/stage.go:265, internal/dataworkflow/stage.go:312, internal/dataworkflow/stage.go:326, internal/dataworkflow/stage.go:435, internal/dataworkflow/stage.go:517, internal/dataworkflow/stage.go:533, internal/operation/plan.go:89, internal/operation/workflow.go:74, internal/repl/data_task_workflow.go:81, internal/repl/data_task_workflow.go:86, internal/repl/repl.go:5099, internal/repl/repl.go:5105, internal/repl/repl.go:5114, internal/repl/repl.go:5118, internal/types/change_plan.go:1058, internal/types/config.go:1182, internal/writeflow/evaluator.go:25, internal/writeflow/risk.go:75)",
-      "Bind (no definitions extracted)",
-      "CurrentTask (no definitions extracted)",
-      "IsZero @ internal/types/context.go:69 (found at internal/dataworkflow/state_snapshot.go:131, internal/operation/workflow.go:226, internal/types/turn_route_hint.go:22)",
-      "Classification (no definitions extracted)",
-      "SetClassification (no definitions extracted)",
-      "TaskList (no definitions extracted)",
-      "SetTaskList (no definitions extracted)",
-      "UpdateTaskStatus (no definitions extracted)",
-      "UpdateTaskResult (no definitions extracted)",
-      "SetCurrentTask (no definitions extracted)",
-      "SetEmitter @ internal/orchestrator/orchestrator.go:47 (found at internal/orchestrator/orchestrator.go:576)",
-      "SetMaxSteps @ internal/orchestrator/orchestrator.go:55 (found at internal/orchestrator/orchestrator.go:695)",
-      "SetLanguage @ internal/orchestrator/orchestrator.go:64 (found at internal/orchestrator/orchestrator.go:704)",
-      "BusContext @ internal/orchestrator/orchestrator.go:833 (found at internal/orchestrator/orchestrator.go:8370, internal/types/context.go:5341)",
-      "Execute @ internal/agent/agent.go:317 (found at cmd/root.go:597, internal/agent/agent.go:1743, internal/agent/agent_executetool_busctx_propagation_test.go:25, internal/agent/agent_test.go:1290, internal/agent/agent_test.go:1423, internal/agent/agent_tool_context_test.go:30, internal/agent/agent_tool_context_test.go:54, internal/agent/explorer.go:18299, internal/agent/log_triager.go:297, internal/agent/perf_triager.go:198, internal/agent/write_analyzer.go:123, internal/agent/write_controller.go:106, internal/operation/executor.go:27, internal/orchestrator/orchestrator_test.go:28, internal/tool/apply_patch.go:100, internal/tool/builtin.go:432, internal/tool/builtin.go:1112, internal/tool/builtin.go:2848, internal/tool/builtin.go:3121, internal/tool/builtin.go:3290, internal/tool/builtin.go:3411, internal/tool/builtin.go:3551, internal/tool/builtin.go:3712, internal/tool/emit_analysis.go:905, internal/tool/emit_answer_document.go:161, internal/tool/emit_answer_document_patch.go:140, internal/tool/emit_answer_symbol.go:169, internal/tool/emit_change_plan.go:198, internal/tool/emit_evidence.go:501, internal/tool/emit_hypothesis_verdict.go:124, internal/tool/emit_investigation_complete.go:1015, internal/tool/emit_log_segmentation.go:101, internal/tool/emit_log_triage.go:270, internal/tool/emit_multi_repo_focus.go:58, internal/tool/emit_perf_segmentation.go:110, internal/tool/emit_perf_trace.go:138, internal/tool/emit_plan_change.go:82, internal/tool/emit_plan_skeleton.go:123, internal/tool/emit_test_results.go:107, internal/tool/emit_write_analysis.go:104, internal/tool/emit_write_workflow_decision.go:43, internal/tool/list_memory.go:70, internal/tool/propose_sub_agents.go:78, internal/tool/recall_memory.go:70, internal/tool/repomap/tool.go:159, internal/tool/run_tests.go:214, internal/tool/tool.go:119, internal/tool/trace_query.go:100)",
-      "Name @ internal/agent/agent.go:219 (found at cmd/operation_provider_test.go:14, internal/agent/agent.go:525, internal/agent/agent_executetool_busctx_propagation_test.go:22, internal/agent/agent_test.go:1285, internal/agent/agent_test.go:1416, internal/agent/agent_tool_context_test.go:24, internal/agent/agent_tool_context_test.go:41, internal/agent/agent_tool_context_test.go:65, internal/agent/answer_document_evaluator.go:1634, internal/agent/explorer.go:18295, internal/agent/log_triager.go:293, internal/agent/perf_triager.go:191, internal/agent/sub_explorer.go:32, internal/agent/write_analyzer.go:121, internal/agent/write_controller.go:104, internal/analysis/dataflow/types.go:50, internal/analysis/gate/hard_gate.go:56, internal/env/probe/probe_pkgmgr.go:15, internal/hitraceconv/eventformat.go:14, internal/hitraceconv/eventformat.go:22, internal/llm/factory.go:187, internal/llm/factory.go:195, internal/llm/llm.go:11, internal/llm/llm.go:19, internal/llm/oauth_polling.go:147, internal/llm/oauth_polling.go:309, internal/llm/openai.go:1144, internal/llm/openai.go:1168, internal/mcp/mcp.go:16, internal/mcp/mcp.go:24, internal/mcp/mcp.go:31, internal/mcp/stdio.go:415, internal/operation/capability.go:37, internal/operation/capability.go:44, internal/operation/plan.go:27, internal/operation/plan.go:49, internal/orchestrator/orchestrator_test.go:26, internal/repl/command_operation_e2e_test.go:277, internal/repl/input.go:60, internal/repl/input.go:80, internal/skill/skill.go:22, internal/tool/apply_patch.go:65, internal/tool/builtin.go:416, internal/tool/builtin.go:1033, internal/tool/builtin.go:2809, internal/tool/builtin.go:3105, internal/tool/builtin.go:3272, internal/tool/builtin.go:3390, internal/tool/builtin.go:3528, internal/tool/builtin.go:3691, internal/tool/emit_analysis.go:322, internal/tool/emit_answer_document.go:35, internal/tool/emit_answer_document_patch.go:47, internal/tool/emit_answer_symbol.go:86, internal/tool/emit_answer_symbol.go:103, internal/tool/emit_answer_symbol.go:622, internal/tool/emit_change_plan.go:98, internal/tool/emit_change_plan.go:1821, internal/tool/emit_change_plan.go:2118, internal/tool/emit_change_plan.go:2190, internal/tool/emit_evidence.go:218, internal/tool/emit_hypothesis_verdict.go:80, internal/tool/emit_investigation_complete.go:59, internal/tool/emit_investigation_complete.go:2671, internal/tool/emit_investigation_complete.go:7031, internal/tool/emit_investigation_complete_relation_authority.go:13, internal/tool/emit_log_segmentation.go:43, internal/tool/emit_log_triage.go:84, internal/tool/emit_multi_repo_focus.go:21, internal/tool/emit_perf_segmentation.go:52, internal/tool/emit_perf_trace.go:105, internal/tool/emit_plan_change.go:45, internal/tool/emit_plan_skeleton.go:79, internal/tool/emit_test_results.go:56, internal/tool/emit_write_analysis.go:72, internal/tool/emit_write_workflow_decision.go:22, internal/tool/ground/claim_citation.go:20, internal/tool/list_memory.go:39, internal/tool/multipath/decision.go:303, internal/tool/propose_sub_agents.go:28, internal/tool/recall_memory.go:33, internal/tool/repomap/render/render.go:337, internal/tool/repomap/tool.go:51, internal/tool/repomap/types/types.go:74, internal/tool/repomap/types/types.go:181, internal/tool/repomap/types/types.go:470, internal/tool/repomap/types/types.go:515, internal/tool/run_tests.go:165, internal/tool/run_tests_parsers.go:1373, internal/tool/run_tests_parsers.go:1387, internal/tool/source_inventory_reconcile.go:81, internal/tool/trace_query.go:64, internal/tracequery/thread_selector.go:11, internal/tracequery/types.go:58, internal/tracequery/types.go:613, internal/tracequery/types.go:623, internal/tracequery/types.go:632, internal/tracequery/types.go:749, internal/tracequery/types.go:775, internal/tracequery/types.go:804, internal/types/analysis_ir.go:1616, internal/types/answer_aggregate_fact.go:123, internal/types/answer_surface_plan.go:241, internal/types/answer_taxonomy.go:40, internal/types/context.go:5172, internal/types/context.go:5203, internal/types/context.go:5234, internal/types/evidence.go:1341, internal/types/failure_taxonomy.go:34, internal/types/source_inventory_observation.go:69, internal/types/source_inventory_observation.go:87, internal/types/typed_relation_hint.go:57, internal/types/typed_relation_hint.go:168)",
-      "CallersOf (no definitions extracted)",
-      "TransitiveDeps @ internal/tool/repomap/types/graph.go:213 (found at internal/tool/repomap/types/graph.go:348)"
-    ]
+    "found": 125,
+    "found_by_name": 125,
+    "recall": 1,
+    "name_then_file_recall": 1
   },
   "import_accuracy": {
-    "total_relations": 6247,
-    "resolved": 1767,
-    "external": 4475,
-    "accuracy": 0.2828557707699696,
-    "internal_accuracy": 0.9971783295711061,
+    "total_relations": 6353,
+    "resolved": 1792,
+    "external": 4556,
+    "accuracy": 0.282071462301275,
+    "internal_accuracy": 0.9972175848636616,
     "per_language": {
       "arkts": {
         "total": 5,
@@ -139,10 +29,10 @@
         "internal_accuracy": 0
       },
       "go": {
-        "total": 6236,
-        "resolved": 1767,
-        "external": 4469,
-        "accuracy": 0.2833547145606158,
+        "total": 6342,
+        "resolved": 1792,
+        "external": 4550,
+        "accuracy": 0.282560706401766,
         "internal_accuracy": 1
       },
       "python": {
@@ -155,66 +45,67 @@
     },
     "unresolved_reasons": {
       "arkts": 5,
-      "go_external": 4469,
+      "go_external": 4550,
       "python_external": 6
     }
   },
   "call_edge_ambiguity": {
-    "total_call_edges": 234878,
-    "unambiguous_edges": 56803,
-    "unambiguous_ratio": 0.24184044482667597,
+    "total_call_edges": 236613,
+    "unambiguous_edges": 57260,
+    "unambiguous_ratio": 0.24199853769657625,
     "ambiguity_histogram": {
-      "0": 147665,
-      "1": 56803,
-      "10": 52,
-      "11": 267,
-      "113": 515,
-      "12": 451,
+      "0": 148708,
+      "1": 57260,
+      "10": 26,
+      "11": 296,
+      "113": 520,
+      "12": 454,
       "120": 9,
       "13": 117,
       "14": 65,
-      "148": 38,
+      "149": 39,
       "15": 179,
       "16": 16,
-      "17": 327,
-      "18": 2904,
-      "19": 506,
-      "2": 13422,
-      "20": 179,
-      "23": 113,
+      "17": 328,
+      "18": 2911,
+      "19": 508,
+      "2": 13505,
+      "20": 19,
+      "21": 201,
+      "23": 116,
       "24": 4,
       "25": 3,
       "26": 40,
       "27": 65,
       "29": 117,
-      "3": 3487,
-      "30": 34,
+      "3": 3442,
+      "31": 34,
       "39": 1,
-      "4": 757,
-      "41": 66,
+      "4": 830,
+      "41": 72,
       "45": 28,
-      "48": 855,
-      "5": 1414,
+      "48": 864,
+      "5": 1418,
       "50": 1193,
       "56": 20,
-      "6": 892,
-      "64": 169,
+      "6": 908,
+      "64": 170,
       "69": 43,
-      "7": 366,
+      "7": 208,
       "71": 22,
       "77": 2,
-      "8": 1122,
-      "80": 8,
-      "9": 542
+      "8": 1282,
+      "82": 8,
+      "9": 562
     },
     "top_ambiguous": [
       {
         "symbol_name": "Contains",
-        "count": 7522
+        "count": 7575
       },
       {
         "symbol_name": "String",
-        "count": 1556
+        "count": 1561
       },
       {
         "symbol_name": "Error",
@@ -222,34 +113,34 @@
       },
       {
         "symbol_name": "Run",
-        "count": 1128
+        "count": 1130
       },
       {
         "symbol_name": "add",
-        "count": 1001
+        "count": 1004
       },
       {
         "symbol_name": "Execute",
-        "count": 855
+        "count": 864
       },
       {
         "symbol_name": "Name",
-        "count": 515
+        "count": 520
       },
       {
         "symbol_name": "Index",
-        "count": 506
+        "count": 508
       },
       {
         "symbol_name": "New",
-        "count": 497
-      },
-      {
-        "symbol_name": "Info",
-        "count": 489
+        "count": 498
       },
       {
         "symbol_name": "Warning",
+        "count": 491
+      },
+      {
+        "symbol_name": "Info",
         "count": 489
       },
       {
@@ -265,12 +156,12 @@
         "count": 336
       },
       {
-        "symbol_name": "isZh",
+        "symbol_name": "Split",
         "count": 324
       },
       {
-        "symbol_name": "Split",
-        "count": 323
+        "symbol_name": "isZh",
+        "count": 324
       },
       {
         "symbol_name": "Add",
@@ -282,102 +173,55 @@
       },
       {
         "symbol_name": "info",
-        "count": 278
+        "count": 279
       },
       {
         "symbol_name": "insert",
         "count": 256
       }
     ],
-    "calls_with_receiver": 106148,
-    "receiver_capture_ratio": 0.4519282350837456,
-    "unambig_by_receiver_type": 4381,
-    "unambig_by_receiver_ratio": 0.01865223648021526,
-    "drift_calls": 23685,
-    "drift_calls_resolved": 1331,
-    "drift_resolved_ratio": 0.05619590458095841
+    "calls_with_receiver": 107142,
+    "receiver_capture_ratio": 0.4528153567217355,
+    "unambig_by_receiver_type": 4386,
+    "unambig_by_receiver_ratio": 0.018536597735542847,
+    "drift_calls": 23893,
+    "drift_calls_resolved": 1335,
+    "drift_resolved_ratio": 0.055874105386514876
   },
   "task_map_hit_at_k": {
     "total_queries": 35,
-    "mean_hit_at_k": 0.18571428571428572,
-    "perfect_hits": 6,
+    "mean_hit_at_k": 0.9285714285714286,
+    "perfect_hits": 32,
     "per_query": [
       {
-        "query": "determineActivePolicy run policy",
+        "query": "runReadSchedulerLoop task graph scheduler",
         "expected_files": [
           "internal/orchestrator/orchestrator.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/answer_document_evaluator.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/repl/data_task_workflow.go",
+          "internal/types/context.go",
+          "internal/repl/repl.go",
           "internal/agent/explorer.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/orchestrator/orchestrator.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "AnalysisIR RunPolicy",
+        "query": "AnalysisIR RequestModel EvidencePlan",
         "expected_files": [
-          "internal/types/analysis_ir.go",
-          "internal/analysis/risk/policy.go"
+          "internal/types/analysis_ir.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_intent_test.go",
-          "internal/agent/answer_document_evaluator.go"
-        ],
-        "hit": 0,
-        "missing": [
           "internal/types/analysis_ir.go",
-          "internal/analysis/risk/policy.go"
-        ]
-      },
-      {
-        "query": "AnalyzerClassification MutableState",
-        "expected_files": [
           "internal/types/context.go",
-          "internal/tool/todo_write.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_test.go",
-          "internal/llm/summary_extract.go",
+          "internal/agent/explorer.go",
+          "internal/agent/answer_document_evaluator.go",
           "internal/orchestrator/orchestrator.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/types/context.go",
-          "internal/tool/todo_write.go"
-        ]
-      },
-      {
-        "query": "todo_write analyzer classification",
-        "expected_files": [
-          "internal/tool/todo_write.go",
-          "internal/agent/analyzer.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_prompt_test.go",
-          "internal/agent/analyzer_required_files_test.go"
-        ],
-        "hit": 0.5,
-        "missing": [
-          "internal/tool/todo_write.go"
-        ]
+        "hit": 1
       },
       {
         "query": "buildAnalysisIR buildRequestModel",
@@ -386,31 +230,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/types/context.go",
+          "internal/agent/answer_document_evaluator.go",
           "internal/agent/analyzer.go",
-          "internal/agent/analyzer_intent_test.go"
+          "internal/tool/emit_analysis.go"
         ],
         "hit": 1
-      },
-      {
-        "query": "ir_accessor irKeywords irEntities",
-        "expected_files": [
-          "internal/agent/ir_accessor.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go",
-          "internal/agent/explorer_erm.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/ir_accessor.go"
-        ]
       },
       {
         "query": "propose_sub_agents tool",
@@ -419,16 +245,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
+          "internal/tool/propose_sub_agents.go",
+          "internal/types/context.go",
           "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/agent_tool_context_test.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/answer_document_evaluator.go"
+          "internal/agent/subagent_runtime.go",
+          "internal/tool/tool.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/propose_sub_agents.go"
-        ]
+        "hit": 1
       },
       {
         "query": "subagent register default SubExplorer",
@@ -437,34 +260,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/concrete_value_anchor_kind.go",
-          "internal/agent/explorer.go",
-          "internal/agent/explorer_evaluator_test.go"
+          "internal/agent/subagent.go",
+          "internal/agent/sub_explorer.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/types/subagent.go",
+          "internal/types/config.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/subagent.go"
-        ]
-      },
-      {
-        "query": "extractSubAgentProposal orchestrator",
-        "expected_files": [
-          "internal/orchestrator/orchestrator.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/concrete_values_lang.go",
-          "internal/agent/explorer.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/orchestrator/orchestrator.go"
-        ]
+        "hit": 1
       },
       {
         "query": "explorer ShouldStop BaseAgent",
@@ -474,31 +276,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
+          "internal/agent/explorer.go",
           "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer.go",
+          "internal/agent/sub_explorer.go",
           "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go"
+          "internal/agent/write_analyzer.go"
         ],
         "hit": 1
-      },
-      {
-        "query": "ContinuationPrompt explorer evaluator",
-        "expected_files": [
-          "internal/agent/explorer.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/aggregate_fact_render.go",
-          "internal/agent/analyzer_prompt_test.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/explorer.go"
-        ]
       },
       {
         "query": "keyword search IDF ranking",
@@ -507,69 +291,59 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/explorer.go",
           "internal/agent/keyword_search.go",
-          "internal/agent/keyword_search_test.go",
-          "internal/config/runtime.go",
-          "internal/dataquery/action_runner.go"
+          "internal/types/context.go",
+          "internal/agent/explorer.go",
+          "internal/tool/analysis_limits.go",
+          "internal/memory/store.go"
         ],
         "hit": 1
       },
       {
-        "query": "extractConcreteValues evidence",
+        "query": "EvidenceRequirement matrix explorer",
         "expected_files": [
           "internal/agent/explorer.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go",
-          "internal/agent/concrete_value_anchor_kind.go",
-          "internal/agent/concrete_values_lang.go"
+          "internal/agent/explorer.go",
+          "internal/agent/explorer_erm.go",
+          "internal/types/write_exploration.go",
+          "internal/agent/sub_explorer.go",
+          "internal/agent/explorer_erm_test.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/explorer.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "EvidenceRequirement ERM",
+        "query": "answer document evaluator block shape",
         "expected_files": [
-          "internal/agent/erm.go"
+          "internal/agent/answer_document_evaluator.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/user_mode_resolve_test.go",
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
           "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go"
+          "internal/tool/emit_answer_document_v2.go",
+          "internal/tool/answer_document_pre_emit_check.go",
+          "internal/types/context.go",
+          "internal/agent/agent.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/erm.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "risk matrix derive policy",
+        "query": "risk matrix Evaluate RiskMatrix",
         "expected_files": [
-          "internal/analysis/risk/policy.go",
-          "internal/analysis/risk/matrix.go"
+          "internal/analysis/risk/matrix.go",
+          "internal/types/analysis_ir.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/loop_policy.go",
-          "internal/agent/loop_policy_per_key_test.go",
-          "internal/agent/loop_policy_test.go",
-          "internal/analysis/logtriage/validate.go"
+          "internal/types/analysis_ir.go",
+          "internal/analysis/risk/matrix.go",
+          "internal/operation/command.go",
+          "internal/repl/command_operation_planner.go",
+          "internal/writeflow/risk.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/analysis/risk/policy.go",
-          "internal/analysis/risk/matrix.go"
-        ]
+        "hit": 1
       },
       {
         "query": "hypothesis planner Plan Bind",
@@ -578,81 +352,71 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go",
-          "internal/agent/explorer.go",
-          "internal/agent/planner.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/analysis/hdp/planner.go"
-        ]
-      },
-      {
-        "query": "counterfactual expand ShouldExpand",
-        "expected_files": [
-          "internal/analysis/counterfactual/expander.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_expand_paths_cd_test.go",
-          "internal/agent/explorer.go",
-          "internal/analysis/counterfactual/counterfactual_test.go",
-          "internal/analysis/counterfactual/expander.go"
+          "internal/types/context.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/analysis/hdp/planner.go",
+          "internal/repl/command_operation_planner.go",
+          "internal/repl/data_task_planner.go"
         ],
         "hit": 1
       },
       {
-        "query": "quality gate report checks",
+        "query": "gate Thresholds coverage weights",
         "expected_files": [
           "internal/analysis/gate/gate.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/aggregate_fact_render.go",
-          "internal/agent/aggregate_fact_render_test.go",
-          "internal/agent/analyzer_intent_test.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/erm_completeness.go"
+          "internal/analysis/gate/gate.go",
+          "internal/config/runtime.go",
+          "internal/tool/emit_investigation_complete.go",
+          "internal/types/answer_aggregate_fact.go",
+          "internal/repl/data_task_workflow.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/analysis/gate/gate.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "normalizer term graph canonical",
+        "query": "Normalize TermGraph SymbolResolver",
         "expected_files": [
           "internal/analysis/normalizer/normalizer.go"
         ],
         "top_k": 5,
         "ranked_top": [
+          "internal/agent/symbol_resolver.go",
+          "internal/analysis/normalizer/normalizer.go",
           "internal/agent/analyzer.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go",
-          "internal/agent/explorer_erm.go",
-          "internal/agent/explorer_erm_test.go"
+          "internal/tool/emit_investigation_complete.go",
+          "internal/types/context.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/analysis/normalizer/normalizer.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "compiler scenario compile",
+        "query": "log triage bug class registry",
         "expected_files": [
-          "internal/analysis/compiler/compile.go",
-          "internal/analysis/compiler/scenario.go"
+          "internal/analysis/logtriage/bug_class_registry.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/analysis/amplifier/amplifier.go",
-          "internal/analysis/compiler/compile.go",
-          "internal/analysis/compiler/compile_test.go",
-          "internal/analysis/compiler/scenario.go",
-          "internal/skill/analysis_contract.go"
+          "internal/analysis/logtriage/bug_class_registry.go",
+          "internal/types/log_bundle.go",
+          "internal/agent/explorer.go",
+          "internal/context/builder.go",
+          "internal/types/context.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "dataflow lowerer producer evidence",
+        "expected_files": [
+          "internal/analysis/dataflow/lower.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/dataflow/types.go",
+          "internal/types/evidence.go",
+          "internal/analysis/dataflow/engine.go",
+          "internal/analysis/dataflow/lower.go",
+          "internal/tool/emit_evidence.go"
         ],
         "hit": 1
       },
@@ -664,16 +428,15 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_code_symbol_reconcile.go",
-          "internal/agent/analyzer_intent_test.go",
-          "internal/agent/answer_document_evaluator.go"
+          "internal/agent/explorer.go",
+          "internal/tool/repomap/multigraph/multigraph.go",
+          "internal/tool/repomap/types/types.go",
+          "internal/agent/symbol_resolver.go",
+          "internal/tool/emit_evidence.go"
         ],
-        "hit": 0,
+        "hit": 0.5,
         "missing": [
-          "internal/tool/repomap/index/build.go",
-          "internal/tool/repomap/types/types.go"
+          "internal/tool/repomap/index/build.go"
         ]
       },
       {
@@ -683,16 +446,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_required_files_test.go"
+          "internal/tool/repomap/retrieve/rank.go",
+          "internal/tool/repomap/types/types.go",
+          "internal/agent/explorer.go",
+          "internal/types/context.go",
+          "internal/tool/repomap/multigraph/multigraph.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/repomap/retrieve/rank.go"
-        ]
+        "hit": 1
       },
       {
         "query": "repomap cache SaveCache LoadFileInfos",
@@ -701,16 +461,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/exact_resolution_scope.go",
-          "internal/agent/explorer.go"
+          "internal/tool/repomap/index/cache.go",
+          "internal/tool/repomap/tool.go",
+          "internal/types/repomap_scan.go",
+          "internal/tool/repomap/scan_notifier.go",
+          "internal/tool/repomap/topology/topology.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/repomap/index/cache.go"
-        ]
+        "hit": 1
       },
       {
         "query": "ScanFiles FileEntry special file",
@@ -719,16 +476,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_required_files_test.go",
-          "internal/agent/analyzer_test.go",
-          "internal/agent/answer_document_evaluator.go"
+          "internal/tool/repomap/index/scanner.go",
+          "internal/agent/explorer.go",
+          "internal/tool/repomap/facade.go",
+          "internal/tool/builtin.go",
+          "internal/tool/repomap/types/types.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/repomap/index/scanner.go"
-        ]
+        "hit": 1
       },
       {
         "query": "GenerateView task_map call_path",
@@ -737,16 +491,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/explorer.go"
+          "internal/tool/repomap/render/render.go",
+          "internal/repl/data_task_workflow.go",
+          "internal/repl/repl.go",
+          "internal/tool/repomap/facade.go",
+          "internal/types/context.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/repomap/render/render.go"
-        ]
+        "hit": 1
       },
       {
         "query": "tree-sitter extractor go",
@@ -757,10 +508,10 @@
         "top_k": 5,
         "ranked_top": [
           "internal/agent/extractor.go",
-          "internal/agent/extractor_emit_failure_context_test.go",
-          "internal/agent/extractor_test.go",
-          "internal/config/runtime.go",
-          "internal/llm/summary_extract_test.go"
+          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj",
+          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj",
+          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj"
         ],
         "hit": 0,
         "missing": [
@@ -769,22 +520,139 @@
         ]
       },
       {
+        "query": "gin route literal handler resolver",
+        "expected_files": [
+          "internal/tool/repomap/index/route_go.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/index/route_go.go",
+          "internal/types/analysis_ir.go",
+          "internal/repl/repl.go",
+          "internal/agent/explorer.go",
+          "internal/tool/repomap/types/types.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "RepoSizeTier DefaultTopN budget tier",
+        "expected_files": [
+          "internal/tool/repomap/types/size_tier.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/types/size_tier.go",
+          "internal/tool/repomap/facade.go",
+          "internal/config/runtime.go",
+          "internal/repl/repl.go",
+          "internal/agent/explorer.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "PruneOrphanedCacheDirs orphaned cache sweep",
+        "expected_files": [
+          "internal/tool/repomap/index/cache_gc.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/index/cache_gc.go",
+          "internal/tool/repomap/facade.go",
+          "internal/tool/repomap/index/cache.go",
+          "internal/tool/repomap/index/cache_gc_test.go",
+          "internal/tool/repomap/topology/topology.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "multigraph LRU EnsureLoaded sub-repo",
+        "expected_files": [
+          "internal/tool/repomap/multigraph/multigraph.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/multigraph/multigraph.go",
+          "internal/repl/repl.go",
+          "internal/types/context.go",
+          "internal/tool/repomap/multigraph/lru.go",
+          "internal/tool/repomap/multigraph/multigraph_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "scoped projection rebase clone graph",
+        "expected_files": [
+          "internal/tool/repomap/scoped_projection.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/scoped_projection.go",
+          "internal/types/context.go",
+          "internal/repl/data_task_workflow.go",
+          "internal/types/answer_aggregate_fact.go",
+          "internal/tool/repomap/types/types.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "trace event parse ftrace index cache",
+        "expected_files": [
+          "internal/tracequery/parse.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tracequery/parse.go",
+          "internal/tracequery/types.go",
+          "internal/agent/explorer.go",
+          "internal/tool/trace_query.go",
+          "internal/types/context.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "binder IPC edge confidence",
+        "expected_files": [
+          "internal/tracequery/ipc.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tracequery/types.go",
+          "internal/tracequery/ipc.go",
+          "internal/types/analysis_ir.go",
+          "internal/agent/explorer.go",
+          "internal/tool/trace_query.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "StreamEventSearch bounded discovery",
+        "expected_files": [
+          "internal/tracequery/stream_search.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/trace_query.go",
+          "internal/tracequery/stream_search.go",
+          "internal/agent/explorer.go",
+          "internal/repl/repl.go",
+          "internal/types/context.go"
+        ],
+        "hit": 1
+      },
+      {
         "query": "BuildAgentContext narrowed view",
         "expected_files": [
           "internal/context/builder.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
+          "internal/context/builder.go",
           "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/analyzer_intent_test.go"
+          "internal/types/context.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/agent/explorer.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/context/builder.go"
-        ]
+        "hit": 1
       },
       {
         "query": "MutableState TaskList lock concurrency",
@@ -793,16 +661,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go",
-          "internal/agent/explorer.go"
+          "internal/types/context.go",
+          "internal/repl/data_task_workflow.go",
+          "internal/repl/repl.go",
+          "internal/orchestrator/contract_check_block.go",
+          "internal/agent/answer_document_evaluator.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/types/context.go"
-        ]
+        "hit": 1
       },
       {
         "query": "GrepTool ReadFile tool builtin",
@@ -811,49 +676,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/capability_surface.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/tool/builtin.go"
-        ]
-      },
-      {
-        "query": "logging rotation PID retention",
-        "expected_files": [
-          "internal/logging/logger.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/logging/logger.go",
-          "internal/logging/pid_unix.go",
-          "internal/logging/pid_windows.go",
-          "internal/tracequery/types.go",
-          "internal/agent/keyword_search.go"
+          "internal/tool/builtin.go",
+          "internal/agent/explorer.go",
+          "internal/types/context.go",
+          "internal/tool/emit_investigation_complete.go",
+          "internal/agent/agent.go"
         ],
         "hit": 1
-      },
-      {
-        "query": "memory store compact turn index",
-        "expected_files": [
-          "internal/memory/store.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/aggregate_fact_render.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/memory/store.go"
-        ]
       },
       {
         "query": "REPL slash command history",
@@ -862,34 +691,13 @@
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/analyzer_slash_pair.go",
-          "internal/config/runtime.go"
+          "internal/repl/repl.go",
+          "internal/repl/input.go",
+          "internal/repl/messages.go",
+          "internal/tool/builtin.go",
+          "internal/repl/command_operation_planner.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/repl/repl.go"
-        ]
-      },
-      {
-        "query": "finalizer answer shape translation",
-        "expected_files": [
-          "internal/agent/finalizer.go"
-        ],
-        "top_k": 5,
-        "ranked_top": [
-          "internal/agent/agent.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/answer_document_evaluator_test.go",
-          "internal/agent/answer_intent_contract_prompt_test.go",
-          "internal/agent/explorer.go"
-        ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/finalizer.go"
-        ]
+        "hit": 1
       },
       {
         "query": "有多少个agent可以调用subagent",
@@ -898,43 +706,38 @@
         ],
         "top_k": 5,
         "ranked_top": [
+          "internal/types/subagent.go",
+          "internal/agent/subagent_runtime.go",
+          "internal/agent/subagent.go",
           "internal/agent/agent.go",
-          "internal/agent/agent_test.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go",
-          "internal/agent/extractor.go"
+          "internal/tool/propose_sub_agents.go"
         ],
-        "hit": 0,
-        "missing": [
-          "internal/agent/subagent.go"
-        ]
+        "hit": 1
       },
       {
-        "query": "分析器如何派生 run policy",
+        "query": "分析器如何构建请求模型",
         "expected_files": [
-          "internal/analysis/risk/policy.go",
           "internal/agent/analyzer.go"
         ],
         "top_k": 5,
         "ranked_top": [
-          "cmd/root.go",
-          "internal/agent/agent.go",
-          "internal/agent/answer_document_evaluator.go",
-          "internal/agent/explorer.go",
-          "internal/agent/loop_policy.go"
+          "internal/render/answerdoc.go",
+          "internal/types/context.go",
+          "internal/tool/builtin.go",
+          "internal/logging/logger.go",
+          "internal/dataquery/dataquery.go"
         ],
         "hit": 0,
         "missing": [
-          "internal/analysis/risk/policy.go",
           "internal/agent/analyzer.go"
         ]
       }
     ]
   },
   "scan_latency": {
-    "full_scan_seconds": 2.510134625,
-    "file_count": 1734,
-    "symbol_count": 38680,
-    "relation_count": 252254
+    "full_scan_seconds": 0.777578209,
+    "file_count": 1758,
+    "symbol_count": 39014,
+    "relation_count": 254219
   }
 }

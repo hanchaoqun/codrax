@@ -42,14 +42,48 @@ Add `-precision-sample=N` to cap the symbol precision sample size
 
 ## Fixtures
 
-- `fixtures/symbols.json` — 125 curated symbol ground-truth entries
-  covering types, functions, and methods across `internal/types`,
-  `internal/agent`, `internal/orchestrator`, `internal/tool`,
-  `internal/analysis`, and `internal/tool/repomap`. Verified against
-  HEAD `7a60dd4` via Grep before commit. Tolerance ±2 lines.
-- `fixtures/queries.json` — 35 curated task_map queries. Mix of
-  single-file lookups, cross-file concept queries, underscore-
-  separated identifiers, and bilingual (en/zh) queries.
+- `fixtures/symbols.json` — 125 GENERATED symbol ground-truth entries
+  (regenerated 2026-06-12; the original hand-curated 7a60dd4-era set
+  had decayed to 13.6% by-file recall from repository drift alone).
+  Regenerate after large refactors with:
+
+  ```sh
+  go run ./eval/repomap_v3/fixturegen -repo . -out eval/repomap_v3/fixtures/symbols.json
+  ```
+
+  Selection: exported, load-bearing (graph fan-in ranked), distinctive
+  names, package quotas across 13 subsystems, every entry
+  independently line-verified against file bytes. Tolerance ±2 lines.
+  The harness emits a `fixture_freshness_warning` (and a stderr
+  WARNING) when by-name recall far exceeds by-file recall — the
+  moved-files signature meaning "regenerate me", not "extractor
+  regressed".
+- `fixtures/queries.json` — 35 hand-curated task_map queries (refreshed
+  2026-06-12 against current HEAD). Mix of single-file lookups,
+  cross-file concept queries, underscore identifiers, and bilingual
+  (en/zh) queries, extended to subsystems added since the original set
+  (route resolver, size tiers, cache GC, multigraph, tracequery).
+  Expected_files encode human judgement — when refreshing, adjust
+  EXPECTATIONS to the true answer files, never the ranker.
+
+### Findings from the 2026-06-12 refresh
+
+Regenerating the fixtures exposed a real rank-quality regression the
+stale set had been hiding: `queryMatchScore`'s per-symbol accumulation
+with a flat `Min(score, 20)` cap rewarded FILE SIZE — at 1758 files,
+hundreds of large files saturated the cap on any query containing a
+common token, flattening the query layer into alphabetical ties
+(hit@k 0.87 → 0.14 as the repo grew). Fixed in
+`retrieve/rank.go:queryMatchScoreWithTokens` by per-token saturation
+(best surface hit + log-dampened repeats, no flat cap), restoring
+hit@k to 0.93. Two residual imperfect queries are kept deliberately:
+`tree-sitter extractor go` (vendored grammar corpus files under
+`internal/thirdparty/` outrank the extractor — scanner-policy follow-up
+candidate) and the zh query (CJK canary, imperfect by design in an
+all-English codebase). The same refresh fixed a harness fidelity bug:
+`topKQueryFiles` ranked by raw `QueryScores` instead of the combined
+score production task_map renders, so ties degenerated to filename
+order.
 
 ## Findings from first baseline at HEAD `7a60dd4`
 
