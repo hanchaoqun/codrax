@@ -79,6 +79,8 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     "view": {
       "type": "string",
       "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "relation_map", "source_inventory", "implementers"],
+      "x-codrax-enum-style-alias": true,
+      "x-codrax-enum-aliases": {"filemap": "file_map", "taskmap": "task_map", "callpath": "call_path", "editimpact": "edit_impact", "semanticsubgraph": "semantic_subgraph", "relationmap": "relation_map", "sourceinventory": "source_inventory", "implementors": "implementers"},
       "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists; broad member lists are supported when the question asks for them, while attribute_roles are best after narrowing. Use relation_map for advisory structural edges around selected sources/scopes."
     },
     "query": {
@@ -100,35 +102,43 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     "scopes": {
       "type": "array",
       "items": {"type": "string"},
+      "x-codrax-split-string-array": true,
       "description": "For source_inventory / relation_map views: scopes to inspect relative to the selected path/repository root, preserving model-provided order. If the context lists active sub-repos, set path to the chosen active sub-repo and keep scopes relative to that sub-repo."
     },
     "sources": {
       "type": "array",
       "items": {"type": "string"},
+      "x-codrax-split-string-array": true,
       "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Use this after a source_inventory/task_map/file_map result surfaces a concrete source. Omit with query to let relation_map list matching source candidates. If path already names an active sub-repo, file/scope sources should be relative to that sub-repo."
     },
     "relation_kinds": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["call", "calls", "called_by", "called-by", "import", "imports", "imported_by", "imported-by", "inheritance", "extends", "implements", "reference", "references", "type_usage"]
+        "enum": ["call", "calls", "called_by", "called-by", "import", "imports", "imported_by", "imported-by", "inheritance", "extends", "implements", "reference", "references", "type_usage"],
+        "x-codrax-enum-style-alias": true
       },
+      "x-codrax-split-string-array": true,
       "description": "For relation_map view: structural relation families to show. Omit for a compact mix of calls, imports, inheritance/implements, and references."
     },
     "roles": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
+        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"],
+        "x-codrax-enum-style-alias": true
       },
+      "x-codrax-split-string-array": true,
       "description": "For source_inventory view: candidate roles to list. Omit to use the current typed request roles."
     },
     "attribute_roles": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
+        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"],
+        "x-codrax-enum-style-alias": true
       },
+      "x-codrax-split-string-array": true,
       "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Use only for bounded scopes; omit for top-level architecture/module overview. These are verified candidate-universe rows; verify selected rows with read_file/grep before using them as semantic source citations."
     },
     "include_attributes": {
@@ -157,18 +167,27 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
 }
 
 func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (ctypes.ToolResult, error) {
-	var p repoMapParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return ctypes.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+	// Tool-boundary repair layer, mirroring trace_query's wiring:
+	// the shared schema-driven compat pass runs first (deterministic
+	// enum aliases, split string arrays, scalar carriers), then a
+	// strict decode so an unknown field becomes a typed same-dispatch
+	// retry hint instead of being silently dropped.
+	params = tool.ApplyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	p, err := decodeRepoMapParams(params)
+	if err != nil {
+		return tool.FailStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 
 	if p.View == "" {
 		p.View = "overview"
+	}
+	// A view still unknown after alias normalization is a typed
+	// rejection naming the valid enum — never a silent fallback to
+	// overview at the tool layer. (render keeps its own overview
+	// fallback for trusted programmatic callers; model-driven calls
+	// are gated here, before any filesystem or index work.)
+	if !repoMapViewSupported(p.View) {
+		return repoMapUnknownViewRejection(t.Name(), p.View), nil
 	}
 
 	// L1 negative-knowledge gate (R3 second-axis enforcement):
@@ -273,10 +292,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// triggering a second full scan.
 	graph, err := GraphFromBusContextOrLoad(ctx, repoRoot, p.Query)
 	if err != nil {
+		// Operator detail goes to the log; the model-facing summary
+		// stays neutral — raw scanner/filesystem error text is
+		// internal detail the model cannot act on.
+		logging.Warning("repo_map: index build failed for %q: %v", repoRoot, err)
 		return ctypes.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("scan failed: %v", err),
+			Summary:   repoMapIndexBuildRefusal(p.Path),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -683,6 +706,78 @@ func repoMapPathWithinRoot(root, target string) bool {
 	return true
 }
 
+// decodeRepoMapParams strict-decodes tool params after the shared
+// compat layer ran. DisallowUnknownFields turns a silently-dropped
+// unknown field into a typed rejection upstream, the same posture as
+// trace_query.
+func decodeRepoMapParams(params json.RawMessage) (repoMapParams, error) {
+	var p repoMapParams
+	dec := json.NewDecoder(strings.NewReader(string(params)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return repoMapParams{}, err
+	}
+	return p, nil
+}
+
+// repoMapSupportedViews mirrors the "view" enum in Parameters().
+// TestRepoMapSupportedViewsMatchSchemaEnum pins the two lists equal so
+// they cannot drift.
+var repoMapSupportedViews = []string{
+	"overview",
+	"file_map",
+	"task_map",
+	"call_path",
+	"edit_impact",
+	"semantic_subgraph",
+	"relation_map",
+	"source_inventory",
+	"implementers",
+}
+
+func repoMapViewSupported(view string) bool {
+	for _, v := range repoMapSupportedViews {
+		if view == v {
+			return true
+		}
+	}
+	return false
+}
+
+// repoMapUnknownViewRejection is the typed refusal for a view value
+// that survived deterministic alias normalization without matching the
+// enum. It names every valid view so the retry can correct within the
+// same dispatch.
+func repoMapUnknownViewRejection(toolName, view string) ctypes.ToolResult {
+	allowed := strings.Join(repoMapSupportedViews, ", ")
+	return ctypes.ToolResult{
+		ToolName: toolName,
+		Success:  false,
+		Summary: fmt.Sprintf(
+			"repo_map does not support view %q. Valid views: %s. Re-call repo_map with one of these views, or omit view to get the default overview.",
+			view, allowed),
+		Repair: &ctypes.ToolRepair{
+			Code:   "tool_param_invalid_enum_value",
+			Fields: []string{"view"},
+			Hint:   "Set view to one of the listed valid values. Common style drift (different casing or separators) is normalized automatically; anything else must match the enum exactly.",
+			Metadata: map[string]string{
+				"field":   "view",
+				"value":   view,
+				"allowed": allowed,
+			},
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+// repoMapIndexBuildRefusal is the model-facing summary for an index
+// build failure. The underlying error stays in the operator log only.
+func repoMapIndexBuildRefusal(requestedPath string) string {
+	return fmt.Sprintf(
+		"repo_map could not build an index for path %q: the scan found no parseable source files or could not read the directory. Verify the directory with `list_files`, or pass a narrower repo-relative directory under the repository root.",
+		repoMapDisplayPath(requestedPath))
+}
+
 func repoMapScopeRefusal(requestedPath string) string {
 	display := strings.TrimSpace(requestedPath)
 	if display == "" {
@@ -720,9 +815,10 @@ func repoMapPreflightScanRoot(requestedPath, resolvedRoot string) (string, bool)
 			display,
 		), false
 	default:
+		logging.Warning("repo_map: preflight stat failed for %q: %v", resolvedRoot, err)
 		return fmt.Sprintf(
-			"repo_map cannot use path %q before indexing: %v. Choose an existing repo-relative directory, or verify the path with `list_files` first.",
-			display, err,
+			"repo_map cannot use path %q before indexing because the path could not be inspected. Choose an existing repo-relative directory, or verify the path with `list_files` first.",
+			display,
 		), false
 	}
 }

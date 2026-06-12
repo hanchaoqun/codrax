@@ -1088,6 +1088,7 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 }
 
 func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {
+	typedSeen := map[string]bool{}
 	for i, result := range results {
 		if !result.Success {
 			continue
@@ -1095,7 +1096,13 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 		banners := toolResultBanners(result.Summary)
 		command := toolResultCommandLine(result.Summary)
 		origins := toolResultEvidenceOrigins(result)
-		if strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
+		// Producer-published typed rows win over the summary re-parse:
+		// the re-parse only sees the capped/clipped prose preview, so a
+		// result that carries typed rows compiles those directly and the
+		// line-by-line fallback is skipped for that result. Results
+		// without typed rows keep the historical re-parse path.
+		typedCovered := compileProducerToolResultObservations(i, result, typedSeen, add)
+		if !typedCovered && strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
 			compileTraceQueryToolResultObservations(i, result, banners, add)
 		}
 		for _, origin := range origins {
@@ -1117,6 +1124,66 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 			})
 		}
 	}
+}
+
+// compileProducerToolResultObservations consumes typed observation rows that a
+// tool attached to its own ToolResult (ToolResult.Observations). It reports
+// whether the result carried any usable typed row so the caller can keep the
+// summary re-parse path as a fallback for results without typed rows.
+//
+// Dedup is ID-level and precise: producer rows carry stable producer-assigned
+// IDs (anchored on the stored payload reference), and a row whose exact ID was
+// already compiled from an earlier copy of the same result is skipped. No
+// similarity matching is performed.
+//
+// Rows declaring a current-source origin are rejected: tool-published rows
+// describe tool-observed artifacts (runtime traces, VCS payloads, external
+// resources) and must never enter the current-source citation lane — source
+// evidence remains the only lane that may become repo citations.
+func compileProducerToolResultObservations(index int, result ToolResult, seen map[string]bool, add func(ObservationRecord)) bool {
+	if len(result.Observations) == 0 {
+		return false
+	}
+	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
+	covered := false
+	for j, record := range result.Observations {
+		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
+			continue
+		}
+		if record.Origin == AnswerEvidenceOriginCurrentSource {
+			continue
+		}
+		covered = true
+		id := strings.TrimSpace(record.ID)
+		if id == "" {
+			id = fmt.Sprintf("tool:%d#%s:typed:%d", index, strings.TrimSpace(result.ToolName), j)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		record.ID = id
+		if record.Producer == "" {
+			record.Producer = strings.TrimSpace(result.ToolName)
+		}
+		if record.SourceRef.Kind == ObservationSourceUnknown {
+			record.SourceRef.Kind = ObservationSourceKindForOrigin(record.Origin)
+		}
+		if record.SourceRef.ToolCallID == "" {
+			record.SourceRef.ToolCallID = fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index)
+		}
+		if record.SourceRef.RawRef == "" {
+			record.SourceRef.RawRef = strings.TrimSpace(result.RawRef)
+		}
+		if record.SourceRef.PayloadRef == "" {
+			record.SourceRef.PayloadRef = strings.TrimSpace(result.RawRef)
+		}
+		if record.ObservedAt == "" {
+			record.ObservedAt = observedAt
+		}
+		add(record)
+	}
+	return covered
 }
 
 func compileTraceQueryToolResultObservations(index int, result ToolResult, banners []map[string]string, add func(ObservationRecord)) {

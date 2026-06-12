@@ -51,6 +51,102 @@ func TestCompileRepoMapNavigationPolicy_RelationFlow(t *testing.T) {
 	}
 }
 
+func TestCompileRepoMapNavigationPolicy_CallChainShapeAddsCallPathFollowUp(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqCallChain),
+			MentionedEntities: []string{"dispatch"},
+		},
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if !got.HasRoute(RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("call-chain request should keep relation_map route: %+v", got.Steps)
+	}
+	if !got.HasRoute(RepoMapNavigationRouteCallPath) {
+		t.Fatalf("call-chain request should add call_path follow-up step without needing a call-DAG diagram hint: %+v", got.Steps)
+	}
+	for _, step := range got.Steps {
+		if step.Route != RepoMapNavigationRouteRelationMap {
+			continue
+		}
+		found := false
+		for _, follow := range step.FollowUps {
+			if follow == RepoMapNavigationRouteCallPath {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("relation_map step should list call_path as a follow-up for call-chain shapes: %+v", step)
+		}
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_NonCallChainRelationShapeSkipsCallPath(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		PredicateAxis: AxisImplement,
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"Handler"},
+		},
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if !got.HasRoute(RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("implement-axis request should keep relation_map route: %+v", got.Steps)
+	}
+	if got.HasRoute(RepoMapNavigationRouteCallPath) {
+		t.Fatalf("non-call-chain relation shape must not add call_path: %+v", got.Steps)
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_ArchitectureDiagramProducesSemanticGraph(t *testing.T) {
+	rm := RequestModel{
+		Intent:      IntentExplain,
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"pipeline"},
+		},
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if !got.HasRoute(RepoMapNavigationRouteSemanticGraph) {
+		t.Fatalf("architecture diagram hint should produce semantic_subgraph route: %+v", got.Steps)
+	}
+	rmFlow := RequestModel{
+		Intent:      IntentExplain,
+		DiagramHint: &DiagramHint{Kind: DiagramFlow},
+	}
+	if CompileRepoMapNavigationPolicy(rmFlow, nil, ExploreLanePlan{}).HasRoute(RepoMapNavigationRouteSemanticGraph) {
+		t.Fatalf("non-architecture diagram hints must not produce semantic_subgraph")
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_InventoryStepTeachesImplementersAlternative(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"Tool"},
+		},
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if len(got.Steps) == 0 || got.Steps[0].Route != RepoMapNavigationRouteSourceInventory {
+		t.Fatalf("enumeration request should keep source_inventory as first soft route: %+v", got.Steps)
+	}
+	if !strings.Contains(got.Steps[0].When, `view="implementers"`) {
+		t.Fatalf("inventory step should name the implementers alternative within the same first hop: %q", got.Steps[0].When)
+	}
+	rendered := got.RenderMarkdownHint("", "")
+	if !strings.Contains(rendered, `view="implementers"`) {
+		t.Fatalf("rendered hint should surface the implementers alternative:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "- `view=\"implementers\"` —") {
+		t.Fatalf("implementers must render inside the inventory step, not as a competing first-hop step:\n%s", rendered)
+	}
+}
+
 func TestCompileRepoMapNavigationPolicy_ChangeImpact(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentExplain,

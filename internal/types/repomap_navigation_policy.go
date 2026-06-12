@@ -15,6 +15,7 @@ const (
 	RepoMapNavigationRouteTaskMap         RepoMapNavigationRoute = "task_map"
 	RepoMapNavigationRouteFileMap         RepoMapNavigationRoute = "file_map"
 	RepoMapNavigationRouteSourceInventory RepoMapNavigationRoute = "source_inventory"
+	RepoMapNavigationRouteImplementers    RepoMapNavigationRoute = "implementers"
 	RepoMapNavigationRouteRelationMap     RepoMapNavigationRoute = "relation_map"
 	RepoMapNavigationRouteEditImpact      RepoMapNavigationRoute = "edit_impact"
 	RepoMapNavigationRouteSemanticGraph   RepoMapNavigationRoute = "semantic_subgraph"
@@ -198,8 +199,9 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		add(RepoMapNavigationStep{
 			Route:   RepoMapNavigationRouteSourceInventory,
 			Purpose: RepoMapNavigationPurposeInventory,
-			When:    "for scoped member inventories, count/member checklists, routes, config keys, or candidate attributes",
-			Params:  []string{"scope", "scopes", "roles", "include_attributes=false", "attribute_roles after narrowing", "cursor/offset for paging"},
+			When: "for scoped member inventories, count/member checklists, routes, config keys, or candidate attributes; " +
+				"when the requested members are the implementers of a named interface/trait/protocol, `view=\"" + string(RepoMapNavigationRouteImplementers) + "\"` with the interface name as `query` is the exhaustive alternative lens for this same first hop",
+			Params: []string{"scope", "scopes", "roles", "include_attributes=false", "attribute_roles after narrowing", "cursor/offset for paging"},
 		})
 	}
 
@@ -220,14 +222,22 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 
 	relationKinds := TypedRelationKindsForRequest(rm, TypedRelationPurposePromptHint)
 	if repoMapNavigationNeedsRelationMap(rm, relationKinds) {
+		callChain := repoMapNavigationCallChainShape(rm)
+		followUps := []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap, RepoMapNavigationRouteFileMap}
+		if callChain {
+			followUps = append(followUps, RepoMapNavigationRouteCallPath)
+		}
 		add(RepoMapNavigationStep{
 			Route:        RepoMapNavigationRouteRelationMap,
 			Purpose:      RepoMapNavigationPurposeRelation,
 			When:         "for calls, imports, inheritance, implements, references, registrations, routes, or flow edges around chosen sources/scopes",
 			Params:       []string{"sources", "scope", "scopes", "relation_kinds", "query"},
-			FollowUps:    []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap, RepoMapNavigationRouteFileMap},
+			FollowUps:    followUps,
 			RelationHint: relationKinds,
 		})
+		if callChain {
+			add(repoMapNavigationCallPathStep())
+		}
 	}
 
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
@@ -257,16 +267,42 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		})
 	}
 
-	if rm.DiagramHint != nil && rm.DiagramHint.Kind == DiagramCallDAG {
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind == DiagramArchitecture {
 		add(RepoMapNavigationStep{
-			Route:   RepoMapNavigationRouteCallPath,
-			Purpose: RepoMapNavigationPurposeRelation,
-			When:    "only after a concrete entry point is known and a path trace is needed",
-			Params:  []string{"entry_point"},
+			Route:   RepoMapNavigationRouteSemanticGraph,
+			Purpose: RepoMapNavigationPurposeOrientation,
+			When:    "for module/component topology context — hub files, bridges, linear chains — when an architecture overview is requested",
+			Params:  []string{"path", "top_n"},
 		})
 	}
 
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind == DiagramCallDAG {
+		add(repoMapNavigationCallPathStep())
+	}
+
 	return p
+}
+
+// repoMapNavigationCallPathStep is the shared call_path soft route. It is
+// added both for call-chain-shaped requests (as the follow-up to relation_map)
+// and for call-DAG diagram hints; the add() dedupe keeps it single.
+func repoMapNavigationCallPathStep() RepoMapNavigationStep {
+	return RepoMapNavigationStep{
+		Route:   RepoMapNavigationRouteCallPath,
+		Purpose: RepoMapNavigationPurposeRelation,
+		When:    "only after a concrete entry point is known and a path trace is needed",
+		Params:  []string{"entry_point"},
+	}
+}
+
+// repoMapNavigationCallChainShape reports whether the typed request signals
+// describe a call-chain shape. It reads only the already-computed precise
+// fields that drive the relation_map trigger — never user or model prose.
+func repoMapNavigationCallChainShape(rm RequestModel) bool {
+	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain {
+		return true
+	}
+	return rm.Intent == IntentTrace || rm.PredicateAxis == AxisCall
 }
 
 func repoMapNavigationNeedsSourceInventory(rm RequestModel) bool {

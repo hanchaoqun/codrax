@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,14 +76,14 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional platform hint. Use donghu when the user says 东湖: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
-	    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates, including fragmented state_churn candidates when frequent short state switches cumulatively dominate; state_churn itself is an output section, not a standalone view, and the JSON repair layer normalizes view=state_churn to window_stats; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
+	    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates, including fragmented state_churn candidates when frequent short state switches cumulatively dominate; state_churn itself is an output section, not a standalone view; view=state_churn is accepted and treated as view=window_stats; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. The JSON repair layer also accepts a comma/semicolon separated string for this field and normalizes friendly aliases such as inode_io, pageCache, mm_filemap, and storageLayerLatency."},
+	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, and storageLayerLatency are accepted and mapped to the matching event types."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
@@ -158,12 +159,14 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		rawRef = payloadRef
 	}
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+	now := time.Now()
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      preview,
+		RawRef:       rawRef,
+		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Timestamp:    now,
 	}, nil
 }
 
@@ -234,12 +237,14 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		if rawRef == "" {
 			rawRef = payloadRef
 		}
+		now := time.Now()
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   true,
-			Summary:   preview,
-			RawRef:    rawRef,
-			Timestamp: time.Now(),
+			ToolName:     t.Name(),
+			Success:      true,
+			Summary:      preview,
+			RawRef:       rawRef,
+			Observations: traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now),
+			Timestamp:    now,
 		}, true
 	}
 	if traceQueryShouldRunMultiplePatternWindows(p, len(candidates)) {
@@ -283,12 +288,14 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		rawRef = payloadRef
 	}
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+	now := time.Now()
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      preview,
+		RawRef:       rawRef,
+		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Timestamp:    now,
 	}, true
 }
 
@@ -533,12 +540,23 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 	if rawRef == "" {
 		rawRef = payloadRef
 	}
+	now := time.Now()
+	var observations []types.ObservationRecord
+	for _, child := range children {
+		if child.Error != "" {
+			continue
+		}
+		observations = append(observations, traceQueryTypedObservations(
+			child.Result, sourceLabel, payloadRef, rawRef,
+			fmt.Sprintf("w%d", child.Candidate.Rank), now)...)
+	}
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      preview,
+		RawRef:       rawRef,
+		Observations: observations,
+		Timestamp:    now,
 	}
 }
 
@@ -587,12 +605,14 @@ func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQ
 		rawRef = payloadRef
 	}
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+	now := time.Now()
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      preview,
+		RawRef:       rawRef,
+		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Timestamp:    now,
 	}, true
 }
 
@@ -2139,4 +2159,657 @@ func traceThreadLabel(t tracequery.ThreadRef) string {
 	default:
 		return "unknown-thread"
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Typed observation publication.
+//
+// trace_query computes a fully typed tracequery.Result, but the ToolResult
+// Summary is a capped prose preview (16 evidence-pack facts, blob-clipped
+// previews) and the observation ledger historically re-parsed that preview
+// line by line, silently losing every fact beyond the caps. The builders below
+// project the typed result directly into ledger-ready ObservationRecord rows
+// and attach them to the ToolResult (ToolResult.Observations), so the ledger
+// compiles them without re-parsing while keeping the summary re-parse as the
+// fallback for results without typed rows.
+//
+// Every row keeps runtime-artifact origin and the same role / grounding /
+// provenance-lane classification the re-parse path assigned, so trace rows can
+// never drift into the current-source citation lane. Row IDs are precise and
+// payload-anchored (stored payload blob basename + family + ordinal) so the
+// ledger's ID-level dedup keeps typed rows authoritative across duplicate
+// copies of the same result.
+
+const (
+	// traceQueryTypedEvidenceFactCap bounds published evidence-pack rows.
+	// Deliberately 4x the prose preview's 16-fact cap; the full payload
+	// remains addressable via the stored payload reference.
+	traceQueryTypedEvidenceFactCap = 64
+	// traceQueryTypedFamilyRowCap bounds every other per-family row list.
+	traceQueryTypedFamilyRowCap = 32
+)
+
+// traceQueryObservationScope derives the precise per-result ID namespace for
+// typed rows. The stored payload reference is content-hashed and therefore
+// unique per distinct result; the view + selected window is the fallback when
+// no blob could be stored (e.g. no work directory).
+func traceQueryObservationScope(result tracequery.Result, payloadRef, rawRef string) string {
+	if ref := strings.TrimSpace(payloadRef); ref != "" {
+		return filepath.Base(ref)
+	}
+	if ref := strings.TrimSpace(rawRef); ref != "" {
+		return filepath.Base(ref)
+	}
+	return fmt.Sprintf("%s@%.6f-%.6f", firstNonEmptyTraceString(result.View, "trace_query"), result.TimeStart, result.TimeEnd)
+}
+
+func traceQueryObservationSourceRef(result tracequery.Result, sourceLabel, payloadRef, rawRef string) types.ObservationSourceRef {
+	return types.ObservationSourceRef{
+		Kind:         types.ObservationSourceRuntimeArtifact,
+		Path:         strings.TrimSpace(result.SourcePath),
+		ArtifactID:   traceQueryArtifactID(sourceLabel),
+		ArtifactKind: "trace",
+		PayloadRef:   strings.TrimSpace(payloadRef),
+		RawRef:       firstNonEmptyTraceString(rawRef, payloadRef),
+	}
+}
+
+func traceQueryObservationSupportRefs(ref types.ObservationSourceRef, lineStart, lineEnd int) []string {
+	if lineStart <= 0 {
+		return nil
+	}
+	path := firstNonEmptyTraceString(ref.Path, ref.ArtifactID, "runtime_artifact")
+	if lineEnd <= 0 || lineEnd == lineStart {
+		return []string{fmt.Sprintf("%s:%d", path, lineStart)}
+	}
+	return []string{fmt.Sprintf("%s:%d-%d", path, lineStart, lineEnd)}
+}
+
+func traceQueryRootCauseTierLabel(rank int) string {
+	switch rank {
+	case 1:
+		return "primary"
+	case 2:
+		return "secondary"
+	case 3:
+		return "tertiary"
+	default:
+		if rank > 0 {
+			return fmt.Sprintf("rank_%d", rank)
+		}
+		return "ranked"
+	}
+}
+
+func traceQueryObservationMSValue(ms float64) string {
+	if ms <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.3f", ms)
+}
+
+// traceQueryTypedObservations projects the typed product of the executed view
+// into ledger-ready observation rows. idScope is appended to the per-result
+// namespace so multi-window results (one ToolResult carrying several bounded
+// child runs) keep distinct row IDs.
+func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time) []types.ObservationRecord {
+	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	scope := traceQueryObservationScope(result, payloadRef, rawRef)
+	if strings.TrimSpace(idScope) != "" {
+		scope += ":" + strings.TrimSpace(idScope)
+	}
+	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
+	var out []types.ObservationRecord
+
+	if result.RootCauseRank != nil {
+		for i, item := range result.RootCauseRank.Items {
+			if i >= traceQueryTypedFamilyRowCap {
+				break
+			}
+			rank := item.Rank
+			if rank <= 0 {
+				rank = i + 1
+			}
+			tier := firstNonEmptyTraceString(item.Tier, traceQueryRootCauseTierLabel(rank))
+			if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Summary) == "" {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, rank),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRolePrincipalAnswer,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				SourceRef:       ref,
+				Span:            types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd},
+				ClaimKey:        "root_cause_" + tier,
+				Subject:         traceThreadLabel(item.Thread),
+				Predicate:       "root_cause_" + tier,
+				Object:          item.Type,
+				Value:           traceQueryObservationMSValue(item.ImpactMs),
+				Unit:            "ms",
+				Summary:         firstNonEmptyTraceString(item.Summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, item.Type)),
+				RichNotes:       traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Score, item.ImpactMs),
+				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
+				ObservedAt:      at,
+				Confidence:      item.Confidence,
+			})
+		}
+	}
+
+	for i, fact := range result.EvidencePack {
+		if i >= traceQueryTypedEvidenceFactCap {
+			break
+		}
+		if strings.TrimSpace(fact.Subject) == "" && strings.TrimSpace(fact.Summary) == "" {
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#evidence_fact:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: fact.LineStart,
+				LineEnd:   fact.LineEnd,
+				StartTs:   fact.StartTs,
+				EndTs:     fact.EndTs,
+			},
+			ClaimKey:    "evidence_fact:" + firstNonEmptyTraceString(fact.Predicate, fact.Subject),
+			Subject:     fact.Subject,
+			Predicate:   fact.Predicate,
+			Object:      fact.Object,
+			Summary:     fact.Summary,
+			SupportRefs: traceQueryObservationSupportRefs(ref, fact.LineStart, fact.LineEnd),
+			ObservedAt:  at,
+			Confidence:  fact.Confidence,
+		})
+	}
+
+	if result.WakeupChain != nil {
+		for i, root := range result.WakeupChain.RootEvidence {
+			if i >= traceQueryTypedFamilyRowCap {
+				break
+			}
+			if strings.TrimSpace(root.Type) == "" && strings.TrimSpace(root.Summary) == "" {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#root_evidence:%d", scope, i+1),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				SourceRef:       ref,
+				Span:            types.ObservationSpan{LineStart: root.LineStart, LineEnd: root.LineEnd},
+				ClaimKey:        "root_evidence:" + root.Type,
+				Subject:         traceThreadLabel(root.Thread),
+				Predicate:       root.Type,
+				Value:           traceQueryObservationMSValue(root.DurationMs),
+				Unit:            "ms",
+				Summary:         root.Summary,
+				SupportRefs:     traceQueryObservationSupportRefs(ref, root.LineStart, root.LineEnd),
+				ObservedAt:      at,
+				Confidence:      root.Confidence,
+			})
+		}
+	}
+
+	if result.CriticalBlocking != nil {
+		for i, item := range result.CriticalBlocking.Items {
+			if i >= traceQueryTypedFamilyRowCap {
+				break
+			}
+			if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Summary) == "" {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#critical_blocking:%d", scope, i+1),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				SourceRef:       ref,
+				Span:            types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd},
+				ClaimKey:        "critical_blocking:" + item.Type,
+				Subject:         traceThreadLabel(item.Thread),
+				Predicate:       "critical_blocking",
+				Object:          firstNonEmptyTraceString(item.Type, traceThreadLabel(item.Peer)),
+				Value:           traceQueryObservationMSValue(item.DurationMs),
+				Unit:            "ms",
+				Summary:         item.Summary,
+				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
+				ObservedAt:      at,
+				Confidence:      item.Confidence,
+			})
+		}
+	}
+
+	if result.WindowStats != nil {
+		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
+	}
+
+	return out
+}
+
+func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source string, score, impact float64) []string {
+	var notes []string
+	if rank > 0 {
+		notes = append(notes, fmt.Sprintf("rank=%d", rank))
+	}
+	if tier != "" {
+		notes = append(notes, "tier="+tier)
+	}
+	if typ != "" {
+		notes = append(notes, "type="+typ)
+	}
+	if impact > 0 {
+		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
+	}
+	if score > 0 {
+		notes = append(notes, fmt.Sprintf("score=%.3f", score))
+	}
+	if source != "" {
+		notes = append(notes, "source="+source)
+	}
+	return notes
+}
+
+func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	var out []types.ObservationRecord
+
+	for i, churn := range stats.StateChurn {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if strings.TrimSpace(churn.DominantState) == "" && strings.TrimSpace(churn.Summary) == "" {
+			continue
+		}
+		notes := []string{}
+		appendNote := func(key, value string) {
+			if strings.TrimSpace(value) != "" {
+				notes = append(notes, key+"="+value)
+			}
+		}
+		appendNote("dominant_state", churn.DominantState)
+		if churn.FragmentCount > 0 {
+			appendNote("fragments", strconv.Itoa(churn.FragmentCount))
+		}
+		if churn.StateSwitches > 0 {
+			appendNote("switches", strconv.Itoa(churn.StateSwitches))
+		}
+		appendNote("max_segment", traceQueryObservationMSValue(churn.MaxSegmentMs))
+		appendNote("p95_segment", traceQueryObservationMSValue(churn.P95SegmentMs))
+		appendNote("running", traceQueryObservationMSValue(churn.RunningMs))
+		appendNote("runnable", traceQueryObservationMSValue(churn.RunnableMs))
+		appendNote("sleep", traceQueryObservationMSValue(churn.SleepMs))
+		appendNote("d_state", traceQueryObservationMSValue(churn.DStateMs))
+		appendNote("io_wait", traceQueryObservationMSValue(churn.IOWaitMs))
+		if churn.TotalMs > 0 {
+			notes = append(notes, fmt.Sprintf("total=%.3fms", churn.TotalMs))
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: churn.LineStart, LineEnd: churn.LineEnd},
+			ClaimKey:        "state_churn:" + churn.DominantState,
+			Subject:         traceThreadLabel(churn.Thread),
+			Predicate:       "state_churn",
+			Object:          churn.DominantState,
+			Value:           traceQueryObservationMSValue(churn.DominantImpactMs),
+			Unit:            "ms",
+			Summary:         churn.Summary,
+			RichNotes:       notes,
+			SupportRefs:     traceQueryObservationSupportRefs(ref, churn.LineStart, churn.LineEnd),
+			ObservedAt:      at,
+			Confidence:      churn.Confidence,
+		})
+	}
+
+	for i, file := range stats.FileIOByInode {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if strings.TrimSpace(file.Inode) == "" && strings.TrimSpace(file.Summary) == "" {
+			continue
+		}
+		value := ""
+		if file.Bytes > 0 {
+			value = strconv.FormatInt(file.Bytes, 10)
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#file_io:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: file.LineStart, LineEnd: file.LineEnd, StartTs: file.StartTs, EndTs: file.EndTs},
+			ClaimKey:        "file_io:" + firstNonEmptyTraceString(file.Inode, file.EntryName, file.Operation),
+			Subject:         firstNonEmptyTraceString(file.EntryName, "inode="+file.Inode),
+			Predicate:       "file_io_by_inode",
+			Object:          file.Operation,
+			Value:           value,
+			Unit:            "bytes",
+			Summary:         file.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"inode", file.Inode},
+				{"dev", file.Dev},
+				{"name", file.EntryName},
+				{"op", file.Operation},
+				{"thread", traceThreadLabel(file.Thread)},
+				{"count", traceQueryTypedCount(file.Count)},
+				{"bytes", value},
+				{"total_latency", traceQueryObservationMSValue(file.TotalLatencyMs)},
+				{"max_latency", traceQueryObservationMSValue(file.MaxLatencyMs)},
+				{"offsets", traceQueryTypedOffsetRange(file.MinOffset, file.MaxOffset)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, file.LineStart, file.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.74,
+		})
+	}
+
+	for i, cache := range stats.PageCacheByInode {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if strings.TrimSpace(cache.Inode) == "" && strings.TrimSpace(cache.Summary) == "" {
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#page_cache:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: cache.LineStart, LineEnd: cache.LineEnd, StartTs: cache.StartTs, EndTs: cache.EndTs},
+			ClaimKey:        "page_cache:" + firstNonEmptyTraceString(cache.Inode, cache.Dev),
+			Subject:         "inode=" + cache.Inode,
+			Predicate:       "page_cache_by_inode",
+			Object:          cache.Dev,
+			Value:           traceQueryTypedCount(cache.Churn),
+			Unit:            "events",
+			Summary:         cache.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"inode", cache.Inode},
+				{"dev", cache.Dev},
+				{"thread", traceThreadLabel(cache.Thread)},
+				{"adds", traceQueryTypedCount(cache.Adds)},
+				{"deletes", traceQueryTypedCount(cache.Deletes)},
+				{"churn", traceQueryTypedCount(cache.Churn)},
+				{"bytes", traceQueryTypedInt64(cache.Bytes)},
+				{"offsets", traceQueryTypedOffsetRange(cache.MinOffset, cache.MaxOffset)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, cache.LineStart, cache.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.70,
+		})
+	}
+
+	for i, storage := range stats.StorageLatencyByLayer {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if strings.TrimSpace(storage.Layer) == "" && strings.TrimSpace(storage.Summary) == "" {
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#storage_latency:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: storage.LineStart, LineEnd: storage.LineEnd, StartTs: storage.StartTs, EndTs: storage.EndTs},
+			ClaimKey:        "storage_latency:" + firstNonEmptyTraceString(storage.Layer, storage.Event),
+			Subject:         storage.Layer,
+			Predicate:       "storage_latency_by_layer",
+			Object:          storage.Event,
+			Value:           traceQueryObservationMSValue(storage.MaxLatencyMs),
+			Unit:            "ms",
+			Summary:         storage.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"layer", storage.Layer},
+				{"event", storage.Event},
+				{"dev", storage.Dev},
+				{"op", storage.Operation},
+				{"thread", traceThreadLabel(storage.Thread)},
+				{"count", traceQueryTypedCount(storage.Count)},
+				{"paired", traceQueryTypedCount(storage.PairedCount)},
+				{"unpaired_start", traceQueryTypedCount(storage.UnpairedStartCount)},
+				{"unpaired_done", traceQueryTypedCount(storage.UnpairedDoneCount)},
+				{"max_latency", traceQueryObservationMSValue(storage.MaxLatencyMs)},
+				{"avg_latency", traceQueryObservationMSValue(storage.AvgLatencyMs)},
+				{"bytes", traceQueryTypedInt64(storage.Bytes)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, storage.LineStart, storage.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.72,
+		})
+	}
+
+	if pressure := stats.IOPressureSummary; pressure != nil &&
+		(strings.TrimSpace(pressure.Signal) != "" || strings.TrimSpace(pressure.Summary) != "") {
+		value := ""
+		if pressure.Score > 0 {
+			value = fmt.Sprintf("%.3f", pressure.Score)
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#io_pressure:1", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: pressure.LineStart, LineEnd: pressure.LineEnd},
+			ClaimKey:        "io_pressure:" + pressure.Signal,
+			Subject:         "io_pressure",
+			Predicate:       pressure.Signal,
+			Object:          pressure.TopInode,
+			Value:           value,
+			Unit:            "score",
+			Summary:         pressure.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"signal", pressure.Signal},
+				{"score", value},
+				{"block_max", traceQueryObservationMSValue(pressure.BlockMaxLatencyMs)},
+				{"storage_max", traceQueryObservationMSValue(pressure.StorageMaxLatencyMs)},
+				{"file_bytes", traceQueryTypedInt64(pressure.FileIOBytes)},
+				{"file_events", traceQueryTypedCount(pressure.FileIOEvents)},
+				{"page_cache_churn", traceQueryTypedCount(pressure.PageCacheChurn)},
+				{"iowait_blocked", traceQueryTypedCount(pressure.IOWaitBlockedCount)},
+				{"d_state", traceQueryObservationMSValue(pressure.DStateMs)},
+				{"top_inode", pressure.TopInode},
+				{"top_dev", pressure.TopDev},
+				{"top_name", pressure.TopEntryName},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, pressure.LineStart, pressure.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.70,
+		})
+	}
+
+	out = append(out, traceQueryTypedResourceObservations("bio", stats.BIOResources, ref, scope, at)...)
+	out = append(out, traceQueryTypedResourceObservations("filesystem", stats.FilesystemResources, ref, scope, at)...)
+	out = append(out, traceQueryTypedResourceObservations("page_fault", stats.PageFaultResources, ref, scope, at)...)
+	out = append(out, traceQueryTypedPluginObservations(stats, ref, scope, at)...)
+	return out
+}
+
+func traceQueryTypedResourceObservations(label string, items []tracequery.RuntimeResourceSummary, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	var out []types.ObservationRecord
+	for i, item := range items {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if strings.TrimSpace(item.Path) == "" && strings.TrimSpace(item.Operation) == "" {
+			continue
+		}
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"op", item.Operation},
+			{"path", item.Path},
+			{"thread", traceThreadLabel(item.Thread)},
+			{"count", traceQueryTypedCount(item.Count)},
+			{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
+			{"max_latency", traceQueryObservationMSValue(item.MaxLatencyMs)},
+			{"bytes", traceQueryTypedInt64(item.Bytes)},
+			{"line", traceQueryTypedCount(item.Line)},
+		})
+		if strings.TrimSpace(item.Callstack) != "" {
+			notes = append(notes, "callstack="+sanitizeForBanner(item.Callstack))
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#%s_resource:%d", scope, label, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingSoft,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: item.Line, LineEnd: item.Line},
+			ClaimKey:        label + "_resource:" + firstNonEmptyTraceString(item.Path, item.Operation),
+			Subject:         firstNonEmptyTraceString(item.Path, label+"_resource"),
+			Predicate:       label + "_resource",
+			Object:          item.Operation,
+			Value:           traceQueryObservationMSValue(item.TotalLatencyMs),
+			Unit:            "ms",
+			Summary:         traceQueryTypedResourceSummary(label, item),
+			RichNotes:       notes,
+			SupportRefs:     traceQueryObservationSupportRefs(ref, item.Line, item.Line),
+			ObservedAt:      at,
+			Confidence:      0.68,
+		})
+	}
+	return out
+}
+
+func traceQueryTypedResourceSummary(label string, item tracequery.RuntimeResourceSummary) string {
+	parts := []string{label + "_resource"}
+	for _, kv := range [][2]string{
+		{"op", item.Operation},
+		{"path", item.Path},
+		{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
+		{"max_latency", traceQueryObservationMSValue(item.MaxLatencyMs)},
+		{"bytes", traceQueryTypedInt64(item.Bytes)},
+		{"count", traceQueryTypedCount(item.Count)},
+	} {
+		if strings.TrimSpace(kv[1]) != "" {
+			parts = append(parts, kv[0]+"="+kv[1])
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func traceQueryTypedPluginObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	var out []types.ObservationRecord
+	ordinal := 0
+	for _, group := range [][]tracequery.TracePluginSummary{stats.AbilityEvents, stats.XPowerEvents, stats.HiSystemEvents} {
+		for _, item := range group {
+			if ordinal >= traceQueryTypedFamilyRowCap {
+				return out
+			}
+			if strings.TrimSpace(item.Kind) == "" && strings.TrimSpace(item.EventName) == "" {
+				continue
+			}
+			ordinal++
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#plugin_event:%d", scope, ordinal),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingSoft,
+				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+				SourceRef:       ref,
+				Span:            types.ObservationSpan{LineStart: item.Line, LineEnd: item.Line},
+				ClaimKey:        "plugin_event:" + firstNonEmptyTraceString(item.Kind, item.Domain, item.EventName, item.Metric),
+				Subject:         firstNonEmptyTraceString(item.Domain, item.Kind, "plugin_event"),
+				Predicate:       firstNonEmptyTraceString(item.Kind, "plugin_event"),
+				Object:          firstNonEmptyTraceString(item.EventName, item.Metric),
+				Value:           item.Value,
+				Summary:         traceQueryTypedPluginSummary(item),
+				RichNotes: traceQueryTypedKVNotes([][2]string{
+					{"kind", item.Kind},
+					{"domain", item.Domain},
+					{"event", item.EventName},
+					{"metric", item.Metric},
+					{"value", item.Value},
+					{"category", item.Category},
+					{"thread", traceThreadLabel(item.Thread)},
+					{"count", traceQueryTypedCount(item.Count)},
+					{"line", traceQueryTypedCount(item.Line)},
+				}),
+				SupportRefs: traceQueryObservationSupportRefs(ref, item.Line, item.Line),
+				ObservedAt:  at,
+				Confidence:  0.68,
+			})
+		}
+	}
+	return out
+}
+
+func traceQueryTypedPluginSummary(item tracequery.TracePluginSummary) string {
+	parts := []string{"plugin_event"}
+	for _, kv := range [][2]string{
+		{"kind", item.Kind},
+		{"domain", item.Domain},
+		{"event", item.EventName},
+		{"metric", item.Metric},
+		{"value", item.Value},
+		{"category", item.Category},
+		{"count", traceQueryTypedCount(item.Count)},
+	} {
+		if strings.TrimSpace(kv[1]) != "" {
+			parts = append(parts, kv[0]+"="+kv[1])
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func traceQueryTypedKVNotes(pairs [][2]string) []string {
+	var notes []string
+	for _, kv := range pairs {
+		if strings.TrimSpace(kv[1]) == "" {
+			continue
+		}
+		notes = append(notes, kv[0]+"="+kv[1])
+	}
+	return notes
+}
+
+func traceQueryTypedOffsetRange(minOffset, maxOffset int64) string {
+	if minOffset == 0 && maxOffset == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d..%d", minOffset, maxOffset)
+}
+
+func traceQueryTypedCount(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
+}
+
+func traceQueryTypedInt64(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(n, 10)
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -38,4 +39,35 @@ func hasToolSchema(schemas []llm.ToolSchema, name string) bool {
 		}
 	}
 	return false
+}
+
+// TestTraceQueryViewTeachingsMatchToolSchemaEnum pins the shared prompt
+// teaching table against the tool's view enum: every schema view has exactly
+// one teaching row, in the same order, so prompt sites rendered from the
+// table can never teach a view the tool rejects (or silently skip one it
+// accepts).
+func TestTraceQueryViewTeachingsMatchToolSchemaEnum(t *testing.T) {
+	var params struct {
+		Properties struct {
+			View struct {
+				Enum []string `json:"enum"`
+			} `json:"view"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal((&toolpkg.TraceQuery{}).Parameters(), &params); err != nil {
+		t.Fatalf("unmarshal trace_query parameters: %v", err)
+	}
+	enum := params.Properties.View.Enum
+	if len(enum) == 0 {
+		t.Fatal("trace_query schema view enum is empty")
+	}
+	rows := skill.TraceQueryViewTeachings()
+	if len(rows) != len(enum) {
+		t.Fatalf("teaching table has %d rows, schema enum has %d views:\ntable=%v\nenum=%v", len(rows), len(enum), rows, enum)
+	}
+	for i, view := range enum {
+		if rows[i].View != view {
+			t.Fatalf("teaching table row %d is %q, schema enum has %q — keep the table in schema enum order", i, rows[i].View, view)
+		}
+	}
 }

@@ -150,6 +150,30 @@ func TestSubExplorerInitialInstructionRendersTypedRepoMapPolicy(t *testing.T) {
 	}
 }
 
+// TestSubExplorerInitialInstructionRendersFullLensMatrix verifies the
+// sub-explorer receives the same compact repo_map lens matrix as the main
+// explorer (shared builder), so scoped branches are taught all views —
+// including semantic_subgraph / edit_impact / call_path — instead of the
+// orientation/inventory/relation subset.
+func TestSubExplorerInitialInstructionRendersFullLensMatrix(t *testing.T) {
+	eval := &subExplorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(&types.AgentContext{
+		Objective:   "inventory service routes",
+		Constraints: []string{"src/service"},
+	}, nil)
+	for _, want := range []string{
+		"Repo Map Navigation",
+		`view="semantic_subgraph"`,
+		`view="edit_impact"`,
+		`view="call_path"`,
+		"topology questions about hubs/bridges/chains",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("sub_explorer prompt missing lens-matrix teaching %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestSubExplorer_SameObjectiveKeepsState verifies that when the same
 // objective is seen twice in a row by one evaluator instance, accumulated
 // notes are NOT wiped. Run() now creates a fresh evaluator per request, but the

@@ -1293,6 +1293,12 @@ const (
 	toolHistoryObservationCheckpointNoteMaxLen       = 120
 	toolHistoryObservationCheckpointNoteLimit        = 1
 	toolHistoryObservationCheckpointPrincipalNotes   = 2
+
+	toolHistoryNavigationCheckpointStepLimit      = 6
+	toolHistoryNavigationCheckpointQueryTermLimit = 8
+	toolHistoryNavigationCheckpointSetLimit       = 2
+	toolHistoryNavigationCheckpointMemberLimit    = 8
+	toolHistoryNavigationCheckpointScopeLimit     = 3
 )
 
 func pruneToolHistory(messages []llm.Message, budget int) bool {
@@ -1353,7 +1359,9 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	resultKind := strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
 	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, toolHistoryObservationCheckpointRecordLimit)
 	repairDebtCheckpoint := renderToolHistoryRepairDebtCheckpoint(ctx, toolHistoryRepairDebtCheckpointRecordLimit)
-	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" && observationCheckpoint == "" && repairDebtCheckpoint == "" {
+	navigationCheckpoint := renderToolHistoryNavigationCheckpoint(ctx)
+	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" &&
+		observationCheckpoint == "" && repairDebtCheckpoint == "" && navigationCheckpoint == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -1409,6 +1417,13 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 		b.WriteString("\nActive repair debt snapshot:\n")
 		b.WriteString(repairDebtCheckpoint)
 		if !strings.HasSuffix(repairDebtCheckpoint, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if navigationCheckpoint != "" {
+		b.WriteString("\nNavigation context already computed for this question (advisory; reuse it instead of re-running broad repo_map):\n")
+		b.WriteString(navigationCheckpoint)
+		if !strings.HasSuffix(navigationCheckpoint, "\n") {
 			b.WriteByte('\n')
 		}
 	}
@@ -1700,6 +1715,98 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 	}
 	if written == 0 {
 		return ""
+	}
+	return b.String()
+}
+
+// renderToolHistoryNavigationCheckpoint renders the compact, bounded
+// navigation digest re-injected after tool-history pruning. The evidence /
+// aggregate / repair sections above it replay accepted answer-side state, but
+// nothing navigational — so a window whose raw repo_map / inventory output was
+// just elided tends to re-invoke the same broad navigation calls. The digest
+// replays only system-derived typed facts that already exist: the typed
+// repo_map route plan compiled from the structured analysis result, and the
+// candidate-universe member sets the inventory lens already observed. It is
+// advisory text, never new evidence and never an obligation.
+//
+// Scope: investigation windows only (precise typed stage check) — they are the
+// only windows that run navigation tools, and rendering route hints to a
+// window without tools would be pure noise.
+func renderToolHistoryNavigationCheckpoint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return ""
+	}
+	var b strings.Builder
+	policy := repoMapNavigationPolicyForContext(ctx)
+	if terms := policy.QueryTermList(toolHistoryNavigationCheckpointQueryTermLimit); len(terms) > 0 {
+		fmt.Fprintf(&b, "- Suggested exact query surfaces: `%s`", strings.Join(terms, "`, `"))
+		if omitted := len(policy.QueryTerms) - len(terms); omitted > 0 {
+			fmt.Fprintf(&b, " (+%d more)", omitted)
+		}
+		b.WriteString(".\n")
+	}
+	if len(policy.Steps) > 0 {
+		b.WriteString("- Recommended repo_map lens order:\n")
+		for i, step := range policy.Steps {
+			if i >= toolHistoryNavigationCheckpointStepLimit {
+				fmt.Fprintf(&b, "  - ... (+%d more lens hint(s))\n", len(policy.Steps)-i)
+				break
+			}
+			fmt.Fprintf(&b, "  - `view=\"%s\"`", step.Route)
+			if step.When != "" {
+				b.WriteString(" — ")
+				b.WriteString(step.When)
+			}
+			if len(step.Params) > 0 {
+				b.WriteString("; params: ")
+				b.WriteString(strings.Join(step.Params, ", "))
+			}
+			b.WriteString(".\n")
+		}
+	}
+	if ctx.Mutable != nil {
+		if obs := ctx.Mutable.SourceInventoryObservation(); obs.IsActive() {
+			scopeNote := ""
+			if len(obs.Scopes) > 0 {
+				scopes := obs.Scopes
+				extra := ""
+				if len(scopes) > toolHistoryNavigationCheckpointScopeLimit {
+					extra = fmt.Sprintf(" (+%d more)", len(scopes)-toolHistoryNavigationCheckpointScopeLimit)
+					scopes = scopes[:toolHistoryNavigationCheckpointScopeLimit]
+				}
+				scopeNote = fmt.Sprintf(" scope=`%s`%s", strings.Join(scopes, "`, `"), extra)
+			}
+			for si, set := range obs.Sets {
+				if si >= toolHistoryNavigationCheckpointSetLimit {
+					fmt.Fprintf(&b, "- ... %d additional already-observed candidate set(s) omitted here.\n", len(obs.Sets)-si)
+					break
+				}
+				names := make([]string, 0, toolHistoryNavigationCheckpointMemberLimit)
+				for _, member := range set.Members {
+					name := strings.TrimSpace(member.Name)
+					if name == "" {
+						name = strings.TrimSpace(member.Key)
+					}
+					if name == "" {
+						continue
+					}
+					names = append(names, name)
+					if len(names) >= toolHistoryNavigationCheckpointMemberLimit {
+						break
+					}
+				}
+				completeness := "may be partial"
+				if set.Complete {
+					completeness = "complete for the observed scope"
+				}
+				fmt.Fprintf(&b, "- Candidate universe already observed (role=%s, %d member(s), %s)%s: `%s`",
+					set.Role, set.Count, completeness, scopeNote, strings.Join(names, "`, `"))
+				if omitted := set.Count - len(names); omitted > 0 {
+					fmt.Fprintf(&b, " (+%d more)", omitted)
+				}
+				b.WriteString(". Reuse this checklist instead of re-listing.\n")
+			}
+		}
 	}
 	return b.String()
 }

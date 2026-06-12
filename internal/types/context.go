@@ -859,7 +859,12 @@ type TurnAArtifacts struct {
 	// ToolResults is the raw tool result history from Turn A, in
 	// chronological order. Carries grep / read_file / repo_map
 	// outputs so Turn B can re-scan them without burning iterations.
-	// Subject to pruneToolHistory so the slice is bounded.
+	// Bounded at snapshot time: the capture site and the cross-window
+	// merge both apply a per-window and merged count + byte cap
+	// (oldest dropped first, chronological order kept, at least one
+	// successful investigation-class result always retained) so retry
+	// windows cannot grow the slice without limit. pruneToolHistory
+	// does NOT bound this slice — it only stubs LLM message history.
 	ToolResults []ToolResult
 
 	// MCPResponses is the raw MCP response history from Turn A. These
@@ -5119,12 +5124,27 @@ type ToolRepair struct {
 }
 
 type ToolResult struct {
-	ToolName  string      `json:"tool_name"`
-	Summary   string      `json:"summary"`
-	Repair    *ToolRepair `json:"repair,omitempty"`
-	RawRef    string      `json:"raw_ref,omitempty"`
-	Success   bool        `json:"success"`
-	Timestamp time.Time   `json:"timestamp"`
+	ToolName string      `json:"tool_name"`
+	Summary  string      `json:"summary"`
+	Repair   *ToolRepair `json:"repair,omitempty"`
+	RawRef   string      `json:"raw_ref,omitempty"`
+
+	// Observations are optional producer-published typed observation rows for
+	// this tool result — the ToolResult companion to MCPResponse.Observations.
+	// Tools that already compute a fully typed product (e.g. trace_query's
+	// ranked root causes / evidence-pack facts) attach the rows here so the
+	// observation ledger can consume them directly instead of re-parsing the
+	// prose Summary, whose per-section caps and blob-preview clipping silently
+	// drop facts. Rows ride the existing ToolResults channel (dispatch buffer,
+	// TurnAArtifacts, bus history) and keep their producer-declared origin and
+	// grounding classification; the ledger compiler never accepts a
+	// current-source row from this field, so producer rows can never become
+	// current-source citations. Empty for tools without a typed product — the
+	// ledger's summary re-parse path remains the fallback for those results.
+	Observations []ObservationRecord `json:"observations,omitempty"`
+
+	Success   bool      `json:"success"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // MCPResponse records a response from an MCP server.

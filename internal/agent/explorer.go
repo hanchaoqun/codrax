@@ -3246,7 +3246,7 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
 	b.WriteString("The user named a runtime trace artifact path and did not ask for current-source verification. Treat this as a runtime-artifact investigation first, not a source-code breadth scan.\n\n")
 	b.WriteString("Workflow:\n")
-	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use `view=\"wakeup_chain\"` for sleep/wakeup source chains, `thread_timeline` for one thread's states, `scheduler_latency_stats` for runnable wait / CPU competition, `window_stats` for same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, and io_pressure_summary context, `root_cause_rank` for primary/secondary/tertiary candidates including fragmented state-churn causes and inode-level IO causes, `critical_blocking_calls` for lock/futex/sync/binder/IO/D-state candidates, `frame_window` / `render_pipeline` for frame/render spans, `recipe` for a standard evidence pack, and `event_search` for structured row lookup.\n")
+	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
 	b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, treat it as a cumulative fragmented-state signal: use `dominant_state` and `impact` to identify the main contributor, keep `running/runnable/sleep/d_state/io_wait` totals as supporting detail, and follow the rendered `next_step` instead of looking only for one long continuous interval.\n")
 	b.WriteString("- When `window_stats` reports `file_io`, `page_cache`, `storage_latency`, or `io_pressure`, treat them as runtime-artifact IO signals: use inode/dev/op/bytes/count/latency/churn to identify the dominant IO contributor, relate it to D-state/iowait/block latency, and state clearly when inode-to-path mapping needs `entry_name` in the trace or external filesystem mapping. Treat `entry_name` as a trace file-name label, not an absolute path; never prefix it with `/`, `/data/`, or any directory unless that full path appears in the trace or external mapping.\n")
 	b.WriteString("- For a specific frame id, jank id, trace marker, span label, or timestamp token, first use `trace_query(view=\"event_search\", pattern=\"<literal>\")`; `pattern` is a literal substring, not regex. If zero rows return, shorten the literal or add `event_types=[\"trace_mark\"]`; if multiple span windows return, pick the returned line/time window before root-cause analysis.\n")
@@ -5485,7 +5485,7 @@ func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
 	}
 	b.WriteString(". This is an artifact-only read backlog, not current-source code evidence. ")
 	b.WriteString("Do not convert trace/log rows into current-source `emit_evidence` citations. ")
-	b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` or a targeted `grep`/`read_file` line window on the same artifact. ")
+	b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` (views: " + skill.RenderTraceQueryViewNameList() + ") or a targeted `grep`/`read_file` line window on the same artifact. ")
 	b.WriteString("If a later step also needs current-code proof, read that source separately and emit source evidence only for those current-code lines.")
 	return b.String()
 }
@@ -12002,10 +12002,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
 		snapshot := types.TurnAArtifacts{
-			UserQuestion:                     e.userQuestion,
-			InvestigationNotes:               e.investigationNotes,
-			ReadFiles:                        readFilesList,
-			ToolResults:                      toolResults,
+			UserQuestion:       e.userQuestion,
+			InvestigationNotes: e.investigationNotes,
+			ReadFiles:          readFilesList,
+			// Per-window snapshot bound (count + byte cap, oldest dropped
+			// first, chronological order kept). The merge below applies the
+			// larger cross-window caps on the concatenated history.
+			ToolResults:                      boundTurnAToolResults(toolResults, turnAToolResultsWindowCountCap, turnAToolResultsWindowByteCap),
 			MCPResponses:                     mcpResponses,
 			AcceptedClosureReason:            strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
 			AcceptedResultKind:               strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),

@@ -2,6 +2,111 @@ package agent
 
 import "github.com/hanchaoqun/codrax/internal/types"
 
+// TurnAArtifacts.ToolResults snapshot bounds. The slice is captured per
+// explorer window and concatenated across retry windows; without a bound a
+// long multi-window investigation copies an ever-growing slice into the
+// criterion environment and the observation-ledger input on every dispatch.
+// pruneToolHistory does NOT bound this slice — it only stubs LLM message
+// history — so the bound lives at the two snapshot sites: the per-window
+// capture in explorer.ParseOutput and the cross-window concat in
+// mergeTurnAArtifactsWithPrior.
+//
+// The caps are deliberately generous: a typical window stays far below them,
+// so default behavior is unchanged; only pathological accumulation is cut.
+// Both bounds drop OLDEST results first and keep chronological order.
+const (
+	// turnAToolResultsWindowCountCap / turnAToolResultsWindowByteCap bound
+	// one window's contribution at capture time.
+	turnAToolResultsWindowCountCap = 160
+	turnAToolResultsWindowByteCap  = 1 << 20 // 1 MiB
+	// turnAToolResultsMergedCountCap / turnAToolResultsMergedByteCap bound
+	// the cross-window concatenation in mergeTurnAArtifactsWithPrior.
+	turnAToolResultsMergedCountCap = 320
+	turnAToolResultsMergedByteCap  = 2 << 20 // 2 MiB
+)
+
+// turnAToolResultBytes is the deterministic byte accounting for the snapshot
+// bound: the carried text surfaces of the result plus its attached typed
+// observation rows. It intentionally over-counts a little (fixed per-row
+// overhead) rather than marshaling for an exact figure.
+func turnAToolResultBytes(r types.ToolResult) int {
+	n := len(r.ToolName) + len(r.Summary) + len(r.RawRef) + 64
+	for _, obs := range r.Observations {
+		n += len(obs.ID) + len(obs.ClaimKey) + len(obs.Subject) + len(obs.Predicate) +
+			len(obs.Object) + len(obs.Value) + len(obs.Summary) + len(obs.RawExcerpt)
+		for _, note := range obs.RichNotes {
+			n += len(note)
+		}
+		for _, ref := range obs.SupportRefs {
+			n += len(ref)
+		}
+		n += 64
+	}
+	return n
+}
+
+// boundTurnAToolResults applies the count + byte cap to a chronological tool
+// result slice, dropping oldest entries first. Slices already inside the caps
+// are returned unchanged (no copy), keeping the default path byte-identical.
+//
+// Gate preservation: extractor.InvestigationStructurallyEmpty accepts an
+// investigation if at least one SUCCESSFUL investigation-class tool result
+// survives in this slice. When dropping the oldest prefix would remove every
+// such result, the newest one from the dropped prefix is retained at the head
+// (still oldest-first order), so the bound can never flip that gate from
+// "real investigation" to "structurally empty". The explorer's own
+// completionReadiness counters run over the in-window dispatch history before
+// the snapshot is taken, so they are unaffected by this bound.
+func boundTurnAToolResults(results []types.ToolResult, countCap, byteCap int) []types.ToolResult {
+	if len(results) == 0 || countCap <= 0 || byteCap <= 0 {
+		return results
+	}
+	total := 0
+	for _, r := range results {
+		total += turnAToolResultBytes(r)
+	}
+	if len(results) <= countCap && total <= byteCap {
+		return results
+	}
+	// Walk newest → oldest, keeping entries while both caps hold.
+	start := len(results)
+	kept := 0
+	keptBytes := 0
+	for i := len(results) - 1; i >= 0; i-- {
+		size := turnAToolResultBytes(results[i])
+		if kept+1 > countCap || keptBytes+size > byteCap {
+			break
+		}
+		kept++
+		keptBytes += size
+		start = i
+	}
+	if start == 0 {
+		return results
+	}
+	out := results[start:]
+	if !hasSuccessfulInvestigationToolResult(out) {
+		for i := start - 1; i >= 0; i-- {
+			if results[i].Success && investigationToolKinds[results[i].ToolName] {
+				preserved := make([]types.ToolResult, 0, len(out)+1)
+				preserved = append(preserved, results[i])
+				preserved = append(preserved, out...)
+				return preserved
+			}
+		}
+	}
+	return append([]types.ToolResult(nil), out...)
+}
+
+func hasSuccessfulInvestigationToolResult(results []types.ToolResult) bool {
+	for _, r := range results {
+		if r.Success && investigationToolKinds[r.ToolName] {
+			return true
+		}
+	}
+	return false
+}
+
 // mergeTurnAArtifactsWithPrior folds a prior TurnAArtifacts snapshot into the
 // current explorer window's snapshot so intra-Run retry windows accumulate
 // rather than overwrite.
@@ -29,9 +134,13 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //     field is already appended to each window, so it is the authoritative
 //     cumulative value.
 //   - ReadFiles: mergeStrings(prior, current). Dedupe + union.
-//   - ToolResults: concat. Tool calls are a time-ordered event stream;
-//     a legitimate investigation may grep the same pattern twice across
-//     windows, and dropping one call would misreport the investigation.
+//   - ToolResults: concat, then boundTurnAToolResults with the merged
+//     count/byte caps. Tool calls are a time-ordered event stream; a
+//     legitimate investigation may grep the same pattern twice across
+//     windows, so nothing is deduplicated — but the concatenation must
+//     not grow without limit across retry windows, so the oldest entries
+//     are dropped once the merged caps are exceeded (keeping at least one
+//     successful investigation-class result for the structural-empty gate).
 //   - MCPResponses: concat. MCP calls are also an external observation event
 //     stream; preserving them in the frozen handoff keeps typed MCP rows
 //     available across retry windows without reclassifying them as source
@@ -64,7 +173,11 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged := current
 	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
-	merged.ToolResults = append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...)
+	merged.ToolResults = boundTurnAToolResults(
+		append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...),
+		turnAToolResultsMergedCountCap,
+		turnAToolResultsMergedByteCap,
+	)
 	merged.MCPResponses = append(append([]types.MCPResponse(nil), prior.MCPResponses...), current.MCPResponses...)
 	if merged.AcceptedClosureReason == "" {
 		merged.AcceptedClosureReason = prior.AcceptedClosureReason

@@ -242,7 +242,10 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	b.WriteString("4. Use `list_files` or `grep(files_only=true)` when you need a real directory listing or a token-anchored candidate set that repo_map did not provide.\n")
 	b.WriteString("5. Verify selected navigation rows with `read_file` or targeted `grep(context_lines=3)` before treating them as semantic implementation facts.\n")
 	b.WriteString("6. Read the most relevant files and extract structured evidence.\n\n")
-	b.WriteString(renderRepoMapTypedNavigationPolicy(ctx))
+	// Sub-explorers get the same compact repo_map lens matrix as the main
+	// explorer (shared builder — includes the typed navigation policy), so
+	// scoped branches see the full view set instead of a 5-view subset.
+	b.WriteString(renderExplorerRepoMapNavigationPrimer(ctx))
 
 	b.WriteString("**Evidence format** (examples — adapt the tags and structure to what you find):\n\n")
 	b.WriteString("```\n")
