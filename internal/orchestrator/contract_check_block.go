@@ -2284,6 +2284,9 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateExactResolutionGrounding(doc, mut) }) {
 		return out
 	}
+	if !appendIfLive(func() []types.Violation { return validateScalarValueGrounding(doc, mut) }) {
+		return out
+	}
 	if !appendIfLive(func() []types.Violation { return validateRequiredMechanismAnchorsRendered(doc, view) }) {
 		return out
 	}
@@ -3285,6 +3288,211 @@ func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bo
 // label is wrong). Operators promote to STRICT via
 // pipeline_contract_strict_kinds when answer-quality regressions
 // are intolerable.
+
+// scalarValueGroundingForms are the claim forms under which a
+// principal scalar's literal is a repo-sourced value the evidence
+// pool must corroborate. external_observation deliberately routes to
+// the attached-artifact lane instead (skip), and an UNDECLARED form
+// never gates — declaration absence is not a signal (typed-escape
+// rule).
+var scalarValueGroundingForms = map[types.ClaimForm]bool{
+	types.ClaimLiteralValueFact: true,
+	types.ClaimAssignmentFact:   true,
+	types.ClaimDefinitionFact:   true,
+	types.ClaimReturnFact:       true,
+}
+
+// validateScalarValueGrounding closes the one body-vs-evidence blind
+// spot where a WRONG typed value (not a fabricated name — the symbol
+// oracles cover those) ships ungated: a principal BlockScalar whose
+// literal matches nothing in its own cited evidence or the accepted
+// aggregate facts. Both comparison sides are typed; the literal is
+// extracted only when block.Text reduces to a single verbatim token
+// (multi-token prose is conservatively skipped). Empty support pool
+// is set-side noise — no-op, mirroring the exact-resolution oracle.
+func validateScalarValueGrounding(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if doc == nil || mut == nil {
+		return nil
+	}
+	idx := newAnswerEvidenceIndex(mut)
+	var out []types.Violation
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		if b.Kind != types.BlockScalar || b.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		declared, external := scalarGroundingDeclaredForm(b.ClaimUses)
+		if external || !declared {
+			continue
+		}
+		literal := scalarSingleLiteral(b.Text)
+		if literal == "" {
+			continue
+		}
+		support := scalarValueSupportPool(b, doc, mut, idx)
+		if len(support) == 0 {
+			continue
+		}
+		if scalarLiteralSupported(literal, support) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolScalarValueUngrounded,
+			Detail: fmt.Sprintf(
+				"principal scalar block %q carries the literal %q under a repo-sourced claim form, but the literal matches nothing in the block's cited evidence or the accepted aggregate facts",
+				b.ID, literal),
+			Repair:     "Make the scalar literal match its evidence: cite the line that actually carries this value (and re-check the value against it), or correct the literal to what the cited evidence proves. For values observed only in an attached log/trace, declare claim_form='external_observation' instead of a repo-sourced form.",
+			ClusterKey: "root:scalar_value.grounding",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_document.scalar_value",
+				Reason:     "principal scalar literal unsupported by its own typed evidence",
+				Confidence: 0.65,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// scalarGroundingDeclaredForm reports whether the block declares a
+// repo-sourced scalar claim form, and whether it declared the
+// external-observation escape instead.
+func scalarGroundingDeclaredForm(uses []types.RenderedClaimUse) (declared, external bool) {
+	for _, cu := range uses {
+		if cu.ClaimForm == types.ClaimExternalObservation {
+			return false, true
+		}
+		if scalarValueGroundingForms[cu.ClaimForm] {
+			declared = true
+		}
+	}
+	return declared, false
+}
+
+// scalarSingleLiteral conservatively reduces a scalar block's text to
+// one verbatim token: a number, a quoted string, or a single
+// identifier-shaped/value-shaped token (optionally backticked).
+// Anything else — prose, multiple tokens — returns "" and the check
+// skips.
+func scalarSingleLiteral(text string) string {
+	s := strings.TrimSpace(text)
+	s = strings.Trim(s, "`")
+	s = strings.TrimSpace(s)
+	if s == "" || strings.ContainsAny(s, " \t\n") {
+		return ""
+	}
+	if len(s) >= 2 && (s[0] == '"' && s[len(s)-1] == '"' || s[0] == 0x27 && s[len(s)-1] == 0x27) {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		if inner == "" || strings.ContainsAny(inner, " \t\n") {
+			return ""
+		}
+		return inner
+	}
+	return s
+}
+
+// scalarValueSupportPool unions the typed surfaces the literal may
+// legitimately come from: the block's own cited evidence rows
+// (Snippet / SurfaceTerms / Subject / Object / AnchorSymbol /
+// Summary) and the accepted aggregate facts (Value / Members).
+func scalarValueSupportPool(b *types.AnswerBlock, doc *types.AnswerDocumentV2, mut *types.MutableState, idx *answerEvidenceIndex) []string {
+	var pool []string
+	add := func(s string) {
+		if t := strings.TrimSpace(s); t != "" {
+			pool = append(pool, t)
+		}
+	}
+	if idx != nil {
+		for _, it := range b.Items {
+			if it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			for _, ev := range idx.citedEvidenceItems(doc.Citations[it.CitationRef]) {
+				add(ev.Snippet)
+				add(ev.Subject)
+				add(ev.Object)
+				add(ev.AnchorSymbol)
+				add(ev.Summary)
+				for _, term := range ev.SurfaceTerms {
+					add(term)
+				}
+			}
+		}
+	}
+	for _, f := range mut.StableInvestigationAggregateFacts() {
+		add(f.Value)
+		for _, m := range f.Members {
+			add(m)
+		}
+	}
+	return pool
+}
+
+// scalarLiteralSupported reports whether the literal appears in the
+// pool. Two regimes, both erring toward SUPPRESSING the violation
+// (false positives quiet the check, they never create one):
+//   - numeric literals match with digit boundaries, so "7" is never
+//     vouched by "17" or "v7.1";
+//   - identifier-ish literals match by NormalizeCodeKey containment,
+//     so a snippet carrying ExponentialBackoff vouches for the
+//     yaml-form `exponential_backoff`.
+func scalarLiteralSupported(literal string, pool []string) bool {
+	if numericScalarLiteral(literal) {
+		for _, s := range pool {
+			if numericLiteralAppearsBounded(literal, s) {
+				return true
+			}
+		}
+		return false
+	}
+	litKey := normalizer.NormalizeCodeKey(literal)
+	for _, s := range pool {
+		if strings.Contains(s, literal) {
+			return true
+		}
+		if len(litKey) >= 2 && strings.Contains(normalizer.NormalizeCodeKey(s), litKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func numericScalarLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	dot := false
+	for i, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r == '-' && i == 0:
+		case r == '.' && !dot:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func numericLiteralAppearsBounded(lit, s string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], lit)
+		if j < 0 {
+			return false
+		}
+		j += i
+		beforeOK := j == 0 || !isDigitByte(s[j-1])
+		after := j + len(lit)
+		afterOK := after >= len(s) || (!isDigitByte(s[after]) && s[after] != '.')
+		if beforeOK && afterOK {
+			return true
+		}
+		i = j + 1
+	}
+}
+
+func isDigitByte(b byte) bool { return b >= '0' && b <= '9' }
 
 // stampUngroundedEvidenceDenials records evidence subjects that
 // stayed ungrounded through every same-turn repair pass AND resolve

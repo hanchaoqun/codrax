@@ -67,10 +67,10 @@ s11b oracle 模式逐项复制(typed-vs-typed / Soft+Promotable / 空池 no-op /
 - 顺带:`answer_document.go:263` 失实注释改写(GroundCitation 在 V2 路径无调用方,防线描述删除/改为历史注记)。
 
 任务:
-- [ ] 3.1 validator + 锚点测试(命中/池空/未声明 form/external_observation 路由/多 token 跳过)
-- [ ] 3.2 ViolKind 全注册点 + composer case
-- [ ] 3.3 失实注释修正
-- [ ] 3.4 全量回归 + qf_config / scalar 族抽测
+- [x] 3.1 validator + 六向测试(命中/聚合支持/未声明 form/external_observation/空池/多 token 跳过 + 数字边界负向 pin + 标识符 canonicalizer)
+- [x] 3.2 ViolScalarValueUngrounded 七注册点 + composer case(contract test 强制)
+- [x] 3.3 GroundCitation V2 孤儿事实写入 DefaultCitationMaxQuoteChars 注释(历史注记)
+- [x] 3.4 67 包绿;scalar 族实测并入批 4 数据批
 
 ## §4 批 4:小步项(GAP-4/5/6)+ 验证收口
 

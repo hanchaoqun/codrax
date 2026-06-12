@@ -154,6 +154,7 @@ func legacyInferViolationLayer(kind types.ViolationKind) string {
 		types.ViolClaimFormUnsupported,
 		types.ViolAbsenceScopeExceeded,
 		types.ViolExactResolutionUngrounded,
+		types.ViolScalarValueUngrounded,
 		types.ViolMissingRequestedRoleUndisclosed,
 		types.ViolStructuralEnumerationDivergence,
 		types.ViolSymbolAnchorMismatch,

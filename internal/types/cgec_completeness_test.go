@@ -251,6 +251,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolAbsenceScopeExceeded:            true, // orchestrator/contract_check_block.go validateAbsenceScopeBound
 		ViolMissingRequestedRoleUndisclosed: true, // orchestrator/contract_check_block.go validateMissingRequestedRoleDisclosure
 		ViolExactResolutionUngrounded:       true, // orchestrator/contract_check_block.go validateExactResolutionGrounding
+		ViolScalarValueUngrounded:           true, // orchestrator/contract_check_block.go validateScalarValueGrounding
 		// R10 CGEC frequency bridges (post_shape_residual_audit.md, 2026-05-04).
 		ViolDemotionStorm:   true, // orchestrator/orchestrator.go emitCGECStormViolations
 		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
@@ -371,6 +372,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolAbsenceScopeExceeded:            "ViolAbsenceScopeExceeded",
 		ViolMissingRequestedRoleUndisclosed: "ViolMissingRequestedRoleUndisclosed",
 		ViolExactResolutionUngrounded:       "ViolExactResolutionUngrounded",
+		ViolScalarValueUngrounded:           "ViolScalarValueUngrounded",
 		ViolStepIdentifierUnverified:        "ViolStepIdentifierUnverified",
 		ViolRichnessRegression:              "ViolRichnessRegression",
 		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",

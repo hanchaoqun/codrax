@@ -317,6 +317,20 @@ const (
 	// once their workload proves the signal precise).
 	ViolExactResolutionUngrounded ViolationKind = "exact_resolution_ungrounded"
 
+	// ViolScalarValueUngrounded fires when a principal scalar block
+	// carries a single verbatim literal under a repo-sourced claim
+	// form (literal_value/assignment/definition/return fact) and the
+	// literal matches nothing in the block's own cited evidence rows
+	// or the accepted aggregate facts. Closes the blind spot where a
+	// WRONG typed value shipped ungated after the V1 literal-grounding
+	// emit gate retired (2026-06-12 body-vs-evidence forensics).
+	//
+	// Typed on both sides; external_observation is the declared
+	// escape (artifact-sourced values skip the repo pool); an
+	// undeclared claim form never gates; an empty support pool is
+	// set-side noise and never fires. SOFT by default, promotable.
+	ViolScalarValueUngrounded ViolationKind = "scalar_value_ungrounded"
+
 	// ViolStepIdentifierUnverified (Phase 4 extension, 2026-05-02)
 	// fires when an AnswerStep's prose contains a backtick-quoted
 	// identifier (a load-bearing inline-code token) that does NOT
@@ -989,6 +1003,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolAbsenceScopeExceeded,
 		ViolMissingRequestedRoleUndisclosed,
 		ViolExactResolutionUngrounded,
+		ViolScalarValueUngrounded,
 		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,

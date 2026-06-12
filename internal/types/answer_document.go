@@ -259,10 +259,13 @@ type Citation struct {
 }
 
 // DefaultCitationMaxQuoteChars is the baseline preview ceiling used
-// when no codrax.yaml override is present. The prose-smuggling defence
-// does not rely on this number — ground.GroundCitation's QuoteMatched
-// token check clears any Quote whose tokens do not corroborate the
-// cited line. This cap is purely the render-preview width; legit long
+// when no codrax.yaml override is present. Historical note
+// (2026-06-12 forensics): ground.GroundCitation's QuoteMatched
+// defence is NOT wired on the V2 emit_answer_document path — its only
+// production caller is the hypothesis-verdict lane — so V2 citation
+// quotes are bounded by this cap and the structural pre-emit checks,
+// not by token corroboration. This cap is purely the render-preview
+// width; legit long
 // source lines (deep package imports, multi-arg fmt.Errorf, long SQL
 // or regex literals) routinely exceed 200 chars, so the default is
 // generous enough to preserve most of them intact. Operators can raise

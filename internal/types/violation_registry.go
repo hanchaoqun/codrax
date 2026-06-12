@@ -646,6 +646,11 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolScalarValueUngrounded, DefaultSeverity: SeverityMedium,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolMissingRequestedRoleUndisclosed, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,

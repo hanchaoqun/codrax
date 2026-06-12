@@ -216,6 +216,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	types.ViolBlockCoverageMissing:            true,
 	types.ViolMissingRequestedRoleUndisclosed: true,
 	types.ViolExactResolutionUngrounded:       true,
+	types.ViolScalarValueUngrounded:           true,
 }
 
 // composerExactFixSkipWhitelist names ViolationKind values that

@@ -299,6 +299,7 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// generalised more to avoid the contradiction).
 		types.ViolSelfContradiction:            FallbackFinalizerOnly,
 		types.ViolExactResolutionUngrounded:    FallbackFinalizerOnly,
+		types.ViolScalarValueUngrounded:        FallbackFinalizerOnly,
 		types.ViolViewIntentMismatch:           FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:           FallbackBackToExtract,
 		types.ViolDiagramIdentifier:            FallbackFinalizerOnly,

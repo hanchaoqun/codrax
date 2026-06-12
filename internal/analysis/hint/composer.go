@@ -443,6 +443,10 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// entry. Composer keeps the offending labels out of the hint
 		// (noisy); the imperative is to re-ground every item.
 		return "Every enumerated item's `label` must name something present in the evidence pool (a symbol, subject, or object an EvidenceItem actually anchors). Remove or replace any item whose label is not backed by evidence; do NOT invent list entries to round out the count."
+	case types.ViolScalarValueUngrounded:
+		// V2 carrier — a principal scalar literal matches nothing in
+		// its own cited evidence or the accepted aggregate facts.
+		return "Make the principal scalar literal match its evidence: cite the exact line that carries this value and re-check the literal against it, or correct the literal to what the cited evidence proves. For a value observed only in an attached log/trace, declare claim_form='external_observation' instead of a repo-sourced form — never keep a repo-sourced claim on a value no cited line shows."
 	case types.ViolExactResolutionUngrounded:
 		// V2 carrier — exact_resolution declares an exact_match /
 		// alias_match anchor that no evidence surface of the same
