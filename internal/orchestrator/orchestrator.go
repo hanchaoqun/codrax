@@ -4462,6 +4462,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
 
+	// Single-shot guard for the completion-obligation lane (one
+	// bounded emit-only dispatch per Run; see
+	// completion_obligation_lane.go).
+	completionLaneFired := false
+
 	// Cross-task reset of the Turn A/B handoff surface. Multi-task runs (REPL turns, batched analysis, task
 	// list with >1 entry) otherwise drag stale state from task N
 	// into task N+1: the previous task's TurnAArtifacts would still
@@ -5199,6 +5204,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// cannot unblock in a pure-read environment), so a floor
 			// failure degrades with a typed, user-visible caveat
 			// instead of requeueing.
+			o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
 			if msg, proceed, _ := o.checkTier1Floor(ir, state); !proceed {
 				logging.Warning("[orchestrator] grounding floor failed on forced-finalize path: %s", msg)
 				o.busCtx.Mutable.MarkTerminationFloorDegraded(msg)
@@ -5225,6 +5231,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// On fail-budget-exhausted: log a warning and fall through;
 		// downstream contract check will still catch the problem and
 		// fail-loud.
+		o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
 		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "tier1_floor")
 		msg, proceed, exhausted := o.checkTier1Floor(ir, state)
 		if o.finishSchedulerLocalWork(stopLocal, "tier1_floor", stepsUsed) {
@@ -6208,6 +6215,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	}
 
 contractFailureBreak:
+	// Step-drain and contract-failure exits historically ran no
+	// completion check at all — the lane covers them too.
+	o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.
@@ -7895,6 +7905,11 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			if base, adjusted, reason, ok := applyExploreIterationScalingForRequest(agentCtx, o.busCtx.AnalysisIR.RequestModel, agentCfg); ok {
 				logging.Debug("[orchestrator] explorer scaling: reason=%s sub-topics=%d iterations %d → %d",
 					reason, nSub, base, adjusted)
+			}
+			if agentCtx.CompletionOnlySurface {
+				// Completion-obligation lane: emit-only surface needs
+				// a handful of iterations, not an exploration budget.
+				agentCtx.MaxIterOverride = completionObligationLaneMaxIters
 			}
 		case types.StagePlan:
 			// Planner soft-cap scaling. The default soft cap (6) is

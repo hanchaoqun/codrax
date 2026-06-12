@@ -473,6 +473,7 @@ write_metrics() {
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
     echo "wall_seconds=$(cat "$OUTDIR/run-$i.wall" 2>/dev/null || echo 0)"
     echo "pipeline_dispatches=$(count_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
+    echo "completion_lane_fired=$(count_pattern 'completion obligation lane: one bounded' "$log")"
     echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
     echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
     echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"

@@ -29,11 +29,11 @@ Baseline:`fd5b9e93`。来源:本线(eval 扩充 + 硬面 ×4 取证)与并行线
 6. **不破坏稳定场景**:predicate=false 或义务已满足时字节不变;lane 只在"本来就要带着空手去 extract"的路径上加一跳。
 
 任务:
-- [ ] 1.1 `pendingCompletionObligations` + 单测(义务命中/满足/逃生道三态)
-- [ ] 1.2 `AgentContext.CompletionOnlySurface` + explorer.FilterToolSchemas 分支 + 边界测试(restrictedToolSurface 合流)
-- [ ] 1.3 `runCompletionObligationLane` + 三汇聚点接线 + 防重入/计费
-- [ ] 1.4 window-hint 聚焦指令(红线审词)+ runner 计数
-- [ ] 1.5 单测:五出口形态下 lane 触发/不触发矩阵;全量回归
+- [x] 1.1 `pendingCompletionObligations` + 单测(义务命中/满足/逃生道三态)
+- [x] 1.2 CompletionOnlySurface(BusContext+AgentContext+builder copy;ShallowClone 反射自动覆盖)+ FilterToolSchemas 分支 + 收窄/fail-open/flag-off 三向测试
+- [x] 1.3 lane + 三汇聚点(forced :5202 前 / pre-extract :5229 前 / contractFailureBreak 头)+ 单发防重入三守卫测试 + 同 stepsUsed 计费
+- [x] 1.4 hint(命名义务+双 typed 出口含 support_refs 契约)+ runner completion_lane_fired 计数
+- [x] 1.5 守卫矩阵单测;67 包绿 + vet 干净
 - [ ] 1.6 实测:sequence_table ×4(成功判据:predicate=true 轮 0 空手出口)
 
 ## §2 批 2:TypedDenials 站点补全(GAP-2)

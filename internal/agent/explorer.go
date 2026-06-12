@@ -6373,7 +6373,27 @@ var evidenceRepairToolNames = map[string]bool{
 // include an actionable materialization tool, the original schemas are
 // returned so we never strand a dispatch with zero tools.
 func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
-	if e == nil || ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 || e.investigationComplete {
+	if e == nil || ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 {
+		return schemas
+	}
+	// Completion-obligation lane: the scheduler granted ONE bounded
+	// dispatch whose sole purpose is materializing the pending typed
+	// completion handoff. Narrow to the existing emit-only completion
+	// surface regardless of mid-loop state; same fail-open contract
+	// as below (never strand a dispatch with zero tools).
+	if ctx.CompletionOnlySurface {
+		out := make([]llm.ToolSchema, 0, 2)
+		for _, schema := range schemas {
+			if completionProgressToolNames[strings.TrimSpace(schema.Name)] {
+				out = append(out, schema)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+		return schemas
+	}
+	if e.investigationComplete {
 		return schemas
 	}
 	allowed := e.restrictedToolSurface()

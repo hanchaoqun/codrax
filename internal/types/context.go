@@ -5422,6 +5422,15 @@ type BusContext struct {
 	// prompt text or node ids.
 	ExploreDispatchKind TaskNodeType `json:"-"`
 
+	// CompletionOnlySurface marks the one bounded completion-obligation
+	// dispatch the read scheduler grants when the explore loop drained
+	// its budget without an accepted emit_investigation_complete while
+	// a typed completion obligation (e.g. has_per_member_table's
+	// member_set handoff) is still pending. The explorer's tool-schema
+	// filter narrows the dispatch to the emit-only completion surface.
+	// Scheduler-owned; never set by tools or models.
+	CompletionOnlySurface bool `json:"-"`
+
 	// ExploreLanePlan is a derived typed view over evidence-origin lanes for
 	// the current request. It is scheduling/render guidance only: it must not
 	// decide the answer and must not replace model-authored summaries.
@@ -5667,6 +5676,11 @@ type AgentContext struct {
 	// ExploreDispatchKind mirrors BusContext.ExploreDispatchKind for
 	// render-only activity labels. It must not drive evaluator behavior.
 	ExploreDispatchKind TaskNodeType `json:"-"`
+
+	// CompletionOnlySurface mirrors BusContext.CompletionOnlySurface
+	// for the explorer's tool-schema filter (emit-only completion
+	// dispatch). See the BusContext field for semantics.
+	CompletionOnlySurface bool `json:"-"`
 
 	// ExploreLanePlan mirrors BusContext.ExploreLanePlan for prompt and
 	// render-only scoped exploration guidance.
