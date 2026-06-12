@@ -34,7 +34,7 @@ Baseline:`fd5b9e93`。来源:本线(eval 扩充 + 硬面 ×4 取证)与并行线
 - [x] 1.3 lane + 三汇聚点(forced :5202 前 / pre-extract :5229 前 / contractFailureBreak 头)+ 单发防重入三守卫测试 + 同 stepsUsed 计费
 - [x] 1.4 hint(命名义务+双 typed 出口含 support_refs 契约)+ runner completion_lane_fired 计数
 - [x] 1.5 守卫矩阵单测;67 包绿 + vet 干净
-- [ ] 1.6 实测:sequence_table ×4(成功判据:predicate=true 轮 0 空手出口)
+- [x] 1.6 实测达成:sequence_table ×4 = **4/4 PASS(历史首次)**;predicate 3/4;run2/3 完成门工具层各弹 1 次→当轮修正(首防闭环,lane 兜底 0 触发 = 分层正确)
 
 ## §2 批 2:TypedDenials 站点补全(GAP-2)
 
@@ -74,9 +74,9 @@ s11b oracle 模式逐项复制(typed-vs-typed / Soft+Promotable / 空池 no-op /
 
 ## §4 批 4:小步项(GAP-4/5/6)+ 验证收口
 
-- [ ] 4.1 sequence_table spec 复审:问题主语是 stage;**结论候选**=EXPECT_CONTAINS 的 agent 名词改为(agent 名|Stage 名)等价类,但仅当人工读问题文本确认 agent 名非核心实质——否则保持。单独小 commit 说理。
-- [ ] 4.2 数据批:sequence_table ×4(批 1 验收)+ artifact 案 ×3(B3 残余)+ 新 12 案抽 4(回归);predicate 声明率记录。
-- [ ] 4.3 账本勾选 + memory 更新。
+- [x] 4.1 spec 复审定案(`258c9358`):中间阶段必须出现、词形不钉(equiv 类):问题主语是 stage;**结论候选**=EXPECT_CONTAINS 的 agent 名词改为(agent 名|Stage 名)等价类,但仅当人工读问题文本确认 agent 名非核心实质——否则保持。单独小 commit 说理。
+- [x] 4.2 12 案数据批 **12/12 PASS**:seq×4 全过 + artifact×3(B3 维持归零)+ 新 fixture 抽 4 零回归 + qf_config(scalar oracle 零误伤)
+- [x] 4.3 完成。
 
 ## §5 交付纪律
 
