@@ -64,6 +64,24 @@ type TypedRelationMember struct {
 	Distance int `json:"distance,omitempty"`
 }
 
+// TypedRelationMemberSurfaceKey is the canonical member-level dedup key for a
+// typed relation surface: one (relation, source anchor, member name, member
+// file) tuple collapses to a single surfaced row regardless of which carrier
+// produced it. Shared single-source by the prompt-side typed relation hint
+// merge (internal/context appendTypedRelationHints) and the repo_map
+// relation_map typed observation rows so both surfaces collapse the same
+// member identically. Returns "" when any identity component is missing;
+// callers skip such rows instead of inventing a weaker key.
+func TypedRelationMemberSurfaceKey(relation TypedRelationKind, sourceName string, member TypedRelationMember) string {
+	if relation == "" || strings.TrimSpace(sourceName) == "" || strings.TrimSpace(member.Name) == "" {
+		return ""
+	}
+	return strings.ToLower(string(relation)) + "|" +
+		strings.ToLower(strings.TrimSpace(sourceName)) + "|" +
+		strings.ToLower(strings.TrimSpace(member.Name)) + "|" +
+		strings.TrimSpace(member.File)
+}
+
 // TypedRelationKind is the closed relation vocabulary shared by
 // prompt hints, coverage checks, and future relation providers.
 //

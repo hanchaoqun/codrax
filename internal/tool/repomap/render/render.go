@@ -26,6 +26,41 @@ type ViewData struct {
 	Intro    string        `json:"intro,omitempty"`
 	Sections []ViewSection `json:"sections,omitempty"`
 	Footer   string        `json:"footer,omitempty"`
+
+	// RelationRows is the typed side-channel of the relation_map view: the
+	// exact graph-backed rows rendered into the "Relation Rows (advisory)"
+	// section, in render order and under the same selection/cap. Populated
+	// only by buildRelationMapData so consumers (the repo_map tool publishing
+	// observation rows) never re-run row selection. Excluded from JSON: the
+	// markdown stays the model-facing surface and the serialized ViewData
+	// contract is unchanged.
+	RelationRows []RelationMapRow `json:"-"`
+}
+
+// RelationMapRow is the exported, typed product of one rendered relation_map
+// row. Field values are exactly what the renderer printed — same selection,
+// dedup, sort, and top-N cap — with Text carrying the rendered row line.
+// These rows are graph-derived NAVIGATION facts: they may guide follow-up
+// reads and ride typed observation channels, but they are never current-source
+// citation evidence.
+type RelationMapRow struct {
+	Kind         string
+	Source       string
+	SourceFile   string
+	SourceLine   int
+	Target       string
+	TargetFile   string
+	TargetLine   int
+	ObservedFile string
+	ObservedLine int
+	// Provenance / Confidence are the typed counterparts of the bracketed
+	// Diag annotation (construction-stage origin + parse-tier confidence).
+	// Confidence 0 means "not stated" (import/implements rows have no durable
+	// relation behind them), mirroring the rendered text which carries no
+	// confidence figure for those rows. Noisy signal: soft guidance only.
+	Provenance string
+	Confidence float64
+	Text       string
 }
 
 // ViewSection is one logical grouping within a ViewData — a
@@ -356,6 +391,11 @@ type relationMapRow struct {
 	// guidance for the reading model — rows remain navigation
 	// candidates either way.
 	Diag string
+	// Provenance / Confidence are the typed components behind Diag,
+	// carried for the exported RelationMapRow side-channel. They do
+	// not affect rendering; Diag remains the single rendered form.
+	Provenance string
+	Confidence float64
 }
 
 // buildRelationMapData renders a model-driven structural relation lens.
@@ -446,7 +486,36 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 		}
 	}
 	d.Sections = append(d.Sections, verifySection)
+	d.RelationRows = exportRelationMapRows(rows)
 	return d
+}
+
+// exportRelationMapRows projects the renderer's internal rows into the
+// exported typed side-channel. Pure field copy plus the rendered row text —
+// row selection, dedup, sort, and cap all happened upstream in
+// relationMapRows (single source; do not re-select here).
+func exportRelationMapRows(rows []relationMapRow) []RelationMapRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]RelationMapRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RelationMapRow{
+			Kind:         row.Kind,
+			Source:       row.Source,
+			SourceFile:   row.SourceFile,
+			SourceLine:   row.SourceLine,
+			Target:       row.Target,
+			TargetFile:   row.TargetFile,
+			TargetLine:   row.TargetLine,
+			ObservedFile: row.ObservedFile,
+			ObservedLine: row.ObservedLine,
+			Provenance:   row.Provenance,
+			Confidence:   row.Confidence,
+			Text:         relationMapRowText(row),
+		})
+	}
+	return out
 }
 
 func normalizeRelationMapKinds(raw []string) []string {
@@ -614,6 +683,7 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 				TargetFile:   target,
 				ObservedFile: fi.RelPath,
 				Diag:         "import_resolver/" + fi.Language,
+				Provenance:   "import_resolver",
 			})
 		}
 		for _, rel := range fi.Relations {
@@ -632,6 +702,8 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					ObservedFile: rel.File,
 					ObservedLine: rel.Line,
 					Diag:         relationMapRelationDiag(rel, typedResolution),
+					Provenance:   rel.Provenance,
+					Confidence:   rel.Confidence,
 				})
 			case "inheritance", "embedding", "reference", "type_usage":
 				src := relationMapEnclosingSymbol(fi, rel.Line)
@@ -646,6 +718,8 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					ObservedFile: rel.File,
 					ObservedLine: rel.Line,
 					Diag:         relationMapRelationDiag(rel, false),
+					Provenance:   rel.Provenance,
+					Confidence:   rel.Confidence,
 				})
 			}
 		}
@@ -667,6 +741,7 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 					ObservedFile: sym.File,
 					ObservedLine: sym.Line,
 					Diag:         "interface_conformance",
+					Provenance:   "interface_conformance",
 				})
 			}
 		}

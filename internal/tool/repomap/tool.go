@@ -376,7 +376,22 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			viewProgress.viewRendered(step, done, total)
 		}
 	}
-	output := render.GenerateView(graph, p.View, viewParams)
+	// relation_map keeps a typed side-channel next to the rendered prose:
+	// the exact graph-backed rows the renderer printed are published as
+	// observation rows on the ToolResult (trace_query's producer pattern),
+	// so the navigation facts the explorer saw survive to later stages
+	// without LLM re-emission or a gated per-stage graph re-probe. The
+	// rendered TEXT is unchanged — RenderMarkdown over the same ViewData is
+	// exactly what GenerateView produces — and every other view keeps the
+	// untouched GenerateView call.
+	var output string
+	var relationRows []render.RelationMapRow
+	if data := relationMapViewData(graph, p.View, viewParams); data != nil {
+		relationRows = data.RelationRows
+		output = render.RenderMarkdown(data)
+	} else {
+		output = render.GenerateView(graph, p.View, viewParams)
+	}
 	if viewProgress != nil {
 		viewProgress.finish(true, nil)
 	}
@@ -386,12 +401,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	output = prependRepoMapIndexStatusBanner(graph, output)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
+	now := time.Now()
 	return ctypes.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      summary,
+		RawRef:       ref,
+		Observations: relationMapTypedObservations(relationRows, ref, output, now),
+		Timestamp:    now,
 	}, nil
 }
 

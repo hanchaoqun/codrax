@@ -434,13 +434,9 @@ func appendTypedRelationHints(dst []types.TypedRelationHint, src ...types.TypedR
 }
 
 func typedRelationHintMemberKey(hint types.TypedRelationHint, member types.TypedRelationMember) string {
-	if hint.Relation == "" || strings.TrimSpace(hint.SourceName) == "" || strings.TrimSpace(member.Name) == "" {
-		return ""
-	}
-	return strings.ToLower(string(hint.Relation)) + "|" +
-		strings.ToLower(strings.TrimSpace(hint.SourceName)) + "|" +
-		strings.ToLower(strings.TrimSpace(member.Name)) + "|" +
-		strings.TrimSpace(member.File)
+	// Delegates to the shared canonical key so the prompt-side hint merge and
+	// the repo_map relation_map typed observation rows dedup identically.
+	return types.TypedRelationMemberSurfaceKey(hint.Relation, hint.SourceName, member)
 }
 
 func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery) []types.TypedRelationHint {
