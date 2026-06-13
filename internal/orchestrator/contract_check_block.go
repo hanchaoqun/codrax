@@ -2562,6 +2562,9 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
 			continue
 		}
+		if answerBlockHasOnlyExternalObservationClaimUses(b) {
+			continue
+		}
 		var blockUngrounded []ungroundedItem
 		for _, it := range b.Items {
 			label := strings.TrimSpace(it.Label)
@@ -3648,6 +3651,9 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 	perBlock := make(map[string][]hallucinated)
 	for _, b := range doc.Blocks {
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
+			continue
+		}
+		if answerBlockHasOnlyExternalObservationClaimUses(b) {
 			continue
 		}
 		var blockHits []hallucinated

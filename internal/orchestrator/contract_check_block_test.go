@@ -2057,6 +2057,19 @@ func TestEnumerationLabelGrounding_RuntimeAggregateFactLabelsPass(t *testing.T) 
 	}
 }
 
+func TestEnumerationLabelGrounding_ExternalObservationDimensionLabelsSkipSourceOracle(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	doc := docWithEnumItems("metrics", "dominant_state", "running 累计", "max_segment / p95_segment")
+	doc.Blocks[0].ClaimUses = []types.RenderedClaimUse{{
+		ClaimForm: types.ClaimExternalObservation,
+		FacetID:   string(types.FacetObservedArtifactFact),
+	}}
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("external-observation dimension labels should not require source evidence tokens, got %+v", vs)
+	}
+}
+
 func TestEnumerationLabelGrounding_RuntimeAggregateFactDoesNotCoverUnrelatedCodeLabel(t *testing.T) {
 	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -2111,6 +2124,20 @@ func TestEnumerationLabelHallucination_RuntimeAggregateFactLabelPassesOracleMiss
 
 	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("runtime aggregate fact label should not require code symbol oracle hit, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelHallucination_ExternalObservationDimensionLabelsSkipSourceOracle(t *testing.T) {
+	mut := &types.MutableState{}
+	doc := docWithEnumItems("metrics", "dominant_state", "running 累计", "max_segment / p95_segment")
+	doc.Blocks[0].ClaimUses = []types.RenderedClaimUse{{
+		ClaimForm: types.ClaimExternalObservation,
+		FacetID:   string(types.FacetObservedArtifactFact),
+	}}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
+		t.Fatalf("external-observation dimension labels should not require source symbol oracle hits, got %+v", vs)
 	}
 }
 

@@ -2538,5 +2538,88 @@ Executable task list:
   conditional tool as always available.
 - [x] B34-T4: Add regression tests for prompt-visible tool projection and for
   runtime triage skills not advertising `read_file` in static prompt text.
-- [ ] B34-T5: Run focused/full validation, commit, push, and rerun the
+- [x] B34-T5: Run focused/full validation, commit, push, and rerun the
+  representative eval pair.
+
+Post-Batch-34 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-17bbd853-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 46s. The final strict output remains
+  `{"ids":["u1","u3"]}` with `data_rounds=2`,
+  `data_repair_rounds=1`, `data_record_count=2`, and no
+  answer-contract violations. Manual audit: the stale
+  `decision_status=blocked` entry belongs to an intermediate repaired data
+  round; the terminal strict JSON is complete and correct.
+- `trace_query_state_churn_window_stats`: PASS in 157s with
+  `tool_trace_query=1`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `max_context_window_pct=17`, and `finalizer_iters=1`.
+- Manual answer audit: the answer is semantically correct and rich. It keeps
+  both `app-20` and `rival-30` state-churn rows, includes
+  `dominant_state`, cumulative state times, `fragments`, `switches`,
+  `max_segment`, `p95_segment`, and preserves the follow-up direction to
+  inspect `rival-30` on the same CPU and validate wake latency with
+  `sched_wakeup`.
+- Residual audit gap: `answer_contract_violations=1` and the final surface
+  still appended a generic enumeration caveat. Logs show the only remaining
+  violation was rooted at `block_items_label`, while the answer block was a
+  typed runtime/external-observation metric surface. The prompt/tool surface
+  gap from Batch 34 is closed: no unavailable `read_file` attempt remains.
+
+## Batch 35 Gap: Runtime External-Observation Dimension Lists Must Not Trigger Source Enumeration Caveats
+
+Deep root cause:
+
+- Source-code enumeration validators correctly protect answers that render
+  code identifiers or source inventory labels. Runtime trace metric snapshots,
+  however, render dimension names such as `dominant_state`, `running`, and
+  `max_segment` as external-observation facts, not source symbols.
+- The runtime materializer already stamps these blocks with
+  `ClaimExternalObservation` and `observed_artifact_fact`, but the
+  enumeration label grounding/hallucination oracles did not use that typed
+  boundary. They therefore interpreted runtime metric dimensions as
+  source-like labels and produced `block_items_label` violations even when the
+  trace-query values were correct.
+- The caveat materializer had runtime suppression for low-precision coverage
+  and uncertainty caveats, but not for source enumeration-label violations.
+  If a stale or over-broad source-label violation reached the soft caveat
+  path, it could still leak as a generic user-visible note.
+- This is a system-boundary gap, not a trace-query formatting issue. The fix
+  belongs at the typed claim-form boundary and the typed caveat materializer;
+  it must not inspect user prose, model-authored markdown, or keyword-match
+  runtime metric names.
+
+Generalized design:
+
+- Treat a list/table block whose non-empty `ClaimUses` are all
+  `ClaimExternalObservation` as an external-observation answer surface.
+- Source enumeration label grounding and hallucination oracles must skip that
+  surface entirely. Runtime artifact completeness should be checked by typed
+  runtime aggregate/member-set contracts, not by source symbol evidence
+  tokens or source graph symbol existence.
+- Preserve all existing source-code enumeration behavior for blocks without
+  this typed external-observation boundary, including runtime requests that
+  explicitly render current-source identifiers.
+- Extend runtime low-precision caveat suppression so
+  `ViolEnumerationLabelUngrounded`,
+  `ViolEnumerationItemLabelExtractorDrift`, and
+  `ViolEnumerationLabelHallucinated` remain telemetry-only when the accepted
+  principal answer surface is typed as runtime/external observation.
+- Keep enforcement structural: decisions read claim forms, surface roles, the
+  request model, and mutable answer document state only. No prompt red-line
+  changes, no keyword matching over user intent, labels, or model prose.
+
+Executable task list:
+
+- [x] B35-T1: Record the Post-Batch-34 eval audit and the typed
+  external-observation label-boundary gap.
+- [x] B35-T2: Gate source enumeration label grounding and hallucination on
+  the existing `ClaimExternalObservation` block boundary.
+- [x] B35-T3: Extend runtime caveat materialization so stale source-label
+  violations for accepted external-observation surfaces stay telemetry-only.
+- [x] B35-T4: Add focused regression coverage for the oracle boundary and
+  caveat suppression.
+- [ ] B35-T5: Run focused/full validation, commit, push, and rerun the
   representative eval pair.

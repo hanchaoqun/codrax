@@ -166,6 +166,14 @@ func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesGenericCa
 			Kind:       types.ViolEnumerationEvidenceUnderspecified,
 			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
 		},
+		{
+			Kind:       types.ViolEnumerationLabelUngrounded,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+		{
+			Kind:       types.ViolEnumerationLabelHallucinated,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
 	}, "zh", ctx)
 	if out != "正文" {
 		t.Fatalf("generic runtime answer-surface caveats should stay telemetry-only, got:\n%s", out)
@@ -184,6 +192,18 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesG
 		},
 		{
 			Kind:       types.ViolEnumerationEvidenceUnderspecified,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+		{
+			Kind:       types.ViolEnumerationLabelUngrounded,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+		{
+			Kind:       types.ViolEnumerationItemLabelExtractorDrift,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+		{
+			Kind:       types.ViolEnumerationLabelHallucinated,
 			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
 		},
 		{
