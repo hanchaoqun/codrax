@@ -2446,6 +2446,72 @@ func TestDataTaskReferenceProjectionSkipsMemberValueListAggregate(t *testing.T) 
 	}
 }
 
+func TestDataTaskReferenceProjectionRequiresExplicitAssembleReferenceField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "active_user_ids.json"), []byte(`[
+{"_source":"active_users","active":true,"id":"u1"},
+{"_source":"active_users","active":true,"id":"u3"}
+]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := dataquery.TaskPlan{
+		InputPaths: []string{"active_user_ids.json"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputJSONOnly,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "assemble_final_json",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"active_user_ids.json"},
+			Params: map[string]string{
+				"projection":  "json_object",
+				"value_field": "id",
+				"key_values":  "ids",
+			},
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: current.OutputContract,
+		ConsumedPaths:  []string{"active_user_ids.json"},
+		Rows:           []dataquery.RowDecision{{RowID: "u1", Decision: "include"}},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("u1"), Source: dataquery.LooseText("active_users"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("active_users"), Metric: dataquery.LooseText("count"), Value: dataquery.LooseText("u1"), Operation: dataquery.LooseText("count"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("u3"), Source: dataquery.LooseText("active_users"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("active_users"), Metric: dataquery.LooseText("count"), Value: dataquery.LooseText("u3"), Operation: dataquery.LooseText("count"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status: dataquery.LooseText("pass"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("active_users"), Metric: dataquery.LooseText("count"), Expected: dataquery.LooseText("2"), Actual: dataquery.LooseText("2"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("final_answer"), Metric: dataquery.LooseText("projection"), Scope: dataquery.LooseText("final_answer"), Role: dataquery.LooseText("output"), Expected: dataquery.LooseText(`{"ids":["u1","u3"]}`), Actual: dataquery.LooseText(`{"ids":["u1","u3"]}`), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_json_output",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"group_count": "1",
+				"projection":  "json_object",
+				"value_field": "id",
+			},
+		}},
+	}
+	candidate, _, declared, ok := dataTaskOutputReferenceProjectionGap(root, nil, current, result)
+	if ok && declared {
+		t.Fatalf("candidate=%+v declared=%v, value projection must not become a hard reference gap", candidate, declared)
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
+	if !guard.Empty() {
+		t.Fatalf("guard=%+v, valid JSON value projection must not be reference-repaired", guard)
+	}
+}
+
 func TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {

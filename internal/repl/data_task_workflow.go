@@ -5407,14 +5407,9 @@ func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner,
 		if dataworkflow.NormalizeActionKind(action.Kind) != dataquery.DataActionAssembleAnswer {
 			continue
 		}
-		fields := cleanDataTaskStrings([]string{
-			action.Params["reference_key_field"],
-			contract.ReferenceKeyField,
-			action.Params["group_key_field"],
-			action.Params["key_field"],
-		})
+		fields := dataTaskAssembleActionDeclaredReferenceFields(action, contract)
 		if len(fields) == 0 {
-			fields = nil
+			continue
 		}
 		paths := cleanDataTaskStrings(append(append([]string{}, action.InputPaths...), action.Params["reference_path"], action.Params["reference_paths"]))
 		for _, path := range paths {
@@ -5463,6 +5458,18 @@ func dataTaskAssembleActionReferenceProjectionGap(runner dataquery.ActionRunner,
 		return best, answerItems, true
 	}
 	return dataquery.ReferenceKeyCandidate{}, answerItems, false
+}
+
+func dataTaskAssembleActionDeclaredReferenceFields(action dataquery.DataAction, contract dataquery.OutputContract) []string {
+	fields := []string{
+		action.Params["reference_key_field"],
+		action.Params["group_key_field"],
+		action.Params["key_field"],
+	}
+	if contract.CompleteReference || parseBoolDataTaskString(action.Params["complete_reference"]) {
+		fields = append(fields, contract.ReferenceKeyField)
+	}
+	return cleanDataTaskStrings(fields)
 }
 
 func dataTaskResultHasReferenceProjection(result dataquery.Result, candidate dataquery.ReferenceKeyCandidate, answerItems int, contract dataquery.OutputContract) bool {

@@ -2791,5 +2791,83 @@ Executable task list:
 - [x] B37-T4: Add regression tests for runtime anchor suppression,
   current-source preservation, analyzer schema projection, and analyzer
   prescan rejection.
-- [ ] B37-T5: Run focused/full validation, commit, push, and rerun the
+- [x] B37-T5: Run focused/full validation, commit, push, and rerun the
   representative eval pair.
+
+Post-Batch-37 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-4561457d-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `trace_query_state_churn_window_stats`: PASS in 157s. Analyzer no longer
+  pre-scanned the repository for external runtime facts (`tool_repo_map=0`);
+  explorer used `trace_query` twice, no source tools, no unavailable-tool
+  attempts, and no answer-contract violations. Manual audit: the trace answer
+  kept the state-churn metrics and same-CPU follow-up evidence visible; the
+  Batch 36/37 runtime boundary is closed for this representative path.
+- `data_json_strict_ids`: FAIL. The workflow reached terminal
+  `status=complete`, but the final visible answer was
+  `[{"group_key":"true","metric":"count","value":"0"}]`, so the eval did not
+  find `ids`, `u1`, or `u3`.
+- Manual data audit: round 15 had already produced the correct strict JSON
+  `{"ids":["u1","u3"]}` with `reconcile.status=pass` and all required ledgers.
+  A later completion guard inferred a reference-complete projection from the
+  `assemble_answer` input artifact and selected incidental fields such as
+  `_source` and `active` as reference keys. That deterministic fallback then
+  overwrote the correct JSON object with a group-count projection.
+
+## Batch 38 Gap: Reference-Complete Projection Must Be Explicitly Declared
+
+Deep root cause:
+
+- Reference-complete output is a hard contract: it can zero-fill missing keys
+  and rewrite the final answer. Per the architecture red line, that hard lane
+  must read precise typed declarations only.
+- The completion guard already treats broad answer-vs-reference cardinality as
+  noisy unless `complete_reference` is declared. However,
+  `dataTaskAssembleActionReferenceProjectionGap` promoted an `assemble_answer`
+  action's generic input artifact into the same hard reference lane even when
+  the action did not declare `complete_reference`, `reference_key_field`,
+  `group_key_field`, or `key_field`.
+- For JSON object/list projections, the input artifact is usually the source of
+  member values, not the universe of required output keys. Treating every field
+  on that artifact as a possible reference key lets incidental metadata fields
+  (`_source`, status booleans, artifact lineage) override a valid strict JSON
+  answer.
+
+Generalized design:
+
+- Keep reference-complete repair hard only when the output contract or the
+  assemble action carries an explicit structural reference declaration:
+  `complete_reference=true` plus a reference key, or an assemble parameter such
+  as `reference_key_field`, `group_key_field`, or `key_field`.
+- If an assemble action only declares value projection fields such as
+  `value_field`, `projection=json_object`, or an explicit output JSON field,
+  treat its inputs as value sources, not reference universes.
+- Preserve the existing complete-reference scenarios where an action names a
+  key field and the reference field overlaps reconcile groups. Those remain
+  precise enough to drive deterministic zero-fill repair.
+- Do not weaken answer richness: a valid strict JSON answer with reconciled
+  ledgers can complete as-is. The fix blocks only the erroneous downstream
+  overwrite path; it does not dedupe, shorten, or keyword-match answer text.
+
+Executable task list:
+
+- [x] B38-T1: Record the Post-Batch-37 eval audit and the explicit-reference
+  projection gap.
+- [x] B38-T2: Restrict assemble-action reference projection inference to
+  explicit key/reference declarations.
+- [x] B38-T3: Add regression coverage for JSON object/list projection over a
+  value artifact with no reference declaration.
+- [x] B38-T4: Preserve existing reference-complete repair tests for actions
+  that explicitly name a reference/group key field.
+- [ ] B38-T5: Run focused/full validation, rebuild, commit/push, then rerun
+  the representative eval pair two at a time.
+
+Batch 38 verification before commit:
+
+- `go test ./internal/repl -run 'TestDataTaskReferenceProjectionRequiresExplicitAssembleReferenceField|TestDataTaskWorkflowCompletionGateInfersReferenceFromAssembleActionInput|TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap|TestDataTaskReferenceProjectionSkipsMemberValueListAggregate'`
+- `go test ./internal/dataworkflow ./internal/dataquery ./internal/repl`
+- `go test ./...`
+- `make`
