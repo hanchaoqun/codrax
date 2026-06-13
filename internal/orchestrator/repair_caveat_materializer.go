@@ -282,6 +282,8 @@ func runtimeObservationOnlyLowPrecisionCaveat(v types.Violation, ctx *types.BusC
 		return summary == "" && body == ""
 	case types.ViolEnumerationEvidenceUnderspecified:
 		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx) && !runtimeSurfaceRequiresPrincipalEnumeration(ctx)
+	case types.ViolDeniedTokenUndeclared:
+		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx)
 	default:
 		return false
 	}

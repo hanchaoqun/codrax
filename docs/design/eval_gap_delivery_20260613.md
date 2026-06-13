@@ -1539,6 +1539,82 @@ Verification:
 
 - Focused tests:
   `go test ./internal/orchestrator -run 'TestAppend(User|Soft).*CaveatsToAnswerForBus_(ObservationOnly|RuntimeAnswerSurface|PureHistory|Mechanism)'`
+
+Post-Batch-22 eval audit:
+
+- `eval/results/eval-gap-20260613-post-c1224262-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 51s. Metrics: `data_rounds=2`,
+  `data_repair_rounds=1`, `data_answer_len=19`, no unavailable tools, and no
+  answer-contract violations. Manual audit: terminal status is `complete`,
+  final projection is present/satisfied, consumed paths include both
+  `instructions.md` and `users.json`, and the answer is the strict JSON object
+  `{"ids":["u1","u3"]}`.
+- `trace_query_state_churn_window_stats`: PASS in 159s. Metrics:
+  `tool_trace_query=3`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `answer_contract_violations=1`, `finalizer_rejects=0`,
+  `max_context_window_pct=19`. Manual audit: the answer actively used
+  `trace_query window_stats` and `root_cause_rank`, preserved
+  `dominant_state=runnable`, `running=3.5ms`, `runnable=5.0ms`,
+  `sleep/d_state/io_wait=0ms`, `fragments=21`, `switches=20`,
+  `max_segment=0.5ms`, `p95_segment=0.5ms`, and retained a useful runtime
+  artifact boundary caveat. Residual gap: the generic enumeration caveat is
+  gone, but a generic consistency caveat remains.
+
+## Batch 23 Gap: Runtime Surface Must Demote Typed-Denial Consistency Telemetry
+
+Deep root cause:
+
+- Batch 22 demoted generic self-contradiction and enumeration-support caveats
+  for typed external-observation answer surfaces. The post-Batch-22 run shows
+  another consistency-family producer: `ViolDeniedTokenUndeclared`, emitted by
+  the answer-side typed-denial validator against `answer_document.blocks.*.prose`.
+- In runtime external-only answers, principal blocks can legitimately mention
+  observed or absent runtime labels as external observations while a separate
+  caveat block states the runtime artifact boundary. When the accepted
+  principal surface is `claim_form=external_observation` with no current-source
+  citations, a generic typed-denial consistency caveat is low-precision
+  telemetry, not a concrete user action.
+- This is a typed-signal gap, not a trace string problem. The fix must consume
+  violation kind, answer-surface claim metadata, and citation metadata only.
+
+Generalized design:
+
+- Extend the runtime low-precision caveat filter to include
+  `ViolDeniedTokenUndeclared` when the accepted answer surface is
+  external-observation-only and citation-free.
+- Keep the validator and telemetry intact; only the user-visible generic
+  caveat is suppressed on accepted runtime surfaces.
+- Preserve concrete `ViolSelfContradiction` SUMMARY/BODY conflicts, principal
+  enumeration caveats, mixed current-source answer surfaces, and strict
+  current-source denial behavior.
+
+Executable task list:
+
+- [x] B23-T1: Record post-Batch-22 eval audit and typed-denial consistency
+  root cause in this document.
+- [x] B23-T2: Add regression coverage for `ViolDeniedTokenUndeclared` on
+  runtime external-observation answer surfaces.
+- [x] B23-T3: Extend runtime low-precision caveat filtering for this typed
+  denial violation while preserving mixed-surface disclosure.
+- [x] B23-T4: Run focused tests; full tests/build, commit, push, and rerun the two
+  representative eval cases.
+
+Implementation notes:
+
+- `runtimeObservationOnlyLowPrecisionCaveat` now treats
+  `ViolDeniedTokenUndeclared` as telemetry-only when the accepted runtime
+  answer surface is external-observation-only and citation-free.
+- The typed-denial validator still emits the violation for logs and strict
+  promotion. The user-visible suppression is scoped to the same answer-surface
+  predicate used for runtime self-contradiction/enumeration support caveats.
+- Mixed visible blocks without external-observation claim annotations still
+  keep the consistency caveat.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/orchestrator -run 'TestAppend(User|Soft).*CaveatsToAnswerForBus_(ObservationOnly|RuntimeAnswerSurface|PureHistory|Mechanism)'`
 - Package tests: `go test ./internal/orchestrator`
 - Full tests: `go test ./...`
 - Build: `make`
