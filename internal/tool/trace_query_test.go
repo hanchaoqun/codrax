@@ -82,6 +82,80 @@ func TestTraceQueryAttachedSourceHintControlsPrioritySemantics(t *testing.T) {
 	}
 }
 
+func TestTraceQueryRunnableContextSummaryObservationsAndAliases(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "runnable_context.systrace")
+	trace := strings.Join([]string{
+		`idle/4-0 (0) [004] .... 1.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+		`bgA-200 (900) [000] .... 1.000000: cpu_frequency: state=900000 cpu_id=0`,
+		`big-300 (901) [004] .... 1.000000: cpu_frequency: state=2400000 cpu_id=4`,
+		`bgA-200 (900) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=bgA next_pid=200 next_prio=20`,
+		`ctrl-300 (900) [001] .... 1.000500: sched_setaffinity: comm=app pid=100 mask=0x3 cpuset=top-app target_cpu=0 policy=bind`,
+		`ctrl-300 (900) [001] .... 1.001000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000`,
+		`app-100 (100) [000] .... 1.010000: sched_switch: prev_comm=bgA prev_pid=200 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=100 next_prio=52 next_info=3,4,1,1,0 cg=top-app`,
+		`app-100 (100) [000] .... 1.012000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":        "path",
+		"path":          "runnable_context.systrace",
+		"view":          "window_stats",
+		"pid":           100,
+		"time_start":    1.0,
+		"time_end":      1.012,
+		"trace_flavor":  "harmony_hitrace",
+		"core_topology": "small=0-3,big=4-7",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"- thread_cpu_load thread=bgA-200",
+		"- cpu_constraint thread=app-100",
+		"- runnable_context thread=app-100",
+		"top_background_threads=bgA-200/",
+		"allowed_cpus=0,1",
+		"core_class=small",
+		"restricted_to_busy_or_small_cores",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("runnable context summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	seenPredicates := map[string]bool{}
+	for _, row := range res.Observations {
+		seenPredicates[row.Predicate] = true
+	}
+	for _, want := range []string{"thread_cpu_load", "cpu_constraint", "runnable_context", "process_cpu_load"} {
+		if !seenPredicates[want] {
+			t.Fatalf("typed observations missing %s: %+v", want, res.Observations)
+		}
+	}
+	searchParams, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "runnable_context.systrace",
+		"view":        "event_search",
+		"time_start":  1.0,
+		"time_end":    1.012,
+		"event_types": "cpuAffinity",
+	})
+	searchRes, err := (&TraceQuery{}).Execute(ctx, searchParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !searchRes.Success || !strings.Contains(searchRes.Summary, "matched_events=") ||
+		!strings.Contains(searchRes.Summary, "cpu_constraint") {
+		t.Fatalf("event_types alias cpuAffinity should find constraint evidence:\n%s", searchRes.Summary)
+	}
+}
+
 func TestTraceQueryAttachedBlobPathInheritsAttachedSourceHint(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, promptctx.AttachedTraceBlobName)
@@ -470,7 +544,7 @@ func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T)
 	tracePath := filepath.Join(dir, "inode_io.systrace")
 	trace := strings.Join([]string{
 		`app-20 (20) [001] .... 12.000000: android_fs_datawrite_start: entry_name=foo.db offset=0 bytes=4096 cmdline=app pid=20 i_size=8192 ino=0xb9b8e`,
-		`app-20 (20) [001] .... 12.001000: android_fs_datawrite_end: ino=0xb9b8e offset=0 bytes=4096`,
+		`app-20 (20) [001] .... 12.001000: android_fs_datawrite_end: ino=0xb9b8e offset=0 bytes=4096 ret=4096 latency_us=700`,
 		`app-20 (20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0 pfn=1 ofs=0`,
 		`app-20 (20) [001] .... 12.003000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e page=0 pfn=1 ofs=0`,
 		`app-20 (20) [001] .... 12.004000: scsi_dispatch_cmd_start: dev=12,80 op=write bytes=4096`,
@@ -493,8 +567,12 @@ func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T)
 		"# Trace Query: window_stats",
 		"file_io inode=0xb9b8e",
 		"name=foo.db",
+		"completions=1",
+		"ret=4096",
+		"example=entry_name=foo.db offset=0 bytes=4096",
 		"page_cache inode=0xb9b8e",
 		"storage_latency layer=scsi",
+		"example=dev=12,80 op=write bytes=4096",
 		"io_pressure signal=",
 		"iowait_blocked=1",
 	} {
@@ -515,7 +593,7 @@ func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T)
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "view=causal_impact is accepted as wakeup_chain", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "io_pressure_summary", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "view=causal_impact is accepted as wakeup_chain", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "io_pressure_summary", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

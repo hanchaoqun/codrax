@@ -357,8 +357,9 @@ func reconcileRuntimeObservationProducerPrecedence(records []ObservationRecord) 
 		}
 		if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
 			record.Role = AnswerAggregateRoleSupportingCoverage
-			record.GroundingPolicy = AnswerClaimBindingGroundingPolicy(record.Origin, record.Role)
 		}
+		record.GroundingPolicy = ClaimGroundingSoft
+		record.ProvenanceLane = ObservationProvenanceInferredUpstreamPossibility
 		record.RichNotes = appendUniqueObservationString(record.RichNotes, "advisory_pretriage; deterministic_runtime_query_present=true")
 		out[i] = record
 	}
@@ -695,7 +696,16 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank -= 70
 	}
 	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsPreTriage(record.Producer) {
-		rank += 10
+		rank += 60
+		if observationRecordHasRichNote(record, "advisory_pretriage; deterministic_runtime_query_present=true") {
+			rank += 140
+		}
+	}
+	switch record.ProvenanceLane {
+	case ObservationProvenanceObservedDirectCause:
+		rank -= 25
+	case ObservationProvenanceInferredUpstreamPossibility:
+		rank += 60
 	}
 	if record.Negative {
 		rank -= 20
@@ -712,6 +722,15 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank += 30
 	}
 	return rank
+}
+
+func observationRecordHasRichNote(record ObservationRecord, note string) bool {
+	for _, got := range record.RichNotes {
+		if strings.TrimSpace(got) == note {
+			return true
+		}
+	}
+	return false
 }
 
 func observationRecordIsPrincipalAggregate(record ObservationRecord) bool {
@@ -1268,8 +1287,13 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	rootCauseOrdinal := 0
 	rootEvidenceOrdinal := 0
 	causalImpactOrdinal := 0
+	wakeupPathOrdinal := 0
 	blockingOrdinal := 0
 	stateChurnOrdinal := 0
+	threadCPULoadOrdinal := 0
+	cpuConstraintOrdinal := 0
+	runnableContextOrdinal := 0
+	processCPULoadOrdinal := 0
 	fileIOOrdinal := 0
 	pageCacheOrdinal := 0
 	storageLatencyOrdinal := 0
@@ -1296,6 +1320,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 			if record, ok := traceQueryCausalImpactRecord(index, causalImpactOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
+		case strings.HasPrefix(line, "- wakeup_chain path="):
+			wakeupPathOrdinal++
+			if record, ok := traceQueryWakeupPathRecord(index, wakeupPathOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
 		case strings.HasPrefix(line, "- blocking "):
 			blockingOrdinal++
 			if record, ok := traceQueryBlockingRecord(index, blockingOrdinal, line, ref, observedAt); ok {
@@ -1304,6 +1333,26 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- state_churn "):
 			stateChurnOrdinal++
 			if record, ok := traceQueryStateChurnRecord(index, stateChurnOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- thread_cpu_load "):
+			threadCPULoadOrdinal++
+			if record, ok := traceQueryThreadCPULoadRecord(index, threadCPULoadOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- cpu_constraint "):
+			cpuConstraintOrdinal++
+			if record, ok := traceQueryCPUConstraintRecord(index, cpuConstraintOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- runnable_context "):
+			runnableContextOrdinal++
+			if record, ok := traceQueryRunnableContextRecord(index, runnableContextOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- process_cpu_load "):
+			processCPULoadOrdinal++
+			if record, ok := traceQueryProcessCPULoadRecord(index, processCPULoadOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		case strings.HasPrefix(line, "- file_io "):
@@ -1340,6 +1389,29 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 			}
 		}
 	}
+}
+
+func traceQueryWakeupPathRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	path := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- wakeup_chain path="))
+	if path == "" {
+		return ObservationRecord{}, false
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:wakeup_chain:path:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		ClaimKey:        "wakeup_chain:path",
+		Predicate:       "wakeup_chain",
+		Object:          path,
+		Summary:         "wakeup_chain path=" + path,
+		RichNotes:       []string{"path=" + path},
+		ObservedAt:      observedAt,
+		Confidence:      0.82,
+	}, true
 }
 
 func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
@@ -1568,6 +1640,166 @@ func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []st
 	return notes
 }
 
+func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- thread_cpu_load ")
+	thread := strings.TrimSpace(fields["thread"])
+	running := traceQueryFieldMS(fields, "running")
+	runnable := traceQueryFieldMS(fields, "runnable")
+	total := running + runnable
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if thread == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if total > 0 {
+		value = fmt.Sprintf("%.3f", total)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:thread_cpu_load:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "thread_cpu_load:" + thread,
+		Subject:         thread,
+		Predicate:       "thread_cpu_load",
+		Object:          strings.TrimSpace(fields["cpu"]),
+		Value:           value,
+		Unit:            "ms",
+		Summary:         traceQueryLoadSummaryFromFields("thread_cpu_load", fields, summary),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "running", "runnable", "high_prio_running", "cpu", "core_class", "freq", "prio"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.72,
+	}, true
+}
+
+func traceQueryCPUConstraintRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- cpu_constraint ")
+	thread := strings.TrimSpace(fields["thread"])
+	runnable := traceQueryFieldMS(fields, "runnable")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if thread == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if runnable > 0 {
+		value = fmt.Sprintf("%.3f", runnable)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:cpu_constraint:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "cpu_constraint:" + thread,
+		Subject:         thread,
+		Predicate:       "cpu_constraint",
+		Object:          firstNonEmptyString(strings.TrimSpace(fields["cpuset"]), strings.TrimSpace(fields["allowed_cpus"]), strings.TrimSpace(fields["kind"])),
+		Value:           value,
+		Unit:            "ms",
+		Summary:         traceQueryLoadSummaryFromFields("cpu_constraint", fields, summary),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "kind", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "observed_cpu", "observed_core_class", "migrations", "runnable", "other_cpu_idle"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.72,
+	}, true
+}
+
+func traceQueryRunnableContextRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- runnable_context ")
+	thread := strings.TrimSpace(fields["thread"])
+	verdict := strings.TrimSpace(fields["verdict"])
+	runnable := traceQueryFieldMS(fields, "runnable")
+	conf := traceQueryFieldFloat(fields, "confidence")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if thread == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if runnable > 0 {
+		value = fmt.Sprintf("%.3f", runnable)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:runnable_context:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "runnable_context:" + thread,
+		Subject:         thread,
+		Predicate:       "runnable_context",
+		Object:          verdict,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         traceQueryLoadSummaryFromFields("runnable_context", fields, summary),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "runnable", "cpu", "core_class", "freq", "same_cpu_busy", "same_cpu_idle", "other_cpu_idle", "high_prio_running", "top_background_threads", "top_background_process", "constraint", "verdict"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      conf,
+	}, true
+}
+
+func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- process_cpu_load ")
+	process := strings.TrimSpace(fields["process"])
+	running := traceQueryFieldMS(fields, "running")
+	runnable := traceQueryFieldMS(fields, "runnable")
+	total := running + runnable
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if process == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if total > 0 {
+		value = fmt.Sprintf("%.3f", total)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:process_cpu_load:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "process_cpu_load:" + process,
+		Subject:         process,
+		Predicate:       "process_cpu_load",
+		Object:          strings.TrimSpace(fields["top_thread"]),
+		Value:           value,
+		Unit:            "ms",
+		Summary:         traceQueryLoadSummaryFromFields("process_cpu_load", fields, summary),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"process", "threads", "running", "runnable", "high_prio_running", "top_thread", "top_thread_ms", "cpus", "core_classes"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.66,
+	}, true
+}
+
+func traceQueryLoadSummaryFromFields(label string, fields map[string]string, fallback string) string {
+	parts := []string{label}
+	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "cpu", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
+	for _, key := range keys {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	if summary := strings.TrimSpace(fallback); summary != "" {
+		parts = append(parts, "detail="+summary)
+	}
+	return strings.Join(parts, " ")
+}
+
 func traceQueryFileIORecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
 	fields, summary := traceQuerySummaryLineFields(line, "- file_io ")
 	inode := strings.TrimSpace(fields["inode"])
@@ -1594,7 +1826,7 @@ func traceQueryFileIORecord(index, ordinal int, line string, ref ObservationSour
 		Value:           bytes,
 		Unit:            "bytes",
 		Summary:         traceQueryFileIOSummaryFromFields(fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"inode", "dev", "name", "op", "thread", "count", "bytes", "total_latency", "max_latency", "offsets"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"inode", "dev", "name", "op", "thread", "count", "completions", "bytes", "total_latency", "max_latency", "ret", "offsets", "example"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.74,
@@ -1635,7 +1867,7 @@ func traceQueryPageCacheRecord(index, ordinal int, line string, ref ObservationS
 
 func traceQueryFileIOSummaryFromFields(fields map[string]string, fallback string) string {
 	parts := []string{"file_io_by_inode"}
-	for _, key := range []string{"inode", "dev", "name", "op", "bytes", "count", "total_latency", "max_latency", "offsets"} {
+	for _, key := range []string{"inode", "dev", "name", "op", "bytes", "count", "completions", "total_latency", "max_latency", "ret", "offsets", "example"} {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			parts = append(parts, key+"="+value)
 		}
@@ -1674,12 +1906,25 @@ func traceQueryStorageLatencyRecord(index, ordinal int, line string, ref Observa
 		Object:          event,
 		Value:           value,
 		Unit:            "ms",
-		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"layer", "event", "dev", "op", "thread", "count", "paired", "unpaired_start", "unpaired_done", "max_latency", "avg_latency", "bytes"}),
+		Summary:         traceQueryStorageLatencySummaryFromFields(fields, summary),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"layer", "event", "dev", "op", "thread", "count", "paired", "unpaired_start", "unpaired_done", "max_latency", "avg_latency", "bytes", "example"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.72,
 	}, true
+}
+
+func traceQueryStorageLatencySummaryFromFields(fields map[string]string, fallback string) string {
+	parts := []string{"storage_latency_by_layer"}
+	for _, key := range []string{"layer", "event", "dev", "op", "thread", "count", "paired", "unpaired_start", "unpaired_done", "max_latency", "avg_latency", "bytes", "example"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	if summary := strings.TrimSpace(fallback); summary != "" {
+		parts = append(parts, "detail="+summary)
+	}
+	return strings.Join(parts, " ")
 }
 
 func traceQueryIOPressureRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
@@ -1864,12 +2109,29 @@ func traceQuerySummaryLineFields(line, prefix string) (map[string]string, string
 	if !ok {
 		head = body
 	}
-	for _, token := range strings.Fields(head) {
+	tokens := strings.Fields(head)
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
 		key, value, ok := strings.Cut(token, "=")
 		if !ok {
 			continue
 		}
-		fields[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "example" {
+			parts := []string{strings.TrimSpace(value)}
+			for i+1 < len(tokens) {
+				nextKey, _, nextOK := strings.Cut(tokens[i+1], "=")
+				nextKey = strings.ToLower(strings.TrimSpace(nextKey))
+				if nextOK && (nextKey == "line" || nextKey == "lines") {
+					break
+				}
+				i++
+				parts = append(parts, strings.TrimSpace(tokens[i]))
+			}
+			fields[key] = strings.TrimSpace(strings.Join(parts, " "))
+			continue
+		}
+		fields[key] = strings.TrimSpace(value)
 	}
 	return fields, strings.TrimSpace(summary)
 }

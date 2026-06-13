@@ -1047,12 +1047,27 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.Route = RouteRepo
 	}
 
+	// Data lane self-contradiction for runtime/repo observation analysis:
+	// the classifier can correctly identify a trace/log/MCP artifact turn as
+	// operation=investigate/source=artifact while also setting
+	// needs_data_access because the evidence is "data" in ordinary language.
+	// For this typed shape, keep the request in the source/runtime evidence
+	// pipeline. This guard consumes only schema fields and deliberately leaves
+	// real data operations (data_aggregation, data_cleaning, etc.) to the
+	// dedicated data lane below.
+	if isAnalysisOnlyPolicy(p) && (p.Route == RouteData || p.NeedsDataAccess || isDataLikeOperation(p.DataTaskKind)) {
+		p.Route = RouteRepo
+		p.NeedsRepoAccess = true
+		p.NeedsDataAccess = false
+		p.DataTaskKind = ""
+	}
+
 	// Data lane self-contradiction: data_task_kind / needs_data_access is a
 	// primary typed axis. If the route drifted to local/repo/operation while
 	// the model also declared a data task, prefer the dedicated data lane. This
 	// keeps spreadsheet-like calculation and strict data-output work out of
 	// source evidence gates and out of command-operation approval.
-	if p.Route != RouteData && hasDataSignal(p) {
+	if p.Route != RouteData && hasDataSignal(p) && !isAnalysisOnlyPolicy(p) {
 		p.Route = RouteData
 		p.NeedsDataAccess = true
 	}

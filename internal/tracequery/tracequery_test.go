@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1374,6 +1375,76 @@ func TestWakeupChainUsesBoundaryToleranceForAdjacentWakeup(t *testing.T) {
 	}
 }
 
+func TestCPUConstraintParserHandlesAffinityAndHarmonyNextInfo(t *testing.T) {
+	intern := newStringInterner()
+	ev, ok := ParseLine(1, `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53 next_info=f,10,2,1,3 cg=top-app`, intern)
+	if !ok || ev.Type != EventSchedSwitch || ev.NextInfoAffinity != "f" || !ev.NextInfoRestricted || ev.NextInfoLoad != 10 || ev.NextInfoGroup != 2 || ev.NextInfoExpel != 3 {
+		t.Fatalf("Harmony next_info not parsed: %+v ok=%v", ev, ok)
+	}
+	if got := strings.Trim(strings.Join(intsToStrings(ev.NextInfoAllowedCPUs), ","), ","); got != "0,1,2,3" {
+		t.Fatalf("next_info affinity mask should expand to CPUs 0-3, got %v", ev.NextInfoAllowedCPUs)
+	}
+	ev, ok = ParseLine(2, `        app-20   (   20) [001] .... 1.121000: sched_setaffinity: comm=app pid=20 mask=0x3 cpuset=top-app target_cpu=0 policy=bind`, intern)
+	if !ok || ev.Type != EventCPUConstraint || ev.ConstraintPID != 20 || ev.CPUSet != "top-app" || ev.ConstraintPolicy != "bind" || !ev.ConstraintCPUValid {
+		t.Fatalf("sched_setaffinity not parsed as CPU constraint: %+v ok=%v", ev, ok)
+	}
+	if got := strings.Join(intsToStrings(ev.AllowedCPUs), ","); got != "0,1" {
+		t.Fatalf("affinity mask should expand to CPUs 0-1, got %v", ev.AllowedCPUs)
+	}
+}
+
+func TestRunnableContextPrioritizesThreadLoadAndCPUConstraint(t *testing.T) {
+	idx := buildTraceIndex(t, "runnable_context.systrace", `
+       idle/4-0   (    0) [004] .... 1.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle/4 next_pid=0 next_prio=120
+        bgA-200   (  900) [000] .... 1.000000: cpu_frequency: state=900000 cpu_id=0
+        big-300   (  901) [004] .... 1.000000: cpu_frequency: state=2400000 cpu_id=4
+        bgA-200   (  900) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=bgA next_pid=200 next_prio=20
+       ctrl-300   (  900) [001] .... 1.000500: sched_setaffinity: comm=app pid=100 mask=0x3 cpuset=top-app target_cpu=0 policy=bind
+       ctrl-300   (  900) [001] .... 1.001000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+        app-100   (  100) [000] .... 1.010000: sched_switch: prev_comm=bgA prev_pid=200 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=100 next_prio=52 next_info=3,4,1,1,0 cg=top-app
+        app-100   (  100) [000] .... 1.012000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	`)
+	q := Query{PID: 100, TimeStart: 1.000, TimeEnd: 1.012, CoreTopology: "small=0-3,big=4-7", TraceFlavorHint: TraceFlavorHarmonyHitrace, MinDurationMs: 0.05, Limit: 8}
+	stats := ComputeWindowStats(idx, q)
+	var appCtx *RunnableContextSummary
+	for i := range stats.RunnableContext {
+		if stats.RunnableContext[i].Thread.PID == 100 {
+			appCtx = &stats.RunnableContext[i]
+			break
+		}
+	}
+	if appCtx == nil {
+		t.Fatalf("expected runnable_context for app: %+v", stats.RunnableContext)
+	}
+	if appCtx.CoreClass != "small" || appCtx.CPU != 0 || appCtx.CPUConstraint == nil {
+		t.Fatalf("runnable context lost core/constraint evidence: %+v", appCtx)
+	}
+	if appCtx.CPUConstraint.Policy == "" || !strings.Contains(appCtx.CPUConstraint.Policy, "restricted=true") {
+		t.Fatalf("Harmony next_info restriction should reach CPU constraint: %+v", appCtx.CPUConstraint)
+	}
+	if len(appCtx.TopBackgroundThreads) == 0 || appCtx.TopBackgroundThreads[0].Thread.PID != 200 {
+		t.Fatalf("thread load should be primary background context, got %+v", appCtx.TopBackgroundThreads)
+	}
+	if appCtx.TopBackgroundProcess == nil {
+		t.Fatalf("process rollup should remain secondary context: %+v", appCtx)
+	}
+	if appCtx.Verdict != "restricted_to_busy_or_small_cores" {
+		t.Fatalf("expected restricted small-core verdict, got %+v", appCtx)
+	}
+	rank := BuildRootCauseRank(idx, q)
+	found := false
+	for _, item := range rank.Items {
+		if item.Type == "scheduler_latency" && item.Thread.PID == 100 {
+			found = strings.Contains(item.Summary, "top_background_thread=bgA-200") &&
+				strings.Contains(item.Summary, "allowed_cpus=0,1") &&
+				strings.Contains(item.Summary, "core_class=small")
+		}
+	}
+	if !found {
+		t.Fatalf("root cause rank should carry thread-first runnable context: %+v", rank.Items)
+	}
+}
+
 func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	idx := buildTraceIndex(t, "causal_io.systrace", `
         app-100 (100) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
@@ -1415,6 +1486,14 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 			t.Fatalf("off-chain D-state should be background, got %+v", item)
 		}
 	}
+}
+
+func intsToStrings(in []int) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		out = append(out, strconv.Itoa(v))
+	}
+	return out
 }
 
 func TestIPCGraphMatchesBinderSendAndReceive(t *testing.T) {

@@ -650,7 +650,13 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.WakeeComm,
 		ev.PrevState,
 		ev.NextInfo,
+		ev.NextInfoAffinity,
 		ev.CGroup,
+		ev.ConstraintComm,
+		ev.ConstraintKind,
+		ev.ConstraintPolicy,
+		ev.AllowedCPUsText,
+		ev.CPUSet,
 		ev.Reason,
 		ev.SpanAction,
 		ev.SpanName,
@@ -694,9 +700,17 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PrevPrio,
 		ev.NextPID,
 		ev.NextPrio,
+		ev.NextInfoLoad,
+		ev.NextInfoGroup,
+		ev.NextInfoExpel,
+		ev.NextInfoCGID,
 		ev.WakeePID,
 		ev.WakeePrio,
 		ev.TargetCPU,
+		ev.ConstraintPID,
+		ev.ConstraintCPU,
+		ev.ConstraintOrigCPU,
+		ev.ConstraintDestCPU,
 		ev.State,
 		ev.Frequency,
 		ev.FrequencyMin,
@@ -769,13 +783,19 @@ func eventTypeMatches(ev Event, typeSet map[EventType]bool) bool {
 		return true
 	case typeSet["io_pressure"] && (isStorageLatencyEvent(ev) || isFileIOEvent(ev) || isPageCacheEvent(ev) || ev.Type == EventSchedBlockedReason):
 		return true
+	case typeSet["cpu_constraint"] && isCPUConstraintEvidence(ev):
+		return true
 	default:
 		return false
 	}
 }
 
+func isCPUConstraintEvidence(ev Event) bool {
+	return ev.Type == EventCPUConstraint || (ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || strings.TrimSpace(ev.NextInfoAffinity) != ""))
+}
+
 func eventMentionsPID(ev Event, pid int) bool {
-	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid
+	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
@@ -783,7 +803,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
 		return true
 	}
-	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
+	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.ConstraintComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
 		if threadSelectorMatchesName(sel, v) {
 			return true
 		}
@@ -1167,6 +1187,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	applyThreadCoreClasses(stats.DStateTop, coreByCPU)
 	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
+	stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
+	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, 12)
+	stats.ProcessCPULoad = computeProcessCPULoad(idx, q, stats.ThreadCPULoad, coreByCPU, 8)
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -1192,6 +1215,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
+	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
+	stats.RunnableContext = computeRunnableContextSummaries(latency.Items, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 8)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
 	return stats
 }
@@ -1388,6 +1413,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	for _, p := range stats.CPUPressure {
 		pressure[p.CPU] = p
 	}
+	catalog := buildThreadCatalog(idx, q)
 	freqByCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
 		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
@@ -1445,6 +1471,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			EndTs:                 endTs,
 			DurationMs:            duration,
 			CPU:                   start.cpu,
+			CoreClass:             cpu.CoreClass,
 			Frequency:             freq,
 			Priority:              start.priority,
 			PriorityClass:         start.priorityClass,
@@ -1457,6 +1484,9 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			SameCPUTopRunning:     p.TopRunning,
 		}
 		item.Summary = fmt.Sprintf("%s waited runnable for %.3fms on cpu=%d", threadLabel(item.Thread), item.DurationMs, item.CPU)
+		if item.CoreClass != "" {
+			item.Summary = fmt.Sprintf("%s core_class=%s", item.Summary, item.CoreClass)
+		}
 		if item.Frequency > 0 {
 			item.Summary = fmt.Sprintf("%s freq=%dkHz", item.Summary, item.Frequency)
 		}
@@ -1485,7 +1515,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 					}
 					if existing, ok := open[ev.WakeePID]; !ok || ev.Ts < existing.ts {
 						open[ev.WakeePID] = startInfo{
-							thread:        ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID},
+							thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
 							ts:            ev.Ts,
 							line:          ev.Line,
 							cpu:           ev.TargetCPU,
@@ -1505,7 +1535,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		if ev.PrevPID > 0 && stateFromPrevState(ev.PrevState) == StateRunnable {
 			open[ev.PrevPID] = startInfo{
-				thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
+				thread:        catalogThreadRef(catalog, ev.PrevPID, ev.PrevComm),
 				ts:            ev.Ts,
 				line:          ev.Line,
 				cpu:           ev.CPU,
@@ -1611,6 +1641,650 @@ func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureSta
 		out = out[:max]
 	}
 	return out
+}
+
+func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
+	out := map[int]ThreadRef{}
+	if idx == nil {
+		return out
+	}
+	add := func(pid int, comm string, tgid int) {
+		if pid <= 0 {
+			return
+		}
+		ref := out[pid]
+		if ref.PID == 0 {
+			ref.PID = pid
+		}
+		if strings.TrimSpace(ref.Comm) == "" && strings.TrimSpace(comm) != "" {
+			ref.Comm = strings.TrimSpace(comm)
+		}
+		if ref.TGID == 0 && tgid > 0 {
+			ref.TGID = tgid
+		}
+		out[pid] = ref
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) {
+			continue
+		}
+		add(ev.PID, ev.Comm, ev.TGID)
+		add(ev.PrevPID, ev.PrevComm, 0)
+		add(ev.NextPID, ev.NextComm, 0)
+		add(ev.WakeePID, ev.WakeeComm, 0)
+		add(ev.ConstraintPID, ev.ConstraintComm, 0)
+	}
+	return out
+}
+
+func catalogThreadRef(catalog map[int]ThreadRef, pid int, comm string) ThreadRef {
+	ref := catalog[pid]
+	if ref.PID == 0 {
+		ref.PID = pid
+	}
+	if strings.TrimSpace(ref.Comm) == "" {
+		ref.Comm = strings.TrimSpace(comm)
+	}
+	return ref
+}
+
+func threadKey(thread ThreadRef) string {
+	if thread.PID > 0 {
+		return fmt.Sprintf("pid:%d", thread.PID)
+	}
+	return "comm:" + strings.ToLower(strings.TrimSpace(thread.Comm))
+}
+
+type cpuConstraintAcc struct {
+	item       CPUConstraintSummary
+	allowedSet map[int]bool
+}
+
+func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, cpus []CPUStats, max int) []CPUConstraintSummary {
+	if idx == nil {
+		return nil
+	}
+	catalog := buildThreadCatalog(idx, q)
+	runnableByPID := map[int]float64{}
+	for _, td := range runnable {
+		if td.Thread.PID > 0 {
+			runnableByPID[td.Thread.PID] += td.DurationMs
+		}
+	}
+	cpuByID := map[int]CPUStats{}
+	for _, cpu := range cpus {
+		cpuByID[cpu.CPU] = cpu
+	}
+	accs := map[string]*cpuConstraintAcc{}
+	ensure := func(thread ThreadRef) *cpuConstraintAcc {
+		key := threadKey(thread)
+		if accs[key] == nil {
+			accs[key] = &cpuConstraintAcc{item: CPUConstraintSummary{Thread: thread}, allowedSet: map[int]bool{}}
+		}
+		if accs[key].item.Thread.Comm == "" && thread.Comm != "" {
+			accs[key].item.Thread.Comm = thread.Comm
+		}
+		if accs[key].item.Thread.TGID == 0 && thread.TGID > 0 {
+			accs[key].item.Thread.TGID = thread.TGID
+		}
+		return accs[key]
+	}
+	addAllowed := func(acc *cpuConstraintAcc, cpus []int) {
+		for _, cpu := range cpus {
+			if cpu < 0 || acc.allowedSet[cpu] {
+				continue
+			}
+			acc.allowedSet[cpu] = true
+			acc.item.AllowedCPUs = append(acc.item.AllowedCPUs, cpu)
+		}
+	}
+	updateLines := func(acc *cpuConstraintAcc, ev Event) {
+		if acc.item.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.item.LineStart) {
+			acc.item.LineStart = ev.Line
+		}
+		if ev.Line > acc.item.LineEnd {
+			acc.item.LineEnd = ev.Line
+		}
+		if acc.item.StartTs == 0 || (ev.Ts > 0 && ev.Ts < acc.item.StartTs) {
+			acc.item.StartTs = ev.Ts
+		}
+		if ev.Ts > acc.item.EndTs {
+			acc.item.EndTs = ev.Ts
+		}
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		switch {
+		case ev.Type == EventCPUConstraint:
+			thread := catalogThreadRef(catalog, ev.ConstraintPID, ev.ConstraintComm)
+			if thread.PID <= 0 && thread.Comm == "" {
+				continue
+			}
+			acc := ensure(thread)
+			acc.item.ConstraintCount++
+			acc.item.Kind = firstNonEmpty(acc.item.Kind, ev.Name, string(ev.Type))
+			acc.item.Policy = firstNonEmpty(acc.item.Policy, ev.ConstraintPolicy)
+			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, ev.CPUSet)
+			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
+			addAllowed(acc, ev.AllowedCPUs)
+			if ev.ConstraintDestCPUSet {
+				acc.item.ObservedCPU = ev.ConstraintDestCPU
+				acc.item.ObservedCPUKnown = true
+				acc.item.ObservedCoreClass = coreByCPU[ev.ConstraintDestCPU]
+			} else if ev.ConstraintCPUValid {
+				acc.item.ObservedCPU = ev.ConstraintCPU
+				acc.item.ObservedCPUKnown = true
+				acc.item.ObservedCoreClass = coreByCPU[ev.ConstraintCPU]
+			}
+			if ev.ConstraintOrigCPUSet && ev.ConstraintDestCPUSet {
+				acc.item.MigrationCount++
+			} else if ev.ConstraintDestCPUSet {
+				acc.item.MigrationCount++
+			}
+			updateLines(acc, ev)
+		case ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || ev.NextInfoAffinity != ""):
+			thread := catalogThreadRef(catalog, ev.NextPID, ev.NextComm)
+			if thread.PID <= 0 && thread.Comm == "" {
+				continue
+			}
+			acc := ensure(thread)
+			acc.item.ConstraintCount++
+			acc.item.Kind = firstNonEmpty(acc.item.Kind, "sched_switch_next_info")
+			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, ev.CGroup)
+			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
+			acc.item.ObservedCPU = ev.CPU
+			acc.item.ObservedCPUKnown = true
+			acc.item.ObservedCoreClass = coreByCPU[ev.CPU]
+			addAllowed(acc, ev.NextInfoAllowedCPUs)
+			policy := renderNextInfoPolicy(ev)
+			if policy != "" {
+				acc.item.Policy = policy
+			}
+			updateLines(acc, ev)
+		}
+	}
+	out := make([]CPUConstraintSummary, 0, len(accs))
+	for _, acc := range accs {
+		item := acc.item
+		sort.Ints(item.AllowedCPUs)
+		item.AllowedCoreClasses = coreClassesForCPUs(item.AllowedCPUs, coreByCPU)
+		if item.Thread.PID > 0 {
+			item.RunnableWaitMs = runnableByPID[item.Thread.PID]
+		}
+		if item.ObservedCPUKnown {
+			for cpuID, cpu := range cpuByID {
+				if cpuID != item.ObservedCPU {
+					item.OtherCPUIdleMs += cpu.IdleMs
+				}
+			}
+		}
+		item.Summary = renderCPUConstraintSummary(item)
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		scoreI := out[i].RunnableWaitMs + float64(out[i].ConstraintCount)*0.25 + float64(out[i].MigrationCount)*0.5
+		scoreJ := out[j].RunnableWaitMs + float64(out[j].ConstraintCount)*0.25 + float64(out[j].MigrationCount)*0.5
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func renderNextInfoPolicy(ev Event) string {
+	if strings.TrimSpace(ev.NextInfoAffinity) == "" && ev.NextInfoLoad == 0 && ev.NextInfoGroup == 0 && ev.NextInfoExpel == 0 && !ev.NextInfoRestricted {
+		return ""
+	}
+	parts := []string{"next_info"}
+	if ev.NextInfoAffinity != "" {
+		parts = append(parts, "affinity="+ev.NextInfoAffinity)
+	}
+	if ev.NextInfoLoad > 0 {
+		parts = append(parts, fmt.Sprintf("load=%d", ev.NextInfoLoad))
+	}
+	parts = append(parts, fmt.Sprintf("group=%d", ev.NextInfoGroup))
+	parts = append(parts, fmt.Sprintf("restricted=%t", ev.NextInfoRestricted))
+	if ev.NextInfoExpel > 0 {
+		parts = append(parts, fmt.Sprintf("expel=%d", ev.NextInfoExpel))
+	}
+	if ev.NextInfoCGID > 0 {
+		parts = append(parts, fmt.Sprintf("cgid=%d", ev.NextInfoCGID))
+	}
+	return strings.Join(parts, " ")
+}
+
+func coreClassesForCPUs(cpus []int, coreByCPU map[int]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, cpu := range cpus {
+		class := coreByCPU[cpu]
+		if class == "" || seen[class] {
+			continue
+		}
+		seen[class] = true
+		out = append(out, class)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return coreClassRank(out[i]) < coreClassRank(out[j]) })
+	return out
+}
+
+func renderCPUConstraintSummary(item CPUConstraintSummary) string {
+	parts := []string{fmt.Sprintf("%s cpu constraint", threadLabel(item.Thread))}
+	if item.Kind != "" {
+		parts = append(parts, "kind="+item.Kind)
+	}
+	if len(item.AllowedCPUs) > 0 {
+		parts = append(parts, fmt.Sprintf("allowed_cpus=%s", intListString(item.AllowedCPUs)))
+	}
+	if len(item.AllowedCoreClasses) > 0 {
+		parts = append(parts, "allowed_core_classes="+strings.Join(item.AllowedCoreClasses, ","))
+	}
+	if item.CPUSet != "" {
+		parts = append(parts, "cpuset="+item.CPUSet)
+	}
+	if item.ObservedCoreClass != "" {
+		parts = append(parts, fmt.Sprintf("observed_cpu=%d/%s", item.ObservedCPU, item.ObservedCoreClass))
+	} else if item.ObservedCPUKnown {
+		parts = append(parts, fmt.Sprintf("observed_cpu=%d", item.ObservedCPU))
+	}
+	if item.RunnableWaitMs > 0 {
+		parts = append(parts, fmt.Sprintf("runnable_wait=%.3fms", item.RunnableWaitMs))
+	}
+	if item.OtherCPUIdleMs > 0 {
+		parts = append(parts, fmt.Sprintf("other_cpu_idle=%.3fms", item.OtherCPUIdleMs))
+	}
+	if item.Policy != "" {
+		parts = append(parts, "policy="+item.Policy)
+	}
+	return strings.Join(parts, " ")
+}
+
+type threadLoadAcc struct {
+	item       ThreadCPULoadSummary
+	dominantMs float64
+	lineStart  int
+	lineEnd    int
+}
+
+func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDuration, max int) []ThreadCPULoadSummary {
+	accs := map[string]*threadLoadAcc{}
+	ensure := func(thread ThreadRef) *threadLoadAcc {
+		key := threadKey(thread)
+		acc := accs[key]
+		if acc == nil {
+			acc = &threadLoadAcc{item: ThreadCPULoadSummary{Thread: thread}}
+			accs[key] = acc
+		}
+		if acc.item.Thread.Comm == "" && thread.Comm != "" {
+			acc.item.Thread.Comm = thread.Comm
+		}
+		if acc.item.Thread.TGID == 0 && thread.TGID > 0 {
+			acc.item.Thread.TGID = thread.TGID
+		}
+		return acc
+	}
+	add := func(td ThreadDuration, state string) {
+		if td.DurationMs <= 0 || (td.Thread.PID <= 0 && td.Thread.Comm == "") {
+			return
+		}
+		acc := ensure(td.Thread)
+		if state == "running" {
+			acc.item.RunningMs += td.DurationMs
+			if isHighPriorityForPressure(q.TraceFlavor, td.Priority, td.PriorityClass) {
+				acc.item.HighPriorityRunningMs += td.DurationMs
+			}
+		} else {
+			acc.item.RunnableWaitMs += td.DurationMs
+		}
+		if td.DurationMs > acc.dominantMs {
+			acc.dominantMs = td.DurationMs
+			acc.item.CPU = td.CPU
+			acc.item.CoreClass = td.CoreClass
+			acc.item.Frequency = td.Frequency
+			acc.item.Priority = td.Priority
+			acc.item.PriorityClass = td.PriorityClass
+		}
+		if acc.lineStart == 0 || (td.LineStart > 0 && td.LineStart < acc.lineStart) {
+			acc.lineStart = td.LineStart
+		}
+		if td.LineEnd > acc.lineEnd {
+			acc.lineEnd = td.LineEnd
+		}
+	}
+	for _, td := range running {
+		add(td, "running")
+	}
+	for _, td := range runnable {
+		add(td, "runnable")
+	}
+	out := make([]ThreadCPULoadSummary, 0, len(accs))
+	for _, acc := range accs {
+		item := acc.item
+		item.LineStart = acc.lineStart
+		item.LineEnd = acc.lineEnd
+		item.Summary = fmt.Sprintf("%s thread load running=%.3fms runnable=%.3fms high_prio_running=%.3fms cpu=%d",
+			threadLabel(item.Thread), item.RunningMs, item.RunnableWaitMs, item.HighPriorityRunningMs, item.CPU)
+		if item.CoreClass != "" {
+			item.Summary = fmt.Sprintf("%s core_class=%s", item.Summary, item.CoreClass)
+		}
+		if item.Priority > 0 {
+			item.Summary = fmt.Sprintf("%s prio=%d/%s", item.Summary, item.Priority, item.PriorityClass)
+		}
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		scoreI := out[i].RunningMs + out[i].RunnableWaitMs
+		scoreJ := out[j].RunningMs + out[j].RunnableWaitMs
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+type processLoadAcc struct {
+	item      ProcessCPULoadSummary
+	threadSet map[int]bool
+	cpuSet    map[int]bool
+	coreSet   map[string]bool
+}
+
+func computeProcessCPULoad(idx *Index, q Query, loads []ThreadCPULoadSummary, coreByCPU map[int]string, max int) []ProcessCPULoadSummary {
+	catalog := buildThreadCatalog(idx, q)
+	accs := map[string]*processLoadAcc{}
+	ensure := func(thread ThreadRef) *processLoadAcc {
+		proc := processRefForThread(thread, catalog)
+		key := processKey(proc)
+		acc := accs[key]
+		if acc == nil {
+			acc = &processLoadAcc{item: ProcessCPULoadSummary{Process: proc}, threadSet: map[int]bool{}, cpuSet: map[int]bool{}, coreSet: map[string]bool{}}
+			accs[key] = acc
+		}
+		if proc.Comm != "" && acc.item.Process.Comm == "" {
+			acc.item.Process.Comm = proc.Comm
+		}
+		return acc
+	}
+	for _, load := range loads {
+		if load.RunningMs+load.RunnableWaitMs <= 0 || (load.Thread.PID <= 0 && load.Thread.Comm == "") {
+			continue
+		}
+		acc := ensure(load.Thread)
+		if load.Thread.PID > 0 && !acc.threadSet[load.Thread.PID] {
+			acc.threadSet[load.Thread.PID] = true
+			acc.item.ThreadCount++
+		}
+		acc.item.RunningMs += load.RunningMs
+		acc.item.RunnableWaitMs += load.RunnableWaitMs
+		acc.item.HighPriorityRunningMs += load.HighPriorityRunningMs
+		loadTotal := load.RunningMs + load.RunnableWaitMs
+		if loadTotal > acc.item.TopThreadMs {
+			acc.item.TopThread = load.Thread
+			acc.item.TopThreadMs = loadTotal
+		}
+		if load.CPU >= 0 && !acc.cpuSet[load.CPU] {
+			acc.cpuSet[load.CPU] = true
+			acc.item.CPUs = append(acc.item.CPUs, load.CPU)
+		}
+		class := firstNonEmpty(load.CoreClass, coreByCPU[load.CPU])
+		if class != "" && !acc.coreSet[class] {
+			acc.coreSet[class] = true
+			acc.item.CoreClasses = append(acc.item.CoreClasses, class)
+		}
+		if acc.item.LineStart == 0 || (load.LineStart > 0 && load.LineStart < acc.item.LineStart) {
+			acc.item.LineStart = load.LineStart
+		}
+		if load.LineEnd > acc.item.LineEnd {
+			acc.item.LineEnd = load.LineEnd
+		}
+	}
+	out := make([]ProcessCPULoadSummary, 0, len(accs))
+	for _, acc := range accs {
+		sort.Ints(acc.item.CPUs)
+		sort.SliceStable(acc.item.CoreClasses, func(i, j int) bool {
+			return coreClassRank(acc.item.CoreClasses[i]) < coreClassRank(acc.item.CoreClasses[j])
+		})
+		acc.item.Summary = fmt.Sprintf("%s process load running=%.3fms runnable=%.3fms threads=%d top_thread=%s %.3fms cpus=%s core_classes=%s",
+			threadLabel(acc.item.Process), acc.item.RunningMs, acc.item.RunnableWaitMs, acc.item.ThreadCount,
+			threadLabel(acc.item.TopThread), acc.item.TopThreadMs, intListString(acc.item.CPUs), strings.Join(acc.item.CoreClasses, ","))
+		out = append(out, acc.item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		scoreI := out[i].RunningMs + out[i].RunnableWaitMs
+		scoreJ := out[j].RunningMs + out[j].RunnableWaitMs
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func processRefForThread(thread ThreadRef, catalog map[int]ThreadRef) ThreadRef {
+	ref := thread
+	if thread.PID > 0 {
+		if cat := catalog[thread.PID]; cat.PID > 0 {
+			ref = cat
+			if ref.Comm == "" {
+				ref.Comm = thread.Comm
+			}
+		}
+	}
+	if ref.TGID > 0 {
+		proc := catalog[ref.TGID]
+		if proc.PID == 0 {
+			proc.PID = ref.TGID
+		}
+		if proc.Comm == "" && ref.TGID == ref.PID {
+			proc.Comm = ref.Comm
+		}
+		return proc
+	}
+	return ThreadRef{Comm: ref.Comm, PID: ref.PID}
+}
+
+func processKey(process ThreadRef) string {
+	if process.PID > 0 {
+		return fmt.Sprintf("pid:%d", process.PID)
+	}
+	return "comm:" + strings.ToLower(strings.TrimSpace(process.Comm))
+}
+
+func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads []ThreadCPULoadSummary, processes []ProcessCPULoadSummary, constraints []CPUConstraintSummary, max int) []RunnableContextSummary {
+	if len(items) == 0 {
+		return nil
+	}
+	var out []RunnableContextSummary
+	for _, item := range items {
+		ctx := RunnableContextSummary{
+			Thread:                item.Thread,
+			RunnableWaitMs:        item.DurationMs,
+			CPU:                   item.CPU,
+			CoreClass:             item.CoreClass,
+			Frequency:             item.Frequency,
+			Priority:              item.Priority,
+			PriorityClass:         item.PriorityClass,
+			SameCPUBusyMs:         item.SameCPUBusyMs,
+			SameCPUIdleMs:         item.SameCPUIdleMs,
+			OtherCPUIdleMs:        item.OtherCPUIdleMs,
+			HighPriorityRunningMs: item.HighPriorityRunningMs,
+			SameCPUTopRunning:     item.SameCPUTopRunning,
+			LineStart:             item.StartLine,
+			LineEnd:               item.EndLine,
+		}
+		if proc, ok := processLoadForThread(item.Thread, processes); ok {
+			copy := proc
+			ctx.SameProcessLoad = &copy
+		}
+		ctx.TopBackgroundThreads = topBackgroundThreads(item.Thread, threadLoads, 4)
+		if proc, ok := topBackgroundProcess(item.Thread, processes); ok {
+			copy := proc
+			ctx.TopBackgroundProcess = &copy
+		}
+		if constraint, ok := constraintForThread(item.Thread, constraints); ok {
+			copy := constraint
+			ctx.CPUConstraint = &copy
+		}
+		ctx.Verdict, ctx.Confidence = runnableContextVerdict(ctx)
+		ctx.Summary = renderRunnableContextSummary(ctx)
+		out = append(out, ctx)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Confidence != out[j].Confidence {
+			return out[i].Confidence > out[j].Confidence
+		}
+		if out[i].RunnableWaitMs != out[j].RunnableWaitMs {
+			return out[i].RunnableWaitMs > out[j].RunnableWaitMs
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func processLoadForThread(thread ThreadRef, processes []ProcessCPULoadSummary) (ProcessCPULoadSummary, bool) {
+	for _, proc := range processes {
+		if proc.Process.PID > 0 && (thread.TGID == proc.Process.PID || thread.PID == proc.Process.PID) {
+			return proc, true
+		}
+		if sameThreadRef(proc.TopThread, thread) {
+			return proc, true
+		}
+	}
+	return ProcessCPULoadSummary{}, false
+}
+
+func topBackgroundThreads(thread ThreadRef, loads []ThreadCPULoadSummary, max int) []ThreadCPULoadSummary {
+	if max <= 0 {
+		max = 4
+	}
+	var out []ThreadCPULoadSummary
+	for _, load := range loads {
+		if sameThreadRef(load.Thread, thread) {
+			continue
+		}
+		out = append(out, load)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+func topBackgroundProcess(thread ThreadRef, processes []ProcessCPULoadSummary) (ProcessCPULoadSummary, bool) {
+	for _, proc := range processes {
+		if proc.Process.PID > 0 && (thread.TGID == proc.Process.PID || thread.PID == proc.Process.PID) {
+			continue
+		}
+		if sameThreadRef(proc.TopThread, thread) {
+			continue
+		}
+		return proc, true
+	}
+	return ProcessCPULoadSummary{}, false
+}
+
+func constraintForThread(thread ThreadRef, constraints []CPUConstraintSummary) (CPUConstraintSummary, bool) {
+	for _, item := range constraints {
+		if sameThreadRef(item.Thread, thread) {
+			return item, true
+		}
+		if item.Thread.PID > 0 && (thread.TGID == item.Thread.PID || thread.PID == item.Thread.PID) {
+			return item, true
+		}
+	}
+	return CPUConstraintSummary{}, false
+}
+
+func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
+	if ctx.CPUConstraint != nil && len(ctx.CPUConstraint.AllowedCPUs) > 0 {
+		if !stringSliceContains(ctx.CPUConstraint.AllowedCoreClasses, "big") && ctx.OtherCPUIdleMs > 0 {
+			return "restricted_to_busy_or_small_cores", 0.84
+		}
+		if ctx.CPUConstraint.RunnableWaitMs > 0 || ctx.CPUConstraint.ConstraintCount > 0 {
+			return "cpu_affinity_or_cpuset_context", 0.78
+		}
+	}
+	if ctx.HighPriorityRunningMs > 0 || ctx.SameCPUBusyMs > ctx.SameCPUIdleMs {
+		return "cpu_pressure", 0.76
+	}
+	if ctx.OtherCPUIdleMs > 0 {
+		return "other_cpu_idle_check_affinity_or_wakeup", 0.66
+	}
+	return "insufficient_signal", 0.50
+}
+
+func renderRunnableContextSummary(ctx RunnableContextSummary) string {
+	parts := []string{fmt.Sprintf("%s runnable_context wait=%.3fms cpu=%d", threadLabel(ctx.Thread), ctx.RunnableWaitMs, ctx.CPU)}
+	if ctx.CoreClass != "" {
+		parts = append(parts, "core_class="+ctx.CoreClass)
+	}
+	if ctx.Frequency > 0 {
+		parts = append(parts, fmt.Sprintf("freq=%dkHz", ctx.Frequency))
+	}
+	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms",
+		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningMs))
+	if len(ctx.SameCPUTopRunning) > 0 {
+		parts = append(parts, "same_cpu_top_running="+threadLabel(ctx.SameCPUTopRunning[0].Thread))
+	}
+	if len(ctx.TopBackgroundThreads) > 0 {
+		top := ctx.TopBackgroundThreads[0]
+		parts = append(parts, fmt.Sprintf("top_background_thread=%s load=%.3fms", threadLabel(top.Thread), top.RunningMs+top.RunnableWaitMs))
+	}
+	if ctx.TopBackgroundProcess != nil {
+		parts = append(parts, fmt.Sprintf("top_background_process=%s load=%.3fms", threadLabel(ctx.TopBackgroundProcess.Process), ctx.TopBackgroundProcess.RunningMs+ctx.TopBackgroundProcess.RunnableWaitMs))
+	}
+	if ctx.CPUConstraint != nil {
+		if len(ctx.CPUConstraint.AllowedCPUs) > 0 {
+			parts = append(parts, "allowed_cpus="+intListString(ctx.CPUConstraint.AllowedCPUs))
+		}
+		if len(ctx.CPUConstraint.AllowedCoreClasses) > 0 {
+			parts = append(parts, "allowed_core_classes="+strings.Join(ctx.CPUConstraint.AllowedCoreClasses, ","))
+		}
+		if ctx.CPUConstraint.CPUSet != "" {
+			parts = append(parts, "cpuset="+ctx.CPUConstraint.CPUSet)
+		}
+		if ctx.CPUConstraint.Policy != "" {
+			parts = append(parts, "constraint_policy="+ctx.CPUConstraint.Policy)
+		}
+	}
+	parts = append(parts, "verdict="+ctx.Verdict)
+	return strings.Join(parts, " ")
+}
+
+func intListString(in []int) string {
+	if len(in) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(in))
+	for _, v := range in {
+		parts = append(parts, fmt.Sprintf("%d", v))
+	}
+	return strings.Join(parts, ",")
+}
+
+func stringSliceContains(in []string, value string) bool {
+	for _, item := range in {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
@@ -1980,6 +2654,7 @@ func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures 
 		competitor, competitorMs := stateChurnTopCompetitor(items[i].Thread, pressure)
 		items[i].RunnableCPU = cpu
 		items[i].RunnableCPUKnown = true
+		items[i].RunnableCoreClass = pressure.CoreClass
 		if competitor != "" {
 			items[i].TopCompetitor = competitor
 			items[i].TopCompetitorRunningMs = competitorMs
@@ -2041,6 +2716,9 @@ func renderStateChurnSummary(item ThreadStateChurnSummary) string {
 		threadLabel(item.Thread), item.DominantState, item.DominantImpactMs, item.TotalMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.P95SegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs, nextStep)
 	if item.RunnableCPUKnown {
 		summary = fmt.Sprintf("%s; same_cpu=cpu=%d", summary, item.RunnableCPU)
+		if item.RunnableCoreClass != "" {
+			summary = fmt.Sprintf("%s/%s", summary, item.RunnableCoreClass)
+		}
 	}
 	if item.TopCompetitor != "" {
 		summary = fmt.Sprintf("%s; top_competitor=%s running=%.3fms", summary, item.TopCompetitor, item.TopCompetitorRunningMs)
@@ -2241,7 +2919,7 @@ func normalizeCoreClass(raw string) string {
 
 func parseCPURangeList(raw string) []int {
 	var out []int
-	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '|' || r == '/' || r == ' ' }) {
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '|' || r == '/' || r == ' ' || r == ',' }) {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -3932,6 +4610,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		if len(item.SameCPUTopRunning) > 0 {
 			summary = fmt.Sprintf("%s; same_cpu_top_running=%s", summary, threadLabel(item.SameCPUTopRunning[0].Thread))
 		}
+		if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
+			summary = appendRunnableContextToRootSummary(summary, ctx)
+		}
 		onChain := threadInSet(chainThreads, item.Thread)
 		candidate := rootCauseItem("scheduler_latency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary)
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
@@ -3954,6 +4635,19 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			candidate.Causality = causalityLabel(hasCausalChain, onChain)
 			rank.Items = append(rank.Items, candidate)
 		}
+	}
+	for _, constraint := range stats.CPUConstraints {
+		if constraint.RunnableWaitMs <= 0 || (len(constraint.AllowedCPUs) == 0 && strings.TrimSpace(constraint.CPUSet) == "") {
+			continue
+		}
+		conf := 0.64
+		if strings.Contains(constraint.Policy, "restricted=true") || strings.TrimSpace(constraint.CPUSet) != "" {
+			conf = 0.72
+		}
+		onChain := threadInSet(chainThreads, constraint.Thread)
+		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, constraint.RunnableWaitMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
+		candidate.Causality = causalityLabel(hasCausalChain, onChain)
+		rank.Items = append(rank.Items, candidate)
 	}
 	sort.SliceStable(rank.Items, func(i, j int) bool {
 		if rank.Items[i].Score != rank.Items[j].Score {
@@ -3978,6 +4672,43 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	}
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
 	return rank
+}
+
+func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
+	for _, ctx := range contexts {
+		if sameThreadRef(ctx.Thread, thread) {
+			return ctx, true
+		}
+	}
+	return RunnableContextSummary{}, false
+}
+
+func appendRunnableContextToRootSummary(summary string, ctx RunnableContextSummary) string {
+	if ctx.CoreClass != "" {
+		summary = fmt.Sprintf("%s; core_class=%s", summary, ctx.CoreClass)
+	}
+	if len(ctx.TopBackgroundThreads) > 0 {
+		top := ctx.TopBackgroundThreads[0]
+		summary = fmt.Sprintf("%s; top_background_thread=%s load=%.3fms", summary, threadLabel(top.Thread), top.RunningMs+top.RunnableWaitMs)
+	}
+	if ctx.TopBackgroundProcess != nil {
+		summary = fmt.Sprintf("%s; top_background_process=%s load=%.3fms", summary, threadLabel(ctx.TopBackgroundProcess.Process), ctx.TopBackgroundProcess.RunningMs+ctx.TopBackgroundProcess.RunnableWaitMs)
+	}
+	if ctx.CPUConstraint != nil {
+		if len(ctx.CPUConstraint.AllowedCPUs) > 0 {
+			summary = fmt.Sprintf("%s; allowed_cpus=%s", summary, intListString(ctx.CPUConstraint.AllowedCPUs))
+		}
+		if len(ctx.CPUConstraint.AllowedCoreClasses) > 0 {
+			summary = fmt.Sprintf("%s; allowed_core_classes=%s", summary, strings.Join(ctx.CPUConstraint.AllowedCoreClasses, ","))
+		}
+		if ctx.CPUConstraint.CPUSet != "" {
+			summary = fmt.Sprintf("%s; cpuset=%s", summary, ctx.CPUConstraint.CPUSet)
+		}
+	}
+	if ctx.Verdict != "" {
+		summary = fmt.Sprintf("%s; runnable_context_verdict=%s", summary, ctx.Verdict)
+	}
+	return summary
 }
 
 func rankCausalThreadSet(rank RootCauseRankResult) map[int]bool {
@@ -4117,6 +4848,8 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 1.05
 	case "compute_supply", "low_frequency":
 		return 0.95
+	case "cpu_affinity_or_cpuset":
+		return 0.92
 	case "running", "fragmented_running":
 		return 1.0
 	case "cpu_frequency_limit":

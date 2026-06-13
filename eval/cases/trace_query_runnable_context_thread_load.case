@@ -1,0 +1,27 @@
+# Trace query — runnable context thread load
+#
+# Coverage target: runnable root-cause analysis should consume runnable_context,
+# thread_cpu_load, cpu_constraints, and core topology. The question does not
+# pre-state the expected root cause; it only provides the target/window and the
+# core topology needed to classify CPU families.
+ID="trace_query_runnable_context_thread_load"
+NAME="trace query — runnable context thread load"
+QUESTION="请优先使用 trace_query 分析 1.000s 到 1.012s 的窗口，目标线程是 app-100。请传入 core_topology=small=0-3,big=4-7，判断 runnable 延迟是否是主要原因，并补充运行核族、是否有 CPU 约束/绑核证据、以及最值得关注的后台线程负载。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+       idle/4-0   (    0) [004] .... 1.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle/4 next_pid=0 next_prio=120
+        bgA-200   (  900) [000] .... 1.000000: cpu_frequency: state=900000 cpu_id=0
+        big-300   (  901) [004] .... 1.000000: cpu_frequency: state=2400000 cpu_id=4
+        bgA-200   (  900) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=bgA next_pid=200 next_prio=20
+       ctrl-300   (  900) [001] .... 1.000500: sched_setaffinity: comm=app pid=100 mask=0x3 cpuset=top-app target_cpu=0 policy=bind
+       ctrl-300   (  900) [001] .... 1.001000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+        app-100   (  100) [000] .... 1.010000: sched_switch: prev_comm=bgA prev_pid=200 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=100 next_prio=52 next_info=3,4,1,1,0 cg=top-app
+        app-100   (  100) [000] .... 1.012000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="app-100 bgA-200 runnable"
+EXPECT_MATCHES_REGEX="(runnable|调度|scheduler).*?(9\\.0|9ms|9 ms|主要|主因|root cause|根因)|(9\\.0|9ms|9 ms).*?(runnable|调度|scheduler)
+(CPU0|cpu=0|CPU 0).*?(small|小核)|(small|小核).*?(CPU0|cpu=0|CPU 0)
+(bgA-200|bgA).*?(thread|线程|load|负载|running)|(thread|线程|load|负载|running).*?(bgA-200|bgA)
+(allowed_cpus=0,1|0,1|cpuset|top-app|绑核|亲和|affinity|constraint|约束)
+(big|大核|CPU4|cpu=4|other_cpu_idle|其它核|其他核)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

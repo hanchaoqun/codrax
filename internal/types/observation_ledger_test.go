@@ -240,7 +240,9 @@ func TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists(t *te
 		t.Fatalf("trace_query aggregate should remain principal runtime support: %+v", trace)
 	}
 	perf := findObservationRecord(t, ledger, "perf:observation:0")
-	if perf.Role != AnswerAggregateRoleSupportingCoverage || perf.GroundingPolicy != ClaimGroundingSoft {
+	if perf.Role != AnswerAggregateRoleSupportingCoverage ||
+		perf.GroundingPolicy != ClaimGroundingSoft ||
+		perf.ProvenanceLane != ObservationProvenanceInferredUpstreamPossibility {
 		t.Fatalf("perf pre-triage should be demoted to supporting/soft when trace_query exists: %+v", perf)
 	}
 	if !observationLedgerTestContainsString(perf.RichNotes, "advisory_pretriage; deterministic_runtime_query_present=true") {
@@ -261,9 +263,14 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- rank=1 tier=primary type=scheduler_latency thread=com.app-42 impact=107.900ms target_impact=120.000ms score=86.320 confidence=0.88 lines=110-120 source=scheduler_latency_stats causality=on_wakeup_chain chain_depth=1 — com.app-42 runnable wait dominated the frame window",
 				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats — cpu=10 had high runnable pressure",
 				"## Wakeup chain",
+				"- wakeup_chain path=worker-21 -> com.app-42",
 				"- causal_impact thread=worker-21 depth=1 causality=on_wakeup_chain dominant_state=runnable impact=8.250ms total=9.000ms target_impact=12.500ms fragments=3 switches=2 max_segment=4.000ms p95_segment=4.000ms running=0.000ms runnable=8.250ms sleep=0.750ms d_state=0.000ms io_wait=0.000ms prio=20/ohos_cfs target_prio=52/ohos_rt priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-88 — worker runnable dependency dominated the wakeup chain",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
+				"- thread_cpu_load thread=rival-30 running=6.000ms runnable=1.000ms high_prio_running=6.000ms cpu=1 core_class=small freq=900000kHz prio=80/ohos_rt lines=45-49 — rival thread load",
+				"- cpu_constraint thread=com.app-42 kind=sched_switch_next_info allowed_cpus=0,1 allowed_core_classes=small cpuset=top-app policy=next_info_affinity_3 observed_cpu=1 observed_core_class=small migrations=0 runnable=5.000ms other_cpu_idle=12.000ms lines=46-48 — app constrained to small cores",
+				"- runnable_context thread=com.app-42 runnable=5.000ms cpu=1 core_class=small freq=900000kHz same_cpu_busy=9.000ms same_cpu_idle=0.500ms other_cpu_idle=12.000ms high_prio_running=6.000ms top_background_threads=rival-30/7.000ms top_background_process=rival_proc-300/7.000ms constraint=allowed_cpus=0,1;allowed_core_classes=small;cpuset=top-app;policy=next_info_affinity_3 verdict=restricted_to_busy_or_small_cores confidence=0.84 lines=45-49 — app runnable context with rival thread",
+				"- process_cpu_load process=rival_proc-300 threads=1 running=6.000ms runnable=1.000ms high_prio_running=6.000ms top_thread=rival-30 top_thread_ms=7.000ms cpus=1 core_classes=small lines=45-49 — secondary process rollup",
 				"- bio_resource op=R path=/data/app/base.db thread=app-20 count=1 total_latency=2.500ms max_latency=2.500ms bytes=4096 line=3 example=op=R path=/data/app/base.db latency_us=2500 bytes=4096",
 				"  callstack=BioRead>Submit",
 				"- filesystem_resource op=read path=/data/app/base.db thread=app-20 count=1 total_latency=3.500ms max_latency=3.500ms bytes=1024 line=4 example=syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024",
@@ -272,9 +279,9 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- plugin_event kind=xpower domain=xpower event=xpower_cpu metric=CPU value=73 category=foreground thread=xpower-30 count=1 line=7 example=component=CPU energy=8.2 usage=73 scene=foreground",
 				"- plugin_event kind=hi_sysevent domain=POWER event=THERMAL_REPORT metric=STAT value=hot category=MINOR thread=hisys-40 count=1 line=8 example=domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR",
 				"- state_churn com.app-42 dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms confidence=0.83 lines=111-119 — com.app-42 had frequent state switching; dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; next_step=inspect same-CPU pressure",
-				"- file_io inode=0xb9b8e dev=260:136 name=foo.db op=write thread=com.app-42 count=3 bytes=12288 total_latency=1.500ms max_latency=1.000ms offsets=0..8192 lines=200-204 — inode=0xb9b8e dev=260:136 op=write count=3 bytes=12288 thread=com.app-42 name=foo.db",
+				"- file_io inode=0xb9b8e dev=260:136 name=foo.db op=write thread=com.app-42 count=3 completions=2 bytes=12288 total_latency=1.500ms max_latency=1.000ms ret=4096 offsets=0..8192 example=entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700 lines=200-204 — inode=0xb9b8e dev=260:136 op=write count=3 bytes=12288 thread=com.app-42 name=foo.db",
 				"- page_cache inode=0xb9b8e dev=260:136 thread=com.app-42 adds=2 deletes=1 churn=3 bytes=0 offsets=0..8192 lines=205-207 — inode=0xb9b8e dev=260:136 page-cache adds=2 deletes=1 churn=3 thread=com.app-42",
-				"- storage_latency layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read thread=com.app-42 count=2 paired=1 unpaired_start=0 unpaired_done=0 max_latency=2.000ms avg_latency=2.000ms bytes=8192 lines=208-209 — layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read count=2 paired=1 max_latency=2.000ms",
+				"- storage_latency layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read thread=com.app-42 count=2 paired=1 unpaired_start=0 unpaired_done=0 max_latency=2.000ms avg_latency=2.000ms bytes=8192 example=tag=7 dev=12,80 lba=4096 len=8192 opcode=READ latency_us=2000 lines=208-209 — layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read count=2 paired=1 max_latency=2.000ms",
 				"- io_pressure signal=scheduler_iowait_with_storage_latency score=12.000 block_max=3.000ms storage_max=2.000ms file_bytes=12288 file_events=3 page_cache_churn=3 iowait_blocked=1 d_state=4.000ms top_inode=0xb9b8e top_dev=260:136 top_name=foo.db lines=200-209 — io pressure signal=scheduler_iowait_with_storage_latency score=12.000 block_max=3.000ms storage_max=2.000ms file_bytes=12288 file_events=3 page_cache_churn=3 iowait_blocked=1 d_state=4.000ms top_inode=0xb9b8e",
 				"## Critical blocking calls",
 				"- blocking type=monitor thread=binder:1-7 peer=com.app-42 duration=78.700ms lines=160-170 confidence=0.80 — monitor lock contention overlapped the frame",
@@ -314,6 +321,12 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!observationLedgerTestContainsString(causal.RichNotes, "target_impact=12.500ms") {
 		t.Fatalf("trace_query causal impact should survive as supporting runtime observation: %+v", causal)
 	}
+	wakeupPath := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_chain:path:1")
+	if wakeupPath.Predicate != "wakeup_chain" ||
+		wakeupPath.Object != "worker-21 -> com.app-42" ||
+		!observationLedgerTestContainsString(wakeupPath.RichNotes, "path=worker-21 -> com.app-42") {
+		t.Fatalf("trace_query wakeup_chain path should survive fallback parsing: %+v", wakeupPath)
+	}
 	root := findObservationRecord(t, ledger, "tool:0#trace_query:root_evidence:1")
 	if root.Role != AnswerAggregateRoleSupportingCoverage || root.Predicate != "binder_wait" || root.Span.LineStart != 90 {
 		t.Fatalf("trace_query root evidence should survive as supporting runtime observation: %+v", root)
@@ -321,6 +334,36 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	blocking := findObservationRecord(t, ledger, "tool:0#trace_query:critical_blocking:1")
 	if blocking.Predicate != "critical_blocking" || blocking.Object != "monitor" || blocking.Value != "78.700" {
 		t.Fatalf("trace_query critical blocking should survive as supporting runtime observation: %+v", blocking)
+	}
+	threadLoad := findObservationRecord(t, ledger, "tool:0#trace_query:thread_cpu_load:1")
+	if threadLoad.Predicate != "thread_cpu_load" ||
+		threadLoad.Subject != "rival-30" ||
+		threadLoad.Value != "7.000" ||
+		!observationLedgerTestContainsString(threadLoad.RichNotes, "core_class=small") {
+		t.Fatalf("trace_query thread_cpu_load should survive as runtime observation: %+v", threadLoad)
+	}
+	constraint := findObservationRecord(t, ledger, "tool:0#trace_query:cpu_constraint:1")
+	if constraint.Predicate != "cpu_constraint" ||
+		constraint.Subject != "com.app-42" ||
+		constraint.Value != "5.000" ||
+		!observationLedgerTestContainsString(constraint.RichNotes, "allowed_cpus=0,1") ||
+		!observationLedgerTestContainsString(constraint.RichNotes, "cpuset=top-app") {
+		t.Fatalf("trace_query cpu_constraint should survive as runtime observation: %+v", constraint)
+	}
+	runnableContext := findObservationRecord(t, ledger, "tool:0#trace_query:runnable_context:1")
+	if runnableContext.Predicate != "runnable_context" ||
+		runnableContext.Object != "restricted_to_busy_or_small_cores" ||
+		runnableContext.Value != "5.000" ||
+		!observationLedgerTestContainsString(runnableContext.RichNotes, "top_background_threads=rival-30/7.000ms") ||
+		!observationLedgerTestContainsString(runnableContext.RichNotes, "constraint=allowed_cpus=0,1;allowed_core_classes=small;cpuset=top-app;policy=next_info_affinity_3") {
+		t.Fatalf("trace_query runnable_context should survive as runtime observation: %+v", runnableContext)
+	}
+	processLoad := findObservationRecord(t, ledger, "tool:0#trace_query:process_cpu_load:1")
+	if processLoad.Predicate != "process_cpu_load" ||
+		processLoad.Subject != "rival_proc-300" ||
+		processLoad.Value != "7.000" ||
+		!observationLedgerTestContainsString(processLoad.RichNotes, "top_thread=rival-30") {
+		t.Fatalf("trace_query process_cpu_load should survive as runtime observation: %+v", processLoad)
 	}
 	bio := findObservationRecord(t, ledger, "tool:0#trace_query:bio_resource:1")
 	if bio.Predicate != "bio_resource" ||
@@ -400,7 +443,11 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!strings.Contains(fileIO.Summary, "dev=260:136") ||
 		!strings.Contains(fileIO.Summary, "name=foo.db") ||
 		!strings.Contains(fileIO.Summary, "bytes=12288") ||
-		!observationLedgerTestContainsString(fileIO.RichNotes, "inode=0xb9b8e") {
+		!strings.Contains(fileIO.Summary, "completions=2") ||
+		!strings.Contains(fileIO.Summary, "ret=4096") ||
+		!strings.Contains(fileIO.Summary, "example=entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700") ||
+		!observationLedgerTestContainsString(fileIO.RichNotes, "inode=0xb9b8e") ||
+		!observationLedgerTestContainsString(fileIO.RichNotes, "example=entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700") {
 		t.Fatalf("trace_query file_io should survive as runtime observation: %+v", fileIO)
 	}
 	pageCache := findObservationRecord(t, ledger, "tool:0#trace_query:page_cache:1")
@@ -414,7 +461,9 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	if storage.Predicate != "storage_latency_by_layer" ||
 		storage.Subject != "scsi" ||
 		storage.Value != "2.000" ||
-		storage.Unit != "ms" {
+		storage.Unit != "ms" ||
+		!strings.Contains(storage.Summary, "example=tag=7 dev=12,80 lba=4096 len=8192 opcode=READ latency_us=2000") ||
+		!observationLedgerTestContainsString(storage.RichNotes, "example=tag=7 dev=12,80 lba=4096 len=8192 opcode=READ latency_us=2000") {
 		t.Fatalf("trace_query storage_latency should survive as runtime observation: %+v", storage)
 	}
 	pressure := findObservationRecord(t, ledger, "tool:0#trace_query:io_pressure:1")

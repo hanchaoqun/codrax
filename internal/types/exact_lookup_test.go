@@ -385,6 +385,38 @@ func TestBuildExactResolutionContract_DoesNotTriggerOnEnumeration(t *testing.T) 
 	}
 }
 
+func TestBuildExactResolutionContract_RuntimeArtifactWithoutCurrentSourceDoesNotUseFilePath(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "请只分析 trace 里的 entry_name=foo.db，不要分析当前仓库代码。",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioPerformanceBottleneck,
+		AnswerSubject: AnswerSubject{Kind: SubjectFilePath, Confidence: 0.8},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"foo.db"},
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:      "file_io",
+				Subject:   "entry_name=foo.db",
+				Summary:   "runtime trace file IO row",
+				LineStart: 4,
+				LineEnd:   5,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"不要分析当前仓库代码"},
+			Confidence:        0.9,
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want excluded", got)
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("runtime artifact file-like labels must not become current-source exact contracts: %+v", got)
+	}
+}
+
 func TestBuildExactResolutionContract_DoesNotPromoteEnumerationScopePath(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数。",

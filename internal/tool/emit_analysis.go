@@ -520,7 +520,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_inventory_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
+				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
 				"properties": map[string]any{
 					"is_source_inventory": map[string]any{"type": "boolean", "description": "True only when the answer's principal payload is a bounded inventory of source-code members."},
 					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field."},
@@ -1420,7 +1420,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	attachRuntimeArtifactsToRequestModel(ctx, &rm)
 	if droppedSourceInventory, warning := dropSourceInventoryProfileForTypedRelation(&rm); droppedSourceInventory {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if droppedSourceInventory, warning := dropSourceInventoryProfileForObservationOnlyRuntime(&rm); droppedSourceInventory {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2263,6 +2268,17 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	return false, ""
 }
 
+func dropSourceInventoryProfileForObservationOnlyRuntime(rm *types.RequestModel) (bool, string) {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false, ""
+	}
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		return false, ""
+	}
+	rm.SourceInventoryProfile = nil
+	return true, "source_inventory_profile ignored because the typed external-observation policy excludes current-source evidence; runtime artifact identifiers must stay in the observation lane, not source-inventory repair"
+}
+
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {
 	if p == nil {
 		return nil, ""
@@ -3031,6 +3047,18 @@ func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext, policy *t
 		}
 	}
 	return rm.HasObservationOnlyRuntimeArtifact()
+}
+
+func attachRuntimeArtifactsToRequestModel(ctx *types.BusContext, rm *types.RequestModel) {
+	if ctx == nil || ctx.Mutable == nil || rm == nil {
+		return
+	}
+	if rm.LogTriage == nil {
+		rm.LogTriage = ctx.Mutable.LogTriage()
+	}
+	if rm.PerfTrace == nil {
+		rm.PerfTrace = ctx.Mutable.PerfTrace()
+	}
 }
 
 func normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime bool, intent types.Intent, scenario types.Scenario, kind string, predicates types.SemanticPredicates) (types.Intent, types.Scenario, string) {

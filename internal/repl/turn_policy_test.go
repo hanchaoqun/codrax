@@ -701,6 +701,40 @@ func TestApplyTurnPolicyGuards_DataRoute(t *testing.T) {
 	if trace.Route != RouteRepo || !trace.NeedsRepoAccess || trace.NeedsDataAccess || trace.NeedsOperationAccess {
 		t.Fatalf("trace/log external observation must remain repo pipeline: %+v", trace)
 	}
+
+	traceWithStrayData := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteRepo,
+		NeedsRepoAccess:      true,
+		NeedsOperationAccess: false,
+		NeedsDataAccess:      true,
+		Operation:            "investigate",
+		Source:               "artifact",
+		Confidence:           0.95,
+		Reason:               "runtime trace analysis uses an attached artifact",
+	}, false, true)
+	if traceWithStrayData.Route != RouteRepo ||
+		!traceWithStrayData.NeedsRepoAccess ||
+		traceWithStrayData.NeedsDataAccess ||
+		traceWithStrayData.NeedsOperationAccess ||
+		traceWithStrayData.DataTaskKind != "" {
+		t.Fatalf("analysis-only trace policy must ignore stray data access: %+v", traceWithStrayData)
+	}
+
+	traceDataRouteDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		Operation:       "investigate",
+		Source:          "external_tool",
+		Confidence:      0.95,
+		Reason:          "external observation analysis was misrouted as data",
+	}, false, true)
+	if traceDataRouteDrift.Route != RouteRepo ||
+		!traceDataRouteDrift.NeedsRepoAccess ||
+		traceDataRouteDrift.NeedsDataAccess ||
+		traceDataRouteDrift.NeedsOperationAccess ||
+		traceDataRouteDrift.DataTaskKind != "" {
+		t.Fatalf("analysis-only external observation must recover from data route drift: %+v", traceDataRouteDrift)
+	}
 }
 
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────

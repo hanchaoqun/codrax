@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,12 +27,12 @@ var (
 )
 
 var spaceKVKeys = map[string]struct{}{
-	"addr": {}, "address": {}, "bytes": {}, "cmdline": {}, "dev": {}, "entry_name": {},
+	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "bytes": {}, "cg": {}, "cgroup": {}, "cmdline": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "dev": {}, "dest_cpu": {}, "entry_name": {},
 	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
 	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
 	"ino": {}, "inode": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
-	"operation": {}, "op": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "pino": {},
-	"pos": {}, "ret": {}, "rw": {}, "rwbs": {}, "size": {}, "type": {},
+	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "pid": {}, "pino": {},
+	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "size": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "tid": {}, "type": {},
 }
 
 type parseCacheKey struct {
@@ -581,6 +582,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
 		ev.NextInfo = intern.intern(kv["next_info"])
+		populateHarmonyNextInfoFields(&ev)
 		ev.CGroup = intern.intern(firstNonEmpty(kv["cg"], kv["cgroup"]))
 	case EventSchedWakeup, EventSchedWaking:
 		ev.WakeeComm = intern.intern(kv["comm"])
@@ -603,6 +605,8 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.FrequencyMax = atoi(firstNonEmpty(kv["max"], kv["max_freq"]))
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(rawType)
+	case EventCPUConstraint:
+		populateCPUConstraintFields(&ev, rawType, kv, intern)
 	case EventClockSetRate:
 		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
@@ -665,6 +669,143 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		populatePluginFields(&ev, rawType, kv, intern)
 	}
 	return ev, true
+}
+
+func populateCPUConstraintFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
+	if ev == nil {
+		return
+	}
+	ev.ConstraintKind = intern.intern(strings.TrimSpace(rawType))
+	ev.ConstraintComm = intern.intern(cleanTraceValue(firstNonEmpty(kv["target_comm"], kv["comm"], kv["task"], kv["name"])))
+	ev.ConstraintPID = atoi(firstNonEmpty(kv["target_pid"], kv["task_pid"], kv["pid"], kv["tid"]))
+	ev.ConstraintPolicy = intern.intern(firstNonEmpty(kv["policy"], kv["reason"], kv["type"]))
+	ev.CPUSet = intern.intern(cleanTraceValue(firstNonEmpty(kv["cpuset"], kv["cgroup"], kv["cg"], kv["path"])))
+	if ev.CPUSet != "" && ev.CGroup == "" {
+		ev.CGroup = ev.CPUSet
+	}
+	if cpu, ok := atoiMaybe(firstNonEmpty(kv["cpu"], kv["target_cpu"])); ok {
+		ev.ConstraintCPU = cpu
+		ev.ConstraintCPUValid = true
+	}
+	if cpu, ok := atoiMaybe(kv["orig_cpu"]); ok {
+		ev.ConstraintOrigCPU = cpu
+		ev.ConstraintOrigCPUSet = true
+	}
+	if cpu, ok := atoiMaybe(kv["dest_cpu"]); ok {
+		ev.ConstraintDestCPU = cpu
+		ev.ConstraintDestCPUSet = true
+		ev.TargetCPU = cpu
+	}
+	allowedText := cleanTraceValue(firstNonEmpty(kv["allowed_cpus"], kv["cpus_allowed"], kv["cpumask"], kv["cpus"], kv["affinity"], kv["mask"]))
+	ev.AllowedCPUsText = intern.intern(allowedText)
+	ev.AllowedCPUs = parseCPUSetList(allowedText)
+}
+
+func populateHarmonyNextInfoFields(ev *Event) {
+	if ev == nil || strings.TrimSpace(ev.NextInfo) == "" {
+		return
+	}
+	info, ok := parseHarmonyNextInfo(ev.NextInfo)
+	if !ok {
+		return
+	}
+	ev.NextInfoAffinity = info.affinity
+	ev.NextInfoAllowedCPUs = info.allowedCPUs
+	ev.NextInfoLoad = info.load
+	ev.NextInfoGroup = info.group
+	ev.NextInfoRestricted = info.restricted
+	ev.NextInfoExpel = info.expel
+	ev.NextInfoCGID = info.cgid
+}
+
+type harmonyNextInfoFields struct {
+	affinity    string
+	allowedCPUs []int
+	load        int
+	group       int
+	restricted  bool
+	expel       int
+	cgid        int
+}
+
+func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
+	parts := strings.Split(strings.TrimSpace(raw), ",")
+	if len(parts) < 5 {
+		return harmonyNextInfoFields{}, false
+	}
+	affinity := strings.TrimSpace(parts[0])
+	if affinity == "" {
+		return harmonyNextInfoFields{}, false
+	}
+	out := harmonyNextInfoFields{
+		affinity:    affinity,
+		allowedCPUs: parseCPUMaskHex(affinity),
+		load:        atoi(parts[1]),
+		group:       atoi(parts[2]),
+		restricted:  atoi(parts[3]) != 0,
+		expel:       atoi(parts[4]),
+	}
+	if len(parts) >= 6 {
+		out.cgid = atoi(parts[5])
+	}
+	return out, true
+}
+
+func parseCPUSetList(raw string) []int {
+	raw = strings.TrimSpace(strings.Trim(raw, "{}[]()"))
+	if raw == "" {
+		return nil
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "0x") || containsHexAlpha(lower) {
+		return parseCPUMaskHex(raw)
+	}
+	return uniqueSortedInts(parseCPURangeList(raw))
+}
+
+func parseCPUMaskHex(raw string) []int {
+	raw = strings.TrimSpace(strings.Trim(raw, "{}[](),"))
+	raw = strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(raw), "0x"), "0X")
+	if raw == "" {
+		return nil
+	}
+	mask, err := strconv.ParseUint(raw, 16, 64)
+	if err != nil || mask == 0 {
+		return nil
+	}
+	var cpus []int
+	for cpu := 0; cpu < 64; cpu++ {
+		if mask&(uint64(1)<<cpu) != 0 {
+			cpus = append(cpus, cpu)
+		}
+	}
+	return cpus
+}
+
+func containsHexAlpha(raw string) bool {
+	for _, r := range raw {
+		if r >= 'a' && r <= 'f' {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueSortedInts(in []int) []int {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[int]bool{}
+	var out []int
+	for _, v := range in {
+		if v < 0 || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func populateResourceFields(ev *Event, kv map[string]string, intern *stringInterner) {
@@ -772,6 +913,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventCPUFrequency
 	case raw == "cpu_frequency_limits":
 		return EventCPUFrequencyLimit
+	case isCPUConstraintEvent(rawLower):
+		return EventCPUConstraint
 	case raw == "clock_set_rate":
 		if isCPUFrequencyClock(fields) {
 			return EventCPUFrequency
@@ -830,6 +973,15 @@ func classifyEventType(raw, fields string) EventType {
 		return EventMemory
 	default:
 		return EventUnknown
+	}
+}
+
+func isCPUConstraintEvent(raw string) bool {
+	switch raw {
+	case "sched_setaffinity", "sched_migrate_task", "cpuset_attach", "cgroup_attach_task":
+		return true
+	default:
+		return false
 	}
 }
 

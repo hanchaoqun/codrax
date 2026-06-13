@@ -3873,6 +3873,85 @@ func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForObservationOnlyRuntime(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("请只基于这段 systrace 文本分析 inode/dev/entry_name，不要分析当前仓库代码。")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:      "file_io",
+			Subject:   "inode=0xb9b8e",
+			Summary:   "entry_name=foo.db dev=260:136 bytes=4096",
+			LineStart: 4,
+			LineEnd:   5,
+		}},
+	})
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "performance_bottleneck",
+		"complexity": "moderate",
+		"keywords": ["inode", "dev", "entry_name", "file_io"],
+		"entities": ["inode 0xb9b8e", "dev 260:136", "foo.db"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"artifact_citation_mode": "external_only",
+			"source_quotes": ["请只基于这段 systrace 文本", "不要分析当前仓库代码"],
+			"confidence": 0.95
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["inode", "device", "file"],
+			"requested_fields": ["name", "location", "summary", "values"],
+			"source_quotes": ["inode/dev/entry_name"],
+			"confidence": 0.9,
+			"rationale": "runtime artifact IO identifiers, not current source"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("observation-only runtime summary must not advertise source inventory lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		t.Fatalf("observation-only runtime must drop source inventory profile: %+v", rm.SourceInventoryProfile)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneExcluded {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want excluded", got)
+	}
+	if contract := types.BuildExactResolutionContract(*rm); contract != nil {
+		t.Fatalf("observation-only runtime must not build exact source contract: %+v", contract)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

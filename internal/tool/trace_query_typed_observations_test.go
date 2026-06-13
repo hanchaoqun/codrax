@@ -55,6 +55,26 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			},
 		},
 		WakeupChain: &tracequery.ChainResult{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 20},
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
+			Nodes: []tracequery.ChainNode{
+				{ID: "n1", Thread: tracequery.ThreadRef{Comm: "app", PID: 20}, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 0}},
+				{ID: "n2", Thread: tracequery.ThreadRef{Comm: "worker", PID: 21}, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 1}},
+			},
+			Edges: []tracequery.WakeupEdge{{
+				From: "n2", To: "n1",
+				Waker:                      tracequery.ThreadRef{Comm: "worker", PID: 21},
+				Wakee:                      tracequery.ThreadRef{Comm: "app", PID: 20},
+				WakeupTs:                   1.024,
+				WakeupLine:                 22,
+				LatencyMs:                  14.0,
+				WakerPriority:              20,
+				WakerPriorityClass:         "ohos_cfs",
+				WakeePriority:              52,
+				WakeePriorityClass:         "ohos_rt",
+				PriorityRelation:           "lower_priority_waker",
+				PriorityInversionCandidate: true,
+			}},
 			CausalImpacts: []tracequery.WakeupCausalImpact{{
 				Thread:           tracequery.ThreadRef{Comm: "worker", PID: 21},
 				Window:           tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.025},
@@ -94,6 +114,75 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			}},
 		},
 		WindowStats: &tracequery.WindowStats{
+			ThreadCPULoad: []tracequery.ThreadCPULoadSummary{{
+				Thread:                tracequery.ThreadRef{Comm: "rival", PID: 30},
+				RunningMs:             6.0,
+				RunnableWaitMs:        1.0,
+				HighPriorityRunningMs: 6.0,
+				CPU:                   1,
+				CoreClass:             "small",
+				Frequency:             900000,
+				Priority:              80,
+				PriorityClass:         "ohos_rt",
+				LineStart:             45,
+				LineEnd:               49,
+				Summary:               "rival thread load",
+			}},
+			CPUConstraints: []tracequery.CPUConstraintSummary{{
+				Thread:             tracequery.ThreadRef{Comm: "app", PID: 20},
+				Kind:               "sched_switch_next_info",
+				Policy:             "next_info affinity=3 group=1 restricted=true",
+				CPUSet:             "top-app",
+				AllowedCPUs:        []int{0, 1},
+				AllowedCoreClasses: []string{"small"},
+				ObservedCPU:        1,
+				ObservedCPUKnown:   true,
+				ObservedCoreClass:  "small",
+				RunnableWaitMs:     5.5,
+				OtherCPUIdleMs:     12.0,
+				LineStart:          46,
+				LineEnd:            48,
+				Summary:            "app constrained to small cores",
+			}},
+			RunnableContext: []tracequery.RunnableContextSummary{{
+				Thread:                tracequery.ThreadRef{Comm: "app", PID: 20},
+				RunnableWaitMs:        5.5,
+				CPU:                   1,
+				CoreClass:             "small",
+				Frequency:             900000,
+				SameCPUBusyMs:         9.0,
+				SameCPUIdleMs:         0.5,
+				OtherCPUIdleMs:        12.0,
+				HighPriorityRunningMs: 6.0,
+				TopBackgroundThreads: []tracequery.ThreadCPULoadSummary{{
+					Thread:    tracequery.ThreadRef{Comm: "rival", PID: 30},
+					RunningMs: 6.0,
+				}},
+				CPUConstraint: &tracequery.CPUConstraintSummary{
+					Thread:             tracequery.ThreadRef{Comm: "app", PID: 20},
+					AllowedCPUs:        []int{0, 1},
+					AllowedCoreClasses: []string{"small"},
+					CPUSet:             "top-app",
+					Policy:             "next_info affinity=3 group=1 restricted=true",
+				},
+				Verdict:    "restricted_to_busy_or_small_cores",
+				Confidence: 0.84,
+				LineStart:  45,
+				LineEnd:    49,
+				Summary:    "app runnable context with rival thread",
+			}},
+			ProcessCPULoad: []tracequery.ProcessCPULoadSummary{{
+				Process:     tracequery.ThreadRef{Comm: "rival_proc", PID: 300},
+				ThreadCount: 1,
+				RunningMs:   6.0,
+				TopThread:   tracequery.ThreadRef{Comm: "rival", PID: 30},
+				TopThreadMs: 6.0,
+				CPUs:        []int{1},
+				CoreClasses: []string{"small"},
+				LineStart:   45,
+				LineEnd:     49,
+				Summary:     "secondary process rollup",
+			}},
 			StateChurn: []tracequery.ThreadStateChurnSummary{{
 				Thread:           tracequery.ThreadRef{Comm: "app", PID: 20},
 				DominantState:    "runnable",
@@ -107,9 +196,19 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			}},
 			FileIOByInode: []tracequery.FileIOSummary{{
 				Inode: "0x478e5", Dev: "253:7", EntryName: "db.sqlite",
-				Operation: "read", Bytes: 4096,
-				TotalLatencyMs: 3.5, LineStart: 70, LineEnd: 71,
+				Operation: "read", Bytes: 4096, CompletionCount: 1, Ret: 4096,
+				TotalLatencyMs: 3.5, MaxLatencyMs: 3.5, LineStart: 70, LineEnd: 71,
+				Example: "entry_name=db.sqlite offset=0 bytes=4096 ret=4096 latency_us=3500",
 				Summary: "inode read burst",
+			}},
+			StorageLatencyByLayer: []tracequery.StorageLatencySummary{{
+				Layer: "android_fs", Event: "android_fs_dataread", Dev: "253:7",
+				Operation: "read", Thread: tracequery.ThreadRef{Comm: "app", PID: 20},
+				Count: 2, PairedCount: 1, Bytes: 8192,
+				MaxLatencyMs: 3.5, AvgLatencyMs: 3.5,
+				LineStart: 70, LineEnd: 71,
+				Example: "entry_name=db.sqlite offset=0 bytes=4096 ret=4096 latency_us=3500",
+				Summary: "android fs completion",
 			}},
 			IOPressureSummary: &tracequery.IOPressureSummary{
 				Signal:              "scheduler_iowait_with_storage_latency",
@@ -130,7 +229,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace-query-result-abcd1234.json", "/blobs/trace_query-eeff.txt", "", time.Now())
 
-	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 1 + len(facts)
+	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + len(facts)
 	if len(rows) != wantRows {
 		t.Fatalf("expected %d typed rows, got %d", wantRows, len(rows))
 	}
@@ -179,6 +278,46 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}
 	}
+	var wakeupPath *types.ObservationRecord
+	var wakeupEdge *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#wakeup_chain:path") {
+			wakeupPath = &rows[i]
+		}
+		if strings.Contains(rows[i].ID, "#wakeup_chain_edge:1") {
+			wakeupEdge = &rows[i]
+		}
+	}
+	if wakeupPath == nil || wakeupPath.Predicate != "wakeup_chain" ||
+		wakeupPath.Object != "worker-21 -> app-20" ||
+		!strings.Contains(wakeupPath.Summary, "wakeup_chain path=worker-21 -> app-20") {
+		t.Fatalf("missing structured wakeup chain path row: %+v", wakeupPath)
+	}
+	if wakeupEdge == nil || wakeupEdge.Predicate != "wakeup_chain_edge" ||
+		wakeupEdge.Subject != "worker-21" || wakeupEdge.Object != "app-20" ||
+		!strings.Contains(strings.Join(wakeupEdge.RichNotes, "\n"), "priority_inversion_candidate=true") {
+		t.Fatalf("missing structured wakeup chain edge row: %+v", wakeupEdge)
+	}
+	var runnableContext *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#runnable_context:1") {
+			runnableContext = &rows[i]
+			break
+		}
+	}
+	if runnableContext == nil {
+		t.Fatalf("missing runnable context row: %v", seen)
+	}
+	runnableNotes := strings.Join(runnableContext.RichNotes, "\n")
+	for _, want := range []string{
+		"top_background_threads=rival-30/6.000ms",
+		"constraint=allowed_cpus=0,1",
+		"verdict=restricted_to_busy_or_small_cores",
+	} {
+		if !strings.Contains(runnableNotes, want) {
+			t.Fatalf("runnable context notes missing %q: %+v", want, runnableContext.RichNotes)
+		}
+	}
 	var causalImpact *types.ObservationRecord
 	for i := range rows {
 		if strings.Contains(rows[i].ID, "#wakeup_causal_impact:1") {
@@ -224,10 +363,14 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		}
 	}
 	var fileIORow *types.ObservationRecord
+	var storageLatencyRow *types.ObservationRecord
 	var ioPressureRow *types.ObservationRecord
 	for i := range rows {
 		if strings.Contains(rows[i].ID, "#file_io:1") {
 			fileIORow = &rows[i]
+		}
+		if strings.Contains(rows[i].ID, "#storage_latency:1") {
+			storageLatencyRow = &rows[i]
 		}
 		if strings.Contains(rows[i].ID, "#io_pressure:1") {
 			ioPressureRow = &rows[i]
@@ -236,8 +379,18 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	if fileIORow == nil || !strings.Contains(fileIORow.Summary, "inode=0x478e5") ||
 		!strings.Contains(fileIORow.Summary, "dev=253:7") ||
 		!strings.Contains(fileIORow.Summary, "name=db.sqlite") ||
-		!strings.Contains(fileIORow.Summary, "bytes=4096") {
-		t.Fatalf("file IO typed summary must keep inode/dev/name/bytes together: %+v", fileIORow)
+		!strings.Contains(fileIORow.Summary, "bytes=4096") ||
+		!strings.Contains(fileIORow.Summary, "completions=1") ||
+		!strings.Contains(fileIORow.Summary, "ret=4096") ||
+		!strings.Contains(fileIORow.Summary, "example=entry_name=db.sqlite offset=0 bytes=4096 ret=4096 latency_us=3500") {
+		t.Fatalf("file IO typed summary must keep inode/dev/name/bytes/completion example together: %+v", fileIORow)
+	}
+	if storageLatencyRow == nil || !strings.Contains(storageLatencyRow.Summary, "storage_latency_by_layer") ||
+		!strings.Contains(storageLatencyRow.Summary, "layer=android_fs") ||
+		!strings.Contains(storageLatencyRow.Summary, "max_latency=3.500") ||
+		!strings.Contains(storageLatencyRow.Summary, "example=entry_name=db.sqlite offset=0 bytes=4096 ret=4096 latency_us=3500") ||
+		!strings.Contains(strings.Join(storageLatencyRow.RichNotes, "\n"), "example=entry_name=db.sqlite offset=0 bytes=4096 ret=4096 latency_us=3500") {
+		t.Fatalf("storage latency typed row must keep representative completion example: %+v", storageLatencyRow)
 	}
 	if ioPressureRow == nil || !strings.Contains(ioPressureRow.Summary, "top_inode=0x478e5") ||
 		!strings.Contains(ioPressureRow.Summary, "top_dev=253:7") ||

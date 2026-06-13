@@ -27,6 +27,6 @@ HTRACE='# tracer: nop
 EXPECT_CONTAINS="threadpool-400 logger-900"
 EXPECT_MATCHES_REGEX="threadpool-400.*(主因|primary|root cause|根因|rank)|(主因|primary|root cause|根因|rank).*threadpool-400
 logger-900.*(background|supporting|辅助|背景|不是主因|非主因|不能作为主因|独立|无因果|无实质影响|无影响)|(background|supporting|辅助|背景|不是主因|非主因|不能作为主因|独立|无因果|无实质影响|无影响).*logger-900
-(唤醒链|唤醒依赖链|wakeup chain|on_wakeup_chain|链路).*(threadpool-400|network-300|cookie-200|app-100)
+(唤醒链|唤醒依赖链|wakeup chain|on_wakeup_chain|链路|依赖链|级联唤醒).*(threadpool-400|network-300|cookie-200|app-100)
 (D-state|D 状态|iowait|io_wait|fscache_page_wait_on_page_bit).*(threadpool-400)"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

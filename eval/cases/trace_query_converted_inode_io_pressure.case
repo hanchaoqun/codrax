@@ -31,4 +31,4 @@ EXPECT_MATCHES_REGEX="(ino=0xb9b8e|0xb9b8e)
 (io_pressure|IO pressure|io pressure|top inode|top_inode|主因 inode).*(0xb9b8e)"
 EXPECT_NOT_CONTAINS="/foo.db /data/foo.db /data/"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
-EXPECT_LOG_NOT_MATCHES_REGEX="phase=toolcall .*tool=(read_file|grep|repo_map|list_files).*internal/(hitraceconv|tracequery|tool)"
+EXPECT_LOG_NOT_MATCHES_REGEX="phase=toolcall .*tool=(read_file|grep|repo_map|list_files|git_show)"

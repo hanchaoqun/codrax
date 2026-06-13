@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v8"
+const ParserVersion = "tracequery-v9"
 
 type EventType string
 
@@ -15,6 +15,7 @@ const (
 	EventCPUIdle            EventType = "cpu_idle"
 	EventCPUFrequency       EventType = "cpu_frequency"
 	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
+	EventCPUConstraint      EventType = "cpu_constraint"
 	EventClockSetRate       EventType = "clock_set_rate"
 	EventBlockIssue         EventType = "block_rq_issue"
 	EventBlockRemap         EventType = "block_bio_remap"
@@ -61,23 +62,44 @@ type Event struct {
 	PID  int    `json:"pid,omitempty"`
 	TGID int    `json:"tgid,omitempty"`
 
-	PrevComm      string `json:"prev_comm,omitempty"`
-	PrevPID       int    `json:"prev_pid,omitempty"`
-	PrevPrio      int    `json:"prev_prio,omitempty"`
-	PrevPrioClass string `json:"prev_prio_class,omitempty"`
-	PrevState     string `json:"prev_state,omitempty"`
-	NextComm      string `json:"next_comm,omitempty"`
-	NextPID       int    `json:"next_pid,omitempty"`
-	NextPrio      int    `json:"next_prio,omitempty"`
-	NextPrioClass string `json:"next_prio_class,omitempty"`
-	NextInfo      string `json:"next_info,omitempty"`
-	CGroup        string `json:"cgroup,omitempty"`
+	PrevComm            string `json:"prev_comm,omitempty"`
+	PrevPID             int    `json:"prev_pid,omitempty"`
+	PrevPrio            int    `json:"prev_prio,omitempty"`
+	PrevPrioClass       string `json:"prev_prio_class,omitempty"`
+	PrevState           string `json:"prev_state,omitempty"`
+	NextComm            string `json:"next_comm,omitempty"`
+	NextPID             int    `json:"next_pid,omitempty"`
+	NextPrio            int    `json:"next_prio,omitempty"`
+	NextPrioClass       string `json:"next_prio_class,omitempty"`
+	NextInfo            string `json:"next_info,omitempty"`
+	NextInfoAffinity    string `json:"next_info_affinity,omitempty"`
+	NextInfoAllowedCPUs []int  `json:"next_info_allowed_cpus,omitempty"`
+	NextInfoLoad        int    `json:"next_info_load,omitempty"`
+	NextInfoGroup       int    `json:"next_info_group,omitempty"`
+	NextInfoRestricted  bool   `json:"next_info_restricted,omitempty"`
+	NextInfoExpel       int    `json:"next_info_expel,omitempty"`
+	NextInfoCGID        int    `json:"next_info_cgid,omitempty"`
+	CGroup              string `json:"cgroup,omitempty"`
 
 	WakeeComm      string `json:"wakee_comm,omitempty"`
 	WakeePID       int    `json:"wakee_pid,omitempty"`
 	WakeePrio      int    `json:"wakee_prio,omitempty"`
 	WakeePrioClass string `json:"wakee_prio_class,omitempty"`
 	TargetCPU      int    `json:"target_cpu,omitempty"`
+
+	ConstraintComm       string `json:"constraint_comm,omitempty"`
+	ConstraintPID        int    `json:"constraint_pid,omitempty"`
+	ConstraintKind       string `json:"constraint_kind,omitempty"`
+	ConstraintPolicy     string `json:"constraint_policy,omitempty"`
+	ConstraintCPU        int    `json:"constraint_cpu,omitempty"`
+	ConstraintCPUValid   bool   `json:"-"`
+	ConstraintOrigCPU    int    `json:"constraint_orig_cpu,omitempty"`
+	ConstraintOrigCPUSet bool   `json:"-"`
+	ConstraintDestCPU    int    `json:"constraint_dest_cpu,omitempty"`
+	ConstraintDestCPUSet bool   `json:"-"`
+	AllowedCPUsText      string `json:"allowed_cpus_text,omitempty"`
+	AllowedCPUs          []int  `json:"allowed_cpus,omitempty"`
+	CPUSet               string `json:"cpuset,omitempty"`
 
 	State            int    `json:"state,omitempty"`
 	Frequency        int    `json:"frequency,omitempty"`
@@ -312,6 +334,10 @@ type WindowStats struct {
 	RunnableTop           []ThreadDuration          `json:"runnable_top,omitempty"`
 	DStateTop             []ThreadDuration          `json:"d_state_top,omitempty"`
 	CPUPressure           []CPUPressureStats        `json:"cpu_pressure,omitempty"`
+	CPUConstraints        []CPUConstraintSummary    `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad         []ThreadCPULoadSummary    `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad        []ProcessCPULoadSummary   `json:"process_cpu_load,omitempty"`
+	RunnableContext       []RunnableContextSummary  `json:"runnable_context,omitempty"`
 	IOLatencies           []IOLatencySummary        `json:"io_latencies,omitempty"`
 	CPUFrequencyLimits    []CPUFrequencyLimit       `json:"cpu_frequency_limits,omitempty"`
 	SubsystemEvents       []SubsystemEventSummary   `json:"subsystem_events,omitempty"`
@@ -374,6 +400,7 @@ type SchedulerLatencyItem struct {
 	EndTs                 float64          `json:"end_ts,omitempty"`
 	DurationMs            float64          `json:"duration_ms,omitempty"`
 	CPU                   int              `json:"cpu"`
+	CoreClass             string           `json:"core_class,omitempty"`
 	Frequency             int              `json:"frequency,omitempty"`
 	Priority              int              `json:"priority,omitempty"`
 	PriorityClass         string           `json:"priority_class,omitempty"`
@@ -421,6 +448,82 @@ type CPUStats struct {
 	IdleMs             float64                 `json:"idle_ms,omitempty"`
 	Frequency          int                     `json:"frequency,omitempty"`
 	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
+}
+
+type CPUConstraintSummary struct {
+	Thread             ThreadRef `json:"thread"`
+	Kind               string    `json:"kind,omitempty"`
+	Policy             string    `json:"policy,omitempty"`
+	CPUSet             string    `json:"cpuset,omitempty"`
+	CGroup             string    `json:"cgroup,omitempty"`
+	AllowedCPUs        []int     `json:"allowed_cpus,omitempty"`
+	AllowedCoreClasses []string  `json:"allowed_core_classes,omitempty"`
+	ObservedCPU        int       `json:"observed_cpu,omitempty"`
+	ObservedCPUKnown   bool      `json:"-"`
+	ObservedCoreClass  string    `json:"observed_core_class,omitempty"`
+	MigrationCount     int       `json:"migration_count,omitempty"`
+	ConstraintCount    int       `json:"constraint_count,omitempty"`
+	RunnableWaitMs     float64   `json:"runnable_wait_ms,omitempty"`
+	OtherCPUIdleMs     float64   `json:"other_cpu_idle_ms,omitempty"`
+	StartTs            float64   `json:"start_ts,omitempty"`
+	EndTs              float64   `json:"end_ts,omitempty"`
+	LineStart          int       `json:"line_start,omitempty"`
+	LineEnd            int       `json:"line_end,omitempty"`
+	Summary            string    `json:"summary,omitempty"`
+}
+
+type ThreadCPULoadSummary struct {
+	Thread                ThreadRef `json:"thread"`
+	RunningMs             float64   `json:"running_ms,omitempty"`
+	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
+	CPU                   int       `json:"cpu"`
+	CoreClass             string    `json:"core_class,omitempty"`
+	Frequency             int       `json:"frequency,omitempty"`
+	Priority              int       `json:"priority,omitempty"`
+	PriorityClass         string    `json:"priority_class,omitempty"`
+	LineStart             int       `json:"line_start,omitempty"`
+	LineEnd               int       `json:"line_end,omitempty"`
+	Summary               string    `json:"summary,omitempty"`
+}
+
+type ProcessCPULoadSummary struct {
+	Process               ThreadRef `json:"process"`
+	ThreadCount           int       `json:"thread_count,omitempty"`
+	RunningMs             float64   `json:"running_ms,omitempty"`
+	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
+	TopThread             ThreadRef `json:"top_thread,omitempty"`
+	TopThreadMs           float64   `json:"top_thread_ms,omitempty"`
+	CPUs                  []int     `json:"cpus,omitempty"`
+	CoreClasses           []string  `json:"core_classes,omitempty"`
+	LineStart             int       `json:"line_start,omitempty"`
+	LineEnd               int       `json:"line_end,omitempty"`
+	Summary               string    `json:"summary,omitempty"`
+}
+
+type RunnableContextSummary struct {
+	Thread                ThreadRef              `json:"thread"`
+	RunnableWaitMs        float64                `json:"runnable_wait_ms,omitempty"`
+	CPU                   int                    `json:"cpu"`
+	CoreClass             string                 `json:"core_class,omitempty"`
+	Frequency             int                    `json:"frequency,omitempty"`
+	Priority              int                    `json:"priority,omitempty"`
+	PriorityClass         string                 `json:"priority_class,omitempty"`
+	SameCPUBusyMs         float64                `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs         float64                `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs        float64                `json:"other_cpu_idle_ms,omitempty"`
+	HighPriorityRunningMs float64                `json:"high_priority_running_ms,omitempty"`
+	SameCPUTopRunning     []ThreadDuration       `json:"same_cpu_top_running,omitempty"`
+	TopBackgroundThreads  []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
+	SameProcessLoad       *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
+	TopBackgroundProcess  *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
+	CPUConstraint         *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
+	Verdict               string                 `json:"verdict,omitempty"`
+	Confidence            float64                `json:"confidence,omitempty"`
+	LineStart             int                    `json:"line_start,omitempty"`
+	LineEnd               int                    `json:"line_end,omitempty"`
+	Summary               string                 `json:"summary,omitempty"`
 }
 
 type CPUPressureStats struct {
@@ -482,6 +585,7 @@ type ThreadStateChurnSummary struct {
 	MaxSegmentMs           float64   `json:"max_segment_ms,omitempty"`
 	P95SegmentMs           float64   `json:"p95_segment_ms,omitempty"`
 	RunnableCPU            int       `json:"runnable_cpu,omitempty"`
+	RunnableCoreClass      string    `json:"runnable_core_class,omitempty"`
 	RunnableCPUKnown       bool      `json:"-"`
 	TopCompetitor          string    `json:"top_competitor,omitempty"`
 	TopCompetitorRunningMs float64   `json:"top_competitor_running_ms,omitempty"`

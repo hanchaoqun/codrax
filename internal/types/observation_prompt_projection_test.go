@@ -86,21 +86,38 @@ func TestProjectObservationPromptRecords_MixedOriginRankingAndBudget(t *testing.
 
 func TestProjectObservationPromptRecords_RuntimeQueryOutranksPreTriageBudget(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
-		AggregateFacts: []AnswerAggregateFact{{
-			Kind:       AnswerAggregateScalar,
-			Label:      "deterministic state churn",
-			Value:      "5.000",
-			Unit:       "ms",
-			Role:       AnswerAggregateRolePrincipalAnswer,
-			Provenance: "trace_query",
-			Dimensions: []AnswerAggregateDimension{
-				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
-				{Name: "artifact_id", Value: "attached_trace"},
-				{Name: "artifact_kind", Value: "trace"},
-				{Name: "target", Value: "app-20"},
-				{Name: "predicate", Value: "state_churn"},
+		AggregateFacts: []AnswerAggregateFact{
+			{
+				Kind:       AnswerAggregateScalar,
+				Label:      "deterministic state churn",
+				Value:      "5.000",
+				Unit:       "ms",
+				Role:       AnswerAggregateRolePrincipalAnswer,
+				Provenance: "trace_query",
+				Dimensions: []AnswerAggregateDimension{
+					{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+					{Name: "artifact_id", Value: "attached_trace"},
+					{Name: "artifact_kind", Value: "trace"},
+					{Name: "target", Value: "app-20"},
+					{Name: "predicate", Value: "state_churn"},
+				},
 			},
-		}},
+			{
+				Kind:       AnswerAggregateScalar,
+				Label:      "deterministic root cause",
+				Value:      "7.700",
+				Unit:       "ms",
+				Role:       AnswerAggregateRolePrincipalAnswer,
+				Provenance: "trace_query",
+				Dimensions: []AnswerAggregateDimension{
+					{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+					{Name: "artifact_id", Value: "attached_trace"},
+					{Name: "artifact_kind", Value: "trace"},
+					{Name: "target", Value: "cpu_pressure"},
+					{Name: "predicate", Value: "root_cause_primary"},
+				},
+			},
+		},
 		PerfBundle: &PerfBundle{Observations: []PerfObservation{{
 			Kind:       "state_churn",
 			Subject:    "app-20",
@@ -115,6 +132,15 @@ func TestProjectObservationPromptRecords_RuntimeQueryOutranksPreTriageBudget(t *
 	}
 	if got[0].Producer != "trace_query" || got[0].ID != "aggregate:0#runtime_artifact" {
 		t.Fatalf("tight runtime prompt budget should keep deterministic query row first, got %+v", got)
+	}
+	got = ProjectObservationPromptRecords(ledger.Records, nil, nil, DefaultObservationPromptProjectionOptions(2))
+	if len(got) != 2 {
+		t.Fatalf("got %d records, want 2", len(got))
+	}
+	for _, row := range got {
+		if row.Producer != "trace_query" {
+			t.Fatalf("small runtime prompt budget should omit pre-triage advisory rows, got %+v", got)
+		}
 	}
 }
 
