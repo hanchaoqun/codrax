@@ -80,6 +80,27 @@ func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
 	}
 }
 
+func TestResultIsFinalAnswerCandidateAcceptsPromotedJSONOnlyPayloadWithoutLedgers(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []dataquery.DataAction{{
+			Kind:   dataquery.DataActionCustomTransform,
+			Script: `emit({"ids":["u1","u3"]})`,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: plan.OutputContract,
+	}
+	if !ResultIsFinalAnswerCandidate(plan, result, dataquery.CoverageContract{}, plan.OutputContract) {
+		t.Fatalf("promoted json_only payload should satisfy output projection when no ledgers are declared")
+	}
+	withLedgerRequirement := dataquery.CoverageContract{ContributionLedgerRequired: true}
+	if ResultIsFinalAnswerCandidate(plan, result, withLedgerRequirement, plan.OutputContract) {
+		t.Fatalf("promoted payload must not bypass explicitly required contribution ledger")
+	}
+}
+
 func TestPlanMayProduceFinalAnswerAllowsReconcileAction(t *testing.T) {
 	result := dataquery.Result{Reconcile: &dataquery.ReconcileReport{
 		ActualAnswer: dataquery.LooseText("42"),

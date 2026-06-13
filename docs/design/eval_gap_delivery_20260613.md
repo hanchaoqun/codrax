@@ -1282,16 +1282,36 @@ Executable task list:
 
 - [x] B17-T1: Record post-Batch-16 representative eval audit and root cause in
   this design doc.
-- [ ] B17-T2: Extend runner result parsing/normalization so plan-level
+- [x] B17-T2: Extend runner result parsing/normalization so plan-level
   `output_contract` can trigger existing JSON payload answer promotion before
   terminal workflow validation.
-- [ ] B17-T3: Add regression tests for plain `emit({"field": ...})` under
+- [x] B17-T3: Add regression tests for plain `emit({"field": ...})` under
   plan-level `json_only` output contract, including required-material
   consumption through an instruction/rule file.
-- [ ] B17-T4: Add/adjust workflow completion tests proving a promoted payload
+- [x] B17-T4: Add/adjust workflow completion tests proving a promoted payload
   satisfies output projection without forcing unrelated ledger stages when
   ledger requirements are not declared.
-- [ ] B17-T5: Run focused tests, full tests, rebuild, diff hygiene.
+- [x] B17-T5: Run focused tests, full tests, rebuild, diff hygiene.
 - [ ] B17-T6: Commit and push Batch 17.
 - [ ] B17-T7: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
+
+Implementation notes:
+
+- `Runner.Run` now passes the plan output contract into result parsing.
+  `parseRunnerResult` derives an effective contract from
+  `result.output_contract` first, then `plan.output_contract`; when that
+  effective contract is `json_only`, the existing extra-payload promotion
+  converts ordinary script payloads such as `{"ids":[...]}` into
+  `result.answer`.
+- The emitted payload artifact remains available for audit/handoff, while the
+  promoted `answer` becomes the terminal projection consumed by the workflow
+  completion state. Explicit ledger requirements still gate completion.
+
+Verification:
+
+- Focused tests: `go test ./internal/dataquery -run 'TestRunner(PromotesPlainJSONPayloadWithPlanOutputContract|EmitResultJSONPayloadBecomesAnswer|JSONOnlyValidation)'`
+- Focused tests: `go test ./internal/dataworkflow -run 'TestResultIsFinalAnswerCandidateAcceptsPromotedJSONOnlyPayloadWithoutLedgers|TestBuildOutputProjectionGraph|TestWorkflowStateCompletion'`
+- Full tests: `go test ./...`
+- Build: `make`
+- Diff hygiene: `git diff --check`

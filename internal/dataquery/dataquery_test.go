@@ -943,6 +943,54 @@ emit_result({"ids": [row["id"] for row in users if row.get("active")]}, output_c
 	}
 }
 
+func TestRunnerPromotesPlainJSONPayloadWithPlanOutputContract(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "instructions.md"), []byte("Return ids for active users as JSON only.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1","active":true},{"id":"u2","active":false},{"id":"u3","active":true}]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		InputPaths: []string{"instructions.md", "users.json"},
+		OutputContract: OutputContract{
+			Format:             OutputJSONOnly,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "instructions.md", Purpose: "task rules", Required: true, UsageMode: MaterialUseScriptConsumed},
+				{Path: "users.json", Purpose: "source records", Required: true, UsageMode: MaterialUseScriptConsumed},
+			},
+		},
+		Script: `
+rules = read_text("instructions.md")
+users = json_load("users.json")
+if "active" not in rules:
+    raise ValueError("instructions did not define active-user filter")
+emit({"ids": [row["id"] for row in users if row.get("active")]})
+`,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want promoted JSON payload answer", res.Answer)
+	}
+	if res.OutputContract.Format != OutputJSONOnly {
+		t.Fatalf("OutputContract=%+v, want plan-level json_only contract retained", res.OutputContract)
+	}
+	if strings.Join(res.ConsumedPaths, ",") != "instructions.md,users.json" {
+		t.Fatalf("ConsumedPaths=%v, want both required materials consumed", res.ConsumedPaths)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[0].ID != "emitted_payload" {
+		t.Fatalf("Artifacts=%+v, want emitted payload audit artifact retained", res.Artifacts)
+	}
+}
+
 func TestRunnerNormalizesScalarRowDecisions(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

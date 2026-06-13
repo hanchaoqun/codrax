@@ -1859,7 +1859,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("data task script failed: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
-	res, err := parseRunnerResult(out)
+	res, err := parseRunnerResult(out, plan.OutputContract)
 	if err != nil {
 		return Result{}, err
 	}
@@ -4409,7 +4409,7 @@ print(%q + json.dumps(RESULT, ensure_ascii=False, default=str))
 `, string(pathsJSON), string(scriptJSON), resultMarker)
 }
 
-func parseRunnerResult(out []byte) (Result, error) {
+func parseRunnerResult(out []byte, fallbackContracts ...OutputContract) (Result, error) {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
@@ -4427,9 +4427,16 @@ func parseRunnerResult(out []byte) (Result, error) {
 				Cause:         err,
 			}
 		}
+		effectiveContract := res.OutputContract
+		if effectiveContract.Format == "" {
+			effectiveContract = firstOutputContract(fallbackContracts...)
+		}
 		if strings.TrimSpace(res.Answer) == "" {
-			if answer, ok := runnerPayloadAnswerFromExtraFields(payload, res.OutputContract); ok {
+			if answer, ok := runnerPayloadAnswerFromExtraFields(payload, effectiveContract); ok {
 				res.Answer = answer
+				if res.OutputContract.Format == "" {
+					res.OutputContract = effectiveContract
+				}
 			}
 		}
 		res.Artifacts = appendRunnerPayloadArtifact(payload, res.Artifacts)
@@ -4442,6 +4449,15 @@ func parseRunnerResult(out []byte) (Result, error) {
 		ActualSnippet: strings.TrimSpace(string(out)),
 		Message:       fmt.Sprintf("data task script did not emit a structured result; output=%s", strings.TrimSpace(string(out))),
 	}
+}
+
+func firstOutputContract(contracts ...OutputContract) OutputContract {
+	for _, contract := range contracts {
+		if contract.Format != "" || contract.ExplanationAllowed || strings.TrimSpace(contract.Delimiter) != "" {
+			return contract
+		}
+	}
+	return OutputContract{}
 }
 
 func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []DataArtifact {
