@@ -44,13 +44,21 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					TargetImpactMs: 16.0,
 					Score:          0.91, Confidence: 0.88,
 					LineStart: 10, LineEnd: 20, Source: "wakeup_chain",
-					Causality: "on_wakeup_chain", ChainDepth: 2,
+					Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 2,
 					Summary: "binder reply stalled the frame",
 				},
 				{
-					Rank: 2, Type: "runnable_wait",
-					Thread:   tracequery.ThreadRef{Comm: "app", PID: 20},
-					ImpactMs: 4.5, Confidence: 0.6,
+					Rank: 2, Tier: "secondary", Type: "cpu_pressure",
+					Thread:         tracequery.ThreadRef{Comm: "logger", PID: 99},
+					ImpactMs:       20.0,
+					Score:          0.70,
+					Confidence:     0.6,
+					LineStart:      80,
+					LineEnd:        90,
+					Source:         "window_stats",
+					Causality:      "background",
+					ChainRelevance: "background",
+					Summary:        "background CPU pressure overlapped the window",
 				},
 			},
 		},
@@ -277,6 +285,30 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		if !strings.Contains(rootNotes, want) {
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}
+	}
+	var backgroundRootCause *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#root_cause_rank:2") {
+			backgroundRootCause = &rows[i]
+			break
+		}
+	}
+	if backgroundRootCause == nil {
+		t.Fatalf("missing background root-cause row: %v", seen)
+	}
+	if backgroundRootCause.Role != types.AnswerAggregateRoleSupportingCoverage ||
+		backgroundRootCause.GroundingPolicy != types.ClaimGroundingHard ||
+		backgroundRootCause.ProvenanceLane != types.ObservationProvenanceArtifactSpan {
+		t.Fatalf("background root-cause should be supporting coverage only: %+v", backgroundRootCause)
+	}
+	if backgroundRootCause.Predicate != "root_cause_background" ||
+		backgroundRootCause.ClaimKey != "root_cause_background" ||
+		backgroundRootCause.Object != "cpu_pressure" ||
+		backgroundRootCause.Value != "20.000" {
+		t.Fatalf("background root-cause fields drifted: %+v", backgroundRootCause)
+	}
+	if !strings.Contains(strings.Join(backgroundRootCause.RichNotes, "\n"), "chain_relevance=background") {
+		t.Fatalf("background root-cause notes must preserve chain relevance: %+v", backgroundRootCause.RichNotes)
 	}
 	var wakeupPath *types.ObservationRecord
 	var wakeupEdge *types.ObservationRecord

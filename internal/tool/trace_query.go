@@ -2530,6 +2530,32 @@ func traceQueryRootCauseTierLabel(rank int) string {
 	}
 }
 
+func traceQueryRootCauseRankHasForeground(items []tracequery.RootCauseRankItem) bool {
+	for _, item := range items {
+		switch traceQueryRootCauseItemRelevance(item) {
+		case "on_chain", "adjacent":
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryRootCauseItemRelevance(item tracequery.RootCauseRankItem) string {
+	if relevance := strings.TrimSpace(item.ChainRelevance); relevance != "" {
+		return relevance
+	}
+	switch strings.TrimSpace(item.Causality) {
+	case "on_wakeup_chain":
+		return "on_chain"
+	case "adjacent_to_wakeup_chain":
+		return "adjacent"
+	case "background":
+		return "background"
+	default:
+		return ""
+	}
+}
+
 func traceQueryObservationMSValue(ms float64) string {
 	if ms <= 0 {
 		return ""
@@ -2565,6 +2591,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	var out []types.ObservationRecord
 
 	if result.RootCauseRank != nil {
+		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)
 		for i, item := range result.RootCauseRank.Items {
 			if i >= traceQueryTypedFamilyRowCap {
 				break
@@ -2585,18 +2612,29 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
 				{"nearest_chain_window", traceQueryTypedTimeWindow(item.NearestChainWindow)},
 			})...)
+			role := types.AnswerAggregateRolePrincipalAnswer
+			grounding := types.ClaimGroundingHard
+			provenance := types.ObservationProvenanceObservedDirectCause
+			claimKey := "root_cause_" + tier
+			predicate := claimKey
+			if hasForegroundRootCause && traceQueryRootCauseItemRelevance(item) == "background" {
+				role = types.AnswerAggregateRoleSupportingCoverage
+				provenance = types.ObservationProvenanceArtifactSpan
+				claimKey = "root_cause_background"
+				predicate = "root_cause_background"
+			}
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, rank),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
 				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRolePrincipalAnswer,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				Role:            role,
+				GroundingPolicy: grounding,
+				ProvenanceLane:  provenance,
 				SourceRef:       ref,
 				Span:            types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd},
-				ClaimKey:        "root_cause_" + tier,
+				ClaimKey:        claimKey,
 				Subject:         traceThreadLabel(item.Thread),
-				Predicate:       "root_cause_" + tier,
+				Predicate:       predicate,
 				Object:          item.Type,
 				Value:           traceQueryObservationMSValue(item.ImpactMs),
 				Unit:            "ms",
