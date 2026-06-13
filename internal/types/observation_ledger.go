@@ -1421,6 +1421,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	typ := strings.TrimSpace(fields["type"])
 	thread := strings.TrimSpace(fields["thread"])
 	impact := traceQueryFieldMS(fields, "impact")
+	cumulativeImpact := traceQueryFieldMS(fields, "cumulative_impact")
 	targetImpact := traceQueryFieldMS(fields, "target_impact")
 	score := traceQueryFieldFloat(fields, "score")
 	conf := traceQueryFieldFloat(fields, "confidence")
@@ -1454,7 +1455,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         firstNonEmptyString(summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, typ)),
-		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, targetImpact),
+		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      conf,
@@ -2194,7 +2195,7 @@ func traceQueryFieldLineSpan(raw string) (int, int) {
 	return start, end
 }
 
-func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, targetImpact float64) []string {
+func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, targetImpact float64) []string {
 	var notes []string
 	if rank > 0 {
 		notes = append(notes, fmt.Sprintf("rank=%d", rank))
@@ -2207,6 +2208,9 @@ func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, 
 	}
 	if impact > 0 {
 		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
+	}
+	if cumulativeImpact > 0 {
+		notes = append(notes, fmt.Sprintf("cumulative_impact_ms=%.3f", cumulativeImpact))
 	}
 	if targetImpact > 0 {
 		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))

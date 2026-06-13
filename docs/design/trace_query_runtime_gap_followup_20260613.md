@@ -470,5 +470,67 @@ Tasks:
 - [ ] Follow-up route-cost batch: make explicit runtime trace-only requests
   avoid user-facing repo indexing/stage wording unless current source is a
   typed required lane.
-- [ ] Follow-up fallback batch: restrict post-trace_query `grep`/`read_file`
-  fallback to explicit trace_query incomplete/unsupported/line-window cases.
+- [x] Follow-up fallback batch: restrict post-trace_query source/generic tool
+  fallback when `trace_query` has already published hard runtime observations;
+  leave fallback available after failed/empty trace_query and for typed
+  current-source-required requests.
+
+### Batch 12: On-chain cumulative ordering and trace-query fallback closure
+
+Audit input:
+
+- The Donghu frame analysis can contain multiple primary layers on the same
+  wakeup chain: runnable scheduling delay, D-state/io_wait, and compute-supply
+  limits. A row's `score` intentionally includes confidence and type weights,
+  so score alone is not the right answer to "which on-chain cause has the
+  largest total impact".
+- After `trace_query` succeeds with structured runtime observations, source
+  tools can still be attempted in source-optional trace-only exploration. This
+  reintroduces repository-analysis drift even though the deterministic trace
+  lane already has hard evidence.
+
+Design:
+
+- Add output-only `RootCauseRankItem.cumulative_impact_ms`. It is not a model
+  tool-call JSON input, so no new compat alias is required. Existing JSON
+  repair remains focused on model-authored input fields such as `view`,
+  `event_types`, timestamps, and selector aliases.
+- Keep `impact_ms` as the effective ranking impact used by the existing score
+  model, including background caps and state-churn effective impact. Use
+  `cumulative_impact_ms` for the actual total row impact: causal-impact
+  `TotalMs`, aggregate `TotalMs`, state-churn `TotalMs`, or the raw
+  window-stat duration before background capping.
+- Preserve the existing chain relevance ordering:
+  `on_chain -> adjacent -> background`. Within the `on_chain` group, sort by
+  `cumulative_impact_ms` before `score`, then by effective `impact_ms` and
+  line order. This lets chain-local D/IO, runnable, running/compute-supply, and
+  affinity rows be compared by total bounded impact without promoting
+  off-chain background pressure.
+- Render `cumulative_impact_ms` through the trace_query JSON payload, summary
+  banner, summary-to-ledger compatibility parser, typed observations, finalizer
+  supplement whitelist, explorer prompt, final-answer runtime guidance, tool
+  schema/description, and shared trace-query view teaching.
+- Add a structural explorer guard: once a successful `trace_query` result has
+  published hard runtime-artifact observations, reject source/generic fallback
+  tools (`repo_map`, `grep`, `list_files`, `read_file`, `exec_command`) unless
+  the typed request model requires current-source evidence. Continue allowing
+  `trace_query` follow-up and `emit_investigation_complete`. The guard uses
+  typed observation metadata only; it does not parse model prose or user intent
+  keywords.
+
+Tasks:
+
+- [x] Add `cumulative_impact_ms` to `RootCauseRankItem`.
+- [x] Populate cumulative impact from causal impacts, aggregated impacts,
+  state churn, scheduler latency, compute supply, CPU constraints, IO/resource
+  rows, and default root-cause candidates.
+- [x] Sort same-chain `root_cause_rank` rows by cumulative impact before score.
+- [x] Propagate the field through banners, typed observations, summary ledger
+  compatibility, supplement notes, tool schema, shared view teaching, explorer
+  guidance, and final-answer guidance.
+- [x] Add tests for cumulative ordering beating score within the on-chain
+  group, typed observation preservation, schema/prompt teaching, and final
+  supplement visibility.
+- [x] Add tests for post-trace_query fallback: failed/empty trace_query still
+  allows fallback; successful hard runtime observations block source/generic
+  fallback but keep trace follow-up/completion available.

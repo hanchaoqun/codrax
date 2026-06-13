@@ -42,10 +42,11 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			Items: []tracequery.RootCauseRankItem{
 				{
 					Rank: 1, Tier: "primary", Type: "binder_wait",
-					Thread:         tracequery.ThreadRef{Comm: "app", PID: 20},
-					ImpactMs:       12.5,
-					TargetImpactMs: 16.0,
-					Score:          0.91, Confidence: 0.88,
+					Thread:             tracequery.ThreadRef{Comm: "app", PID: 20},
+					ImpactMs:           12.5,
+					CumulativeImpactMs: 18.5,
+					TargetImpactMs:     16.0,
+					Score:              0.91, Confidence: 0.88,
 					LineStart: 10, LineEnd: 20, Source: "wakeup_chain",
 					Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 2,
 					DominantState: string(tracequery.StateIOWait),
@@ -337,7 +338,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
 	}
 	rootNotes := strings.Join(rootCause.RichNotes, "\n")
-	for _, want := range []string{"target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
+	for _, want := range []string{"cumulative_impact_ms=18.500", "target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
 		if !strings.Contains(rootNotes, want) {
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}

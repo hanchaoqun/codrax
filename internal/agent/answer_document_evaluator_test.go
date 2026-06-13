@@ -4386,6 +4386,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"`blocking_candidate`",
 		"peer/on-chain thread state",
 		"Runtime trace handoff hint",
+		"`cumulative_impact_ms`",
+		"compare same-chain primary rows by cumulative impact before score",
 		"preserve that next-step guidance visibly",
 		"prefer the bounded `trace_query` facts",
 	} {
@@ -6888,7 +6890,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 					Object:          "runnable",
 					Value:           "25.847",
 					Unit:            "ms",
-					RichNotes:       []string{"chain_depth=1", "priority_relation=lower_wakes_higher"},
+					RichNotes:       []string{"cumulative_impact_ms=25.847", "chain_depth=1", "priority_relation=lower_wakes_higher"},
 					SupportRefs:     []string{"attached_trace.txt:13417-15158"},
 				},
 				{
@@ -6957,6 +6959,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
 		"root_cause_primary：CookieMonsterCl-59843 -> runnable",
+		"cumulative_impact_ms=25.847",
 		"critical_blocking:binder_wait：com.baidu.tieba-59566 -> Binder:43397_19-23088",
 		"attached_trace.txt:11666-11670",
 		"chain_relevance=on_chain",

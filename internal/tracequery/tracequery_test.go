@@ -1554,6 +1554,51 @@ func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankSortsOnChainByCumulativeImpact(t *testing.T) {
+	items := []RootCauseRankItem{
+		{
+			Type:               "priority_inversion_candidate",
+			Thread:             ThreadRef{Comm: "short-score-heavy", PID: 200},
+			ImpactMs:           9,
+			CumulativeImpactMs: 9,
+			Score:              100,
+			ChainRelevance:     "on_chain",
+			Causality:          "on_wakeup_chain",
+			DominantState:      string(StateRunnable),
+			RunnableMs:         9,
+			LineStart:          20,
+		},
+		{
+			Type:               "fragmented_runnable_wait",
+			Thread:             ThreadRef{Comm: "long-fragmented", PID: 300},
+			ImpactMs:           8,
+			CumulativeImpactMs: 14,
+			Score:              80,
+			ChainRelevance:     "on_chain",
+			Causality:          "on_wakeup_chain",
+			DominantState:      string(StateRunnable),
+			RunnableMs:         14,
+			LineStart:          30,
+		},
+		{
+			Type:               "cpu_pressure",
+			ImpactMs:           50,
+			CumulativeImpactMs: 50,
+			Score:              1000,
+			ChainRelevance:     "background",
+			Causality:          "background",
+			LineStart:          10,
+		},
+	}
+	sortRootCauseRankItems(items, true)
+	if items[0].Thread.PID != 300 || items[1].Thread.PID != 200 {
+		t.Fatalf("same-chain rows should sort by cumulative impact before score: %+v", items)
+	}
+	if items[2].ChainRelevance != "background" {
+		t.Fatalf("background pressure should stay behind on-chain rows despite higher score: %+v", items)
+	}
+}
+
 func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 	threadpool := ThreadRef{Comm: "ThreadPoolForeg", PID: 60555}
 	network := ThreadRef{Comm: "NetworkService", PID: 60595}
@@ -1612,7 +1657,7 @@ func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 		t.Fatalf("aggregate should preserve occurrence count, cumulative IO wait, and chain path: %+v", agg)
 	}
 	item := rootCauseItemFromCausalAggregate(agg)
-	if item.Source != "wakeup_chain.aggregated_impacts" || item.Tier != "" || item.ImpactMs < 9.148 || item.ChainRelevance != "on_chain" || item.DominantState != string(StateIOWait) {
+	if item.Source != "wakeup_chain.aggregated_impacts" || item.Tier != "" || item.ImpactMs < 9.148 || item.CumulativeImpactMs < 9.148 || item.ChainRelevance != "on_chain" || item.DominantState != string(StateIOWait) {
 		t.Fatalf("aggregate should become an on-chain ranked root-cause candidate: %+v", item)
 	}
 	assignRootCauseRanksAndTiers([]RootCauseRankItem{item})

@@ -5270,6 +5270,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 			summary = fmt.Sprintf("%s; high-priority running time %.3fms", summary, pressure.HighPriorityRunningMs)
 		}
 		item := rootCauseItem("cpu_pressure", ThreadRef{}, backgroundImpactMs(q, pressure.RunnableWaitMs, hasCausalChain, false), conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary)
+		item.CumulativeImpactMs = pressure.RunnableWaitMs
 		if hasCausalChain {
 			item.Causality = "background"
 		}
@@ -5278,6 +5279,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, io := range stats.IOLatencies {
 		onChain := threadInSet(chainThreads, io.IssueThread) || threadInSet(chainThreads, io.CompleteThread)
 		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, io.DurationMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs))
+		item.CumulativeImpactMs = io.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = io.IssueTs
 		item.EndTs = io.CompleteTs
@@ -5297,6 +5299,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 		onChain := threadInSet(chainThreads, file.Thread)
 		item := rootCauseItem("file_io_hot_inode", file.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.72, file.LineStart, file.LineEnd, "window_stats.file_io_by_inode", summary)
+		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = file.StartTs
 		item.EndTs = file.EndTs
@@ -5309,6 +5312,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 		onChain := threadInSet(chainThreads, cache.Thread)
 		item := rootCauseItem("page_cache_churn", cache.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.66, cache.LineStart, cache.LineEnd, "window_stats.page_cache_by_inode", fmt.Sprintf("page cache churn inode=%s dev=%s adds=%d deletes=%d churn=%d", cache.Inode, cache.Dev, cache.Adds, cache.Deletes, cache.Churn))
+		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = cache.StartTs
 		item.EndTs = cache.EndTs
@@ -5321,6 +5325,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 		onChain := threadInSet(chainThreads, thread)
 		item := rootCauseItem("io_pressure", thread, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, onChain), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
+		item.CumulativeImpactMs = stats.IOPressureSummary.Score
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		if len(stats.FileIOByInode) > 0 {
 			item.StartTs = stats.FileIOByInode[0].StartTs
@@ -5335,6 +5340,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 			continue
 		}
 		item := rootCauseItem("io_burst_episode", episode.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), episode.Confidence, episode.LineStart, episode.LineEnd, "window_stats.io_burst_episodes", episode.Summary)
+		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = episode.StartTs
 		item.EndTs = episode.EndTs
@@ -5350,6 +5356,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 			continue
 		}
 		item := rootCauseItem("block_io_by_inode", inode.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), inode.Confidence, inode.LineStart, inode.LineEnd, "window_stats.block_io_by_inode", inode.Summary)
+		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = inode.StartTs
 		item.EndTs = inode.EndTs
@@ -5374,6 +5381,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, td := range stats.RunnableTop {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.CumulativeImpactMs = td.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
 		item.EndTs = td.EndTs
@@ -5384,6 +5392,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, td := range stats.DStateTop {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("d_state_or_io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.CumulativeImpactMs = td.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
 		item.EndTs = td.EndTs
@@ -5394,6 +5403,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, churn := range stats.StateChurn {
 		onChain := threadInSet(chainThreads, churn.Thread)
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
+		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
 		item.RunningMs = churn.RunningMs
@@ -5414,6 +5424,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 			continue
 		}
 		item := rootCauseItem("irq_activity", ThreadRef{}, backgroundImpactMs(q, irq.ActiveMs, hasCausalChain, false), 0.60, irq.LineStart, irq.LineEnd, "window_stats.irq_activity", irq.Summary)
+		item.CumulativeImpactMs = irq.ActiveMs
 		item.StartTs = irq.StartTs
 		item.EndTs = irq.EndTs
 		items = append(items, item)
@@ -5421,6 +5432,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, work := range stats.WorkqueueActivity {
 		onChain := threadInSet(chainThreads, work.Thread)
 		item := rootCauseItem("workqueue_activity", work.Thread, backgroundImpactMs(q, work.DurationMs, hasCausalChain, onChain), 0.62, work.LineStart, work.LineEnd, "window_stats.workqueue_activity", work.Summary)
+		item.CumulativeImpactMs = work.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = work.StartTs
 		item.EndTs = work.EndTs
@@ -5428,10 +5440,12 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	}
 	if supply := stats.SupplyPressureSummary; supply != nil && supply.CPUPressureMs > 0 {
 		item := rootCauseItem("supply_pressure", ThreadRef{}, backgroundImpactMs(q, supply.CPUPressureMs, hasCausalChain, false), 0.58, supply.LineStart, supply.LineEnd, "window_stats.supply_pressure_summary", supply.Summary)
+		item.CumulativeImpactMs = supply.CPUPressureMs
 		items = append(items, item)
 	}
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
+	normalizeRootCauseCumulativeImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
@@ -5472,6 +5486,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 		onChain := threadInSet(chainThreads, item.Thread)
 		candidate := rootCauseItem("scheduler_latency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary)
+		candidate.CumulativeImpactMs = item.DurationMs
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		candidate.StartTs = item.StartTs
@@ -5481,6 +5496,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Items = append(rank.Items, candidate)
 		if frequencyIsLowForCPU(item.Frequency, cpus[item.CPU]) {
 			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU))
+			low.CumulativeImpactMs = item.DurationMs
 			low.Causality = causalityLabel(hasCausalChain, onChain)
 			low.ChainRelevance = chainRelevanceFromCausality(low.Causality)
 			low.StartTs = item.StartTs
@@ -5499,6 +5515,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			}
 			onChain := threadInSet(chainThreads, supply.Thread)
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
+			candidate.CumulativeImpactMs = supply.DurationMs
 			candidate.Causality = causalityLabel(hasCausalChain, onChain)
 			candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 			candidate.DominantState = computeSupplyDominantState(supply)
@@ -5520,6 +5537,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 		onChain := threadInSet(chainThreads, constraint.Thread)
 		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, constraint.RunnableWaitMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
+		candidate.CumulativeImpactMs = constraint.RunnableWaitMs
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		candidate.DominantState = string(StateRunnable)
@@ -5527,6 +5545,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Items = append(rank.Items, candidate)
 	}
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
+	normalizeRootCauseCumulativeImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
@@ -5560,6 +5579,15 @@ func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain 
 	}
 }
 
+func normalizeRootCauseCumulativeImpact(items []RootCauseRankItem) {
+	for i := range items {
+		if items[i].CumulativeImpactMs > 0 {
+			continue
+		}
+		items[i].CumulativeImpactMs = rootCauseCumulativeImpactMs(items[i])
+	}
+}
+
 func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if chainAware {
@@ -5567,6 +5595,13 @@ func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 			rj := rootCauseChainRelevanceSortRank(items[j])
 			if ri != rj {
 				return ri < rj
+			}
+			if ri == chainRelevanceRank("on_chain") {
+				ci := rootCauseCumulativeImpactMs(items[i])
+				cj := rootCauseCumulativeImpactMs(items[j])
+				if ci != cj {
+					return ci > cj
+				}
 			}
 		}
 		if items[i].Score != items[j].Score {
@@ -5585,6 +5620,20 @@ func rootCauseChainRelevanceSortRank(item RootCauseRankItem) int {
 		relevance = chainRelevanceFromCausality(item.Causality)
 	}
 	return chainRelevanceRank(relevance)
+}
+
+func rootCauseCumulativeImpactMs(item RootCauseRankItem) float64 {
+	if item.CumulativeImpactMs > 0 {
+		return item.CumulativeImpactMs
+	}
+	stateTotal := item.RunningMs + item.RunnableMs + item.SleepMs + item.DStateMs + item.IOWaitMs
+	if stateTotal > 0 {
+		return stateTotal
+	}
+	if item.ImpactMs > 0 {
+		return item.ImpactMs
+	}
+	return item.TargetImpactMs
 }
 
 func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
@@ -5639,15 +5688,16 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 		confidence = 0.5
 	}
 	return RootCauseRankItem{
-		Type:       typ,
-		Thread:     thread,
-		ImpactMs:   impactMs,
-		Score:      impactMs * confidence * rootCauseTypeWeight(typ),
-		Confidence: confidence,
-		LineStart:  lineStart,
-		LineEnd:    lineEnd,
-		Source:     source,
-		Summary:    summary,
+		Type:               typ,
+		Thread:             thread,
+		ImpactMs:           impactMs,
+		CumulativeImpactMs: impactMs,
+		Score:              impactMs * confidence * rootCauseTypeWeight(typ),
+		Confidence:         confidence,
+		LineStart:          lineStart,
+		LineEnd:            lineEnd,
+		Source:             source,
+		Summary:            summary,
 	}
 }
 
@@ -5665,6 +5715,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = impact.ChainDepth
+	item.CumulativeImpactMs = impact.TotalMs
 	item.TargetImpactMs = impact.TargetBlockedMs
 	item.StartTs = impact.Window.StartTs
 	item.EndTs = impact.Window.EndTs
@@ -5692,6 +5743,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = aggregate.ChainDepth
+	item.CumulativeImpactMs = aggregate.TotalMs
 	item.TargetImpactMs = aggregate.TargetBlockedMs
 	item.StartTs = aggregate.FirstTs
 	item.EndTs = aggregate.LastTs

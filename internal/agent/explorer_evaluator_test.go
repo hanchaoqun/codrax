@@ -258,6 +258,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"`state_churn` context",
 		"fragmented state-churn causes",
 		"dominant_state",
+		"`cumulative_impact_ms`",
+		"compare same-chain rows by `cumulative_impact_ms` before `score`",
 		"follow the rendered `next_step`",
 		"`sync_like`",
 		"`blocking_candidate`",

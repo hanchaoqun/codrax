@@ -372,6 +372,70 @@ func TestValidateExplorerTraceQueryFirstToolCall_AllowsFallbackAfterTraceAttempt
 	}
 }
 
+func TestValidateExplorerTraceQueryFirstToolCall_BlocksSourceFallbackAfterRuntimeObservations(t *testing.T) {
+	mut := types.NewMutableState("trace state churn")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "root_cause_rank returned structured runtime rows",
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:attached#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace"},
+			ClaimKey:        "root_cause_primary",
+		}},
+	})
+	ctx := traceQueryFirstTestContext(traceQueryFirstRuntimeRequestModel(), mut)
+	for _, toolName := range []string{"read_file", "grep", "repo_map", "list_files", "exec_command"} {
+		got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+			Name:   toolName,
+			Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+		}, true)
+		if got == nil {
+			t.Fatalf("%s should be rejected after trace_query published runtime observations", toolName)
+		}
+		if got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
+			t.Fatalf("%s repair code = %+v, want %q", toolName, got.Repair, explorerTraceQuerySufficientRuntimeEvidenceCode)
+		}
+	}
+	for _, toolName := range []string{"trace_query", "emit_investigation_complete"} {
+		got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+			Name:   toolName,
+			Params: json.RawMessage(`{}`),
+		}, true)
+		if got != nil {
+			t.Fatalf("%s should remain available after trace_query observations, got %+v", toolName, got)
+		}
+	}
+	mut.ResetDispatchToolResults()
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, true)
+	if got == nil || got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
+		t.Fatalf("runtime observation count should block source fallback after dispatch reset, got %+v", got)
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_AllowsSourceFallbackAfterEmptyTraceQuery(t *testing.T) {
+	mut := types.NewMutableState("trace state churn")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "trace_query returned no deterministic rows in the selected window",
+	})
+	ctx := traceQueryFirstTestContext(traceQueryFirstRuntimeRequestModel(), mut)
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, true)
+	if got != nil {
+		t.Fatalf("source fallback should remain available when trace_query produced no structured runtime observations, got %+v", got)
+	}
+}
+
 func TestValidateExplorerTraceQueryFirstToolCall_AllowsCurrentSourceRequired(t *testing.T) {
 	rm := traceQueryFirstRuntimeRequestModel()
 	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{

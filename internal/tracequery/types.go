@@ -964,6 +964,7 @@ type RootCauseRankItem struct {
 	DStateMs           float64    `json:"d_state_ms,omitempty"`
 	IOWaitMs           float64    `json:"io_wait_ms,omitempty"`
 	ImpactMs           float64    `json:"impact_ms,omitempty"`
+	CumulativeImpactMs float64    `json:"cumulative_impact_ms,omitempty"`
 	TargetImpactMs     float64    `json:"target_impact_ms,omitempty"`
 	Score              float64    `json:"score,omitempty"`
 	Confidence         float64    `json:"confidence,omitempty"`

@@ -4162,6 +4162,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
 const explorerTraceQueryFirstCode = "explorer_trace_query_first"
+const explorerTraceQuerySufficientRuntimeEvidenceCode = "explorer_trace_query_sufficient_runtime_evidence"
 const unavailableToolSurfaceCode = "unavailable_tool_surface"
 
 func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc llm.ToolCall) *types.ToolResult {
@@ -4189,6 +4190,9 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 }
 
 func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx, tc, traceQueryInCurrentSurface); violation != nil {
+		return violation
+	}
 	if !explorerTraceQueryFirstRequired(ctx, traceQueryInCurrentSurface) {
 		return nil
 	}
@@ -4214,6 +4218,55 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 				"policy": "runtime_trace_query_first",
 			},
 		},
+	}
+}
+
+func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
+		return nil
+	}
+	rm := requestModelFromContext(ctx)
+	if rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return nil
+	}
+	if !explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if !explorerTraceQuerySourceFallbackTool(canonical) {
+		return nil
+	}
+	reason := fmt.Sprintf(
+		"%s rejected: trace_query already published hard runtime-artifact observations for this trace-only/source-optional turn. "+
+			"Continue with trace_query for bounded trace follow-up or emit_investigation_complete; use current-source or generic shell tools only when the typed request model requires current-source evidence or trace_query returned no structured runtime observations.",
+		tc.Name)
+	logging.Warning("[explorer] source fallback tool %q rejected after trace_query runtime observations: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: explorerTraceQuerySufficientRuntimeEvidenceCode,
+			Hint: "trace_query has already produced hard runtime-artifact observations. Preserve them through emit_investigation_complete, or run a bounded trace_query follow-up using the returned time/line window; do not switch to source/generic tools unless current-source evidence is structurally required.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"policy": "runtime_trace_query_sufficient_evidence",
+			},
+		},
+	}
+}
+
+func explorerTraceQueryRuntimeEvidenceAvailable(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+func explorerTraceQuerySourceFallbackTool(canonical string) bool {
+	switch canonical {
+	case "repo_map", "grep", "list_files", "read_file", "exec_command":
+		return true
+	default:
+		return false
 	}
 }
 
