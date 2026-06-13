@@ -63,7 +63,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "ipc_graph",
-			When: "binder transaction send/receive causality",
+			When: "binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields",
 		},
 		{
 			View: "wakeup_chain",
@@ -79,7 +79,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "critical_blocking_calls",
-			When: "futex/lock/sync/binder/IO/D-state blocking candidates with peer_state breakdown when the peer thread timeline is visible",
+			When: "futex/lock/sync/binder/IO/D-state blocking candidates with oneway/sync_like/blocking_candidate semantics and peer_state breakdown when the peer thread timeline is visible",
 		},
 		{
 			View: "interaction_stats",

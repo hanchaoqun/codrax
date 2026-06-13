@@ -379,7 +379,6 @@ func buildEmitHypothesisVerdictItem(ctx *types.BusContext, in emitHypothesisVerd
 	}, nil
 }
 
-
 // hypothesisCitationShapeError builds the rejection for a citation that
 // failed the repo path:line shape check. When the citation parses as an
 // artifact-local line reference (log:N / trace:N-M / runtime_artifact:N)
@@ -559,7 +558,7 @@ func hypothesisVerdictHasAnyOriginSpecificSupport(ctx *types.BusContext) bool {
 }
 
 func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, rationale string) (string, bool) {
-	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() ||
+	if ctx == nil || ctx.AnalysisIR == nil || !hypothesisVerdictRuntimeArtifactWithoutRequiredCurrentSource(ctx) ||
 		strings.TrimSpace(rationale) == "" {
 		return "", false
 	}
@@ -585,7 +584,7 @@ func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, ratio
 }
 
 func hypothesisVerdictLocalArtifactCitation(ctx *types.BusContext, raw string) (string, bool) {
-	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+	if ctx == nil || ctx.AnalysisIR == nil || !hypothesisVerdictRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 		return "", false
 	}
 	candidates := []string{strings.TrimSpace(raw)}
@@ -601,6 +600,14 @@ func hypothesisVerdictLocalArtifactCitation(ctx *types.BusContext, raw string) (
 		return renderHypothesisLocalArtifactCitation(ctx, prefix, start, end), true
 	}
 	return "", false
+}
+
+func hypothesisVerdictRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
 }
 
 func parseHypothesisLocalArtifactLineCitation(raw string) (prefix string, start, end int, ok bool) {
@@ -667,9 +674,11 @@ func hypothesisVerdictHasLogTraceArtifacts(ctx *types.BusContext) (hasLog, hasTr
 	if ctx == nil {
 		return false, false
 	}
+	hasLog = strings.TrimSpace(ctx.AttachedLog) != ""
+	hasTrace = strings.TrimSpace(ctx.AttachedHitrace) != ""
 	if ctx.Mutable != nil {
-		hasLog = ctx.Mutable.LogTriage() != nil
-		hasTrace = ctx.Mutable.PerfTrace() != nil
+		hasLog = hasLog || ctx.Mutable.LogTriage() != nil
+		hasTrace = hasTrace || ctx.Mutable.PerfTrace() != nil
 	}
 	if ctx.AnalysisIR != nil {
 		hasLog = hasLog || ctx.AnalysisIR.RequestModel.LogTriage != nil

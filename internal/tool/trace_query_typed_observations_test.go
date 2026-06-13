@@ -30,6 +30,9 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			Confidence: 0.9,
 		})
 	}
+	binderOneway := false
+	binderSyncLike := true
+	binderBlockingCandidate := true
 	result := tracequery.Result{
 		View:       "root_cause_rank",
 		SourcePath: "/traces/app.systrace",
@@ -137,26 +140,42 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			}},
 		},
 		CriticalBlocking: &tracequery.CriticalBlockingResult{
-			Items: []tracequery.CriticalBlockingCandidate{{
-				Type:   "futex",
-				Thread: tracequery.ThreadRef{Comm: "app", PID: 20},
-				Peer:   tracequery.ThreadRef{Comm: "worker", PID: 21},
-				PeerState: &tracequery.ThreadStateBreakdown{
-					Thread:        tracequery.ThreadRef{Comm: "worker", PID: 21},
-					Window:        tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.020},
-					DominantState: string(tracequery.StateRunnable),
-					TotalMs:       10.0,
-					RunningMs:     2.0,
-					RunnableMs:    8.0,
-					FragmentCount: 2,
-					MaxSegmentMs:  8.0,
-					LineStart:     39,
-					LineEnd:       41,
-					Summary:       "worker peer_state dominant_state=runnable",
+			Items: []tracequery.CriticalBlockingCandidate{
+				{
+					Type:   "futex",
+					Thread: tracequery.ThreadRef{Comm: "app", PID: 20},
+					Peer:   tracequery.ThreadRef{Comm: "worker", PID: 21},
+					PeerState: &tracequery.ThreadStateBreakdown{
+						Thread:        tracequery.ThreadRef{Comm: "worker", PID: 21},
+						Window:        tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.020},
+						DominantState: string(tracequery.StateRunnable),
+						TotalMs:       10.0,
+						RunningMs:     2.0,
+						RunnableMs:    8.0,
+						FragmentCount: 2,
+						MaxSegmentMs:  8.0,
+						LineStart:     39,
+						LineEnd:       41,
+						Summary:       "worker peer_state dominant_state=runnable",
+					},
+					DurationMs: 7.5, LineStart: 40, LineEnd: 41,
+					Confidence: 0.7, Summary: "futex hold",
 				},
-				DurationMs: 7.5, LineStart: 40, LineEnd: 41,
-				Confidence: 0.7, Summary: "futex hold",
-			}},
+				{
+					Type:              "binder_wait",
+					Thread:            tracequery.ThreadRef{Comm: "app", PID: 20},
+					Peer:              tracequery.ThreadRef{Comm: "binder:100_1", PID: 101},
+					Flags:             "0x12",
+					Oneway:            &binderOneway,
+					SyncLike:          &binderSyncLike,
+					BlockingCandidate: &binderBlockingCandidate,
+					DurationMs:        11.1,
+					LineStart:         50,
+					LineEnd:           55,
+					Confidence:        0.8,
+					Summary:           "sync-like binder wait",
+				},
+			},
 		},
 		WindowStats: &tracequery.WindowStats{
 			ThreadCPULoad: []tracequery.ThreadCPULoadSummary{{
@@ -274,7 +293,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace-query-result-abcd1234.json", "/blobs/trace_query-eeff.txt", "", time.Now())
 
-	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + len(facts)
+	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 2 + 1 + 1 + 1 + len(facts)
 	if len(rows) != wantRows {
 		t.Fatalf("expected %d typed rows, got %d", wantRows, len(rows))
 	}
@@ -366,6 +385,22 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	for _, want := range []string{"type=futex", "peer=worker-21", "peer_state_dominant=runnable", "peer_state_runnable=8.000"} {
 		if !strings.Contains(blockingNotes, want) {
 			t.Fatalf("critical-blocking notes missing %q: %+v", want, criticalBlocking.RichNotes)
+		}
+	}
+	var binderBlocking *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#critical_blocking:2") {
+			binderBlocking = &rows[i]
+			break
+		}
+	}
+	if binderBlocking == nil {
+		t.Fatalf("missing binder critical-blocking row: %v", seen)
+	}
+	binderNotes := strings.Join(binderBlocking.RichNotes, "\n")
+	for _, want := range []string{"type=binder_wait", "peer=binder:100_1-101", "flags=0x12", "oneway=false", "sync_like=true", "blocking_candidate=true"} {
+		if !strings.Contains(binderNotes, want) {
+			t.Fatalf("binder critical-blocking notes missing %q: %+v", want, binderBlocking.RichNotes)
 		}
 	}
 	var wakeupPath *types.ObservationRecord

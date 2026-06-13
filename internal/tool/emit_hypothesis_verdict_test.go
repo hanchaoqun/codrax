@@ -903,3 +903,39 @@ func TestHypothesisCitationShapeError_CitesLaneCondition(t *testing.T) {
 		t.Fatalf("non-artifact citations keep the generic message, got %v", err2)
 	}
 }
+
+func TestEmitHypothesisVerdict_AcceptsAttachedTraceArtifactCitationWithoutPerfBundle(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := &types.BusContext{
+		Mutable:         types.NewMutableState("只分析 trace"),
+		AttachedHitrace: "app-20 (20) [001] .... 1.0: sched_switch: prev_comm=app prev_pid=20 prev_state=S ==> next_comm=idle next_pid=0",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{
+					Path:       ".codrax/blob/session/attached_trace.txt",
+					Confidence: 0.9,
+				}},
+			},
+		}},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"trace_query observation is decisive","citation":"trace:1"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected attached trace artifact citation to be accepted, got %q", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 || got[0].Status != types.HypConfirmed {
+		t.Fatalf("bad verdict buffer: %+v", got)
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("artifact citation should not be published as repo citation: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Rationale, "trace") || !strings.Contains(got[0].Rationale, "1") {
+		t.Fatalf("rationale should preserve artifact line context, got %q", got[0].Rationale)
+	}
+}

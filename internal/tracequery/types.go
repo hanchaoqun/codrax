@@ -844,20 +844,24 @@ type SubsystemEventSummary struct {
 }
 
 type BinderWaitSummary struct {
-	Thread        ThreadRef `json:"thread"`
-	Peer          ThreadRef `json:"peer,omitempty"`
-	TransactionID int       `json:"transaction_id,omitempty"`
-	SendLine      int       `json:"send_line,omitempty"`
-	ReceiveLine   int       `json:"receive_line,omitempty"`
-	SleepLine     int       `json:"sleep_line,omitempty"`
-	WakeupLine    int       `json:"wakeup_line,omitempty"`
-	SendTs        float64   `json:"send_ts,omitempty"`
-	SleepStartTs  float64   `json:"sleep_start_ts,omitempty"`
-	WakeupTs      float64   `json:"wakeup_ts,omitempty"`
-	DurationMs    float64   `json:"duration_ms,omitempty"`
-	Confidence    float64   `json:"confidence,omitempty"`
-	Summary       string    `json:"summary,omitempty"`
-	Caveats       []string  `json:"caveats,omitempty"`
+	Thread            ThreadRef `json:"thread"`
+	Peer              ThreadRef `json:"peer,omitempty"`
+	TransactionID     int       `json:"transaction_id,omitempty"`
+	Flags             string    `json:"flags,omitempty"`
+	Oneway            bool      `json:"oneway"`
+	SyncLike          bool      `json:"sync_like"`
+	BlockingCandidate bool      `json:"blocking_candidate"`
+	SendLine          int       `json:"send_line,omitempty"`
+	ReceiveLine       int       `json:"receive_line,omitempty"`
+	SleepLine         int       `json:"sleep_line,omitempty"`
+	WakeupLine        int       `json:"wakeup_line,omitempty"`
+	SendTs            float64   `json:"send_ts,omitempty"`
+	SleepStartTs      float64   `json:"sleep_start_ts,omitempty"`
+	WakeupTs          float64   `json:"wakeup_ts,omitempty"`
+	DurationMs        float64   `json:"duration_ms,omitempty"`
+	Confidence        float64   `json:"confidence,omitempty"`
+	Summary           string    `json:"summary,omitempty"`
+	Caveats           []string  `json:"caveats,omitempty"`
 }
 
 type TraceSpanSummary struct {
@@ -1080,6 +1084,10 @@ type CriticalBlockingCandidate struct {
 	Thread             ThreadRef             `json:"thread,omitempty"`
 	Peer               ThreadRef             `json:"peer,omitempty"`
 	PeerState          *ThreadStateBreakdown `json:"peer_state,omitempty"`
+	Flags              string                `json:"flags,omitempty"`
+	Oneway             *bool                 `json:"oneway,omitempty"`
+	SyncLike           *bool                 `json:"sync_like,omitempty"`
+	BlockingCandidate  *bool                 `json:"blocking_candidate,omitempty"`
 	ChainRelevance     string                `json:"chain_relevance,omitempty"`
 	OverlapMs          float64               `json:"overlap_ms,omitempty"`
 	EdgeCount          int                   `json:"edge_count,omitempty"`
@@ -1139,22 +1147,24 @@ type IPCGraphResult struct {
 }
 
 type IPCEdge struct {
-	TransactionID int       `json:"transaction_id,omitempty"`
-	Sender        ThreadRef `json:"sender"`
-	Receiver      ThreadRef `json:"receiver,omitempty"`
-	DestProc      int       `json:"dest_proc,omitempty"`
-	DestThread    int       `json:"dest_thread,omitempty"`
-	SendTs        float64   `json:"send_ts,omitempty"`
-	ReceiveTs     float64   `json:"receive_ts,omitempty"`
-	SendLine      int       `json:"send_line,omitempty"`
-	ReceiveLine   int       `json:"receive_line,omitempty"`
-	Reply         int       `json:"reply,omitempty"`
-	Flags         string    `json:"flags,omitempty"`
-	Code          string    `json:"code,omitempty"`
-	Oneway        bool      `json:"oneway,omitempty"`
-	LatencyMs     float64   `json:"latency_ms,omitempty"`
-	Confidence    float64   `json:"confidence,omitempty"`
-	Caveats       []string  `json:"caveats,omitempty"`
+	TransactionID     int       `json:"transaction_id,omitempty"`
+	Sender            ThreadRef `json:"sender"`
+	Receiver          ThreadRef `json:"receiver,omitempty"`
+	DestProc          int       `json:"dest_proc,omitempty"`
+	DestThread        int       `json:"dest_thread,omitempty"`
+	SendTs            float64   `json:"send_ts,omitempty"`
+	ReceiveTs         float64   `json:"receive_ts,omitempty"`
+	SendLine          int       `json:"send_line,omitempty"`
+	ReceiveLine       int       `json:"receive_line,omitempty"`
+	Reply             int       `json:"reply,omitempty"`
+	Flags             string    `json:"flags,omitempty"`
+	Code              string    `json:"code,omitempty"`
+	Oneway            bool      `json:"oneway"`
+	SyncLike          bool      `json:"sync_like"`
+	BlockingCandidate bool      `json:"blocking_candidate"`
+	LatencyMs         float64   `json:"latency_ms,omitempty"`
+	Confidence        float64   `json:"confidence,omitempty"`
+	Caveats           []string  `json:"caveats,omitempty"`
 }
 
 type BinderEventSummary struct {

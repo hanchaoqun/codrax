@@ -259,6 +259,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"fragmented state-churn causes",
 		"dominant_state",
 		"follow the rendered `next_step`",
+		"`sync_like`",
+		"`blocking_candidate`",
 		"pattern=\"<literal>\"",
 		"not regex",
 		"carry that same `time_start`/`time_end`",

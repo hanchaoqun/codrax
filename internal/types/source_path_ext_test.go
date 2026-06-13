@@ -57,6 +57,9 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 		"trace.HTRACE",
 		"capture.atrace",
 		"sample.perfetto",
+		"attached_trace.txt",
+		"/tmp/.codrax/blob/session/attached_trace.txt",
+		"/tmp/.codrax/blob/session/attached_log.txt",
 	} {
 		if !LooksLikeRuntimeArtifactPath(s) {
 			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = false; want true", s)

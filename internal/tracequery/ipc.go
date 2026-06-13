@@ -141,18 +141,22 @@ func binderReceiveMentionsQuery(recv Event, q Query) bool {
 }
 
 func ipcEdgeFromSend(send Event) IPCEdge {
+	oneway := binderFlagsOneway(send.BinderFlags)
+	syncLike := !oneway
 	return IPCEdge{
-		TransactionID: send.BinderTransactionID,
-		Sender:        threadRefFromEvent(send),
-		DestProc:      send.BinderDestProc,
-		DestThread:    send.BinderDestThread,
-		SendTs:        send.Ts,
-		SendLine:      send.Line,
-		Reply:         send.BinderReply,
-		Flags:         send.BinderFlags,
-		Code:          send.BinderCode,
-		Oneway:        binderFlagsOneway(send.BinderFlags),
-		Confidence:    0.55,
+		TransactionID:     send.BinderTransactionID,
+		Sender:            threadRefFromEvent(send),
+		DestProc:          send.BinderDestProc,
+		DestThread:        send.BinderDestThread,
+		SendTs:            send.Ts,
+		SendLine:          send.Line,
+		Reply:             send.BinderReply,
+		Flags:             send.BinderFlags,
+		Code:              send.BinderCode,
+		Oneway:            oneway,
+		SyncLike:          syncLike,
+		BlockingCandidate: syncLike,
+		Confidence:        0.55,
 	}
 }
 

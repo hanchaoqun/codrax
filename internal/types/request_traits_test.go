@@ -317,6 +317,14 @@ func TestHasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(t *testing
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(true) {
 		t.Fatal("current-source required_file hint must keep current-source lane required even with attached trace")
 	}
+
+	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
+		Path:       ".codrax/blob/20260614-011115-000-51200/attached_trace.txt",
+		Confidence: 0.9,
+	}}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(true) {
+		t.Fatal("attached trace blob path must stay in runtime-artifact lane, not current-source lane")
+	}
 }
 
 func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *testing.T) {

@@ -120,6 +120,14 @@ func LooksLikeRuntimeArtifactPath(s string) bool {
 		return false
 	}
 	lower := strings.ToLower(strings.TrimSpace(s))
+	base := lower
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	switch base {
+	case "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt", "attached_log.txt":
+		return true
+	}
 	for ext := range runtimeArtifactPathExtensions {
 		if strings.HasSuffix(lower, ext) {
 			return true

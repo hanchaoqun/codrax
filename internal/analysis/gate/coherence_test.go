@@ -919,6 +919,43 @@ func TestSubtopicCoherence_R1_5_ExternalOnlyArtifactEntities_BypassRepoResolver(
 	}
 }
 
+func TestSubtopicCoherence_R1_5_SourceOptionalRuntimeArtifactEntities_BypassRepoResolver(t *testing.T) {
+	// A trace/perf artifact can be source-optional rather than explicitly
+	// source-excluded. Its runtime entities are still not repo symbol
+	// obligations, so mixed resolver hits must not hard-fail analysis.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"UserService": {{Canonical: "UserService", Domain: "fixture"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		PerfTrace: &types.PerfBundle{
+			Observations: []types.PerfObservation{{
+				Kind:    "trace_query",
+				Subject: "com.baidu.tieba-59566",
+				Summary: "runtime trace frame window",
+			}},
+			ResolvedFiles: nil,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"CookieMonsterCl", "NetworkService", "UserService"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "target wakeup dependency", Entities: []string{"CookieMonsterCl", "UserService"}},
+			{Summary: "upstream scheduler state", Entities: []string{"NetworkService"}},
+		},
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("fixture must be a source-optional runtime artifact")
+	}
+	ir := coherenceFixtureIR(rm)
+	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+		t.Fatalf("source-optional runtime artifact entities must bypass repo-symbol R1.5, got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_FileSurfaceEntitiesResolve(t *testing.T) {
 	// Architecture / trace planning often uses files as principal
 	// surfaces: `Index.ets`, `foo.cj`, `orchestrator.go`, or

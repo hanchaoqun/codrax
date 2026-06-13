@@ -1750,11 +1750,45 @@ func TestIPCGraphMatchesBinderSendAndReceive(t *testing.T) {
 	if edge.Confidence < 0.9 || edge.LatencyMs <= 0 {
 		t.Fatalf("expected matched receive confidence and latency: %+v", edge)
 	}
+	if edge.Oneway || !edge.SyncLike || !edge.BlockingCandidate {
+		t.Fatalf("sync binder edge should be explicit in structured fields: %+v", edge)
+	}
 	if len(ipc.BinderEvents) != 3 {
 		t.Fatalf("expected binder auxiliary rows, got %+v", ipc.BinderEvents)
 	}
 	if !containsSubstring(edge.Caveats, "binder alloc buffer row") {
 		t.Fatalf("edge should carry alloc buffer caveat: %+v", edge.Caveats)
+	}
+}
+
+func TestIPCGraphExposesBinderFlagSemantics(t *testing.T) {
+	idx := buildTraceIndex(t, "binder_flags.systrace", `
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=1 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x12 code=0x3
+ binder:100_1-101 (  100) [002] .... 3.011000: binder_transaction_received: transaction=1
+     client-20   (   20) [001] .... 3.020000: binder_transaction: transaction=2 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x11 code=0x3
+ binder:100_1-101 (  100) [002] .... 3.021000: binder_transaction_received: transaction=2
+	`)
+	ipc := BuildIPCGraph(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.03, Limit: 10})
+	byID := map[int]IPCEdge{}
+	for _, edge := range ipc.Edges {
+		byID[edge.TransactionID] = edge
+	}
+	syncEdge, ok := byID[1]
+	if !ok {
+		t.Fatalf("missing transaction=1 edge: %+v", ipc.Edges)
+	}
+	if syncEdge.Oneway || !syncEdge.SyncLike || !syncEdge.BlockingCandidate {
+		t.Fatalf("flags=0x12 must be sync-looking/blocking-candidate, got %+v", syncEdge)
+	}
+	onewayEdge, ok := byID[2]
+	if !ok {
+		t.Fatalf("missing transaction=2 edge: %+v", ipc.Edges)
+	}
+	if !onewayEdge.Oneway || onewayEdge.SyncLike || onewayEdge.BlockingCandidate {
+		t.Fatalf("flags=0x11 must be one-way/non-blocking-candidate, got %+v", onewayEdge)
+	}
+	if !containsSubstring(onewayEdge.Caveats, "asynchronous/oneway") {
+		t.Fatalf("one-way edge should carry blocking caveat: %+v", onewayEdge.Caveats)
 	}
 }
 
@@ -1775,6 +1809,12 @@ func TestWakeupChainReportsBinderWaitCandidate(t *testing.T) {
 	wait := chain.BinderWaits[0]
 	if wait.TransactionID != 42 || wait.SendLine == 0 || wait.SleepLine == 0 || wait.Confidence <= 0 {
 		t.Fatalf("bad binder wait: %+v", wait)
+	}
+	if wait.Oneway || !wait.SyncLike || !wait.BlockingCandidate || wait.Flags != "0x0" {
+		t.Fatalf("binder wait should preserve sync-like flag semantics: %+v", wait)
+	}
+	if !strings.Contains(wait.Summary, "blocking_candidate=true") {
+		t.Fatalf("binder wait summary should expose blocking_candidate: %q", wait.Summary)
 	}
 	if !containsSubstring(wait.Caveats, "binder alloc buffer") || !containsSubstring(wait.Caveats, "binder_lock") {
 		t.Fatalf("binder wait should carry auxiliary binder caveats: %+v", wait.Caveats)
@@ -1815,6 +1855,10 @@ func TestCriticalBlockingDecomposesBinderPeerState(t *testing.T) {
 	}
 	if binder.Peer.PID != 101 {
 		t.Fatalf("binder wait should preserve peer thread: %+v", binder)
+	}
+	if binder.Oneway == nil || binder.SyncLike == nil || binder.BlockingCandidate == nil ||
+		*binder.Oneway || !*binder.SyncLike || !*binder.BlockingCandidate || binder.Flags != "0x0" {
+		t.Fatalf("binder critical blocking should preserve sync-like semantics: %+v", binder)
 	}
 	if binder.PeerState == nil {
 		t.Fatalf("binder peer should be decomposed into scheduler state: %+v", binder)

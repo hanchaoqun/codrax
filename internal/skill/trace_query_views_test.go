@@ -67,6 +67,7 @@ func TestRenderTraceQueryViewMatrix_PreservesPinnedPromptPhrases(t *testing.T) {
 		"fragmented state-churn causes",
 		"`view=\"frame_root_cause_bundle\"`",
 		"handoff-safe frame/jank root-cause bundles",
+		"oneway/sync_like/blocking_candidate",
 		"structured row lookup",
 		"`view=\"event_search\"`",
 		"`view=\"evidence_pack\"`",

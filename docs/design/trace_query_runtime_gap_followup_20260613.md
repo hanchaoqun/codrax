@@ -389,3 +389,86 @@ Tasks:
   aggregated wakeup impacts.
 - [x] Add tests for compute-supply co-primary and fragmented common dependency
   aggregation.
+
+### Batch 11: Real trace replay residuals and binder semantics hardening
+
+Audit input:
+
+- Real trace: `/Users/han/opt/customlogs/xxx_all.systrace`
+- Low-leading frame question:
+  `只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.587805s 这一帧窗口内的卡顿原因，需要分层说明直接阻塞、依赖链原因、调度/资源背景压力，以及哪些只是辅助排查方向。`
+- Direct-blocking question:
+  `只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.47s 到 34579.49s 之间是否存在 binder、futex、锁或同步等待等直接阻塞；如果有，继续拆到 peer 线程状态和上游调度/唤醒证据，说明还缺哪些证据。`
+- Captured outputs:
+  `.codrax/tmp/xxx_trace_eval/case1_frame.out`,
+  `.codrax/tmp/xxx_trace_eval/case1_frame.err`,
+  `.codrax/tmp/xxx_trace_eval/case2_binder.out`,
+  `.codrax/tmp/xxx_trace_eval/case2_binder.err`.
+
+Observed residual gaps:
+
+- Trace-only requests still started repository indexing and perf-triage
+  `read_file` pagination over `.codrax/blob/.../attached_trace.txt`. This is a
+  route/stage-cost gap: `trace_query` eventually runs, but user-facing progress
+  still feels like source-code analysis.
+- Analyzer `subtopic_coherence` R1.5 can still treat runtime artifact entities
+  as repo-symbol obligations when the trace lane is source-optional rather than
+  explicitly source-excluded.
+- Explorer/finalizer can fall back to `grep`/`read_file` after a successful
+  bounded `trace_query`, especially for VSync/frame marker lookup. This should
+  remain a fallback only after a trace_query coverage caveat or unsupported
+  format signal.
+- Extract/hypothesis verdicts can drift toward current-source wording when the
+  attached trace exists but the perf-triage bundle is sparse.
+- Binder raw `flags` were visible, but the human-readable summary did not
+  surface deterministic `oneway` / `sync_like` / `blocking_candidate`
+  semantics strongly enough. In the real trace, `flags=0x12` is sync-looking
+  (`oneway=false`) and must not be described as one-way async.
+
+Design:
+
+- Use the existing typed source-lane predicate
+  `HasRuntimeArtifactWithoutRequiredCurrentSource()` for analyzer R1.5 runtime
+  artifact bypass, not only explicit external-only policy. This is a typed
+  source/evidence-lane decision and does not inspect user prose.
+- Treat `.codrax/blob/.../attached_trace.txt`, `attached_hitrace.txt`,
+  `attached_atrace.txt`, and `attached_log.txt` as runtime artifact paths so
+  source-lane decisions do not accidentally require current-source evidence for
+  attached runtime blobs.
+- Keep hypothesis-verdict artifact citations attached-trace-aware via
+  `HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)`;
+  runtime artifact line refs are preserved in rationale/notes and are not
+  published as repo file citations.
+- Promote binder flag semantics to first-class structured output:
+  `IPCEdge`, `BinderWaitSummary`, and binder-derived
+  `CriticalBlockingCandidate` rows expose `oneway`, `sync_like`, and
+  `blocking_candidate`. Summaries, banners, evidence packs, typed observations,
+  trace_query schema text, shared view teaching, explorer guidance, default
+  skill guidance, and final-answer guidance all instruct the model to consume
+  these fields instead of decoding raw flags.
+- Keep non-binder critical-blocking rows clean: optional bool fields are only
+  emitted when binder semantics exist, while binder rows preserve explicit
+  `false` values such as `oneway=false`.
+
+Tasks:
+
+- [x] Classify attached runtime blob basenames as runtime artifact paths.
+- [x] Make hypothesis verdict artifact-citation normalization attached-trace
+  aware when current source is not required.
+- [x] Broaden analyzer R1.5 runtime artifact resolver bypass from
+  external-only to source-optional runtime artifacts.
+- [x] Add binder semantic fields to IPC edges and binder wait summaries.
+- [x] Carry binder semantic fields into critical-blocking rows, banners,
+  evidence summaries, and typed observation rich notes.
+- [x] Update trace_query schema/description, shared trace-query view teaching,
+  explorer prompt, default skill prompt, and final-answer guidance so the model
+  consumes `oneway`/`sync_like`/`blocking_candidate`.
+- [x] Add focused tests for source-optional runtime artifact R1.5 bypass,
+  attached trace artifact citation, attached blob path classification, binder
+  `flags=0x12` vs `0x11` semantics, critical-blocking peer-state + binder
+  semantics, schema/prompt teaching, and typed-observation preservation.
+- [ ] Follow-up route-cost batch: make explicit runtime trace-only requests
+  avoid user-facing repo indexing/stage wording unless current source is a
+  typed required lane.
+- [ ] Follow-up fallback batch: restrict post-trace_query `grep`/`read_file`
+  fallback to explicit trace_query incomplete/unsupported/line-window cases.

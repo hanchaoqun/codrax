@@ -5133,16 +5133,20 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge, aux []BinderEve
 				confidence *= 0.85
 			}
 			wait := BinderWaitSummary{
-				Thread:        node.Thread,
-				Peer:          edge.Receiver,
-				TransactionID: edge.TransactionID,
-				SendLine:      edge.SendLine,
-				ReceiveLine:   edge.ReceiveLine,
-				SleepLine:     node.EvidenceLine,
-				SendTs:        edge.SendTs,
-				SleepStartTs:  node.Window.StartTs,
-				DurationMs:    node.DurationMs,
-				Confidence:    confidence,
+				Thread:            node.Thread,
+				Peer:              edge.Receiver,
+				TransactionID:     edge.TransactionID,
+				Flags:             edge.Flags,
+				Oneway:            edge.Oneway,
+				SyncLike:          edge.SyncLike,
+				BlockingCandidate: edge.BlockingCandidate,
+				SendLine:          edge.SendLine,
+				ReceiveLine:       edge.ReceiveLine,
+				SleepLine:         node.EvidenceLine,
+				SendTs:            edge.SendTs,
+				SleepStartTs:      node.Window.StartTs,
+				DurationMs:        node.DurationMs,
+				Confidence:        confidence,
 			}
 			for _, w := range chain.Edges {
 				if w.Wakee.PID == node.Thread.PID && w.WakeupTs >= node.Window.StartTs && w.WakeupTs <= node.Window.EndTs {
@@ -5155,6 +5159,9 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge, aux []BinderEve
 			wait.Summary = fmt.Sprintf("%s sent synchronous-looking binder transaction", threadLabel(wait.Thread))
 			if edge.TransactionID > 0 {
 				wait.Summary = fmt.Sprintf("%s transaction=%d", wait.Summary, edge.TransactionID)
+			}
+			if edge.Flags != "" {
+				wait.Summary = fmt.Sprintf("%s flags=%s oneway=%t sync_like=%t blocking_candidate=%t", wait.Summary, edge.Flags, edge.Oneway, edge.SyncLike, edge.BlockingCandidate)
 			}
 			if peer != "" {
 				wait.Summary = fmt.Sprintf("%s to %s", wait.Summary, peer)
@@ -6741,16 +6748,20 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		chainForContext = &chain
 		for _, wait := range chain.BinderWaits {
 			add(CriticalBlockingCandidate{
-				Type:       "binder_wait",
-				Thread:     wait.Thread,
-				Peer:       wait.Peer,
-				DurationMs: wait.DurationMs,
-				StartTs:    wait.SendTs,
-				EndTs:      firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
-				LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
-				LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
-				Confidence: wait.Confidence,
-				Summary:    wait.Summary,
+				Type:              "binder_wait",
+				Thread:            wait.Thread,
+				Peer:              wait.Peer,
+				Flags:             wait.Flags,
+				Oneway:            traceBoolPtr(wait.Oneway),
+				SyncLike:          traceBoolPtr(wait.SyncLike),
+				BlockingCandidate: traceBoolPtr(wait.BlockingCandidate),
+				DurationMs:        wait.DurationMs,
+				StartTs:           wait.SendTs,
+				EndTs:             firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
+				LineStart:         firstPositive(wait.SendLine, wait.SleepLine),
+				LineEnd:           firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
+				Confidence:        wait.Confidence,
+				Summary:           wait.Summary,
 			})
 		}
 	}
@@ -8120,6 +8131,9 @@ func evidenceFromIPCGraph(ipc IPCGraphResult) []EvidenceFact {
 		if edge.TransactionID > 0 {
 			summary = fmt.Sprintf("%s transaction=%d", summary, edge.TransactionID)
 		}
+		if edge.Flags != "" {
+			summary = fmt.Sprintf("%s flags=%s oneway=%t sync_like=%t blocking_candidate=%t", summary, edge.Flags, edge.Oneway, edge.SyncLike, edge.BlockingCandidate)
+		}
 		if edge.Receiver.PID > 0 || edge.Receiver.Comm != "" {
 			summary = fmt.Sprintf("%s to %s", summary, threadLabel(edge.Receiver))
 		} else if edge.DestThread > 0 {
@@ -8348,6 +8362,11 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func traceBoolPtr(v bool) *bool {
+	out := v
+	return &out
 }
 
 func applyLineRange(start, end *int, line int) {
