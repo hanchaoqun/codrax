@@ -98,8 +98,8 @@
 
 | Batch | Tasks | Verification | Status |
 |---|---|---|---|
-| Design | 落本文档；记录 root cause、方案、任务、验收 | doc commit + push | In progress |
-| 6A | tracequery pattern-windowable heavy view predicate；纳入 4 新视图；多候选 bounded windows；阶段 memory log；新增 tests | `go test ./internal/tool -run 'TestTraceQueryLarge.*Auto|TestTraceQueryLargeUnboundedNewHeavyViewsUseGuard|TestTraceQueryLargeNewHeavyViewsBoundedStillRun'` | Pending |
+| Design | 落本文档；记录 root cause、方案、任务、验收 | doc commit + push | Done |
+| 6A | tracequery pattern-windowable heavy view predicate；纳入 4 新视图；多候选 bounded windows；阶段 memory log；新增 tests | `go test ./internal/tool -run 'TestTraceQueryLarge(NewHeavyViews|SpanKeyword|UnboundedNewHeavyViews|NewHeavyViewsBounded)|TestTraceQueryLargeNewHeavyViewsWithPatternAutoWindow|TestTraceQueryLargeNewHeavyViewsPatternMultiCandidateBounded'` | Done |
 | 6B | 提升 ToolResult bound utility 到 types；fork merge bound ToolResults/MCPResponses；新增 tests；agent merge 改复用 | `go test ./internal/types ./internal/agent -run 'TurnAArtifacts|MergeTurnAArtifacts'` | Pending |
 | 6C | normalizer morph alias optional resolver；repomap resolver 实现；unit/bench | `go test ./internal/analysis/normalizer ./internal/agent -run 'Normalize|LookupSymbol'`; `go test ./internal/analysis/normalizer -bench Suffix -run '^$'` | Pending |
 | 5A | strict decode Batch 5A | `go test ./internal/tool -run 'StrictDecodeRegistry|Builtin|RunTests'` | Pending |
@@ -120,3 +120,4 @@
 ## Progress
 
 - 2026-06-13: 读取 roadmap、strict decode registry、strict repair layer、tracequery large-trace paths、TurnA merge、normalizer/repomap resolver。确认 #6a/#6b/#6c 均可复用现有系统层能力，无需 case patch。
+- 2026-06-13: 6A 交付。4 个新增重型视图 `thread_timeline` / `ipc_graph` / `wakeup_chain` / `interaction_stats` 统一进入 pattern auto-window；多 pattern candidate 走最多 3 个 bounded windows；tracequery build/run/stream/auto-window 阶段日志增加 heap alloc/sys 与 GC count。Focused tests 通过。

@@ -1072,6 +1072,105 @@ func TestTraceQueryLargeSpanKeywordAutoAnalyzesFewWindows(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeNewHeavyViewsWithPatternAutoWindow(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "new_heavy_pattern.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [000] .... 3.000000: print: B|20|TargetFrame`,
+		`waker-10 (10) [000] .... 3.005000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 3.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`client-20 (20) [001] .... 3.012000: binder_transaction: transaction=42 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3`,
+		`binder:100_1-101 (100) [002] .... 3.014000: binder_transaction_received: transaction=42`,
+		`app-20 (20) [001] .... 3.020000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`app-20 (20) [000] .... 3.030000: print: E|20`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	for _, view := range []string{"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats"} {
+		params, _ := json.Marshal(map[string]any{
+			"source":  "path",
+			"path":    "new_heavy_pattern.systrace",
+			"view":    view,
+			"pid":     20,
+			"pattern": "TargetFrame",
+		})
+		res, err := (&TraceQuery{}).Execute(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Success {
+			t.Fatalf("pattern-scoped %s must run: %s", view, res.Summary)
+		}
+		for _, want := range []string{
+			"# Trace Query: " + view,
+			"auto_window_from_pattern=true",
+			"index_windowed=true",
+		} {
+			if !strings.Contains(res.Summary, want) {
+				t.Fatalf("pattern-scoped %s summary missing %q:\n%s", view, want, res.Summary)
+			}
+		}
+		if strings.Contains(res.Summary, "mode=large_trace_heavy_view_guard") {
+			t.Fatalf("pattern-scoped %s must auto-window instead of heavy-guarding:\n%s", view, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryLargeNewHeavyViewsPatternMultiCandidateBounded(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "new_heavy_pattern_multi.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [000] .... 3.000000: print: B|20|TargetFrame`,
+		`waker-10 (10) [000] .... 3.005000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 3.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 3.020000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`app-20 (20) [000] .... 8.000000: print: B|20|TargetFrame`,
+		`waker-10 (10) [000] .... 8.005000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 8.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 8.020000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "new_heavy_pattern_multi.systrace",
+		"view":    "wakeup_chain",
+		"pid":     20,
+		"pattern": "TargetFrame",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("multi-candidate pattern-scoped wakeup_chain must run: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"mode=large_trace_pattern_auto_windows",
+		"candidate_windows=2",
+		"auto_window_candidate=true",
+		"index_windowed=true",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("multi-candidate new-heavy auto-window summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryIPCGraphSummary(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "ipc.systrace")

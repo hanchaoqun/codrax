@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,6 +62,12 @@ var (
 	traceQueryObjectivePreLabeledTokenRE         = regexp.MustCompile(`(?i)([A-Za-z0-9_#./:$@+\-]{3,160})\s*(?:这个|该|此)?\s*(?:span|marker|label|keyword|关键字|标记|标签)`)
 	traceQueryTimestampRE                        = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
 )
+
+func traceQueryMemoryForLog() (heapAlloc, heapSys uint64, gcCount uint32) {
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	return stats.HeapAlloc, stats.HeapSys, stats.NumGC
+}
 
 func (t *TraceQuery) Name() string { return "trace_query" }
 
@@ -139,13 +146,15 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			Timestamp: time.Now(),
 		}, nil
 	}
-	logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d",
-		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd)
+	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd, heapAlloc, heapSys, gcCount)
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, timeStart, timeEnd)
 	runStart := time.Now()
 	logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
 	result := tracequery.Run(idx, q)
-	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats))
+	heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
@@ -226,6 +235,9 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			Timestamp: time.Now(),
 		}, true
 	}
+	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=auto_window_search view=%s path=%s done elapsed=%s matched=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		p.View, path, time.Since(streamStart), len(searchResult.Events), len(searchResult.Caveats), heapAlloc, heapSys, gcCount)
 	candidates := traceQueryAutoWindowCandidatesFromEvents(p, searchResult.Events, traceQueryAutoWindowMaxCandidates)
 	if len(candidates) == 0 {
 		searchResult.Caveats = append(searchResult.Caveats,
@@ -267,11 +279,15 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			Timestamp: time.Now(),
 		}, true
 	}
+	heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, heapAlloc, heapSys, gcCount)
 	q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, start, end)
 	runStart := time.Now()
 	result := tracequery.Run(idx, q)
-	logging.Debug("[trace_query] phase=auto_window_run view=%s path=%s done elapsed=%s events=%d evidence=%d caveats=%d",
-		q.View, path, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats))
+	heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=auto_window_run view=%s path=%s done elapsed=%s events=%d evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		q.View, path, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	result.Caveats = append(result.Caveats,
 		fmt.Sprintf("auto_window_from_pattern=true; pattern %q matched %d event(s), then ran %s in %.6f..%.6f seconds without building a full trace index",
 			pattern, len(searchResult.Events), firstNonEmptyTraceString(p.View, "frame_window"), start, end))
@@ -306,9 +322,14 @@ func traceQueryShouldAutoWindowFromPattern(p traceQueryParams) bool {
 	if strings.TrimSpace(firstNonEmptyTraceString(p.Pattern, p.SpanName)) == "" {
 		return false
 	}
-	switch strings.TrimSpace(p.View) {
+	return traceQueryPatternWindowableHeavyView(p.View)
+}
+
+func traceQueryPatternWindowableHeavyView(view string) bool {
+	switch strings.TrimSpace(view) {
 	case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow",
-		"scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe":
+		"thread_timeline", "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls",
+		"ipc_graph", "wakeup_chain", "interaction_stats", "evidence_pack", "recipe":
 		return true
 	default:
 		return false
@@ -477,7 +498,8 @@ func traceQueryShouldRunMultiplePatternWindows(p traceQueryParams, count int) bo
 		return false
 	}
 	switch strings.TrimSpace(p.View) {
-	case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe":
+	case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow",
+		"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats", "recipe":
 		return true
 	default:
 		return false
@@ -511,11 +533,15 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 			children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Error: err.Error()})
 			continue
 		}
+		heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+		logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d done events=%d lines=%d windowed=%v heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+			mode, p.View, path, candidate.Rank, len(idx.Events), idx.ScannedLineCount, idx.Windowed, heapAlloc, heapSys, gcCount)
 		q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, candidate.Start, candidate.End)
 		runStart := time.Now()
 		result := tracequery.Run(idx, q)
-		logging.Debug("[trace_query] phase=auto_window_candidate_run mode=%s view=%s path=%s rank=%d done elapsed=%s events=%d evidence=%d caveats=%d",
-			mode, q.View, path, candidate.Rank, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats))
+		heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
+		logging.Debug("[trace_query] phase=auto_window_candidate_run mode=%s view=%s path=%s rank=%d done elapsed=%s events=%d evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+			mode, q.View, path, candidate.Rank, time.Since(runStart), len(idx.Events), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
 		result.Caveats = append(result.Caveats,
 			fmt.Sprintf("auto_window_candidate=true; mode=%s rank=%d source=%s token=%q line=%d ts=%.6f window=%.6f..%.6f seconds",
 				mode, candidate.Rank, candidate.Source, candidate.Token, candidate.Line, candidate.Ts, candidate.Start, candidate.End))
@@ -590,8 +616,9 @@ func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQ
 			Timestamp: time.Now(),
 		}, true
 	}
-	logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s done elapsed=%s matched=%d caveats=%d",
-		q.View, path, time.Since(streamStart), len(result.Events), len(result.Caveats))
+	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s done elapsed=%s matched=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		q.View, path, time.Since(streamStart), len(result.Events), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	if timeCaveat != "" {
 		result.Caveats = append(result.Caveats, timeCaveat)
 	}
