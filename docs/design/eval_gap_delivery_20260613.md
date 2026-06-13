@@ -587,18 +587,24 @@ Generalized design:
 
 Executable task list:
 
-- [ ] B9-T1: Add operation-aware contribution value type gating using
+- [x] B9-T1: Add operation-aware contribution value type gating using
   `normalizeContributionOperation`.
-- [ ] B9-T2: Preserve member-value `include` contributions with string
+- [x] B9-T2: Preserve member-value `include` contributions with string
   `value_field` values and source anchors.
-- [ ] B9-T3: Track runner-local provenance when `renderArtifactsAnswer`
+- [x] B9-T3: Track runner-local provenance when `renderArtifactsAnswer`
   produces the current batch answer.
-- [ ] B9-T4: Prefer seed answers over renderer-owned intermediate summaries
+- [x] B9-T4: Prefer seed answers over renderer-owned intermediate summaries
   when the current batch has no `assemble_answer` projection.
-- [ ] B9-T5: Prefer reconcile-rendered answers over renderer-owned summaries
+- [x] B9-T5: Prefer reconcile-rendered answers over renderer-owned summaries
   when no stronger seed answer is available.
-- [ ] B9-T6: Add focused regression tests for string-valued include
+- [x] B9-T6: Add focused regression tests for string-valued include
   contributions and summary isolation.
-- [ ] B9-T7: Run focused tests, full tests, rebuild, commit/push.
+- [x] B9-T7: Run focused tests, full tests, rebuild, commit/push.
 - [ ] B9-T8: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
+
+Batch 9 verification before commit:
+
+- `go test ./internal/dataquery -run 'TestActionRunnerComputeContributionsIncludeAcceptsStringValueField|TestActionRunnerReconcileMarkdownArtifactSummaryKeepsSeedJSONAnswer|TestActionRunnerReconcilesCountContributionsWithTextValuesAndKeepsSeedJSONAnswer|TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary'`
+- `go test ./...`
+- `make`

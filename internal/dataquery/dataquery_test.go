@@ -6470,6 +6470,47 @@ func TestActionRunnerComputeContributionsAcceptsStructuredFilterAlias(t *testing
 	}
 }
 
+func TestActionRunnerComputeContributionsIncludeAcceptsStringValueField(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.csv"), []byte("id,status\nu1,active\nu2,inactive\nu3,active\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "contrib",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"users.csv"},
+			Params: map[string]string{
+				"group_key":    "active_users",
+				"metric":       "active_user_id",
+				"value_field":  "id",
+				"operation":    "include",
+				"filters_json": `[{"field":"status","op":"eq","value":"active"}]`,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run compute_contributions include string value_field: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want two active user rows", res.Contributions)
+	}
+	got := []string{res.Contributions[0].Value.String(), res.Contributions[1].Value.String()}
+	if strings.Join(got, ",") != "u1,u3" {
+		t.Fatalf("Contribution values=%v, want u1,u3", got)
+	}
+	for _, rec := range res.Contributions {
+		if rec.Operation.String() != "include" || strings.TrimSpace(rec.Source.String()) == "" || strings.TrimSpace(rec.SourceLocator.String()) == "" {
+			t.Fatalf("Contribution=%+v, want include operation with source anchor", rec)
+		}
+	}
+}
+
 func TestActionRunnerComputeContributionsZeroRequiredLedgerHasDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\nA,paid,10\nB,draft,5\n"), 0o644); err != nil {
@@ -9238,6 +9279,50 @@ func TestActionRunnerReconcilesCountContributionsWithTextValuesAndKeepsSeedJSONA
 		if group.Actual.String() != "1" || group.Expected.String() != "1" {
 			t.Fatalf("group=%+v, want count aggregate 1", group)
 		}
+	}
+}
+
+func TestActionRunnerReconcileMarkdownArtifactSummaryKeepsSeedJSONAnswer(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "reconcile", Kind: DataActionReconcile}},
+	}
+	seed := Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{
+			{
+				ItemID:        LooseText("row-1"),
+				Source:        LooseText("users.json"),
+				SourceLocator: LooseText("line:1"),
+				GroupKey:      LooseText("u1"),
+				Metric:        LooseText("active_user_id"),
+				Value:         LooseText("u1"),
+				Operation:     LooseText("count"),
+				Role:          LooseText("target"),
+			},
+			{
+				ItemID:        LooseText("row-3"),
+				Source:        LooseText("users.json"),
+				SourceLocator: LooseText("line:3"),
+				GroupKey:      LooseText("u3"),
+				Metric:        LooseText("active_user_id"),
+				Value:         LooseText("u3"),
+				Operation:     LooseText("count"),
+				Role:          LooseText("target"),
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != seed.Answer {
+		t.Fatalf("Answer=%q, want seed JSON answer instead of rendered artifact summary", res.Answer)
 	}
 }
 

@@ -949,8 +949,11 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		return validateRunnerResult(actionRunnerValidationPlan(plan, r.Seed), out)
 	}
 	answer := projectedAnswer
+	answerFromArtifactSummary := false
+	reconcileAnswer := renderReconcileAnswer(reconcile)
 	if strings.TrimSpace(answer) == "" {
 		answer = renderArtifactsAnswer(artifacts, plan.OutputContract, reconcile)
+		answerFromArtifactSummary = strings.TrimSpace(answer) != "" && strings.TrimSpace(answer) != strings.TrimSpace(reconcileAnswer)
 	}
 	outputContract := plan.OutputContract
 	if strings.TrimSpace(r.Seed.Answer) != "" && lastResult == nil && strings.TrimSpace(projectedAnswer) == "" && !planHasActionKind(plan, DataActionAssembleAnswer) {
@@ -958,12 +961,17 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		// the current batch. In multi-batch data workflows an early material
 		// inventory/custom-transform summary may live in the seed while a later
 		// reconcile batch can deterministically render a stricter answer.
-		if strings.TrimSpace(answer) == "" || AnswerLooksLikeArtifactSummary(answer) {
+		if (strings.TrimSpace(answer) == "" || answerFromArtifactSummary || AnswerLooksLikeArtifactSummary(answer)) && !AnswerLooksLikeArtifactSummary(r.Seed.Answer) {
 			answer = r.Seed.Answer
+			answerFromArtifactSummary = false
 			if r.Seed.OutputContract.Format != "" {
 				outputContract = r.Seed.OutputContract
 			}
 		}
+	}
+	if answerFromArtifactSummary && strings.TrimSpace(reconcileAnswer) != "" {
+		answer = reconcileAnswer
+		answerFromArtifactSummary = false
 	}
 	out := Result{
 		Answer:            answer,
@@ -11166,7 +11174,7 @@ func numericFilterContractError(rel string, records []actionRecord, filters []co
 
 func numericContributionValueContractError(rel string, records []actionRecord, filters []contributionFilter, valueField, operation string) error {
 	valueField = strings.TrimSpace(valueField)
-	if valueField == "" || strings.EqualFold(strings.TrimSpace(operation), "count") {
+	if valueField == "" || !contributionOperationRequiresNumericValue(operation) {
 		return nil
 	}
 	stats := numericFieldSampleStats(records, valueField, filters, 8)
@@ -11187,6 +11195,19 @@ func numericContributionValueContractError(rel string, records []actionRecord, f
 			valueField,
 			strings.TrimSpace(operation),
 			actual),
+	}
+}
+
+func contributionOperationRequiresNumericValue(operation string) bool {
+	operation, ok := normalizeContributionOperation(operation)
+	if !ok {
+		return true
+	}
+	switch operation {
+	case "", "add", "subtract":
+		return true
+	default:
+		return false
 	}
 }
 
