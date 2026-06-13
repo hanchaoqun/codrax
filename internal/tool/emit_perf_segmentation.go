@@ -117,11 +117,9 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
-
 	var p emitPerfSegmentationParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	traceLen := len(ctx.AttachedHitrace)

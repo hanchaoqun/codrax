@@ -104,7 +104,7 @@
 | 6C | normalizer morph alias optional resolver；repomap resolver 实现；unit/bench | `go test ./internal/analysis/normalizer ./internal/agent -run 'Normalize|LookupSymbol|MorphAlias'`; `go test ./internal/analysis/normalizer -bench MorphAliasCandidates -run '^$'` | Done |
 | 5A | strict decode Batch 5A | `go test ./internal/tool -run 'TestEveryRegistryToolIsStrictDecodeWiredOrExempt|TestStrictDecodeRegistryMirrorsProductionSites|Builtin|RunTests|ReadFile|PromptHygiene'` | Done |
 | 5B | strict decode Batch 5B | `go test ./internal/tool -run 'TestEveryRegistryToolIsStrictDecodeWiredOrExempt|TestStrictDecodeRegistryMirrorsProductionSites|Git|Memory|SubAgents|MultiRepo|ProposeSubAgents|EmitMultiRepoFocus'` | Done |
-| 5C | strict decode Batch 5C | `go test ./internal/tool -run 'StrictDecodeRegistry|EmitAnalysis|EmitInvestigation|LogSegmentation|PerfSegmentation'` | Pending |
+| 5C | strict decode Batch 5C；emit 入参统一 strict；`aggregate_facts` handoff strict；log-triage carrier salvage 后二次 strict；analysis `sub_topics` wire shape 收窄 | `go test ./internal/tool -run 'TestEveryRegistryToolIsStrictDecodeWiredOrExempt|TestStrictDecodeRegistryMirrorsProductionSites|EmitAnalysis|EmitInvestigation|EmitLogTriage|LogSegmentation|PerfSegmentation'`; `go test ./internal/tool` | Done |
 | Final eval | 挑代表 eval，每次并发 2；人工审计答案/日志/工具使用/性能内存 | representative eval logs + gap update | Pending |
 
 ## Acceptance Criteria
@@ -125,3 +125,4 @@
 - 2026-06-13: 6C 交付。normalizer 增加 ASCII-only bounded morph candidates；repomap 单仓/多仓 resolver 实现 optional `LookupSymbolMorphAlias`，候选必须 exact/flat symbol-table 命中才提升。Focused tests 通过；`BenchmarkMorphAliasCandidates` 约 59ns/op。
 - 2026-06-13: 5A 交付。新增 in-package strict decode helper；`exec_command` / `grep` / `read_file` / `list_files` / `run_tests` 接入 schema-driven compat + `DisallowUnknownFields` + typed repair。`read_file` 保留内部 legacy `offset` decode schema，但模型可见 schema 仍只暴露 `line_offset`，prompt hygiene 通过。
 - 2026-06-13: 5B 交付。Git 四工具、memory 两工具、`propose_sub_agents`、`emit_multi_repo_focus` 接入 strict decode。`emit_multi_repo_focus` 使用内部 envelope 保留 `candidates` 兼容解析；`propose_sub_agents` 改用 schema-aligned params，未公开 nested 字段不再被悄悄接收。
+- 2026-06-13: 5C 交付。`emit_analysis`、`emit_investigation_complete`、`emit_log_triage`、`emit_log_segmentation`、`emit_perf_segmentation` 全部接入 strict decode。`emit_investigation_complete.aggregate_facts[]` 改为 strict decode，保证 handoff 字段不静默吞错；`emit_log_triage` 的历史 string-wrapped carrier salvage 产出结构化 JSON 后必须二次 strict；`emit_analysis.sub_topics` 改为 schema-aligned wire struct，内部 `scopes` / provenance 仍只由系统后处理填充。`strictDecodeExemptTools` 清空，`go test ./internal/tool` 通过。

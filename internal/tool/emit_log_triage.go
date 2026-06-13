@@ -277,28 +277,9 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters())
-
-	var p emitLogTriageParams
-	var salvageNote string
-	decoded := false
-	if !decoded {
-		if err := json.Unmarshal(params, &p); err != nil {
-			if salvaged, fields, ok := salvageLogTriageStringWrappedArrays(params); ok {
-				p = salvaged
-				decoded = true
-				logging.Info("[emit_log_triage] salvaged string-wrapped array fields from partially malformed payload: %v", fields)
-				// The repair must reach the MODEL, not just the log:
-				// the same compat-note channel every structured emit
-				// uses, so the next emit sends arrays directly.
-				salvageNote = fmt.Sprintf(" [compat: fields %v arrived as JSON strings and were auto-repaired into arrays — emit real arrays next time]", fields)
-			}
-		}
-	}
-	if !decoded {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
-		}
+	p, salvageNote, decodeFailure, err := decodeEmitLogTriageParamsStrict(t.Name(), params, t.Parameters())
+	if err != nil {
+		return *decodeFailure, err
 	}
 
 	// Cross-field sanity: at least one error, observation, or
@@ -400,11 +381,33 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}, nil
 }
 
+func decodeEmitLogTriageParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitLogTriageParams, string, *types.ToolResult, error) {
+	normalized := applyStructuredPayloadCompatWithLegacyStringFieldRepair(name, params, schema)
+	var p emitLogTriageParams
+	if _, decodeFailure, err := decodeStrictNormalizedToolParams(name, normalized, &p, nil); err == nil {
+		return p, "", nil, nil
+	} else if salvaged, fields, ok := salvageLogTriageStringWrappedArrays(normalized); ok {
+		salvagedRaw, marshalErr := json.Marshal(salvaged)
+		if marshalErr != nil {
+			res, retErr := failStrictDecodeWithError(name, time.Now(), marshalErr, nil, normalized)
+			return emitLogTriageParams{}, "", &res, retErr
+		}
+		if _, retryFailure, retryErr := decodeStrictNormalizedToolParams(name, salvagedRaw, &p, nil); retryErr != nil {
+			return emitLogTriageParams{}, "", retryFailure, retryErr
+		}
+		logging.Info("[emit_log_triage] salvaged string-wrapped array fields from partially malformed payload: %v", fields)
+		note := fmt.Sprintf(" [compat: fields %v arrived in a partially malformed JSON carrier and were auto-repaired into arrays — emit complete native arrays next time]", fields)
+		return p, note, nil, nil
+	} else {
+		return emitLogTriageParams{}, "", decodeFailure, err
+	}
+}
+
 func salvageLogTriageStringWrappedArrays(raw json.RawMessage) (emitLogTriageParams, []string, bool) {
 	var out emitLogTriageParams
 	var fields []string
 	if metaRaw, ok := extractTopLevelJSONValue(raw, "meta"); ok {
-		_ = json.Unmarshal(metaRaw, &out.Meta)
+		_ = decodeStrictJSONValue(metaRaw, &out.Meta)
 	}
 	if encoded, ok := extractTopLevelJSONStringField(raw, "errors"); ok {
 		var errors []emitLogTriageError
@@ -433,12 +436,20 @@ func salvageLogTriageStringWrappedArrays(raw json.RawMessage) (emitLogTriagePara
 	return out, fields, true
 }
 
+func decodeStrictJSONValue(raw json.RawMessage, out any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	return dec.Decode(out)
+}
+
 func decodeStringWrappedJSONArray(encoded string, out any) error {
 	encoded = strings.TrimSpace(encoded)
 	if !strings.HasPrefix(encoded, "[") {
 		return fmt.Errorf("not an array")
 	}
-	return json.Unmarshal([]byte(encoded), out)
+	dec := json.NewDecoder(strings.NewReader(encoded))
+	dec.DisallowUnknownFields()
+	return dec.Decode(out)
 }
 
 func extractTopLevelJSONStringField(raw json.RawMessage, field string) (string, bool) {

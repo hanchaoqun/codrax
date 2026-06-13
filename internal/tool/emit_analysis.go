@@ -56,7 +56,7 @@ type emitAnalysisParams struct {
 	Entities          []string                `json:"entities"`
 	QuestionKind      string                  `json:"question_kind"`
 	Language          string                  `json:"language,omitempty"`
-	SubTopics         []types.SubTopic        `json:"sub_topics,omitempty"`
+	SubTopics         []emitAnalysisSubTopic  `json:"sub_topics,omitempty"`
 	AnswerSubject     *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
 	ExactTargets      []string                `json:"exact_targets,omitempty"`
 	ExactContextTerms []string                `json:"exact_context_terms,omitempty"`
@@ -115,6 +115,25 @@ type emitRequiredFileParam struct {
 	Path       string  `json:"path"`
 	Confidence float64 `json:"confidence"`
 	Rationale  string  `json:"rationale,omitempty"`
+}
+
+type emitAnalysisSubTopic struct {
+	Summary  string   `json:"summary"`
+	Entities []string `json:"entities,omitempty"`
+}
+
+func emitAnalysisSubTopics(in []emitAnalysisSubTopic) []types.SubTopic {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.SubTopic, 0, len(in))
+	for _, st := range in {
+		out = append(out, types.SubTopic{
+			Summary:  st.Summary,
+			Entities: append([]string(nil), st.Entities...),
+		})
+	}
+	return out
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -936,8 +955,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 
 	var p emitAnalysisParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 
@@ -950,6 +969,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	keywords := trimStringSlice(p.Keywords)
 	entities := trimStringSlice(p.Entities)
+	subTopics := emitAnalysisSubTopics(p.SubTopics)
 
 	// Runtime validation — keyword floor + entity blocklist + quality
 	// probe. Config lives in AnalysisLimits (see analysis_limits.go).
@@ -1009,7 +1029,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if reconciled, reason := reconcileSetValuedRoleLocatePredicates(intent, predicates, p.SubTopics); reason != "" {
+	if reconciled, reason := reconcileSetValuedRoleLocatePredicates(intent, predicates, subTopics); reason != "" {
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
 	}
@@ -1289,7 +1309,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
+	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, subTopics, answerSubject); warning != "" {
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1322,7 +1342,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// Self-consistency: after typed, deterministic normalizers have
 	// absorbed safe drift, reject only contradictions that still need
 	// the LLM to reconcile its own classification.
-	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, p.SubTopics, answerSubject); issue.Reason != "" {
+	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, subTopics, answerSubject); issue.Reason != "" {
 		if writeModeAnalysisRootCauseTolerance(ctx, issue.Kind) {
 			val.Warnings = append(val.Warnings, "write-mode tolerated read-analyzer root_cause without diagnostic typed signal; write_analyzer will provide the code-change task framing")
 		} else {
@@ -1354,7 +1374,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// "summarise". That pollution then surfaces in the renderer's
 	// per-topic row as "## Prior conversation ..." text. Sanitize
 	// every summary before it reaches downstream consumers.
-	sanitizedSubTopics := sanitizeSubTopics(p.SubTopics)
+	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
 	rm := types.RequestModel{
 		RawRequest: raw,

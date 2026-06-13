@@ -21,8 +21,8 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
 | 4 | **source-bearing `repo_node`/outline 视图**（设计文档 §14.3）：container 节点返回结构 outline、普通节点返回有界源码窗口，砍 repo_map→read_file 往返——剩余最大效率杠杆。**必须先出 design doc**：与"导航非引用"citation 契约的边界（outline 可否作 citation anchor）需先裁定 | 待设计 | CodeGraph 核心差异化；勿直接动工 |
-| 5 | **修复层豁免清单消化**：strict_decode_registry_test 的 18 工具 backlog 分 2-3 批接入（strict decode + x-codrax 注解），每批顺修 1-2 个 schema 措辞歧义 | 待做 | 机械；每批独立可交付 |
-| 6 | **残差三小件打包**：(a) tracequery 4 新重型视图带 pattern 时接入 auto-window（OOM 路径最后一角）；(b) `mergeTurnAArtifactsForMutable` fork 合并点补界（A2 同款 count/byte 界）；(c) tokenizer 后缀剥离-lite（extractor→extract，修 hit@k 派生词形残差；不碰 CJK 路径，先加 bench 防误伤） | 待做 | |
+| 5 | **修复层豁免清单消化**：strict_decode_registry_test 的 18 工具 backlog 分 2-3 批接入（strict decode + x-codrax 注解），每批顺修 1-2 个 schema 措辞歧义 | 已完成 | 见 `docs/design/post_p0_tier2_5_6_delivery_plan_20260613.md`；`strictDecodeExemptTools` 已清空 |
+| 6 | **残差三小件打包**：(a) tracequery 4 新重型视图带 pattern 时接入 auto-window（OOM 路径最后一角）；(b) `mergeTurnAArtifactsForMutable` fork 合并点补界（A2 同款 count/byte 界）；(c) tokenizer 后缀剥离-lite（extractor→extract，修 hit@k 派生词形残差；不碰 CJK 路径，先加 bench 防误伤） | 已完成 | 见 `docs/design/post_p0_tier2_5_6_delivery_plan_20260613.md` |
 
 ## 第三梯队（中期 / 需用户拍板）
 
@@ -52,6 +52,7 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
   `docs/design/post_p0_tier2_5_6_delivery_plan_20260613.md`。确认复用现有
   strict decode repair、tracequery windowed index、TurnA handoff、normalizer/repomap
   resolver；任务拆为 6A/6B/6C + strict decode 5A/5B/5C，按批提交推送。
+- 2026-06-13: 第二梯队 #5/#6 交付完成。6A/6B/6C 与 5A/5B/5C 已分批提交推送；#5 strict decode 豁免清单清空；#6 tracequery auto-window、TurnA fork merge bounds、ASCII suffix peel-lite 均落地并通过 focused tests。
 
 ## repeat-FAIL 专项（2026-06-13 交付完毕,全部 prompt/case 级,过 BLOCKING 流程）
 

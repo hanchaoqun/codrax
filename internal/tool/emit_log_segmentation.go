@@ -108,11 +108,9 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
-
 	var p emitLogSegmentationParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	logLen := len(ctx.AttachedLog)

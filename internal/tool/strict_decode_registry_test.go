@@ -34,13 +34,7 @@ import (
 // the reference shape: shared structured-payload compat, then
 // DisallowUnknownFields, then the typed strict-decode failure path) and
 // remove its entry here.
-var strictDecodeExemptTools = map[string]string{
-	"emit_analysis":               "lenient decode with bespoke local-model normalization; not yet onboarded",
-	"emit_investigation_complete": "lenient decode; not yet onboarded",
-	"emit_log_triage":             "lenient decode; not yet onboarded",
-	"emit_log_segmentation":       "lenient decode; not yet onboarded",
-	"emit_perf_segmentation":      "lenient decode; not yet onboarded",
-}
+var strictDecodeExemptTools = map[string]string{}
 
 // buildProductionToolRegistry mirrors the production registry:
 // tool.RegisterDefaults plus the runtime registrations in cmd/root.go.

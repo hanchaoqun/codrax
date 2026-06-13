@@ -246,22 +246,27 @@ type emitInvestigationCompleteParams struct {
 	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
 }
 
+type emitInvestigationCompleteRawParams struct {
+	Reason                   string                                  `json:"reason"`
+	Confidence               string                                  `json:"confidence"`
+	ResultKind               string                                  `json:"result_kind"`
+	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
+	AggregateFacts           json.RawMessage                         `json:"aggregate_facts,omitempty"`
+	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
+	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
+}
+
 func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
-	type rawParams struct {
-		Reason                   string                                  `json:"reason"`
-		Confidence               string                                  `json:"confidence"`
-		ResultKind               string                                  `json:"result_kind"`
-		AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
-		AggregateFacts           json.RawMessage                         `json:"aggregate_facts,omitempty"`
-		EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
-		ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
-		PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
-		ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
-	}
-	var raw rawParams
+	var raw emitInvestigationCompleteRawParams
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	return p.loadFromRaw(raw)
+}
+
+func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompleteRawParams) error {
 	var reasonMisplaced map[string]json.RawMessage
 	if cleanReason, fields, ok := extractMisplacedCompletionFieldsFromReason(raw.Reason); ok {
 		raw.Reason = cleanReason
@@ -332,7 +337,9 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 		payload = raw
 	}
 	var facts []types.AnswerAggregateFact
-	if err := json.Unmarshal(payload, &facts); err != nil {
+	dec := json.NewDecoder(strings.NewReader(string(payload)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&facts); err != nil {
 		return nil, nil, err
 	}
 	return facts, misplaced, nil
@@ -1012,6 +1019,20 @@ func completionAggregateFactIsCountKind(kind types.AnswerAggregateKind) bool {
 	}
 }
 
+func decodeEmitInvestigationCompleteParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitInvestigationCompleteParams, *types.ToolResult, error) {
+	normalized := applyStructuredPayloadCompat(name, params, schema)
+	var raw emitInvestigationCompleteRawParams
+	if _, decodeFailure, err := decodeStrictNormalizedToolParams(name, normalized, &raw, nil); err != nil {
+		return emitInvestigationCompleteParams{}, decodeFailure, err
+	}
+	var p emitInvestigationCompleteParams
+	if err := p.loadFromRaw(raw); err != nil {
+		res, retErr := failStrictDecodeWithErrorMessage(name, time.Now(), err, nil, normalized, "emit_investigation_complete: ", "")
+		return emitInvestigationCompleteParams{}, &res, retErr
+	}
+	return p, nil, nil
+}
+
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
@@ -1022,11 +1043,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
-
-	var p emitInvestigationCompleteParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return failStrictDecodeMessage(t.Name(), time.Now(), err, nil, params, "emit_investigation_complete: ", "")
+	p, decodeFailure, err := decodeEmitInvestigationCompleteParamsStrict(t.Name(), params, t.Parameters())
+	if err != nil {
+		return *decodeFailure, err
 	}
 
 	conf := strings.ToLower(strings.TrimSpace(p.Confidence))

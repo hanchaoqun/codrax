@@ -41,7 +41,8 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		}
 		src := string(raw)
 		if !strings.Contains(src, "applyStructuredPayloadCompat(") &&
-			!strings.Contains(src, "applyStructuredPayloadCompatWithLegacyStringFieldRepair(") {
+			!strings.Contains(src, "applyStructuredPayloadCompatWithLegacyStringFieldRepair(") &&
+			!strings.Contains(src, "decodeStrictToolParams(") {
 			t.Fatalf("%s must route structured tool payloads through applyStructuredPayloadCompat", name)
 		}
 	}
@@ -78,7 +79,10 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		if !strings.Contains(string(raw), "failStrictDecode") {
+		src := string(raw)
+		if !strings.Contains(src, "failStrictDecode") &&
+			!strings.Contains(src, "decodeStrictToolParams(") &&
+			!strings.Contains(src, "decodeStrictNormalizedToolParams(") {
 			t.Fatalf("%s must attach typed ToolRepair metadata on structured JSON decode failures", name)
 		}
 	}
