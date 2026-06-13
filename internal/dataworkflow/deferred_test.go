@@ -99,6 +99,34 @@ func TestBuildDeferredActionCandidatesNarrowsSingleRecordSetAction(t *testing.T)
 	}
 }
 
+func TestBuildDeferredActionCandidatesNarrowsComputeContributionsByFieldContract(t *testing.T) {
+	actions := []dataquery.DataAction{{
+		ID:         "contrib",
+		Kind:       dataquery.DataActionComputeContribs,
+		InputPaths: []string{"active_users", "rules_artifacts.json"},
+		Params: map[string]string{
+			"value_field":   "id",
+			"item_id_field": "id",
+			"group_key":     "ids",
+			"metric":        "id_value",
+			"operation":     "include",
+		},
+	}}
+	candidates := BuildDeferredActionCandidates(DeferredActionCandidatesInput{
+		Actions: actions,
+		SchemaProjections: []ArtifactSchemaProjection{
+			{ID: "active_users", Aliases: []string{"active_users"}, Fields: []string{"id", "status"}},
+			{ID: "rules", Aliases: []string{"rules_artifacts.json"}, Fields: []string{"rule_id", "rule_text", "status"}},
+		},
+	})
+	if len(candidates) != 1 || !candidates[0].Ready {
+		t.Fatalf("candidates=%+v, want compute action narrowed and ready", candidates)
+	}
+	if got := candidates[0].Action.InputPaths; len(got) != 1 || got[0] != "active_users" {
+		t.Fatalf("narrowed inputs=%+v, want active_users", got)
+	}
+}
+
 func TestBuildDeferredActionCandidatesRewritesNormalizeSourceToCompatibleArtifact(t *testing.T) {
 	actions := []dataquery.DataAction{{
 		ID:         "normalize",

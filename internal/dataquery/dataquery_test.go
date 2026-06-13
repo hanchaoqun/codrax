@@ -8991,6 +8991,59 @@ func TestActionRunnerAssembleAnswerProjectsReconcileGroups(t *testing.T) {
 	}
 }
 
+func TestActionRunnerAssembleAnswerProjectsJSONObjectValues(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "json_object",
+					"order_by":   "input",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:1"),
+			GroupKey:      LooseText("ids"),
+			Metric:        LooseText("active_user_id"),
+			Value:         LooseText("u1"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-3"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:3"),
+			GroupKey:      LooseText("ids"),
+			Metric:        LooseText("active_user_id"),
+			Value:         LooseText("u3"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want JSON object projection", res.Answer)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 1 || strings.Join(res.Reconcile.Groups[0].Values, ",") != "u1,u3" {
+		t.Fatalf("Reconcile=%+v, want text aggregate values preserved", res.Reconcile)
+	}
+}
+
 func TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary(t *testing.T) {
 	plan := TaskPlan{
 		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},

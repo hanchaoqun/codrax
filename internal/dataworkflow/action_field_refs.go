@@ -42,6 +42,8 @@ func SingleRecordSetActionFieldRefs(kind dataquery.DataActionKind, action dataqu
 		return FilterActionFieldRefs(action)
 	case dataquery.DataActionQualifyRecords:
 		return QualifyActionFieldRefs(action)
+	case dataquery.DataActionComputeContribs:
+		return ComputeContributionActionFieldRefs(action)
 	default:
 		return nil
 	}
@@ -123,7 +125,17 @@ func QualifyActionFieldRefs(action dataquery.DataAction) []string {
 func ComputeContributionActionFieldRefs(action dataquery.DataAction) []string {
 	var fields []string
 	fields = append(fields, parseActionStringList(action.Params["value_field"])...)
-	fields = append(fields, parseActionStringList(action.Params["group_key_field"])...)
+	fields = append(fields, parseActionStringList(firstNonEmpty(
+		action.Params["group_key_field"],
+		action.Params["group_key_fields"],
+		action.Params["group_by_fields"],
+		action.Params["group_fields"],
+		action.Params["group_by"],
+		action.Params["group_field"],
+		action.Params["key_field"],
+	))...)
+	fields = append(fields, parseActionStringList(action.Params["item_id_field"])...)
+	fields = append(fields, parseActionStringList(firstNonEmpty(action.Params["status_fields"], action.Params["generated_status_fields"]))...)
 	fields = append(fields, FilterActionFieldRefs(action)...)
 	return cleanStrings(fields)
 }

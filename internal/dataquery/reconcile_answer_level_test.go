@@ -40,3 +40,44 @@ func TestRunReconcileArtifacts_AggregatingNoGroupsStillFails(t *testing.T) {
 		t.Fatal("aggregating plan with no numeric groups must still fail loudly")
 	}
 }
+
+func TestRunReconcileArtifacts_AuditOnlyContributionsDoNotCreateProjectionGroups(t *testing.T) {
+	r := ActionRunner{}
+	contribs := []ContributionRecord{
+		{
+			Role:      LooseText("audit"),
+			GroupKey:  LooseText("workflow_audit"),
+			Metric:    LooseText("record_count"),
+			Value:     LooseText("2"),
+			Operation: LooseText("count"),
+		},
+	}
+	artifact, report, err := r.runReconcileArtifacts(DataAction{ID: "rec"}, contribs, true /* aggregating */)
+	if err != nil {
+		t.Fatalf("audit-only reconcile must pass at answer level, got: %v", err)
+	}
+	if len(report.Groups) != 0 {
+		t.Fatalf("Groups=%+v, want no target projection groups from audit contribution", report.Groups)
+	}
+	if artifact.Fields["scope"] != "answer" || artifact.Fields["auxiliary_contributions"] != "1" {
+		t.Fatalf("artifact fields=%+v, want answer-scope auxiliary-only reconcile", artifact.Fields)
+	}
+}
+
+func TestReconcileReportFromContributionsIgnoresAuditOnlyGroups(t *testing.T) {
+	report := reconcileReportFromContributions([]ContributionRecord{
+		{
+			Role:      LooseText("audit"),
+			GroupKey:  LooseText("workflow_audit"),
+			Metric:    LooseText("record_count"),
+			Value:     LooseText("2"),
+			Operation: LooseText("count"),
+		},
+	})
+	if strings.ToLower(report.Status.String()) != "pass" {
+		t.Fatalf("Status=%q, want pass", report.Status.String())
+	}
+	if len(report.Groups) != 0 {
+		t.Fatalf("Groups=%+v, want no target groups from audit-only contributions", report.Groups)
+	}
+}

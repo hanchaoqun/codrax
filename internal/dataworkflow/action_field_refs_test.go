@@ -70,11 +70,16 @@ func TestSingleRecordSetActionFieldRefsUsesTypedActionContract(t *testing.T) {
 		Params: map[string]string{
 			"value_field":     "duration_ms",
 			"group_key_field": "request_id",
+			"item_id_field":   "span_id",
+			"status_fields":   `["resolution_status"]`,
 			"filters":         `[{"field":"status"}]`,
 		},
 	}
-	if got := strings.Join(ComputeContributionActionFieldRefs(compute), ","); got != "duration_ms,request_id,status" {
+	if got := strings.Join(ComputeContributionActionFieldRefs(compute), ","); got != "duration_ms,request_id,span_id,resolution_status,status" {
 		t.Fatalf("compute refs=%q", got)
+	}
+	if got := strings.Join(SingleRecordSetActionFieldRefs(dataquery.DataActionComputeContribs, compute), ","); got != "duration_ms,request_id,span_id,resolution_status,status" {
+		t.Fatalf("single-record compute refs=%q", got)
 	}
 }
 

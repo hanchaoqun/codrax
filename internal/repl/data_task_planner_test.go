@@ -6120,6 +6120,54 @@ func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.
 	}
 }
 
+func TestDataTaskDeferredComputeContributionsNarrowsSidecarInputs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{
+				{
+					ID:      "active_users",
+					Kind:    string(dataquery.DataActionFilterRecords),
+					Headers: []string{"id", "status", "_source_index"},
+					Fields:  map[string]string{"artifact_aliases": "active_users", "json_shape": "array(len=2,item=object(keys=id,status,_source_index))"},
+				},
+				{
+					ID:      "rules_artifacts.json",
+					Kind:    string(dataquery.DataActionDeriveRules),
+					Headers: []string{"rule_id", "rule_text", "status"},
+					Fields:  map[string]string{"artifact_aliases": "rules_artifacts.json", "json_shape": "array(len=1,item=object(keys=rule_id,rule_text,status))"},
+				},
+			},
+		},
+	}}
+	deferred := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:             "active_id_contribs",
+			Kind:           dataquery.DataActionComputeContribs,
+			InputPaths:     []string{"active_users", "rules_artifacts.json"},
+			OutputArtifact: "active_id_contribs",
+			Params: map[string]string{
+				"value_field":   "id",
+				"item_id_field": "_source_index",
+				"group_key":     "ids",
+				"metric":        "id_value",
+				"operation":     "include",
+			},
+		}},
+	}
+	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	if !ok {
+		t.Fatalf("deferred compute_contributions was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+	}
+	if got := strings.Join(next.Actions[0].InputPaths, ","); got != "active_users" {
+		t.Fatalf("InputPaths=%q, want narrowed executable artifact", got)
+	}
+	if errText := dataTaskWorkflowStagingGuardError(records, next); errText != "" {
+		t.Fatalf("staging guard after compute narrowing: %s", errText)
+	}
+}
+
 func TestDataTaskDeferredActionDoesNotDropOnSideRuleCoverageGap(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

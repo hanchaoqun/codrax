@@ -1830,7 +1830,7 @@ func dataTaskNarrowSingleRecordSetActionForExecution(records []dataTaskWorkflowR
 	}
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
-	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords:
+	case dataquery.DataActionDeriveFields, dataquery.DataActionExtractFields, dataquery.DataActionGroupRecords, dataquery.DataActionExpandRecords, dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords, dataquery.DataActionComputeContribs:
 	default:
 		return dataquery.DataAction{}, false
 	}

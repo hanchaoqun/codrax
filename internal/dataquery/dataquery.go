@@ -1180,6 +1180,7 @@ type ReconcileGroup struct {
 	Expected   LooseText `json:"expected,omitempty"`
 	Actual     LooseText `json:"actual,omitempty"`
 	Difference LooseText `json:"difference,omitempty"`
+	Values     []string  `json:"values,omitempty"`
 }
 
 func (r *ReconcileGroup) UnmarshalJSON(data []byte) error {
@@ -3050,6 +3051,13 @@ func contributionAggregateDisplayValue(aggregate *contributionGroupAggregate) st
 	return strings.Join(aggregate.TextValues, ",")
 }
 
+func contributionAggregateTextValues(aggregate *contributionGroupAggregate) []string {
+	if aggregate == nil || len(aggregate.TextValues) == 0 {
+		return nil
+	}
+	return append([]string(nil), aggregate.TextValues...)
+}
+
 func contributionAggregateMatchesValue(aggregate *contributionGroupAggregate, value string) bool {
 	value = strings.TrimSpace(value)
 	if aggregate == nil || value == "" {
@@ -3300,7 +3308,7 @@ func rowDecisionsFromContributions(contributions []ContributionRecord) []RowDeci
 }
 
 func reconcileReportFromContributions(contributions []ContributionRecord) ReconcileReport {
-	aggregates := aggregateContributionGroups(contributions)
+	aggregates := aggregateContributionGroups(reconcileTargetContributions(contributions))
 	keys := make([]string, 0, len(aggregates))
 	for key := range aggregates {
 		keys = append(keys, key)
@@ -3316,6 +3324,7 @@ func reconcileReportFromContributions(contributions []ContributionRecord) Reconc
 			Expected:   LooseText(value),
 			Actual:     LooseText(value),
 			Difference: LooseText(reconcileDifferenceForAggregate(aggregates[key])),
+			Values:     contributionAggregateTextValues(aggregates[key]),
 		})
 	}
 	return ReconcileReport{

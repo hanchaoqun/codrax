@@ -242,3 +242,71 @@ Verification commands:
   Result envelopes from ordinary JSON answers, internal artifacts JSON no longer
   counts as a final answer, and `count/include/set/rank` contributions use a
   deterministic aggregate path shared by reconcile generation and validation.
+- 2026-06-13: Post-Batch-4 eval found a deeper handoff/projection gap rather
+  than a material-extraction gap. The early JSON answer and active-user records
+  were correct, but a deferred `compute_contributions` action that listed both a
+  record artifact and a sidecar rule artifact was blocked before the runner's
+  existing sidecar-skip path could execute. A later conservative
+  `role=audit` ledger was then reconciled and projected as if it were the target
+  answer. Batch 5 must generalize three system boundaries: single-record-set
+  narrowing for compute actions, target-only reconcile projection, and strict
+  JSON object/list projection from typed reconcile groups.
+
+## Batch 5 Gap: Typed Contribution Handoff And Projection Boundaries
+
+Observed eval behavior:
+
+- `data_json_strict_ids` produced the correct active-user records and an early
+  JSON payload, but the deferred contribution plan could not execute because
+  `compute_contributions` was not covered by the existing field-contract
+  narrowing used for single-record-set actions.
+- The runner already has generic support for skipping non-contribution sidecar
+  inputs during `compute_contributions`; the missing layer was the workflow
+  staging/deferred readiness path, which rejected the multi-input action before
+  the runner could apply that support.
+- Reconcile generation aggregated every contribution role, including
+  `role=audit`. Validation already treats audit/material/diagnostic roles as
+  auxiliary, so generation and validation had diverged on the target output
+  boundary.
+- `assemble_answer` could render JSON group arrays but lacked a structural
+  projection for JSON objects whose fields are reconcile group keys and whose
+  values are text-member arrays.
+
+Generalized design:
+
+- Extend the existing field-contract narrowing path to include
+  `compute_contributions`. The matcher should use structured action params such
+  as `value_field`, `group_key_field(s)`, `item_id_field`, `status_fields`, and
+  filter fields. It must not infer intent from user prose or model prose.
+- Make reconcile generation and patch-generated reconcile reports aggregate
+  only target-participating contributions. Auxiliary roles remain available for
+  validation/audit context but cannot become final answer groups.
+- Preserve text aggregate members on reconcile groups as typed `values` metadata
+  and add a generic `json_object` projection in `assemble_answer`. This lets
+  output contracts express object/list answers without custom scripts or
+  keyword-shaped post-processing.
+- Strengthen planner guidance around contribution operations: use
+  `include`/`set`/`rank` when the final value is an item label/id/list member;
+  use `count` only for row counts.
+
+Executable task list:
+
+- [x] B5-T1: Add compute-contribution field references to
+  `SingleRecordSetActionFieldRefs` and the REPL deferred narrowing wrapper.
+- [x] B5-T2: Add dataworkflow and REPL tests proving sidecar rule/reference
+  artifacts are narrowed away before deferred compute dispatch.
+- [x] B5-T3: Change reconcile generation/report synthesis to aggregate
+  target-participating contributions only, while preserving answer-level pass
+  for auxiliary-only ledgers.
+- [x] B5-T4: Add typed reconcile group `values` metadata for text aggregates
+  and `assemble_answer projection=json_object`.
+- [x] B5-T5: Update planner action guidance for `include`/`set`/`rank` versus
+  `count` and the new `json_object` projection.
+- [ ] B5-T6: Run focused Go tests, full Go tests, rebuild, commit/push, then
+  rerun representative eval cases two at a time.
+
+Batch 5 verification before commit:
+
+- `go test ./internal/dataworkflow ./internal/dataquery ./internal/repl`
+- `go test ./...`
+- `make`

@@ -8456,7 +8456,8 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			Message:       "reconcile_artifacts requires prior contribution records",
 		}
 	}
-	aggregates := aggregateContributionGroups(contributions)
+	targetContributions := reconcileTargetContributions(contributions)
+	aggregates := aggregateContributionGroups(targetContributions)
 	if len(aggregates) == 0 {
 		// Contributions exist but produce no reconcilable groups. The skill
 		// documents scope="answer" reconciliation for final-output
@@ -8468,9 +8469,10 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 		// reconciles at the ANSWER level instead of failing on the
 		// inapplicable numeric path. Both signals are precise — the
 		// typed plan action shape and the typed contribution roles —
-		// so a genuinely-aggregating plan that yields zero reconcilable
-		// groups still fails loudly.
-		if !aggregating && len(reconcileTargetContributions(contributions)) == 0 {
+		// so a genuinely-aggregating plan whose target contributions yield zero
+		// groups still fails loudly. Auxiliary-only ledgers never become target
+		// answer groups.
+		if len(targetContributions) == 0 {
 			report := ReconcileReport{Status: LooseText("pass")}
 			if err := validateReconcileReport(report, contributions, ""); err != nil {
 				return DataArtifact{}, ReconcileReport{}, err
@@ -8479,8 +8481,13 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			return DataArtifact{
 				ID:      id,
 				Kind:    string(DataActionReconcile),
-				Summary: "answer-level reconciliation (no numeric contribution groups required)",
-				Fields:  map[string]string{"groups": "0", "scope": "answer"},
+				Summary: "answer-level reconciliation (no target contribution groups)",
+				Fields: map[string]string{
+					"groups":                  "0",
+					"scope":                   "answer",
+					"target_contributions":    "0",
+					"auxiliary_contributions": fmt.Sprintf("%d", len(contributions)),
+				},
 			}, report, nil
 		}
 		return DataArtifact{}, ReconcileReport{}, DataActionDependencyError{
@@ -8510,18 +8517,23 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			Expected:   LooseText(value),
 			Actual:     LooseText(value),
 			Difference: LooseText(reconcileDifferenceForAggregate(aggregates[key])),
+			Values:     contributionAggregateTextValues(aggregates[key]),
 		})
 		label := displayReconcileGroupKey(groupKey, metric)
 		answerParts = append(answerParts, fmt.Sprintf("%s=%s", label, value))
+		fields := map[string]string{
+			"group_key": groupKey,
+			"metric":    metric,
+			"value":     value,
+		}
+		if values := contributionAggregateTextValues(aggregates[key]); len(values) > 0 {
+			fields["values"] = strings.Join(values, ",")
+		}
 		children = append(children, DataArtifact{
 			ID:      "reconcile:" + label,
 			Kind:    "reconcile_group",
 			Summary: fmt.Sprintf("%s reconciled to %s", label, value),
-			Fields: map[string]string{
-				"group_key": groupKey,
-				"metric":    metric,
-				"value":     value,
-			},
+			Fields:  fields,
 		})
 	}
 	// ExpectedAnswer/ActualAnswer is the reconciliation's claim about
@@ -8619,7 +8631,11 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 				projection = "key_values"
 			}
 		case OutputJSONOnly:
-			projection = "json_groups"
+			if reconcileGroupsCarryValues(groups) {
+				projection = "json_object"
+			} else {
+				projection = "json_groups"
+			}
 		case OutputMarkdownTable:
 			projection = "markdown_table"
 		default:
@@ -8655,6 +8671,24 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 			})
 		}
 		raw, _ := json.Marshal(items)
+		answer = string(raw)
+	case "json_object", "json_object_values", "object":
+		obj := map[string]any{}
+		unnamed := 0
+		for _, group := range groups {
+			key := firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
+			if key == "" {
+				unnamed++
+				key = fmt.Sprintf("value_%d", unnamed)
+			}
+			value := reconcileGroupJSONValue(group, valueField)
+			if existing, ok := obj[key]; ok {
+				obj[key] = mergeReconcileJSONValues(existing, value)
+			} else {
+				obj[key] = value
+			}
+		}
+		raw, _ := json.Marshal(obj)
 		answer = string(raw)
 	case "markdown_table":
 		var b strings.Builder
@@ -9118,6 +9152,45 @@ func reconcileGroupValueByField(group ReconcileGroup, field string) string {
 		return strings.TrimSpace(group.Metric.String())
 	default:
 		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	}
+}
+
+func reconcileGroupsCarryValues(groups []ReconcileGroup) bool {
+	for _, group := range groups {
+		if len(group.Values) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileGroupJSONValue(group ReconcileGroup, field string) any {
+	if len(group.Values) > 0 {
+		return append([]string(nil), group.Values...)
+	}
+	return reconcileGroupValueByField(group, field)
+}
+
+func mergeReconcileJSONValues(existing, next any) any {
+	values := reconcileJSONValueSlice(existing)
+	values = append(values, reconcileJSONValueSlice(next)...)
+	return values
+}
+
+func reconcileJSONValueSlice(value any) []any {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []any:
+		return append([]any(nil), typed...)
+	case []string:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	default:
+		return []any{typed}
 	}
 }
 
