@@ -2395,5 +2395,71 @@ Executable task list:
   materializer that merges exact tool summary tokens into typed note values.
 - [x] B32-T3: Add regression coverage for partial RichNotes plus complete
   same-row `trace_query` summary tokens.
-- [ ] B32-T4: Run focused tests, full tests/build hygiene, commit, push, and
+- [x] B32-T4: Run focused tests, full tests/build hygiene, commit, push, and
   rerun the representative eval pair.
+
+Post-Batch-32 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-c884d970-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 45s. The final strict output remains
+  `{"ids":["u1","u3"]}` with `data_rounds=2`, `data_repair_rounds=1`, and
+  no answer-contract violations. Manual audit: the remaining repair is the
+  first-plan material-consumption correction; it is typed and does not affect
+  final correctness.
+- `trace_query_state_churn_window_stats`: PASS in 244s. The run used
+  `trace_query` six times, no `read_file`/`grep`, `max_context_window_pct=21`,
+  and `GOMEMLIMIT=12GiB` was active. Manual audit: the new
+  `Trace 指标快照` block materialized, and each state-churn row now keeps
+  `max_segment` and `p95_segment` on one deterministic line.
+- Residual audit gap: `answer_contract_violations=1` and user-visible generic
+  caveats remain. Logs show the root cause is a runtime-artifact
+  `aggregate_facts.member_set` for a diagnostic ranking being treated as a
+  principal enumeration set, which activates `Required Principal Member Set`,
+  principal enumeration rows, and a count oracle meant for source/list answers.
+
+## Batch 33 Gap: Runtime Diagnostic Rankings Must Not Become Principal Enumerations
+
+Deep root cause:
+
+- Runtime diagnostic tools return ranked candidates such as scheduler
+  root-cause rows. These are ordered observations that support the diagnosis,
+  not necessarily a user-requested exhaustive member list.
+- The aggregate fact role resolver already demotes unsupported runtime
+  behavior/scalar/count facts for external-only runtime artifacts, but
+  `member_set` was missing from that advisory path. When an explorer emits a
+  runtime diagnostic ranking as `member_set` with `role=principal_answer`, the
+  finalizer treats it like a hard principal enumeration contract and raises
+  generic completeness/count caveats.
+- This is a system-level role-normalization gap. The fix belongs in typed
+  aggregate role resolution, not in prompt wording or final-answer prose
+  rewriting.
+
+Generalized design:
+
+- Extend runtime advisory aggregate demotion to `member_set` facts when all
+  the following typed conditions hold:
+  1. the request has an external-only runtime artifact;
+  2. the fact has no support refs;
+  3. the request is diagnostic/root-cause/trace/performance-shaped;
+  4. the request does not structurally require a principal member set
+     (explicit enumeration intent, category/relation enumeration,
+     source-inventory profile, or declared member-set obligation).
+- Preserve principal `member_set` behavior when a runtime/external request
+  explicitly asks for an enumeration/list or carries per-member support refs.
+- Keep the decision typed-only: request model traits, aggregate kind/role, and
+  support-ref presence. Do not inspect user prose, labels, model prose, or
+  answer markdown.
+
+Executable task list:
+
+- [x] B33-T1: Record the Post-Batch-32 audit and runtime diagnostic
+  member-set gap.
+- [x] B33-T2: Extend runtime aggregate role normalization so unsupported
+  diagnostic `member_set` rows become supporting coverage.
+- [x] B33-T3: Add regression tests for demotion and explicit runtime
+  enumeration preservation.
+- [ ] B33-T4: Run focused/full validation, commit, push, and rerun the
+  representative eval pair.

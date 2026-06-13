@@ -2140,9 +2140,40 @@ func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggr
 		AnswerAggregateGroupedCount,
 		AnswerAggregateBucketCount:
 		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
+	case AnswerAggregateMemberSet:
+		return runtimeObservationMemberSetIsAdvisory(rm, fact)
 	default:
 		return false
 	}
+}
+
+func runtimeObservationMemberSetIsAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	if runtimeRequestRequiresPrincipalMemberSet(rm) {
+		return false
+	}
+	return rm.Intent == IntentRootCause ||
+		rm.Intent == IntentTrace ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		rm.Scenario == ScenarioPerformanceBottleneck ||
+		rm.Scenario == ScenarioRootCause
+}
+
+func runtimeRequestRequiresPrincipalMemberSet(rm *RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	if rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.QuestionStructure().HasAnyObligation() {
+		return true
+	}
+	return rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()
 }
 
 func aggregateScalarRestatesDirectRuntimeObservation(rm *RequestModel, fact AnswerAggregateFact) bool {

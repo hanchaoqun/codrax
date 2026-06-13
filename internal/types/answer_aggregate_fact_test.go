@@ -2445,6 +2445,58 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeObservationAdvisory
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeDiagnosticMemberSet(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "diagnostic ranking",
+		Value: "3",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "candidates",
+		Members: []string{
+			"cpu_pressure",
+			"fragmented_runnable_wait",
+			"fragmented_running",
+		},
+	}}
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "dominant_state=runnable",
+		}}},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("runtime diagnostic ranking member_set should be support-only, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:runtime_observation_advisory_aggregate") {
+		t.Fatalf("runtime diagnostic member_set demotion provenance missing: %+v", got[0])
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("role resolver should demote runtime diagnostic member_set, got %q", role)
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 0 {
+		t.Fatalf("runtime diagnostic ranking must not create principal rows, got %+v", refs)
+	}
+
+	enumRM := rm
+	enumRM.Intent = IntentEnumerate
+	enumRM.Predicates.IsCategoryEnumeration = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &enumRM)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit runtime enumeration should preserve principal member_set, got %+v", got[0])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &enumRM); len(refs) != 1 {
+		t.Fatalf("explicit runtime enumeration should still create principal rows, got %+v", refs)
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExplicitSetsAsSupport(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,
