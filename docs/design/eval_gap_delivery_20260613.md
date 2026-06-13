@@ -1098,6 +1098,94 @@ Executable task list:
 - [x] B15-T4: Add regression tests proving numeric same-metric groups remain
   keyed by group.
 - [x] B15-T5: Run focused/full tests, rebuild, diff hygiene.
-- [ ] B15-T6: Commit/push Batch 15.
-- [ ] B15-T7: Rerun representative eval cases two at a time and manually audit
+- [x] B15-T6: Commit/push Batch 15.
+- [x] B15-T7: Rerun representative eval cases two at a time and manually audit
+  answers/logs again.
+
+Post-Batch-15 eval root:
+
+- `eval/results/eval-gap-20260613-post-ff8ae0fa`
+
+Manual audit after rerun:
+
+- `data_json_strict_ids`: PASS. The terminal data workflow completed in two
+  rounds with one repair, `data_terminal_status=complete`,
+  `data_record_count=2`, `data_answer_len=19`, and no source/repo/runtime
+  tool calls. The final answer was exactly `{"ids":["u1","u3"]}`: strict JSON
+  only, correct output field, and no explanatory leakage.
+- `trace_query_state_churn_window_stats`: PASS. The run used
+  `trace_query=2`, `repo_map=0`, `answer_contract_violations=0`, and one
+  finalizer iteration. The final answer preserved `dominant_state=runnable`,
+  `running=3.5ms`, `runnable=5.0ms`, `sleep/d_state/io_wait=0`,
+  `fragments=21`, `switches=20`, `max_segment=0.5ms`,
+  `p95_segment=0.5ms`, root-cause guidance, and next steps for investigating
+  `rival-30`.
+- Residual cost/robustness audit: the trace answer is commercially usable, but
+  logs still show two avoidable system frictions. Perf triage attempted
+  `read_file /dev/null` before emitting the inline trace bundle because the
+  pagination tool remained visible even when no blob path existed. Exploration
+  also needed two `emit_investigation_complete` retries before the
+  `negative_observation` aggregate fact had all required dimensions. Neither
+  issue changed the final answer, but both waste model turns and weaken JSON
+  handoff resilience.
+
+## Batch 16 Gap: Runtime Tool Surface and Aggregate JSON Repair Need Typed Narrowing
+
+Deep root cause:
+
+- Attachment triage already has a hard execution guard: `read_file` can only
+  paginate the attached log/trace blob, and inline-only artifacts reject repo
+  reads. The gap is earlier in the tool surface. When the attachment is fully
+  inline and no blob path exists, the model still sees `read_file`; with
+  `tool_choice=required`, a model can spend one round on an impossible
+  pagination call before the typed emit tool is forced.
+- `negative_observation` aggregate facts require origin, target/scope,
+  result_count, and searched_at dimensions. The schema documents that shape,
+  but common tool-derived zero-result payloads naturally carry some fields as
+  `window`, `checked_types`, `matches`, `source`, `provenance`, or structured
+  source-ref aliases. Requiring the model to discover every canonical dimension
+  through rejected retries increases cognitive load and risks dropping useful
+  runtime handoff facts.
+- These are system-level gaps, not case wording problems. Any inline log/trace
+  pre-stage can hit the first class; any external observation, VCS, command,
+  MCP, connector, or repo-map zero-result aggregate can hit the second class.
+
+Generalized design:
+
+- Runtime triage filters tool schemas by precise attachment state. If the
+  active agent/stage is log/perf triage and the corresponding attached artifact
+  has no blob path on disk, hide `read_file` and expose only the stage's typed
+  emit tool. If a blob path exists, keep `read_file` available for legitimate
+  pagination. This mirrors the existing execution guard and does not inspect
+  user intent prose.
+- `emit_investigation_complete` adds a structured compatibility pass for
+  `aggregate_facts` before strict fact validation. The pass maps typed aliases
+  such as `matches`/`count` -> `result_count`, `window`/`range` -> `scope`,
+  `checked_types`/`absent_types` -> `target`, and structured
+  `source`/`producer`/`provenance` tokens to canonical origin dimensions when
+  they resolve through the existing evidence-origin enum. It never infers from
+  free-form reason prose or final answer text.
+- Hard validation remains strict after repair: invalid origins, missing bounded
+  scope, missing absent target/query/pattern/predicate, or non-zero values for
+  negative facts still reject. The repair layer only preserves mechanically
+  equivalent typed payloads that already supplied the information in a
+  compatible field.
+
+Executable task list:
+
+- [x] B16-T1: Record post-Batch-15 PASS eval results and residual cost/root
+  cause audit in this design doc.
+- [ ] B16-T2: Add runtime-triage tool schema filtering so inline-only
+  attachments hide `read_file` while blob-backed attachments keep pagination.
+- [ ] B16-T3: Add regression tests for perf/log triage schema filtering across
+  inline-only and blob-backed attachments.
+- [ ] B16-T4: Add structured aggregate-fact alias repair before
+  `NormalizeAnswerAggregateFacts`, focused on zero-result observation aliases
+  and evidence-origin tokens.
+- [ ] B16-T5: Add regression tests proving one-shot `negative_observation`
+  payloads with alias fields normalize without retries and invalid origins
+  still reject.
+- [ ] B16-T6: Run focused tests, full tests, rebuild, diff hygiene.
+- [ ] B16-T7: Commit and push Batch 16.
+- [ ] B16-T8: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
