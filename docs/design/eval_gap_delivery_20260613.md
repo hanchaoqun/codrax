@@ -73,6 +73,21 @@ workflow 的失败显示“模型需要知道下一步 DAG rank + ledger produce
 - 后端消费者必须收到前序阶段的 accepted aggregate facts、observation rows、
   artifact access、ledger graph 和 output graph，避免证据丢失。
 
+### G4. Rule coverage 与 item ledgers 的 `rule_refs` 缺少结构化归一
+
+复跑后 `data_json_strict_ids` 已产生 decision rows 和 contributions，但
+`qualify_records` 生成了不存在的 `RULE_ACTIVE_FILTER` rule ref，终态校验在
+unknown rule ref 处失败。这不是单 case 的规则名问题，而是 item ledgers 与
+source-backed `rule_coverage` 之间缺少 deterministic canonicalization。
+
+泛化约束：
+
+- 只处理 typed `rule_refs` 字段，不能从用户文本或模型解释中猜测规则。
+- 只有存在 source-backed `rule_coverage.rule_id` 时，才把未知 refs 映射到
+  source-backed rule id；纯模型规则无 evidence 时继续 fail-loud。
+- 不新增业务规则，不放宽 unknown-rule 校验；修复层只把模型自造的 ledger
+  ref 对齐到已经存在且有源证据的 rule coverage。
+
 ## Design
 
 ### D1. ObservationLedger runtime producer precedence
@@ -115,6 +130,8 @@ workflow 的失败显示“模型需要知道下一步 DAG rank + ledger produce
   executable conservative `compute_contributions` plan.
 - REPL data workflow integration: terminal/validation completion can use the
   deterministic contribution fallback without planner repair loops.
+- Dataquery patch engine: unknown item-ledger `rule_refs` canonicalize only to
+  source-backed rule coverage, while non-source-backed unknown refs still fail.
 
 Verification commands:
 
@@ -136,9 +153,11 @@ Verification commands:
       transition。
 - [x] T5: 增加 dataworkflow/repl 单测，覆盖 missing contributions deterministic
       recovery。
-- [ ] T6: 分批提交并推送文档、runtime handoff、data workflow fallback。
-- [ ] T7: 运行 Go 测试和代表 eval，每批 2 case。
-- [ ] T8: 人工审计 eval 答案与日志，回写本文件的验证结论。
+- [x] T6: 实现 source-backed `rule_refs` canonicalization，并保持无源规则
+      unknown refs fail-loud。
+- [ ] T7: 分批提交并推送文档、runtime handoff、data workflow fallback。
+- [ ] T8: 运行 Go 测试和代表 eval，每批 2 case。
+- [ ] T9: 人工审计 eval 答案与日志，回写本文件的验证结论。
 
 ## Progress
 
@@ -153,3 +172,7 @@ Verification commands:
   conservative `compute_contributions(operation=count, role=audit)` action over
   handed-off record artifacts when required contribution ledgers are missing and
   DAG prerequisites are satisfied.
+- 2026-06-13: Batch 3 implemented source-backed rule-ref canonicalization in the
+  data result patch engine. This addresses the post-Batch-2 eval discovery where
+  item ledgers were present but referenced a model-invented rule id instead of
+  the already emitted source-backed rule coverage.

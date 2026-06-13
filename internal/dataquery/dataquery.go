@@ -2902,6 +2902,7 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		return nil
 	}
 	var patches []DataResultPatch
+	patches = append(patches, canonicalizeUnknownRuleRefs(res)...)
 	for i := range res.Contributions {
 		metric := strings.TrimSpace(res.Contributions[i].Metric.String())
 		oldGroupKey := res.Contributions[i].GroupKey.String()
@@ -2959,6 +2960,107 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		patches = append(patches, newDataResultPatch("add", "/reconcile/groups", len(report.Groups), "filled reconcile groups from contribution ledger"))
 	}
 	return patches
+}
+
+func canonicalizeUnknownRuleRefs(res *Result) []DataResultPatch {
+	sourceRules := sourceBackedRuleIDs(res.RuleCoverage)
+	if len(sourceRules) == 0 {
+		return nil
+	}
+	known := ruleCoverageIDSet(res.RuleCoverage)
+	if len(known) == 0 {
+		return nil
+	}
+	replacement := firstSortedRuleID(sourceRules)
+	if replacement == "" {
+		return nil
+	}
+	var patches []DataResultPatch
+	for i := range res.Rows {
+		refs, changed := canonicalRuleRefs(res.Rows[i].RuleRefs, known, replacement)
+		if !changed {
+			continue
+		}
+		res.Rows[i].RuleRefs = refs
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/rows/%d/rule_refs", i), refs, "canonicalized unknown decision rule_refs to source-backed rule coverage"))
+	}
+	for i := range res.Contributions {
+		refs, changed := canonicalRuleRefs(res.Contributions[i].RuleRefs, known, replacement)
+		if !changed {
+			continue
+		}
+		res.Contributions[i].RuleRefs = refs
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/contributions/%d/rule_refs", i), refs, "canonicalized unknown contribution rule_refs to source-backed rule coverage"))
+	}
+	for i := range res.EntityResolutions {
+		refs, changed := canonicalRuleRefs(res.EntityResolutions[i].RuleRefs, known, replacement)
+		if !changed {
+			continue
+		}
+		res.EntityResolutions[i].RuleRefs = refs
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/rule_refs", i), refs, "canonicalized unknown entity-resolution rule_refs to source-backed rule coverage"))
+	}
+	return patches
+}
+
+func ruleCoverageIDSet(records []RuleCoverageRecord) map[string]bool {
+	out := map[string]bool{}
+	for _, rec := range records {
+		id := strings.TrimSpace(rec.RuleID.String())
+		if id != "" {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+func firstSortedRuleID(values map[string]bool) string {
+	if len(values) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		if strings.TrimSpace(id) != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+func canonicalRuleRefs(refs []string, known map[string]bool, replacement string) ([]string, bool) {
+	replacement = strings.TrimSpace(replacement)
+	if replacement == "" || len(refs) == 0 {
+		return refs, false
+	}
+	out := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	changed := false
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			changed = true
+			continue
+		}
+		if !known[ref] {
+			ref = replacement
+			changed = true
+		}
+		if seen[ref] {
+			changed = true
+			continue
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+	if len(out) == 0 {
+		out = []string{replacement}
+		changed = true
+	}
+	return out, changed
 }
 
 func rowDecisionsFromContributions(contributions []ContributionRecord) []RowDecision {

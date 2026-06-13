@@ -8622,6 +8622,48 @@ emit({
 	}
 }
 
+func TestRunnerCanonicalizesUnknownRuleRefsToSourceBackedRuleCoverage(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "rule_coverage": [{"rule_id": "r1", "rule_text": "include source rows", "status": "derived", "evidence_refs": ["orders.csv:1"]}],
+  "rows": [{"row_id": "row1", "source": "orders.csv", "source_locator": "row 2", "decision": "include", "rule_refs": ["MODEL_RULE"]}],
+  "contributions": [{"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "total", "metric": "amount", "value": "10", "operation": "add", "rule_refs": ["MODEL_RULE"]}]
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := strings.Join(res.Rows[0].RuleRefs, ","); got != "r1" {
+		t.Fatalf("Rows[0].RuleRefs=%v, want r1", res.Rows[0].RuleRefs)
+	}
+	if got := strings.Join(res.Contributions[0].RuleRefs, ","); got != "r1" {
+		t.Fatalf("Contributions[0].RuleRefs=%v, want r1", res.Contributions[0].RuleRefs)
+	}
+	if len(res.ResultPatches) == 0 {
+		t.Fatalf("ResultPatches empty, want structural rule_ref canonicalization patch")
+	}
+}
+
 func TestRunnerRejectsUnknownRuleRefs(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
