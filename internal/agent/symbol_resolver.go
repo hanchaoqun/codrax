@@ -120,6 +120,13 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 	return hits
 }
 
+// LookupSymbolMorphAlias confirms bounded ASCII morphology candidates against
+// the same exact/flat symbol table as LookupSymbol. It does not substring-scan
+// repo symbols; candidates that do not resolve exactly are ignored.
+func (r *repomapSymbolResolver) LookupSymbolMorphAlias(surface string) []normalizer.SymbolHit {
+	return lookupSymbolMorphAliasWith(surface, r.LookupSymbol)
+}
+
 func (r *repomapSymbolResolver) flatSymbolDefs() map[string][]*repomap.Symbol {
 	if r == nil || r.graph == nil {
 		return nil
@@ -357,6 +364,35 @@ func stripActionPrefix(name string) string {
 		}
 	}
 	return ""
+}
+
+func lookupSymbolMorphAliasWith(surface string, lookup func(string) []normalizer.SymbolHit) []normalizer.SymbolHit {
+	if lookup == nil {
+		return nil
+	}
+	candidates := normalizer.MorphAliasCandidates(surface)
+	if len(candidates) == 0 {
+		return nil
+	}
+	hits := make([]normalizer.SymbolHit, 0, maxSymbolResolverHits)
+	seen := make(map[string]bool, maxSymbolResolverHits)
+	for _, candidate := range candidates {
+		for _, hit := range lookup(candidate) {
+			if hit.Canonical == "" {
+				continue
+			}
+			key := hit.Canonical + "|" + hit.Domain
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			hits = append(hits, hit)
+			if len(hits) >= maxSymbolResolverHits {
+				return hits
+			}
+		}
+	}
+	return hits
 }
 
 // symbolDomain maps a Symbol to a free-form domain tag. Prefers the
@@ -847,6 +883,12 @@ func (r *multiRepoSymbolResolver) LookupSymbol(surface string) []normalizer.Symb
 		hits = fb
 	}
 	return r.adaptHits(hits)
+}
+
+// LookupSymbolMorphAlias is the multi-repo counterpart of
+// repomapSymbolResolver.LookupSymbolMorphAlias.
+func (r *multiRepoSymbolResolver) LookupSymbolMorphAlias(surface string) []normalizer.SymbolHit {
+	return lookupSymbolMorphAliasWith(surface, r.LookupSymbol)
 }
 
 func (r *multiRepoSymbolResolver) flatSymbolHits() map[string][]multigraph.SymbolHit {

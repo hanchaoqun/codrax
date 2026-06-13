@@ -133,7 +133,7 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 		// matching 30 symbols) settle below unambiguous ones without a
 		// hand-curated allowlist.
 		if opts.Resolver != nil && entityGateOpen(s.text, opts.Entities) {
-			if hits := opts.Resolver.LookupSymbol(s.text); len(hits) > 0 {
+			if hits := lookupSymbolWithMorphAlias(opts.Resolver, s.text); len(hits) > 0 {
 				id := "code:" + NormalizeCodeKey(hits[0].Canonical)
 				return id, types.CanonicalTerm{
 					ID:         id,
@@ -175,6 +175,19 @@ func entityGateOpen(surface string, entities []string) bool {
 		}
 	}
 	return false
+}
+
+func lookupSymbolWithMorphAlias(resolver SymbolResolver, surface string) []SymbolHit {
+	if resolver == nil {
+		return nil
+	}
+	if hits := resolver.LookupSymbol(surface); len(hits) > 0 {
+		return hits
+	}
+	if morph, ok := resolver.(SymbolMorphAliasResolver); ok {
+		return morph.LookupSymbolMorphAlias(surface)
+	}
+	return nil
 }
 
 // rarityConfidence maps the number of repomap definitions that match a

@@ -139,6 +139,23 @@ func (f fakeResolver) LookupSymbol(surface string) []SymbolHit {
 	return f.hits[surface]
 }
 
+type fakeMorphResolver struct {
+	hits map[string][]SymbolHit
+}
+
+func (f fakeMorphResolver) LookupSymbol(surface string) []SymbolHit {
+	return f.hits[surface]
+}
+
+func (f fakeMorphResolver) LookupSymbolMorphAlias(surface string) []SymbolHit {
+	for _, candidate := range MorphAliasCandidates(surface) {
+		if hits := f.hits[candidate]; len(hits) > 0 {
+			return hits
+		}
+	}
+	return nil
+}
+
 func TestNormalize_ResolverUpgradesEnConceptToCodeSymbol(t *testing.T) {
 	resolver := fakeResolver{hits: map[string][]SymbolHit{
 		"explorer": {{Canonical: "Explorer", Domain: "agent"}},
@@ -153,6 +170,69 @@ func TestNormalize_ResolverUpgradesEnConceptToCodeSymbol(t *testing.T) {
 	}
 	if term.Confidence < 0.99 {
 		t.Fatalf("resolver hit should set confidence=1.0, got %v", term.Confidence)
+	}
+}
+
+func TestNormalize_MorphAliasResolverUpgradesDerivedEnglishWord(t *testing.T) {
+	resolver := fakeMorphResolver{hits: map[string][]SymbolHit{
+		"extract": {{Canonical: "Extract", Domain: "pipeline"}},
+	}}
+	tg := Normalize("why does the extractor stop early", Options{
+		Resolver: resolver,
+		Entities: []string{"extractor"},
+	})
+	term := findByID(tg, "code:extract")
+	if term == nil {
+		t.Fatalf("derived word should promote through repo-confirmed morph alias; ids=%v", canonicalIDs(tg))
+	}
+	if term.Surface != "Extract" || term.Domain != "pipeline" {
+		t.Fatalf("unexpected morph alias term: %+v", term)
+	}
+}
+
+func TestNormalize_MorphAliasStillHonorsEntityGate(t *testing.T) {
+	resolver := fakeMorphResolver{hits: map[string][]SymbolHit{
+		"extract": {{Canonical: "Extract", Domain: "pipeline"}},
+	}}
+	tg := Normalize("why does the extractor stop early", Options{
+		Resolver: resolver,
+		Entities: []string{"unrelated"},
+	})
+	if findByID(tg, "code:extract") != nil {
+		t.Fatalf("morph alias must not bypass entity gate; ids=%v", canonicalIDs(tg))
+	}
+	if findByID(tg, "en:extractor") == nil {
+		t.Fatalf("closed gate should keep extractor as concept; ids=%v", canonicalIDs(tg))
+	}
+}
+
+func TestMorphAliasCandidatesASCIIOnlyAndBounded(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"extractor", []string{"extract", "extracte"}},
+		{"resolver", []string{"resolv", "resolve"}},
+		{"parsing", []string{"pars", "parse"}},
+		{"running", []string{"runn", "runne"}},
+		{"提取器", nil},
+		{"extractor2", nil},
+		{"run", nil},
+	}
+	for _, tc := range cases {
+		got := MorphAliasCandidates(tc.in)
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Fatalf("MorphAliasCandidates(%q)=%v want %v", tc.in, got, tc.want)
+		}
+		if len(got) > 4 {
+			t.Fatalf("MorphAliasCandidates(%q) returned too many candidates: %v", tc.in, got)
+		}
+	}
+}
+
+func BenchmarkMorphAliasCandidates(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = MorphAliasCandidates("extractor")
 	}
 }
 

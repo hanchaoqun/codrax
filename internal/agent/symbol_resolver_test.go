@@ -62,6 +62,23 @@ func TestSymbolResolver_UnderscoreNormalization(t *testing.T) {
 	}
 }
 
+func TestSymbolResolver_MorphAliasUsesExactCandidateLookup(t *testing.T) {
+	g := makeGraph(map[string][]*repomap.Symbol{
+		"Extract":         {{Name: "Extract", File: "internal/agent/extractor.go"}},
+		"ExtractPipeline": {{Name: "ExtractPipeline", File: "internal/agent/pipeline.go"}},
+	}, nil)
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupSymbolMorphAlias(string) []normalizer.SymbolHit
+	})
+	hits := r.LookupSymbolMorphAlias("extractor")
+	if len(hits) != 1 {
+		t.Fatalf("extractor morph alias should hit only exact candidate Extract; got %+v", hits)
+	}
+	if hits[0].Canonical != "Extract" {
+		t.Fatalf("canonical=%q, want Extract", hits[0].Canonical)
+	}
+}
+
 func TestSymbolResolver_MultipleHitsReturnedSeparately(t *testing.T) {
 	g := makeGraph(map[string][]*repomap.Symbol{
 		"Config": {

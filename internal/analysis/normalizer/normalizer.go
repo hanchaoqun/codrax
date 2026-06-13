@@ -33,6 +33,14 @@ type SymbolResolver interface {
 	LookupSymbol(surface string) []SymbolHit
 }
 
+// SymbolMorphAliasResolver is an optional extension implemented by repo-backed
+// resolvers that can confirm lexical morphology candidates such as
+// extractor -> extract against the symbol table. Normalizer callers do not need
+// to implement it; absence simply disables this fallback.
+type SymbolMorphAliasResolver interface {
+	LookupSymbolMorphAlias(surface string) []SymbolHit
+}
+
 // SymbolHit is one repo-grounded match for a surface. Domain is a
 // free-form string such as "agent", "tool", "config" that downstream
 // consumers may use for routing.

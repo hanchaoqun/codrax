@@ -101,7 +101,7 @@
 | Design | 落本文档；记录 root cause、方案、任务、验收 | doc commit + push | Done |
 | 6A | tracequery pattern-windowable heavy view predicate；纳入 4 新视图；多候选 bounded windows；阶段 memory log；新增 tests | `go test ./internal/tool -run 'TestTraceQueryLarge(NewHeavyViews|SpanKeyword|UnboundedNewHeavyViews|NewHeavyViewsBounded)|TestTraceQueryLargeNewHeavyViewsWithPatternAutoWindow|TestTraceQueryLargeNewHeavyViewsPatternMultiCandidateBounded'` | Done |
 | 6B | 提升 ToolResult bound utility 到 types；fork merge bound ToolResults/MCPResponses；新增 tests；agent merge 改复用 | `go test ./internal/types ./internal/agent -run 'TurnAArtifacts|MergeTurnAArtifacts|BoundTurnA'` | Done |
-| 6C | normalizer morph alias optional resolver；repomap resolver 实现；unit/bench | `go test ./internal/analysis/normalizer ./internal/agent -run 'Normalize|LookupSymbol'`; `go test ./internal/analysis/normalizer -bench Suffix -run '^$'` | Pending |
+| 6C | normalizer morph alias optional resolver；repomap resolver 实现；unit/bench | `go test ./internal/analysis/normalizer ./internal/agent -run 'Normalize|LookupSymbol|MorphAlias'`; `go test ./internal/analysis/normalizer -bench MorphAliasCandidates -run '^$'` | Done |
 | 5A | strict decode Batch 5A | `go test ./internal/tool -run 'StrictDecodeRegistry|Builtin|RunTests'` | Pending |
 | 5B | strict decode Batch 5B | `go test ./internal/tool -run 'StrictDecodeRegistry|Git|Memory|SubAgents|MultiRepo'` | Pending |
 | 5C | strict decode Batch 5C | `go test ./internal/tool -run 'StrictDecodeRegistry|EmitAnalysis|EmitInvestigation|LogSegmentation|PerfSegmentation'` | Pending |
@@ -122,3 +122,4 @@
 - 2026-06-13: 读取 roadmap、strict decode registry、strict repair layer、tracequery large-trace paths、TurnA merge、normalizer/repomap resolver。确认 #6a/#6b/#6c 均可复用现有系统层能力，无需 case patch。
 - 2026-06-13: 6A 交付。4 个新增重型视图 `thread_timeline` / `ipc_graph` / `wakeup_chain` / `interaction_stats` 统一进入 pattern auto-window；多 pattern candidate 走最多 3 个 bounded windows；tracequery build/run/stream/auto-window 阶段日志增加 heap alloc/sys 与 GC count。Focused tests 通过。
 - 2026-06-13: 6B 交付。TurnA ToolResult byte accounting 提升到 `internal/types`；agent 跨窗口 merge 改复用公共 helper；`mergeTurnAArtifactsForMutable` 并发 fork 汇总点对 ToolResults/MCPResponses 增加 count+byte bound，保留 payload-bearing successful carrier。Focused tests 通过。
+- 2026-06-13: 6C 交付。normalizer 增加 ASCII-only bounded morph candidates；repomap 单仓/多仓 resolver 实现 optional `LookupSymbolMorphAlias`，候选必须 exact/flat symbol-table 命中才提升。Focused tests 通过；`BenchmarkMorphAliasCandidates` 约 59ns/op。
