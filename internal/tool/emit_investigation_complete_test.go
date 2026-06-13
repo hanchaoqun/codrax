@@ -983,6 +983,86 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_NormalizesNegativeObservationAliasPayload(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"runtime zero-result observation is complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"negative_observation",
+			"label":"IO/binder/IRQ absence",
+			"value":"0",
+			"unit":"events",
+			"origin":"trace_query window_stats.counts",
+			"checked_types":["binder","irq","softirq"],
+			"window":"11.000s-11.008s cpu=1",
+			"matches":0
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("alias negative_observation should normalize without retry: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", facts)
+	}
+	var dimParts []string
+	for _, dim := range facts[0].Dimensions {
+		dimParts = append(dimParts, dim.Name+"="+dim.Value)
+	}
+	joined := strings.Join(dimParts, ",")
+	for _, want := range []string{
+		"origin=runtime_artifact",
+		"target=binder, irq, softirq",
+		"scope=11.000s-11.008s cpu=1",
+		"result_count=0",
+		"searched_at=current_investigation",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("normalized dimensions missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestEmitInvestigationComplete_RejectsNegativeObservationAliasPayloadWithCurrentSourceOrigin(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"invalid current-source negative observation",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"negative_observation",
+			"label":"missing runtime row",
+			"value":"0",
+			"origin":"current_source",
+			"target":"binder",
+			"scope":"internal",
+			"matches":0
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("invalid origin must not be accepted: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requires a non-repo origin dimension") {
+		t.Fatalf("rejection should preserve non-repo origin hard gate, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_AcceptsCategoricalBehaviorAggregate(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

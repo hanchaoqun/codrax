@@ -140,33 +140,82 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 	if idx := strings.Index(token, "["); idx > 0 && strings.HasSuffix(token, "]") {
 		token = strings.TrimSpace(token[:idx])
 	}
-	switch token {
-	case "", "model_emitted":
-		return
-	case "current_source", "current_repo", "repo_source", "source_file", "file_line":
-		add(AnswerEvidenceOriginCurrentSource)
-	case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "commit", "git_commit", "exec_command_git_history", "vcs_history_count":
-		add(AnswerEvidenceOriginVCSMetadata)
-	case "vcs_diff", "git_diff", "diff_hunk":
-		add(AnswerEvidenceOriginVCSDiff)
-	case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace", "trace_query":
-		add(AnswerEvidenceOriginRuntimeArtifact)
-	case "command_measurement", "exec_command", "command_count", "line_count", "file_count":
-		add(AnswerEvidenceOriginCommandMeasurement)
-	case "repo_negative_search", "negative_search", "grep_negative":
-		add(AnswerEvidenceOriginRepoNegativeSearch)
-	case "cross_repo_index", "repo_map", "multi_repo_index":
-		add(AnswerEvidenceOriginCrossRepoIndex)
-	case "external_document", "external_doc", "document_resource", "external_resource":
-		add(AnswerEvidenceOriginExternalDocument)
-	case "web_page", "webpage", "web", "url", "http", "https":
-		add(AnswerEvidenceOriginWebPage)
-	case "mcp_resource", "mcp", "mcp_tool", "mcp_response":
-		add(AnswerEvidenceOriginMCPResource)
-	case "connector_resource", "connector", "app_connector", "app_resource":
-		add(AnswerEvidenceOriginConnectorResource)
-	case "system_inference", "system":
-		add(AnswerEvidenceOriginSystemInference)
+	candidates := []string{token}
+	for _, sep := range []string{" ", ".", ":", "/", "#"} {
+		if idx := strings.Index(token, sep); idx > 0 {
+			prefix := strings.TrimSpace(token[:idx])
+			if prefix != "" && prefix != token && answerEvidenceOriginAllowsQualifiedPrefix(prefix) {
+				candidates = append(candidates, prefix)
+			}
+		}
+	}
+	for _, token := range candidates {
+		switch token {
+		case "", "model_emitted":
+			continue
+		case "current_source", "current_repo", "repo_source", "source_file", "file_line":
+			add(AnswerEvidenceOriginCurrentSource)
+		case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "commit", "git_commit", "exec_command_git_history", "vcs_history_count":
+			add(AnswerEvidenceOriginVCSMetadata)
+		case "vcs_diff", "git_diff", "diff_hunk":
+			add(AnswerEvidenceOriginVCSDiff)
+		case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace", "trace_query":
+			add(AnswerEvidenceOriginRuntimeArtifact)
+		case "command_measurement", "exec_command", "command_count", "line_count", "file_count":
+			add(AnswerEvidenceOriginCommandMeasurement)
+		case "repo_negative_search", "negative_search", "grep_negative":
+			add(AnswerEvidenceOriginRepoNegativeSearch)
+		case "cross_repo_index", "repo_map", "multi_repo_index":
+			add(AnswerEvidenceOriginCrossRepoIndex)
+		case "external_document", "external_doc", "document_resource", "external_resource":
+			add(AnswerEvidenceOriginExternalDocument)
+		case "web_page", "webpage", "web", "url", "http", "https":
+			add(AnswerEvidenceOriginWebPage)
+		case "mcp_resource", "mcp", "mcp_tool", "mcp_response":
+			add(AnswerEvidenceOriginMCPResource)
+		case "connector_resource", "connector", "app_connector", "app_resource":
+			add(AnswerEvidenceOriginConnectorResource)
+		case "system_inference", "system":
+			add(AnswerEvidenceOriginSystemInference)
+		}
+	}
+}
+
+func answerEvidenceOriginAllowsQualifiedPrefix(prefix string) bool {
+	switch strings.ToLower(strings.TrimSpace(prefix)) {
+	case "vcs_metadata",
+		"git_metadata",
+		"git_history",
+		"git_history_search",
+		"git_log",
+		"git_show",
+		"git_diff",
+		"vcs_diff",
+		"runtime_artifact",
+		"log_bundle",
+		"perf_trace",
+		"emit_log_triage",
+		"emit_perf_trace",
+		"trace_query",
+		"command_measurement",
+		"exec_command",
+		"repo_negative_search",
+		"negative_search",
+		"cross_repo_index",
+		"repo_map",
+		"multi_repo_index",
+		"external_document",
+		"external_doc",
+		"web_page",
+		"webpage",
+		"mcp_resource",
+		"mcp",
+		"mcp_tool",
+		"connector_resource",
+		"connector":
+		return true
+	default:
+		return false
 	}
 }
 

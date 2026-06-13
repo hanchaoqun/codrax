@@ -336,6 +336,7 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 	} else {
 		payload = raw
 	}
+	payload = normalizeAggregateFactsPayloadCompat(payload)
 	var facts []types.AnswerAggregateFact
 	dec := json.NewDecoder(strings.NewReader(string(payload)))
 	dec.DisallowUnknownFields()
@@ -343,6 +344,186 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 		return nil, nil, err
 	}
 	return facts, misplaced, nil
+}
+
+func normalizeAggregateFactsPayloadCompat(payload []byte) []byte {
+	var rows []map[string]json.RawMessage
+	dec := json.NewDecoder(strings.NewReader(string(payload)))
+	if err := dec.Decode(&rows); err != nil {
+		return payload
+	}
+	changed := false
+	for _, row := range rows {
+		if normalizeAggregateFactObjectCompat(row) {
+			changed = true
+		}
+	}
+	if !changed {
+		return payload
+	}
+	out, err := json.Marshal(rows)
+	if err != nil {
+		return payload
+	}
+	return out
+}
+
+func normalizeAggregateFactObjectCompat(row map[string]json.RawMessage) bool {
+	if len(row) == 0 {
+		return false
+	}
+	kind := strings.TrimSpace(decodeAggregateFactCompatString(row["kind"]))
+	if kind != string(types.AnswerAggregateNegativeObservation) &&
+		kind != string(types.AnswerAggregateNegativeSearch) {
+		return false
+	}
+	var dims []types.AnswerAggregateDimension
+	if raw := row["dimensions"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &dims)
+	}
+	changed := false
+	for key, dimName := range aggregateFactTopLevelDimensionAliases(kind) {
+		raw, ok := row[key]
+		if !ok {
+			continue
+		}
+		value, ok := aggregateFactCompatScalarString(raw)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		if !aggregateFactCompatDimensionCovered(dims, dimName) {
+			dims = append(dims, types.AnswerAggregateDimension{Name: dimName, Value: value})
+		}
+		delete(row, key)
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	if len(dims) > 0 {
+		if raw, err := json.Marshal(dims); err == nil {
+			row["dimensions"] = raw
+		}
+	}
+	return true
+}
+
+func aggregateFactTopLevelDimensionAliases(kind string) map[string]string {
+	common := map[string]string{
+		"origin":          "origin",
+		"evidence_origin": "evidence_origin",
+		"source_origin":   "origin",
+		"source":          "source_ref",
+		"source_ref":      "source_ref",
+		"tool":            "source_ref",
+		"producer":        "source_ref",
+		"target":          "target",
+		"query":           "query",
+		"pattern":         "pattern",
+		"predicate":       "predicate",
+		"scope":           "scope",
+		"window":          "scope",
+		"range":           "scope",
+		"artifact_id":     "artifact_id",
+		"trace_window":    "trace_window",
+		"commit_range":    "commit_range",
+		"tool_result":     "tool_result",
+		"searched_at":     "searched_at",
+		"searched_in":     "searched_at",
+		"result_count":    "result_count",
+		"count":           "result_count",
+		"matches":         "result_count",
+		"match_count":     "result_count",
+	}
+	if kind == string(types.AnswerAggregateNegativeObservation) {
+		common["checked_types"] = "target"
+		common["checked_type"] = "target"
+		common["absent_types"] = "target"
+		common["absent_type"] = "target"
+		common["checked_events"] = "target"
+		common["event_types"] = "target"
+	}
+	return common
+}
+
+func aggregateFactCompatDimensionCovered(dims []types.AnswerAggregateDimension, name string) bool {
+	name = normalizeAggregateFactCompatDimensionKey(name)
+	if name == "" {
+		return false
+	}
+	for _, dim := range dims {
+		if normalizeAggregateFactCompatDimensionKey(dim.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeAggregateFactCompatDimensionKey(raw string) string {
+	key := strings.ToLower(strings.TrimSpace(raw))
+	key = strings.ReplaceAll(key, "-", "_")
+	key = strings.ReplaceAll(key, " ", "_")
+	switch key {
+	case "window", "range", "search_scope", "observed_scope":
+		return "scope"
+	case "matches", "match_count", "count", "observed_count":
+		return "result_count"
+	case "checked_types", "checked_type", "absent_types", "absent_type", "checked_events", "event_types":
+		return "target"
+	case "source", "tool", "producer":
+		return "source_ref"
+	case "source_origin":
+		return "origin"
+	default:
+		return key
+	}
+}
+
+func decodeAggregateFactCompatString(raw json.RawMessage) string {
+	value, ok := aggregateFactCompatScalarString(raw)
+	if !ok {
+		return ""
+	}
+	return value
+}
+
+func aggregateFactCompatScalarString(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil {
+		return "", false
+	}
+	return aggregateFactCompatValueString(value)
+}
+
+func aggregateFactCompatValueString(value any) (string, bool) {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v), true
+	case json.Number:
+		return strings.TrimSpace(v.String()), true
+	case bool:
+		return strconv.FormatBool(v), true
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			part, ok := aggregateFactCompatValueString(item)
+			if !ok || strings.TrimSpace(part) == "" {
+				continue
+			}
+			parts = append(parts, strings.TrimSpace(part))
+		}
+		if len(parts) == 0 {
+			return "", false
+		}
+		return strings.Join(parts, ", "), true
+	default:
+		return "", false
+	}
 }
 
 var completionReasonFieldStartRe = regexp.MustCompile(`(?m)(?:^|[\n,;]\s*)("?(confidence|result_kind|aggregate_facts|absence_justification)"?\s*[:=])`)

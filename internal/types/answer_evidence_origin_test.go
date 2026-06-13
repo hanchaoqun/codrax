@@ -244,6 +244,15 @@ func TestNormalizeAnswerAggregateFacts_PreservesExistingOriginDimensions(t *test
 	}
 }
 
+func TestAnswerEvidenceOriginFromStructuredToken_AllowsToolQualifiedOrigin(t *testing.T) {
+	if got := AnswerEvidenceOriginFromStructuredToken("trace_query window_stats.counts"); got != AnswerEvidenceOriginRuntimeArtifact {
+		t.Fatalf("trace_query qualified origin = %s, want %s", got, AnswerEvidenceOriginRuntimeArtifact)
+	}
+	if got := AnswerEvidenceOriginFromStructuredToken("repo_map.source_inventory"); got != AnswerEvidenceOriginCrossRepoIndex {
+		t.Fatalf("repo_map qualified origin = %s, want %s", got, AnswerEvidenceOriginCrossRepoIndex)
+	}
+}
+
 func aggregateTestDimensionValue(dims []AnswerAggregateDimension, name string) string {
 	for _, dim := range dims {
 		if strings.EqualFold(dim.Name, name) {

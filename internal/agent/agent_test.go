@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -1081,6 +1084,119 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
 	}
 	if !got["emit_investigation_complete"] {
 		t.Fatalf("emit_investigation_complete must stay exposed for artifact-only closure: %+v", schemas)
+	}
+}
+
+func TestBuildToolSchemas_RuntimeTriageHidesReadFileForInlineOnlyAttachment(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(&tool.ReadFile{})
+	registry.Register(&tool.EmitPerfTrace{})
+	registry.Register(&tool.EmitLogTriage{})
+
+	cases := []struct {
+		name        string
+		ctx         *types.AgentContext
+		suggestions []string
+		emitTool    string
+	}{
+		{
+			name: "perf inline",
+			ctx: &types.AgentContext{
+				AgentName:       types.AgentPerfTriager,
+				Stage:           types.StagePerfTriage,
+				WorkDir:         t.TempDir(),
+				AttachedHitrace: "trace row",
+			},
+			suggestions: []string{"read_file", "emit_perf_trace"},
+			emitTool:    "emit_perf_trace",
+		},
+		{
+			name: "log inline",
+			ctx: &types.AgentContext{
+				AgentName:   types.AgentLogTriager,
+				Stage:       types.StageLogTriage,
+				WorkDir:     t.TempDir(),
+				AttachedLog: "panic row",
+			},
+			suggestions: []string{"read_file", "emit_log_triage"},
+			emitTool:    "emit_log_triage",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := NewBaseAgent(tc.ctx.AgentName, &Dependencies{Tools: registry}, &stubEvaluator{})
+			schemas := agent.buildToolSchemas(&skill.Config{ToolSuggestions: tc.suggestions}, tc.ctx)
+			got := toolSchemaNameSet(schemas)
+			if got["read_file"] {
+				t.Fatalf("inline-only runtime triage should hide read_file: %+v", schemas)
+			}
+			if !got[tc.emitTool] {
+				t.Fatalf("runtime triage must keep %s exposed: %+v", tc.emitTool, schemas)
+			}
+		})
+	}
+}
+
+func TestBuildToolSchemas_RuntimeTriageKeepsReadFileForBlobBackedAttachment(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(&tool.ReadFile{})
+	registry.Register(&tool.EmitPerfTrace{})
+	registry.Register(&tool.EmitLogTriage{})
+
+	cases := []struct {
+		name        string
+		agentName   types.AgentName
+		stage       types.PipelineStage
+		blobName    string
+		attachLog   string
+		attachTrace string
+		suggestions []string
+		emitTool    string
+	}{
+		{
+			name:        "perf blob",
+			agentName:   types.AgentPerfTriager,
+			stage:       types.StagePerfTriage,
+			blobName:    promptctx.AttachedTraceBlobName,
+			attachTrace: "trace row",
+			suggestions: []string{"read_file", "emit_perf_trace"},
+			emitTool:    "emit_perf_trace",
+		},
+		{
+			name:        "log blob",
+			agentName:   types.AgentLogTriager,
+			stage:       types.StageLogTriage,
+			blobName:    promptctx.AttachedLogBlobName,
+			attachLog:   "panic row",
+			suggestions: []string{"read_file", "emit_log_triage"},
+			emitTool:    "emit_log_triage",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(workDir, tc.blobName), []byte("full attachment"), 0o644); err != nil {
+				t.Fatalf("write blob: %v", err)
+			}
+			ctx := &types.AgentContext{
+				AgentName:       tc.agentName,
+				Stage:           tc.stage,
+				WorkDir:         workDir,
+				AttachedLog:     tc.attachLog,
+				AttachedHitrace: tc.attachTrace,
+			}
+			agent := NewBaseAgent(tc.agentName, &Dependencies{Tools: registry}, &stubEvaluator{})
+			schemas := agent.buildToolSchemas(&skill.Config{ToolSuggestions: tc.suggestions}, ctx)
+			got := toolSchemaNameSet(schemas)
+			if !got["read_file"] {
+				t.Fatalf("blob-backed runtime triage should keep read_file: %+v", schemas)
+			}
+			if !got[tc.emitTool] {
+				t.Fatalf("runtime triage must keep %s exposed: %+v", tc.emitTool, schemas)
+			}
+		})
 	}
 }
 

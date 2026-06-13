@@ -3507,6 +3507,11 @@ func canonicalNegativeObservationDimensions(dims []AnswerAggregateDimension) []A
 		if name == "" || value == "" {
 			continue
 		}
+		if name == "origin" {
+			if origin := AnswerEvidenceOriginFromStructuredToken(value); origin != AnswerEvidenceOriginUnknown && origin.IsValid() {
+				value = string(origin)
+			}
+		}
 		key := strings.ToLower(name)
 		if seen[key] {
 			continue
@@ -3553,6 +3558,8 @@ func canonicalNegativeObservationDimensionName(raw string) string {
 	case "pattern", "regex", "regexp", "search_pattern":
 		return "pattern"
 	case "target", "subject", "symbol", "member", "entity":
+		return "target"
+	case "checked_types", "checked_type", "absent_types", "absent_type", "checked_events", "event_types", "observed_types":
 		return "target"
 	case "predicate", "condition", "absence", "negative_predicate":
 		return "predicate"

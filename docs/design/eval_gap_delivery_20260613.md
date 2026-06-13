@@ -1175,17 +1175,43 @@ Executable task list:
 
 - [x] B16-T1: Record post-Batch-15 PASS eval results and residual cost/root
   cause audit in this design doc.
-- [ ] B16-T2: Add runtime-triage tool schema filtering so inline-only
+- [x] B16-T2: Add runtime-triage tool schema filtering so inline-only
   attachments hide `read_file` while blob-backed attachments keep pagination.
-- [ ] B16-T3: Add regression tests for perf/log triage schema filtering across
+- [x] B16-T3: Add regression tests for perf/log triage schema filtering across
   inline-only and blob-backed attachments.
-- [ ] B16-T4: Add structured aggregate-fact alias repair before
+- [x] B16-T4: Add structured aggregate-fact alias repair before
   `NormalizeAnswerAggregateFacts`, focused on zero-result observation aliases
   and evidence-origin tokens.
-- [ ] B16-T5: Add regression tests proving one-shot `negative_observation`
+- [x] B16-T5: Add regression tests proving one-shot `negative_observation`
   payloads with alias fields normalize without retries and invalid origins
   still reject.
-- [ ] B16-T6: Run focused tests, full tests, rebuild, diff hygiene.
+- [x] B16-T6: Run focused tests, full tests, rebuild, diff hygiene.
 - [ ] B16-T7: Commit and push Batch 16.
 - [ ] B16-T8: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
+
+Implementation notes:
+
+- `BaseAgent.buildToolSchemas` now applies a runtime-triage-only schema filter
+  derived from exact stage/agent identity plus attachment blob presence. This
+  removes an impossible `read_file` option for inline-only log/trace pre-stages
+  while preserving blob-backed pagination.
+- `emit_investigation_complete` now performs a pre-validation JSON repair pass
+  only for typed `negative_observation` and `negative_search` aggregate fact
+  objects. The pass moves known top-level scalar/array aliases into
+  `dimensions`, then the existing strict aggregate normalizer enforces origin,
+  zero-result, target, scope, and evidence constraints.
+- Evidence origin normalization accepts structured tool-qualified origin tokens
+  only through a whitelist of already-supported origin families. Ambiguous
+  prefixes such as generic `system:*` remain unexpanded so existing source
+  inventory and system-inference behavior stays stable.
+
+Verification:
+
+- Focused tests: `go test ./internal/agent -run 'TestBuildToolSchemas_RuntimeTriage|TestBuildToolSchemas_ObservationOnlyRuntime'`
+- Focused tests: `go test ./internal/tool -run 'TestEmitInvestigationComplete_(RuntimeNegativeObservationCompat|NormalizesNegativeObservationAliasPayload|RejectsNegativeObservationAliasPayloadWithCurrentSourceOrigin)'`
+- Focused tests: `go test ./internal/types -run 'TestAnswerEvidenceOriginFromStructuredToken_AllowsToolQualifiedOrigin|TestNormalizeAnswerAggregateFacts_AcceptsNegativeObservation'`
+- Package tests: `go test ./internal/agent ./internal/tool ./internal/types`
+- Full tests: `go test ./...`
+- Build: `make`
+- Diff hygiene: `git diff --check`

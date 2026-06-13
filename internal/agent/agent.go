@@ -2942,6 +2942,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// citable evidence vs. navigation hints or side-effects.
 	if b.deps.Tools != nil {
 		for _, toolName := range sk.ToolSuggestions {
+			if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
+				continue
+			}
 			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
 				continue
 			}
