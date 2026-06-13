@@ -73,6 +73,11 @@ func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
 	if ResultIsFinalAnswerCandidate(continuePlan, ready, contract, expected) {
 		t.Fatalf("continue_after plan should not be terminal final answer")
 	}
+	assembled := ready
+	assembled.Artifacts = []dataquery.DataArtifact{{Kind: string(dataquery.DataActionAssembleAnswer)}}
+	if !ResultIsFinalAnswerCandidate(continuePlan, assembled, contract, expected) {
+		t.Fatalf("continue_after plan with assembled final projection should be terminal")
+	}
 }
 
 func TestPlanMayProduceFinalAnswerAllowsReconcileAction(t *testing.T) {

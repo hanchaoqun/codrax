@@ -1948,8 +1948,8 @@ func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T
 			},
 		}},
 	}
-	if dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
-		t.Fatal("fixture must exercise the completion-gate path outside the stricter structural helper")
+	if !dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
+		t.Fatal("assembled final projection should satisfy structural completion")
 	}
 	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo("", nil, current, result)
 	if !guard.Empty() {

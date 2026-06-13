@@ -83,7 +83,7 @@ func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Resu
 	if !ResultAnswerPresent(result) {
 		return false
 	}
-	if plan.ContinueAfter {
+	if plan.ContinueAfter && !ResultHasAssembleAnswerArtifact(result) {
 		return false
 	}
 	if !PlanMayProduceFinalAnswer(plan, result) {

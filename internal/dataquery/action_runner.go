@@ -891,7 +891,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			reconcile = &report
 			summaries = append(summaries, artifact.Summary)
 		case DataActionAssembleAnswer:
-			artifact, answer, report, err := r.runAssembleAnswer(action, reconcile, plan.OutputContract, artifacts)
+			artifact, answer, report, err := r.runAssembleAnswer(action, reconcile, plan.OutputContract, artifacts, contributions)
 			if err != nil {
 				return failAction(action, err)
 			}
@@ -8569,7 +8569,7 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 	}, report, nil
 }
 
-func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileReport, contract OutputContract, artifacts []DataArtifact) (DataArtifact, string, *ReconcileReport, error) {
+func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileReport, contract OutputContract, artifacts []DataArtifact, contributions []ContributionRecord) (DataArtifact, string, *ReconcileReport, error) {
 	if reconcile == nil {
 		return DataArtifact{}, "", nil, DataActionDependencyError{
 			ActionKind:    DataActionAssembleAnswer,
@@ -8676,12 +8676,12 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		obj := map[string]any{}
 		unnamed := 0
 		for _, group := range groups {
-			key := firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
+			key := reconcileGroupJSONObjectKey(group, action, valueField, len(groups))
 			if key == "" {
 				unnamed++
 				key = fmt.Sprintf("value_%d", unnamed)
 			}
-			value := reconcileGroupJSONValue(group, valueField)
+			value := reconcileGroupJSONValueForAssemble(group, valueField, contributions)
 			if existing, ok := obj[key]; ok {
 				obj[key] = mergeReconcileJSONValues(existing, value)
 			} else {
@@ -9169,6 +9169,79 @@ func reconcileGroupJSONValue(group ReconcileGroup, field string) any {
 		return append([]string(nil), group.Values...)
 	}
 	return reconcileGroupValueByField(group, field)
+}
+
+func reconcileGroupJSONValueForAssemble(group ReconcileGroup, field string, contributions []ContributionRecord) any {
+	if !reconcileValueFieldIsStandard(field) && len(group.Values) == 0 {
+		if values := contributionValuesForReconcileGroup(group, contributions); len(values) > 0 {
+			return values
+		}
+	}
+	return reconcileGroupJSONValue(group, field)
+}
+
+func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueField string, groupCount int) string {
+	for _, key := range []string{"output_field", "output_key", "json_field", "target_field", "field"} {
+		if value := strings.TrimSpace(action.Params[key]); value != "" {
+			return value
+		}
+	}
+	if groupCount == 1 && !reconcileValueFieldIsStandard(valueField) {
+		if key := pluralizeJSONFieldName(valueField); key != "" {
+			return key
+		}
+	}
+	return firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
+}
+
+func reconcileValueFieldIsStandard(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "", "actual", "expected", "group_key", "key", "metric", "value":
+		return true
+	default:
+		return false
+	}
+}
+
+func contributionValuesForReconcileGroup(group ReconcileGroup, contributions []ContributionRecord) []string {
+	groupKey := strings.TrimSpace(group.GroupKey.String())
+	metric := strings.TrimSpace(group.Metric.String())
+	seen := map[string]bool{}
+	var values []string
+	for _, rec := range contributions {
+		if strings.TrimSpace(rec.GroupKey.String()) != groupKey || strings.TrimSpace(rec.Metric.String()) != metric {
+			continue
+		}
+		value := strings.TrimSpace(rec.Value.String())
+		if value == "" || value == "1" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	return values
+}
+
+func pluralizeJSONFieldName(field string) string {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return ""
+	}
+	parts := strings.Split(field, "_")
+	last := strings.TrimSpace(parts[len(parts)-1])
+	if last == "" {
+		return field
+	}
+	lower := strings.ToLower(last)
+	switch {
+	case strings.HasSuffix(lower, "s"):
+	case strings.HasSuffix(lower, "y") && len(lower) > 1 && !strings.ContainsRune("aeiou", rune(lower[len(lower)-2])):
+		last = last[:len(last)-1] + "ies"
+	default:
+		last += "s"
+	}
+	parts[len(parts)-1] = last
+	return strings.Join(parts, "_")
 }
 
 func mergeReconcileJSONValues(existing, next any) any {

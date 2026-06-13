@@ -459,3 +459,75 @@ Batch 7 verification before commit:
 - `go test ./internal/tool -run 'TestTraceQuerySummaryRendersFragmentedStateChurn|TestEmitAnswerDocumentPatch_PreservesTableTrailingProse'`
 - `go test ./...`
 - `make`
+
+## Batch 8 Gap: Member-Value Projection From Typed Contribution Ledgers
+
+Post-Batch-7 eval root:
+
+- `eval/results/eval-gap-20260613-post-230b4dd8`
+
+Observed eval behavior:
+
+- `trace_query_state_churn_window_stats` passed after the high-signal handoff
+  and eval co-occurrence fixes. The run used `trace_query` once and kept the
+  next-step evidence visible in the final answer.
+- `data_json_strict_ids` still failed, but not because material extraction or
+  filtering was wrong. The workflow produced active rows for `u1` and `u3`,
+  rule coverage for the JSON shape, contribution rows carrying `value=u1/u3`,
+  and a passing reconcile. The final projection still became
+  `{"active_user_ids":"2"}` because the contribution operation was `count` and
+  `assemble_answer` projected the count under the contribution group key.
+- The final evaluation reached an assembled answer artifact, but CLI completion
+  still rejected it when the current plan retained `continue_after=true`.
+
+Deep root cause:
+
+- `count` correctly means row count, so the numeric aggregate must remain `2`.
+  However, a `compute_contributions` action can still carry member values in
+  `ContributionRecord.Value` when the action declares a `value_field`. That
+  member-value evidence was not available to `assemble_answer` unless the
+  operation itself was `include`/`set`/`rank`.
+- `json_object` projection chose object keys only from reconcile
+  `group_key/metric`. When a single output field is assembled from an explicit
+  record `value_field`, the typed action parameter is the more stable
+  structural signal than a descriptive group label.
+- Final-candidate policy treated `continue_after` as a hard blocker even when
+  the result already contained an `assemble_answer` artifact and all typed
+  ledger checks were otherwise satisfied.
+
+Generalized design:
+
+- Pass the accumulated typed contribution ledger into `assemble_answer`.
+  Preserve default `count` semantics, but when an assemble action explicitly
+  asks for a non-standard `value_field`, recover same group/metric contribution
+  values as the JSON member array.
+- For single-group JSON object projections with an explicit member
+  `value_field`, derive the output key from that field name using a generic
+  field-name pluralization rule, unless the action provides an explicit
+  `output_field`/`output_key`/`json_field`/`target_field`.
+- Treat `continue_after=true` as non-terminal by default, but allow final
+  completion when the result contains an `assemble_answer` artifact and the
+  existing ledger/output-contract checks pass.
+
+Executable task list:
+
+- [x] B8-T1: Hand off accumulated contribution records to the
+  `assemble_answer` runner path.
+- [x] B8-T2: Recover member values from same group/metric contributions only
+  when `assemble_answer.value_field` is an explicit non-standard field.
+- [x] B8-T3: Add generic single-field JSON object key derivation from
+  structured `value_field`, with explicit output-key params taking precedence.
+- [x] B8-T4: Keep default count JSON projection numeric when no explicit member
+  `value_field` is requested.
+- [x] B8-T5: Allow `continue_after` plans with an assembled final projection to
+  satisfy final-candidate policy after existing ledger checks pass.
+- [x] B8-T6: Run focused tests, full tests, rebuild, commit/push.
+- [ ] B8-T7: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
+
+Batch 8 focused verification before commit:
+
+- `go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswerProjectsExplicitValueFieldMembers|TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric|TestActionRunnerAssembleAnswerProjectsJSONObjectValues'`
+- `go test ./internal/dataworkflow -run TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy`
+- `go test ./...`
+- `make`

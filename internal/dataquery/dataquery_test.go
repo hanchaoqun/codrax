@@ -9044,6 +9044,108 @@ func TestActionRunnerAssembleAnswerProjectsJSONObjectValues(t *testing.T) {
 	}
 }
 
+func TestActionRunnerAssembleAnswerProjectsExplicitValueFieldMembers(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection":  "json_object",
+					"value_field": "id",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:1"),
+			GroupKey:      LooseText("active_user_ids"),
+			Metric:        LooseText("id_list"),
+			Value:         LooseText("u1"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-3"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:3"),
+			GroupKey:      LooseText("active_user_ids"),
+			Metric:        LooseText("id_list"),
+			Value:         LooseText("u3"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want value-field member JSON projection", res.Answer)
+	}
+	if res.Reconcile == nil || res.Reconcile.ActualAnswer.String() != res.Answer {
+		t.Fatalf("Reconcile=%+v, want final answer projection recorded", res.Reconcile)
+	}
+}
+
+func TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "json_object",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:1"),
+			GroupKey:      LooseText("active_user_ids"),
+			Metric:        LooseText("id_list"),
+			Value:         LooseText("u1"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-3"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:3"),
+			GroupKey:      LooseText("active_user_ids"),
+			Metric:        LooseText("id_list"),
+			Value:         LooseText("u3"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"active_user_ids":"2"}` {
+		t.Fatalf("Answer=%q, want default count JSON projection to remain numeric", res.Answer)
+	}
+}
+
 func TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary(t *testing.T) {
 	plan := TaskPlan{
 		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
