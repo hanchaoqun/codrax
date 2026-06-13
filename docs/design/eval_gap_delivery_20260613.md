@@ -88,6 +88,43 @@ source-backed `rule_coverage` 之间缺少 deterministic canonicalization。
 - 不新增业务规则，不放宽 unknown-rule 校验；修复层只把模型自造的 ledger
   ref 对齐到已经存在且有源证据的 rule coverage。
 
+### G5. JSON payload answer 在多批 typed workflow 中丢失
+
+复跑后 `data_json_strict_ids` 的早期脚本已经发出 `{"ids":["u1","u3"]}`，
+但 `emit_result(dict)` 把普通 JSON payload 当成完整 Result envelope；由于对象里没有
+`answer` 字段，payload 被降为 `custom_payload` artifact，后续批次补 ledger 时
+`answer` 又被内部 artifacts JSON 摘要覆盖。最终 workflow 认为缺少真实 final
+answer，即使前序阶段已有满足 `output_contract` 的 JSON payload。
+
+泛化约束：
+
+- `emit_result` 必须区分 canonical Result envelope 与普通 JSON payload；只有包含
+  `answer`、`rows`、`rule_coverage`、`contributions` 等保留字段时才按 Result
+  envelope 解释。
+- 普通 dict/list payload 在 `json_only` 或显式 output_contract 下应序列化为
+  `result.answer`，而不是只作为 diagnostic artifact。
+- 内部 artifacts/reconcile JSON 摘要必须被识别为非用户 final answer，避免覆盖
+  earlier candidate answer handoff。
+- 该层只消费结构化 JSON shape 和保留字段集合，不读取用户意图关键字，不解析模型散文。
+
+### G6. Contribution reconcile 只支持数值加总，缺少 operation 语义闭环
+
+复跑后 contribution ledger 已满足，但 `reconcile_artifacts` 使用
+`sumContributionGroups`，只会从 `value` parse 数字。`operation=count` 且 value
+携带实体 id 时被视为“无 numeric groups”，导致 required reconcile 阶段无法完成。
+这不是单个 ids case 的问题；typed ledger 已允许 `count/include/set/rank`，但执行和
+验证层只实现了 `add/subtract` 的数值语义。
+
+泛化约束：
+
+- `count` 的 deterministic reconcile 语义是每条 target contribution 计为 1，
+  不依赖 `value` 是否为数字。
+- `add/subtract` 继续要求 numeric value，保持现有 fail-loud 行为。
+- `include/set/rank` 可以产生结构化文本 aggregate，验证层按 group key 精确覆盖，
+  只在 report 给出对应文本值时做精确比较；不得把文本值强行 parse 成数字。
+- reconcile report 生成、validator、runner artifact summary 复用同一 aggregate
+  计算函数，避免 prompt 或单 case fallback 分叉。
+
 ## Design
 
 ### D1. ObservationLedger runtime producer precedence
@@ -133,6 +170,21 @@ source-backed `rule_coverage` 之间缺少 deterministic canonicalization。
 - Dataquery patch engine: unknown item-ledger `rule_refs` canonicalize only to
   source-backed rule coverage, while non-source-backed unknown refs still fail.
 
+### D4. JSON payload handoff and contribution aggregate semantics
+
+1. 在 runner helper 层修改 `emit_result`：包含 canonical Result 字段的 dict 仍按
+   envelope 处理；普通 dict/list 作为 JSON answer 序列化，并继续合并显式 ledgers。
+2. 在 result parsing / answer presence 层识别内部 artifacts JSON 摘要，确保多批
+   typed workflow 可以保留更早的真实 answer candidate。
+3. 用统一 `ContributionGroupAggregate` 替代 reconcile 里的纯 numeric sum 入口：
+   `add/subtract` 走 numeric sum，`count` 走 exact count，`include/set/rank`
+   走稳定文本值集合。
+4. `reconcileReportFromContributions`、`runReconcileArtifacts` 和
+   `validateReconcileReport` 共用 aggregate 输出；不让 prompt 或 repair plan
+   承担 operation 语义修复。
+5. `assemble_answer` 保持现有 numeric/default 投影；若 seed/candidate answer 已经是
+   有效 output contract，reconcile 批次不会用 artifacts summary 覆盖它。
+
 Verification commands:
 
 - `go test ./internal/types ./internal/dataworkflow ./internal/repl ./internal/dataquery`
@@ -155,9 +207,13 @@ Verification commands:
       recovery。
 - [x] T6: 实现 source-backed `rule_refs` canonicalization，并保持无源规则
       unknown refs fail-loud。
-- [ ] T7: 分批提交并推送文档、runtime handoff、data workflow fallback。
-- [ ] T8: 运行 Go 测试和代表 eval，每批 2 case。
-- [ ] T9: 人工审计 eval 答案与日志，回写本文件的验证结论。
+- [x] T7: 修复 JSON payload answer handoff：`emit_result` envelope 判定、
+      artifacts summary 识别、seed answer carry-over。
+- [x] T8: 实现 contribution aggregate reconcile semantics，覆盖 count 和
+      text-valued operations。
+- [ ] T9: 分批提交并推送文档、runtime handoff、data workflow fallback。
+- [ ] T10: 运行 Go 测试和代表 eval，每批 2 case。
+- [ ] T11: 人工审计 eval 答案与日志，回写本文件的验证结论。
 
 ## Progress
 
@@ -176,3 +232,13 @@ Verification commands:
   data result patch engine. This addresses the post-Batch-2 eval discovery where
   item ledgers were present but referenced a model-invented rule id instead of
   the already emitted source-backed rule coverage.
+- 2026-06-13: Post-Batch-3 eval exposed two deeper typed workflow gaps:
+  ordinary JSON payloads emitted by early batches were preserved only as
+  `custom_payload` artifacts, and contribution reconcile had no deterministic
+  semantics for non-numeric `count` values. Batch 4 will address these as
+  runner/ledger semantics rather than case-specific answer patching.
+- 2026-06-13: Batch 4 implemented JSON payload answer handoff and unified
+  contribution aggregate reconcile semantics. `emit_result` now distinguishes
+  Result envelopes from ordinary JSON answers, internal artifacts JSON no longer
+  counts as a final answer, and `count/include/set/rank` contributions use a
+  deterministic aggregate path shared by reconcile generation and validation.

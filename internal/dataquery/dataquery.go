@@ -2329,8 +2329,8 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	if len(report.Groups) == 0 || len(targetContributions) == 0 {
 		return nil
 	}
-	sums := sumContributionGroups(targetContributions)
-	allSums := sumContributionGroups(contributions)
+	aggregates := aggregateContributionGroups(targetContributions)
+	allAggregates := aggregateContributionGroups(contributions)
 	seenGroups := map[string]bool{}
 	answerScoped := false
 	for i, group := range report.Groups {
@@ -2350,29 +2350,11 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 			continue
 		}
 		seenGroups[key] = true
-		got, ok := sums[key]
+		got, ok := aggregates[key]
 		if !ok {
-			if auxiliaryGot, ok := allSums[key]; ok {
-				for _, candidate := range []struct {
-					label string
-					value string
-				}{
-					{label: "expected", value: group.Expected.String()},
-					{label: "actual", value: group.Actual.String()},
-				} {
-					value := strings.TrimSpace(candidate.value)
-					if value == "" {
-						continue
-					}
-					want, err := parseDecimalRat(value)
-					if err != nil {
-						continue
-					}
-					if auxiliaryGot.Cmp(want) != 0 {
-						return dataValidationError("reconcile_sum_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", i, candidate.label), "value equal to contribution sum", value, RepairabilityNeedsRecompute,
-							"data reconcile failed: group %q %s=%s but contributions sum to %s",
-							displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, formatRat(auxiliaryGot))
-					}
+			if auxiliaryGot, ok := allAggregates[key]; ok {
+				if err := validateReconcileGroupValuesAgainstAggregate(group, auxiliaryGot, i); err != nil {
+					return err
 				}
 				continue
 			}
@@ -2382,34 +2364,16 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 			return dataValidationError("reconcile_group_mismatch", fmt.Sprintf("/reconcile/groups/%d", i), "group_key/metric matching contribution records", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), RepairabilityNeedsRecompute,
 				"data reconcile failed: group %q has no matching contribution records; available contribution groups: %s",
 				displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()),
-				displayContributionGroupKeys(sums))
+				displayContributionAggregateKeys(aggregates))
 		}
-		for _, candidate := range []struct {
-			label string
-			value string
-		}{
-			{label: "expected", value: group.Expected.String()},
-			{label: "actual", value: group.Actual.String()},
-		} {
-			value := strings.TrimSpace(candidate.value)
-			if value == "" {
-				continue
-			}
-			want, err := parseDecimalRat(value)
-			if err != nil {
-				continue
-			}
-			if got.Cmp(want) != 0 {
-				return dataValidationError("reconcile_sum_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", i, candidate.label), "value equal to contribution sum", value, RepairabilityNeedsRecompute,
-					"data reconcile failed: group %q %s=%s but contributions sum to %s",
-					displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, formatRat(got))
-			}
+		if err := validateReconcileGroupValuesAgainstAggregate(group, got, i); err != nil {
+			return err
 		}
 	}
 	if answerScoped {
 		return nil
 	}
-	for key := range sums {
+	for key := range aggregates {
 		if !seenGroups[key] {
 			groupKey, metric := splitReconcileGroupKey(key)
 			return dataValidationError("missing_reconcile_group", "/reconcile/groups", "group for every contribution group", displayReconcileGroupKey(groupKey, metric), RepairabilityNeedsRecompute,
@@ -2418,6 +2382,34 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	}
 	if err := validateAnswerNumericSequenceAgainstReconcileGroups(report.Groups, answer); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateReconcileGroupValuesAgainstAggregate(group ReconcileGroup, aggregate *contributionGroupAggregate, index int) error {
+	for _, candidate := range []struct {
+		label string
+		value string
+	}{
+		{label: "expected", value: group.Expected.String()},
+		{label: "actual", value: group.Actual.String()},
+	} {
+		value := strings.TrimSpace(candidate.value)
+		if value == "" {
+			continue
+		}
+		if contributionAggregateMatchesValue(aggregate, value) {
+			continue
+		}
+		got := contributionAggregateDisplayValue(aggregate)
+		if aggregate != nil && aggregate.Numeric != nil {
+			return dataValidationError("reconcile_sum_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", index, candidate.label), "value equal to contribution sum", value, RepairabilityNeedsRecompute,
+				"data reconcile failed: group %q %s=%s but contributions sum to %s",
+				displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, got)
+		}
+		return dataValidationError("reconcile_group_mismatch", fmt.Sprintf("/reconcile/groups/%d/%s", index, candidate.label), "value equal to contribution aggregate", value, RepairabilityNeedsRecompute,
+			"data reconcile failed: group %q %s=%s but contributions aggregate to %s",
+			displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()), candidate.label, value, got)
 	}
 	return nil
 }
@@ -2542,11 +2534,101 @@ func answerLooksLikeArtifactSummary(answer string) bool {
 			return true
 		}
 	}
+	if answerLooksLikeArtifactSummaryJSON(answer) {
+		return true
+	}
 	return false
 }
 
 func AnswerLooksLikeArtifactSummary(answer string) bool {
 	return answerLooksLikeArtifactSummary(answer)
+}
+
+func answerLooksLikeArtifactSummaryJSON(answer string) bool {
+	if !strings.HasPrefix(strings.TrimSpace(answer), "{") {
+		return false
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(answer), &raw); err != nil || len(raw) == 0 {
+		return false
+	}
+	artifactsRaw, ok := raw["artifacts"]
+	if !ok {
+		return false
+	}
+	for key := range raw {
+		switch key {
+		case "artifacts", "reconcile":
+		default:
+			return false
+		}
+	}
+	var artifacts []map[string]json.RawMessage
+	if err := json.Unmarshal(artifactsRaw, &artifacts); err != nil || len(artifacts) == 0 {
+		return false
+	}
+	for _, artifact := range artifacts {
+		if artifactSummaryObjectLooksInternal(artifact) {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactSummaryObjectLooksInternal(raw map[string]json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	if rawJSONText(raw["id"]) == "emitted_payload" {
+		return true
+	}
+	kind := rawJSONText(raw["kind"])
+	if kind != "" {
+		switch normalizeDataActionKind(DataActionKind(kind)) {
+		case DataActionMaterialInventory,
+			DataActionInspectMaterial,
+			DataActionExtractRecords,
+			DataActionDeriveRules,
+			DataActionDeriveFields,
+			DataActionExtractFields,
+			DataActionGroupRecords,
+			DataActionExpandRecords,
+			DataActionFilterRecords,
+			DataActionValueDistribution,
+			DataActionQualifyRecords,
+			DataActionMappingCandidate,
+			DataActionNormalizeEntities,
+			DataActionApplyResolutions,
+			DataActionEnrichRecords,
+			DataActionJoinRecords,
+			DataActionComputeContribs,
+			DataActionReconcile,
+			DataActionAssembleAnswer,
+			DataActionCustomTransform:
+			return true
+		}
+	}
+	if strings.HasPrefix(kind, "workflow_ledger/") || kind == "custom_payload" {
+		return true
+	}
+	for _, key := range []string{"source_paths", "source_record_paths", "reference_paths", "evidence_paths", "fields", "row_count", "children", "sample"} {
+		if _, ok := raw[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func rawJSONText(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(rawJSONValueString(raw))
 }
 
 func DedupeRuleCoverageRecords(records []RuleCoverageRecord) []RuleCoverageRecord {
@@ -2820,6 +2902,23 @@ func displayContributionGroupKeys(sums map[string]*big.Rat) string {
 	return strings.Join(keys, ", ")
 }
 
+func displayContributionAggregateKeys(aggregates map[string]*contributionGroupAggregate) string {
+	if len(aggregates) == 0 {
+		return "(none)"
+	}
+	keys := make([]string, 0, len(aggregates))
+	for key := range aggregates {
+		groupKey, metric := splitReconcileGroupKey(key)
+		keys = append(keys, displayReconcileGroupKey(groupKey, metric))
+	}
+	sort.Strings(keys)
+	const limit = 12
+	if len(keys) > limit {
+		keys = append(keys[:limit], fmt.Sprintf("... %d more", len(keys)-limit))
+	}
+	return strings.Join(keys, ", ")
+}
+
 func hasMeaningfulReconcileGroup(groups []ReconcileGroup) bool {
 	for _, group := range groups {
 		if strings.TrimSpace(group.GroupKey.String()) != "" ||
@@ -2835,37 +2934,144 @@ func hasMeaningfulReconcileGroup(groups []ReconcileGroup) bool {
 
 func sumContributionGroups(contributions []ContributionRecord) map[string]*big.Rat {
 	out := map[string]*big.Rat{}
+	for key, aggregate := range aggregateContributionGroups(contributions) {
+		if aggregate.Numeric == nil {
+			continue
+		}
+		out[key] = new(big.Rat).Set(aggregate.Numeric)
+	}
+	return out
+}
+
+type contributionGroupAggregate struct {
+	GroupKey   string
+	Metric     string
+	Numeric    *big.Rat
+	TextValues []string
+}
+
+func aggregateContributionGroups(contributions []ContributionRecord) map[string]*contributionGroupAggregate {
+	out := map[string]*contributionGroupAggregate{}
 	for _, rec := range contributions {
 		op, ok := normalizeContributionOperation(rec.Operation.String())
 		if !ok {
 			continue
 		}
-		switch op {
-		case "", "include", "add", "count", "set", "rank":
-		case "subtract":
-		}
-		valueText := strings.TrimSpace(rec.Value.String())
-		if valueText == "" {
-			if op == "count" {
-				valueText = "1"
-			} else {
-				continue
-			}
-		}
-		value, err := parseDecimalRat(valueText)
-		if err != nil {
-			continue
-		}
-		if op == "subtract" {
-			value.Neg(value)
-		}
 		key := reconcileGroupKey(rec.GroupKey.String(), rec.Metric.String())
 		if _, ok := out[key]; !ok {
-			out[key] = new(big.Rat)
+			groupKey, metric := splitReconcileGroupKey(key)
+			out[key] = &contributionGroupAggregate{GroupKey: groupKey, Metric: metric}
 		}
-		out[key].Add(out[key], value)
+		aggregate := out[key]
+		valueText := strings.TrimSpace(rec.Value.String())
+		switch op {
+		case "count":
+			aggregate.addNumeric(big.NewRat(1, 1))
+		case "":
+			if valueText == "" {
+				continue
+			}
+			value, err := parseDecimalRat(valueText)
+			if err != nil {
+				continue
+			}
+			aggregate.addNumeric(value)
+		case "include":
+			if valueText == "" {
+				valueText = strings.TrimSpace(rec.ItemID.String())
+			}
+			if valueText != "" {
+				aggregate.addText(valueText)
+			} else {
+				aggregate.addNumeric(big.NewRat(1, 1))
+			}
+		case "set", "rank":
+			if valueText == "" {
+				valueText = firstNonEmptyString(rec.ItemID.String(), rec.GroupKey.String())
+			}
+			if valueText != "" {
+				aggregate.addText(valueText)
+			}
+		case "add", "subtract":
+			if valueText == "" {
+				continue
+			}
+			value, err := parseDecimalRat(valueText)
+			if err != nil {
+				continue
+			}
+			if op == "subtract" {
+				value.Neg(value)
+			}
+			aggregate.addNumeric(value)
+		}
+	}
+	for key, aggregate := range out {
+		if aggregate == nil || (aggregate.Numeric == nil && len(aggregate.TextValues) == 0) {
+			delete(out, key)
+		}
 	}
 	return out
+}
+
+func (a *contributionGroupAggregate) addNumeric(value *big.Rat) {
+	if value == nil {
+		return
+	}
+	if a.Numeric == nil {
+		a.Numeric = new(big.Rat)
+	}
+	a.Numeric.Add(a.Numeric, value)
+}
+
+func (a *contributionGroupAggregate) addText(value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	for _, existing := range a.TextValues {
+		if existing == value {
+			return
+		}
+	}
+	a.TextValues = append(a.TextValues, value)
+}
+
+func contributionAggregateDisplayValue(aggregate *contributionGroupAggregate) string {
+	if aggregate == nil {
+		return ""
+	}
+	if aggregate.Numeric != nil {
+		return formatRat(aggregate.Numeric)
+	}
+	if len(aggregate.TextValues) == 0 {
+		return ""
+	}
+	return strings.Join(aggregate.TextValues, ",")
+}
+
+func contributionAggregateMatchesValue(aggregate *contributionGroupAggregate, value string) bool {
+	value = strings.TrimSpace(value)
+	if aggregate == nil || value == "" {
+		return false
+	}
+	if aggregate.Numeric != nil {
+		if want, err := parseDecimalRat(value); err == nil {
+			return aggregate.Numeric.Cmp(want) == 0
+		}
+	}
+	if len(aggregate.TextValues) == 0 {
+		return false
+	}
+	if contributionAggregateDisplayValue(aggregate) == value {
+		return true
+	}
+	for _, existing := range aggregate.TextValues {
+		if existing == value {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileGroupKey(groupKey, metric string) string {
@@ -3094,28 +3300,35 @@ func rowDecisionsFromContributions(contributions []ContributionRecord) []RowDeci
 }
 
 func reconcileReportFromContributions(contributions []ContributionRecord) ReconcileReport {
-	sums := sumContributionGroups(contributions)
-	keys := make([]string, 0, len(sums))
-	for key := range sums {
+	aggregates := aggregateContributionGroups(contributions)
+	keys := make([]string, 0, len(aggregates))
+	for key := range aggregates {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	groups := make([]ReconcileGroup, 0, len(keys))
 	for _, key := range keys {
 		groupKey, metric := splitReconcileGroupKey(key)
-		value := formatRat(sums[key])
+		value := contributionAggregateDisplayValue(aggregates[key])
 		groups = append(groups, ReconcileGroup{
 			GroupKey:   LooseText(groupKey),
 			Metric:     LooseText(metric),
 			Expected:   LooseText(value),
 			Actual:     LooseText(value),
-			Difference: LooseText("0"),
+			Difference: LooseText(reconcileDifferenceForAggregate(aggregates[key])),
 		})
 	}
 	return ReconcileReport{
 		Status: LooseText("pass"),
 		Groups: groups,
 	}
+}
+
+func reconcileDifferenceForAggregate(aggregate *contributionGroupAggregate) string {
+	if aggregate != nil && aggregate.Numeric != nil {
+		return "0"
+	}
+	return ""
 }
 
 func ApplyDataResultPatchPlan(plan TaskPlan, base Result, patchPlan DataResultPatchPlan) (Result, []DataResultPatch, error) {
@@ -4103,6 +4316,11 @@ def emit(obj):
     RESULT = _merge_helper_ledgers(obj)
 
 def emit_result(answer, output_contract=None, audit_summary="", rows=None, rule_coverage=None, contributions=None, entity_resolutions=None, reconcile=None, metrics=None, **extra):
+    result_fields = {
+        "answer", "output_contract", "audit_summary", "artifacts", "rows",
+        "rule_coverage", "contributions", "entity_resolutions", "reconcile",
+        "metrics", "consumed_paths", "contract_warnings", "result_patches",
+    }
     def _choose_ledger(explicit, helper):
         if explicit is None:
             return list(helper)
@@ -4110,7 +4328,12 @@ def emit_result(answer, output_contract=None, audit_summary="", rows=None, rule_
             return list(helper)
         return list(explicit)
     if isinstance(answer, dict):
-        obj = dict(answer)
+        if any(key in result_fields for key in answer.keys()):
+            obj = dict(answer)
+        else:
+            obj = {"answer": json.dumps(answer, ensure_ascii=False, default=str, separators=(",", ":"))}
+    elif isinstance(answer, (list, tuple)):
+        obj = {"answer": json.dumps(list(answer), ensure_ascii=False, default=str, separators=(",", ":"))}
     else:
         obj = {"answer": str(answer)}
     if output_contract is not None:
@@ -4195,6 +4418,11 @@ func parseRunnerResult(out []byte) (Result, error) {
 				Cause:         err,
 			}
 		}
+		if strings.TrimSpace(res.Answer) == "" {
+			if answer, ok := runnerPayloadAnswerFromExtraFields(payload, res.OutputContract); ok {
+				res.Answer = answer
+			}
+		}
 		res.Artifacts = appendRunnerPayloadArtifact(payload, res.Artifacts)
 		res.Answer = strings.TrimSpace(res.Answer)
 		return res, nil
@@ -4212,38 +4440,10 @@ func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []Dat
 	if len(payload) == 0 {
 		return artifacts
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &raw); err != nil || len(raw) == 0 {
+	extra, keys, ok := runnerPayloadExtraFields(payload)
+	if !ok || len(extra) == 0 {
 		return artifacts
 	}
-	known := map[string]bool{
-		"answer":             true,
-		"output_contract":    true,
-		"audit_summary":      true,
-		"artifacts":          true,
-		"rows":               true,
-		"rule_coverage":      true,
-		"contributions":      true,
-		"entity_resolutions": true,
-		"reconcile":          true,
-		"metrics":            true,
-		"consumed_paths":     true,
-		"contract_warnings":  true,
-		"result_patches":     true,
-	}
-	extra := make(map[string]json.RawMessage)
-	keys := make([]string, 0, len(raw))
-	for key, value := range raw {
-		if known[key] {
-			continue
-		}
-		extra[key] = value
-		keys = append(keys, key)
-	}
-	if len(extra) == 0 {
-		return artifacts
-	}
-	sort.Strings(keys)
 	extraPayload, err := json.Marshal(extra)
 	if err != nil {
 		return artifacts
@@ -4264,6 +4464,58 @@ func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []Dat
 		},
 	}
 	return append([]DataArtifact{artifact}, artifacts...)
+}
+
+func runnerPayloadAnswerFromExtraFields(payload []byte, contract OutputContract) (string, bool) {
+	if contract.Normalize().Format != OutputJSONOnly {
+		return "", false
+	}
+	extra, _, ok := runnerPayloadExtraFields(payload)
+	if !ok || len(extra) == 0 {
+		return "", false
+	}
+	raw, err := json.Marshal(extra)
+	if err != nil || !json.Valid(raw) {
+		return "", false
+	}
+	return string(raw), true
+}
+
+func runnerPayloadExtraFields(payload []byte) (map[string]json.RawMessage, []string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(payload), &raw); err != nil || len(raw) == 0 {
+		return nil, nil, false
+	}
+	known := runnerResultFieldSet()
+	extra := make(map[string]json.RawMessage)
+	keys := make([]string, 0, len(raw))
+	for key, value := range raw {
+		if known[key] {
+			continue
+		}
+		extra[key] = value
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return extra, keys, true
+}
+
+func runnerResultFieldSet() map[string]bool {
+	return map[string]bool{
+		"answer":             true,
+		"output_contract":    true,
+		"audit_summary":      true,
+		"artifacts":          true,
+		"rows":               true,
+		"rule_coverage":      true,
+		"contributions":      true,
+		"entity_resolutions": true,
+		"reconcile":          true,
+		"metrics":            true,
+		"consumed_paths":     true,
+		"contract_warnings":  true,
+		"result_patches":     true,
+	}
 }
 
 func ValidateAnswer(answer string, contract OutputContract) error {

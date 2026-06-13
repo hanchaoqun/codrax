@@ -8456,9 +8456,9 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			Message:       "reconcile_artifacts requires prior contribution records",
 		}
 	}
-	sums := sumContributionGroups(contributions)
-	if len(sums) == 0 {
-		// Contributions exist but produce no numeric groups. The skill
+	aggregates := aggregateContributionGroups(contributions)
+	if len(aggregates) == 0 {
+		// Contributions exist but produce no reconcilable groups. The skill
 		// documents scope="answer" reconciliation for final-output
 		// extraction/projection tasks, and validateReconcileReport
 		// already passes an empty-group report when no contribution
@@ -8468,7 +8468,7 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 		// reconciles at the ANSWER level instead of failing on the
 		// inapplicable numeric path. Both signals are precise — the
 		// typed plan action shape and the typed contribution roles —
-		// so a genuinely-aggregating plan that yields zero numeric
+		// so a genuinely-aggregating plan that yields zero reconcilable
 		// groups still fails loudly.
 		if !aggregating && len(reconcileTargetContributions(contributions)) == 0 {
 			report := ReconcileReport{Status: LooseText("pass")}
@@ -8487,14 +8487,14 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			ActionKind:    DataActionReconcile,
 			Role:          "contribution_groups",
 			Operation:     "reconcile",
-			ExpectedShape: "numeric contribution groups with group_key, metric, value, and operation",
-			ActualSnippet: "no numeric contribution groups",
+			ExpectedShape: "contribution groups with group_key, metric, value/count semantics, and operation",
+			ActualSnippet: "no reconcilable contribution groups",
 			RepairAction:  DataActionComputeContribs,
-			Message:       "reconcile_artifacts could not compute numeric groups from contribution records",
+			Message:       "reconcile_artifacts could not compute contribution groups from contribution records",
 		}
 	}
-	keys := make([]string, 0, len(sums))
-	for key := range sums {
+	keys := make([]string, 0, len(aggregates))
+	for key := range aggregates {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
@@ -8503,13 +8503,13 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 	answerParts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		groupKey, metric := splitReconcileGroupKey(key)
-		value := formatRat(sums[key])
+		value := contributionAggregateDisplayValue(aggregates[key])
 		groups = append(groups, ReconcileGroup{
 			GroupKey:   LooseText(groupKey),
 			Metric:     LooseText(metric),
 			Expected:   LooseText(value),
 			Actual:     LooseText(value),
-			Difference: LooseText("0"),
+			Difference: LooseText(reconcileDifferenceForAggregate(aggregates[key])),
 		})
 		label := displayReconcileGroupKey(groupKey, metric)
 		answerParts = append(answerParts, fmt.Sprintf("%s=%s", label, value))
@@ -9112,6 +9112,10 @@ func reconcileGroupValueByField(group ReconcileGroup, field string) string {
 		return strings.TrimSpace(firstNonEmptyString(group.Expected.String(), group.Actual.String()))
 	case "actual", "":
 		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
+	case "group_key", "key":
+		return strings.TrimSpace(group.GroupKey.String())
+	case "metric":
+		return strings.TrimSpace(group.Metric.String())
 	default:
 		return strings.TrimSpace(firstNonEmptyString(group.Actual.String(), group.Expected.String()))
 	}

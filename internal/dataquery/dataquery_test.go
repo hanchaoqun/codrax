@@ -916,6 +916,33 @@ emit({"content": content, "line_count": len(content.splitlines())})`,
 	}
 }
 
+func TestRunnerEmitResultJSONPayloadBecomesAnswer(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1","active":true},{"id":"u2","active":false},{"id":"u3","active":true}]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		InputPaths:     []string{"users.json"},
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Script: `
+users = json_load("users.json")
+emit_result({"ids": [row["id"] for row in users if row.get("active")]}, output_contract={"format": "json_only", "explanation_allowed": False})
+`,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want JSON payload answer", res.Answer)
+	}
+	if len(res.Artifacts) != 0 {
+		t.Fatalf("Artifacts=%+v, ordinary JSON answer should not be demoted to custom_payload", res.Artifacts)
+	}
+}
+
 func TestRunnerNormalizesScalarRowDecisions(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -8993,6 +9020,69 @@ func TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary(t *testing.T) {
 	}
 	if res.Answer != "42" {
 		t.Fatalf("Answer=%q, want reconcile-rendered value instead of seed artifact summary", res.Answer)
+	}
+}
+
+func TestAnswerLooksLikeArtifactSummaryJSON(t *testing.T) {
+	answer := `{"artifacts":[{"id":"emitted_payload","kind":"custom_payload","summary":"script emitted extra payload field(s): ids","fields":{"json_shape":"object(keys=ids)"}}],"reconcile":{"status":"pass"}}`
+	if !AnswerLooksLikeArtifactSummary(answer) {
+		t.Fatalf("AnswerLooksLikeArtifactSummary=false for internal artifacts JSON")
+	}
+	userAnswer := `{"artifacts":[{"name":"build","url":"https://example.test/a"}]}`
+	if AnswerLooksLikeArtifactSummary(userAnswer) {
+		t.Fatalf("user-shaped artifacts JSON should not be treated as internal artifact summary")
+	}
+}
+
+func TestActionRunnerReconcilesCountContributionsWithTextValuesAndKeepsSeedJSONAnswer(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "reconcile", Kind: DataActionReconcile}},
+	}
+	seed := Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{
+			{
+				ItemID:        LooseText("row-1"),
+				Source:        LooseText("users.json"),
+				SourceLocator: LooseText("line:1"),
+				GroupKey:      LooseText("u1"),
+				Metric:        LooseText("active_user_id"),
+				Value:         LooseText("u1"),
+				Operation:     LooseText("count"),
+				Role:          LooseText("target"),
+			},
+			{
+				ItemID:        LooseText("row-3"),
+				Source:        LooseText("users.json"),
+				SourceLocator: LooseText("line:3"),
+				GroupKey:      LooseText("u3"),
+				Metric:        LooseText("active_user_id"),
+				Value:         LooseText("u3"),
+				Operation:     LooseText("count"),
+				Role:          LooseText("target"),
+			},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != seed.Answer {
+		t.Fatalf("Answer=%q, want seed JSON answer", res.Answer)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) != 2 {
+		t.Fatalf("Reconcile=%+v, want two count groups", res.Reconcile)
+	}
+	for _, group := range res.Reconcile.Groups {
+		if group.Actual.String() != "1" || group.Expected.String() != "1" {
+			t.Fatalf("group=%+v, want count aggregate 1", group)
+		}
 	}
 }
 
