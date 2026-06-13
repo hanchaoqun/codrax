@@ -1540,6 +1540,132 @@ Verification:
 - Focused tests:
   `go test ./internal/orchestrator -run 'TestAppend(User|Soft).*CaveatsToAnswerForBus_(ObservationOnly|RuntimeAnswerSurface|PureHistory|Mechanism)'`
 
+Post-Batch-23 eval audit:
+
+- `eval/results/eval-gap-20260613-post-b99e2bfe-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: runner exit code 0 but eval verdict FAIL
+  (`no_regex_match:"ids"`). Manual audit: the workflow consumed both
+  `instructions.md` and `users.json`, decisions/rule coverage/contributions
+  and reconcile were satisfied, but the terminal answer was
+  `[{"group_key":"u1","metric":"id","value":"1"},{"group_key":"u3","metric":"id","value":"1"}]`
+  rather than the strict JSON object shape requested by the output contract.
+  The final evaluator had identified this as a node repair, but the completion
+  gate normalized the verdict to `complete`.
+- `trace_query_state_churn_window_stats`: runner exit code 0 but eval verdict
+  FAIL on surface co-occurrence regexes. Manual audit: the answer is
+  semantically correct and rich, uses `trace_query` three times, preserves
+  `dominant_state=runnable`, cumulative running/runnable/sleep/d_state/io_wait,
+  `fragments=21`, `switches=20`, `max_segment=0.5ms`, `p95_segment=0.5ms`,
+  and root-cause/next-step guidance. The Batch-23 generic consistency caveat is
+  gone. Residual gap: typed runtime metrics are present but distributed across
+  several visible bullets instead of a stable compact snapshot line.
+
+## Batch 24 Gap: Completed Workflow Must Not Drop Actionable Typed Repair Anchors
+
+Deep root cause:
+
+- The data evaluator can emit a structured `repair_node` verdict after a
+  final result is produced. In the failing run the evaluator identified the
+  final projection node as the repair target, while the typed workflow state
+  simultaneously reported all ledgers and the projection graph as complete.
+- `NormalizeEvaluationForWorkflowState` treats completed typed state as
+  authoritative and rewrites every non-complete evaluator status to
+  `complete`, clearing `action_id`, `action_kind`, and `repair_locus`. The
+  terminal log keeps only a prose marker (`original_status=repair_node`), so
+  downstream decision logic cannot consume the typed repair target.
+- This is a general handoff gap. Any strict data workflow can have all ledgers
+  satisfied while the final projection is structurally wrong for the user-facing
+  output contract. The system must preserve actionable typed repair anchors
+  instead of forcing downstream code to parse evaluator prose.
+
+Generalized design:
+
+- Treat completed workflow state as authoritative only for noisy or stale
+  repair verdicts. When an evaluator emits `repair_node` with a precise typed
+  target (`repair_locus`, or a high-confidence action id/kind pair), preserve
+  that repair status through normalization.
+- Update evaluation decisioning so an actionable typed repair target can still
+  choose repair even when structural completion is otherwise satisfied. Noisy
+  `repair_node` verdicts with no typed repair anchor remain overrideable by the
+  completion gate.
+- The fix consumes only schema fields from `Evaluation` and existing workflow
+  state. It does not inspect evaluator prose, user prose, answer strings, or
+  case-specific keys.
+
+Executable task list:
+
+- [x] B24-T1: Add a shared typed predicate for actionable evaluator repair
+  targets.
+- [x] B24-T2: Preserve actionable `repair_node` evaluations during completed
+  workflow normalization while still suppressing stale low-confidence repairs.
+- [x] B24-T3: Make `DecideEvaluation` prefer actionable repair over completion
+  gate return-answer decisions when repair budget/planner are available.
+- [x] B24-T4: Add regression tests for noisy repair override and actionable
+  repair preservation.
+- [x] B24-T5: Run focused dataworkflow/repl tests, full package hygiene,
+  commit, and push.
+
+Implementation notes:
+
+- `dataworkflow.EvaluationHasActionableRepairTarget` now recognizes
+  `repair_node` evaluations with a typed `repair_locus`, or a non-low
+  confidence `action_id`/`action_kind` pair, as concrete repair requests.
+- Completed workflow normalization still retires noisy/stale repair statuses,
+  but it preserves actionable typed repair targets intact for downstream
+  repair planning.
+- `DecideEvaluation` now routes actionable repair through the repair planner
+  even when the structural completion gate is otherwise satisfied. No-anchor
+  noisy repairs still return the completed answer through the existing gate.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/dataworkflow -run 'TestNormalizeEvaluationForWorkflowState|TestDecideEvaluationCompletionSatisfied'`
+- Focused tests:
+  `go test ./internal/repl -run 'TestDataTaskEvaluationDecision(UsesCompletionGateForNoisyRepair|PreservesActionableRepairTarget)'`
+- Package tests:
+  `go test ./internal/dataworkflow ./internal/repl ./internal/dataquery`
+
+## Batch 25 Gap: Runtime Metric Handoff Needs a Compact Typed Snapshot Surface
+
+Deep root cause:
+
+- `trace_query` already emits `state_churn` as typed runtime observations with
+  structured `RichNotes` for `dominant_state`, fragment counts, per-state
+  cumulative time, `max_segment`, and `p95_segment`.
+- The prompt-facing observation projection gives supporting observations only
+  two notes by default. Because `state_churn` is supporting runtime evidence
+  rather than a principal current-source row, later metric notes can be dropped
+  from the compact handoff even though they were accepted by the observation
+  ledger.
+- The final answer remains semantically correct, but required metrics can be
+  spread over multiple bullets and become hard to scan or validate. This is a
+  generalized presentation/handoff budget problem for runtime, VCS, connector,
+  and other origin-specific observations that carry compact metric notes.
+
+Generalized design:
+
+- Give origin-specific observations a bounded, larger note budget so typed
+  metric notes survive the shared observation prompt projection even when the
+  record is supporting rather than principal.
+- Add a runtime trace presentation hint to preserve multi-metric observation
+  notes as one compact metric snapshot line before the richer explanation.
+  This preserves answer richness; it does not replace the detailed analysis.
+- Keep row count and per-note length limits unchanged, so the change improves
+  high-signal handoff without widening broad context windows.
+
+Executable task list:
+
+- [ ] B25-T1: Extend observation prompt projection options with a bounded
+  origin-specific supporting note limit.
+- [ ] B25-T2: Add tests showing a runtime `trace_query` supporting observation
+  carries the full compact metric note set into the finalizer handoff.
+- [ ] B25-T3: Add generic runtime trace guidance for compact metric snapshots
+  sourced from typed observation notes.
+- [ ] B25-T4: Run focused types/agent tests, full tests/build hygiene, commit,
+  and push.
+
 Post-Batch-22 eval audit:
 
 - `eval/results/eval-gap-20260613-post-c1224262-b1`

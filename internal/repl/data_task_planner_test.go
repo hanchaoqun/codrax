@@ -1966,6 +1966,69 @@ func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T
 	}
 }
 
+func TestDataTaskEvaluationDecisionPreservesActionableRepairTarget(t *testing.T) {
+	current := dataquery.TaskPlan{
+		ContinueAfter: true,
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+			Delimiter:          ",",
+		},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:   "project_final_answer",
+			Kind: dataquery.DataActionAssembleAnswer,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         "11,13",
+		OutputContract: current.OutputContract,
+		Rows: []dataquery.RowDecision{
+			{RowID: "row-1", Decision: "include"},
+			{RowID: "row-2", Decision: "include"},
+		},
+		Contributions: []dataquery.ContributionRecord{
+			{ItemID: dataquery.LooseText("row-1"), Source: dataquery.LooseText("records.csv"), SourceLocator: dataquery.LooseText("line:1"), GroupKey: dataquery.LooseText("left"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("11"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+			{ItemID: dataquery.LooseText("row-2"), Source: dataquery.LooseText("records.csv"), SourceLocator: dataquery.LooseText("line:2"), GroupKey: dataquery.LooseText("right"), Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("13"), Operation: dataquery.LooseText("add"), Role: dataquery.LooseText("target")},
+		},
+		Reconcile: &dataquery.ReconcileReport{
+			Status:       dataquery.LooseText("pass"),
+			ActualAnswer: dataquery.LooseText("11,13"),
+			Groups: []dataquery.ReconcileGroup{
+				{GroupKey: dataquery.LooseText("left"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("11"), Actual: dataquery.LooseText("11"), Difference: dataquery.LooseText("0")},
+				{GroupKey: dataquery.LooseText("right"), Metric: dataquery.LooseText("value"), Expected: dataquery.LooseText("13"), Actual: dataquery.LooseText("13"), Difference: dataquery.LooseText("0")},
+			},
+		},
+		Artifacts: []dataquery.DataArtifact{{
+			ID:   "final_answer",
+			Kind: string(dataquery.DataActionAssembleAnswer),
+			Fields: map[string]string{
+				"projection": "values",
+			},
+		}},
+	}
+	if !dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
+		t.Fatal("assembled final projection should satisfy structural completion")
+	}
+	decision := dataTaskEvaluationDecisionWithRepo("", nil, current, result, dataquery.Evaluation{
+		Status:      dataquery.EvalRepairNode,
+		Confidence:  "high",
+		Reason:      "final answer shape mismatch",
+		ActionID:    "project_final_answer",
+		ActionKind:  string(dataquery.DataActionAssembleAnswer),
+		RepairLocus: "result.answer",
+	}, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if decision.Action != dataworkflow.EvaluationDecisionRepairPlan ||
+		decision.Status != "repair" ||
+		decision.Source != "evaluation_repair_node" {
+		t.Fatalf("decision=%+v, want typed repair target to survive structural completion", decision)
+	}
+}
+
 func TestDataTaskFinalAnswerPromotesPreservedStrictJSONHandoff(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false},

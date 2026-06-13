@@ -49,6 +49,9 @@ func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) 
 
 func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery.Evaluation) dataquery.Evaluation {
 	if WorkflowStateCompletionSatisfied(state) {
+		if EvaluationHasActionableRepairTarget(eval) {
+			return eval
+		}
 		return normalizeCompletedWorkflowEvaluation(eval)
 	}
 	if gated, ok := GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
@@ -152,6 +155,24 @@ func normalizeCompletedWorkflowEvaluation(eval dataquery.Evaluation) dataquery.E
 	return out
 }
 
+// EvaluationHasActionableRepairTarget distinguishes a concrete, structured
+// repair request from a noisy or stale repair status. It consumes only typed
+// evaluator fields so downstream control flow never has to parse evaluator
+// prose to recover the repair target.
+func EvaluationHasActionableRepairTarget(eval dataquery.Evaluation) bool {
+	if eval.Status != dataquery.EvalRepairNode {
+		return false
+	}
+	if strings.TrimSpace(eval.RepairLocus) != "" {
+		return true
+	}
+	if strings.TrimSpace(eval.ActionID) == "" || strings.TrimSpace(eval.ActionKind) == "" {
+		return false
+	}
+	confidence := strings.ToLower(strings.TrimSpace(eval.Confidence))
+	return confidence != "" && !strings.HasPrefix(confidence, "low")
+}
+
 type EvaluationDecisionAction string
 
 const (
@@ -198,6 +219,9 @@ func (d EvaluationDecision) HasPlan() bool {
 func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 	eval := input.Evaluation
 	if input.CompletionSatisfied {
+		if EvaluationHasActionableRepairTarget(eval) {
+			return decideEvaluationRepairNode(input, eval)
+		}
 		return EvaluationDecision{
 			Action: EvaluationDecisionReturnAnswer,
 			Status: "complete",
@@ -254,38 +278,7 @@ func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 			Reason: appendEvaluationReason("data task evaluator requested continuation but continuation planner is unavailable", eval.Reason),
 		}
 	case dataquery.EvalRepairNode:
-		if input.CompletionFallback.Available && taskPlanHasExecutableShape(input.CompletionFallback.Plan) {
-			return EvaluationDecision{
-				Action: EvaluationDecisionFallbackPlan,
-				Status: "continue",
-				Source: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Source), "completion_gate"),
-				Plan:   cloneTaskPlanValue(input.CompletionFallback.Plan),
-				Guard:  input.CompletionGuard,
-				Reason: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Reason), input.CompletionGuard.ErrorText()),
-			}
-		}
-		if input.RepairFallback.Available && taskPlanHasExecutableShape(input.RepairFallback.Plan) {
-			return EvaluationDecision{
-				Action: EvaluationDecisionFallbackPlan,
-				Status: "continue",
-				Source: firstNonEmpty(strings.TrimSpace(input.RepairFallback.Source), "repair_fallback"),
-				Plan:   cloneTaskPlanValue(input.RepairFallback.Plan),
-				Reason: strings.TrimSpace(input.RepairFallback.Reason),
-			}
-		}
-		if input.RepairPlannerReady && input.RepairBudgetAvailable {
-			return EvaluationDecision{
-				Action: EvaluationDecisionRepairPlan,
-				Status: "repair",
-				Source: "evaluation_repair_node",
-				Reason: EvaluationRepairReason(eval),
-			}
-		}
-		return EvaluationDecision{
-			Action: EvaluationDecisionReturnAnswer,
-			Status: "partial_answer_possible",
-			Reason: appendEvaluationReason("data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted", eval.Reason),
-		}
+		return decideEvaluationRepairNode(input, eval)
 	case dataquery.EvalNeedsClarification:
 		if input.WorkflowFallback.Available && taskPlanHasExecutableShape(input.WorkflowFallback.Plan) {
 			return EvaluationDecision{
@@ -328,6 +321,41 @@ func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 			Status: "partial_answer_possible",
 			Reason: "data task evaluator returned unrecognized status: " + string(eval.Status),
 		}
+	}
+}
+
+func decideEvaluationRepairNode(input EvaluationDecisionInput, eval dataquery.Evaluation) EvaluationDecision {
+	if input.CompletionFallback.Available && taskPlanHasExecutableShape(input.CompletionFallback.Plan) {
+		return EvaluationDecision{
+			Action: EvaluationDecisionFallbackPlan,
+			Status: "continue",
+			Source: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Source), "completion_gate"),
+			Plan:   cloneTaskPlanValue(input.CompletionFallback.Plan),
+			Guard:  input.CompletionGuard,
+			Reason: firstNonEmpty(strings.TrimSpace(input.CompletionFallback.Reason), input.CompletionGuard.ErrorText()),
+		}
+	}
+	if input.RepairFallback.Available && taskPlanHasExecutableShape(input.RepairFallback.Plan) {
+		return EvaluationDecision{
+			Action: EvaluationDecisionFallbackPlan,
+			Status: "continue",
+			Source: firstNonEmpty(strings.TrimSpace(input.RepairFallback.Source), "repair_fallback"),
+			Plan:   cloneTaskPlanValue(input.RepairFallback.Plan),
+			Reason: strings.TrimSpace(input.RepairFallback.Reason),
+		}
+	}
+	if input.RepairPlannerReady && input.RepairBudgetAvailable {
+		return EvaluationDecision{
+			Action: EvaluationDecisionRepairPlan,
+			Status: "repair",
+			Source: "evaluation_repair_node",
+			Reason: EvaluationRepairReason(eval),
+		}
+	}
+	return EvaluationDecision{
+		Action: EvaluationDecisionReturnAnswer,
+		Status: "partial_answer_possible",
+		Reason: appendEvaluationReason("data task evaluator requested node repair but repair planner is unavailable or repair budget is exhausted", eval.Reason),
 	}
 }
 

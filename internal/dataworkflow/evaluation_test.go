@@ -149,6 +149,24 @@ func TestNormalizeEvaluationForWorkflowStateIgnoresStaleViolationsWhenComplete(t
 	}
 }
 
+func TestNormalizeEvaluationForWorkflowStatePreservesActionableRepairWhenComplete(t *testing.T) {
+	state := completedWorkflowStateForEvaluationTest(nil)
+	eval := NormalizeEvaluationForWorkflowState(state, dataquery.Evaluation{
+		Status:      dataquery.EvalRepairNode,
+		Confidence:  "high",
+		Reason:      "final projection is structurally wrong",
+		ActionID:    "assemble_final",
+		ActionKind:  string(dataquery.DataActionAssembleAnswer),
+		RepairLocus: "result.answer",
+	})
+	if eval.Status != dataquery.EvalRepairNode ||
+		eval.ActionID != "assemble_final" ||
+		eval.ActionKind != string(dataquery.DataActionAssembleAnswer) ||
+		eval.RepairLocus != "result.answer" {
+		t.Fatalf("eval=%+v, want completed state to preserve actionable typed repair", eval)
+	}
+}
+
 func TestNormalizeEvaluationForWorkflowStateStillGatesIncompleteState(t *testing.T) {
 	state := completedWorkflowStateForEvaluationTest([]WorkflowViolation{
 		actionDependencyViolationForEvaluationTest(),
@@ -329,6 +347,32 @@ func TestDecideEvaluationCompletionSatisfiedOverridesNoisyRepair(t *testing.T) {
 	})
 	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "complete" || decision.Source != "completion_gate" {
 		t.Fatalf("decision=%#v, want deterministic completion to return answer", decision)
+	}
+}
+
+func TestDecideEvaluationCompletionSatisfiedPreservesActionableRepair(t *testing.T) {
+	decision := DecideEvaluation(EvaluationDecisionInput{
+		Evaluation: dataquery.Evaluation{
+			Status:      dataquery.EvalRepairNode,
+			Confidence:  "high",
+			Reason:      "projection shape mismatch",
+			ActionID:    "assemble_final",
+			ActionKind:  string(dataquery.DataActionAssembleAnswer),
+			RepairLocus: "result.answer",
+		},
+		CompletionSatisfied:   true,
+		RepairPlannerReady:    true,
+		RepairBudgetAvailable: true,
+	})
+	if decision.Action != EvaluationDecisionRepairPlan ||
+		decision.Status != "repair" ||
+		decision.Source != "evaluation_repair_node" {
+		t.Fatalf("decision=%#v, want actionable typed repair to survive completion gate", decision)
+	}
+	for _, want := range []string{"action_id=assemble_final", "action_kind=assemble_answer", "repair_locus=result.answer"} {
+		if !strings.Contains(decision.Reason, want) {
+			t.Fatalf("Reason=%q, want %q", decision.Reason, want)
+		}
 	}
 }
 
