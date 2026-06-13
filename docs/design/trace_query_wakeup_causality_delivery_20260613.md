@@ -154,10 +154,57 @@ decode.
 - [x] E1: Update `trace_query` tool description and schema teaching.
 - [x] E2: Add structured-compat tests for any new input alias, especially
   `view=causal_impact` if enabled.
-- [ ] E3: Add/extend eval cases for causal chain runnable, chain D/IO, and
+- [x] E3: Add/extend eval cases for causal chain runnable, chain D/IO, and
   off-path background pressure demotion.
-- [ ] E4: Run focused Go tests, representative eval pairs two at a time, full
+- [x] E4: Run focused Go tests, representative eval pairs two at a time, full
   `go test ./...`, and `make`.
+
+## Eval Case Shape
+
+The new wakeup-causality eval questions intentionally avoid pre-baking the
+expected diagnosis. Each question provides only a bounded trace window, a
+target thread, and a generic analysis goal. It does not name the expected
+primary root-cause thread, expected chain topology, or expected demotion result.
+Those conclusions are enforced only in `EXPECT_*` checks, so the run still tests
+whether the system can discover the causal chain, impact ranking, priority
+relation, and background/supporting distinction from trace evidence.
+
+## IO Handoff Closure
+
+The inode-IO regression exposed a generic handoff gap: `trace_query` could parse
+and aggregate `dev/inode/name/bytes`, and the raw summary line contained those
+fields, but the final answer could still drop `dev` when compressing evidence.
+The fix keeps the data product, not the prompt, responsible for field identity:
+typed `file_io_by_inode` and `io_pressure_summary` observation summaries now
+carry `inode/dev/name/bytes` (or `top_inode/top_dev/top_name/file_bytes`) as an
+atomic summary prefix, and the ObservationLedger fallback parser reconstructs
+the same prefix from summary-line fields. This keeps downstream prompt and
+handoff consumption stable without keyword-matching user intent or model prose.
+
+## Validation Results
+
+- Focused Go tests passed:
+  `go test ./internal/tool ./internal/types ./internal/context ./internal/tracequery -count=1`.
+- Full Go suite passed:
+  `go test ./... -count=1`.
+- Build passed:
+  `make`.
+- Eval pair 1, low-leading new cases:
+  `trace_query_wakeup_causal_runnable` PASS and
+  `trace_query_wakeup_causal_io_chain` PASS. The runnable case remained
+  correct but is slower than the more directed wording, which is an efficiency
+  observation rather than a correctness failure.
+- Eval pair 2:
+  `trace_query_wakeup_background_demotion` PASS and
+  `trace_query_inode_io_pressure` PASS after the IO handoff summary closure.
+  The inode IO answer preserved `dev=260:136` alongside inode/name/bytes.
+- Eval pair 3:
+  `trace_query_state_churn_window_stats` PASS and
+  `data_json_strict_ids` FAIL. The failing case did not call `trace_query`
+  (`tool_trace_query=0`) and failed in the data workflow because contribution
+  ledger generation remained incomplete before JSON-only final projection.
+  This is tracked as an unrelated data-lane workflow risk, not a trace-query
+  regression.
 
 ## Test Plan
 

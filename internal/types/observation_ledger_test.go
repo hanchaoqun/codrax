@@ -396,6 +396,10 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		fileIO.Value != "12288" ||
 		fileIO.Unit != "bytes" ||
 		fileIO.Span.LineStart != 200 ||
+		!strings.Contains(fileIO.Summary, "inode=0xb9b8e") ||
+		!strings.Contains(fileIO.Summary, "dev=260:136") ||
+		!strings.Contains(fileIO.Summary, "name=foo.db") ||
+		!strings.Contains(fileIO.Summary, "bytes=12288") ||
 		!observationLedgerTestContainsString(fileIO.RichNotes, "inode=0xb9b8e") {
 		t.Fatalf("trace_query file_io should survive as runtime observation: %+v", fileIO)
 	}
@@ -417,7 +421,11 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	if pressure.Predicate != "scheduler_iowait_with_storage_latency" ||
 		pressure.Object != "0xb9b8e" ||
 		pressure.Value != "12.000" ||
-		pressure.Unit != "score" {
+		pressure.Unit != "score" ||
+		!strings.Contains(pressure.Summary, "top_inode=0xb9b8e") ||
+		!strings.Contains(pressure.Summary, "top_dev=260:136") ||
+		!strings.Contains(pressure.Summary, "top_name=foo.db") ||
+		!strings.Contains(pressure.Summary, "file_bytes=12288") {
 		t.Fatalf("trace_query io_pressure should survive as runtime observation: %+v", pressure)
 	}
 

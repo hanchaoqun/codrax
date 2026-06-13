@@ -1593,7 +1593,7 @@ func traceQueryFileIORecord(index, ordinal int, line string, ref ObservationSour
 		Object:          op,
 		Value:           bytes,
 		Unit:            "bytes",
-		Summary:         summary,
+		Summary:         traceQueryFileIOSummaryFromFields(fields, summary),
 		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"inode", "dev", "name", "op", "thread", "count", "bytes", "total_latency", "max_latency", "offsets"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
@@ -1631,6 +1631,19 @@ func traceQueryPageCacheRecord(index, ordinal int, line string, ref ObservationS
 		ObservedAt:      observedAt,
 		Confidence:      0.70,
 	}, true
+}
+
+func traceQueryFileIOSummaryFromFields(fields map[string]string, fallback string) string {
+	parts := []string{"file_io_by_inode"}
+	for _, key := range []string{"inode", "dev", "name", "op", "bytes", "count", "total_latency", "max_latency", "offsets"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	if summary := strings.TrimSpace(fallback); summary != "" {
+		parts = append(parts, "detail="+summary)
+	}
+	return strings.Join(parts, " ")
 }
 
 func traceQueryStorageLatencyRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
@@ -1696,12 +1709,25 @@ func traceQueryIOPressureRecord(index, ordinal int, line string, ref Observation
 		Object:          strings.TrimSpace(fields["top_inode"]),
 		Value:           value,
 		Unit:            "score",
-		Summary:         summary,
+		Summary:         traceQueryIOPressureSummaryFromFields(fields, summary),
 		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"signal", "score", "block_max", "storage_max", "file_bytes", "file_events", "page_cache_churn", "iowait_blocked", "d_state", "top_inode", "top_dev", "top_name"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.70,
 	}, true
+}
+
+func traceQueryIOPressureSummaryFromFields(fields map[string]string, fallback string) string {
+	parts := []string{"io_pressure_summary"}
+	for _, key := range []string{"signal", "score", "top_inode", "top_dev", "top_name", "file_bytes", "file_events", "page_cache_churn", "storage_max", "block_max", "iowait_blocked", "d_state"} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	if summary := strings.TrimSpace(fallback); summary != "" {
+		parts = append(parts, "detail="+summary)
+	}
+	return strings.Join(parts, " ")
 }
 
 func traceQueryRuntimeResourceLabel(line string) string {

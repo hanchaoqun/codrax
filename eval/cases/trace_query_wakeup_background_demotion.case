@@ -1,0 +1,32 @@
+# Trace query — off-chain pressure remains background
+#
+# Coverage target: when a wakeup chain has an on-chain root cause, unrelated
+# same-window D-state/IO pressure remains supporting background evidence and
+# must not become the primary cause solely because it is long.
+ID="trace_query_wakeup_background_demotion"
+NAME="trace query — off-chain D-state background demotion"
+QUESTION="请优先使用 trace_query 分析 2.000s 到 2.020s 的窗口，目标线程是 app-100。窗口内有多个线程等待，请结合时间重叠和唤醒关系判断主要阻塞原因，并说明其它等待线程对本窗口结论的影响范围。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-100   (  100) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     logger-900   (  900) [005] .... 2.000500: sched_switch: prev_comm=logger prev_pid=900 prev_prio=20 prev_state=D ==> next_comm=idle/5 next_pid=0 next_prio=120
+     cookie-200   (  100) [002] .... 2.001000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+    network-300   (  100) [003] .... 2.002000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+ threadpool-400   (  100) [004] .... 2.003000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120
+         irq-2   (    2) [004] .... 2.004000: sched_blocked_reason: pid=400 iowait=1 caller=fscache_page_wait_on_page_bit
+         irq-2   (    2) [004] .... 2.014000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004
+ threadpool-400   (  100) [004] .... 2.015000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20
+ threadpool-400   (  100) [004] .... 2.016000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003
+    network-300   (  100) [003] .... 2.017000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20
+    network-300   (  100) [003] .... 2.018000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002
+     cookie-200   (  100) [002] .... 2.019000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20
+     cookie-200   (  100) [002] .... 2.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100   (  100) [001] .... 2.020020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+         irq-2   (    2) [005] .... 2.020500: sched_wakeup: comm=logger pid=900 prio=20 target_cpu=005
+'
+EXPECT_CONTAINS="threadpool-400 logger-900"
+EXPECT_MATCHES_REGEX="threadpool-400.*(主因|primary|root cause|根因|rank)|(主因|primary|root cause|根因|rank).*threadpool-400
+logger-900.*(background|supporting|辅助|背景|不是主因|非主因|不能作为主因|独立|无因果|无实质影响|无影响)|(background|supporting|辅助|背景|不是主因|非主因|不能作为主因|独立|无因果|无实质影响|无影响).*logger-900
+(唤醒链|唤醒依赖链|wakeup chain|on_wakeup_chain|链路).*(threadpool-400|network-300|cookie-200|app-100)
+(D-state|D 状态|iowait|io_wait|fscache_page_wait_on_page_bit).*(threadpool-400)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

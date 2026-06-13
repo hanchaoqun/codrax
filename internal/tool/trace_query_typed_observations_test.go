@@ -111,12 +111,26 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 				TotalLatencyMs: 3.5, LineStart: 70, LineEnd: 71,
 				Summary: "inode read burst",
 			}},
+			IOPressureSummary: &tracequery.IOPressureSummary{
+				Signal:              "scheduler_iowait_with_storage_latency",
+				Score:               12.25,
+				StorageMaxLatencyMs: 3.5,
+				FileIOBytes:         4096,
+				FileIOEvents:        1,
+				PageCacheChurn:      2,
+				TopInode:            "0x478e5",
+				TopDev:              "253:7",
+				TopEntryName:        "db.sqlite",
+				LineStart:           70,
+				LineEnd:             71,
+				Summary:             "io pressure summary",
+			},
 		},
 		EvidencePack: facts,
 	}
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace-query-result-abcd1234.json", "/blobs/trace_query-eeff.txt", "", time.Now())
 
-	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + len(facts)
+	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 1 + len(facts)
 	if len(rows) != wantRows {
 		t.Fatalf("expected %d typed rows, got %d", wantRows, len(rows))
 	}
@@ -208,6 +222,28 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		if !strings.Contains(notes, want) {
 			t.Fatalf("state churn notes missing %q: %+v", want, churnRow.RichNotes)
 		}
+	}
+	var fileIORow *types.ObservationRecord
+	var ioPressureRow *types.ObservationRecord
+	for i := range rows {
+		if strings.Contains(rows[i].ID, "#file_io:1") {
+			fileIORow = &rows[i]
+		}
+		if strings.Contains(rows[i].ID, "#io_pressure:1") {
+			ioPressureRow = &rows[i]
+		}
+	}
+	if fileIORow == nil || !strings.Contains(fileIORow.Summary, "inode=0x478e5") ||
+		!strings.Contains(fileIORow.Summary, "dev=253:7") ||
+		!strings.Contains(fileIORow.Summary, "name=db.sqlite") ||
+		!strings.Contains(fileIORow.Summary, "bytes=4096") {
+		t.Fatalf("file IO typed summary must keep inode/dev/name/bytes together: %+v", fileIORow)
+	}
+	if ioPressureRow == nil || !strings.Contains(ioPressureRow.Summary, "top_inode=0x478e5") ||
+		!strings.Contains(ioPressureRow.Summary, "top_dev=253:7") ||
+		!strings.Contains(ioPressureRow.Summary, "top_name=db.sqlite") ||
+		!strings.Contains(ioPressureRow.Summary, "file_bytes=4096") {
+		t.Fatalf("IO pressure typed summary must keep top inode/dev/name/bytes together: %+v", ioPressureRow)
 	}
 
 	// Facts beyond the 16-fact prose preview cap must survive.

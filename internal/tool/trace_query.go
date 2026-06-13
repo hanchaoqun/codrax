@@ -2617,7 +2617,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Object:          file.Operation,
 			Value:           value,
 			Unit:            "bytes",
-			Summary:         file.Summary,
+			Summary:         traceQueryTypedFileIOSummary(file),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{"inode", file.Inode},
 				{"dev", file.Dev},
@@ -2739,7 +2739,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Object:          pressure.TopInode,
 			Value:           value,
 			Unit:            "score",
-			Summary:         pressure.Summary,
+			Summary:         traceQueryTypedIOPressureSummary(*pressure),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{"signal", pressure.Signal},
 				{"score", value},
@@ -2812,6 +2812,56 @@ func traceQueryTypedResourceObservations(label string, items []tracequery.Runtim
 		})
 	}
 	return out
+}
+
+func traceQueryTypedFileIOSummary(item tracequery.FileIOSummary) string {
+	parts := []string{"file_io_by_inode"}
+	for _, kv := range [][2]string{
+		{"inode", item.Inode},
+		{"dev", item.Dev},
+		{"name", item.EntryName},
+		{"op", item.Operation},
+		{"bytes", traceQueryTypedInt64(item.Bytes)},
+		{"count", traceQueryTypedCount(item.Count)},
+		{"completions", traceQueryTypedCount(item.CompletionCount)},
+		{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
+		{"max_latency", traceQueryObservationMSValue(item.MaxLatencyMs)},
+		{"offsets", traceQueryTypedOffsetRange(item.MinOffset, item.MaxOffset)},
+	} {
+		if strings.TrimSpace(kv[1]) != "" {
+			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
+		}
+	}
+	if summary := strings.TrimSpace(item.Summary); summary != "" {
+		parts = append(parts, "detail="+sanitizeForBanner(summary))
+	}
+	return strings.Join(parts, " ")
+}
+
+func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string {
+	parts := []string{"io_pressure_summary"}
+	for _, kv := range [][2]string{
+		{"signal", item.Signal},
+		{"score", traceQueryTypedFloat(item.Score)},
+		{"top_inode", item.TopInode},
+		{"top_dev", item.TopDev},
+		{"top_name", item.TopEntryName},
+		{"file_bytes", traceQueryTypedInt64(item.FileIOBytes)},
+		{"file_events", traceQueryTypedCount(item.FileIOEvents)},
+		{"page_cache_churn", traceQueryTypedCount(item.PageCacheChurn)},
+		{"storage_max", traceQueryObservationMSValue(item.StorageMaxLatencyMs)},
+		{"block_max", traceQueryObservationMSValue(item.BlockMaxLatencyMs)},
+		{"iowait_blocked", traceQueryTypedCount(item.IOWaitBlockedCount)},
+		{"d_state", traceQueryObservationMSValue(item.DStateMs)},
+	} {
+		if strings.TrimSpace(kv[1]) != "" {
+			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
+		}
+	}
+	if summary := strings.TrimSpace(item.Summary); summary != "" {
+		parts = append(parts, "detail="+sanitizeForBanner(summary))
+	}
+	return strings.Join(parts, " ")
 }
 
 func traceQueryTypedResourceSummary(label string, item tracequery.RuntimeResourceSummary) string {
@@ -2950,4 +3000,11 @@ func traceQueryTypedInt64(n int64) string {
 		return ""
 	}
 	return strconv.FormatInt(n, 10)
+}
+
+func traceQueryTypedFloat(v float64) string {
+	if v <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.3f", v)
 }

@@ -1,0 +1,30 @@
+# Trace query — wakeup causal D/IO dependency chain
+#
+# Coverage target: causal ranking should keep intermediate sleeps as chain path
+# evidence and promote the terminal on-chain D/IO dependency as the root cause.
+ID="trace_query_wakeup_causal_io_chain"
+NAME="trace query — wakeup causal D/IO dependency chain"
+QUESTION="请优先使用 trace_query 分析 2.000s 到 2.020s 的窗口，目标线程是 app-100。请结合调度状态、唤醒关系和等待证据判断 app-100 的主要阻塞原因、相关链路和需要继续下钻的方向。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-100   (  100) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     cookie-200   (  100) [002] .... 2.001000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+    network-300   (  100) [003] .... 2.002000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+ threadpool-400   (  100) [004] .... 2.003000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120
+         irq-2   (    2) [004] .... 2.004000: sched_blocked_reason: pid=400 iowait=1 caller=fscache_page_wait_on_page_bit
+         irq-2   (    2) [004] .... 2.014000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004
+ threadpool-400   (  100) [004] .... 2.015000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20
+ threadpool-400   (  100) [004] .... 2.016000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003
+    network-300   (  100) [003] .... 2.017000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20
+    network-300   (  100) [003] .... 2.018000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002
+     cookie-200   (  100) [002] .... 2.019000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20
+     cookie-200   (  100) [002] .... 2.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100   (  100) [001] .... 2.020020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+'
+EXPECT_CONTAINS="threadpool-400 network-300 cookie-200 app-100 iowait"
+EXPECT_MATCHES_REGEX="threadpool-400.*(主因|primary|root cause|根因|rank)|((主因|primary|root cause|根因|rank).*)threadpool-400
+(D/IO|D 状态|D-state|io_wait|iowait|不可中断|Uninterruptible).*(threadpool-400|fscache_page_wait_on_page_bit)|(threadpool-400|fscache_page_wait_on_page_bit).*(D/IO|D 状态|D-state|io_wait|iowait|不可中断|Uninterruptible)
+threadpool-400.*network-300.*cookie-200.*app-100
+(低优先级|lower.priority|priority inversion|优先级反转|prio)
+(中间|传递|链路|path|intermediate|仅传递).*(network|cookie)|(network|cookie).*(中间|传递|链路|path|intermediate|仅传递)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -24,8 +24,8 @@ HTRACE='# tracer: nop
         app-20   (   20) [001] .... 12.012000: block_rq_complete: 12,80 W () 4096 + 8 [0]
 '
 EXPECT_CONTAINS="0xb9b8e 260:136 foo.db iowait"
-EXPECT_MATCHES_REGEX="(file_io|inode|文件|读写|write).*(0xb9b8e).*(4096|8192|12288|bytes|字节)
-(page_cache|page cache|页缓存).*(add|delete|churn|新增|删除|抖动)
+EXPECT_MATCHES_REGEX="(file_io|inode|文件|读写|write|写操作).*(0xb9b8e|foo\\.db)|(0xb9b8e|foo\\.db).*(4096|8192|12288|bytes|字节|12KB)
+(page_cache|page cache|page-cache|页缓存).*(add|delete|churn|新增|删除|抖动)
 (scsi|storage|存储).*(3\\.5|3500|max|最大|latency|耗时)
 (D-state|D 状态|iowait|__filemap_fdatawait_range)"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1,0 +1,24 @@
+# Trace query — wakeup causal runnable dependency
+#
+# Coverage target: root_cause_rank should consume wakeup_chain.causal_impacts
+# and rank a lower-priority on-chain dependency's wakeup-to-run runnable delay
+# over a short sleep fragment in the same aligned window.
+ID="trace_query_wakeup_causal_runnable"
+NAME="trace query — wakeup causal runnable dependency"
+QUESTION="请优先使用 trace_query 分析 1.000s 到 1.010s 的窗口，目标线程是 app-100。请结合窗口内调度状态和唤醒关系判断 app-100 的主要阻塞原因，并给出证据；如果存在优先级相关风险也请说明。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-100   (  100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200   (  100) [002] .... 1.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        net-300   (  100) [003] .... 1.001200: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200   (  100) [002] .... 1.009500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200   (  100) [002] .... 1.010000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200   (  100) [002] .... 1.010020: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=app next_pid=100 next_prio=52
+'
+EXPECT_CONTAINS="worker-200 app-100 runnable"
+EXPECT_MATCHES_REGEX="(worker-200|worker).*runnable|runnable.*(worker-200|worker)
+(8\\.3|8\\.300|8 ms|8ms|wakeup-to-run|累计)
+(低优先级|lower.priority|priority inversion|优先级反转|prio).*(app-100|app|52)|(app-100|app|52).*(低优先级|lower.priority|priority inversion|优先级反转|prio)
+(主因|primary|rank|root cause|根因).*(worker-200|worker)|(worker-200|worker).*(主因|primary|rank|root cause|根因)
+(wakeup|唤醒|causal|causality|链路)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
