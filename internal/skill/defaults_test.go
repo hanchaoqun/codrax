@@ -772,3 +772,42 @@ func TestMultiSourceMarker_PerfTriageSkillTeachesIt(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeTriageSkills_DoNotAdvertiseReadFileAsAlwaysAvailable(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	for _, name := range []string{
+		"log-triage-skill",
+		"perf-triage-skill",
+		"log-segmentation-skill",
+		"perf-segmentation-skill",
+	} {
+		t.Run(name, func(t *testing.T) {
+			sk, err := r.Get(name)
+			if err != nil {
+				t.Fatalf("%s missing: %v", name, err)
+			}
+			staticPrompt := strings.Join([]string{
+				sk.Goal,
+				strings.Join(sk.Workflow, "\n"),
+				sk.OutputFormat,
+				strings.Join(sk.Prohibitions, "\n"),
+			}, "\n")
+			if strings.Contains(staticPrompt, "read_file") {
+				t.Fatalf("%s static prompt must not name read_file; pagination availability is projected through ToolSuggestions/tool schema", name)
+			}
+			if !stringSliceContains(sk.ToolSuggestions, "read_file") {
+				t.Fatalf("%s should still list read_file in ToolSuggestions so blob-backed attachments can expose the schema", name)
+			}
+		})
+	}
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

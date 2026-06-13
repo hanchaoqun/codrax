@@ -2941,22 +2941,7 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// LLM can see at schema-selection time which tools produce
 	// citable evidence vs. navigation hints or side-effects.
 	if b.deps.Tools != nil {
-		for _, toolName := range sk.ToolSuggestions {
-			if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
-				continue
-			}
-			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
-				continue
-			}
-			if writeExplorationReadOnlyBlocksTool(ctx, toolName) {
-				continue
-			}
-			if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
-				continue
-			}
-			if toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil) {
-				continue
-			}
+		for _, toolName := range b.visibleSkillToolSuggestions(sk, ctx) {
 			t, err := b.deps.Tools.Get(toolName)
 			if err != nil {
 				continue
@@ -3037,6 +3022,61 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	}
 
 	return schemas
+}
+
+func (b *BaseAgent) skillForPrompt(ctx *types.AgentContext, sk *skill.Config) *skill.Config {
+	if sk == nil {
+		return nil
+	}
+	visible := b.visibleSkillToolSuggestions(sk, ctx)
+	if sameStringSlice(visible, sk.ToolSuggestions) {
+		return sk
+	}
+	cp := *sk
+	cp.ToolSuggestions = visible
+	return &cp
+}
+
+func (b *BaseAgent) visibleSkillToolSuggestions(sk *skill.Config, ctx *types.AgentContext) []string {
+	if sk == nil {
+		return nil
+	}
+	out := make([]string, 0, len(sk.ToolSuggestions))
+	for _, toolName := range sk.ToolSuggestions {
+		if b.skillToolSuggestionBlocked(ctx, toolName) {
+			continue
+		}
+		out = append(out, toolName)
+	}
+	return out
+}
+
+func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName string) bool {
+	if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
+		return true
+	}
+	if observationOnlyRuntimeBlocksTool(ctx, toolName) {
+		return true
+	}
+	if writeExplorationReadOnlyBlocksTool(ctx, toolName) {
+		return true
+	}
+	if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
+		return true
+	}
+	return toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil)
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.ToolSchema) []llm.ToolCall {
@@ -3421,9 +3461,10 @@ func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
 // primitives keep passing because this method never implements
 // rules on its own.
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
+	promptSkill := b.skillForPrompt(ctx, sk)
 	// 1. Assemble the structured PromptContext from ctx + skill.
 	stopPreflight := b.startPreflightWatchdog(ctx, "prompt_assemble")
-	pc := b.deps.PromptAssembler.AssembleContext(ctx, sk)
+	pc := b.deps.PromptAssembler.AssembleContext(ctx, promptSkill)
 	stopPreflight()
 	// 2. Render the PromptContext as the llm.Message slice.
 	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_render")
@@ -3433,7 +3474,7 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 	// 3. Append evaluator instruction (evaluator's dynamic supplement,
 	//    when non-empty; never restates the skill static contract).
 	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_dynamic_instruction")
-	messages = AppendDynamicInstruction(messages, b.eval, ctx, sk)
+	messages = AppendDynamicInstruction(messages, b.eval, ctx, promptSkill)
 	stopPreflight()
 	return messages
 }

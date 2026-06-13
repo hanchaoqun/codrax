@@ -2461,5 +2461,82 @@ Executable task list:
   diagnostic `member_set` rows become supporting coverage.
 - [x] B33-T3: Add regression tests for demotion and explicit runtime
   enumeration preservation.
-- [ ] B33-T4: Run focused/full validation, commit, push, and rerun the
+- [x] B33-T4: Run focused/full validation, commit, push, and rerun the
+  representative eval pair.
+
+Post-Batch-33 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-1f76f81e-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 40s. The final strict output remains
+  `{"ids":["u1","u3"]}` with `data_rounds=2`, `data_repair_rounds=1`,
+  `data_record_count=2`, and no answer-contract violations. Manual audit:
+  the stale early `decision_status=blocked` log belongs to a repaired
+  intermediate data-workflow round; the terminal result is complete and
+  correct.
+- `trace_query_state_churn_window_stats`: PASS in 164s with
+  `tool_trace_query=1`, `tool_read_file=1`, `unavailable_tool_attempts=1`,
+  `answer_contract_violations=0`, `enumeration_push=0`,
+  `max_context_window_pct=18`, and `finalizer_iters=1`.
+- Manual answer audit: the answer keeps the rich diagnostic explanation and
+  materializes `Trace 指标快照`; no generic principal-enumeration caveat leaks.
+  It correctly states that trace-query window statistics override the earlier
+  pre-triage estimate when they conflict.
+- Residual audit gap: the perf-triage pre-stage attempted unavailable
+  `read_file` once before emitting. Logs show the hard schema already hid
+  `read_file` for inline-only attachments, but the static perf/log triage skill
+  still advertised `read_file` as a pagination tool. This is a capability
+  surface drift, not a trace-query answer gap.
+
+## Batch 34 Gap: Runtime Triage Prompt Capability Surface Must Match Tool Schema
+
+Deep root cause:
+
+- Runtime triage already has a typed execution guard:
+  inline-only attachments hide `read_file`, while blob-backed attachments keep
+  it for legitimate pagination. The visible skill prompt, however, was static
+  and still said the model had `read_file`.
+- That drift creates unnecessary unavailable-tool attempts and can produce
+  stale hand calculations before downstream tools correct the answer. The
+  answer can be semantically right, but the run spends a round on a tool that
+  the same dispatcher has structurally hidden.
+- The general class is "prompt capability surface != tool schema". The fix
+  should project the prompt-facing tool surface from the same typed gates that
+  build the schema, and avoid static skill prose that names conditional tools
+  as unconditionally available.
+
+Generalized design:
+
+- Keep `ToolSuggestions` as the source allowlist for all tools a skill may use
+  in any valid context.
+- Before prompt assembly, clone the skill with `ToolSuggestions` filtered by
+  the same context gates used by `buildToolSchemas`:
+  inline-only runtime attachment, external-observation-only runtime mode,
+  write-exploration read-only mode, trace-query availability, and
+  answer-document patch availability.
+- Render the prompt and evaluator dynamic supplement from that projected skill,
+  so reasoning hygiene and any inspected tool list describe the current
+  dispatch rather than the superset.
+- For runtime log/perf triage and segmentation static text, describe
+  attachment pagination as "available only when the current tool schema exposes
+  a pagination read tool"; do not name `read_file` in the static prompt body.
+  Blob-backed runs still expose the actual `read_file` schema; inline-only
+  runs expose only the typed emit tool.
+- Keep the hard guard in tool execution. Prompt projection reduces invalid
+  attempts but does not become the enforcement boundary.
+
+Executable task list:
+
+- [x] B34-T1: Record the Post-Batch-33 eval audit and identify the runtime
+  triage capability-surface drift.
+- [x] B34-T2: Add prompt-time skill tool projection from the same typed gates
+  used by tool-schema construction.
+- [x] B34-T3: Make log/perf triage and segmentation static skill text
+  schema-authoritative for attachment pagination instead of naming a
+  conditional tool as always available.
+- [x] B34-T4: Add regression tests for prompt-visible tool projection and for
+  runtime triage skills not advertising `read_file` in static prompt text.
+- [ ] B34-T5: Run focused/full validation, commit, push, and rerun the
   representative eval pair.

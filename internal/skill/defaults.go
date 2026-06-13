@@ -483,15 +483,15 @@ Two-axis enumeration contract: when the user asks for every principal member plu
 	// intent_hint, coverage) automatically — the LLM cannot fill
 	// layer 4 because those fields are not in the tool's JSON schema.
 	//
-	// Tool allowlist is intentionally narrow: read_file only, for
-	// paginating large log blobs. No repo_map / list_files / grep —
-	// the LLM does not attempt path resolution; the system does that
-	// deterministically post-emit.
+	// Tool allowlist is intentionally narrow: the typed emit tool plus
+	// optional attachment pagination for blob-backed logs. No repo_map /
+	// list_files / grep — the LLM does not attempt path resolution; the
+	// system does that deterministically post-emit.
 	r.Register(&Config{
 		Name: "log-triage-skill",
 		Goal: "Read the attached runtime log and emit a structured triage bundle (errors + frames + signals + operational observations + residue) via emit_log_triage exactly once. Path validation and the resolved-files list are derived automatically from your emission — focus on extraction, not resolution.",
 		Workflow: []string{
-			"Read the attached runtime log from the 'Attached Runtime Log' section of the user prompt. If the log was oversized and blobbed to attached_log.txt, use read_file with line_offset/limit to paginate through the middle — the head+tail preview is already visible inline. line_offset is line-based, not byte-based. Multi-file attachments embed `# codrax-source: <path>` headers between bodies; treat each segment as an independent capture (per-process panic, per-time-window snapshot) when grouping errors.",
+			"Read the attached runtime log from the 'Attached Runtime Log' section of the user prompt. If the current tool schema includes an attachment-pagination read tool for an oversized blob, use line_offset/limit to paginate through the middle; otherwise the visible inline section is the full available body for this dispatch. line_offset is line-based, not byte-based. Multi-file attachments embed `# codrax-source: <path>` headers between bodies; treat each segment as an independent capture (per-process panic, per-time-window snapshot) when grouping errors.",
 			"Identify every stack frame that names a source file with a line number. For each frame, emit: file (as it appears in the log — do NOT normalize paths; path normalization is automatic), line, func (best available identifier), pkg (module/namespace hint when obvious), lang, raw (the original log line for this frame, required), confidence (0.0-1.0, your certainty the frame is real).",
 			"Group frames under the error they belong to. Emit errors[] with one entry per logical error (per goroutine in a Go panic dump, per exception in a multi-exception traceback). For each error set type (exception class / panic type), message (the human-readable text), and frames[] (the stack for THIS error).",
 			"Chain causal errors via the cause pointer. When the log shows 'Caused by:' (Java), 'during handling of' (Python __cause__ / __context__), or '#[source]' (Rust), nest the upstream error in the cause field. Keep the chain shallow — practical depth 3 or so; depth is capped at 5.",
@@ -504,7 +504,7 @@ Two-axis enumeration contract: when the user asks for every principal member plu
 			"read_file", // blob pagination only
 			"emit_log_triage",
 		},
-		OutputFormat: `You have ONE emit tool: emit_log_triage. You have ONE read tool: read_file, used SOLELY for paginating the attached log blob when it was too large to inline. You do NOT have grep / repo_map / list_files — path resolution is handled automatically.
+		OutputFormat: `You have ONE required emit tool: emit_log_triage. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. You do NOT have grep / repo_map / list_files — path resolution is handled automatically.
 
 Schema in one glance:
 - meta.lang        (required) — the dominant runtime language
@@ -549,7 +549,7 @@ You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — t
 		Name: "perf-triage-skill",
 		Goal: "Read the attached HiTrace / atrace / systrace / perfetto text excerpt and emit a structured PerfBundle (frames + janks + stalls + startup + observations) via emit_perf_trace exactly once. Identify janky frames whose duration exceeds ~16.6 ms on the UI thread (the 60-fps frame budget) and attribute them to the innermost tracing_mark_write B|…|tag span that was open at the jank start.",
 		Workflow: []string{
-			"Read the attached trace from the 'Attached Performance Trace' section. The same channel carries HiTrace (HarmonyOS hdc), atrace / systrace (Android adb), and perfetto text dumps — meta.source records which one you observed. Multi-file attachments embed `# codrax-source: <path>` headers between bodies; treat each segment as an independent capture (different process / time window / device) when correlating janks. If the trace was blobbed (large), use read_file with line_offset/limit to paginate — head+tail is inline. line_offset is line-based, not byte-based; emit_perf_trace has no byte_start/byte_end fields.",
+			"Read the attached trace from the 'Attached Performance Trace' section. The same channel carries HiTrace (HarmonyOS hdc), atrace / systrace (Android adb), and perfetto text dumps — meta.source records which one you observed. Multi-file attachments embed `# codrax-source: <path>` headers between bodies; treat each segment as an independent capture (different process / time window / device) when correlating janks. If the current tool schema includes an attachment-pagination read tool for an oversized blob, use line_offset/limit to paginate; otherwise the visible inline section is the full available body for this dispatch. line_offset is line-based, not byte-based; emit_perf_trace has no byte_start/byte_end fields.",
 			"Identify the source: `# ftrace` header or `TASK-PID CPU# TIMESTAMP FUNCTION` header = systrace / atrace / hitrace (all ftrace-compatible). A textual `perfetto` banner = perfetto text dump. Set meta.source accordingly. Raw ftrace timestamps are seconds end-to-end (928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision). Compute meta.duration_ms = (last_timestamp − first_timestamp) × 1000.",
 			"When the attached trace is HarmonyOS / OpenHarmony / HiTrace / bytrace (including user wording such as 鸿蒙 / 东湖 / OHOS), user-space priority semantics are: larger numeric priority means higher priority; 1-40 are CFS priorities and 41-139 are RT priorities. Concrete mapping examples: prio=20 is CFS; prio=41, prio=51, and prio=52 are RT. For any concrete prio=N in the trace, recompute the class from the numeric range before writing it; if source is Android / atrace / generic ftrace, keep priority as raw scheduler priority unless the trace producer documents its mapping.",
 			"Walk every `tracing_mark_write: B|<pid>|<tag>` begin and pair it with its matching `E|<pid>` end. The delta is the span duration. UI-thread span tags typically prefixed with `H:` on HarmonyOS (`H:RenderService:DoFrame`, `H:Layout:measure`, `H:Drawing`, `H:DataLoader:fetchSync`) or use Android conventions (`Choreographer#doFrame`, `performTraversals`, `RenderThread`).",
@@ -563,7 +563,7 @@ You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — t
 			"read_file",
 			"emit_perf_trace",
 		},
-		OutputFormat: `You have ONE emit tool: emit_perf_trace. Read-only pagination tool: read_file (line_offset/limit are line-based, not byte-based). No grep / repo_map — path resolution is automatic.
+		OutputFormat: `You have ONE required emit tool: emit_perf_trace. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. No grep / repo_map — path resolution is automatic.
 
 Schema in one glance:
 - meta.source        (required) — one of: hitrace / atrace / systrace / perfetto / unknown
@@ -602,7 +602,7 @@ Exactly one emit_perf_trace per dispatch. Prose is ignored — the bundle is the
 		Name: "log-segmentation-skill",
 		Goal: "Segment the attached runtime log into byte-addressed regions by kind (stack / caused_by / header / context / trace / noise) so each later per-segment extraction can focus on one coherent block at a time. Emit exactly one emit_log_segmentation call.",
 		Workflow: []string{
-			"Read the attached runtime log. If the log was blobbed, use read_file with line_offset/limit to scan the full body. read_file paging is line-based; segmentation byte_start/byte_end are raw attachment byte coordinates, so do not treat read_file line_offset or gutter line numbers as byte positions.",
+			"Read the attached runtime log. If the current tool schema includes an attachment-pagination read tool for an oversized blob, use line_offset/limit to scan the full body; otherwise segment the visible inline body. Pagination is line-based; segmentation byte_start/byte_end are raw attachment byte coordinates, so do not treat line_offset or gutter line numbers as byte positions.",
 			"Walk the log top-to-bottom. Identify byte ranges that contain: a cohesive stack trace (kind=stack); a 'Caused by' / '__cause__' block (kind=caused_by); an error header or panic message line (kind=header); contextual prose around the stack (kind=context); a more general trace segment (kind=trace); or unrelated noise (kind=noise).",
 			"Emit at most 10 segments. Overlap is NOT allowed — byte_end of segment N must be ≤ byte_start of segment N+1. Segments must be sorted by byte_start.",
 			"Use hint field to add a short (≤80 char) description so later per-segment extraction has a pointer to what it is looking at (e.g. hint='Go goroutine 15 panic' or hint='SQLException Caused-by').",
@@ -638,7 +638,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 		Name: "perf-segmentation-skill",
 		Goal: "Segment the attached HiTrace / atrace / perfetto excerpt into byte-addressed regions by kind (frame_window / jank_region / startup / thread_run / context / noise) so each later per-segment extraction can focus on one coherent block at a time. Emit exactly one emit_perf_segmentation call.",
 		Workflow: []string{
-			"Read the attached trace from the 'Attached Performance Trace' section. Channel covers HiTrace (HarmonyOS hdc), atrace / systrace (Android adb), and perfetto text dumps — same byte-stream regardless of capture tool. Multi-file attachments embed `# codrax-source: <path>` headers; segments should NOT cross those boundaries (one segment per capture window keeps Step B's per-segment dispatch attribution clean). If the trace was blobbed (large), use read_file with line_offset/limit to scan the full body. read_file paging is line-based; segmentation byte_start/byte_end are raw attachment byte coordinates, so do not treat read_file line_offset or gutter line numbers as byte positions.",
+			"Read the attached trace from the 'Attached Performance Trace' section. Channel covers HiTrace (HarmonyOS hdc), atrace / systrace (Android adb), and perfetto text dumps — same byte-stream regardless of capture tool. Multi-file attachments embed `# codrax-source: <path>` headers; segments should NOT cross those boundaries (one segment per capture window keeps Step B's per-segment dispatch attribution clean). If the current tool schema includes an attachment-pagination read tool for an oversized blob, use line_offset/limit to scan the full body; otherwise segment the visible inline body. Pagination is line-based; segmentation byte_start/byte_end are raw attachment byte coordinates, so do not treat line_offset or gutter line numbers as byte positions.",
 			"Walk the trace top-to-bottom. Identify byte ranges that contain: a single render-frame envelope worth scrutinising (kind=frame_window — typically a B|...|H:RenderService:DoFrame ... E|... pair); a contiguous run of janky frames or stalls (kind=jank_region); a process / activity startup window (kind=startup — bounded by ActivityTaskManager / AppInit / WindowStage.loadContent on HarmonyOS, ActivityThread / Application#onCreate on Android); a long-running CPU burn or I/O block on one thread (kind=thread_run); the trace header / metadata banner (kind=context); or unrelated noise (kind=noise).",
 			"Emit at most 10 segments. Overlap is NOT allowed — byte_end of segment N must be ≤ byte_start of segment N+1. Segments must be sorted by byte_start.",
 			"Use the hint field for a short (≤80 char) per-segment label so later per-segment extraction knows what it is looking at (e.g. hint='cold-start ActivityTaskManager 1.2s' or hint='LazyForEach jank window 3 frames').",

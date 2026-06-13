@@ -1200,6 +1200,96 @@ func TestBuildToolSchemas_RuntimeTriageKeepsReadFileForBlobBackedAttachment(t *t
 	}
 }
 
+func TestBuildInitialMessages_RuntimeTriageProjectsVisibleToolSurface(t *testing.T) {
+	cases := []struct {
+		name        string
+		agentName   types.AgentName
+		stage       types.PipelineStage
+		blobName    string
+		attachLog   string
+		attachTrace string
+		wantRead    bool
+	}{
+		{
+			name:        "perf inline",
+			agentName:   types.AgentPerfTriager,
+			stage:       types.StagePerfTriage,
+			attachTrace: "trace row",
+		},
+		{
+			name:      "log inline",
+			agentName: types.AgentLogTriager,
+			stage:     types.StageLogTriage,
+			attachLog: "panic row",
+		},
+		{
+			name:        "perf blob",
+			agentName:   types.AgentPerfTriager,
+			stage:       types.StagePerfTriage,
+			blobName:    promptctx.AttachedTraceBlobName,
+			attachTrace: "trace row",
+			wantRead:    true,
+		},
+		{
+			name:      "log blob",
+			agentName: types.AgentLogTriager,
+			stage:     types.StageLogTriage,
+			blobName:  promptctx.AttachedLogBlobName,
+			attachLog: "panic row",
+			wantRead:  true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			if tc.blobName != "" {
+				if err := os.WriteFile(filepath.Join(workDir, tc.blobName), []byte("full attachment"), 0o644); err != nil {
+					t.Fatalf("write blob: %v", err)
+				}
+			}
+			rec := &recordingAssembler{returnPrompt: &types.PromptContext{}}
+			eval := &recordingEvaluator{}
+			agent := NewBaseAgent(tc.agentName, &Dependencies{PromptAssembler: rec}, eval)
+			sk := &skill.Config{
+				Name:            "runtime-triage-skill",
+				ToolSuggestions: []string{"read_file", "emit_perf_trace", "emit_log_triage"},
+			}
+			ctx := &types.AgentContext{
+				AgentName:       tc.agentName,
+				Stage:           tc.stage,
+				WorkDir:         workDir,
+				AttachedLog:     tc.attachLog,
+				AttachedHitrace: tc.attachTrace,
+			}
+
+			agent.buildInitialMessages(ctx, sk)
+			if rec.assembleSkill == nil {
+				t.Fatal("assembler did not receive a skill")
+			}
+			got := toolNameSet(rec.assembleSkill.ToolSuggestions)
+			if got["read_file"] != tc.wantRead {
+				t.Fatalf("prompt skill read_file visible=%v, want %v; tools=%v", got["read_file"], tc.wantRead, rec.assembleSkill.ToolSuggestions)
+			}
+			if eval.gotSkill == nil {
+				t.Fatal("dynamic instruction did not receive a skill")
+			}
+			gotEval := toolNameSet(eval.gotSkill.ToolSuggestions)
+			if gotEval["read_file"] != tc.wantRead {
+				t.Fatalf("dynamic skill read_file visible=%v, want %v; tools=%v", gotEval["read_file"], tc.wantRead, eval.gotSkill.ToolSuggestions)
+			}
+		})
+	}
+}
+
+func toolNameSet(names []string) map[string]bool {
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
+}
+
 func TestBuildToolSchemas_ObservationOnlyRuntimeKeepsAnalyzerPrescanTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.GrepTool{})
