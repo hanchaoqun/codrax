@@ -1656,9 +1656,20 @@ func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 	if agg.OccurrenceCount != 2 || !near(agg.IOWaitMs, 9.149, 0.001) || !strings.Contains(agg.Path, "ThreadPoolForeg") || !strings.Contains(agg.Path, "com.baidu.tieba") {
 		t.Fatalf("aggregate should preserve occurrence count, cumulative IO wait, and chain path: %+v", agg)
 	}
+	if len(agg.OccurrenceWindows) != 2 {
+		t.Fatalf("aggregate should preserve bounded occurrence windows: %+v", agg)
+	}
+	if !near(agg.OccurrenceWindows[0].Window.StartTs, 34579.525319, 0.000001) ||
+		!near(agg.OccurrenceWindows[1].Window.StartTs, 34579.546416, 0.000001) ||
+		agg.OccurrenceWindows[1].TargetBlockedMs <= agg.OccurrenceWindows[0].TargetBlockedMs-2 {
+		t.Fatalf("occurrence windows should preserve chronological repeated-window detail: %+v", agg.OccurrenceWindows)
+	}
 	item := rootCauseItemFromCausalAggregate(agg)
 	if item.Source != "wakeup_chain.aggregated_impacts" || item.Tier != "" || item.ImpactMs < 9.148 || item.CumulativeImpactMs < 9.148 || item.ChainRelevance != "on_chain" || item.DominantState != string(StateIOWait) {
 		t.Fatalf("aggregate should become an on-chain ranked root-cause candidate: %+v", item)
+	}
+	if len(item.OccurrenceWindows) != 2 || !near(item.OccurrenceWindows[0].IOWaitMs, 3.1, 0.001) {
+		t.Fatalf("aggregate-derived root cause should carry occurrence windows: %+v", item)
 	}
 	assignRootCauseRanksAndTiers([]RootCauseRankItem{item})
 	if rootCauseShouldBeCoPrimary(item) != true {

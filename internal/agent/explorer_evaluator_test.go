@@ -261,6 +261,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"`cumulative_impact_ms`",
 		"compare same-chain rows by `cumulative_impact_ms` before `score`",
 		"follow the rendered `next_step`",
+		"`occurrence_windows`",
+		"representative repeated windows",
 		"`sync_like`",
 		"`blocking_candidate`",
 		"pattern=\"<literal>\"",

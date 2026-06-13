@@ -66,6 +66,7 @@ func TestRenderTraceQueryViewMatrix_PreservesPinnedPromptPhrases(t *testing.T) {
 		"`state_churn` context",
 		"fragmented state-churn causes",
 		"same-chain cumulative_impact_ms",
+		"occurrence_windows",
 		"`view=\"frame_root_cause_bundle\"`",
 		"handoff-safe frame/jank root-cause bundles",
 		"oneway/sync_like/blocking_candidate",

@@ -1287,6 +1287,7 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	rootCauseOrdinal := 0
 	rootEvidenceOrdinal := 0
 	causalImpactOrdinal := 0
+	causalAggregateOrdinal := 0
 	wakeupPathOrdinal := 0
 	blockingOrdinal := 0
 	stateChurnOrdinal := 0
@@ -1318,6 +1319,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- causal_impact "):
 			causalImpactOrdinal++
 			if record, ok := traceQueryCausalImpactRecord(index, causalImpactOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- aggregated_impact "):
+			causalAggregateOrdinal++
+			if record, ok := traceQueryCausalAggregateRecord(index, causalAggregateOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		case strings.HasPrefix(line, "- wakeup_chain path="):
@@ -1439,6 +1445,9 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	if impact > 0 {
 		value = fmt.Sprintf("%.3f", impact)
 	}
+	notes := traceQuerySelectedRichNotes(fields, []string{"occurrence_windows"})
+	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact)...)
+	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{"chain_relevance", "dominant_state", "running", "runnable", "sleep", "d_state", "io_wait"})...)
 	return ObservationRecord{
 		ID:              fmt.Sprintf("tool:%d#trace_query:root_cause_rank:%d", index, rank),
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -1455,7 +1464,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         firstNonEmptyString(summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, typ)),
-		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact),
+		RichNotes:       notes,
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      conf,
@@ -1495,6 +1504,45 @@ func traceQueryCausalImpactRecord(index, ordinal int, line string, ref Observati
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.78,
+	}, true
+}
+
+func traceQueryCausalAggregateRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- aggregated_impact ")
+	if path := traceQuerySummaryLineSpanField(line, "path", "depth"); path != "" {
+		fields["path"] = path
+	}
+	thread := strings.TrimSpace(fields["thread"])
+	dominant := strings.TrimSpace(fields["dominant_state"])
+	impact := traceQueryFieldMS(fields, "impact")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if thread == "" && dominant == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if impact > 0 {
+		value = fmt.Sprintf("%.3f", impact)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:wakeup_causal_aggregate:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "wakeup_causal_aggregate:" + firstNonEmptyString(thread, dominant),
+		Subject:         thread,
+		Predicate:       "wakeup_causal_aggregate",
+		Object:          dominant,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "path", "occurrences", "occurrence_windows", "dominant_state", "impact", "total", "target_impact", "fragments", "switches", "max_segment", "running", "runnable", "sleep", "d_state", "io_wait", "priority_relation", "priority_inversion_candidate"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.80,
 	}, true
 }
 
@@ -2101,6 +2149,25 @@ func traceQuerySelectedRichNotes(fields map[string]string, keys []string) []stri
 		}
 	}
 	return notes
+}
+
+func traceQuerySummaryLineSpanField(line, startKey, endKey string) string {
+	body := strings.TrimSpace(line)
+	if head, _, ok := strings.Cut(body, " — "); ok {
+		body = strings.TrimSpace(head)
+	}
+	startMarker := startKey + "="
+	start := strings.Index(body, startMarker)
+	if start < 0 {
+		return ""
+	}
+	start += len(startMarker)
+	endMarker := " " + endKey + "="
+	end := strings.Index(body[start:], endMarker)
+	if end < 0 {
+		return strings.TrimSpace(body[start:])
+	}
+	return strings.TrimSpace(body[start : start+end])
 }
 
 func traceQuerySummaryLineFields(line, prefix string) (map[string]string, string) {

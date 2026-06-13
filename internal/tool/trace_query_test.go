@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -661,9 +662,78 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestTraceQuerySummaryRendersAggregateOccurrenceWindows(t *testing.T) {
+	result := tracequery.Result{
+		View:       "root_cause_rank",
+		SourcePath: "/tmp/frame.systrace",
+		WakeupChain: &tracequery.ChainResult{
+			AggregatedImpacts: []tracequery.WakeupCausalAggregate{{
+				Thread:            tracequery.ThreadRef{Comm: "ThreadPoolForeg", PID: 60555},
+				Path:              "ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
+				ChainDepth:        3,
+				OccurrenceCount:   3,
+				DominantState:     string(tracequery.StateIOWait),
+				DominantImpactMs:  9.149,
+				TotalMs:           12.0,
+				TargetBlockedMs:   27.9,
+				IOWaitMs:          9.149,
+				LineStart:         100,
+				LineEnd:           180,
+				PriorityRelation:  "lower_priority_dependency",
+				PriorityInversion: true,
+				OccurrenceWindows: []tracequery.WakeupCausalOccurrence{
+					{Window: tracequery.TimeWindow{StartTs: 34579.525319, EndTs: 34579.534164}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.1, TotalMs: 3.1, TargetBlockedMs: 8.8, IOWaitMs: 3.1, LineStart: 100, LineEnd: 120},
+					{Window: tracequery.TimeWindow{StartTs: 34579.546416, EndTs: 34579.553415}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.0, TotalMs: 3.0, TargetBlockedMs: 7.0, IOWaitMs: 3.0, LineStart: 130, LineEnd: 150},
+					{Window: tracequery.TimeWindow{StartTs: 34579.576702, EndTs: 34579.587805}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.049, TotalMs: 3.049, TargetBlockedMs: 11.1, IOWaitMs: 3.049, LineStart: 160, LineEnd: 180},
+				},
+				Summary: "ThreadPoolForeg repeated D/IO dependency on wakeup chain",
+			}},
+		},
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Items: []tracequery.RootCauseRankItem{{
+				Rank:               1,
+				Tier:               "primary",
+				Type:               "priority_inversion_candidate",
+				Thread:             tracequery.ThreadRef{Comm: "ThreadPoolForeg", PID: 60555},
+				StartTs:            34579.525319,
+				EndTs:              34579.587805,
+				DominantState:      string(tracequery.StateIOWait),
+				IOWaitMs:           9.149,
+				ImpactMs:           9.149,
+				CumulativeImpactMs: 12.0,
+				TargetImpactMs:     27.9,
+				LineStart:          100,
+				LineEnd:            180,
+				Source:             "wakeup_chain.aggregated_impacts",
+				Causality:          "on_wakeup_chain",
+				ChainRelevance:     "on_chain",
+				ChainDepth:         3,
+				OccurrenceWindows: []tracequery.WakeupCausalOccurrence{
+					{Window: tracequery.TimeWindow{StartTs: 34579.525319, EndTs: 34579.534164}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.1, TotalMs: 3.1, TargetBlockedMs: 8.8, IOWaitMs: 3.1, LineStart: 100, LineEnd: 120},
+					{Window: tracequery.TimeWindow{StartTs: 34579.546416, EndTs: 34579.553415}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.0, TotalMs: 3.0, TargetBlockedMs: 7.0, IOWaitMs: 3.0, LineStart: 130, LineEnd: 150},
+					{Window: tracequery.TimeWindow{StartTs: 34579.576702, EndTs: 34579.587805}, DominantState: string(tracequery.StateIOWait), DominantImpactMs: 3.049, TotalMs: 3.049, TargetBlockedMs: 11.1, IOWaitMs: 3.049, LineStart: 160, LineEnd: 180},
+				},
+				Summary: "ThreadPoolForeg repeated D/IO dependency on wakeup chain",
+			}},
+		},
+	}
+	summary := traceQuerySummary(result, traceQueryParams{View: "root_cause_rank"}, "path", "/tmp/payload.json")
+	for _, want := range []string{
+		"occurrence_windows=34579.525319..34579.534164",
+		"34579.546416..34579.553415",
+		"34579.576702..34579.587805",
+		"aggregate_occurrence thread=ThreadPoolForeg-60555",
+		"rank_occurrence rank=1 thread=ThreadPoolForeg-60555",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing occurrence detail %q:\n%s", want, summary)
 		}
 	}
 }

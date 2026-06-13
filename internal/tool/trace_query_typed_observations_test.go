@@ -52,7 +52,20 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					DominantState: string(tracequery.StateIOWait),
 					DStateMs:      4.0,
 					IOWaitMs:      2.5,
-					Summary:       "binder reply stalled the frame",
+					OccurrenceWindows: []tracequery.WakeupCausalOccurrence{
+						{
+							Window:           tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.025},
+							DominantState:    string(tracequery.StateIOWait),
+							DominantImpactMs: 6.5,
+							TotalMs:          7.0,
+							TargetBlockedMs:  12.5,
+							DStateMs:         4.0,
+							IOWaitMs:         2.5,
+							LineStart:        11,
+							LineEnd:          18,
+						},
+					},
+					Summary: "binder reply stalled the frame",
 				},
 				{
 					Rank: 2, Tier: "secondary", Type: "cpu_pressure",
@@ -129,7 +142,31 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 				LineEnd:           35,
 				PriorityRelation:  "lower_priority_dependency",
 				PriorityInversion: true,
-				Summary:           "worker aggregate runnable dependency repeated across fragments",
+				OccurrenceWindows: []tracequery.WakeupCausalOccurrence{
+					{
+						Window:           tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.025},
+						DominantState:    string(tracequery.StateRunnable),
+						DominantImpactMs: 8.0,
+						TotalMs:          8.5,
+						TargetBlockedMs:  12.0,
+						RunnableMs:       8.0,
+						FragmentCount:    2,
+						LineStart:        21,
+						LineEnd:          29,
+					},
+					{
+						Window:           tracequery.TimeWindow{StartTs: 1.040, EndTs: 1.050},
+						DominantState:    string(tracequery.StateRunnable),
+						DominantImpactMs: 4.0,
+						TotalMs:          4.5,
+						TargetBlockedMs:  8.0,
+						RunnableMs:       4.0,
+						FragmentCount:    2,
+						LineStart:        30,
+						LineEnd:          35,
+					},
+				},
+				Summary: "worker aggregate runnable dependency repeated across fragments",
 			}},
 			RootEvidence: []tracequery.RootEvidence{{
 				Type:       "long_sleep",
@@ -338,7 +375,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
 	}
 	rootNotes := strings.Join(rootCause.RichNotes, "\n")
-	for _, want := range []string{"cumulative_impact_ms=18.500", "target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
+	for _, want := range []string{"occurrence_windows=1.010000..1.025000", "cumulative_impact_ms=18.500", "target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
 		if !strings.Contains(rootNotes, want) {
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}
@@ -433,6 +470,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	if wakeupAggregate == nil || wakeupAggregate.Predicate != "wakeup_causal_aggregate" ||
 		wakeupAggregate.Value != "12.000" ||
+		!strings.Contains(strings.Join(wakeupAggregate.RichNotes, "\n"), "occurrence_windows=1.010000..1.025000") ||
 		!strings.Contains(strings.Join(wakeupAggregate.RichNotes, "\n"), "occurrences=2") ||
 		!strings.Contains(strings.Join(wakeupAggregate.RichNotes, "\n"), "path=worker-21 -> app-20") {
 		t.Fatalf("missing structured wakeup aggregate row: %+v", wakeupAggregate)

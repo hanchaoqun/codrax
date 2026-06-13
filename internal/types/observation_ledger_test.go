@@ -265,6 +265,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"## Wakeup chain",
 				"- wakeup_chain path=worker-21 -> com.app-42",
 				"- causal_impact thread=worker-21 depth=1 causality=on_wakeup_chain dominant_state=runnable impact=8.250ms total=9.000ms target_impact=12.500ms fragments=3 switches=2 max_segment=4.000ms p95_segment=4.000ms running=0.000ms runnable=8.250ms sleep=0.750ms d_state=0.000ms io_wait=0.000ms prio=20/ohos_cfs target_prio=52/ohos_rt priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-88 — worker runnable dependency dominated the wakeup chain",
+				"- aggregated_impact thread=worker-21 path=worker-21 -> com.app-42 depth=1 occurrences=2 occurrence_windows=1.010000..1.025000,state=runnable,total=8.500ms,target=12.000ms;1.040000..1.050000,state=runnable,total=4.500ms,target=8.000ms dominant_state=runnable impact=12.000ms total=13.000ms target_impact=20.000ms fragments=4 switches=2 max_segment=8.000ms running=0.000ms runnable=12.000ms sleep=1.000ms d_state=0.000ms io_wait=0.000ms priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-95 — worker aggregate runnable dependency repeated across fragments",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
 				"- thread_cpu_load thread=rival-30 running=6.000ms runnable=1.000ms high_prio_running=6.000ms cpu=1 core_class=small freq=900000kHz prio=80/ohos_rt lines=45-49 — rival thread load",
@@ -320,6 +321,16 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!observationLedgerTestContainsString(causal.RichNotes, "priority_inversion_candidate=true") ||
 		!observationLedgerTestContainsString(causal.RichNotes, "target_impact=12.500ms") {
 		t.Fatalf("trace_query causal impact should survive as supporting runtime observation: %+v", causal)
+	}
+	aggregate := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_causal_aggregate:1")
+	if aggregate.Predicate != "wakeup_causal_aggregate" ||
+		aggregate.Subject != "worker-21" ||
+		aggregate.Object != "runnable" ||
+		aggregate.Value != "12.000" ||
+		!observationLedgerTestContainsString(aggregate.RichNotes, "path=worker-21 -> com.app-42") ||
+		!observationLedgerTestContainsString(aggregate.RichNotes, "occurrence_windows=1.010000..1.025000,state=runnable,total=8.500ms,target=12.000ms;1.040000..1.050000,state=runnable,total=4.500ms,target=8.000ms") ||
+		!observationLedgerTestContainsString(aggregate.RichNotes, "occurrences=2") {
+		t.Fatalf("trace_query aggregate fallback should preserve occurrence windows: %+v", aggregate)
 	}
 	wakeupPath := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_chain:path:1")
 	if wakeupPath.Predicate != "wakeup_chain" ||

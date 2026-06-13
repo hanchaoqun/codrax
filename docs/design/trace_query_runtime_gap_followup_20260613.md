@@ -542,3 +542,59 @@ Tasks:
   fallback but keep trace follow-up/completion available.
 - [x] Add route-cost tests for analyzer source-optional runtime shortcuts,
   current-source-required escape, and explorer trace_query-first startup.
+
+### Batch 12: Multi-window on-chain occurrence preservation
+
+Gap:
+
+- `wakeup_chain.aggregated_impacts` correctly groups repeated fragmented
+  dependency branches and `root_cause_rank` correctly compares same-chain rows
+  by cumulative impact, but the aggregate only preserved first/last timestamps,
+  line range, and occurrence count.
+- That loses answer-critical detail for commercial trace triage: repeated
+  windows that share the same on-chain path cannot be enumerated later, so a
+  final answer may say "aggregate D/IO on chain" without stating which concrete
+  target-blocking windows share that upstream D/IO dependency.
+- The same shape applies beyond one Donghu frame: any repeated on-chain
+  runnable, D/IO, sleep, or compute-supply dependency needs aggregate ranking
+  plus bounded representative occurrences. Single-row `state_churn` already
+  carries per-state totals, fragment count, max/p95 segment, runnable context,
+  and next-step guidance; the missing granularity is specifically the repeated
+  common dependency path aggregate.
+
+Design:
+
+- Add output-only `WakeupCausalOccurrence` and carry
+  `occurrence_windows` on both `WakeupCausalAggregate` and the
+  `RootCauseRankItem` generated from that aggregate. This is not a model
+  tool-call input, so no new JSON repair alias is required.
+- Preserve at most 8 representative occurrence windows per aggregate. Select
+  the highest-impact occurrences by total/target/dominant impact, then render
+  the selected set chronologically so answers can describe the frame timeline
+  naturally without unbounded payload growth.
+- Each occurrence keeps the concrete window, dominant state, dominant impact,
+  total/target impact, running/runnable/sleep/D/IO totals, fragment/switch
+  counts, max/p95 segment, line range, and summary.
+- Render a compact `occurrence_windows=...` field in `aggregated_impact` and
+  `root_cause_rank` summary rows, plus expanded `aggregate_occurrence` and
+  `rank_occurrence` detail lines for human-readable diagnostics.
+- Propagate the field through typed observations, summary-to-ledger fallback,
+  finalizer supplement whitelist, trace_query description/schema, shared view
+  teaching, explorer start guidance, and final-answer runtime handoff guidance.
+- Keep existing ranking semantics: on-chain rows outrank adjacent/background,
+  same-chain primary rows sort by `cumulative_impact_ms`, and background
+  pressure remains auxiliary unless bounded chain/overlap evidence proves
+  direct impact.
+
+Tasks:
+
+- [x] Add `WakeupCausalOccurrence` and output-only `occurrence_windows`.
+- [x] Populate and cap occurrence windows during wakeup-chain aggregation.
+- [x] Carry occurrence windows into aggregate-derived root-cause rank rows.
+- [x] Render compact and expanded occurrence details in trace_query summaries.
+- [x] Publish occurrence windows in typed observations and summary fallback.
+- [x] Update final supplement, schema/tool description, explorer guidance,
+  final-answer guidance, and shared trace-query view teaching.
+- [x] Add focused tests for aggregate/root-rank occurrence preservation,
+  summary rendering, typed observations, final supplement, and prompt/schema
+  teaching.

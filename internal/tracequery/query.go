@@ -14,6 +14,7 @@ import (
 const unparsedLineCaveatRatio = 0.5
 
 const wakeupMatchToleranceSec = 0.000005
+const wakeupCausalAggregateOccurrenceCap = 8
 
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
@@ -4967,6 +4968,7 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		if impact.PriorityInversionCandidate {
 			a.invCount++
 		}
+		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}
 	var out []WakeupCausalAggregate
 	for _, a := range accs {
@@ -4976,6 +4978,7 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
+		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
 		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
 		out = append(out, a.item)
 	}
@@ -4992,6 +4995,70 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		out = out[:8]
 	}
 	return out
+}
+
+func wakeupCausalOccurrenceFromImpact(impact WakeupCausalImpact) WakeupCausalOccurrence {
+	return WakeupCausalOccurrence{
+		Window:           impact.Window,
+		DominantState:    impact.DominantState,
+		DominantImpactMs: impact.DominantImpactMs,
+		TotalMs:          impact.TotalMs,
+		TargetBlockedMs:  impact.TargetBlockedMs,
+		RunningMs:        impact.RunningMs,
+		RunnableMs:       impact.RunnableMs,
+		SleepMs:          impact.SleepMs,
+		DStateMs:         impact.DStateMs,
+		IOWaitMs:         impact.IOWaitMs,
+		FragmentCount:    impact.FragmentCount,
+		StateSwitches:    impact.StateSwitches,
+		MaxSegmentMs:     impact.MaxSegmentMs,
+		P95SegmentMs:     impact.P95SegmentMs,
+		LineStart:        impact.LineStart,
+		LineEnd:          impact.LineEnd,
+		Summary:          impact.Summary,
+	}
+}
+
+func trimWakeupCausalOccurrences(in []WakeupCausalOccurrence, limit int) []WakeupCausalOccurrence {
+	if len(in) == 0 {
+		return nil
+	}
+	out := append([]WakeupCausalOccurrence(nil), in...)
+	if limit > 0 && len(out) > limit {
+		sort.SliceStable(out, func(i, j int) bool {
+			si := wakeupCausalOccurrenceSelectionScore(out[i])
+			sj := wakeupCausalOccurrenceSelectionScore(out[j])
+			if si != sj {
+				return si > sj
+			}
+			if out[i].Window.StartTs != out[j].Window.StartTs {
+				return out[i].Window.StartTs < out[j].Window.StartTs
+			}
+			return out[i].LineStart < out[j].LineStart
+		})
+		out = out[:limit]
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Window.StartTs != out[j].Window.StartTs {
+			return out[i].Window.StartTs < out[j].Window.StartTs
+		}
+		if out[i].Window.EndTs != out[j].Window.EndTs {
+			return out[i].Window.EndTs < out[j].Window.EndTs
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	return out
+}
+
+func wakeupCausalOccurrenceSelectionScore(item WakeupCausalOccurrence) float64 {
+	score := item.TotalMs
+	if item.TargetBlockedMs > score {
+		score = item.TargetBlockedMs
+	}
+	if item.DominantImpactMs > score {
+		score = item.DominantImpactMs
+	}
+	return score
 }
 
 func dominantAggregateState(item WakeupCausalAggregate) (string, float64) {
@@ -5753,6 +5820,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.SleepMs = aggregate.SleepMs
 	item.DStateMs = aggregate.DStateMs
 	item.IOWaitMs = aggregate.IOWaitMs
+	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
 	item.Score = impactMs * conf * 2.05
 	return item
 }
