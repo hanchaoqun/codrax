@@ -20,6 +20,21 @@ type ProposeSubAgents struct {
 	NonEvidenceTool
 }
 
+type proposeSubAgentsParams struct {
+	Reason     string                `json:"reason"`
+	Goal       string                `json:"goal"`
+	SubTasks   []proposeSubTaskParam `json:"sub_tasks"`
+	ReduceHint string                `json:"reduce_hint,omitempty"`
+}
+
+type proposeSubTaskParam struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Objective   string   `json:"objective"`
+	Scope       []string `json:"scope"`
+	Constraints []string `json:"constraints,omitempty"`
+}
+
 // NewProposeSubAgents creates the tool.
 func NewProposeSubAgents() *ProposeSubAgents {
 	return &ProposeSubAgents{}
@@ -77,9 +92,25 @@ func (t *ProposeSubAgents) SchemaFor(agentName string) json.RawMessage {
 
 func (t *ProposeSubAgents) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	// Validate structure; the orchestrator fills in sub_agent at extraction time.
-	var proposal types.SubAgentProposal
-	if err := json.Unmarshal(params, &proposal); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: err.Error(), Timestamp: time.Now()}, err
+	var p proposeSubAgentsParams
+	normalized, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil)
+	if err != nil {
+		return *decodeFailure, err
+	}
+	proposal := types.SubAgentProposal{
+		Reason:     p.Reason,
+		Goal:       p.Goal,
+		ReduceHint: p.ReduceHint,
+		SubTasks:   make([]types.SubTask, 0, len(p.SubTasks)),
+	}
+	for _, task := range p.SubTasks {
+		proposal.SubTasks = append(proposal.SubTasks, types.SubTask{
+			ID:          task.ID,
+			Title:       task.Title,
+			Objective:   task.Objective,
+			Scope:       append([]string(nil), task.Scope...),
+			Constraints: append([]string(nil), task.Constraints...),
+		})
 	}
 	if len(proposal.SubTasks) == 0 {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "proposal has no sub_tasks", Timestamp: time.Now()}, fmt.Errorf("proposal has no sub_tasks")
@@ -87,7 +118,7 @@ func (t *ProposeSubAgents) Execute(ctx *types.BusContext, params json.RawMessage
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   string(params),
+		Summary:   string(normalized),
 		Timestamp: time.Now(),
 	}, nil
 }

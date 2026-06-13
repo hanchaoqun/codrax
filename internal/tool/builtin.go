@@ -3303,8 +3303,8 @@ func (t *GitDiff) Parameters() json.RawMessage {
 
 func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p gitDiffParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	stagedStr := ""
@@ -3424,8 +3424,8 @@ func (t *GitShow) Parameters() json.RawMessage {
 
 func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p gitShowParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	ref, refErr := normalizeGitRefParam(p.Ref, true)
 	if refErr != "" {
@@ -3564,8 +3564,8 @@ func (t *GitLog) Parameters() json.RawMessage {
 
 func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p gitLogParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	count := p.Count
@@ -3725,8 +3725,8 @@ func (t *GitHistorySearch) Parameters() json.RawMessage {
 
 func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p gitHistorySearchParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	dir, pathErr := resolveRepoScopedToolDir(ctx, p.RepoPath)
 	if pathErr != "" {

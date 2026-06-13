@@ -18,6 +18,14 @@ type EmitMultiRepoFocus struct {
 	NonEvidenceTool
 }
 
+type multiRepoFocusDecodeEnvelope struct {
+	RecommendedFocusSubrepos json.RawMessage `json:"recommended_focus_subrepos,omitempty"`
+	Candidates               json.RawMessage `json:"candidates,omitempty"`
+	Confidence               float64         `json:"confidence"`
+	Source                   string          `json:"source,omitempty"`
+	Rationale                string          `json:"rationale,omitempty"`
+}
+
 func (t *EmitMultiRepoFocus) Name() string { return "emit_multi_repo_focus" }
 
 func (t *EmitMultiRepoFocus) Description() string {
@@ -55,6 +63,38 @@ func (t *EmitMultiRepoFocus) Parameters() json.RawMessage {
 }`)
 }
 
+func emitMultiRepoFocusDecodeParameters() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "required": ["recommended_focus_subrepos", "confidence"],
+  "properties": {
+    "recommended_focus_subrepos": {
+      "description": "One to five exact sub-repo root paths from the topology, or objects {root_rel, confidence, reason, source}. Do not invent paths.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "properties": {
+              "root_rel": {"type": "string"},
+              "slug": {"type": "string"},
+              "confidence": {"type": "number"},
+              "reason": {"type": "string"},
+              "source": {"type": "string", "enum": ["model_recommended", "user_explicit_in_request"]}
+            }
+          }
+        ]
+      }
+    },
+    "candidates": {"description": "Deprecated backend-only alias for recommended_focus_subrepos.", "type": "array"},
+    "confidence": {"type": "number", "description": "Overall confidence from 0.0 to 1.0."},
+    "source": {"type": "string", "enum": ["model_recommended", "user_explicit_in_request"]},
+    "rationale": {"type": "string", "description": "One short reason tied to the current request."}
+  }
+}`)
+}
+
 func (t *EmitMultiRepoFocus) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	start := time.Now()
 	result := func(success bool, summary string) types.ToolResult {
@@ -68,7 +108,12 @@ func (t *EmitMultiRepoFocus) Execute(ctx *types.BusContext, params json.RawMessa
 		return result(false, "emit_multi_repo_focus rejected: no multi-repo topology is active"), nil
 	}
 
-	raw, err := parseMultiRepoFocusRaw(params)
+	var envelope multiRepoFocusDecodeEnvelope
+	normalized, decodeFailure, err := decodeStrictToolParams(t.Name(), params, emitMultiRepoFocusDecodeParameters(), &envelope, nil)
+	if err != nil {
+		return *decodeFailure, err
+	}
+	raw, err := parseMultiRepoFocusRaw(normalized)
 	if err != nil {
 		return result(false, "emit_multi_repo_focus rejected: "+err.Error()), nil
 	}

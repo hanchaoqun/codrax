@@ -69,13 +69,8 @@ func (t *ListMemory) Parameters() json.RawMessage {
 
 func (t *ListMemory) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p listMemoryParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	if ctx == nil || ctx.Memory == nil {
 		return types.ToolResult{

@@ -103,7 +103,7 @@
 | 6B | 提升 ToolResult bound utility 到 types；fork merge bound ToolResults/MCPResponses；新增 tests；agent merge 改复用 | `go test ./internal/types ./internal/agent -run 'TurnAArtifacts|MergeTurnAArtifacts|BoundTurnA'` | Done |
 | 6C | normalizer morph alias optional resolver；repomap resolver 实现；unit/bench | `go test ./internal/analysis/normalizer ./internal/agent -run 'Normalize|LookupSymbol|MorphAlias'`; `go test ./internal/analysis/normalizer -bench MorphAliasCandidates -run '^$'` | Done |
 | 5A | strict decode Batch 5A | `go test ./internal/tool -run 'TestEveryRegistryToolIsStrictDecodeWiredOrExempt|TestStrictDecodeRegistryMirrorsProductionSites|Builtin|RunTests|ReadFile|PromptHygiene'` | Done |
-| 5B | strict decode Batch 5B | `go test ./internal/tool -run 'StrictDecodeRegistry|Git|Memory|SubAgents|MultiRepo'` | Pending |
+| 5B | strict decode Batch 5B | `go test ./internal/tool -run 'TestEveryRegistryToolIsStrictDecodeWiredOrExempt|TestStrictDecodeRegistryMirrorsProductionSites|Git|Memory|SubAgents|MultiRepo|ProposeSubAgents|EmitMultiRepoFocus'` | Done |
 | 5C | strict decode Batch 5C | `go test ./internal/tool -run 'StrictDecodeRegistry|EmitAnalysis|EmitInvestigation|LogSegmentation|PerfSegmentation'` | Pending |
 | Final eval | 挑代表 eval，每次并发 2；人工审计答案/日志/工具使用/性能内存 | representative eval logs + gap update | Pending |
 
@@ -124,3 +124,4 @@
 - 2026-06-13: 6B 交付。TurnA ToolResult byte accounting 提升到 `internal/types`；agent 跨窗口 merge 改复用公共 helper；`mergeTurnAArtifactsForMutable` 并发 fork 汇总点对 ToolResults/MCPResponses 增加 count+byte bound，保留 payload-bearing successful carrier。Focused tests 通过。
 - 2026-06-13: 6C 交付。normalizer 增加 ASCII-only bounded morph candidates；repomap 单仓/多仓 resolver 实现 optional `LookupSymbolMorphAlias`，候选必须 exact/flat symbol-table 命中才提升。Focused tests 通过；`BenchmarkMorphAliasCandidates` 约 59ns/op。
 - 2026-06-13: 5A 交付。新增 in-package strict decode helper；`exec_command` / `grep` / `read_file` / `list_files` / `run_tests` 接入 schema-driven compat + `DisallowUnknownFields` + typed repair。`read_file` 保留内部 legacy `offset` decode schema，但模型可见 schema 仍只暴露 `line_offset`，prompt hygiene 通过。
+- 2026-06-13: 5B 交付。Git 四工具、memory 两工具、`propose_sub_agents`、`emit_multi_repo_focus` 接入 strict decode。`emit_multi_repo_focus` 使用内部 envelope 保留 `candidates` 兼容解析；`propose_sub_agents` 改用 schema-aligned params，未公开 nested 字段不再被悄悄接收。

@@ -69,13 +69,8 @@ func (t *RecallMemory) Parameters() json.RawMessage {
 
 func (t *RecallMemory) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p recallMemoryParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	if strings.TrimSpace(p.Query) == "" {
 		return types.ToolResult{
