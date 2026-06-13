@@ -56,6 +56,13 @@ func TestSampleArtifactsForPromptCompactsNestedArtifacts(t *testing.T) {
 	}
 }
 
+func TestInferAnswerItemCountSingleJSONFieldArray(t *testing.T) {
+	got := InferAnswerItemCount(`{"ids":["u1","u3"]}`, dataquery.OutputContract{Format: dataquery.OutputJSONOnly})
+	if got != 2 {
+		t.Fatalf("InferAnswerItemCount=%d, want single JSON field array length", got)
+	}
+}
+
 func TestBuildResultPromptViewProjectsLedgersAndCollections(t *testing.T) {
 	result := dataquery.Result{
 		Rows: []dataquery.RowDecision{

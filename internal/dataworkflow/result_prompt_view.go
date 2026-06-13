@@ -180,6 +180,14 @@ func InferAnswerItemCount(answer string, contract dataquery.OutputContract) int 
 	if err := json.Unmarshal([]byte(answer), &arr); err == nil {
 		return len(arr)
 	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(answer), &obj); err == nil && len(obj) == 1 {
+		for _, value := range obj {
+			if arr, ok := value.([]any); ok {
+				return len(arr)
+			}
+		}
+	}
 	if contract.Normalize().Format == dataquery.OutputCSVLine || strings.Contains(answer, ",") {
 		parts := strings.Split(answer, ",")
 		count := 0

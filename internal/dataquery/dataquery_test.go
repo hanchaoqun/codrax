@@ -9287,6 +9287,77 @@ func TestActionRunnerAssembleAnswerProjectsSameMetricSetGroupsAsJSONArrayField(t
 	}
 }
 
+func TestActionRunnerAssembleAnswerSkipsReferenceCompletionForListAggregate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[
+{"id":"u1","active":true},
+{"id":"u2","active":false},
+{"id":"u3","active":true}
+]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"users.json"},
+		OutputContract: OutputContract{
+			Format:             OutputJSONOnly,
+			ExplanationAllowed: false,
+			CompleteReference:  true,
+			ReferencePath:      "users.json",
+			ReferenceKeyField:  "id",
+		},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"complete_reference":  "true",
+					"reference_path":      "users.json",
+					"reference_key_field": "id",
+					"projection":          "json_object",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("u1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("row:1"),
+			GroupKey:      LooseText("u1"),
+			Metric:        LooseText("id"),
+			Value:         LooseText("u1"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("u3"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("row:3"),
+			GroupKey:      LooseText("u3"),
+			Metric:        LooseText("id"),
+			Value:         LooseText("u3"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want aggregate list JSON field despite larger reference universe", res.Answer)
+	}
+	fields := res.Artifacts[len(res.Artifacts)-1].Fields
+	if fields["reference_projected"] == "true" {
+		t.Fatalf("Assemble fields=%+v, list aggregate must not be reference-projected", fields)
+	}
+}
+
 func TestActionRunnerAssembleAnswerKeepsNumericSameMetricGroupsKeyedByGroup(t *testing.T) {
 	plan := TaskPlan{
 		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},

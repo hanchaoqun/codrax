@@ -1377,6 +1377,146 @@ Executable task list:
 - [x] B18-T3: Add regression tests for user-caveat suppression and specific
   contradiction preservation under observation-only runtime context.
 - [x] B18-T4: Run focused tests, full tests, rebuild, diff hygiene.
-- [ ] B18-T5: Commit and push Batch 18.
-- [ ] B18-T6: Rerun representative eval cases two at a time and manually audit
+- [x] B18-T5: Commit and push Batch 18.
+- [x] B18-T6: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
+
+Post-Batch-18 eval audit:
+
+- `eval/results/eval-gap-20260613-post-d4a04e25-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `trace_query_state_churn_window_stats`: PASS in 150s. Metrics:
+  `tool_trace_query=1`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `answer_contract_violations=1`, `finalizer_rejects=2`,
+  `max_context_window_pct=17`. Manual audit: the model actively used
+  `trace_query view=window_stats`; the answer preserves the requested
+  state_churn metrics and next-step guidance. Residual gap: system-generated
+  caveats still appended generic enumeration/support and consistency warnings
+  after the typed trace answer was otherwise complete.
+- `data_json_strict_ids`: FAIL in 167s. Metrics: `data_rounds=10`,
+  `data_repair_rounds=1`, `data_answer_len=34`, no repo/runtime tools, and
+  no unavailable tool attempts. Manual audit: business semantics were correct
+  during the run, but the terminal answer became
+  `{"u1":["u1"],"u2":"0","u3":["u3"]}`. The system projected across the full
+  `users.json.id` reference universe even though the requested output shape was
+  an aggregate JSON object field (`ids`) containing the filtered active IDs.
+
+## Batch 19 Gap: Reference Completion Must Respect Aggregate List Projection Shape
+
+Deep root cause:
+
+- Reference completion is correct for detail/numeric projections where each
+  reconcile group is one output slot keyed by `group_key` (for example
+  `Q001,Q002,Q003 -> 0,7,0`). It is wrong for member-value aggregate outputs
+  where the reconcile ledger represents a set/list to be collected under one
+  output field.
+- The completion gate and `assemble_answer` currently treat a smaller answer
+  cardinality than a candidate reference universe as a projection gap whenever
+  the plan/action declares reference completion. That loses the distinction
+  between "missing reference-key output rows" and "filtered members collected
+  into one aggregate field".
+- The existing `json_object` projection already supports member-value
+  operations (`include`, `set`, `rank`) and can render `{"ids":[...]}` from
+  typed contribution/reconcile values. The gap is that reference-completion
+  logic can override this aggregate projection and force the answer back into a
+  per-reference-key shape.
+
+Generalized design:
+
+- Add a reusable structural predicate for aggregate list projections based on
+  typed contribution operation semantics and reconcile group linkage. If the
+  participating reconcile groups are backed by member-value operations that
+  project list/set members, the output is aggregate-list shaped and is not
+  eligible for reference-key completion.
+- Apply the predicate in two places:
+  1. completion/reference-gap detection, so the workflow does not synthesize a
+     `complete_reference=true` repair for aggregate list outputs;
+  2. `assemble_answer`, so an already-declared `complete_reference` cannot
+     corrupt a member-value aggregate into per-reference-key zero fill.
+- Preserve existing numeric/detail reference completion unchanged. The guard
+  reads only structured plan/result fields: reconcile groups, contribution
+  operations, output contract, and artifact metadata. It does not parse user
+  prose or model-authored answer text.
+
+Executable task list:
+
+- [x] B19-T1: Record post-Batch-18 data eval audit and aggregate/reference
+  projection root cause in this design doc.
+- [x] B19-T2: Export/reuse a typed dataquery predicate for reconcile groups
+  that should project as member-value lists rather than reference-key rows.
+- [x] B19-T3: Gate `assemble_answer` reference completion with that predicate
+  while preserving numeric/detail zero-fill behavior.
+- [x] B19-T4: Gate REPL workflow reference-gap detection with the same
+  predicate so fallback plans do not synthesize inapplicable
+  `complete_reference=true` repairs.
+- [x] B19-T5: Add regression tests for JSON object list projection with a
+  larger source reference universe, plus existing numeric reference completion.
+- [x] B19-T6: Run focused tests, full tests/build hygiene, commit and push.
+
+Implementation notes:
+
+- `dataquery.ReconcileGroupsPreferListProjection` centralizes the structural
+  member-value/list predicate. It recognizes reconcile groups that carry
+  aggregate member values or are backed by list-projection contribution
+  operations, and excludes only those shapes from reference completion.
+- `assemble_answer` now skips `complete_reference` projection for that shape;
+  the existing `json_object` list projection remains authoritative. Numeric
+  and detail projections still complete missing reference keys with zero/empty
+  values.
+- REPL workflow reference-gap detection uses the same predicate before
+  synthesizing output-projection repairs, so an aggregate list answer no longer
+  loops into per-reference-key fallback plans.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswer(SkipsReferenceCompletionForListAggregate|CompletesReferenceKeys|CompletesReferenceKeysFromOutputContract|ReferenceProjectionDropsNonReferenceGroups|ProjectsSameMetricSetGroupsAsJSONArrayField)'`
+- Focused tests:
+  `go test ./internal/dataworkflow -run 'TestInferAnswerItemCountSingleJSONFieldArray|TestBuildOutputProjectionGraphReportsReferenceIncomplete'`
+- Focused tests:
+  `go test ./internal/repl -run 'TestDataTaskReferenceProjection(SkipsMemberValueListAggregate|PrefersAtomicCandidateOverAggregateArtifact)|TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap'`
+- Package tests: `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl`
+
+## Batch 20 Gap: Runtime Artifact Caveat Filtering Must Use Answer-Surface Evidence
+
+Deep root cause:
+
+- Batch 18 suppressed generic self-contradiction caveats only when the request
+  model classified the turn as observation-only runtime. The post-Batch-18 eval
+  showed a broader, valid shape: analyzer kept current-source analysis
+  available by default, but the accepted final answer surface was still
+  trace-only (`claim_form=external_observation`, no current-source citation).
+- CGEC produced low-precision residuals after the answer was accepted:
+  `ViolEnumerationEvidenceUnderspecified` and generic
+  `ViolSelfContradiction`. These are useful telemetry for operator analysis but
+  not actionable user caveats when the visible principal answer is already
+  carried by typed runtime observations plus a concrete uncertainty boundary.
+- The gap is not trace-specific. It applies to log/perf/MCP/connector answers
+  whose principal answer surface is origin-specific and typed, even when the
+  analyzer did not explicitly exclude current source upfront.
+
+Generalized design:
+
+- Extend low-precision caveat filtering with an answer-surface predicate:
+  when the accepted `AnswerDocumentV2` principal blocks are carried by
+  `external_observation` claim uses and no current-source citations are used,
+  demote generic residual caveats to telemetry.
+- Suppress only non-actionable generic families in that context:
+  unlocalized self-contradiction, generic enumeration-evidence/support
+  underfill, and accepted-surface metadata concerns. Specific contradictions
+  with parseable conflicting claims and model/authored runtime uncertainty
+  caveats remain visible.
+- The predicate consumes typed answer-document annotations and citation
+  metadata, not user prose, keyword matches, or model narrative strings.
+
+Executable task list:
+
+- [x] B20-T1: Record post-Batch-18 runtime caveat audit and answer-surface
+  root cause in this design doc.
+- [ ] B20-T2: Add a bus-aware answer-surface runtime predicate based on
+  `AnswerDocumentV2` principal block `claim_uses` and citation metadata.
+- [ ] B20-T3: Use that predicate to suppress generic low-precision runtime
+  caveats while preserving concrete contradictions and boundary caveats.
+- [ ] B20-T4: Add regression tests for default-current-source runtime requests
+  whose accepted answer surface is external-observation-only.
+- [ ] B20-T5: Run focused tests, full tests/build hygiene, commit and push.

@@ -8606,7 +8606,7 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	}
 	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
 	projectionInfo := assembleReferenceProjection{}
-	groups, projectionInfo = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
+	groups, projectionInfo = r.completeAssembleAnswerGroups(action, contract, artifacts, groups, contributions)
 	referenceProjected := projectionInfo.Projected
 	valueField := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["value_field"], "actual")))
 	orderBy := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["order_by"], "group_key")))
@@ -8833,8 +8833,11 @@ func assembleAnswerConsumedPaths(action DataAction, contract OutputContract, pro
 	return normalizeMaterialPaths(paths)
 }
 
-func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup) ([]ReconcileGroup, assembleReferenceProjection) {
+func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup, contributions []ContributionRecord) ([]ReconcileGroup, assembleReferenceProjection) {
 	if !parseBoolActionParam(firstNonEmptyString(action.Params["complete_reference"], strconv.FormatBool(contract.CompleteReference))) {
+		return groups, assembleReferenceProjection{}
+	}
+	if ReconcileGroupsPreferListProjection(groups, contributions) {
 		return groups, assembleReferenceProjection{}
 	}
 	keyField := firstNonEmptyString(
@@ -9228,6 +9231,23 @@ func reconcileGroupsCarryValues(groups []ReconcileGroup) bool {
 		}
 	}
 	return false
+}
+
+// ReconcileGroupsPreferListProjection reports whether the typed contribution /
+// reconcile shape represents member values to be collected into a list/set
+// output, rather than detail rows keyed by the reconcile group key. Reference
+// completion only applies to the latter shape; applying it to member-value
+// lists corrupts aggregate outputs by expanding members into top-level
+// reference keys.
+func ReconcileGroupsPreferListProjection(groups []ReconcileGroup, contributions []ContributionRecord) bool {
+	businessGroups := withoutFinalAnswerProjectionGroups(groups)
+	if len(businessGroups) == 0 {
+		return false
+	}
+	if reconcileGroupsCarryValues(businessGroups) {
+		return true
+	}
+	return reconcileGroupsUseListProjectionOperations(businessGroups, contributions)
 }
 
 func reconcileGroupJSONValue(group ReconcileGroup, field string) any {

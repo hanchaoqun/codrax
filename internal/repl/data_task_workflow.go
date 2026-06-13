@@ -5273,6 +5273,9 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if len(groupKeys) == 0 {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
+	if dataquery.ReconcileGroupsPreferListProjection(result.Reconcile.Groups, result.Contributions) {
+		return dataquery.ReferenceKeyCandidate{}, inferDataTaskAnswerItemCount(result.Answer, contract), false, false
+	}
 	candidatePaths := dataTaskReferenceCandidatePaths(records, current, result, contract)
 	primaryCandidatePaths, aggregateCandidatePaths := dataTaskReferenceProjectionCandidatePathBuckets(records, result, candidatePaths)
 	candidateFields := cleanDataTaskStrings([]string{contract.ReferenceKeyField})
