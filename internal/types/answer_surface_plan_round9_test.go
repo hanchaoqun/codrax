@@ -68,6 +68,20 @@ func TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus
 				CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
 				Confidence:           0.95,
 			},
+			SourceScopeProfile: &SourceScopeProfile{
+				RequestedScope: SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []RequestedAnswerDimension{{
+					Label:    "dominant_state",
+					Role:     RequestedAnswerDimensionCurrentKeyCode,
+					Required: true,
+					Index:    1,
+				}},
+				Confidence: 0.9,
+			},
 		},
 		AnswerContract: AnswerContract{
 			CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},

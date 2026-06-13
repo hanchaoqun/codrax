@@ -1045,6 +1045,10 @@ func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
+	if rm.ExternalObservationPolicy == nil ||
+		rm.ExternalObservationPolicy.CurrentSourceMode != ExternalObservationCurrentSourceAllow {
+		return false
+	}
 	if rm.SourceScopeProfile == nil {
 		return false
 	}
@@ -1128,13 +1132,28 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	}
 	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
-			if dim.Role == RequestedAnswerDimensionCurrentKeyCode &&
-				rm.dimensionHasCurrentSourceAnchor(dim) {
+			if dim.Role != RequestedAnswerDimensionCurrentKeyCode {
+				continue
+			}
+			if rm.externalObservationDefaultArtifactOnly() {
+				if targetLooksLikeCurrentSourceAnchor(dim.SourceQuote) ||
+					targetLooksLikeCurrentSourceAnchor(dim.Label) {
+					return true
+				}
+				continue
+			}
+			if rm.dimensionHasCurrentSourceAnchor(dim) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (rm RequestModel) externalObservationDefaultArtifactOnly() bool {
+	return rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() &&
+		rm.ExternalObservationPolicy.CurrentSourceMode != ExternalObservationCurrentSourceAllow
 }
 
 func (rm RequestModel) currentSourceExplanationHasCurrentSourceQuote() bool {

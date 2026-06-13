@@ -766,7 +766,7 @@ Executable task list:
   runtime trace plans do not render `current_status_verdict` or hard
   `current_code_path`, and still render runtime trace handoff guidance.
 - [x] B11-T6: Run focused tests, full tests, rebuild, commit/push.
-- [ ] B11-T7: Rerun representative eval cases two at a time and manually audit
+- [x] B11-T7: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 
 Batch 11 verification before commit:
@@ -775,5 +775,73 @@ Batch 11 verification before commit:
 - `go test ./internal/agent -run 'TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus|TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus|TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder'`
 - `go test ./internal/tool -run 'TestPreCheckRuntimeObservationRepoContaminationAllowsCurrentStatus|TestPreCheckRuntimeObservationRepoContamination'`
 - `go test ./internal/agent ./internal/types ./internal/tool`
+- `go test ./...`
+- `make`
+
+Post-Batch-11 eval attempt root:
+
+- `eval/results/eval-gap-20260613-post-088b6332`
+
+Manual audit after rerun attempt:
+
+- `data_json_strict_ids` passed again with `{"ids":["u1","u3"]}`.
+- `trace_query_state_churn_window_stats` was stopped early after logs showed
+  the same class of source-lane widening through a different structured path:
+  the analyzer retried successfully, but emitted
+  `source_scope_profile.requested_scope=production` and requested answer
+  dimensions with role `current_key_code` for runtime metric labels such as
+  `dominant_state`, `fragments`, and `p95_segment`. With
+  `current_source_mode=default`, those fields still upgraded the dispatch to a
+  hard current-source lane, causing `repo_map` and repeated `read_file` before
+  any useful `trace_query` exploration.
+
+## Batch 12 Gap: Runtime Metric Dimensions Are Not Source Anchors
+
+Deep root cause:
+
+- Batch 11 removed broad `ExactTargets` anchoring, but two other typed
+  source-lane inputs remained too broad for external runtime artifacts:
+  `SourceScopeProfile` and `RequestedAnswerDimensionCurrentKeyCode`.
+- `SourceScopeProfile` is a path-role filter for repo/source questions. In an
+  external trace run with `artifact_citation_mode=external_only` and
+  `current_source_mode=default`, it should remain optional ranking/scope
+  context unless the analyzer explicitly sets `current_source_mode=allow` or
+  another current-source profile/anchor exists.
+- Requested runtime output fields (`dominant_state`, `fragments`,
+  `max_segment`, `p95_segment`) can be mislabeled as `current_key_code`. Under
+  default external-artifact mode, non-path metric labels must not become
+  current-source anchors. Code/config path labels remain valid anchors.
+
+Generalized design:
+
+- `HasTypedCurrentSourceScopeRequest` now requires
+  `external_observation_policy.current_source_mode=allow`; default keeps source
+  optional.
+- Under `artifact_citation_mode=external_only` with non-allow source mode,
+  `current_key_code` dimensions require an actual code/config path anchor.
+  Plain metric names stay runtime answer dimensions.
+- Existing explicit source verification remains intact: resolved files,
+  current-source explanation profiles, `CurrentVersionCheck=true` with exact
+  target, explicit source allow, and code/config path anchors still open the
+  source-required lane.
+
+Executable task list:
+
+- [x] B12-T1: Gate typed source-scope hard requirements on
+  `current_source_mode=allow`.
+- [x] B12-T2: Prevent default external-artifact metric dimensions from
+  becoming current-source anchors unless they name code/config paths.
+- [x] B12-T3: Extend answer surface and finalizer prompt regression tests with
+  source scope plus metric dimensions.
+- [x] B12-T4: Add answer intent contract coverage for default runtime
+  source-scope/metric-dimension cases staying runtime-only.
+- [x] B12-T5: Run focused tests, full tests, rebuild, commit/push.
+- [ ] B12-T6: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
+
+Batch 12 verification before commit:
+
+- `go test ./internal/types -run 'TestCurrentSourceLaneDecision_DefaultExternalArtifactSourceScopeStaysOptional|TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource|TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus|TestCompileAnswerIntentContract_DefaultTraceArtifactSourceScopeStaysRuntimeOnly|TestCompileAnswerIntentContract_TraceArtifactSourceScopeKeepsCurrentSource'`
+- `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus'`
 - `go test ./...`
 - `make`

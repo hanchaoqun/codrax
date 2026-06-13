@@ -4515,6 +4515,20 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 					Confidence:           0.95,
 				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope: types.SourceScopeProduction,
+					Confidence:     0.9,
+				},
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:    "dominant_state",
+						Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+						Required: true,
+						Index:    1,
+					}},
+					Confidence: 0.9,
+				},
 			},
 			AnswerContract: types.AnswerContract{
 				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},

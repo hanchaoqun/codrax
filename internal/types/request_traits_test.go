@@ -343,6 +343,53 @@ func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *
 	}
 }
 
+func TestCurrentSourceLaneDecision_DefaultExternalArtifactSourceScopeStaysOptional(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:      "state_churn",
+				Subject:   "app-20",
+				Summary:   "runtime trace state_churn metrics",
+				LineStart: 3,
+				LineEnd:   23,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "dominant_state",
+				Role:     RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("default external artifact source scope should remain optional")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("default external artifact source scope should keep source optional, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("default external artifact source scope should not hard-require current source")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
