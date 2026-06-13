@@ -3112,6 +3112,10 @@ func splitReconcileGroupKey(key string) (string, string) {
 }
 
 func applyDataResultPatchEngine(res *Result) []DataResultPatch {
+	return applyDataResultPatchEngineWithOptions(res, true)
+}
+
+func applyDataResultPatchEngineWithOptions(res *Result, synthesizeMissingLedgers bool) []DataResultPatch {
 	if res == nil {
 		return nil
 	}
@@ -3145,7 +3149,7 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		res.EntityResolutions[i].Status = "resolved"
 		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/status", i), "resolved", "filled resolved status for entity resolution with canonical value"))
 	}
-	if len(res.Rows) == 0 && len(res.Contributions) > 0 {
+	if synthesizeMissingLedgers && len(res.Rows) == 0 && len(res.Contributions) > 0 {
 		rows := rowDecisionsFromContributions(res.Contributions)
 		if len(rows) > 0 {
 			res.Rows = rows
@@ -3163,7 +3167,7 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 			}
 		}
 	}
-	if len(res.Contributions) > 0 && (res.Reconcile == nil || len(res.Reconcile.Groups) == 0) {
+	if synthesizeMissingLedgers && len(res.Contributions) > 0 && (res.Reconcile == nil || len(res.Reconcile.Groups) == 0) {
 		report := reconcileReportFromContributions(res.Contributions)
 		if res.Reconcile != nil {
 			report.ExpectedAnswer = res.Reconcile.ExpectedAnswer
@@ -3174,6 +3178,17 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		patches = append(patches, newDataResultPatch("add", "/reconcile/groups", len(report.Groups), "filled reconcile groups from contribution ledger"))
 	}
 	return patches
+}
+
+// NormalizeResult applies deterministic structural repairs that are safe to run
+// after multi-batch workflow aggregation. It does not synthesize missing ledger
+// families, so workflow gates can still choose the correct next DAG stage.
+func NormalizeResult(res Result) Result {
+	out := cloneResult(res)
+	if patches := applyDataResultPatchEngineWithOptions(&out, false); len(patches) > 0 {
+		out.ResultPatches = append(out.ResultPatches, patches...)
+	}
+	return out
 }
 
 func canonicalizeUnknownRuleRefs(res *Result) []DataResultPatch {

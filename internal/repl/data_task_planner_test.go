@@ -10528,6 +10528,33 @@ func TestValidateDataTaskWorkflowResultRejectsDroppedEarlierRequirements(t *test
 	}
 }
 
+func TestValidateDataTaskWorkflowResultNormalizesAggregatedRuleRefs(t *testing.T) {
+	current := dataquery.TaskPlan{
+		CoverageContract: dataquery.CoverageContract{
+			RuleCoverageRequired:    true,
+			DecisionRecordsRequired: true,
+		},
+	}
+	result := dataquery.Result{
+		RuleCoverage: []dataquery.RuleCoverageRecord{{
+			RuleID:       dataquery.LooseText("r1"),
+			RuleText:     dataquery.LooseText("include active records"),
+			Status:       dataquery.LooseText("applied"),
+			EvidenceRefs: []string{"instructions.md"},
+		}},
+		Rows: []dataquery.RowDecision{{
+			RowID:         "row1",
+			Source:        "users.json",
+			SourceLocator: "row 1",
+			Decision:      "include",
+			RuleRefs:      []string{"RULE:include active records"},
+		}},
+	}
+	if err := validateDataTaskWorkflowResult(nil, current, result); err != nil {
+		t.Fatalf("validateDataTaskWorkflowResult: %v", err)
+	}
+}
+
 func TestDataTaskActionRunnerSeedAccumulatesArtifactsAcrossRecords(t *testing.T) {
 	records := []dataTaskWorkflowRecord{
 		{
@@ -10572,6 +10599,39 @@ func TestDataTaskActionRunnerSeedAccumulatesArtifactsAcrossRecords(t *testing.T)
 	}
 	if len(seed.RuleCoverage) != 1 {
 		t.Fatalf("RuleCoverage=%+v, want prior rule coverage", seed.RuleCoverage)
+	}
+}
+
+func TestDataTaskActionRunnerSeedNormalizesCrossBatchRuleRefs(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Result: &dataquery.Result{
+				RuleCoverage: []dataquery.RuleCoverageRecord{{
+					RuleID:       dataquery.LooseText("r1"),
+					RuleText:     dataquery.LooseText("include active records"),
+					Status:       dataquery.LooseText("applied"),
+					EvidenceRefs: []string{"instructions.md"},
+				}},
+			},
+		},
+		{
+			Result: &dataquery.Result{
+				Rows: []dataquery.RowDecision{{
+					RowID:         "row1",
+					Source:        "users.json",
+					SourceLocator: "row 1",
+					Decision:      "include",
+					RuleRefs:      []string{"RULE:include active records"},
+				}},
+			},
+		},
+	}
+	seed := dataTaskActionRunnerSeed(records)
+	if got := strings.Join(seed.Rows[0].RuleRefs, ","); got != "r1" {
+		t.Fatalf("Rows[0].RuleRefs=%q, want r1", got)
+	}
+	if len(seed.ResultPatches) == 0 {
+		t.Fatalf("ResultPatches empty, want cross-batch canonicalization audit")
 	}
 }
 

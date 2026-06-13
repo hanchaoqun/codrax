@@ -795,6 +795,7 @@ func terminalDataTaskPlanForCLI(repoRoot string, plan dataquery.TaskPlan, record
 }
 
 func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, lang string) (string, error) {
+	result = dataquery.NormalizeResult(result)
 	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result); !guard.Empty() {
 		return "", fmt.Errorf("%s", guard.ErrorText())
 	}

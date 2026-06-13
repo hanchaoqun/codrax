@@ -4785,7 +4785,7 @@ func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result
 			out.OutputContract = result.OutputContract
 		}
 	}
-	return out
+	return dataquery.NormalizeResult(out)
 }
 
 func dataTaskResultHasHandoffSignal(result dataquery.Result) bool {
@@ -5170,6 +5170,7 @@ func preserveDataTaskWorkflowMaterialCoverageForError(records []dataTaskWorkflow
 }
 
 func validateDataTaskWorkflowResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) error {
+	result = dataquery.NormalizeResult(result)
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	return dataquery.ValidateResultAgainstContract(contract, result)
 }
@@ -5187,6 +5188,7 @@ func dataTaskWorkflowCompletionGateGuardResult(records []dataTaskWorkflowRecord,
 }
 
 func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	result = dataquery.NormalizeResult(result)
 	var validationErr error
 	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
 		validationErr = err
@@ -5209,6 +5211,7 @@ func dataTaskWorkflowCompletionLedgerGuardResult(records []dataTaskWorkflowRecor
 }
 
 func dataTaskWorkflowCompletionLedgerGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.LedgerGraph {
+	result = dataquery.NormalizeResult(result)
 	completionRecords := make([]dataTaskWorkflowRecord, 0, len(records)+1)
 	completionRecords = append(completionRecords, records...)
 	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
@@ -5231,6 +5234,7 @@ func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContrac
 }
 
 func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.OutputProjectionGraph {
+	result = dataquery.NormalizeResult(result)
 	var referenceGap dataworkflow.ReferenceProjectionGap
 	var answerItems int
 	candidate, count, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
@@ -5938,6 +5942,7 @@ func dataTaskValidationFailureTransitionWithRepo(repoRoot string, records []data
 }
 
 func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, guard dataworkflow.GuardResult) dataworkflow.CompletionRepairTransitionInput {
+	result = dataquery.NormalizeResult(result)
 	var gap dataworkflow.ReferenceProjectionGap
 	candidate, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result)
 	if hasReferenceGap {
