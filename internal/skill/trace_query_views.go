@@ -74,6 +74,10 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 			When: "deterministic primary/secondary/tertiary cause candidates, including fragmented state-churn causes and inode-level IO causes",
 		},
 		{
+			View: "frame_root_cause_bundle",
+			When: "handoff-safe frame/jank root-cause bundles that combine wakeup chain, frame timeline, ranked causes, critical blocking, IO, IRQ, workqueue, supply pressure, and trace-marker evidence",
+		},
+		{
 			View: "critical_blocking_calls",
 			When: "futex/lock/sync/binder/IO/D-state blocking candidates",
 		},

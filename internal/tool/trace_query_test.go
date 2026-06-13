@@ -591,9 +591,77 @@ func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T)
 	}
 }
 
+func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "bundle.systrace")
+	trace := strings.Join([]string{
+		`app-100 (100) [001] .... 10.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`logger-900 (900) [006] .... 10.000500: sched_switch: prev_comm=logger prev_pid=900 prev_prio=20 prev_state=D ==> next_comm=idle/6 next_pid=0 next_prio=120`,
+		`threadpool-400 (100) [004] .... 10.001000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+		`io-2 (2) [004] .... 10.001100: sched_blocked_reason: pid=400 iowait=1 caller=f2fs_wait_on_block`,
+		`threadpool-400 (100) [004] .... 10.002000: tracing_mark_write: B|400|NativeAsyncFileRead inode=0xabc`,
+		`threadpool-400 (100) [004] .... 10.002100: android_fs_dataread_start: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R`,
+		`threadpool-400 (100) [004] .... 10.009100: android_fs_dataread_end: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R ret=4096 latency_us=7000`,
+		`threadpool-400 (100) [004] .... 10.013800: tracing_mark_write: E|400`,
+		`irq-7 (7) [004] .... 10.003000: irq_handler_entry: irq=17 name=ufs`,
+		`irq-7 (7) [004] .... 10.003700: irq_handler_exit: irq=17 name=ufs`,
+		`wq-8 (8) [004] .... 10.004000: workqueue_execute_start: work=0xff function=flush_cookie`,
+		`wq-8 (8) [004] .... 10.006000: workqueue_execute_end: work=0xff function=flush_cookie`,
+		`clk-1 (1) [004] .... 10.004500: clock_set_rate: ddr_clk state=933000 cpu_id=4`,
+		`network-300 (100) [003] .... 10.009000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120`,
+		`cookie-200 (100) [002] .... 10.010000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120`,
+		`io-2 (2) [004] .... 10.014000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004`,
+		`threadpool-400 (100) [004] .... 10.015000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20`,
+		`threadpool-400 (100) [004] .... 10.016000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003`,
+		`network-300 (100) [003] .... 10.017000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20`,
+		`network-300 (100) [003] .... 10.018000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002`,
+		`cookie-200 (100) [002] .... 10.019000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20`,
+		`cookie-200 (100) [002] .... 10.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`app-100 (100) [001] .... 10.020020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"bundle.systrace","view":"frameBundle","pid":"100","timeStart":"10.0s","timeEnd":"10.020s","traceFlavor":"harmony_hitrace","coreTopology":"small=0-3,big=4-7","limit":"12"}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"# Trace Query: frame_root_cause_bundle",
+		"Frame root cause bundle",
+		"bundle_top_cause",
+		"chain_relevance=on_chain",
+		"bundle_io_burst",
+		"io_burst_episode",
+		"irq_activity",
+		"workqueue_activity",
+		"supply_pressure",
+		"trace_mark_category",
+		"async_file_work",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("bundle summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	seenPredicates := map[string]bool{}
+	for _, row := range res.Observations {
+		seenPredicates[row.Predicate] = true
+	}
+	for _, want := range []string{"root_cause_primary", "io_burst_episode", "irq_activity", "workqueue_activity", "async_file_work"} {
+		if !seenPredicates[want] {
+			t.Fatalf("typed observations missing %s: %+v", want, res.Observations)
+		}
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "view=causal_impact is accepted as wakeup_chain", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "io_pressure_summary", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

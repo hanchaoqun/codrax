@@ -265,6 +265,7 @@ type Result struct {
 	FrameTimeline               *FrameTimelineResult    `json:"frame_timeline,omitempty"`
 	CriticalBlocking            *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
 	RootCauseRank               *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
+	FrameRootCauseBundle        *FrameRootCauseBundle   `json:"frame_root_cause_bundle,omitempty"`
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
 	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack                []EvidenceFact          `json:"evidence_pack,omitempty"`
@@ -372,6 +373,14 @@ type WindowStats struct {
 	PageCacheByInode      []PageCacheSummary        `json:"page_cache_by_inode,omitempty"`
 	StorageLatencyByLayer []StorageLatencySummary   `json:"storage_latency_by_layer,omitempty"`
 	IOPressureSummary     *IOPressureSummary        `json:"io_pressure_summary,omitempty"`
+	IOBurstEpisodes       []IOBurstEpisodeSummary   `json:"io_burst_episodes,omitempty"`
+	BlockIOByInode        []BlockIOByInodeSummary   `json:"block_io_by_inode,omitempty"`
+	IRQActivity           []InterruptActivity       `json:"irq_activity,omitempty"`
+	SoftIRQActivity       []InterruptActivity       `json:"softirq_activity,omitempty"`
+	WorkqueueActivity     []WorkqueueActivity       `json:"workqueue_activity,omitempty"`
+	SupplyPressureSummary *SupplyPressureSummary    `json:"supply_pressure_summary,omitempty"`
+	TraceMarkCategories   []TraceMarkCategory       `json:"trace_mark_categories,omitempty"`
+	AsyncFileWork         []AsyncFileWorkSummary    `json:"async_file_work,omitempty"`
 	AbilityEvents         []TracePluginSummary      `json:"ability_events,omitempty"`
 	XPowerEvents          []TracePluginSummary      `json:"xpower_events,omitempty"`
 	HiSystemEvents        []TracePluginSummary      `json:"hi_sysevent_events,omitempty"`
@@ -564,6 +573,8 @@ type ThreadDuration struct {
 	CPU           int       `json:"cpu"`
 	CoreClass     string    `json:"core_class,omitempty"`
 	Frequency     int       `json:"frequency,omitempty"`
+	StartTs       float64   `json:"start_ts,omitempty"`
+	EndTs         float64   `json:"end_ts,omitempty"`
 	LineStart     int       `json:"line_start,omitempty"`
 	LineEnd       int       `json:"line_end,omitempty"`
 	Priority      int       `json:"priority,omitempty"`
@@ -655,6 +666,8 @@ type StorageLatencySummary struct {
 	Layer              string    `json:"layer,omitempty"`
 	Event              string    `json:"event,omitempty"`
 	Dev                string    `json:"dev,omitempty"`
+	Inode              string    `json:"inode,omitempty"`
+	EntryName          string    `json:"entry_name,omitempty"`
 	Operation          string    `json:"operation,omitempty"`
 	Thread             ThreadRef `json:"thread,omitempty"`
 	Count              int       `json:"count,omitempty"`
@@ -688,6 +701,128 @@ type IOPressureSummary struct {
 	LineStart           int     `json:"line_start,omitempty"`
 	LineEnd             int     `json:"line_end,omitempty"`
 	Summary             string  `json:"summary,omitempty"`
+}
+
+type IOBurstEpisodeSummary struct {
+	Thread              ThreadRef  `json:"thread,omitempty"`
+	ChainRelevance      string     `json:"chain_relevance,omitempty"`
+	DominantSignal      string     `json:"dominant_signal,omitempty"`
+	StartTs             float64    `json:"start_ts,omitempty"`
+	EndTs               float64    `json:"end_ts,omitempty"`
+	DurationMs          float64    `json:"duration_ms,omitempty"`
+	DStateMs            float64    `json:"d_state_ms,omitempty"`
+	IOWaitMs            float64    `json:"io_wait_ms,omitempty"`
+	BlockMaxLatencyMs   float64    `json:"block_max_latency_ms,omitempty"`
+	StorageMaxLatencyMs float64    `json:"storage_max_latency_ms,omitempty"`
+	FileIOBytes         int64      `json:"file_io_bytes,omitempty"`
+	PageCacheChurn      int        `json:"page_cache_churn,omitempty"`
+	TopInode            string     `json:"top_inode,omitempty"`
+	TopDev              string     `json:"top_dev,omitempty"`
+	TopEntryName        string     `json:"top_entry_name,omitempty"`
+	NearestChainThread  ThreadRef  `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow  TimeWindow `json:"nearest_chain_window,omitempty"`
+	OverlapMs           float64    `json:"overlap_ms,omitempty"`
+	LineStart           int        `json:"line_start,omitempty"`
+	LineEnd             int        `json:"line_end,omitempty"`
+	Confidence          float64    `json:"confidence,omitempty"`
+	Summary             string     `json:"summary,omitempty"`
+}
+
+type BlockIOByInodeSummary struct {
+	Dev                 string    `json:"dev,omitempty"`
+	Inode               string    `json:"inode,omitempty"`
+	EntryName           string    `json:"entry_name,omitempty"`
+	Thread              ThreadRef `json:"thread,omitempty"`
+	BlockDev            string    `json:"block_dev,omitempty"`
+	Operation           string    `json:"operation,omitempty"`
+	FileIOBytes         int64     `json:"file_io_bytes,omitempty"`
+	PageCacheChurn      int       `json:"page_cache_churn,omitempty"`
+	BlockMaxLatencyMs   float64   `json:"block_max_latency_ms,omitempty"`
+	StorageMaxLatencyMs float64   `json:"storage_max_latency_ms,omitempty"`
+	NearestBlockThread  ThreadRef `json:"nearest_block_thread,omitempty"`
+	NearestBlockTs      float64   `json:"nearest_block_ts,omitempty"`
+	StartTs             float64   `json:"start_ts,omitempty"`
+	EndTs               float64   `json:"end_ts,omitempty"`
+	LineStart           int       `json:"line_start,omitempty"`
+	LineEnd             int       `json:"line_end,omitempty"`
+	Confidence          float64   `json:"confidence,omitempty"`
+	Summary             string    `json:"summary,omitempty"`
+}
+
+type InterruptActivity struct {
+	Kind            string  `json:"kind,omitempty"`
+	CPU             int     `json:"cpu"`
+	CoreClass       string  `json:"core_class,omitempty"`
+	Vector          int     `json:"vector,omitempty"`
+	Name            string  `json:"name,omitempty"`
+	Count           int     `json:"count,omitempty"`
+	PairedCount     int     `json:"paired_count,omitempty"`
+	ActiveMs        float64 `json:"active_ms,omitempty"`
+	MaxActiveMs     float64 `json:"max_active_ms,omitempty"`
+	WindowOverlapMs float64 `json:"window_overlap_ms,omitempty"`
+	LineStart       int     `json:"line_start,omitempty"`
+	LineEnd         int     `json:"line_end,omitempty"`
+	StartTs         float64 `json:"start_ts,omitempty"`
+	EndTs           float64 `json:"end_ts,omitempty"`
+	Summary         string  `json:"summary,omitempty"`
+}
+
+type WorkqueueActivity struct {
+	Thread       ThreadRef `json:"thread,omitempty"`
+	Work         string    `json:"work,omitempty"`
+	Function     string    `json:"function,omitempty"`
+	Count        int       `json:"count,omitempty"`
+	PairedCount  int       `json:"paired_count,omitempty"`
+	DurationMs   float64   `json:"duration_ms,omitempty"`
+	MaxLatencyMs float64   `json:"max_latency_ms,omitempty"`
+	StartTs      float64   `json:"start_ts,omitempty"`
+	EndTs        float64   `json:"end_ts,omitempty"`
+	LineStart    int       `json:"line_start,omitempty"`
+	LineEnd      int       `json:"line_end,omitempty"`
+	Summary      string    `json:"summary,omitempty"`
+}
+
+type SupplyPressureSummary struct {
+	Signal                 string                  `json:"signal,omitempty"`
+	CPUPressureMs          float64                 `json:"cpu_pressure_ms,omitempty"`
+	RunnableWaitMs         float64                 `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs  float64                 `json:"high_priority_running_ms,omitempty"`
+	LowFrequencyCPUs       []int                   `json:"low_frequency_cpus,omitempty"`
+	ClockSetRateCount      int                     `json:"clock_set_rate_count,omitempty"`
+	ThermalEventCount      int                     `json:"thermal_event_count,omitempty"`
+	DDREventCount          int                     `json:"ddr_event_count,omitempty"`
+	L3EventCount           int                     `json:"l3_event_count,omitempty"`
+	ThroughputEventCount   int                     `json:"throughput_event_count,omitempty"`
+	TopBackgroundThreads   []ThreadCPULoadSummary  `json:"top_background_threads,omitempty"`
+	TopBackgroundProcesses []ProcessCPULoadSummary `json:"top_background_processes,omitempty"`
+	LineStart              int                     `json:"line_start,omitempty"`
+	LineEnd                int                     `json:"line_end,omitempty"`
+	Summary                string                  `json:"summary,omitempty"`
+}
+
+type TraceMarkCategory struct {
+	Category      string    `json:"category,omitempty"`
+	Subcategory   string    `json:"subcategory,omitempty"`
+	Count         int       `json:"count,omitempty"`
+	TotalMs       float64   `json:"total_ms,omitempty"`
+	MaxDurationMs float64   `json:"max_duration_ms,omitempty"`
+	TopSpan       string    `json:"top_span,omitempty"`
+	TopThread     ThreadRef `json:"top_thread,omitempty"`
+	LineStart     int       `json:"line_start,omitempty"`
+	LineEnd       int       `json:"line_end,omitempty"`
+	Summary       string    `json:"summary,omitempty"`
+}
+
+type AsyncFileWorkSummary struct {
+	Thread     ThreadRef `json:"thread,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	Category   string    `json:"category,omitempty"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	LineStart  int       `json:"line_start,omitempty"`
+	LineEnd    int       `json:"line_end,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
 }
 
 type CPUFrequencyLimit struct {
@@ -726,13 +861,15 @@ type BinderWaitSummary struct {
 }
 
 type TraceSpanSummary struct {
-	Thread     ThreadRef `json:"thread"`
-	Name       string    `json:"name,omitempty"`
-	StartTs    float64   `json:"start_ts,omitempty"`
-	EndTs      float64   `json:"end_ts,omitempty"`
-	DurationMs float64   `json:"duration_ms,omitempty"`
-	StartLine  int       `json:"start_line,omitempty"`
-	EndLine    int       `json:"end_line,omitempty"`
+	Thread      ThreadRef `json:"thread"`
+	Name        string    `json:"name,omitempty"`
+	Category    string    `json:"category,omitempty"`
+	Subcategory string    `json:"subcategory,omitempty"`
+	StartTs     float64   `json:"start_ts,omitempty"`
+	EndTs       float64   `json:"end_ts,omitempty"`
+	DurationMs  float64   `json:"duration_ms,omitempty"`
+	StartLine   int       `json:"start_line,omitempty"`
+	EndLine     int       `json:"end_line,omitempty"`
 }
 
 type TraceCounterSummary struct {
@@ -810,20 +947,45 @@ type RootCauseRankResult struct {
 }
 
 type RootCauseRankItem struct {
-	Rank           int       `json:"rank"`
-	Tier           string    `json:"tier,omitempty"`
-	Type           string    `json:"type,omitempty"`
-	Thread         ThreadRef `json:"thread,omitempty"`
-	ImpactMs       float64   `json:"impact_ms,omitempty"`
-	TargetImpactMs float64   `json:"target_impact_ms,omitempty"`
-	Score          float64   `json:"score,omitempty"`
-	Confidence     float64   `json:"confidence,omitempty"`
-	LineStart      int       `json:"line_start,omitempty"`
-	LineEnd        int       `json:"line_end,omitempty"`
-	Source         string    `json:"source,omitempty"`
-	Causality      string    `json:"causality,omitempty"`
-	ChainDepth     int       `json:"chain_depth,omitempty"`
-	Summary        string    `json:"summary,omitempty"`
+	Rank               int        `json:"rank"`
+	Tier               string     `json:"tier,omitempty"`
+	Type               string     `json:"type,omitempty"`
+	Thread             ThreadRef  `json:"thread,omitempty"`
+	StartTs            float64    `json:"start_ts,omitempty"`
+	EndTs              float64    `json:"end_ts,omitempty"`
+	ImpactMs           float64    `json:"impact_ms,omitempty"`
+	TargetImpactMs     float64    `json:"target_impact_ms,omitempty"`
+	Score              float64    `json:"score,omitempty"`
+	Confidence         float64    `json:"confidence,omitempty"`
+	LineStart          int        `json:"line_start,omitempty"`
+	LineEnd            int        `json:"line_end,omitempty"`
+	Source             string     `json:"source,omitempty"`
+	Causality          string     `json:"causality,omitempty"`
+	ChainRelevance     string     `json:"chain_relevance,omitempty"`
+	ChainDepth         int        `json:"chain_depth,omitempty"`
+	OverlapMs          float64    `json:"overlap_ms,omitempty"`
+	EdgeCount          int        `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef  `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow `json:"nearest_chain_window,omitempty"`
+	Summary            string     `json:"summary,omitempty"`
+}
+
+type FrameRootCauseBundle struct {
+	Target                ThreadRef               `json:"target,omitempty"`
+	Window                TimeWindow              `json:"window"`
+	WakeupChain           *ChainResult            `json:"wakeup_chain,omitempty"`
+	FrameTimeline         *FrameTimelineResult    `json:"frame_timeline,omitempty"`
+	RootCauseRank         *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
+	CriticalBlocking      *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
+	IOBurstEpisodes       []IOBurstEpisodeSummary `json:"io_burst_episodes,omitempty"`
+	BlockIOByInode        []BlockIOByInodeSummary `json:"block_io_by_inode,omitempty"`
+	IRQActivity           []InterruptActivity     `json:"irq_activity,omitempty"`
+	SoftIRQActivity       []InterruptActivity     `json:"softirq_activity,omitempty"`
+	WorkqueueActivity     []WorkqueueActivity     `json:"workqueue_activity,omitempty"`
+	SupplyPressureSummary *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
+	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
+	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
+	Caveats               []string                `json:"caveats,omitempty"`
 }
 
 type InteractionStatsResult struct {
@@ -908,16 +1070,21 @@ type CriticalBlockingResult struct {
 }
 
 type CriticalBlockingCandidate struct {
-	Type       string    `json:"type,omitempty"`
-	Thread     ThreadRef `json:"thread,omitempty"`
-	Peer       ThreadRef `json:"peer,omitempty"`
-	DurationMs float64   `json:"duration_ms,omitempty"`
-	StartTs    float64   `json:"start_ts,omitempty"`
-	EndTs      float64   `json:"end_ts,omitempty"`
-	LineStart  int       `json:"line_start,omitempty"`
-	LineEnd    int       `json:"line_end,omitempty"`
-	Confidence float64   `json:"confidence,omitempty"`
-	Summary    string    `json:"summary,omitempty"`
+	Type               string     `json:"type,omitempty"`
+	Thread             ThreadRef  `json:"thread,omitempty"`
+	Peer               ThreadRef  `json:"peer,omitempty"`
+	ChainRelevance     string     `json:"chain_relevance,omitempty"`
+	OverlapMs          float64    `json:"overlap_ms,omitempty"`
+	EdgeCount          int        `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef  `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow `json:"nearest_chain_window,omitempty"`
+	DurationMs         float64    `json:"duration_ms,omitempty"`
+	StartTs            float64    `json:"start_ts,omitempty"`
+	EndTs              float64    `json:"end_ts,omitempty"`
+	LineStart          int        `json:"line_start,omitempty"`
+	LineEnd            int        `json:"line_end,omitempty"`
+	Confidence         float64    `json:"confidence,omitempty"`
+	Summary            string     `json:"summary,omitempty"`
 }
 
 type RecipeResult struct {

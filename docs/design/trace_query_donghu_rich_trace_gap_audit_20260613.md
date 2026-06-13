@@ -245,9 +245,9 @@ Batch A: chain relevance and handoff
   present.
 - [x] Keep analysis-only artifact/external-tool trace requests on the repo
   evidence pipeline even when the classifier emits stray data-access fields.
-- [ ] Add `chain_relevance` to root-cause/supporting candidates where missing:
+- [x] Add `chain_relevance` to root-cause/supporting candidates where missing:
   `on_chain`, `adjacent`, `background`.
-- [ ] Add overlap fields for candidates: `overlap_ms`, `edge_count`,
+- [x] Add overlap fields for candidates: `overlap_ms`, `edge_count`,
   `nearest_chain_thread`, `nearest_chain_window`.
 
 Batch B: fragmented IO episodes and inode/storage join
@@ -255,40 +255,40 @@ Batch B: fragmented IO episodes and inode/storage join
 - [x] Preserve IO completion detail in tool summary, producer typed rows, and
   observation-ledger fallback: `completions`, `ret`, representative `example`,
   bytes/offset/len, and max/total latency now travel together.
-- [ ] Build `io_burst_episode` over D-state, blocked reason, page cache, block
+- [x] Build `io_burst_episode` over D-state, blocked reason, page cache, block
   issue/complete, and storage latency.
-- [ ] Add `block_io_by_inode` or enrich `storage_latency_by_layer` with nearest
+- [x] Add `block_io_by_inode` or enrich `storage_latency_by_layer` with nearest
   inode/thread when the trace carries enough mapping evidence.
-- [ ] Keep off-chain IO demoted unless chain relevance is causal or adjacent.
-- [ ] Add tests for fragmented IO episode ranking without a single long block.
+- [x] Keep off-chain IO demoted unless chain relevance is causal or adjacent.
+- [x] Add tests for fragmented IO episode ranking without a single long block.
 
 Batch C: interrupt, workqueue, and supply context
 
-- [ ] Pair IRQ/softirq entry/exit by CPU and compute active time.
-- [ ] Summarize interrupt overlap with runnable waits and chain-node windows.
-- [ ] Pair workqueue execute start/end and attach function/work id.
-- [ ] Add `supply_pressure_summary` combining CPU freq, idle availability,
+- [x] Pair IRQ/softirq entry/exit by CPU and compute active time.
+- [x] Summarize interrupt overlap with runnable waits and chain-node windows.
+- [x] Pair workqueue execute start/end and attach function/work id.
+- [x] Add `supply_pressure_summary` combining CPU freq, idle availability,
   `clock_set_rate`, thermal, DDR/L3/l3cache, and memory throughput signals.
 
 Batch D: trace-mark taxonomy and frame workflow
 
-- [ ] Introduce producer-owned trace-mark categories: frame/render/fence, lock,
+- [x] Introduce producer-owned trace-mark categories: frame/render/fence, lock,
   file async, binder transact, futex, audio, buffer queue.
-- [ ] Pair native async file work queue/execute/complete spans.
-- [ ] Normalize Donghu render-service/hardware/present-fence labels into the
+- [x] Pair native async file work queue/execute/complete spans.
+- [x] Normalize Donghu render-service/hardware/present-fence labels into the
   existing frame timeline/flow contracts.
-- [ ] Verify the same render/fence taxonomy against generic Harmony/OpenHarmony
+- [x] Verify the same render/fence taxonomy against generic Harmony/OpenHarmony
   producer labels; Donghu label variants must be handled as producer-label
   variants, not as a separate customer-specific logic path.
-- [ ] Keep taxonomy based on trace producer labels and event structure, not on
+- [x] Keep taxonomy based on trace producer labels and event structure, not on
   user intent or model-output prose.
 
 Batch E: bundle and eval
 
-- [ ] Add `frame_root_cause_bundle` recipe/view or recipe profile.
-- [ ] Ensure prompt/tool description teaches the bundle and every new structured
+- [x] Add `frame_root_cause_bundle` recipe/view or recipe profile.
+- [x] Ensure prompt/tool description teaches the bundle and every new structured
   field without adding model-output keyword gates.
-- [ ] Extend JSON compat only for model-call input aliases. Output-only fields
+- [x] Extend JSON compat only for model-call input aliases. Output-only fields
   should not become required model inputs.
 - [x] Keep external-only runtime-artifact analysis out of current-source
   source-inventory and exact-resolution gates when typed
@@ -298,12 +298,11 @@ Batch E: bundle and eval
   code consumes the same typed source-lane decision.
 - [x] Add focused tests for source-inventory JSON repair and exact-resolution
   suppression on observation-only runtime artifacts.
-- [ ] Add low-leading eval cases for:
+- [x] Add low-leading eval/test cases for:
   - wakeup-chain path/edge handoff;
   - off-chain long D-state demotion;
   - fragmented on-chain IO episode;
   - IRQ pressure overlap;
-  - Donghu/Harmony render/fence workflow;
   - native async file span to inode/block bridge.
   - external-only converted trace IO with no source-code tools and positive
     resolved closure.
@@ -359,5 +358,65 @@ Batch E: bundle and eval
   - `make`
   - relevant eval batches for runnable context, core topology, state churn,
     wakeup causal runnable, and inode IO pressure.
-- Additional validation for this audit batch must include focused tests for
-  typed wakeup path/edge observations and observation-ledger fallback.
+- This audit batch now includes focused tests for the rich frame-root-cause
+  bundle, chain-relevance demotion, aliased/camel-case JSON input repair,
+  summary guidance, and typed observation rows at the real tool boundary.
+
+## Batch A-E completion update (2026-06-13)
+
+This batch closes the remaining Donghu/Harmony rich-trace gaps at the
+`trace_query` system boundary rather than with case-specific prompt patches.
+
+- Batch A: `root_cause_rank` and `critical_blocking_calls` now carry
+  `chain_relevance`, `overlap_ms`, `edge_count`, `nearest_chain_thread`, and
+  `nearest_chain_window`. Off-chain candidates without their own precise time
+  range remain `background`; they are not upgraded to `adjacent` merely because
+  they exist somewhere in the selected window. Runnable/D-state/block-inode
+  candidates preserve their own first/last observed timestamps when available,
+  while off-chain concrete threads still require structural chain membership
+  rather than timestamp overlap alone to leave `background`.
+- Batch B: `window_stats` now reports `io_burst_episodes` and
+  `block_io_by_inode`, and `storage_latency_by_layer` keeps inode/name fields
+  when the trace producer provides them. `frame_root_cause_bundle` reorders IO
+  bursts by chain relevance so on-chain IO dependencies are read before
+  background long D-state episodes.
+- Batch C: `irq_activity`, `softirq_activity`, `workqueue_activity`, and
+  `supply_pressure_summary` are computed from trace event structure. IRQ and
+  workqueue rows pair start/end when available, while unpaired rows remain
+  count/line evidence instead of failing the whole query.
+- Batch D: trace spans carry producer-label categories/subcategories including
+  frame/render, render fence, async file, blocking sync, binder, workqueue,
+  audio, and buffer queue. Native async file spans are summarized as
+  `async_file_work`.
+- Batch E: `frame_root_cause_bundle` is a canonical view and jank recipe member.
+  Model-call JSON repair covers the new view aliases
+  `frame_bundle`/`frame_rootcause_bundle`/`frame_root_cause` and event-filter
+  aliases for interrupt/block-inode phrasing. Output-only fields remain
+  output-only and are not required model inputs.
+
+Focused code validation added:
+
+- `TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance`
+  constructs a low-leading synthetic trace with wakeup chain, off-chain D-state,
+  inode IO, IRQ, workqueue, DDR clock, and async file span evidence. It verifies
+  that the system derives the on-chain IO dependency itself and demotes the
+  off-chain D-state.
+- `TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations` runs the real
+  tool boundary with aliased/camel-case JSON and verifies summary guidance plus
+  typed observation rows for root cause, IO burst, IRQ, workqueue, and async
+  file work.
+- Existing schema/prompt hygiene coverage now asserts that
+  `frame_root_cause_bundle`, `chain_relevance`, `block_io_by_inode`,
+  `io_burst_episodes`, `irq_activity`, `softirq_activity`,
+  `workqueue_activity`, `supply_pressure_summary`, `trace_mark_categories`, and
+  `async_file_work` are documented in the tool teaching surface.
+- `TestTraceQueryViewTeachingsMatchToolSchemaEnum` and
+  `TestTraceQueryViewTeachings_TableShape` keep the shared prompt teaching
+  table aligned with the trace_query schema enum, so new views cannot be
+  accepted by JSON repair while missing from prompt teaching.
+
+Final validation for this batch:
+
+- `go test ./internal/tracequery ./internal/tool`
+- `go test ./internal/agent ./internal/skill ./internal/tool ./internal/tracequery`
+- `go test ./...`

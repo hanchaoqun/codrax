@@ -1488,6 +1488,84 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	}
 }
 
+func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testing.T) {
+	idx := buildTraceIndex(t, "bundle_rich.systrace", `
+        app-100 (100) [001] .... 10.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     logger-900 (900) [006] .... 10.000500: sched_switch: prev_comm=logger prev_pid=900 prev_prio=20 prev_state=D ==> next_comm=idle/6 next_pid=0 next_prio=120
+ threadpool-400 (100) [004] .... 10.001000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120
+          io-2 (2) [004] .... 10.001100: sched_blocked_reason: pid=400 iowait=1 caller=f2fs_wait_on_block
+ threadpool-400 (100) [004] .... 10.002000: tracing_mark_write: B|400|NativeAsyncFileRead inode=0xabc
+ threadpool-400 (100) [004] .... 10.002100: android_fs_dataread_start: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R
+ threadpool-400 (100) [004] .... 10.009100: android_fs_dataread_end: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R ret=4096 latency_us=7000
+ threadpool-400 (100) [004] .... 10.009200: f2fs_direct_IO_enter: dev=259:1 ino=0xabc entry_name=foo.db offset=0 len=4096 rw=R
+ threadpool-400 (100) [004] .... 10.013500: f2fs_direct_IO_exit: dev=259:1 ino=0xabc entry_name=foo.db offset=0 len=4096 rw=R ret=4096
+	threadpool-400 (100) [004] .... 10.013800: tracing_mark_write: E|400
+        irq-7 (7) [004] .... 10.003000: irq_handler_entry: irq=17 name=ufs
+        irq-7 (7) [004] .... 10.003700: irq_handler_exit: irq=17 name=ufs
+        wq-8 (8) [004] .... 10.004000: workqueue_execute_start: work=0xff function=flush_cookie
+        wq-8 (8) [004] .... 10.006000: workqueue_execute_end: work=0xff function=flush_cookie
+        clk-1 (1) [004] .... 10.004500: clock_set_rate: ddr_clk state=933000 cpu_id=4
+    network-300 (100) [003] .... 10.009000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+     cookie-200 (100) [002] .... 10.010000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+          io-2 (2) [004] .... 10.014000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004
+ threadpool-400 (100) [004] .... 10.015000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20
+ threadpool-400 (100) [004] .... 10.016000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003
+    network-300 (100) [003] .... 10.017000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20
+    network-300 (100) [003] .... 10.018000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002
+     cookie-200 (100) [002] .... 10.019000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20
+     cookie-200 (100) [002] .... 10.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 10.020020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+          io-2 (2) [006] .... 10.022000: sched_wakeup: comm=logger pid=900 prio=20 target_cpu=006
+	`)
+	q := Query{PID: 100, TimeStart: 10.0, TimeEnd: 10.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12, CoreTopology: "small=0-3,big=4-7"}
+	bundle := BuildFrameRootCauseBundle(idx, q)
+	if bundle.WakeupChain == nil || len(bundle.WakeupChain.Edges) < 3 {
+		t.Fatalf("bundle should carry wakeup chain: %+v", bundle.WakeupChain)
+	}
+	if bundle.RootCauseRank == nil || len(bundle.RootCauseRank.Items) == 0 {
+		t.Fatalf("bundle should carry root causes: %+v", bundle.RootCauseRank)
+	}
+	if bundle.RootCauseRank.Items[0].ChainRelevance != "on_chain" || bundle.RootCauseRank.Items[0].Thread.PID != 400 {
+		t.Fatalf("on-chain IO dependency should be primary, got %+v", bundle.RootCauseRank.Items)
+	}
+	if bundle.RootCauseRank.Items[0].StartTs <= 0 || bundle.RootCauseRank.Items[0].EndTs <= bundle.RootCauseRank.Items[0].StartTs {
+		t.Fatalf("primary root cause should carry a precise candidate window: %+v", bundle.RootCauseRank.Items[0])
+	}
+	foundBackground := false
+	for _, item := range bundle.RootCauseRank.Items {
+		if item.Thread.PID == 900 && item.ChainRelevance == "background" {
+			foundBackground = true
+		}
+	}
+	if !foundBackground {
+		t.Fatalf("off-chain D-state should remain background: %+v", bundle.RootCauseRank.Items)
+	}
+	if len(bundle.IOBurstEpisodes) == 0 || bundle.IOBurstEpisodes[0].ChainRelevance != "on_chain" || bundle.IOBurstEpisodes[0].TopInode != "0xabc" {
+		t.Fatalf("expected on-chain IO burst by inode: %+v", bundle.IOBurstEpisodes)
+	}
+	if bundle.IOBurstEpisodes[0].StartTs <= 0 || bundle.IOBurstEpisodes[0].EndTs <= bundle.IOBurstEpisodes[0].StartTs {
+		t.Fatalf("expected IO burst to carry its own precise window: %+v", bundle.IOBurstEpisodes[0])
+	}
+	if len(bundle.BlockIOByInode) == 0 || bundle.BlockIOByInode[0].Inode != "0xabc" {
+		t.Fatalf("expected block_io_by_inode: %+v", bundle.BlockIOByInode)
+	}
+	if bundle.BlockIOByInode[0].StartTs <= 0 || bundle.BlockIOByInode[0].EndTs <= bundle.BlockIOByInode[0].StartTs {
+		t.Fatalf("expected block_io_by_inode to carry a time window: %+v", bundle.BlockIOByInode[0])
+	}
+	if len(bundle.IRQActivity) == 0 || bundle.IRQActivity[0].ActiveMs <= 0 {
+		t.Fatalf("expected IRQ active time: %+v", bundle.IRQActivity)
+	}
+	if len(bundle.WorkqueueActivity) == 0 || bundle.WorkqueueActivity[0].DurationMs <= 0 {
+		t.Fatalf("expected workqueue pairing: %+v", bundle.WorkqueueActivity)
+	}
+	if bundle.SupplyPressureSummary == nil || bundle.SupplyPressureSummary.DDREventCount == 0 {
+		t.Fatalf("expected supply pressure DDR signal: %+v", bundle.SupplyPressureSummary)
+	}
+	if len(bundle.TraceMarkCategories) == 0 || len(bundle.AsyncFileWork) == 0 {
+		t.Fatalf("expected trace mark categories and async file work: categories=%+v async=%+v", bundle.TraceMarkCategories, bundle.AsyncFileWork)
+	}
+}
+
 func intsToStrings(in []int) []string {
 	out := make([]string, 0, len(in))
 	for _, v := range in {
