@@ -2697,5 +2697,99 @@ Executable task list:
 - [x] B36-T3: Add regression tests for source-tool/complete rejection before
   trace-query, fallback after a trace-query attempt, and current-source
   required preservation.
-- [ ] B36-T4: Run focused/full validation, commit, push, and rerun the
+- [x] B36-T4: Run focused/full validation, commit, push, and rerun the
+  representative eval pair.
+
+Post-Batch-36 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-c9e76d81-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 36s. The strict answer remained
+  `{"ids":["u1","u3"]}`, with `data_rounds=2`,
+  `data_repair_rounds=1`, both required materials consumed in the terminal
+  round, and no answer-contract violations.
+- `trace_query_state_churn_window_stats`: PASS in 187s. Explorer used
+  `trace_query` in round 1, no `read_file`, no unavailable-tool attempts, and
+  the final answer preserved `dominant_state=runnable`, `running=3.500ms`,
+  `runnable=5.000ms`, `fragments=21`, `switches=20`,
+  `max_segment=0.500ms`, `p95_segment=0.500ms`, plus the trace-query
+  `next_step`.
+- Manual answer audit: the user-visible answer is semantically correct and
+  rich. The Batch 36 execution guard closed the prior issue: the final answer
+  no longer says `trace_query` is unavailable and does not hand-compute the
+  principal metrics.
+- Residual audit gaps:
+  1. `answer_contract_violations=1` with
+     `answer_contract.required_anchors`. Required mechanism anchors were
+     compiled from runtime metric/tool names (`app-20`, `window_stats`,
+     `dominant_state`, `state_churn`) even though the accepted answer surface
+     is a runtime/external-observation metric answer, not a current-source
+     mechanism answer.
+  2. Analyze still spent one `repo_map` and one files-only `grep` to confirm
+     trace-query implementation/capability terms. This is an analyzer
+     stage-scope gap: external runtime classification should emit typed
+     analysis from the runtime artifact context, leaving deterministic
+     `trace_query` and any current-source fallback to explorer.
+  3. Perf triage emitted an early false absence observation for a segmented
+     partial trace. Later `trace_query` facts correctly overrode it for the
+     final answer, but the stale observation still appeared as weaker prompt
+     context and confused extractor reasoning. This is lower severity once
+     trace-query-first and typed runtime precedence are enforced.
+
+## Batch 37 Gap: Runtime Metric Anchors Must Not Become Current-Source Classification/Answer Obligations
+
+Deep root cause:
+
+- The required-mechanism-anchor compiler is designed for source/mechanism
+  explanations: analyzer-emitted exact targets and mentioned entities become
+  structured answer-surface obligations so final answers do not drop important
+  code/tool/file anchors.
+- Runtime trace metric questions also carry exact labels and dimensions, but
+  those labels are external-observation dimensions, not current-source
+  mechanism anchors. Promoting them into `RequiredMechanismAnchors` creates a
+  source-answer contract on a runtime metric answer, causing irrelevant
+  violations and generic caveats even when trace-query facts are correct.
+- The analyzer stage has a related stage-scope issue. For external
+  runtime-first turns it may still use repo pre-scan tools to confirm
+  trace-tool/source terms. That turns capability words into repository anchors
+  and can seed stale TaskGraph/hypothesis obligations before explorer has used
+  the deterministic runtime tool.
+- These are boundary errors between classification/navigation and
+  runtime-observation evidence. The fix must read typed runtime artifact state,
+  turn route hints, and current-source lane posture; it must not inspect model
+  prose, answer markdown, metric-key keywords, or specific eval text.
+
+Generalized design:
+
+- Disable `RequiredMechanismAnchors` for external runtime / external
+  observation artifact requests when `CurrentSourceLaneDecision` does not
+  require current-source evidence. Runtime metric dimensions remain answer
+  obligations through requested answer dimensions, aggregate facts, observation
+  records, and runtime claim bindings.
+- Preserve source/mechanism behavior when a runtime request carries a typed
+  current-source anchor, such as a current-source required file, resolved file,
+  source-scope profile, or current-source explanation profile.
+- In analyze, project and enforce an emit-only tool surface for
+  external-observation-first runtime turns: hide/reject `repo_map`, `grep`, and
+  `list_files`; keep `emit_analysis` available. Later explorer remains the
+  place for deterministic `trace_query` and for any source fallback that the
+  structured request model requires.
+- Keep prompt/schema/execution surfaces aligned: tool suggestions, schema
+  exposure, and pre-execution validators use the same typed predicate.
+
+Executable task list:
+
+- [x] B37-T1: Record the Post-Batch-36 eval audit and the runtime metric
+  anchor / analyzer pre-scan stage-scope gaps.
+- [x] B37-T2: Disable required mechanism anchors for source-optional
+  runtime/external-observation artifact answers while preserving
+  current-source-required runtime cases.
+- [x] B37-T3: Add analyzer external-runtime-first emit-only schema projection
+  and execution rejection for pre-scan tools.
+- [x] B37-T4: Add regression tests for runtime anchor suppression,
+  current-source preservation, analyzer schema projection, and analyzer
+  prescan rejection.
+- [ ] B37-T5: Run focused/full validation, commit, push, and rerun the
   representative eval pair.

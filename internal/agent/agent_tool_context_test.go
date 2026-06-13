@@ -269,6 +269,32 @@ func TestBuildToolSchemas_WriteExplorationSubflowDoesNotExposeWriteTools(t *test
 	}
 }
 
+func TestBuildToolSchemas_AnalyzerExternalRuntimeFirstExposesOnlyEmitAnalysis(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	base := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: reg}, nil)
+	schemas := base.buildToolSchemas(&skill.Config{
+		Name:            "analysis-skill",
+		ToolSuggestions: []string{"emit_analysis", "repo_map", "grep", "list_files"},
+	}, &types.AgentContext{
+		Stage:           types.StageAnalyze,
+		AttachedHitrace: "app-20 (20) [001] .... 11.0: sched_switch: prev_comm=app prev_pid=20 prev_state=R ==> next_comm=rival next_pid=30",
+		TurnRouteHint: types.TurnRouteHint{
+			Route:  "repo",
+			Source: "external_tool",
+		},
+	})
+
+	if !schemaNamesContain(schemas, "emit_analysis") {
+		t.Fatalf("external runtime-first analyzer must still expose emit_analysis, got %+v", schemaNames(schemas))
+	}
+	for _, forbidden := range []string{"repo_map", "grep", "list_files"} {
+		if schemaNamesContain(schemas, forbidden) {
+			t.Fatalf("external runtime-first analyzer must not expose %q; got %+v", forbidden, schemaNames(schemas))
+		}
+	}
+}
+
 func TestExecuteTool_WriteExplorationSubflowRejectsShellCommand(t *testing.T) {
 	mut := types.NewMutableState("write needs source exploration first")
 	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{

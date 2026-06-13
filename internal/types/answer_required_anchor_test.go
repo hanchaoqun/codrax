@@ -87,3 +87,50 @@ func TestCompileRequiredMechanismAnchors_FilterIsCaseInsensitive(t *testing.T) {
 		t.Errorf("case variants of project names must be filtered, got %+v", got)
 	}
 }
+
+func TestCompileRequiredMechanismAnchors_DisabledForRuntimeArtifactWithoutRequiredSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioPerformanceBottleneck,
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:    "state_churn",
+				Subject: "app-20",
+				Summary: "trace_query window_stats returned state_churn metrics",
+			}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"app-20", "window_stats", "dominant_state", "state_churn"},
+			ExactTargets:      []string{"app-20"},
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFGeneric, nil)
+	if len(got) != 0 {
+		t.Fatalf("source-optional runtime artifact dimensions must not become current-source mechanism anchors: %+v", got)
+	}
+}
+
+func TestCompileRequiredMechanismAnchors_RuntimeCurrentSourceRequiredKeepsAnchors(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioPerformanceBottleneck,
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:    "state_churn",
+				Subject: "app-20",
+				Summary: "trace_query window_stats returned state_churn metrics",
+			}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"TraceQueryPlanner"},
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "internal/tracequery/query.go",
+				Confidence: 0.9,
+			}},
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFGeneric, nil)
+	if len(got) != 1 || got[0].Text != "TraceQueryPlanner" {
+		t.Fatalf("runtime questions with a current-source lane should keep source anchors, got %+v", got)
+	}
+}

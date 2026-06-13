@@ -3055,6 +3055,9 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 	if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
 		return true
 	}
+	if analyzerExternalObservationFirstBlocksTool(ctx, toolName) {
+		return true
+	}
 	if observationOnlyRuntimeBlocksTool(ctx, toolName) {
 		return true
 	}
@@ -4040,6 +4043,10 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	if !isPrescanTool(tc.Name) {
 		return nil
 	}
+	if analyzerExternalObservationFirstBlocksTool(ctx, tc.Name) {
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerExternalObservationFirstEmitOnlyCode,
+			"classification is external-observation-first for an attached runtime artifact; do not run repo_map / grep / list_files just to classify trace or log terms. Call emit_analysis now from the typed runtime artifact context. Later exploration will use trace_query or current-source tools if the structured request model requires them.")
+	}
 	if ctx.EmitStageRetryAttempt > 0 {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanTerminalEmitModeCode,
 			"classification retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
@@ -4078,12 +4085,43 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 }
 
 const (
-	analyzerToolNotAllowedCode                 = "analyzer_tool_not_allowed"
-	analyzerPrescanTerminalEmitModeCode        = "analyzer_terminal_emit_mode"
-	analyzerPrescanBudgetReachedCode           = "analyzer_prescan_budget_reached"
-	analyzerGrepFilesOnlyRequiredCode          = "analyzer_grep_files_only_required"
-	analyzerSourceInventoryAnalyzeBoundaryCode = "analyzer_source_inventory_analyze_boundary"
+	analyzerToolNotAllowedCode                   = "analyzer_tool_not_allowed"
+	analyzerPrescanTerminalEmitModeCode          = "analyzer_terminal_emit_mode"
+	analyzerPrescanBudgetReachedCode             = "analyzer_prescan_budget_reached"
+	analyzerGrepFilesOnlyRequiredCode            = "analyzer_grep_files_only_required"
+	analyzerSourceInventoryAnalyzeBoundaryCode   = "analyzer_source_inventory_analyze_boundary"
+	analyzerExternalObservationFirstEmitOnlyCode = "analyzer_external_observation_first_emit_only"
 )
+
+func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name string) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || !isPrescanTool(name) {
+		return false
+	}
+	if !ctx.TurnRouteHint.ExternalObservationFirst() || !analyzerHasRuntimeArtifactCarrier(ctx) {
+		return false
+	}
+	if rm := requestModelFromContext(ctx); rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return false
+	}
+	return true
+}
+
+func analyzerHasRuntimeArtifactCarrier(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.LogTriage != nil || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil {
+		logBundle, perfBundle := ctx.Mutable.AttachedArtifacts()
+		return logBundle != nil || perfBundle != nil
+	}
+	return false
+}
 
 func analyzerRepoMapSourceInventoryView(params json.RawMessage) bool {
 	var p struct {

@@ -815,6 +815,66 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("external runtime first blocks prescan tools", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:           types.StageAnalyze,
+			AttachedHitrace: "app-20 (20) [001] .... 11.0: sched_switch: prev_comm=app prev_pid=20 prev_state=R ==> next_comm=rival next_pid=30",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:  "repo",
+				Source: "external_tool",
+			},
+		}
+		for _, name := range []string{"repo_map", "grep", "list_files"} {
+			tc := llm.ToolCall{Name: name, Params: json.RawMessage(`{"pattern":"trace","files_only":true}`)}
+			got := validateAnalyzerPrescanToolCall(ctx, tc)
+			if got == nil {
+				t.Fatalf("tool=%s should be blocked for external runtime-first classification", name)
+			}
+			if got.Success {
+				t.Fatalf("tool=%s rejection should fail, got %+v", name, got)
+			}
+			if got.Repair == nil || got.Repair.Code != analyzerExternalObservationFirstEmitOnlyCode {
+				t.Fatalf("tool=%s repair code = %+v, want %q", name, got.Repair, analyzerExternalObservationFirstEmitOnlyCode)
+			}
+			if !strings.Contains(got.Summary, "emit_analysis") {
+				t.Fatalf("tool=%s rejection should redirect to emit_analysis, got %q", name, got.Summary)
+			}
+		}
+		if got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); got != nil {
+			t.Fatalf("emit_analysis must remain allowed, got %+v", got)
+		}
+	})
+
+	t.Run("external runtime first preserves typed current-source requirement", func(t *testing.T) {
+		rm := types.RequestModel{
+			PerfTrace: &types.PerfBundle{
+				Observations: []types.PerfObservation{{Kind: "state_churn", Subject: "app-20"}},
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{
+					Path:       "internal/tracequery/query.go",
+					Confidence: 0.9,
+				}},
+			},
+		}
+		ctx := &types.AgentContext{
+			Stage:           types.StageAnalyze,
+			AttachedHitrace: "sched_switch app-20 rival-30",
+			AnalysisIR:      &types.AnalysisIR{RequestModel: rm},
+			TurnRouteHint: types.TurnRouteHint{
+				Route:  "repo",
+				Source: "external_tool",
+			},
+		}
+		got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{
+			Name:   "repo_map",
+			Params: json.RawMessage(`{"path":".","view":"task_map","query":"trace_query"}`),
+		})
+		if got != nil {
+			t.Fatalf("typed current-source required runtime turns should keep analyzer prescan available, got %+v", got)
+		}
+	})
+
 	t.Run("analyze stage rejects source inventory row expansion", func(t *testing.T) {
 		ctx := &types.AgentContext{Stage: types.StageAnalyze}
 		tc := llm.ToolCall{
