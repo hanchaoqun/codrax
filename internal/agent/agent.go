@@ -2509,7 +2509,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
 						r = unavailableToolResult(ctx, call, effectiveToolNames)
 					} else {
-						r, m = b.executeTool(ctx, call)
+						r, m = b.executeTool(ctx, call, effectiveToolNames)
 					}
 					execResults[i] = toolExecResult{r, m}
 				}(idx, tc)
@@ -2587,7 +2587,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
 					result = unavailableToolResult(ctx, tc, effectiveToolNames)
 				} else {
-					result, mcpResp = b.executeTool(ctx, tc)
+					result, mcpResp = b.executeTool(ctx, tc, effectiveToolNames)
 				}
 
 				toolOK := false
@@ -3563,7 +3563,7 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 	}
 }
 
-func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*types.ToolResult, *types.MCPResponse) {
+func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, currentToolSurface ...map[string]bool) (*types.ToolResult, *types.MCPResponse) {
 	// Fix G (2026-05-07 customer report): repair common LLM-induced
 	// JSON corruption in tool call parameters before validation /
 	// execution. LLMs occasionally emit a trailing extra `}` (the
@@ -3612,6 +3612,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 		return violation, nil
 	}
 	if violation := validateExplorerToolBoundary(ctx, b.eval, tc); violation != nil {
+		return violation, nil
+	}
+	if violation := validateExplorerTraceQueryFirstToolCall(ctx, tc, traceQueryFirstSurfaceAllowsTraceQuery(currentToolSurface)); violation != nil {
 		return violation, nil
 	}
 	if violation := validateExternalObservationOnlyToolCall(ctx, tc); violation != nil {
@@ -4120,6 +4123,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 }
 
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
+const explorerTraceQueryFirstCode = "explorer_trace_query_first"
 const unavailableToolSurfaceCode = "unavailable_tool_surface"
 
 func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc llm.ToolCall) *types.ToolResult {
@@ -4144,6 +4148,87 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 		Repair:    &types.ToolRepair{Code: explorerRestrictedToolSurfaceCode, Hint: reason},
 		Timestamp: time.Now(),
 	}
+}
+
+func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	if !explorerTraceQueryFirstRequired(ctx, traceQueryInCurrentSurface) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if canonical == "trace_query" {
+		return nil
+	}
+	reason := fmt.Sprintf(
+		"%s rejected: this explorer turn has an attached runtime trace and `trace_query` is available while current-source evidence is optional. "+
+			"Call `trace_query` first for the attached trace; use source tools or completion only after `trace_query` returns unsupported/incomplete, or when the typed request model requires a current-source lane.",
+		tc.Name)
+	logging.Warning("[explorer] tool %q rejected before trace_query first refusal: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: explorerTraceQueryFirstCode,
+			Hint: "Use the available trace_query tool as the first evidence-producing/runtime-completion step for this attached trace. Treat earlier pre-triage tool-surface statements as stage-local; source tools are fallback after trace_query is attempted or when current-source evidence is structurally required.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"policy": "runtime_trace_query_first",
+			},
+		},
+	}
+}
+
+func explorerTraceQueryFirstRequired(ctx *types.AgentContext, traceQueryInCurrentSurface bool) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
+		return false
+	}
+	if !traceQueryToolAvailable(ctx) || explorerTraceQueryAlreadyAttempted(ctx) {
+		return false
+	}
+	rm := requestModelFromContext(ctx)
+	if rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return false
+	}
+	return explorerHasRuntimeTraceArtifact(ctx, rm)
+}
+
+func explorerHasRuntimeTraceArtifact(ctx *types.AgentContext, rm *types.RequestModel) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	return rm != nil && (rm.PerfTrace != nil ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference())
+}
+
+func explorerTraceQueryAlreadyAttempted(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	for _, result := range ctx.Mutable.DispatchToolResults() {
+		if types.CanonicalToolName(result.ToolName) == "trace_query" {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryFirstSurfaceAllowsTraceQuery(surfaces []map[string]bool) bool {
+	if len(surfaces) == 0 {
+		return true
+	}
+	surface := surfaces[0]
+	if len(surface) == 0 {
+		return false
+	}
+	return surface["trace_query"]
 }
 
 func sortedToolNames(names map[string]bool) []string {

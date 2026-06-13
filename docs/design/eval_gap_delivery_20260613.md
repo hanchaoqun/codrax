@@ -2621,5 +2621,81 @@ Executable task list:
   violations for accepted external-observation surfaces stay telemetry-only.
 - [x] B35-T4: Add focused regression coverage for the oracle boundary and
   caveat suppression.
-- [ ] B35-T5: Run focused/full validation, commit, push, and rerun the
+- [x] B35-T5: Run focused/full validation, commit, push, and rerun the
+  representative eval pair.
+
+Post-Batch-35 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-5aeea613-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 44s. The strict output remained
+  `{"ids":["u1","u3"]}` with no answer-contract violations.
+- `trace_query_state_churn_window_stats`: FAIL with `missing:fragments`.
+  The run used `read_file=4`, `trace_query=0`, and had one
+  answer-contract violation.
+- Manual answer audit: the final answer was grounded in a hand-derived
+  sched-switch interpretation rather than trace-query rows. It stated that
+  `trace_query window_stats` was unavailable, then emitted values that differed
+  from prior trace-query facts for the same window.
+- Log audit: the perf-triage pre-stage only had its own emit tool, but its
+  residue said `trace_query` was unavailable. Analyzer and explorer treated
+  that local-stage statement as if it were the downstream explorer tool
+  surface. The explorer turn did expose `trace_query`, but source tools were
+  selected first and no trace query was ever attempted.
+
+## Batch 36 Gap: Runtime Trace Tool Provenance Must Be Stage-Scoped
+
+Deep root cause:
+
+- Runtime pre-triage stages and explorer run with different tool schemas. A
+  pre-stage may legitimately lack `trace_query`, while the later explorer may
+  expose it for the same attached trace.
+- Model-authored residue from a pre-stage can therefore contain a stale
+  local-stage availability claim. If downstream stages treat that prose as an
+  authoritative capability fact, they may bypass the deterministic trace tool
+  and fall back to source navigation or manual parsing.
+- Existing prompt guidance already says to start runtime trace questions with
+  `trace_query`, but prompt-only guidance is not a commercial enforcement
+  boundary. The hard boundary must read typed runtime context, current tool
+  availability, and source-lane posture.
+- This is a stage-scoped provenance gap. The fix must not inspect user prose,
+  model prose, metric names, or specific eval expectations; it should enforce
+  the general invariant that a capable runtime trace tool gets first refusal
+  before optional source fallback.
+
+Generalized design:
+
+- In explorer, when all typed conditions hold, require the first non-repair
+  tool attempt to be `trace_query`:
+  1. a runtime trace is attached or structurally named;
+  2. `trace_query` is available in the current explorer tool surface;
+  3. current-source evidence is not required by `CurrentSourceLaneDecision`;
+  4. the current dispatch has not yet attempted `trace_query`.
+- Reject any other tool call with a typed repair code that tells the model to
+  call `trace_query` first, or use source tools only after `trace_query`
+  returns unsupported/incomplete or a separate current-source lane becomes
+  required.
+- Count both successful and failed `trace_query` results as first-refusal
+  attempts. After that, existing fallback behavior remains available, so real
+  unsupported trace shapes do not dead-end.
+- Preserve stable source-heavy scenarios: ordinary code questions never expose
+  `trace_query`; runtime questions with a typed current-source anchor keep the
+  source lane open; observation-only runtime questions keep the stricter
+  existing source-tool block.
+- Keep the trace-query parameter story centralized: reuse the existing
+  `trace_query` schema, strict decode, and unified parameter repair layer
+  rather than adding a new prompt or tool-specific JSON workaround.
+
+Executable task list:
+
+- [x] B36-T1: Record the Post-Batch-35 eval audit and the stage-scoped
+  trace-tool provenance gap.
+- [x] B36-T2: Add an explorer execution guard that gives available
+  `trace_query` first refusal before optional source fallback.
+- [x] B36-T3: Add regression tests for source-tool/complete rejection before
+  trace-query, fallback after a trace-query attempt, and current-source
+  required preservation.
+- [ ] B36-T4: Run focused/full validation, commit, push, and rerun the
   representative eval pair.

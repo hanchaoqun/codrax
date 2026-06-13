@@ -310,6 +310,106 @@ func TestValidateExternalObservationOnlyToolCall_DoesNotBlockMCPResourceSourceTo
 	}
 }
 
+func TestValidateExplorerTraceQueryFirstToolCall_BlocksNonTraceToolsBeforeAttempt(t *testing.T) {
+	ctx := traceQueryFirstTestContext(traceQueryFirstRuntimeRequestModel(), types.NewMutableState("trace state churn"))
+	for _, toolName := range []string{"read_file", "emit_investigation_complete"} {
+		got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+			Name:   toolName,
+			Params: json.RawMessage(`{}`),
+		}, true)
+		if got == nil {
+			t.Fatalf("expected %s to be rejected before trace_query", toolName)
+		}
+		if got.Success {
+			t.Fatalf("%s rejection should be failed, got %+v", toolName, got)
+		}
+		if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
+			t.Fatalf("%s rejection should carry trace-query-first repair, got %+v", toolName, got)
+		}
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_AllowsFallbackAfterTraceAttempt(t *testing.T) {
+	mut := types.NewMutableState("trace state churn")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  false,
+		Summary:  "trace_query returned unsupported for this trace flavor",
+	})
+	ctx := traceQueryFirstTestContext(traceQueryFirstRuntimeRequestModel(), mut)
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, true)
+	if got != nil {
+		t.Fatalf("source fallback should be allowed after a trace_query attempt, got %+v", got)
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_AllowsCurrentSourceRequired(t *testing.T) {
+	rm := traceQueryFirstRuntimeRequestModel()
+	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{
+		Path:       "internal/tracequery/types.go",
+		Confidence: 0.95,
+	}}
+	ctx := traceQueryFirstTestContext(rm, types.NewMutableState("trace source verification"))
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, true)
+	if got != nil {
+		t.Fatalf("current-source required trace questions must keep source tools available, got %+v", got)
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_IgnoresSurfaceWithoutTraceQuery(t *testing.T) {
+	ctx := traceQueryFirstTestContext(traceQueryFirstRuntimeRequestModel(), types.NewMutableState("trace state churn"))
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, false)
+	if got != nil {
+		t.Fatalf("trace-query-first guard must not fire when trace_query is not in the current tool surface, got %+v", got)
+	}
+}
+
+func traceQueryFirstRuntimeRequestModel() types.RequestModel {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:      "state_churn",
+			Subject:   "app-20",
+			Summary:   "runtime trace state churn metrics",
+			LineStart: 3,
+			LineEnd:   23,
+		}},
+	}
+	return types.RequestModel{
+		Intent:    types.IntentRootCause,
+		Scenario:  types.ScenarioPerformanceBottleneck,
+		PerfTrace: perf,
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+			Confidence:           0.9,
+		},
+	}
+}
+
+func traceQueryFirstTestContext(rm types.RequestModel, mut *types.MutableState) *types.AgentContext {
+	if mut == nil {
+		mut = types.NewMutableState("trace state churn")
+	}
+	mut.SetRequestModel(rm)
+	mut.SetPerfTrace(rm.PerfTrace)
+	return &types.AgentContext{
+		Stage:      types.StageExplore,
+		Objective:  "analyze attached runtime trace",
+		PerfTrace:  rm.PerfTrace,
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+}
+
 func TestExecuteTool_AllowsRepoToolsForMixedMCPSourceQuestion(t *testing.T) {
 	base := NewBaseAgent(types.AgentExplorer, &Dependencies{}, nil)
 	ctx := &types.AgentContext{
