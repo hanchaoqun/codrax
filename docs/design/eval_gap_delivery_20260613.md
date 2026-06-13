@@ -1186,7 +1186,7 @@ Executable task list:
   payloads with alias fields normalize without retries and invalid origins
   still reject.
 - [x] B16-T6: Run focused tests, full tests, rebuild, diff hygiene.
-- [ ] B16-T7: Commit and push Batch 16.
+- [x] B16-T7: Commit and push Batch 16.
 - [ ] B16-T8: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
 
@@ -1215,3 +1215,83 @@ Verification:
 - Full tests: `go test ./...`
 - Build: `make`
 - Diff hygiene: `git diff --check`
+
+## Batch 17 Gap: JSON-Only Data Payload Projection Must Use Plan-Level Output Contracts
+
+Post-Batch-16 eval root:
+
+- `eval/results/eval-gap-20260613-post-9ef9c00a-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `trace_query_state_churn_window_stats`: PASS in 177s. Metrics:
+  `tool_trace_query=2`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `finalizer_rejects=0`. Manual audit: answer preserves
+  `dominant_state=runnable`, cumulative running/runnable/sleep/d_state/io_wait,
+  `fragments`, `switches`, `max_segment`, `p95_segment`, and next-step
+  guidance. The runtime handoff path is materially improved. Residual
+  non-blocker: the perf-triage static guidance still mentions `read_file`, but
+  the tool was not called and exploration used `trace_query` as expected.
+- `data_json_strict_ids`: FAIL in 242s with `data_rounds=18`,
+  `data_repair_rounds=5`, `data_answer_len=52193`, and
+  `data_terminal_status=failed`. Manual audit: the first successful data
+  transform had already produced the correct strict payload
+  `{"ids":["u1","u3"]}`, but the result had no `answer` because the runner only
+  promotes ordinary extra JSON payload fields when the script-emitted result
+  itself carries `output_contract`. In this case the strict JSON contract lived
+  on the plan, so the payload stayed as `emitted_payload`/`custom_payload`.
+  The workflow then chased final_projection, rule coverage, decisions,
+  contributions, and reconcile ledgers until budget exhaustion.
+
+Deep root cause:
+
+- The data runner has the right primitive,
+  `runnerPayloadAnswerFromExtraFields`: ordinary extra JSON object/array fields
+  can become the final `answer` under a `json_only` contract. The gap is that
+  the primitive sees only the raw emitted result object. If a plan supplies the
+  output contract and the script emits a plain payload, the promotion happens
+  before plan-level contract normalization and therefore misses.
+- The workflow reducer then receives a structurally correct payload artifact
+  but `HasAnswer=false`. That converts a solved strict-output task into a
+  generic ledger-completion problem. Because ledger prerequisites are correct
+  for non-trivial aggregation/join/reconcile workflows, this cannot be fixed by
+  weakening ledger validation globally.
+- This is a system-level handoff gap across all data tasks that emit a plain
+  JSON payload while relying on the plan's output contract: small filters,
+  extraction-only outputs, JSON reshaping, and deterministic transforms can all
+  lose the terminal answer even though the payload is already valid.
+
+Generalized design:
+
+- Make plan-level output contracts participate in runner payload promotion.
+  After parsing the script result and before workflow validation observes the
+  result, derive the effective contract as `result.output_contract` if present,
+  otherwise `plan.output_contract`. If the effective contract is `json_only`
+  and the script result is an ordinary JSON payload with non-canonical result
+  fields, promote the payload to `result.answer` using the existing
+  `runnerPayloadAnswerFromExtraFields` semantics.
+- Keep validation strict after promotion: `ValidateAnswer` still verifies valid
+  JSON, material coverage still requires consumed required materials, and
+  explicit ledger requirements still fail when the plan asks for them. The
+  change only prevents an already-valid terminal payload from being invisible
+  to completion.
+- Preserve auditability: retaining the `emitted_payload` artifact is acceptable
+  as a handoff/audit artifact, but `answer` becomes the authoritative terminal
+  projection for strict JSON-only outputs. No prompt redline is introduced, and
+  no user-intent or model-prose keyword matching is used.
+
+Executable task list:
+
+- [x] B17-T1: Record post-Batch-16 representative eval audit and root cause in
+  this design doc.
+- [ ] B17-T2: Extend runner result parsing/normalization so plan-level
+  `output_contract` can trigger existing JSON payload answer promotion before
+  terminal workflow validation.
+- [ ] B17-T3: Add regression tests for plain `emit({"field": ...})` under
+  plan-level `json_only` output contract, including required-material
+  consumption through an instruction/rule file.
+- [ ] B17-T4: Add/adjust workflow completion tests proving a promoted payload
+  satisfies output projection without forcing unrelated ledger stages when
+  ledger requirements are not declared.
+- [ ] B17-T5: Run focused tests, full tests, rebuild, diff hygiene.
+- [ ] B17-T6: Commit and push Batch 17.
+- [ ] B17-T7: Rerun representative eval cases two at a time and manually audit
+  answers/logs again.
