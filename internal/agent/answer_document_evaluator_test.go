@@ -4471,7 +4471,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		"`no_repo_intersection`",
 		"synthetic frames represent a different deployed build",
 		"runtime/artifact provenance lane",
-		"This dispatch is observation-only",
+		"This dispatch is runtime-artifact scoped",
+		"Do not emit `current_status_verdict`",
+		"trace-observed cause/risk",
 		"model-authored closure reason omitted from this authority section",
 		"Accepted runtime closure reason (advisory only",
 		"possible upstream investigation direction",
@@ -4548,6 +4550,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 		"Runtime root-cause layering hint",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
+		"This dispatch is runtime-artifact scoped",
+		"Do not emit `current_status_verdict`",
+		"trace-observed cause/risk",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -4555,7 +4560,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 	}
 	for _, forbidden := range []string{
 		"## Current Status Diagnostic",
-		"current_status_verdict",
+		"Verdict: emit a principal `decision` block with `current_status_verdict`",
 		`**Must declare (emit-time rejection if any are missing from every block's ` + "`facet_ids`" + ` and ` + "`claim_uses[].facet_id`" + `):** "` + string(types.FacetCurrentCodePath) + `"`,
 	} {
 		if strings.Contains(prompt, forbidden) {
@@ -4847,8 +4852,14 @@ func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(
 			t.Fatalf("observation-only runtime prompt leaked repo enrichment %q:\n%s", banned, prompt)
 		}
 	}
-	if !strings.Contains(prompt, "This dispatch is observation-only") {
-		t.Fatalf("prompt missing observation-only boundary:\n%s", prompt)
+	for _, want := range []string{
+		"This dispatch is runtime-artifact scoped",
+		"Do not emit `current_status_verdict`",
+		"trace-observed cause/risk",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing runtime-artifact boundary %q:\n%s", want, prompt)
+		}
 	}
 }
 

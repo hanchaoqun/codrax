@@ -7446,8 +7446,8 @@ func (o *Orchestrator) runAutoVerdicts() {
 	if mu == nil {
 		return
 	}
-	if o.busCtx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		logging.Debug("[orchestrator] auto-verdict skipped for observation-only runtime artifact")
+	if o.busCtx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		logging.Debug("[orchestrator] auto-verdict skipped for runtime artifact without required current-source evidence")
 		return
 	}
 	var taToolResults []types.ToolResult

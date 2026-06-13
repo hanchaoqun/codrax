@@ -453,9 +453,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 	// -------- Hypothesis set --------
 	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
-		if extractorObservationOnlyRuntimeArtifact(ctx) {
-			b.WriteString("## Runtime observation-only hypothesis boundary\n\n")
-			b.WriteString("The current request excludes current-checkout/source evidence. Treat analyzer hypotheses as optional framing for the attached runtime artifact; preserve observed runtime facts through `aggregate_facts` / completion handoff and cite artifact-local lines only when a verdict is explicitly useful for an artifact-local claim. Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses.\n\n")
+		if extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
+			b.WriteString("## Runtime artifact hypothesis boundary\n\n")
+			b.WriteString("The attached runtime artifact does not require current-checkout/source evidence for this answer. Treat analyzer hypotheses as optional framing for the attached runtime artifact; preserve observed runtime facts through `aggregate_facts` / completion handoff and cite artifact-local lines only when a verdict is explicitly useful for an artifact-local claim. Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses or current-code status questions.\n\n")
 			b.WriteString("Context-only hypotheses:\n")
 			for _, h := range ctx.AnalysisIR.HypothesisSet {
 				fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
@@ -1690,7 +1690,7 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	// drain hook downstream still records progress. For
 	// FalsificationCondition: if it is satisfied, inject a rejected
 	// verdict (or override an existing LLM verdict to rejected).
-	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 && !extractorObservationOnlyRuntimeArtifact(ctx) {
+	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 && !extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 		var taToolResults []types.ToolResult
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			taToolResults = ta.ToolResults
@@ -1750,6 +1750,12 @@ func extractorObservationOnlyRuntimeArtifact(ctx *types.AgentContext) bool {
 	return ctx != nil &&
 		ctx.AnalysisIR != nil &&
 		ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
+}
+
+func extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.AgentContext) bool {
+	return ctx != nil &&
+		ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
 // validateCompletenessClaim is the hard cardinality validator for the
@@ -3235,7 +3241,7 @@ func hasPendingHypotheses(ctx *types.AgentContext) bool {
 	if len(ctx.AnalysisIR.HypothesisSet) == 0 {
 		return false
 	}
-	if extractorObservationOnlyRuntimeArtifact(ctx) {
+	if extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 		return false
 	}
 	verdicted := make(map[string]bool)

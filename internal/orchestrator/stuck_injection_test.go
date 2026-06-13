@@ -152,6 +152,40 @@ func TestRunAutoVerdicts_SkipsObservationOnlyRuntimeArtifact(t *testing.T) {
 	}
 }
 
+func TestRunAutoVerdicts_SkipsSourceOptionalRuntimeArtifact(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "state_churn app-20 dominant_state=runnable",
+		}},
+	}
+	mut := types.NewMutableState("runtime trace")
+	mut.SetPerfTrace(perf)
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				PerfTrace: perf,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "app-20"},
+			}},
+		},
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	o.runAutoVerdicts()
+
+	if got := bus.Mutable.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("source-optional runtime artifact should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
 // TestInjectInconclusiveForStuck_NilGuardsDontPanic covers the
 // defensive paths — nil bus, nil IR, nil mutable all return 0
 // without panicking.

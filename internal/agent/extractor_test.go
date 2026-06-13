@@ -2043,10 +2043,11 @@ func TestExtractor_BuildPrompt_ObservationOnlyRuntimeHypothesesAreContextOnly(t 
 	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
 
 	for _, want := range []string{
-		"Runtime observation-only hypothesis boundary",
+		"Runtime artifact hypothesis boundary",
 		"Context-only hypotheses",
 		"artifact-local",
-		"Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses",
+		"does not require current-checkout/source evidence",
+		"Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses or current-code status questions",
 		"H-runtime",
 	} {
 		if !contains(prompt, want) {
@@ -2055,6 +2056,49 @@ func TestExtractor_BuildPrompt_ObservationOnlyRuntimeHypothesesAreContextOnly(t 
 	}
 	if contains(prompt, "## Hypotheses (emit a verdict for each)") {
 		t.Fatal("observation-only runtime artifacts must not ask for source-style verdicts for every hypothesis")
+	}
+}
+
+func TestExtractor_BuildPrompt_SourceOptionalRuntimeHypothesesAreContextOnly(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "state_churn app-20 dominant_state=runnable",
+		}},
+	}
+	mu := types.NewMutableState("analyze trace window")
+	mu.SetPerfTrace(perf)
+	ctx := &types.AgentContext{
+		Objective: "analyze trace window",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				PerfTrace: perf,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:        "H-runtime",
+				Statement: "source helper caused the observed frame delay",
+				Status:    types.HypUnknown,
+			}},
+		},
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+
+	for _, want := range []string{
+		"Runtime artifact hypothesis boundary",
+		"does not require current-checkout/source evidence",
+		"Context-only hypotheses",
+		"H-runtime",
+	} {
+		if !contains(prompt, want) {
+			t.Errorf("prompt missing source-optional runtime guidance %q", want)
+		}
+	}
+	if contains(prompt, "## Hypotheses (emit a verdict for each)") {
+		t.Fatal("source-optional runtime artifacts must not ask for source-style verdicts for every hypothesis")
 	}
 }
 
@@ -2120,6 +2164,42 @@ func TestExtractor_ParseOutput_SkipsAutoVerdictsForObservationOnlyRuntimeArtifac
 	}
 	if got := mu.EmittedHypothesisVerdicts(); len(got) != 0 {
 		t.Fatalf("observation-only artifact should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
+func TestExtractor_ParseOutput_SkipsAutoVerdictsForSourceOptionalRuntimeArtifact(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "state_churn app-20 dominant_state=runnable",
+		}},
+	}
+	mu := types.NewMutableState("runtime trace")
+	mu.SetPerfTrace(perf)
+	ctx := &types.AgentContext{
+		Objective: "runtime trace",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				PerfTrace: perf,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "app-20"},
+			}},
+		},
+	}
+	e := &extractorEvaluator{}
+
+	if _, err := e.ParseOutput(ctx, nil, nil, nil); err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if got := mu.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("source-optional runtime artifact should not get repo-evidence auto-verdicts, got %+v", got)
 	}
 }
 
@@ -2362,6 +2442,27 @@ func TestExtractor_Observe_RuntimeArtifactOnly_DoesNotRequireHypothesisVerdict(t
 	sig := e.Observe(ctx, obs)
 	if !sig.StopRequested {
 		t.Fatalf("observation-only runtime artifacts should not force emit_hypothesis_verdict; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_SourceOptionalRuntimeArtifactDoesNotRequireHypothesisVerdict(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.IntentReturnValue,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil,
+		nil,
+	)
+	ctx.AnalysisIR.RequestModel.PerfTrace = &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "state_churn app-20 dominant_state=runnable",
+		}},
+	}
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("source-optional runtime artifacts should not force emit_hypothesis_verdict; got %+v", sig)
 	}
 }
 

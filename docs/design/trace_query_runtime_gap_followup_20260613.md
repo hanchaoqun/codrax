@@ -100,6 +100,35 @@ Commercial requirement:
   and their semantic wording must match runtime observation, not current-source
   module ownership.
 
+### Gap 5: Source-optional runtime artifacts still trigger source-status semantics
+
+The 2026-06-13 low-leading run correctly recovered both major trace causes:
+runnable scheduling delay / priority inversion on the wakeup chain, and
+upstream D-state IO wait on `ThreadPoolForeg-60555`. However, the answer also
+emitted a `still_present` decision and prose such as "current code has not
+removed the risk path", even though the request asked to analyze the trace and
+no current checkout evidence was collected.
+
+Deep cause:
+
+- The analyzer did not always emit `external_observation_policy.current_source_mode=exclude`.
+- Existing extractor/orchestrator auto-verdict suppression only used the narrow
+  `HasObservationOnlyRuntimeArtifact()` predicate.
+- For runtime artifacts with no typed current-source verification anchor, the
+  broader commercial boundary is `HasRuntimeArtifactWithoutRequiredCurrentSource()`:
+  current source may be allowed as fallback, but it is not required and must not
+  create source-status verdicts.
+
+Commercial requirement:
+
+- Runtime artifact answers with no required current-source lane must not force
+  source-code hypothesis verdicts, auto-verdicts, or `still_present/fixed`
+  status semantics.
+- Final answers should state trace-observed cause/risk, not current-code
+  persistence, unless a typed current-source verification anchor exists.
+- Runtime artifact citation/status prompts and repair hints must use the same
+  source-lane predicate, so the model receives one coherent contract.
+
 ## Validation Question Policy
 
 Future validation questions for `xxx_all.systrace` should be low-leading and
@@ -155,7 +184,20 @@ Example:
   scheduler/resource context, and auxiliary directions remain separate.
 - Add regression tests for the runtime observation-only extractor path.
 
-### Batch 5: Real-trace validation
+### Batch 5: Source-optional runtime source-status isolation
+
+- Broaden orchestrator/extractor auto-verdict suppression from the narrow
+  observation-only predicate to runtime artifacts without required current-source
+  evidence.
+- Align extractor hypothesis prompt wording with this broader source-lane
+  boundary.
+- Add regression tests for source-optional runtime artifacts where no
+  `current_source_mode=exclude` is present.
+- Add finalizer/tool guidance so `current_status_verdict` and current-code
+  persistence prose are not used unless the typed current-status diagnostic
+  contract is active.
+
+### Batch 6: Real-trace validation
 
 - Run the low-leading `xxx_all.systrace` validation question without mentioning
   isplogcat.
@@ -165,3 +207,6 @@ Example:
   and auxiliary-only rows.
 - Verify no off-chain log/system thread is presented as primary when on-chain
   evidence exists.
+- Verify the answer explicitly names both runnable scheduling delay and D-state
+  IO wait when both are present in the frame, without adding current-code
+  persistence verdicts.
