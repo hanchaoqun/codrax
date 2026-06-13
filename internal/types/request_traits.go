@@ -1109,7 +1109,7 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
 		return true
 	}
-	if rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+	if rm.DiagnosticProfile.CurrentVersionCheck {
 		for _, target := range rm.AnalyzerHints.ExactTargets {
 			if strings.TrimSpace(target) != "" && !LooksLikeRuntimeArtifactPath(target) {
 				return true

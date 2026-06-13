@@ -343,7 +343,37 @@ func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *
 	}
 }
 
-func TestCurrentSourceLaneDecision_CurrentVersionExactTargetRequiresSource(t *testing.T) {
+func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{Kind: "state_churn", Subject: "app-20"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"app-20", "11.0s-11.008s"},
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: false,
+			Confidence:          0.95,
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.95,
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("runtime exact targets should keep source optional, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("runtime exact targets alone must not hard-require current source")
+	}
+}
+
+func TestCurrentSourceLaneDecision_CurrentSourceProfileRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
 		Scenario: ScenarioRootCause,
@@ -351,7 +381,7 @@ func TestCurrentSourceLaneDecision_CurrentVersionExactTargetRequiresSource(t *te
 			Errors: []LogError{{Type: "timeout"}},
 		},
 		AnalyzerHints: AnalyzerHints{
-			ExactTargets: []string{"my_app::config::load"},
+			ExactTargets: []string{"writeSession"},
 		},
 		DiagnosticProfile: DiagnosticIntentProfile{
 			IsDiagnostic:        true,
@@ -359,9 +389,15 @@ func TestCurrentSourceLaneDecision_CurrentVersionExactTargetRequiresSource(t *te
 			CurrentVersionCheck: true,
 			Confidence:          0.95,
 		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationVerifyCurrentStatus},
+			SourceQuotes:                        []string{"current checkout"},
+			Confidence:                          0.95,
+		},
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
-		t.Fatalf("explicit current-version exact target should require source lane, got %s", got)
+		t.Fatalf("typed current-source profile should require source lane, got %s", got)
 	}
 }
 

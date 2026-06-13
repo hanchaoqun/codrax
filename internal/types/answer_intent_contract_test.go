@@ -311,7 +311,7 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithout
 	)
 }
 
-func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithExactTargetKeepsCurrentSource(t *testing.T) {
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithSourceProfileKeepsCurrentSource(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		Predicates: SemanticPredicates{
@@ -324,6 +324,12 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithExa
 		},
 		AnalyzerHints: AnalyzerHints{
 			ExactTargets: []string{"writeSession"},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationVerifyCurrentStatus},
+			SourceQuotes:                        []string{"current checkout"},
+			Confidence:                          0.95,
 		},
 		LogTriage: &LogBundle{
 			Errors: []LogError{{Type: "fatal error"}},

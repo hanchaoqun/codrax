@@ -5674,6 +5674,9 @@ func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.CurrentStatusDiagnostic == nil {
 		return ""
 	}
+	if plan := answerSurfacePlan(ctx); plan != nil && !plan.CurrentStatusDiagnosticRequired {
+		return ""
+	}
 	contract := ctx.AnalysisIR.AnswerContract.CurrentStatusDiagnostic
 	if !contract.Required {
 		return ""

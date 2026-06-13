@@ -675,7 +675,7 @@ Executable task list:
 - [x] B10-T4: Add focused regression tests for `all/id` member arrays becoming
   `ids`, while numeric aggregate defaults remain stable.
 - [x] B10-T5: Run focused tests, full tests, rebuild, commit/push.
-- [ ] B10-T6: Rerun representative eval cases two at a time and manually audit
+- [x] B10-T6: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 - [x] B10-T7: Add finalizer trace handoff guidance so `state_churn.next_step`
   remains visible and bounded `trace_query` facts take precedence over stale
@@ -685,5 +685,95 @@ Batch 10 verification before commit:
 
 - `go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswerUsesMetricKeyForSyntheticAllMembers|TestActionRunnerAssembleAnswerProjectsExplicitValueFieldMembers|TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric|TestActionRunnerAssembleAnswerProjectsJSONObjectValues'`
 - `go test ./internal/agent -run TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder`
+- `go test ./...`
+- `make`
+
+Post-Batch-10 eval root:
+
+- `eval/results/eval-gap-20260613-post-1f72c140`
+
+Manual audit after rerun:
+
+- `data_json_strict_ids` passed. The final answer was exactly
+  `{"ids":["u1","u3"]}` and terminal data workflow metrics improved from
+  9 rounds / 156s to 1 round / 36s.
+- `trace_query_state_churn_window_stats` still failed. The run used
+  `trace_query` twice and produced correct `state_churn` metrics, but the
+  final answer omitted the requested next-step guidance. Runtime logs showed
+  `tool_read_file=7`, `explorer_iters=10`, `wall_seconds=265`, and a hard
+  current-status answer contract (`current_code_path` plus
+  `current_status_verdict`) even though the user requested bounded runtime
+  trace metrics, not current-checkout verification.
+
+## Batch 11 Gap: External Runtime Trace Source-Lane Boundary
+
+Deep root cause:
+
+- The analyzer correctly marked the trace coordinates as external artifact
+  citations, but left `current_source_mode=default` because the user did not
+  explicitly exclude source analysis. That default means current-source
+  exploration is allowed when useful; it must not become a hard requirement.
+- `diagnostic_profile.current_risk=true` combined with a broad
+  `HasRuntimeArtifactCurrentVerificationAnchor` fallback that treats any
+  non-empty `ExactTargets` entry as a current-source anchor. Runtime subjects
+  such as `app-20` and bounded trace windows such as `11.0s-11.008s` were
+  therefore misclassified as source-verification anchors.
+- Once the current-status contract was active, the answer surface required a
+  principal decision block and `current_code_path` facet. Explorer widened into
+  current source (`grep`/`read_file`) to satisfy the contract, and finalizer
+  optimized for source implementation proof instead of preserving the trace
+  tool's `next_step` guidance.
+
+Generalized design:
+
+- Separate "current source may be used" from "current source is required" for
+  external runtime artifacts. Hard gates may require source only from typed
+  current-source signals: resolved current files, explicit current-source
+  explanation profile, source-scope profile, current-key-code dimension,
+  required file hints, or code/config-path targets.
+- Runtime artifact exact targets are not source anchors by themselves. They
+  remain principal runtime subjects and can enrich search ranking, but cannot
+  activate `current_status_diagnostic` unless accompanied by a typed
+  current-source signal. `CurrentVersionCheck=true` is preserved as an explicit
+  source-verification signal when it has an exact target; a plain
+  `current_risk` flag is not enough.
+- Answer surface planning must compute current-status requirement from the
+  same source-lane decision. If source is optional, accidentally collected
+  current-source evidence can stay supporting context but cannot force
+  `current_code_path`, `current_status_verdict`, or source-oriented principal
+  blocks.
+- Trace answers with typed `trace_query` observations should preserve
+  requested metrics and `next_step` guidance as runtime artifact facts. Source
+  implementation details should remain optional caveat/support, never the
+  user-facing spine for bounded trace-window metric questions.
+
+Executable task list:
+
+- [x] B11-T1: Narrow `HasRuntimeArtifactCurrentVerificationAnchor` so arbitrary
+  runtime `ExactTargets` do not become current-source anchors; keep typed
+  current-source profiles, resolved files, required files, and code/config
+  path anchors as source-required signals.
+- [x] B11-T2: Reconcile external runtime diagnostic profiles with the narrowed
+  source-lane decision, clearing current-status flags when no typed current
+  source requirement exists.
+- [x] B11-T3: Make `BuildAnswerSurfacePlan` derive
+  `CurrentStatusDiagnosticRequired` from the effective source-lane requirement,
+  not from raw diagnostic flags alone.
+- [x] B11-T4: Add focused regression tests for external trace/runtime subjects
+  with exact targets (`app-20`, time window) remaining source-optional, while
+  explicit current-source profiles/resolved files still require source.
+- [x] B11-T5: Add finalizer prompt regression coverage that source-optional
+  runtime trace plans do not render `current_status_verdict` or hard
+  `current_code_path`, and still render runtime trace handoff guidance.
+- [x] B11-T6: Run focused tests, full tests, rebuild, commit/push.
+- [ ] B11-T7: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
+
+Batch 11 verification before commit:
+
+- `go test ./internal/types -run 'TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional|TestCurrentSourceLaneDecision_CurrentSourceProfileRequiresSource|TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatus|TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus'`
+- `go test ./internal/agent -run 'TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus|TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus|TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder'`
+- `go test ./internal/tool -run 'TestPreCheckRuntimeObservationRepoContaminationAllowsCurrentStatus|TestPreCheckRuntimeObservationRepoContamination'`
+- `go test ./internal/agent ./internal/types ./internal/tool`
 - `go test ./...`
 - `make`

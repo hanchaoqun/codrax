@@ -1645,6 +1645,23 @@ func CompileDiagramSurfaceFence(
 // pure helper shared by the finalizer prompt path and the structured
 // answer validator so both consume the same effective shape,
 // diagram/exact-resolution contract, and context-surface categories.
+func effectiveCurrentStatusDiagnosticRequired(ir *AnalysisIR) bool {
+	if ir == nil {
+		return false
+	}
+	required := ir.RequestModel.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		required = true
+	}
+	if !required {
+		return false
+	}
+	if ir.RequestModel.HasExternalOnlyRuntimeArtifact() || ir.RequestModel.HasExternalObservationArtifactReference() {
+		return ir.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+	}
+	return true
+}
+
 func BuildAnswerSurfacePlan(
 	ir *AnalysisIR,
 	mutable *MutableState,
@@ -1664,13 +1681,14 @@ func BuildAnswerSurfacePlan(
 	if ir.RequestModel.RequestedAnswerDimensions != nil && ir.RequestModel.RequestedAnswerDimensions.Active() {
 		plan.RequestedAnswerDimensions = append([]RequestedAnswerDimension(nil), ir.RequestModel.RequestedAnswerDimensions.Dimensions...)
 	}
-	plan.CurrentStatusDiagnosticRequired = ir.RequestModel.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
-	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
-		plan.CurrentStatusDiagnosticRequired = true
+	plan.CurrentStatusDiagnosticRequired = effectiveCurrentStatusDiagnosticRequired(ir)
+	intentContract := ir.AnswerContract
+	if !plan.CurrentStatusDiagnosticRequired && intentContract.CurrentStatusDiagnostic != nil {
+		intentContract.CurrentStatusDiagnostic = nil
 	}
 	plan.CurrentSourceEvidenceOrigin = CompileAnswerIntentContract(
 		ir.RequestModel,
-		&ir.AnswerContract,
+		&intentContract,
 	).HasOrigin(AnswerEvidenceOriginCurrentSource)
 
 	plan.ExactResolution = ir.AnswerContract.ExactResolution

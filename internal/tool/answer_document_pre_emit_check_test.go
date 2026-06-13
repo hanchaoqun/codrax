@@ -155,6 +155,12 @@ func TestPreCheckRuntimeObservationRepoContaminationAllowsCurrentStatus(t *testi
 					IsDiagnostic:        true,
 					CurrentVersionCheck: true,
 				},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationVerifyCurrentStatus},
+					SourceQuotes:                        []string{"current code"},
+					Confidence:                          0.95,
+				},
 			},
 			AnswerContract: types.AnswerContract{
 				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},

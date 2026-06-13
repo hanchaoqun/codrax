@@ -37,7 +37,10 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
 	}
-	if ir != nil && ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+	if ir != nil &&
+		(plan == nil || plan.CurrentStatusDiagnosticRequired) &&
+		ir.AnswerContract.CurrentStatusDiagnostic != nil &&
+		ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		view.CurrentStatusDiagnostic = ir.AnswerContract.CurrentStatusDiagnostic
 	}
 	view.RequiredBlocks = []BlockRequirement{

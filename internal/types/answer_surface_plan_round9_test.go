@@ -39,6 +39,58 @@ func TestPreferredAnswerSummarySurfaceMode_GatesOnUserIntent(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus(t *testing.T) {
+	perf := &PerfBundle{
+		Observations: []PerfObservation{{
+			Kind:      "state_churn",
+			Subject:   "app-20",
+			Summary:   "state_churn app-20 dominant_state=runnable",
+			LineStart: 3,
+			LineEnd:   23,
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:    IntentRootCause,
+			Scenario:  ScenarioPerformanceBottleneck,
+			PerfTrace: perf,
+			AnalyzerHints: AnalyzerHints{
+				ExactTargets: []string{"app-20", "11.0s-11.008s"},
+			},
+			Predicates: SemanticPredicates{IsDiagnosticQuestion: true},
+			DiagnosticProfile: DiagnosticIntentProfile{
+				IsDiagnostic: true,
+				CurrentRisk:  true,
+				Confidence:   0.95,
+			},
+			ExternalObservationPolicy: &ExternalObservationPolicy{
+				ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+				Confidence:           0.95,
+			},
+		},
+		AnswerContract: AnswerContract{
+			CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+		},
+	}
+	mut := NewMutableState("trace window stats")
+	mut.SetPerfTrace(perf)
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("external trace exact targets alone must not force current-status diagnostic")
+	}
+	if plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("external trace exact targets alone must not force current-source evidence origin")
+	}
+	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		t.Fatalf("runtime grounding disposition should remain active: %+v", plan.RuntimeGroundingDisposition)
+	}
+}
+
 // TestPreferredAnswerSummarySurfaceMode_ScenarioNoLongerHardCap:
 // pre-round-9 the gate read rm.Scenario; now it reads rm.Intent.
 // A non-RootCause Scenario should NOT block drift mode when the

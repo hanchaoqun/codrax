@@ -356,7 +356,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 		}},
 	})
 	ctx := &types.AgentContext{
-		Mutable: mut,
+		Objective:             "use trace_query window_stats to analyse sched state_churn for app-20",
+		AttachedHitrace:       "sched_switch app-20 rival-30",
+		AttachedHitraceSource: "harmony_hitrace",
+		Mutable:               mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentEnumerate,
 			Predicates: types.SemanticPredicates{
@@ -4473,6 +4476,70 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	}
 	if strings.Contains(prompt, "model-authored closure reason: IndexPage supplied") {
 		t.Fatalf("runtime observation-only closure reason must not appear as authority text:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:      "state_churn",
+			Subject:   "app-20",
+			Summary:   "state_churn app-20 dominant_state=runnable next_step=compare rival-30 on same CPU",
+			LineStart: 3,
+			LineEnd:   23,
+		}},
+	}
+	mut := types.NewMutableState("trace window stats")
+	mut.SetPerfTrace(perf)
+	ctx := &types.AgentContext{
+		Objective:             "use trace_query window_stats to analyse sched state_churn for app-20",
+		AttachedHitrace:       "sched_switch app-20 rival-30",
+		AttachedHitraceSource: "harmony_hitrace",
+		Mutable:               mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				Intent:    types.IntentRootCause,
+				PerfTrace: perf,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"app-20", "11.0s-11.008s"},
+				},
+				Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+					CurrentRisk:  true,
+					Confidence:   0.95,
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Runtime Grounding Disposition",
+		"Runtime trace handoff hint",
+		"preserve that next-step guidance visibly",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"## Current Status Diagnostic",
+		"current_status_verdict",
+		`**Must declare (emit-time rejection if any are missing from every block's ` + "`facet_ids`" + ` and ` + "`claim_uses[].facet_id`" + `):** "` + string(types.FacetCurrentCodePath) + `"`,
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("source-optional trace prompt should not contain %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 
