@@ -654,7 +654,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 	if ac.AgentName != types.AgentPerfTriager {
 		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
-		if section := formatPerfTriageStructured(ac.PerfTrace, locator); section != "" {
+		if section := formatPerfTriageStructured(perfTriageBundleForPrompt(ac), locator); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPerfTriageExtraction,
@@ -1156,6 +1156,29 @@ func shouldSuppressAttachedRuntimeTrace(ac *types.AgentContext) bool {
 		return false
 	}
 	return bundleHasAuthoritativePerfFrames(bundle)
+}
+
+func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
+	if ac == nil || ac.PerfTrace == nil {
+		return nil
+	}
+	if !shouldSuppressPerfTriageResidueInPrompt(ac) {
+		return ac.PerfTrace
+	}
+	projected := *ac.PerfTrace
+	projected.Residue = nil
+	return &projected
+}
+
+func shouldSuppressPerfTriageResidueInPrompt(ac *types.AgentContext) bool {
+	if ac == nil || ac.PerfTrace == nil || len(ac.PerfTrace.Residue) == 0 {
+		return false
+	}
+	if ac.AgentName != types.AgentFinalizer && ac.Stage != types.StageFinalize {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ac, 64))
+	return ledger.HasDeterministicRuntimeQueryObservation()
 }
 
 // ToMessages converts a PromptContext into a flat message list for the LLM.

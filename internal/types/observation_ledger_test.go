@@ -230,6 +230,9 @@ func TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists(t *te
 			DurationMs: 3,
 		}}},
 	})
+	if !ledger.HasDeterministicRuntimeQueryObservation() {
+		t.Fatal("ledger should expose deterministic runtime query presence")
+	}
 	trace := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
 	if trace.Producer != "trace_query:/tmp/trace.systrace#state_churn" ||
 		trace.Role != AnswerAggregateRolePrincipalAnswer ||

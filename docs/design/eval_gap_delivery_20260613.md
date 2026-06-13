@@ -2862,7 +2862,7 @@ Executable task list:
   value artifact with no reference declaration.
 - [x] B38-T4: Preserve existing reference-complete repair tests for actions
   that explicitly name a reference/group key field.
-- [ ] B38-T5: Run focused/full validation, rebuild, commit/push, then rerun
+- [x] B38-T5: Run focused/full validation, rebuild, commit/push, then rerun
   the representative eval pair two at a time.
 
 Batch 38 verification before commit:
@@ -2871,3 +2871,75 @@ Batch 38 verification before commit:
 - `go test ./internal/dataworkflow ./internal/dataquery ./internal/repl`
 - `go test ./...`
 - `make`
+
+Post-Batch-38 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-02b38b1a-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 42s. The final terminal data artifact was
+  strict JSON `{"ids":["u1","u3"]}`, `data_rounds=2`,
+  `data_repair_rounds=1`, and `flags=0`.
+- `trace_query_state_churn_window_stats`: PASS by harness in 140s. Explorer
+  used `trace_query` once, source-tool fallback stayed unused, and the
+  answer-contract counters stayed at zero.
+- Manual trace audit: the answer semantics were correct, but the visible final
+  answer still carried a stale caveat that the `trace_query::window_stats`
+  dispatch was not directly callable. Logs showed the deterministic
+  `trace_query` call succeeded after perf pre-triage. The stale caveat came
+  from an earlier perf pre-triage residue path, not from the accepted
+  deterministic runtime observation ledger.
+
+## Batch 39 Gap: Finalizer Runtime Residue Must Obey Producer Precedence
+
+Deep root cause:
+
+- ObservationLedger already applies the generalized runtime producer
+  precedence rule: deterministic runtime query records remain principal, and
+  perf pre-triage records become advisory/supporting when both are present.
+- Prompt construction still had a separate non-structured channel:
+  `formatPerfTriageStructured` rendered `PerfBundle.Residue` into downstream
+  prompts even after a later deterministic `trace_query` result existed. That
+  let a stage-local pre-triage availability note compete with the accepted
+  runtime query facts during final answer authoring.
+- This is a handoff/projection gap, not an answer wording gap. The fix must use
+  typed producer identities and accepted tool-result carriers; it must not
+  parse user intent text, model-authored answer prose, or eval-specific
+  fragments.
+
+Generalized design:
+
+- Reuse the accepted ObservationLedger as the producer-precedence oracle for
+  prompt projection. If the current turn has a deterministic runtime query
+  observation, the finalizer must not receive perf pre-triage residue as a
+  visible answer-authoring input.
+- Preserve all structured runtime facts: trace observations, janks, stalls,
+  startup data, aggregate facts, and `trace_query` typed rows remain available
+  to downstream consumers. Only unstructured perf pre-triage residue is removed
+  from the finalizer prompt in the higher-authority producer case.
+- Keep discovery stages unchanged. Explorer/extractor can still consult
+  residue before a deterministic query exists; the final answer stage consumes
+  the ordered, accepted evidence surface.
+- Keep the rule producer-generic. The predicate reads accepted observation
+  records and typed tool producer IDs rather than metric names, thread names,
+  user wording, or model output text.
+
+Executable task list:
+
+- [x] B39-T1: Record the Post-Batch-38 manual trace audit and the runtime
+  residue producer-precedence gap.
+- [x] B39-T2: Expose a small ObservationLedger predicate for deterministic
+  runtime-query presence.
+- [x] B39-T3: Project finalizer perf-triage prompt bundles through that
+  predicate so pre-triage residue is hidden only when a deterministic runtime
+  query is already accepted.
+- [x] B39-T4: Add prompt-builder regression coverage proving typed trace facts
+  remain visible while stale perf residue is not rendered.
+- [ ] B39-T5: Run focused/full validation, rebuild, commit/push, then rerun
+  the representative eval pair two at a time.
+
+Batch 39 verification before full run:
+
+- `go test ./internal/types -run 'TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists|TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRuntimeRecords'`
+- `go test ./internal/context -run 'TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery|TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative|TestBuildPromptContext_FinalizerTypedSupportSuppressesCompetingSemanticSections'`

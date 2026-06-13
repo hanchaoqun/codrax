@@ -3519,6 +3519,56 @@ func TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative(t *testing.T
 	}
 }
 
+func TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery(t *testing.T) {
+	mu := types.NewMutableState("summarize the trace window")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Kind:      "state_churn",
+			Subject:   "app-20",
+			Summary:   "typed perf observation remains available",
+			LineStart: 12,
+		}},
+		Residue: []string{"pre-triage availability note should stay out of final answer prompt"},
+	})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				ID:       "trace-query:window-stats:0",
+				Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query",
+				SourceRef: types.ObservationSourceRef{
+					Kind:       types.ObservationSourceRuntimeArtifact,
+					ArtifactID: "attached_trace",
+				},
+				Summary: "trace_query window_stats returned bounded state churn metrics",
+			}},
+		}},
+	})
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Objective: "summarize the trace window",
+		Mutable:   mu,
+		PerfTrace: mu.PerfTrace(),
+	}
+
+	pc := BuildPromptContext(ac, finalizerSkill())
+	sec := findSectionTitle(pc, SectionPerfTriageExtraction)
+	if sec == nil {
+		t.Fatal("finalizer should still receive structured perf-triage observations")
+	}
+	if !strings.Contains(sec.Content, "typed perf observation remains available") {
+		t.Fatalf("typed perf observation was dropped with residue:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, "Residue") ||
+		strings.Contains(sec.Content, "pre-triage availability note should stay out") {
+		t.Fatalf("finalizer prompt should suppress pre-triage residue after trace_query:\n%s", sec.Content)
+	}
+}
+
 // TestShouldSuppressAttachedRuntimeTrace_PerfTriagerStillSeesIt
 // confirms the perf_triager itself is exempt from suppression — it
 // is the producer of the typed bundle and must read the raw trace

@@ -158,6 +158,14 @@ func (l ObservationLedger) Empty() bool {
 	return len(l.Records) == 0
 }
 
+// HasDeterministicRuntimeQueryObservation reports whether the accepted ledger
+// contains a deterministic runtime-artifact query producer such as trace_query.
+// It is intentionally based on typed producer IDs already accepted into the
+// ledger, not on user prose or model-authored answer text.
+func (l ObservationLedger) HasDeterministicRuntimeQueryObservation() bool {
+	return hasDeterministicRuntimeQueryObservation(l.Records)
+}
+
 // PrioritizeObservationRecords returns a stable, budgeted view of ledger records
 // for prompt/reviewer consumers. It uses the typed request contract to avoid two
 // bad extremes: source-code evidence should not be crowded out in mixed
