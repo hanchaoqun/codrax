@@ -9199,7 +9199,16 @@ func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueF
 			return key
 		}
 	}
+	if groupCount == 1 && reconcileGroupUsesSyntheticAllKey(group) && len(group.Values) > 0 {
+		if key := pluralizeJSONFieldName(group.Metric.String()); key != "" {
+			return key
+		}
+	}
 	return firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
+}
+
+func reconcileGroupUsesSyntheticAllKey(group ReconcileGroup) bool {
+	return strings.TrimSpace(group.GroupKey.String()) == "all"
 }
 
 func reconcileValueFieldIsStandard(field string) bool {

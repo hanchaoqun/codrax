@@ -600,11 +600,89 @@ Executable task list:
 - [x] B9-T6: Add focused regression tests for string-valued include
   contributions and summary isolation.
 - [x] B9-T7: Run focused tests, full tests, rebuild, commit/push.
-- [ ] B9-T8: Rerun representative eval cases two at a time and manually audit
+- [x] B9-T8: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 
 Batch 9 verification before commit:
 
 - `go test ./internal/dataquery -run 'TestActionRunnerComputeContributionsIncludeAcceptsStringValueField|TestActionRunnerReconcileMarkdownArtifactSummaryKeepsSeedJSONAnswer|TestActionRunnerReconcilesCountContributionsWithTextValuesAndKeepsSeedJSONAnswer|TestActionRunnerReconcileAnswerBeatsSeedArtifactSummary'`
+- `go test ./...`
+- `make`
+
+Post-Batch-9 eval root:
+
+- `eval/results/eval-gap-20260613-post-cb2ddd01`
+
+Manual audit after rerun:
+
+- `data_json_strict_ids` reached `data_terminal_status=complete`, one repair
+  round, no action failure, and a passing reconcile. The final answer was
+  `{"all":["u1","u3"]}`. Values and order were correct, but the JSON object key
+  came from the synthetic contribution group `all` instead of the structured
+  contribution metric/value field (`id`).
+- `trace_query_state_churn_window_stats` used `trace_query` successfully, but
+  at high cost: `tool_trace_query=8`, `explorer_iters=12`, `wall_seconds=344`.
+  The final answer kept the core metrics, but the visible answer dropped the
+  explicit "next step" heading from extraction and retained a stale perf-triage
+  caveat that said the attached excerpt spanned only `11.000300..11.000300`.
+
+## Batch 10 Gap: Final Projection Keys and Trace Handoff Monotonicity
+
+Deep root cause:
+
+- `assemble_answer` chooses JSON object keys from explicit output-key params,
+  explicit non-standard `value_field`, then `group_key/metric`. When
+  `compute_contributions` groups member-value rows under the executor's
+  synthetic catch-all group (`all`) and sets `metric=id`, the output key should
+  come from the member-value metric, not the aggregation bucket name. The
+  existing fallback treated the synthetic bucket as user-facing schema.
+- The data completion gate can normalize a repair-node evaluator verdict to
+  complete when typed ledgers and reconcile pass. That is valid for noisy
+  repair prose, but it must not mask a deterministic final projection mismatch.
+  The first low-risk fix is to stop producing the wrong key for synthetic
+  member arrays; a stricter completion-gate assertion can follow if needed.
+- In trace mode, multiple accepted `trace_query` observations did not become a
+  monotonic completion handoff. The explorer repeatedly re-issued the same
+  window/root-cause queries, and final writing mixed stronger `trace_query`
+  facts with weaker stale perf-triage caveats. This is a handoff/precedence
+  issue, not a trace_query algorithm issue; tool runtime itself was microsecond
+  to millisecond scale.
+
+Generalized design:
+
+- Treat `all` only as the executor-owned synthetic catch-all group. For a
+  single JSON object projection whose reconcile group carries member
+  `Values`, derive the output key from the structured metric name when the
+  group key is that synthetic catch-all. Use the existing generic
+  `pluralizeJSONFieldName` helper and keep explicit output-key params highest
+  precedence.
+- Keep default numeric aggregate projections stable: only member-value groups
+  with `Values` use metric-derived keys for synthetic catch-all groups.
+- For trace handoff, prefer structured trace_query facts over weaker
+  pre-triage caveats once they cover the requested window. The future fix
+  should be a typed precedence/monotonic completion rule, not prompt keyword
+  matching or final-answer string patching.
+
+Executable task list:
+
+- [x] B10-T1: Add synthetic catch-all group detection for assemble JSON object
+  key derivation.
+- [x] B10-T2: For single-group member-value projections, derive JSON field
+  names from structured reconcile metric when group key is the synthetic
+  catch-all.
+- [x] B10-T3: Preserve explicit output-key params and explicit
+  non-standard `value_field` precedence.
+- [x] B10-T4: Add focused regression tests for `all/id` member arrays becoming
+  `ids`, while numeric aggregate defaults remain stable.
+- [x] B10-T5: Run focused tests, full tests, rebuild, commit/push.
+- [ ] B10-T6: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
+- [ ] B10-T7: Design the trace-query handoff monotonicity fix as a separate
+  batch if rerun still shows repeated trace_query or stale perf-triage facts in
+  final answers.
+
+Batch 10 verification before commit:
+
+- `go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswerUsesMetricKeyForSyntheticAllMembers|TestActionRunnerAssembleAnswerProjectsExplicitValueFieldMembers|TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric|TestActionRunnerAssembleAnswerProjectsJSONObjectValues'`
 - `go test ./...`
 - `make`
