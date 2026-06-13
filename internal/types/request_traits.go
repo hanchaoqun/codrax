@@ -1033,6 +1033,44 @@ func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
 		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
+// HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext is the
+// attached-trace-aware sibling of HasRuntimeArtifactWithoutRequiredCurrentSource.
+// It covers the common trace_query path where an attached systrace/hitrace is
+// present and later exploration produces runtime observations, but the
+// perf-triage pre-stage did not materialize a structured PerfBundle on the
+// RequestModel. The synthetic observation is used only for source-lane
+// decisioning; callers must not treat it as evidence.
+func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace bool) bool {
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		return true
+	}
+	if !attachedTrace {
+		return false
+	}
+	withTrace := rm.withAttachedTraceRuntimeArtifact()
+	return withTrace.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+
+func (rm RequestModel) withAttachedTraceRuntimeArtifact() RequestModel {
+	if rm.PerfTrace != nil && rm.PerfTrace.HasStructuredObservations() {
+		return rm
+	}
+	clone := rm
+	synthetic := PerfObservation{
+		Kind:    "attached_trace",
+		Subject: "attached trace",
+		Summary: "attached runtime trace artifact is present",
+	}
+	if clone.PerfTrace == nil {
+		clone.PerfTrace = &PerfBundle{Observations: []PerfObservation{synthetic}}
+		return clone
+	}
+	perf := *clone.PerfTrace
+	perf.Observations = append(append([]PerfObservation(nil), perf.Observations...), synthetic)
+	clone.PerfTrace = &perf
+	return clone
+}
+
 // HasTypedCurrentSourceScopeRequest reports that an external-observation turn
 // also carries a typed source-scope contract for current checkout evidence. The
 // signal is intentionally narrow: it consumes only analyzer-emitted structured

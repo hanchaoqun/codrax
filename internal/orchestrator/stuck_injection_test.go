@@ -186,6 +186,35 @@ func TestRunAutoVerdicts_SkipsSourceOptionalRuntimeArtifact(t *testing.T) {
 	}
 }
 
+func TestRunAutoVerdicts_SkipsAttachedTraceWithoutPerfBundle(t *testing.T) {
+	mut := types.NewMutableState("runtime trace")
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AttachedHitrace: "sched_switch app-20 rival-30",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"app-20", "11.0s-11.008s"},
+				},
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "app-20"},
+			}},
+		},
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	o.runAutoVerdicts()
+
+	if got := bus.Mutable.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("attached trace without perf bundle should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
 // TestInjectInconclusiveForStuck_NilGuardsDontPanic covers the
 // defensive paths — nil bus, nil IR, nil mutable all return 0
 // without panicking.

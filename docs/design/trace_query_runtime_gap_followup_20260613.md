@@ -112,6 +112,10 @@ no current checkout evidence was collected.
 Deep cause:
 
 - The analyzer did not always emit `external_observation_policy.current_source_mode=exclude`.
+- In trace_query-first runs, an attached trace can be present even when
+  perf-triage does not materialize a structured `PerfTrace` on
+  `RequestModel`; downstream source-lane checks must still see the typed
+  attached-trace context.
 - Existing extractor/orchestrator auto-verdict suppression only used the narrow
   `HasObservationOnlyRuntimeArtifact()` predicate.
 - For runtime artifacts with no typed current-source verification anchor, the
@@ -189,6 +193,8 @@ Example:
 - Broaden orchestrator/extractor auto-verdict suppression from the narrow
   observation-only predicate to runtime artifacts without required current-source
   evidence.
+- Make the source-lane predicate attached-trace-aware, so `--htrace` /
+  `--atrace` runtime context is not lost when the pre-triage bundle is sparse.
 - Align extractor hypothesis prompt wording with this broader source-lane
   boundary.
 - Add regression tests for source-optional runtime artifacts where no

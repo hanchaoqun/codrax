@@ -2466,6 +2466,22 @@ func TestExtractor_Observe_SourceOptionalRuntimeArtifactDoesNotRequireHypothesis
 	}
 }
 
+func TestExtractor_Observe_AttachedTraceWithoutPerfBundleDoesNotRequireHypothesisVerdict(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.IntentReturnValue,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil,
+		nil,
+	)
+	ctx.AttachedHitrace = "sched_switch app-20 rival-30"
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = []string{"app-20", "11.0s-11.008s"}
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("attached trace without perf bundle should not force emit_hypothesis_verdict; got %+v", sig)
+	}
+}
+
 func TestExtractor_Observe_MidLoop_MissingSymbols_Continues(t *testing.T) {
 	// Symmetric case: LLM emitted verdict but forgot symbols.
 	ctx, obs := observeMidLoopFixture(

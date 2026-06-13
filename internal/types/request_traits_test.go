@@ -292,6 +292,33 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	}
 }
 
+func TestHasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"com.baidu.tieba-59566", "34579.472865s"},
+		},
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("plain request without runtime bundle should not look like a runtime artifact")
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(true) {
+		t.Fatal("attached trace context should satisfy runtime source-optional boundary")
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(false) {
+		t.Fatal("without attached trace context, missing runtime bundle must remain false")
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
+		Path:       "internal/agent/analyzer.go",
+		Confidence: 0.9,
+	}}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(true) {
+		t.Fatal("current-source required_file hint must keep current-source lane required even with attached trace")
+	}
+}
+
 func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentRootCause,

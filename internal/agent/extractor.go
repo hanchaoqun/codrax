@@ -1753,9 +1753,12 @@ func extractorObservationOnlyRuntimeArtifact(ctx *types.AgentContext) bool {
 }
 
 func extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.AgentContext) bool {
-	return ctx != nil &&
-		ctx.AnalysisIR != nil &&
-		ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
 }
 
 // validateCompletenessClaim is the hard cardinality validator for the
