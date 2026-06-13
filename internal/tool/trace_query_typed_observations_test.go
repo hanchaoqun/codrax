@@ -310,6 +310,27 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	if !strings.Contains(strings.Join(backgroundRootCause.RichNotes, "\n"), "chain_relevance=background") {
 		t.Fatalf("background root-cause notes must preserve chain relevance: %+v", backgroundRootCause.RichNotes)
 	}
+	var criticalBlocking *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#critical_blocking:1") {
+			criticalBlocking = &rows[i]
+			break
+		}
+	}
+	if criticalBlocking == nil {
+		t.Fatalf("missing critical-blocking row: %v", seen)
+	}
+	if criticalBlocking.Predicate != "critical_blocking" ||
+		criticalBlocking.Object != "worker-21" ||
+		criticalBlocking.Value != "7.500" {
+		t.Fatalf("critical-blocking peer/value fields drifted: %+v", criticalBlocking)
+	}
+	blockingNotes := strings.Join(criticalBlocking.RichNotes, "\n")
+	for _, want := range []string{"type=futex", "peer=worker-21"} {
+		if !strings.Contains(blockingNotes, want) {
+			t.Fatalf("critical-blocking notes missing %q: %+v", want, criticalBlocking.RichNotes)
+		}
+	}
 	var wakeupPath *types.ObservationRecord
 	var wakeupEdge *types.ObservationRecord
 	for i := range rows {

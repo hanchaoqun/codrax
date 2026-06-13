@@ -4380,6 +4380,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"direct scheduler wait",
 		"upstream dependency-chain IO/D-state",
 		"auxiliary context",
+		"Runtime direct-blocking hint",
+		"direct blocking surface",
+		"peer/on-chain thread state",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
 		"prefer the bounded `trace_query` facts",
@@ -4548,6 +4551,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 	for _, want := range []string{
 		"## Runtime Grounding Disposition",
 		"Runtime root-cause layering hint",
+		"Runtime direct-blocking hint",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
 		"This dispatch is runtime-artifact scoped",
@@ -6856,6 +6860,113 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 	}
 	if strings.Contains(out.FinalAnswer, "dominant_state=runnablestate") {
 		t.Fatalf("state-valued metrics should not append unit suffix:\n%s", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplement(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{
+				{
+					ID:              "trace_query:root:1",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRolePrincipalAnswer,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					Span:            types.ObservationSpan{LineStart: 13417, LineEnd: 15158},
+					ClaimKey:        "root_cause_primary",
+					Subject:         "CookieMonsterCl-59843",
+					Predicate:       "root_cause_primary",
+					Object:          "runnable",
+					Value:           "25.847",
+					Unit:            "ms",
+					RichNotes:       []string{"chain_depth=1", "priority_relation=lower_wakes_higher"},
+					SupportRefs:     []string{"attached_trace.txt:13417-15158"},
+				},
+				{
+					ID:              "trace_query:root:duplicate-id",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRolePrincipalAnswer,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					Span:            types.ObservationSpan{LineStart: 13417, LineEnd: 15158},
+					ClaimKey:        "root_cause_primary",
+					Subject:         "CookieMonsterCl-59843",
+					Predicate:       "root_cause_primary",
+					Object:          "runnable",
+					Value:           "25.847",
+					Unit:            "ms",
+					RichNotes:       []string{"chain_depth=1", "priority_relation=lower_wakes_higher"},
+					SupportRefs:     []string{"attached_trace.txt:13417-15158"},
+				},
+				{
+					ID:              "trace_query:blocking:1",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRoleSupportingCoverage,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					Span:            types.ObservationSpan{LineStart: 11666, LineEnd: 11670},
+					ClaimKey:        "critical_blocking:binder_wait",
+					Subject:         "com.baidu.tieba-59566",
+					Predicate:       "critical_blocking",
+					Object:          "Binder:43397_19-23088",
+					Value:           "11.103",
+					Unit:            "ms",
+					RichNotes:       []string{"type=binder_wait", "peer=Binder:43397_19-23088", "chain_relevance=on_chain"},
+					SupportRefs:     []string{"attached_trace.txt:11666-11670"},
+				},
+				{
+					ID:              "trace_query:wakeup:path:1",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRoleSupportingCoverage,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					ClaimKey:        "wakeup_chain:path",
+					Predicate:       "wakeup_chain",
+					Object:          "ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
+				},
+			},
+		}},
+	})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "Binder 同步等待需要继续下钻到唤醒链和上游线程状态。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：trace_query 关键观测核对",
+		"root_cause_primary：CookieMonsterCl-59843 -> runnable",
+		"critical_blocking:binder_wait：com.baidu.tieba-59566 -> Binder:43397_19-23088",
+		"attached_trace.txt:11666-11670",
+		"chain_relevance=on_chain",
+		"wakeup_chain:path：ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing trace_query supplement fragment %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "not_enough_evidence") {
+		t.Fatalf("trace_query runtime supplement must not introduce source-status verdicts:\n%s", out.FinalAnswer)
+	}
+	if got := strings.Count(out.FinalAnswer, "root_cause_primary：CookieMonsterCl-59843 -> runnable"); got != 1 {
+		t.Fatalf("trace_query supplement should content-dedupe repeated typed rows, got %d occurrences:\n%s", got, out.FinalAnswer)
 	}
 }
 

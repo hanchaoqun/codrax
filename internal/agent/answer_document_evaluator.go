@@ -6505,6 +6505,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 		b.WriteString("- Runtime metric snapshot hint: when one typed runtime observation row carries multiple compact metric notes such as `key=value` timings/counts/states, preserve those notes together as one metric snapshot line before the richer explanation. The snapshot complements the detailed bullets; it must not replace root-cause reasoning, caveats, or next-step guidance.\n")
 		b.WriteString("- Runtime root-cause layering hint: when the same frame/window contains both runnable scheduling delay and D-state/IO dependency delay, report both layers explicitly instead of choosing only one. Separate direct scheduler wait/priority-inversion evidence from upstream dependency-chain IO/D-state evidence, tie each layer to the concrete thread/window where it appears, and keep unrelated background pressure as auxiliary context.\n")
+		b.WriteString("- Runtime direct-blocking hint: treat `critical_blocking_calls` as the direct blocking surface, not necessarily the final cause. For binder/futex/lock/sync waits, name the waiting thread, peer, duration, and `chain_relevance`, then continue through peer/on-chain thread state, `wakeup_chain`, `root_cause_rank`, and same-window resource rows before stating the cause. If peer or on-chain evidence is missing, keep the direct wait as a bounded symptom/candidate and state the caveat instead of promoting it to an independent root cause.\n")
 		b.WriteString("- Runtime trace handoff hint: when `trace_query` reports `frame_root_cause_bundle`, `root_cause_rank`, `critical_blocking_calls`, `state_churn`, or fragmented root-cause rows, preserve `chain_relevance`, overlap, edge_count, nearest_chain_thread/window, and, when `next_step=...` is present, preserve that next-step guidance visibly in the final answer. Treat `on_chain` rows as primary candidates, `adjacent` rows as supporting context, and `background` rows as auxiliary unless other bounded evidence proves direct impact. If a later `trace_query` result covers the requested window and conflicts with an earlier perf-triage/pre-scan caveat, prefer the bounded `trace_query` facts for metrics, selected-window coverage, and next-step guidance; keep weaker caveats only when they remain true after the trace_query result.\n")
 		b.WriteString("- Runtime IO/supply hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, `block_io_by_inode`, `io_burst_episode`, `io_pressure`, `irq_activity`, `softirq_activity`, `workqueue_activity`, `supply_pressure`, `trace_mark_category`, or `async_file_work` observations, preserve inode/dev/op/bytes/count/latency/churn, thread/core/top-load context, and trace-marker category notes, then relate them to D-state/iowait/block-latency/runnable facts. Do not invent a file path from an inode alone; only name a path when the trace row included a full path or a separate filesystem mapping proves it. Treat `entry_name` as a basename-like trace label: never prefix it with `/`, `/data/`, or any directory unless that exact full path is grounded.\n")
 	}
@@ -10057,6 +10058,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderTraceQueryObservationSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			return strings.TrimSpace(supplement)
@@ -10136,6 +10144,205 @@ func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext, doc *types
 		})
 	}
 	return rows
+}
+
+type traceQueryObservationSupplementRow struct {
+	Order int
+	Key   string
+	Text  string
+}
+
+func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	rows := traceQueryObservationSupplementRows(ctx, doc)
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Order != rows[j].Order {
+			return rows[i].Order < rows[j].Order
+		}
+		return rows[i].Key < rows[j].Key
+	})
+	if len(rows) > 8 {
+		rows = rows[:8]
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：trace_query 关键观测核对**\n>\n")
+		b.WriteString("> 以下条目来自 trace_query 发布的结构化 runtime observation，用于保留可审计的 trace 事实；它们是 artifact-local 观测，不是当前仓库源码引用。\n>\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "> - %s\n", row.Text)
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	b.WriteString("---\n\n")
+	b.WriteString("> **System supplement: trace_query observation check**\n>\n")
+	b.WriteString("> These rows come from typed runtime observations published by trace_query. They preserve auditable trace facts; they are artifact-local observations, not current-repo source citations.\n>\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "> - %s\n", row.Text)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.AnswerDocumentV2) []traceQueryObservationSupplementRow {
+	ledger := answerDocObservationLedger(ctx)
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	rows := make([]traceQueryObservationSupplementRow, 0, 8)
+	for _, record := range ledger.Records {
+		order := traceQueryObservationSupplementOrder(record)
+		if order == 0 {
+			continue
+		}
+		key := traceQueryObservationSupplementKey(record)
+		if key == "" {
+			key = strings.TrimSpace(record.ID)
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		text := traceQueryObservationSupplementText(record)
+		if text == "" {
+			continue
+		}
+		rows = append(rows, traceQueryObservationSupplementRow{Order: order, Key: key, Text: text})
+	}
+	return rows
+}
+
+func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+		strings.TrimSpace(record.Producer) != "trace_query" ||
+		record.GroundingPolicy != types.ClaimGroundingHard {
+		return 0
+	}
+	claimKey := strings.TrimSpace(record.ClaimKey)
+	switch {
+	case strings.HasPrefix(claimKey, "root_cause_primary"):
+		return 10
+	case strings.HasPrefix(claimKey, "critical_blocking"):
+		return 15
+	case claimKey == "wakeup_chain:path":
+		return 20
+	case strings.HasPrefix(claimKey, "root_cause_secondary"):
+		return 30
+	case strings.HasPrefix(claimKey, "root_cause"):
+		return 40
+	case strings.HasPrefix(claimKey, "wakeup_causal_impact"):
+		return 50
+	case strings.HasPrefix(claimKey, "root_evidence"):
+		return 60
+	}
+	return 0
+}
+
+func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
+	parts := []string{
+		strings.TrimSpace(record.ClaimKey),
+		strings.TrimSpace(record.Subject),
+		strings.TrimSpace(record.Predicate),
+		strings.TrimSpace(record.Object),
+		strings.TrimSpace(record.Value),
+		traceQueryObservationLocation(record),
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func traceQueryObservationSupplementText(record types.ObservationRecord) string {
+	parts := []string{}
+	label := strings.TrimSpace(record.ClaimKey)
+	if label == "" {
+		label = strings.TrimSpace(record.Predicate)
+	}
+	if label == "" {
+		label = "trace_query"
+	}
+	subject := strings.TrimSpace(record.Subject)
+	object := strings.TrimSpace(record.Object)
+	switch {
+	case subject != "" && object != "":
+		parts = append(parts, fmt.Sprintf("%s：%s -> %s", label, subject, object))
+	case subject != "":
+		parts = append(parts, fmt.Sprintf("%s：%s", label, subject))
+	case object != "":
+		parts = append(parts, fmt.Sprintf("%s：%s", label, object))
+	default:
+		parts = append(parts, label)
+	}
+	if value := traceQueryObservationValue(record); value != "" {
+		parts = append(parts, value)
+	}
+	if loc := traceQueryObservationLocation(record); loc != "" {
+		parts = append(parts, loc)
+	}
+	if notes := traceQueryObservationSupplementNotes(record); notes != "" {
+		parts = append(parts, notes)
+	}
+	return strings.Join(parts, "；")
+}
+
+func traceQueryObservationValue(record types.ObservationRecord) string {
+	value := strings.TrimSpace(record.Value)
+	if value == "" {
+		return ""
+	}
+	unit := strings.TrimSpace(record.Unit)
+	if unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
+		value += unit
+	}
+	return "value=" + value
+}
+
+func traceQueryObservationLocation(record types.ObservationRecord) string {
+	for _, ref := range record.SupportRefs {
+		if s := strings.TrimSpace(ref); s != "" {
+			return s
+		}
+	}
+	if record.Span.LineStart > 0 {
+		path := firstNonEmptyString(record.SourceRef.Path, record.SourceRef.ArtifactID, "runtime_artifact")
+		if record.Span.LineEnd > record.Span.LineStart {
+			return fmt.Sprintf("%s:%d-%d", path, record.Span.LineStart, record.Span.LineEnd)
+		}
+		return fmt.Sprintf("%s:%d", path, record.Span.LineStart)
+	}
+	return strings.TrimSpace(record.SourceRef.ToolCallID)
+}
+
+func traceQueryObservationSupplementNotes(record types.ObservationRecord) string {
+	allowed := []string{
+		"type=", "peer=", "chain_relevance=", "nearest_chain_thread=", "edge_count=",
+		"causality=", "chain_depth=", "priority_relation=", "priority_inversion_candidate=",
+		"prio=", "target_prio=", "dominant_state=", "impact=", "target_impact=",
+	}
+	seen := map[string]bool{}
+	notes := make([]string, 0, 4)
+	for _, note := range record.RichNotes {
+		note = strings.TrimSpace(note)
+		if note == "" || seen[note] {
+			continue
+		}
+		for _, prefix := range allowed {
+			if !strings.HasPrefix(note, prefix) {
+				continue
+			}
+			seen[note] = true
+			notes = append(notes, note)
+			break
+		}
+		if len(notes) >= 4 {
+			break
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return "notes=" + strings.Join(notes, ", ")
 }
 
 type runtimeAggregateMetricCompactRow struct {

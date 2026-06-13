@@ -2919,6 +2919,62 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalTraceOptionalSourceW
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryObservationsWaiveCitationFloorWithoutModelEscapeHatch(t *testing.T) {
+	mut := types.NewMutableState("trace-query observations")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:frame#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace", ArtifactKind: "trace"},
+			Subject:         "CookieMonsterCl-59843",
+			Predicate:       "root_cause_primary",
+			Object:          "runnable",
+			Value:           "8.307",
+			Unit:            "ms",
+			Summary:         "trace_query ranked on-chain runnable delay as the frame cause",
+		}},
+	})
+	mut.ResetDispatchToolResults()
+	bus := &types.BusContext{
+		Mutable:         mut,
+		RepoRoot:        t.TempDir(),
+		AttachedHitrace: "com.baidu.tieba-59566 (59566) [004] .... 34579.587805: sched_wakeup: comm=com.baidu.tieba pid=59566",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 2,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query returned typed runtime observations for the selected frame window",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("trace_query typed observations should not require model-authored aggregate_facts or evidence_floor_waiver, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set from trace_query typed observations")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginWaivesCitationFloorWhenSourceOptional(t *testing.T) {
 	mut := types.NewMutableState("MCP line facts")
 	bus := &types.BusContext{

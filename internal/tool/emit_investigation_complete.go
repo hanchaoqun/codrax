@@ -2660,10 +2660,54 @@ func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []type
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		return label, true
 	}
+	if label, ok := traceQueryRuntimeObservationCompletionBypassLabel(ctx); ok {
+		return label, true
+	}
 	if label, ok := originSpecificCompletionBypassLabel(ctx, aggregateFacts); ok {
 		return label, true
 	}
 	return "", false
+}
+
+func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (string, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", false
+	}
+	if ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+			return "", false
+		}
+		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+		if !rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) &&
+			strings.TrimSpace(ctx.AttachedLog) == "" &&
+			strings.TrimSpace(ctx.AttachedHitrace) == "" &&
+			ctx.Mutable.LogTriage() == nil &&
+			ctx.Mutable.PerfTrace() == nil {
+			return "", false
+		}
+	}
+	count := ctx.Mutable.TraceQueryRuntimeObservationCount()
+	if count == 0 {
+		for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
+			if !result.Success || types.CanonicalToolName(result.ToolName) != "trace_query" {
+				continue
+			}
+			for _, observation := range result.Observations {
+				if observation.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+					strings.TrimSpace(observation.Producer) != "trace_query" ||
+					observation.SourceRef.Kind != types.ObservationSourceRuntimeArtifact ||
+					observation.GroundingPolicy != types.ClaimGroundingHard {
+					continue
+				}
+				count++
+			}
+		}
+	}
+	if count == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
 }
 
 func originSpecificCompletionBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {

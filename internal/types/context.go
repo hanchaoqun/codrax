@@ -203,6 +203,16 @@ type MutableState struct {
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
 	dispatchToolResults []ToolResult
+	// traceQueryRuntimeObservationCount persists the precise signal that a
+	// successful trace_query call published hard-grounded runtime-artifact
+	// observations during the current explore/extract cycle. The per-dispatch
+	// buffer above is intentionally cleared between ReAct turns; this counter
+	// lets pre-complete gates remember deterministic trace facts without asking
+	// the model to re-materialise external trace rows as repo evidence.
+	traceQueryRuntimeObservationCount int
+	// exploreForkTraceQueryRuntimeObservationBase is the parent's count at fork
+	// time so MergeExploreFork can fold back only the fork's new observations.
+	exploreForkTraceQueryRuntimeObservationBase int
 	// answerDocumentV2 is the block-only carrier (
 	// docs/migration/block_only_carrier.md) — the structured final-
 	// answer payload written by the emit_answer_document tool (one
@@ -1043,6 +1053,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		retainedInvestigationResultKind:     m.retainedInvestigationResultKind,
 		retainedInvestigationCompleteReason: m.retainedInvestigationCompleteReason,
 		answerSurfaceRevision:               m.answerSurfaceRevision,
+		traceQueryRuntimeObservationCount:   m.traceQueryRuntimeObservationCount,
+		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 	}
 	if m.requestModel != nil {
 		cp := *m.requestModel
@@ -1120,6 +1132,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
 	retainedInvestigationAggregateFacts := cloneAnswerAggregateFacts(fork.retainedInvestigationAggregateFacts)
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
+	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	closure := fork.evidenceClosure
 	fork.mu.RUnlock()
 
@@ -1185,6 +1198,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if len(exactContextRequiredFiles) > 0 {
 		m.exactContextRequiredFiles = exactContextRequiredFiles
+	}
+	if traceQueryRuntimeObservationDelta > 0 {
+		m.traceQueryRuntimeObservationCount += traceQueryRuntimeObservationDelta
 	}
 	m.bumpAnswerSurfaceRevisionLocked()
 	m.mu.Unlock()
@@ -1953,6 +1969,38 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
+	m.traceQueryRuntimeObservationCount += traceQueryRuntimeObservationToolResultCount(r)
+}
+
+// TraceQueryRuntimeObservationCount returns how many hard-grounded runtime
+// observations trace_query has published in the current explore/extract cycle.
+// Unlike DispatchToolResults, this survives per-dispatch resets so synchronous
+// pre-complete gates can consume the same deterministic trace-query signal that
+// later handoff/finalizer stages receive through ToolResults/TurnAArtifacts.
+func (m *MutableState) TraceQueryRuntimeObservationCount() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.traceQueryRuntimeObservationCount
+}
+
+func traceQueryRuntimeObservationToolResultCount(r ToolResult) int {
+	if !r.Success || CanonicalToolName(r.ToolName) != "trace_query" {
+		return 0
+	}
+	count := 0
+	for _, observation := range r.Observations {
+		if observation.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+			strings.TrimSpace(observation.Producer) != "trace_query" ||
+			observation.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+			observation.GroundingPolicy != ClaimGroundingHard {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 // DispatchToolResults returns a snapshot of the per-dispatch running
@@ -3793,6 +3841,8 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseToolLen = 0
 	m.exploreForkTurnABaseMCPLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
+	m.traceQueryRuntimeObservationCount = 0
+	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.sourceInventoryObservation = SourceInventoryObservation{}
 	m.cachedLabelSupport = nil

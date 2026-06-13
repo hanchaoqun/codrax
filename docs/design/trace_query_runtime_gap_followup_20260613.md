@@ -133,6 +133,54 @@ Commercial requirement:
 - Runtime artifact citation/status prompts and repair hints must use the same
   source-lane predicate, so the model receives one coherent contract.
 
+### Gap 6: TraceQuery runtime observations still rely on model-authored repo-evidence escape hatches
+
+The 2026-06-14 low-leading run used `trace_query` first and recovered the
+important runtime facts, but the first `emit_investigation_complete` was still
+downgraded for lack of cite-eligible repo evidence. The model then spent many
+rounds trying to emit `attached_trace.txt` as current-repo `emit_evidence`
+before eventually setting an evidence-floor waiver.
+
+Deep cause:
+
+- `trace_query` publishes typed `ToolResult.Observations` in the runtime
+  artifact lane, but `emit_investigation_complete` did not treat those rows as
+  a sufficient completion boundary by themselves.
+- The existing bypass required either an explicit `evidence_floor_waiver` or
+  model-authored `aggregate_facts` with runtime origin dimensions. That pushes
+  system bookkeeping onto the model and increases retry/grounding noise.
+
+Commercial requirement:
+
+- A successful `trace_query` result that carries hard-grounded runtime
+  `ObservationRecord` rows must be sufficient to bypass current-repo citation
+  floors when the typed request model does not require current-source evidence.
+- The bypass must read only typed tool-result observations and source-lane
+  predicates, not model prose.
+- `emit_evidence` should remain a current-source/file-line lane; attached trace
+  rows should flow through `trace_query` observations, completion reason, and
+  runtime aggregate facts rather than being forced into repo evidence.
+
+### Gap 7: Direct blocking surfaces need explicit downstream-cause consumption
+
+In the same trace, `trace_query` correctly reported a synchronous-looking binder
+wait from `com.baidu.tieba-59566` to `Binder:43397_19-23088`. Human audit shows
+this is a direct blocking surface for part of the frame, not a complete root
+cause by itself. The answer is complete only if it continues from the direct
+wait into peer/on-chain scheduler state, wakeup-chain dependencies, and
+same-window resource pressure.
+
+Commercial requirement:
+
+- Treat `critical_blocking_calls` rows as direct blocking surfaces.
+- For binder/futex/lock/sync waits, continue to the peer thread, wakeup chain,
+  `root_cause_rank`, and resource rows before naming the cause.
+- If the peer row is missing or off-chain, keep the direct wait as a bounded
+  symptom/candidate and state the caveat instead of promoting it to an
+  independent root cause.
+- Preserve `peer`, `chain_relevance`, overlap, nearest-chain thread, and
+  `next_step` guidance in the final answer handoff.
+
 ## Validation Question Policy
 
 Future validation questions for `xxx_all.systrace` should be low-leading and
@@ -216,3 +264,24 @@ Example:
 - Verify the answer explicitly names both runnable scheduling delay and D-state
   IO wait when both are present in the frame, without adding current-code
   persistence verdicts.
+
+### Batch 7: TraceQuery runtime observation completion boundary
+
+- Add an `emit_investigation_complete` pre-complete bypass that recognizes
+  successful `trace_query` `ToolResult.Observations` in the runtime artifact
+  lane when current-source evidence is not required.
+- Keep the bypass typed-only: inspect producer, origin/source-ref kind, success,
+  and source-lane predicates; never parse model-authored prose.
+- Add tests where a source-optional attached trace with only `trace_query`
+  observations can complete without `aggregate_facts` or
+  `evidence_floor_waiver`.
+
+### Batch 8: Direct blocking handoff and answer guidance
+
+- Update runtime trace answer guidance so direct blocking rows are rendered as
+  the first layer, then explicitly reconciled with wakeup-chain/root-rank/resource
+  rows.
+- Keep binder wait peer identity in structured observation fields rather than
+  only in summary text.
+- Add tests for critical-blocking typed observations where `object` preserves
+  the peer and `rich_notes` preserves the blocking type.
