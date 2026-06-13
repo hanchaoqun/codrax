@@ -1966,6 +1966,35 @@ func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T
 	}
 }
 
+func TestDataTaskFinalAnswerPromotesPreservedStrictJSONHandoff(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false},
+		ContinueAfter:  true,
+		Actions: []dataquery.DataAction{{
+			ID:   "continue_mapping_candidates",
+			Kind: dataquery.DataActionMappingCandidate,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
+		ConsumedPaths:  []string{"instructions.md", "users.json"},
+	}
+	if !dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
+		t.Fatal("strict JSON answer carried through continuation should satisfy structural completion")
+	}
+	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo("", nil, current, result); !guard.Empty() {
+		t.Fatalf("guard=%+v, want no completion gate for valid strict JSON handoff", guard)
+	}
+	answer, err := finalDataTaskAnswerForCLI("", nil, current, result, "zh")
+	if err != nil {
+		t.Fatalf("finalDataTaskAnswerForCLI: %v", err)
+	}
+	if answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("answer=%q, want strict JSON handoff", answer)
+	}
+}
+
 func TestDataTaskEvaluationDecisionUsesCompletionFallbackForNoisyRepair(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{

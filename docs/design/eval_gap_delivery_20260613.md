@@ -1543,3 +1543,139 @@ Verification:
 - Full tests: `go test ./...`
 - Build: `make`
 - Diff hygiene: `git diff --check`
+
+Post-Batch-20 eval audit:
+
+- `eval/results/eval-gap-20260613-post-19b35fca-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `trace_query_state_churn_window_stats`: PASS by eval harness. Metrics:
+  `tool_trace_query=3`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `answer_contract_violations=1`, `finalizer_rejects=0`,
+  `max_context_tokens_est=38031`. Manual audit: answer actively uses
+  `trace_query` and preserves the required state-churn metrics, root-cause
+  ranking, and next-step direction. Residual gap: generic system caveats for
+  enumeration support and consistency still append after the typed runtime
+  answer surface.
+- `data_json_strict_ids`: FAIL by eval harness. Metrics: `data_rounds=10`,
+  `data_repair_rounds=2`, `data_record_count=10`, `data_answer_len=19`,
+  no unavailable tools, and no answer-contract violations. Manual audit:
+  `result.answer` is exactly `{"ids":["u1","u3"]}`, but terminal completion
+  fails with `final_answer_continue_after`. The final plan remains
+  `continue_after=true` after budget exhaustion, and the latest result's
+  `output_contract` is downgraded to freeform even though the workflow-level
+  contract is strict `json_only`.
+
+## Batch 21 Gap: Final Answer Handoff Must Use Effective Typed Output Contract
+
+Deep root cause:
+
+- Data workflows can preserve an earlier valid answer candidate across later
+  bounded batches through the runner seed/result handoff. When a later
+  continuation batch is marked `continue_after=true`, the current terminal
+  check rejects the preserved answer solely because the current plan was not a
+  final projection batch.
+- The protection is important for unfinished workflows, but it is too coarse:
+  it does not distinguish a true unfinished dependency from a handoff answer
+  that already satisfies the effective workflow output contract and all
+  required ledgers. In the failing run, the strict JSON payload is correct and
+  no declared reference/projection gap remains, but a later exploratory batch
+  causes terminal rejection.
+- This is a general handoff/contract problem. Any typed data workflow can
+  carry a valid final answer through later diagnostic or recovery batches, and
+  the terminal gate must evaluate the effective structured contract rather
+  than the incidental plan-local `continue_after` flag alone.
+
+Generalized design:
+
+- Add a typed final-answer handoff predicate that accepts a preserved answer
+  only when:
+  1. `result.answer` is present and not an internal artifact summary;
+  2. workflow coverage/ledger requirements validate;
+  3. the answer validates against the effective workflow output contract using
+     the existing `dataquery.ValidateAnswer` contract checker;
+  4. no declared final-projection/reference gap is pending.
+- Keep the existing conservative behavior for ordinary `continue_after`
+  batches whose answer does not satisfy the effective contract or whose
+  required ledgers are missing.
+- The predicate consumes only typed plan/result/output/coverage fields and
+  existing contract validators. It does not parse user prose, model prose, or
+  case-specific answer strings.
+
+Executable task list:
+
+- [x] B21-T1: Add dataworkflow helper(s) for effective typed answer-contract
+  validation and preserved-answer handoff candidacy.
+- [x] B21-T2: Update `ResultIsFinalAnswerCandidate` so `continue_after=true`
+  can pass only through the typed handoff path; preserve assemble-answer
+  terminal behavior.
+- [x] B21-T3: Ensure CLI completion uses the same candidate result and emits a
+  precise guard only when typed contract/ledger validation fails.
+- [x] B21-T4: Add regression tests for strict JSON handoff across a
+  continuation plan, and for missing ledger / invalid JSON still failing.
+- [x] B21-T5: Run focused dataworkflow/repl/dataquery tests, commit, and push.
+
+Implementation notes:
+
+- `dataworkflow.ResultIsPreservedAnswerHandoffCandidate` now defines the narrow
+  promotion path: `continue_after=true`, no assemble artifact, current action
+  cannot itself produce a final answer, and `result.answer` validates against
+  the effective workflow output contract.
+- `ResultIsFinalAnswerCandidate` still rejects missing required ledgers and
+  invalid output shapes. This preserves the existing safety boundary for true
+  unfinished workflows while allowing strict typed answers to survive later
+  diagnostic/continuation batches.
+- REPL/CLI structural completion and final-answer rendering use the same
+  predicate, so status view and terminal CLI delivery agree.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/dataworkflow -run 'TestResultIsFinalAnswerCandidate|TestPlanMayProduceFinalAnswer'`
+- Focused tests:
+  `go test ./internal/repl -run 'TestDataTask(EvaluationDecisionUsesCompletionGateForNoisyRepair|FinalAnswerPromotesPreservedStrictJSONHandoff)'`
+- Package tests:
+  `go test ./internal/dataworkflow ./internal/repl ./internal/dataquery`
+
+## Batch 22 Gap: Runtime Soft-Caveat Suppression Must Match Production Accept Path
+
+Deep root cause:
+
+- Batch 20 added typed answer-surface filtering for runtime artifacts, but the
+  post-Batch-20 run still surfaces generic caveats in the production
+  soft-accept path. The accepted document has principal blocks annotated with
+  `claim_form=external_observation` and no current-source citations, so the
+  visible answer surface is runtime-observation-only even though current-source
+  mode remains available by default.
+- The residual caveats are low-precision CGEC/contract telemetry:
+  generic enumeration support and generic consistency. They are useful for
+  logs, but on a typed runtime answer surface they do not give the user a
+  concrete corrective action and make a correct answer look unstable.
+- This is not trace-query-specific. It applies to runtime/log/perf/connector
+  answers where the accepted visible surface is carried by typed external
+  observation claims, including soft-accept flows with no finalizer retry.
+
+Generalized design:
+
+- Reproduce the production soft-accept path in tests: call
+  `AppendSoftContractCaveatsToAnswerForBus` with a runtime request model,
+  accepted `AnswerDocumentV2` principal blocks, external-observation claim
+  uses, and no resolved citations.
+- Broaden the suppression context only through typed answer-document metadata:
+  principal (or principal-like visible) blocks whose claim uses are
+  external-observation-only and whose items do not resolve to current-source
+  citations qualify for low-precision caveat demotion.
+- Preserve concrete contradictions, true principal enumeration requests, and
+  runtime boundary/model-authored caveats.
+
+Executable task list:
+
+- [ ] B22-T1: Add production-path regression tests for
+  `AppendSoftContractCaveatsToAnswerForBus` on runtime answer-surface
+  documents.
+- [ ] B22-T2: Adjust the runtime answer-surface predicate if needed so it
+  consumes typed block/claim/citation metadata available at append time.
+- [ ] B22-T3: Keep generic low-precision caveats telemetry-only for runtime
+  answer surfaces while preserving specific contradictions and principal
+  enumeration caveats.
+- [ ] B22-T4: Run focused orchestrator tests, full tests/build hygiene, commit,
+  and push.

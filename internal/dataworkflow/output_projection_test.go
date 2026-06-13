@@ -101,6 +101,37 @@ func TestResultIsFinalAnswerCandidateAcceptsPromotedJSONOnlyPayloadWithoutLedger
 	}
 }
 
+func TestResultIsFinalAnswerCandidatePromotesPreservedStrictAnswerAcrossContinuation(t *testing.T) {
+	expected := dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false}
+	continuation := dataquery.TaskPlan{
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			Kind: dataquery.DataActionMappingCandidate,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputFreeform, ExplanationAllowed: true},
+	}
+	if !ResultIsPreservedAnswerHandoffCandidate(continuation, result, expected) {
+		t.Fatalf("strict json answer carried through non-terminal continuation should be a handoff candidate")
+	}
+	if !ResultIsFinalAnswerCandidate(continuation, result, dataquery.CoverageContract{}, expected) {
+		t.Fatalf("strict json handoff should satisfy final candidate checks")
+	}
+
+	invalid := result
+	invalid.Answer = `ids: u1,u3`
+	if ResultIsFinalAnswerCandidate(continuation, invalid, dataquery.CoverageContract{}, expected) {
+		t.Fatalf("handoff must still satisfy the effective json_only output contract")
+	}
+
+	ledgerRequired := dataquery.CoverageContract{ContributionLedgerRequired: true}
+	if ResultIsFinalAnswerCandidate(continuation, result, ledgerRequired, expected) {
+		t.Fatalf("handoff must not bypass required workflow ledgers")
+	}
+}
+
 func TestPlanMayProduceFinalAnswerAllowsReconcileAction(t *testing.T) {
 	result := dataquery.Result{Reconcile: &dataquery.ReconcileReport{
 		ActualAnswer: dataquery.LooseText("42"),

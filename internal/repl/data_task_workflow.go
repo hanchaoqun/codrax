@@ -482,12 +482,13 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
 		return false
 	}
-	if !dataworkflow.ResultHasAssembleAnswerArtifact(result) {
-		return false
-	}
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
 	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+		return false
+	}
+	if !dataworkflow.ResultHasAssembleAnswerArtifact(result) &&
+		!dataworkflow.ResultIsPreservedAnswerHandoffCandidate(current, result, output) {
 		return false
 	}
 	if dataTaskResultNeedsOutputProjection(records, current, result) {

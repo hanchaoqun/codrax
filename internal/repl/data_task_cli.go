@@ -801,22 +801,25 @@ func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
 	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
-		guard := dataTaskFinalAnswerCandidateGuardResult(current, result)
+		guard := dataTaskFinalAnswerCandidateGuardResult(current, result, output)
 		return "", fmt.Errorf("%s", guard.ErrorText())
 	}
 	return dataTaskAnswerMarkdown(lang, result), nil
 }
 
-func dataTaskFinalAnswerCandidateGuardResult(current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+func dataTaskFinalAnswerCandidateGuardResult(current dataquery.TaskPlan, result dataquery.Result, output dataquery.OutputContract) dataworkflow.GuardResult {
 	message := "validate data workflow completion: data output incomplete: latest result is not a final answer candidate for the workflow contract"
 	code := "final_answer_not_candidate"
 	switch {
-	case current.ContinueAfter:
-		code = "final_answer_continue_after"
-		message = "validate data workflow completion: data output incomplete: current plan is marked continue_after and cannot produce the final answer"
 	case !dataworkflow.ResultAnswerPresent(result):
 		code = "output_projection_missing_answer"
 		message = "validate data workflow completion: data output incomplete: workflow has not produced a final answer candidate"
+	case !dataworkflow.ResultAnswerSatisfiesOutputContract(result, output):
+		code = "final_answer_output_contract_mismatch"
+		message = "validate data workflow completion: data output incomplete: latest preserved answer does not satisfy the workflow output_contract"
+	case current.ContinueAfter:
+		code = "final_answer_continue_after"
+		message = "validate data workflow completion: data output incomplete: current plan is marked continue_after and cannot produce the final answer"
 	case !dataworkflow.PlanMayProduceFinalAnswer(current, result):
 		code = "final_answer_missing_projection_action"
 		message = "validate data workflow completion: data output incomplete: latest action batch produced intermediate artifacts but no terminal projection"

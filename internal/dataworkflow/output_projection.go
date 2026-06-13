@@ -83,18 +83,15 @@ func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Resu
 	if !ResultAnswerPresent(result) {
 		return false
 	}
-	if plan.ContinueAfter && !ResultHasAssembleAnswerArtifact(result) {
+	handoff := ResultIsPreservedAnswerHandoffCandidate(plan, result, expected)
+	if plan.ContinueAfter && !ResultHasAssembleAnswerArtifact(result) && !handoff {
 		return false
 	}
-	if !PlanMayProduceFinalAnswer(plan, result) {
+	if !PlanMayProduceFinalAnswer(plan, result) && !handoff {
 		return false
 	}
-	if expected.Format != "" {
-		actual := result.OutputContract.Normalize()
-		want := expected.Normalize()
-		if actual.Format == dataquery.OutputFreeform && want.Format != dataquery.OutputFreeform {
-			return false
-		}
+	if !ResultAnswerSatisfiesOutputContract(result, expected) {
+		return false
 	}
 	if contract.RuleCoverageRequired && len(result.RuleCoverage) == 0 {
 		return false
@@ -112,6 +109,29 @@ func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Resu
 		return false
 	}
 	return true
+}
+
+func ResultIsPreservedAnswerHandoffCandidate(plan dataquery.TaskPlan, result dataquery.Result, expected dataquery.OutputContract) bool {
+	if !plan.ContinueAfter {
+		return false
+	}
+	if ResultHasAssembleAnswerArtifact(result) {
+		return false
+	}
+	if PlanMayProduceFinalAnswer(plan, result) {
+		return false
+	}
+	return ResultAnswerSatisfiesOutputContract(result, expected)
+}
+
+func ResultAnswerSatisfiesOutputContract(result dataquery.Result, expected dataquery.OutputContract) bool {
+	if !ResultAnswerPresent(result) {
+		return false
+	}
+	if strings.TrimSpace(string(expected.Format)) == "" {
+		return true
+	}
+	return dataquery.ValidateAnswer(strings.TrimSpace(result.Answer), expected.Normalize()) == nil
 }
 
 func PlanMayProduceFinalAnswer(plan dataquery.TaskPlan, result dataquery.Result) bool {
