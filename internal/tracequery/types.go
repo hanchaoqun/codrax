@@ -468,23 +468,28 @@ type ThreadDuration struct {
 }
 
 type ThreadStateChurnSummary struct {
-	Thread           ThreadRef `json:"thread"`
-	DominantState    string    `json:"dominant_state,omitempty"`
-	TotalMs          float64   `json:"total_ms,omitempty"`
-	DominantImpactMs float64   `json:"dominant_impact_ms,omitempty"`
-	RunningMs        float64   `json:"running_ms,omitempty"`
-	RunnableMs       float64   `json:"runnable_ms,omitempty"`
-	SleepMs          float64   `json:"sleep_ms,omitempty"`
-	DStateMs         float64   `json:"d_state_ms,omitempty"`
-	IOWaitMs         float64   `json:"io_wait_ms,omitempty"`
-	FragmentCount    int       `json:"fragment_count,omitempty"`
-	StateSwitches    int       `json:"state_switches,omitempty"`
-	MaxSegmentMs     float64   `json:"max_segment_ms,omitempty"`
-	P95SegmentMs     float64   `json:"p95_segment_ms,omitempty"`
-	LineStart        int       `json:"line_start,omitempty"`
-	LineEnd          int       `json:"line_end,omitempty"`
-	Confidence       float64   `json:"confidence,omitempty"`
-	Summary          string    `json:"summary,omitempty"`
+	Thread                 ThreadRef `json:"thread"`
+	DominantState          string    `json:"dominant_state,omitempty"`
+	TotalMs                float64   `json:"total_ms,omitempty"`
+	DominantImpactMs       float64   `json:"dominant_impact_ms,omitempty"`
+	RunningMs              float64   `json:"running_ms,omitempty"`
+	RunnableMs             float64   `json:"runnable_ms,omitempty"`
+	SleepMs                float64   `json:"sleep_ms,omitempty"`
+	DStateMs               float64   `json:"d_state_ms,omitempty"`
+	IOWaitMs               float64   `json:"io_wait_ms,omitempty"`
+	FragmentCount          int       `json:"fragment_count,omitempty"`
+	StateSwitches          int       `json:"state_switches,omitempty"`
+	MaxSegmentMs           float64   `json:"max_segment_ms,omitempty"`
+	P95SegmentMs           float64   `json:"p95_segment_ms,omitempty"`
+	RunnableCPU            int       `json:"runnable_cpu,omitempty"`
+	RunnableCPUKnown       bool      `json:"-"`
+	TopCompetitor          string    `json:"top_competitor,omitempty"`
+	TopCompetitorRunningMs float64   `json:"top_competitor_running_ms,omitempty"`
+	NextStep               string    `json:"next_step,omitempty"`
+	LineStart              int       `json:"line_start,omitempty"`
+	LineEnd                int       `json:"line_end,omitempty"`
+	Confidence             float64   `json:"confidence,omitempty"`
+	Summary                string    `json:"summary,omitempty"`
 }
 
 type IOLatencySummary struct {

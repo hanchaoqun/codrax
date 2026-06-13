@@ -77,7 +77,10 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 				DominantImpactMs: 5.5, TotalMs: 9.0,
 				FragmentCount: 12, StateSwitches: 24,
 				LineStart: 50, LineEnd: 60, Confidence: 0.66,
-				Summary: "fragmented runnable churn",
+				RunnableCPU: 1, RunnableCPUKnown: true,
+				TopCompetitor: "rival-30", TopCompetitorRunningMs: 4.0,
+				NextStep: "inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition, then validate wake_latency with sched_wakeup",
+				Summary:  "fragmented runnable churn",
 			}},
 			FileIOByInode: []tracequery.FileIOSummary{{
 				Inode: "0x478e5", Dev: "253:7", EntryName: "db.sqlite",
@@ -132,6 +135,27 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	if rootCause.Predicate != "root_cause_primary" || rootCause.Object != "binder_wait" ||
 		rootCause.Value != "12.500" || rootCause.Unit != "ms" {
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
+	}
+	var churnRow *types.ObservationRecord
+	for i := range rows {
+		if strings.Contains(rows[i].ID, "#state_churn:1") {
+			churnRow = &rows[i]
+			break
+		}
+	}
+	if churnRow == nil {
+		t.Fatalf("missing state churn row: %v", seen)
+	}
+	notes := strings.Join(churnRow.RichNotes, "\n")
+	for _, want := range []string{
+		"runnable_cpu=1",
+		"top_competitor=rival-30",
+		"top_competitor_running=4.000",
+		"next_step=inspect rival-30 on same CPU cpu=1",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("state churn notes missing %q: %+v", want, churnRow.RichNotes)
+		}
 	}
 
 	// Facts beyond the 16-fact prose preview cap must survive.

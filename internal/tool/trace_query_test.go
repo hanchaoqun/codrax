@@ -380,7 +380,8 @@ func TestTraceQuerySummaryRendersFragmentedStateChurn(t *testing.T) {
 		"type=fragmented_runnable_wait",
 		"state_churn app-20 dominant_state=runnable",
 		"max_segment=0.500ms",
-		"next_step=inspect same-CPU pressure",
+		"next_step=inspect rival-30 on same CPU cpu=1",
+		"sched_wakeup",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("fragmented state churn summary missing %q:\n%s", want, res.Summary)
@@ -398,7 +399,8 @@ func TestTraceQuerySummaryRendersFragmentedStateChurn(t *testing.T) {
 	for _, want := range []string{
 		"# Trace Query: window_stats",
 		"state_churn app-20 dominant_state=runnable",
-		"next_step=inspect same-CPU pressure",
+		"next_step=inspect rival-30 on same CPU cpu=1",
+		"sched_wakeup",
 	} {
 		if !strings.Contains(aliasRes.Summary, want) {
 			t.Fatalf("stateChurn view alias summary missing %q:\n%s", want, aliasRes.Summary)

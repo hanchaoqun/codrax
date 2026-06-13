@@ -310,3 +310,43 @@ Batch 5 verification before commit:
 - `go test ./internal/dataworkflow ./internal/dataquery ./internal/repl`
 - `go test ./...`
 - `make`
+
+## Batch 6 Gap: Trace Next-Step Evidence Handoff
+
+Observed eval behavior:
+
+- `trace_query_state_churn_window_stats` used `trace_query` efficiently and the
+  answer was semantically correct, but the final next-step sentence did not bind
+  the recommended follow-up to the dominant same-CPU competitor evidence.
+- `trace_query` already produced a generic `state_churn` next step, while the
+  same-window CPU pressure product already contained `TopRunnable` and
+  `TopRunning` rows. The gap was that state-churn handoff did not carry the
+  top competitor and CPU context as typed fields/RichNotes.
+
+Generalized design:
+
+- Keep state-churn detection domain-neutral: compute the fragmented state totals
+  as before, then enrich runnable-dominant churn with same-window CPU pressure
+  metadata by matching the churn thread against `CPUPressure.TopRunnable`.
+- Publish the selected CPU, top running competitor, competitor running time, and
+  concrete next step through `ThreadStateChurnSummary` and `trace_query` typed
+  observation RichNotes. This keeps final-answer guidance grounded in structured
+  runtime observations rather than finalizer prose heuristics.
+- The next-step text should remain generic across scheduler traces: inspect the
+  same-CPU competitor/CPU pressure/time-slice path, then validate wake latency
+  with `sched_wakeup`.
+
+Executable task list:
+
+- [x] B6-T1: Add typed same-CPU competitor fields and next-step field to
+  `ThreadStateChurnSummary`.
+- [x] B6-T2: Enrich runnable-dominant state churn from existing CPU pressure
+  products without rescanning or adding case-specific logic.
+- [x] B6-T3: Publish next-step/competitor fields in `trace_query` RichNotes.
+- [x] B6-T4: Add focused tracequery/tool tests for summary and RichNotes.
+- [ ] B6-T5: Run full tests, rebuild, commit/push, then rerun representative
+  eval cases two at a time.
+
+Batch 6 focused verification before commit:
+
+- `go test ./internal/tracequery ./internal/tool -run 'TestRootCauseRankPromotesFragmentedStateChurn|TestTraceQuerySummaryRendersFragmentedStateChurn|TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps'`

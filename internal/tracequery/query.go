@@ -1189,7 +1189,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
-	stats.StateChurn = computeStateChurnSummaries(idx, q, 8)
+	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
 	return stats
 }
@@ -1884,9 +1884,7 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 	if confidence > 0.88 {
 		confidence = 0.88
 	}
-	summary := fmt.Sprintf("%s had frequent state switching; dominant_state=%s impact=%.3fms total=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms; next_step=%s",
-		threadLabel(acc.thread), dominantState, dominantMs, total, acc.fragmentCount, acc.stateSwitches, acc.maxSegmentMs, p95, acc.runningMs, acc.runnableMs, acc.sleepMs, acc.dStateMs, acc.ioWaitMs, stateChurnNextStep(dominantState))
-	return ThreadStateChurnSummary{
+	item := ThreadStateChurnSummary{
 		Thread:           acc.thread,
 		DominantState:    dominantState,
 		TotalMs:          total,
@@ -1903,8 +1901,98 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 		LineStart:        acc.lineStart,
 		LineEnd:          acc.lineEnd,
 		Confidence:       confidence,
-		Summary:          summary,
-	}, true
+		NextStep:         stateChurnNextStep(dominantState),
+	}
+	item.Summary = renderStateChurnSummary(item)
+	return item, true
+}
+
+func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures []CPUPressureStats) []ThreadStateChurnSummary {
+	if len(items) == 0 || len(pressures) == 0 {
+		return items
+	}
+	byCPU := map[int]CPUPressureStats{}
+	for _, pressure := range pressures {
+		byCPU[pressure.CPU] = pressure
+	}
+	for i := range items {
+		if items[i].Thread.PID <= 0 || items[i].DominantState != string(StateRunnable) {
+			continue
+		}
+		cpu, ok := stateChurnRunnableCPU(items[i], pressures)
+		if !ok {
+			continue
+		}
+		pressure := byCPU[cpu]
+		competitor, competitorMs := stateChurnTopCompetitor(items[i].Thread, pressure)
+		items[i].RunnableCPU = cpu
+		items[i].RunnableCPUKnown = true
+		if competitor != "" {
+			items[i].TopCompetitor = competitor
+			items[i].TopCompetitorRunningMs = competitorMs
+			items[i].NextStep = fmt.Sprintf("inspect %s on same CPU cpu=%d for CPU pressure/time-slice competition, then validate wake_latency with sched_wakeup", competitor, cpu)
+		} else {
+			items[i].NextStep = fmt.Sprintf("inspect same-CPU pressure on cpu=%d, top running competitors, priority, CPU frequency, and sched_wakeup wake_latency", cpu)
+		}
+		items[i].Summary = renderStateChurnSummary(items[i])
+	}
+	return items
+}
+
+func stateChurnRunnableCPU(item ThreadStateChurnSummary, pressures []CPUPressureStats) (int, bool) {
+	bestCPU := 0
+	bestMs := 0.0
+	found := false
+	for _, pressure := range pressures {
+		for _, runnable := range pressure.TopRunnable {
+			if !sameThreadRef(runnable.Thread, item.Thread) {
+				continue
+			}
+			if !found || runnable.DurationMs > bestMs {
+				bestCPU = pressure.CPU
+				bestMs = runnable.DurationMs
+				found = true
+			}
+		}
+	}
+	return bestCPU, found
+}
+
+func stateChurnTopCompetitor(target ThreadRef, pressure CPUPressureStats) (string, float64) {
+	for _, running := range pressure.TopRunning {
+		if sameThreadRef(running.Thread, target) {
+			continue
+		}
+		label := threadLabel(running.Thread)
+		if label == "" {
+			continue
+		}
+		return label, running.DurationMs
+	}
+	return "", 0
+}
+
+func sameThreadRef(a, b ThreadRef) bool {
+	if a.PID > 0 && b.PID > 0 {
+		return a.PID == b.PID
+	}
+	return strings.TrimSpace(a.Comm) != "" && strings.TrimSpace(a.Comm) == strings.TrimSpace(b.Comm)
+}
+
+func renderStateChurnSummary(item ThreadStateChurnSummary) string {
+	nextStep := strings.TrimSpace(item.NextStep)
+	if nextStep == "" {
+		nextStep = stateChurnNextStep(item.DominantState)
+	}
+	summary := fmt.Sprintf("%s had frequent state switching; dominant_state=%s impact=%.3fms total=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms; next_step=%s",
+		threadLabel(item.Thread), item.DominantState, item.DominantImpactMs, item.TotalMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.P95SegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs, nextStep)
+	if item.RunnableCPUKnown {
+		summary = fmt.Sprintf("%s; same_cpu=cpu=%d", summary, item.RunnableCPU)
+	}
+	if item.TopCompetitor != "" {
+		summary = fmt.Sprintf("%s; top_competitor=%s running=%.3fms", summary, item.TopCompetitor, item.TopCompetitorRunningMs)
+	}
+	return summary
 }
 
 func dominantChurnState(acc *stateChurnAcc) (string, float64) {

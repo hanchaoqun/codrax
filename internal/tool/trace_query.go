@@ -2478,6 +2478,12 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		appendNote("sleep", traceQueryObservationMSValue(churn.SleepMs))
 		appendNote("d_state", traceQueryObservationMSValue(churn.DStateMs))
 		appendNote("io_wait", traceQueryObservationMSValue(churn.IOWaitMs))
+		if churn.RunnableCPUKnown {
+			appendNote("runnable_cpu", strconv.Itoa(churn.RunnableCPU))
+		}
+		appendNote("top_competitor", churn.TopCompetitor)
+		appendNote("top_competitor_running", traceQueryObservationMSValue(churn.TopCompetitorRunningMs))
+		appendNote("next_step", churn.NextStep)
 		if churn.TotalMs > 0 {
 			notes = append(notes, fmt.Sprintf("total=%.3fms", churn.TotalMs))
 		}

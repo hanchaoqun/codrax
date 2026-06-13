@@ -1055,6 +1055,9 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 	if !near(churn.RunnableMs, 5.0, 0.001) || churn.MaxSegmentMs >= 1.0 || churn.FragmentCount < 10 || churn.StateSwitches < 9 {
 		t.Fatalf("fragmented churn should accumulate sub-ms runnable impact: %+v", churn)
 	}
+	if churn.TopCompetitor != "rival-30" || !churn.RunnableCPUKnown || churn.RunnableCPU != 1 {
+		t.Fatalf("fragmented churn should carry same-CPU competitor context: %+v", churn)
+	}
 	if res.SchedulerLatency == nil || res.SchedulerLatency.Count != 0 {
 		t.Fatalf("sub-ms runnable fragments should not require scheduler_latency intervals above default threshold: %+v", res.SchedulerLatency)
 	}
@@ -1065,7 +1068,9 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 	if first.Type != "fragmented_runnable_wait" || first.Thread.PID != 20 {
 		t.Fatalf("fragmented runnable churn should rank as primary cause, got %+v all=%+v", first, res.RootCauseRank.Items)
 	}
-	if !strings.Contains(first.Summary, "frequent state switching") || !strings.Contains(first.Summary, "next_step=inspect same-CPU pressure") {
+	if !strings.Contains(first.Summary, "frequent state switching") ||
+		!strings.Contains(first.Summary, "next_step=inspect rival-30 on same CPU cpu=1") ||
+		!strings.Contains(first.Summary, "sched_wakeup") {
 		t.Fatalf("fragmented root cause should explain next diagnostic step: %+v", first)
 	}
 }
