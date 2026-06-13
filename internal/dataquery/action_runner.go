@@ -8685,18 +8685,22 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		answer = string(raw)
 	case "json_object", "json_object_values", "object":
 		obj := map[string]any{}
-		unnamed := 0
-		for _, group := range groups {
-			key := reconcileGroupJSONObjectKey(group, action, valueField, len(groups))
-			if key == "" {
-				unnamed++
-				key = fmt.Sprintf("value_%d", unnamed)
-			}
-			value := reconcileGroupJSONValueForAssemble(group, valueField, contributions)
-			if existing, ok := obj[key]; ok {
-				obj[key] = mergeReconcileJSONValues(existing, value)
-			} else {
-				obj[key] = value
+		if key, values, ok := reconcileGroupsSingleMetricJSONList(groups, action, valueField, contributions); ok {
+			obj[key] = values
+		} else {
+			unnamed := 0
+			for _, group := range groups {
+				key := reconcileGroupJSONObjectKey(group, action, valueField, len(groups))
+				if key == "" {
+					unnamed++
+					key = fmt.Sprintf("value_%d", unnamed)
+				}
+				value := reconcileGroupJSONValueForAssemble(group, valueField, contributions)
+				if existing, ok := obj[key]; ok {
+					obj[key] = mergeReconcileJSONValues(existing, value)
+				} else {
+					obj[key] = value
+				}
 			}
 		}
 		raw, _ := json.Marshal(obj)
@@ -9242,11 +9246,74 @@ func reconcileGroupJSONValueForAssemble(group ReconcileGroup, field string, cont
 	return reconcileGroupJSONValue(group, field)
 }
 
-func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueField string, groupCount int) string {
-	for _, key := range []string{"output_field", "output_key", "json_field", "target_field", "field"} {
-		if value := strings.TrimSpace(action.Params[key]); value != "" {
-			return value
+func reconcileGroupsSingleMetricJSONList(groups []ReconcileGroup, action DataAction, valueField string, contributions []ContributionRecord) (string, []any, bool) {
+	if len(groups) < 2 || reconcileJSONObjectExplicitKey(action) != "" {
+		return "", nil, false
+	}
+	metric := singleReconcileMetric(groups)
+	if metric == "" || !reconcileGroupsUseListProjectionOperations(groups, contributions) {
+		return "", nil, false
+	}
+	key := pluralizeJSONFieldName(metric)
+	if key == "" {
+		return "", nil, false
+	}
+	values := make([]any, 0, len(groups))
+	for _, group := range groups {
+		for _, value := range reconcileJSONValueSlice(reconcileGroupJSONValueForAssemble(group, valueField, contributions)) {
+			if stringValue, ok := value.(string); ok && strings.TrimSpace(stringValue) == "" {
+				continue
+			}
+			values = append(values, value)
 		}
+	}
+	if len(values) == 0 {
+		return "", nil, false
+	}
+	return key, values, true
+}
+
+func reconcileGroupsUseListProjectionOperations(groups []ReconcileGroup, contributions []ContributionRecord) bool {
+	groupSet := map[string]bool{}
+	for _, group := range groups {
+		key := reconcileGroupKey(group.GroupKey.String(), group.Metric.String())
+		if key != "" {
+			groupSet[key] = true
+		}
+	}
+	if len(groupSet) == 0 || len(contributions) == 0 {
+		return false
+	}
+	matched := map[string]bool{}
+	for _, rec := range contributions {
+		if !contributionParticipatesInReconcile(rec) {
+			continue
+		}
+		key := reconcileGroupKey(rec.GroupKey.String(), rec.Metric.String())
+		if !groupSet[key] {
+			continue
+		}
+		op, ok := normalizeContributionOperation(rec.Operation.String())
+		if !ok || !contributionOperationProjectsJSONList(op) {
+			return false
+		}
+		matched[key] = true
+	}
+	return len(matched) == len(groupSet)
+}
+
+func contributionOperationProjectsJSONList(op string) bool {
+	switch op {
+	case "include", "set", "rank":
+		return true
+	default:
+		return false
+	}
+}
+
+func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueField string, groupCount int) string {
+	if key := reconcileJSONObjectExplicitKey(action); key != "" {
+		return key
 	}
 	if groupCount == 1 && !reconcileValueFieldIsStandard(valueField) {
 		if key := pluralizeJSONFieldName(valueField); key != "" {
@@ -9259,6 +9326,15 @@ func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueF
 		}
 	}
 	return firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
+}
+
+func reconcileJSONObjectExplicitKey(action DataAction) string {
+	for _, key := range []string{"output_field", "output_key", "json_field", "target_field", "field"} {
+		if value := strings.TrimSpace(action.Params[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func reconcileGroupUsesSyntheticAllKey(group ReconcileGroup) bool {

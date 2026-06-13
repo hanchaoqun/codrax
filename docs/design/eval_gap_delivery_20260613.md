@@ -1029,6 +1029,75 @@ Executable task list:
   compact runtime metric projection.
 - [x] B14-T7: Run focused package tests, full test suite, rebuild, and diff
   hygiene.
-- [ ] B14-T8: Commit and push Batch 14.
-- [ ] B14-T9: Rerun representative eval cases two at a time and manually audit
+- [x] B14-T8: Commit and push Batch 14.
+- [x] B14-T9: Rerun representative eval cases two at a time and manually audit
+  answers/logs again. The rerun exposed the Batch 15 projection gap below.
+
+Post-Batch-14 eval root:
+
+- `eval/results/eval-gap-20260613-post-5cd74a68`
+
+Manual audit after rerun:
+
+- `trace_query_state_churn_window_stats`: PASS. The run used
+  `trace_query=2`, `repo_map=0`, `read_file=0`, no finalizer retries, and the
+  final answer preserved the authoritative runtime values. The compact
+  structured metric line rendered `max_segment=0.500ms` and
+  `p95_segment=0.500ms` on the same line without replacing the richer body.
+- `data_json_strict_ids`: FAIL. The data workflow reached
+  `data_terminal_status=complete`, `data_answer_len=25`, `reconcile=pass`,
+  and had no action failures in the terminal result, but the final answer was
+  valid JSON with the wrong shape: `{"u1":["u1"],"u3":["u3"]}`. The expected
+  contract from the rule ledger is a single field containing the included
+  member set: `{"ids":["u1","u3"]}`. The logs show `compute_contributions`
+  produced target records with `group_key_field=id`, `metric=id`, and
+  `operation=include`; `assemble_answer projection=json_object
+  value_field=group_key` then interpreted each group key as a JSON object key
+  instead of recognizing the same-metric include groups as one output member
+  set.
+
+## Batch 15 Gap: JSON Object Projection Needs Typed Set Semantics
+
+Deep root cause:
+
+- `assemble_answer` can already project a single synthetic/all group into a
+  plural metric key (for example `id` -> `ids`) and can merge duplicate JSON
+  keys into arrays. It did not handle the equivalent normalized shape where a
+  prior typed plan grouped each included member by its own ID while preserving a
+  single shared metric. This shape is common after `filter_records` +
+  `compute_contributions`: group keys identify rows/members, while the metric
+  names the output field.
+- Treating every group key as a JSON key is correct for numeric grouped
+  aggregates (`amount by Q1/Q2`) but wrong for set/list operations
+  (`include/set/rank` members of the same metric). The missing bridge is typed
+  operation semantics, not a keyword in the user request or a case-specific
+  field name.
+
+Generalized design:
+
+- In `json_object` assembly, detect only this precise typed shape:
+  multiple reconcile groups, exactly one shared metric, no explicit output key
+  already provided, and every matching target contribution uses a list-like
+  operation (`include`, `set`, or `rank`). Project those groups to one JSON
+  array under `pluralize(metric)`.
+- Preserve existing grouped numeric behavior: `add`, `subtract`, and `count`
+  groups continue to render as group-keyed JSON objects unless an explicit
+  output key is provided.
+- Keep explicit model/tool instructions stronger than inference:
+  `output_field`, `output_key`, `json_field`, `target_field`, or `field` still
+  win and are merged by the existing object-key path.
+
+Executable task list:
+
+- [x] B15-T1: Document the post-Batch-14 eval result and identify the typed
+  same-metric set/list projection gap.
+- [x] B15-T2: Add same-metric list projection for JSON object assembly,
+  guarded by contribution operation semantics.
+- [x] B15-T3: Add regression tests for include/set-style same-metric groups
+  collapsing to a single plural metric array.
+- [x] B15-T4: Add regression tests proving numeric same-metric groups remain
+  keyed by group.
+- [x] B15-T5: Run focused/full tests, rebuild, diff hygiene.
+- [ ] B15-T6: Commit/push Batch 15.
+- [ ] B15-T7: Rerun representative eval cases two at a time and manually audit
   answers/logs again.

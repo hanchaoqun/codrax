@@ -9188,6 +9188,107 @@ func TestActionRunnerAssembleAnswerUsesMetricKeyForSyntheticAllMembers(t *testin
 	}
 }
 
+func TestActionRunnerAssembleAnswerProjectsSameMetricSetGroupsAsJSONArrayField(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection":  "json_object",
+					"value_field": "group_key",
+					"order_by":    "input",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("u1"),
+			Source:        LooseText("active_user_decisions.json"),
+			SourceLocator: LooseText("row:1"),
+			GroupKey:      LooseText("u1"),
+			Metric:        LooseText("id"),
+			Value:         LooseText("u1"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("u3"),
+			Source:        LooseText("active_user_decisions.json"),
+			SourceLocator: LooseText("row:2"),
+			GroupKey:      LooseText("u3"),
+			Metric:        LooseText("id"),
+			Value:         LooseText("u3"),
+			Operation:     LooseText("include"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want same-metric include groups projected as one JSON array field", res.Answer)
+	}
+}
+
+func TestActionRunnerAssembleAnswerKeepsNumericSameMetricGroupsKeyedByGroup(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{ID: "reconcile", Kind: DataActionReconcile},
+			{
+				ID:   "answer",
+				Kind: DataActionAssembleAnswer,
+				Params: map[string]string{
+					"projection": "json_object",
+					"order_by":   "group_key",
+				},
+			},
+		},
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID:        LooseText("row-1"),
+			Source:        LooseText("orders.csv"),
+			SourceLocator: LooseText("row:1"),
+			GroupKey:      LooseText("Q1"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("10"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+		{
+			ItemID:        LooseText("row-2"),
+			Source:        LooseText("orders.csv"),
+			SourceLocator: LooseText("row:2"),
+			GroupKey:      LooseText("Q2"),
+			Metric:        LooseText("amount"),
+			Value:         LooseText("5"),
+			Operation:     LooseText("add"),
+			Role:          LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"Q1":"10","Q2":"5"}` {
+		t.Fatalf("Answer=%q, want numeric same-metric groups to remain keyed by group", res.Answer)
+	}
+}
+
 func TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric(t *testing.T) {
 	plan := TaskPlan{
 		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
