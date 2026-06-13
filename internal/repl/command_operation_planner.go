@@ -440,6 +440,7 @@ Rules:
 - Keep raw logs/large output summarized; the UI will show execution details separately.
 - Do not include execution-detail headings such as "Operation plan ... completed" or "操作计划 ... 已执行完成"; per-round execution details are already shown outside the final report.
 - Match the requested language. If language=zh, every user-visible sentence must be Chinese except command names, file paths, product names, and raw command output snippets.
+- Refer to what the user named using the user's own words. When the request names its subject (a document title, a page name, a feature label), reuse that exact wording wherever the report refers to it — translated only when the report language differs from the request — rather than substituting a synonym or your own relabeling. A report that renames its subject reads as answering a different request.
 `
 
 func (p *llmCommandOperationPlanner) AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error) {

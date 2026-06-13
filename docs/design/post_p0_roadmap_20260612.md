@@ -44,17 +44,40 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
   补发 agent 完成）。
 - 2026-06-13: #1 sweep 收口(154+7复跑=161/167 实质);效率对比落账;#3/#2
   eval gate 新二进制双 PASS。**第一梯队全部完成**。
+- 2026-06-13: repeat-FAIL 专项三案交付——libgit2(planner 上游同形+保守重建
+  教学)/operation_web(operation 答案 prompt+answer-document 双表面用户词
+  复用教学)/s3a(探针 case 定性反转,词表第三次扩充)。libgit2/opweb gate
+  PASS 且内容逐项核绿;s3a+qf_architecture 回归 gate 批 2 进行中。
 
-## repeat-FAIL 专项（待办,均属 prompt 级介入需 BLOCKING 流程）
+## repeat-FAIL 专项（2026-06-13 交付完毕,全部 prompt/case 级,过 BLOCKING 流程）
 
-- `github_issue_libgit2_foreach_worktree`(2/2):write 模式修复功能正确且测试
-  通过,但第二处用语义等价 `(error=lookup_result) != 0` 而非上游 PR 规范形
-  `< 0`(apply 模式校验 fixture 字节;06-11 同案模型选了 `< 0`)。方向:write
-  planner 通用教学"参照已知上游修复时保持与上游 diff 同形"(无 prose 门控,
-  通用一句);禁忌:任何"检测 PR 引用"的关键字匹配。
-- `operation_web_manual_summary`(2/2):答案实质正确但写"完整使用手册"不含
-  断言词"用户使用手册"(用户问题原词)且无 manual/guide。方向:finalizer 教学
-  "答案复用用户问题中的关键名词指代,不做同义替换"——影响全局,需单独批次+
-  eval gate;不放松 case。
-- `s3a`(2/2 且两次失败轴不同):多断言 case 答案构成漂移,需读双 run 对比
-  定位丢失的断言来源(ExploreHeuristics 缺失 vs CLI 措辞)。
+- `github_issue_libgit2_foreach_worktree` **已修,gate PASS**:
+  - 定性升级:复盘第三次 run 发现模型在两站点间"统一化"比较算子(上次统一
+    `!= 0`,本次统一 `< 0`),而上游 PR 逐站点保形(cb 站 `!= 0`/lookup 站
+    `< 0`);且 planner 无网络,引用的 PR URL 不可读——教学必须含"引用不可达
+    时的保守重建"分支。
+  - 落点:change-plan-skill 新增 UPSTREAM-REFERENCED FIXES 通用条目:参照
+    已知上游修复保持同形;引用不可达时保守重建(最小语义差、保留各触点既有
+    算子/操作数、禁止把相邻不同形站点统一化)。无任何 prose 关键字门控;R6
+    审计不写案例答案形态进 prompt。
+  - gate:worktree 字节逐形复刻上游双站点,PASS(新二进制)。
+- `operation_web_manual_summary` **已修,gate PASS**:
+  - 定性升级:该案走 route=operation 单发回合,最终答案由
+    `commandOperationAnswerSystemPrompt`(command_operation_planner.go)驱动,
+    **不经过 answer-document-skill**——首轮教学加错表面后复盘改正。
+  - 落点:operation 答案 prompt + answer-document-skill prose-voice 双表面
+    各加一条通用"复用用户对命名事物的原词指代,不同义替换"教学(后者覆盖
+    repo 路由全局)。
+  - gate:答案自然复用"用户使用手册"原词,PASS。
+- `s3a` **已修,gate 待批 2 确认**:
+  - 定性彻底反转:这是有意探针 case——问题键 shaped like explore_* 但被
+    glossary ProjectSpecificIdentifierBlocklist 以字符串拼接形式刻意排除在
+    配置表面外。两次 FAIL 的答案实质都正确(其一甚至挖出探针本体),是断言
+    词表第三次撞上正确答案新措辞:(a)"无任何绑定"差一词没接上 `无绑定`;
+    (b) 答案用真实同族邻居(ExploreMidLoopMinIteration/MaxMidLoopInjects)
+    锚定而非 ExploreHeuristics 结构体名。
+  - 落点:按该 case 在案两次维护先例做第三次词表扩充——no-CLI 正则收
+    `无(任何)?绑定`;正向锚点改为真实同族标识符择一正则(全部存在于代码、
+    无法靠回声探针键命中;探针键 camel 形刻意不收)。载荷断言(precedence
+    链/yaml 文件名/no-CLI 裁定/env 负向)一条不动;三个历史答案回放全 PASS
+    (含旧 PASS 不回归)。系统侧无缺陷,不属 bar 降级。

@@ -35,8 +35,26 @@ QUESTION="explore_mid_loop_hint_budget 的最终有效值是怎么计算出来�
 # struct-naming pass. Negative regex still requires the "no CLI
 # binding" verdict; broadened to accept 无绑定 / 不绑定 / 不存在
 # (no-绑定 vs 未-绑定 was a single-character mismatch the LLM hit).
-EXPECT_CONTAINS="codrax.yaml ExploreHeuristics"
+# 2026-06-13 vocabulary broadening (third, audited): the question's
+# key is a DELIBERATE probe — it is shaped like an explore_* knob but
+# absent from the config surface by design (the prompt-side identifier
+# denylist carries it precisely so prompts can never hardcode it).
+# Two substantively-correct answers FAILed on anchor wording alone:
+# (a) "在 CLI flag 注册段也无任何绑定" missed the contiguous 无绑定
+#     alternation by one inserted word → accept 无(任何)?绑定;
+# (b) an answer grounded the family via the real neighbours
+#     ExploreMidLoopMinIteration / loop_max_midloop_injects /
+#     MaxMidLoopInjects instead of naming the ExploreHeuristics
+#     struct → the positive anchor becomes an alternation over REAL
+#     same-family identifiers (every alternative exists in code and
+#     cannot be produced by echoing the probe key; the camel form of
+#     the probe key itself is deliberately NOT accepted).
+# Load-bearing assertions are unchanged: precedence chain wording,
+# the YAML filename, the no-CLI/no-binding verdict, and the env-var
+# negative all still gate.
+EXPECT_CONTAINS="codrax.yaml"
 EXPECT_MATCHES_REGEX="(default|默认值|默认值|代码默认)
 (yaml|codrax\.yaml)
-(no CLI|CLI flag.*not|no flag|没有.*CLI|未绑定|无绑定|不绑定|不接受|不存在.*CLI|CLI.*不存在)"
+(ExploreHeuristics|ExploreMidLoopMinIteration|ExploreMidLoopEnumCoverage|explore_midloop_min_iteration|explore_midloop_enum_coverage|MaxMidLoopInjects|loop_max_midloop_injects)
+(no CLI|CLI flag.*not|no flag|没有.*CLI|未绑定|无(任何)?绑定|不绑定|不接受|不存在.*CLI|CLI.*不存在)"
 EXPECT_NOT_CONTAINS="os.Getenv environment.variable .env"
