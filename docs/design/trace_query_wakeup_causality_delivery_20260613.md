@@ -144,15 +144,15 @@ decode.
   `wakeup_chain.causal_impacts`.
 - [x] D2: Demote off-chain background pressure when an on-chain dependency
   exists, without hiding the supporting evidence.
-- [ ] D3: Extend trace-query summaries and typed observations for
+- [x] D3: Extend trace-query summaries and typed observations for
   causal-impact records.
-- [ ] D4: Extend ObservationLedger parsing/projection tests to prove causal
+- [x] D4: Extend ObservationLedger parsing/projection tests to prove causal
   impact survives handoff and stale background facts do not steal priority.
 
 ### Batch E: Prompt, Repair, and Eval
 
-- [ ] E1: Update `trace_query` tool description and schema teaching.
-- [ ] E2: Add structured-compat tests for any new input alias, especially
+- [x] E1: Update `trace_query` tool description and schema teaching.
+- [x] E2: Add structured-compat tests for any new input alias, especially
   `view=causal_impact` if enabled.
 - [ ] E3: Add/extend eval cases for causal chain runnable, chain D/IO, and
   off-path background pressure demotion.

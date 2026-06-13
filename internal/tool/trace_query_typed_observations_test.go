@@ -39,9 +39,12 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			Items: []tracequery.RootCauseRankItem{
 				{
 					Rank: 1, Tier: "primary", Type: "binder_wait",
-					Thread:   tracequery.ThreadRef{Comm: "app", PID: 20},
-					ImpactMs: 12.5, Score: 0.91, Confidence: 0.88,
+					Thread:         tracequery.ThreadRef{Comm: "app", PID: 20},
+					ImpactMs:       12.5,
+					TargetImpactMs: 16.0,
+					Score:          0.91, Confidence: 0.88,
 					LineStart: 10, LineEnd: 20, Source: "wakeup_chain",
+					Causality: "on_wakeup_chain", ChainDepth: 2,
 					Summary: "binder reply stalled the frame",
 				},
 				{
@@ -52,6 +55,26 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			},
 		},
 		WakeupChain: &tracequery.ChainResult{
+			CausalImpacts: []tracequery.WakeupCausalImpact{{
+				Thread:           tracequery.ThreadRef{Comm: "worker", PID: 21},
+				Window:           tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.025},
+				ChainDepth:       1,
+				OnChain:          true,
+				DominantState:    "runnable",
+				DominantImpactMs: 8.25,
+				TotalMs:          9.0,
+				RunnableMs:       8.25,
+				TargetBlockedMs:  12.5,
+				FragmentCount:    3,
+				StateSwitches:    2,
+				LineStart:        21, LineEnd: 29,
+				Priority: 20, PriorityClass: "ohos_cfs",
+				TargetPriority: 52, TargetPriorityClass: "ohos_rt",
+				PriorityRelation:           "lower_priority_dependency",
+				PriorityInversionCandidate: true,
+				NextStep:                   "inspect lower-priority dependency scheduling delay",
+				Summary:                    "worker runnable dependency dominated the wakeup chain",
+			}},
 			RootEvidence: []tracequery.RootEvidence{{
 				Type:       "long_sleep",
 				Thread:     tracequery.ThreadRef{Comm: "app", PID: 20},
@@ -93,7 +116,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace-query-result-abcd1234.json", "/blobs/trace_query-eeff.txt", "", time.Now())
 
-	wantRows := 2 + 1 + 1 + 1 + 1 + len(facts)
+	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + len(facts)
 	if len(rows) != wantRows {
 		t.Fatalf("expected %d typed rows, got %d", wantRows, len(rows))
 	}
@@ -135,6 +158,35 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	if rootCause.Predicate != "root_cause_primary" || rootCause.Object != "binder_wait" ||
 		rootCause.Value != "12.500" || rootCause.Unit != "ms" {
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
+	}
+	rootNotes := strings.Join(rootCause.RichNotes, "\n")
+	for _, want := range []string{"target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2"} {
+		if !strings.Contains(rootNotes, want) {
+			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
+		}
+	}
+	var causalImpact *types.ObservationRecord
+	for i := range rows {
+		if strings.Contains(rows[i].ID, "#wakeup_causal_impact:1") {
+			causalImpact = &rows[i]
+			break
+		}
+	}
+	if causalImpact == nil {
+		t.Fatalf("missing wakeup causal impact row: %v", seen)
+	}
+	causalNotes := strings.Join(causalImpact.RichNotes, "\n")
+	for _, want := range []string{
+		"causality=on_wakeup_chain",
+		"dominant_state=runnable",
+		"target_impact=12.500",
+		"priority=20/ohos_cfs",
+		"target_priority=52/ohos_rt",
+		"priority_inversion_candidate=true",
+	} {
+		if !strings.Contains(causalNotes, want) {
+			t.Fatalf("causal impact notes missing %q: %+v", want, causalImpact.RichNotes)
+		}
 	}
 	var churnRow *types.ObservationRecord
 	for i := range rows {

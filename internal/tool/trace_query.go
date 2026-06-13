@@ -83,7 +83,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional platform hint. Use donghu when the user says 东湖: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
-	    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates, including fragmented state_churn candidates when frequent short state switches cumulatively dominate; state_churn itself is an output section, not a standalone view; view=state_churn is accepted and treated as view=window_stats; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
+		    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","causal_impact":"wakeup_chain"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates, including fragmented state_churn candidates when frequent short state switches cumulatively dominate and wakeup_chain causal_impacts candidates when cumulative on-chain dependency impact dominates; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats and view=causal_impact is accepted as wakeup_chain; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
@@ -1603,8 +1603,20 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.WakeupChain != nil {
 		b.WriteString("## Wakeup chain\n")
 		for _, edge := range result.WakeupChain.Edges {
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms)\n",
-				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs)
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s relation=%s priority_inversion_candidate=%t\n",
+				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
+				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
+				sanitizeForBanner(edge.PriorityRelation), edge.PriorityInversionCandidate)
+		}
+		for _, impact := range result.WakeupChain.CausalImpacts {
+			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+				traceThreadLabel(impact.Thread), impact.ChainDepth, traceQueryCausalityLabel(impact.OnChain),
+				sanitizeForBanner(impact.DominantState), impact.DominantImpactMs, impact.TotalMs, impact.TargetBlockedMs,
+				impact.FragmentCount, impact.StateSwitches, impact.MaxSegmentMs, impact.P95SegmentMs,
+				impact.RunningMs, impact.RunnableMs, impact.SleepMs, impact.DStateMs, impact.IOWaitMs,
+				impact.Priority, sanitizeForBanner(impact.PriorityClass), impact.TargetPriority, sanitizeForBanner(impact.TargetPriorityClass),
+				sanitizeForBanner(impact.PriorityRelation), impact.PriorityInversionCandidate,
+				impact.LineStart, impact.LineEnd, sanitizeForBanner(impact.Summary))
 		}
 		for _, root := range result.WakeupChain.RootEvidence {
 			fmt.Fprintf(&b, "- root_evidence=%s thread=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
@@ -1623,8 +1635,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.RootCauseRank != nil {
 		b.WriteString("## Root cause rank\n")
 		for _, item := range result.RootCauseRank.Items {
-			fmt.Fprintf(&b, "- rank=%d tier=%s type=%s thread=%s impact=%.3fms score=%.3f confidence=%.2f lines=%d-%d source=%s — %s\n",
-				item.Rank, item.Tier, item.Type, traceThreadLabel(item.Thread), item.ImpactMs, item.Score, item.Confidence, item.LineStart, item.LineEnd, item.Source, item.Summary)
+			fmt.Fprintf(&b, "- rank=%d tier=%s type=%s thread=%s impact=%.3fms target_impact=%.3fms score=%.3f confidence=%.2f lines=%d-%d source=%s causality=%s chain_depth=%d — %s\n",
+				item.Rank, item.Tier, item.Type, traceThreadLabel(item.Thread), item.ImpactMs, item.TargetImpactMs, item.Score, item.Confidence,
+				item.LineStart, item.LineEnd, item.Source, sanitizeForBanner(item.Causality), item.ChainDepth, item.Summary)
 		}
 		for _, caveat := range result.RootCauseRank.Caveats {
 			fmt.Fprintf(&b, "- root_cause_caveat=%s\n", caveat)
@@ -2317,7 +2330,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Value:           traceQueryObservationMSValue(item.ImpactMs),
 				Unit:            "ms",
 				Summary:         firstNonEmptyTraceString(item.Summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, item.Type)),
-				RichNotes:       traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Score, item.ImpactMs),
+				RichNotes:       traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.TargetImpactMs),
 				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:      at,
 				Confidence:      item.Confidence,
@@ -2358,6 +2371,40 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	if result.WakeupChain != nil {
+		for i, impact := range result.WakeupChain.CausalImpacts {
+			if i >= traceQueryTypedFamilyRowCap {
+				break
+			}
+			if strings.TrimSpace(impact.DominantState) == "" && strings.TrimSpace(impact.Summary) == "" {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					LineStart: impact.LineStart,
+					LineEnd:   impact.LineEnd,
+					StartTs:   impact.Window.StartTs,
+					EndTs:     impact.Window.EndTs,
+				},
+				ClaimKey:    "wakeup_causal_impact:" + firstNonEmptyTraceString(traceThreadLabel(impact.Thread), impact.DominantState),
+				Subject:     traceThreadLabel(impact.Thread),
+				Predicate:   "wakeup_causal_impact",
+				Object:      impact.DominantState,
+				Value:       traceQueryObservationMSValue(impact.DominantImpactMs),
+				Unit:        "ms",
+				Summary:     impact.Summary,
+				RichNotes:   traceQueryTypedCausalImpactRichNotes(impact),
+				SupportRefs: traceQueryObservationSupportRefs(ref, impact.LineStart, impact.LineEnd),
+				ObservedAt:  at,
+				Confidence:  0.78,
+			})
+		}
 		for i, root := range result.WakeupChain.RootEvidence {
 			if i >= traceQueryTypedFamilyRowCap {
 				break
@@ -2425,7 +2472,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	return out
 }
 
-func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source string, score, impact float64) []string {
+func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, targetImpact float64) []string {
 	var notes []string
 	if rank > 0 {
 		notes = append(notes, fmt.Sprintf("rank=%d", rank))
@@ -2439,13 +2486,47 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source string, score,
 	if impact > 0 {
 		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
 	}
+	if targetImpact > 0 {
+		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))
+	}
 	if score > 0 {
 		notes = append(notes, fmt.Sprintf("score=%.3f", score))
 	}
 	if source != "" {
 		notes = append(notes, "source="+source)
 	}
+	if causality != "" {
+		notes = append(notes, "causality="+causality)
+	}
+	if chainDepth > 0 {
+		notes = append(notes, fmt.Sprintf("chain_depth=%d", chainDepth))
+	}
 	return notes
+}
+
+func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
+	return traceQueryTypedKVNotes([][2]string{
+		{"depth", traceQueryTypedCount(impact.ChainDepth)},
+		{"causality", traceQueryCausalityLabel(impact.OnChain)},
+		{"dominant_state", impact.DominantState},
+		{"impact", traceQueryObservationMSValue(impact.DominantImpactMs)},
+		{"total", traceQueryObservationMSValue(impact.TotalMs)},
+		{"target_impact", traceQueryObservationMSValue(impact.TargetBlockedMs)},
+		{"fragments", traceQueryTypedCount(impact.FragmentCount)},
+		{"switches", traceQueryTypedCount(impact.StateSwitches)},
+		{"max_segment", traceQueryObservationMSValue(impact.MaxSegmentMs)},
+		{"p95_segment", traceQueryObservationMSValue(impact.P95SegmentMs)},
+		{"running", traceQueryObservationMSValue(impact.RunningMs)},
+		{"runnable", traceQueryObservationMSValue(impact.RunnableMs)},
+		{"sleep", traceQueryObservationMSValue(impact.SleepMs)},
+		{"d_state", traceQueryObservationMSValue(impact.DStateMs)},
+		{"io_wait", traceQueryObservationMSValue(impact.IOWaitMs)},
+		{"priority", traceQueryPriorityPair(impact.Priority, impact.PriorityClass)},
+		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
+		{"priority_relation", impact.PriorityRelation},
+		{"priority_inversion_candidate", traceQueryTypedBool(impact.PriorityInversionCandidate)},
+		{"next_step", impact.NextStep},
+	})
 }
 
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
@@ -2838,6 +2919,30 @@ func traceQueryTypedCount(n int) string {
 		return ""
 	}
 	return strconv.Itoa(n)
+}
+
+func traceQueryTypedBool(v bool) string {
+	if !v {
+		return ""
+	}
+	return "true"
+}
+
+func traceQueryPriorityPair(priority int, class string) string {
+	if priority <= 0 && strings.TrimSpace(class) == "" {
+		return ""
+	}
+	if strings.TrimSpace(class) == "" {
+		return strconv.Itoa(priority)
+	}
+	return fmt.Sprintf("%d/%s", priority, sanitizeForBanner(class))
+}
+
+func traceQueryCausalityLabel(onChain bool) string {
+	if onChain {
+		return "on_wakeup_chain"
+	}
+	return "background"
 }
 
 func traceQueryTypedInt64(n int64) string {

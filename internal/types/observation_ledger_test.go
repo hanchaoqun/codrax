@@ -258,9 +258,10 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"# Trace Query: recipe",
 				"source=/tmp/a.systrace lines=100 parsed_events=20 timestamp_unit=seconds selected_window=1.000000..1.200000 seconds",
 				"## Root cause rank",
-				"- rank=1 tier=primary type=scheduler_latency thread=com.app-42 impact=107.900ms score=86.320 confidence=0.88 lines=110-120 source=scheduler_latency_stats — com.app-42 runnable wait dominated the frame window",
+				"- rank=1 tier=primary type=scheduler_latency thread=com.app-42 impact=107.900ms target_impact=120.000ms score=86.320 confidence=0.88 lines=110-120 source=scheduler_latency_stats causality=on_wakeup_chain chain_depth=1 — com.app-42 runnable wait dominated the frame window",
 				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats — cpu=10 had high runnable pressure",
 				"## Wakeup chain",
+				"- causal_impact thread=worker-21 depth=1 causality=on_wakeup_chain dominant_state=runnable impact=8.250ms total=9.000ms target_impact=12.500ms fragments=3 switches=2 max_segment=4.000ms p95_segment=4.000ms running=0.000ms runnable=8.250ms sleep=0.750ms d_state=0.000ms io_wait=0.000ms prio=20/ohos_cfs target_prio=52/ohos_rt priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-88 — worker runnable dependency dominated the wakeup chain",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
 				"- bio_resource op=R path=/data/app/base.db thread=app-20 count=1 total_latency=2.500ms max_latency=2.500ms bytes=4096 line=3 example=op=R path=/data/app/base.db latency_us=2500 bytes=4096",
@@ -295,8 +296,23 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	}
 	if !observationLedgerTestContainsString(primary.RichNotes, "rank=1") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "tier=primary") ||
-		!observationLedgerTestContainsString(primary.RichNotes, "score=86.320") {
+		!observationLedgerTestContainsString(primary.RichNotes, "score=86.320") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "target_impact_ms=120.000") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "causality=on_wakeup_chain") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "chain_depth=1") {
 		t.Fatalf("trace_query primary root cause should preserve rank/tier/score notes: %+v", primary.RichNotes)
+	}
+	causal := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_causal_impact:1")
+	if causal.Role != AnswerAggregateRoleSupportingCoverage ||
+		causal.Predicate != "wakeup_causal_impact" ||
+		causal.Subject != "worker-21" ||
+		causal.Object != "runnable" ||
+		causal.Value != "8.250" ||
+		causal.Unit != "ms" ||
+		causal.Span.LineStart != 80 ||
+		!observationLedgerTestContainsString(causal.RichNotes, "priority_inversion_candidate=true") ||
+		!observationLedgerTestContainsString(causal.RichNotes, "target_impact=12.500ms") {
+		t.Fatalf("trace_query causal impact should survive as supporting runtime observation: %+v", causal)
 	}
 	root := findObservationRecord(t, ledger, "tool:0#trace_query:root_evidence:1")
 	if root.Role != AnswerAggregateRoleSupportingCoverage || root.Predicate != "binder_wait" || root.Span.LineStart != 90 {

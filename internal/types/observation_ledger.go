@@ -1267,6 +1267,7 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 	rootCauseOrdinal := 0
 	rootEvidenceOrdinal := 0
+	causalImpactOrdinal := 0
 	blockingOrdinal := 0
 	stateChurnOrdinal := 0
 	fileIOOrdinal := 0
@@ -1288,6 +1289,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- root_evidence="):
 			rootEvidenceOrdinal++
 			if record, ok := traceQueryRootEvidenceRecord(index, rootEvidenceOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- causal_impact "):
+			causalImpactOrdinal++
+			if record, ok := traceQueryCausalImpactRecord(index, causalImpactOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		case strings.HasPrefix(line, "- blocking "):
@@ -1343,6 +1349,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	typ := strings.TrimSpace(fields["type"])
 	thread := strings.TrimSpace(fields["thread"])
 	impact := traceQueryFieldMS(fields, "impact")
+	targetImpact := traceQueryFieldMS(fields, "target_impact")
 	score := traceQueryFieldFloat(fields, "score")
 	conf := traceQueryFieldFloat(fields, "confidence")
 	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
@@ -1375,10 +1382,46 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         firstNonEmptyString(summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, typ)),
-		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], score, impact),
+		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, targetImpact),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      conf,
+	}, true
+}
+
+func traceQueryCausalImpactRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- causal_impact ")
+	thread := strings.TrimSpace(fields["thread"])
+	dominant := strings.TrimSpace(fields["dominant_state"])
+	impact := traceQueryFieldMS(fields, "impact")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if thread == "" && dominant == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if impact > 0 {
+		value = fmt.Sprintf("%.3f", impact)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:wakeup_causal_impact:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "wakeup_causal_impact:" + firstNonEmptyString(thread, dominant),
+		Subject:         thread,
+		Predicate:       "wakeup_causal_impact",
+		Object:          dominant,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "causality", "dominant_state", "impact", "total", "target_impact", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait", "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.78,
 	}, true
 }
 
@@ -1863,7 +1906,7 @@ func traceQueryFieldLineSpan(raw string) (int, int) {
 	return start, end
 }
 
-func traceQueryPriorityRichNotes(rank int, tier, typ, source string, score, impact float64) []string {
+func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, targetImpact float64) []string {
 	var notes []string
 	if rank > 0 {
 		notes = append(notes, fmt.Sprintf("rank=%d", rank))
@@ -1877,11 +1920,20 @@ func traceQueryPriorityRichNotes(rank int, tier, typ, source string, score, impa
 	if impact > 0 {
 		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
 	}
+	if targetImpact > 0 {
+		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))
+	}
 	if score > 0 {
 		notes = append(notes, fmt.Sprintf("score=%.3f", score))
 	}
 	if source != "" {
 		notes = append(notes, "source="+source)
+	}
+	if causality != "" {
+		notes = append(notes, "causality="+causality)
+	}
+	if chainDepth > 0 {
+		notes = append(notes, fmt.Sprintf("chain_depth=%d", chainDepth))
 	}
 	return notes
 }
