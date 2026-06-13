@@ -2009,6 +2009,55 @@ func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
 	}
 }
 
+func TestExtractor_BuildPrompt_ObservationOnlyRuntimeHypothesesAreContextOnly(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "frame_jank"}},
+	}
+	mu := types.NewMutableState("只分析 trace")
+	mu.SetLogTriage(logBundle)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:                     "只分析 trace",
+		RuntimeObservationOnlyCompletion: true,
+	})
+	ctx := &types.AgentContext{
+		Objective: "只分析 trace",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析 trace"},
+					Confidence:        0.9,
+				},
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:        "H-runtime",
+				Statement: "source helper caused the observed frame delay",
+				Status:    types.HypUnknown,
+			}},
+		},
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+
+	for _, want := range []string{
+		"Runtime observation-only hypothesis boundary",
+		"Context-only hypotheses",
+		"artifact-local",
+		"Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses",
+		"H-runtime",
+	} {
+		if !contains(prompt, want) {
+			t.Errorf("prompt missing observation-only hypothesis guidance %q", want)
+		}
+	}
+	if contains(prompt, "## Hypotheses (emit a verdict for each)") {
+		t.Fatal("observation-only runtime artifacts must not ask for source-style verdicts for every hypothesis")
+	}
+}
+
 func TestExtractor_Validator_EmptySlate_LeavesCompletenessZero(t *testing.T) {
 	// len(syms)==0 short-circuits the drain: StageOutput.AnswerSymbols
 	// stays nil and completeness stays at zero (CompletenessUnknown).

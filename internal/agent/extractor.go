@@ -453,9 +453,18 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 	// -------- Hypothesis set --------
 	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
-		b.WriteString("## Hypotheses (emit a verdict for each)\n\n")
-		for _, h := range ctx.AnalysisIR.HypothesisSet {
-			fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
+		if extractorObservationOnlyRuntimeArtifact(ctx) {
+			b.WriteString("## Runtime observation-only hypothesis boundary\n\n")
+			b.WriteString("The current request excludes current-checkout/source evidence. Treat analyzer hypotheses as optional framing for the attached runtime artifact; preserve observed runtime facts through `aggregate_facts` / completion handoff and cite artifact-local lines only when a verdict is explicitly useful for an artifact-local claim. Avoid calling `emit_hypothesis_verdict` merely to satisfy source-code hypotheses.\n\n")
+			b.WriteString("Context-only hypotheses:\n")
+			for _, h := range ctx.AnalysisIR.HypothesisSet {
+				fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
+			}
+		} else {
+			b.WriteString("## Hypotheses (emit a verdict for each)\n\n")
+			for _, h := range ctx.AnalysisIR.HypothesisSet {
+				fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
+			}
 		}
 		b.WriteString("\n")
 	}
