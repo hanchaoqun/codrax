@@ -4605,6 +4605,76 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SkipsRuntimeClosureNarrativeWhenTraceQueryRowsPresent(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:      "priority_semantics",
+			Subject:   "HarmonyOS priority semantics",
+			Summary:   "Harmony priority semantics: prio=53/ohos_rt.",
+			LineStart: 1,
+			LineEnd:   2,
+		}},
+	}
+	mut := types.NewMutableState("trace query window stats")
+	mut.SetPerfTrace(perf)
+	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
+		Rationale: "attached trace is an external runtime artifact",
+	})
+	mut.RetainEvidenceFloorWaiver()
+	mut.SetInvestigationComplete("trace_query finished; earlier runtime closure says prio=53 CFS")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: "trace_query finished; earlier runtime closure says prio=53 CFS",
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Role:      types.AnswerAggregateRolePrincipalAnswer,
+			Subject:   "app-20",
+			Predicate: "state_churn",
+			Summary:   "dominant_state=runnable; prio=53/ohos_rt",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "use trace_query window_stats to analyse app-20",
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				Intent:    types.IntentRootCause,
+				PerfTrace: perf,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					Confidence:        0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"model-authored closure reason omitted from this authority section",
+		"trace_query",
+		"dominant_state=runnable",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"Accepted runtime closure reason (advisory only",
+		"prio=53 CFS",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("prompt should omit deterministic-query-shadowed runtime closure narrative %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRepoRows(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

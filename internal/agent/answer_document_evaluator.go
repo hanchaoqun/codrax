@@ -4178,15 +4178,17 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		raw = append([]string(nil), ta.InvestigationNotes...)
 	}
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
-		reason := ""
-		if ta != nil {
-			reason = strings.TrimSpace(ta.AcceptedClosureReason)
-		}
-		if reason == "" {
-			reason = strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
-		}
-		if reason != "" {
-			raw = append(raw, "Accepted runtime closure reason (advisory only; direct artifact facts remain authoritative): "+reason)
+		if !answerDocHasDeterministicRuntimeQueryObservation(ctx) {
+			reason := ""
+			if ta != nil {
+				reason = strings.TrimSpace(ta.AcceptedClosureReason)
+			}
+			if reason == "" {
+				reason = strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
+			}
+			if reason != "" {
+				raw = append(raw, "Accepted runtime closure reason (advisory only; direct artifact facts remain authoritative): "+reason)
+			}
 		}
 	}
 	if len(raw) == 0 {
@@ -4211,6 +4213,23 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		fmt.Fprintf(&b, "**Note %d:**\n%s\n\n", i+1, note)
 	}
 	return b.String()
+}
+
+func answerDocHasDeterministicRuntimeQueryObservation(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+	ledger := types.CompileObservationLedger(input)
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
+			continue
+		}
+		if strings.TrimSpace(record.Producer) == "trace_query" {
+			return true
+		}
+	}
+	return false
 }
 
 func recentSanitizedInvestigationNarrativeNotes(raw []string) []string {

@@ -1916,8 +1916,9 @@ Generalized design:
 - Add a second mutation-chokepoint materializer for runtime trace metric
   snapshots, parallel to the next-step materializer.
 - Consume only accepted `ObservationLedger` records from `trace_query` whose
-  typed subject/predicate or claim key identifies `state_churn`, and only when
-  all required metric note keys are present.
+  typed metric note bundle is complete. Predicate/claim-key labels are useful
+  context but not a hard dependency because producer rows can carry the full
+  state-churn metric set in `RichNotes` while leaving predicate fields empty.
 - Insert a support bullet-list block `id="runtime_trace_metric_snapshot"` before
   caveats. Each item is a single compact line preserving the typed state
   cumulative values, fragments/switches, and segment percentiles.
@@ -1947,6 +1948,128 @@ Verification:
 
 - Focused tool tests:
   `go test ./internal/tool -run 'TestEmitAnswerDocumentV2_(MaterializesRuntimeTraceMetricSnapshotFromTypedObservation|MaterializesRuntimeTraceNextStepFromTypedObservation|DoesNotDuplicateExistingRuntimeTraceNextStepsBlock|MaterializesRuntimeTraceStructuredFacts)'`
+
+Post-Batch-29 eval audit:
+
+- `eval/results/eval-gap-20260613-post-3e7d1f69-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `trace_query_state_churn_window_stats`: PASS in 135s. Metrics:
+  `tool_trace_query=1`, `data_rounds=0`, `finalizer_rejects=0`,
+  `max_context_window_pct=17`. Manual audit: the answer used bounded
+  `trace_query window_stats`, preserved all scalar metrics, next-step guidance,
+  trace facts, and external runtime caveat. Two deeper gaps remained:
+  the metric snapshot materializer did not fire because the actual typed row
+  relied on complete `RichNotes` rather than stable predicate/claim-key fields;
+  the visible summary still copied a low-authority runtime closure phrase that
+  classified `prio=53` as CFS despite the typed priority fact saying
+  `prio=53/ohos_rt`.
+- `data_json_strict_ids`: runner exit code was 0 but eval summary verdict was
+  FAIL. Manual audit: the typed DAG eventually computed the correct strict JSON
+  `{"ids":["u1","u3"]}` and reconcile passed, but terminal validation failed
+  on `unknown_rule_ref` after multi-batch aggregation. A repair then planned a
+  `custom_transform` to read `final_answer.json` and emitted the raw answer
+  string, which the runner parsed as a non-Result JSON value and rejected.
+
+Implementation adjustment:
+
+- Metric snapshot materialization now treats a complete typed metric note
+  bundle from `trace_query` as sufficient. This keeps the trigger structural
+  and producer-owned while avoiding hard dependency on optional predicate or
+  claim-key fields.
+
+## Batch 30 Gap: Workflow-Level Result Normalization Must Run After Aggregation
+
+Deep root cause:
+
+- `applyDataResultPatchEngine` already canonicalizes unknown item-ledger
+  `rule_refs` to source-backed `rule_coverage.rule_id`, but it only ran on
+  single runner results.
+- Adaptive data workflows aggregate rows, rules, contributions, reconcile
+  reports, artifacts, and preserved answers across multiple batches. The
+  terminal completion gate validated this aggregate without re-running the
+  structural patch layer, so a valid source-backed rule mapping could pass in
+  one batch and fail after cross-batch handoff.
+- The repair loop then fell back to a free-form `custom_transform`, increasing
+  model burden and producing a shape error. The deeper gap is not the
+  particular `RULE:...` string; it is missing normalization at every backend
+  consumption boundary for merged `Result` values.
+
+Generalized design:
+
+- Promote the data result patch engine to a public `NormalizeResult` function
+  that can be safely applied to both single runner outputs and merged
+  workflow-level results.
+- Run normalization before workflow completion validation, output graph
+  construction, ledger graph construction, completion-repair transition input,
+  runner seed handoff, and final CLI answer rendering.
+- Keep validation strict: unknown refs are only canonicalized when a
+  source-backed `rule_coverage` record exists. Pure model rules without
+  evidence still fail loud.
+- Consume only typed Result fields (`rule_coverage`, `rows`,
+  `contributions`, `entity_resolutions`, `reconcile`, `output_contract`);
+  do not inspect user text, model prose, or answer string semantics.
+
+Executable task list:
+
+- [x] B30-T1: Add public `dataquery.NormalizeResult` around the existing
+  deterministic patch engine.
+- [x] B30-T2: Apply normalization at workflow completion, output/ledger graph,
+  repair-transition, seed handoff, and final CLI answer boundaries.
+- [x] B30-T3: Add regression tests for aggregated source-backed rule-ref
+  canonicalization and cross-batch seed normalization.
+- [ ] B30-T4: Run full hygiene, commit, push, rebuild, and rerun the two
+  representative eval cases.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/dataquery -run 'TestRunnerCanonicalizesUnknownRuleRefs|TestRunnerRejectsUnknownRuleRefs|TestApplyDataResultPatchPlan'`
+- Focused tests:
+  `go test ./internal/repl -run 'TestValidateDataTaskWorkflowResult|TestDataTaskActionRunnerSeed'`
+
+## Batch 31 Gap: Deterministic Runtime Query Must Shadow Runtime Closure Prose
+
+Deep root cause:
+
+- Runtime observation-only prompts already omit the model-authored closure
+  reason from the authority section, but the same closure text was reintroduced
+  under investigation narrative handoff as advisory synthesis.
+- When a deterministic runtime query tool (`trace_query`) has already produced
+  typed observation rows, that low-authority closure prose becomes a duplicate
+  factual source. It can contaminate finalizer summaries even when the typed
+  observation ledger and trace facts contain the correct values.
+- The issue is broader than priority labels: any runtime query row can carry
+  bounded metrics/coordinates while earlier closure prose preserves stale or
+  pre-query interpretations.
+
+Generalized design:
+
+- Keep runtime closure narrative handoff for observation-only runs that have no
+  deterministic runtime query rows; it remains useful when pre-triage is the
+  only artifact consumer.
+- If the accepted observation ledger contains a runtime-artifact row whose
+  producer is `trace_query`, do not append the accepted runtime closure reason
+  into narrative handoff. The finalizer still receives typed observation rows,
+  metric snapshots, next-step notes, runtime trace facts, and caveats.
+- The decision consumes only structured `ObservationRecord.Origin` and
+  `ObservationRecord.Producer`; it does not parse user intent keywords, model
+  prose, final answer text, or trace labels.
+
+Executable task list:
+
+- [x] B31-T1: Add a deterministic-runtime-query detector over accepted
+  observation ledger records.
+- [x] B31-T2: Suppress only the appended runtime closure narrative when
+  `trace_query` rows are present, preserving typed handoff richness.
+- [x] B31-T3: Add prompt regression tests for both paths: no `trace_query`
+  keeps closure advisory, `trace_query` shadows it.
+- [ ] B31-T4: Run full hygiene, commit, push, rebuild, and rerun the two
+  representative eval cases.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_(RendersRuntimeClosureReasonWithoutTurnAArtifacts|SkipsRuntimeClosureNarrativeWhenTraceQueryRowsPresent|SourceOptionalTraceSkipsCurrentStatus)'`
 
 Post-Batch-22 eval audit:
 

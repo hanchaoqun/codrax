@@ -353,9 +353,6 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 	if strings.TrimSpace(record.Producer) != "trace_query" {
 		return ""
 	}
-	if strings.TrimSpace(record.Predicate) != "state_churn" && !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "state_churn:") {
-		return ""
-	}
 	required := []string{
 		"running",
 		"runnable",

@@ -185,12 +185,10 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 		ToolName: "trace_query",
 		Success:  true,
 		Observations: []types.ObservationRecord{{
-			ID:        "trace_query:state_churn:1",
-			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:  "trace_query",
-			Subject:   "app-20",
-			Predicate: "state_churn",
-			ClaimKey:  "state_churn:runnable",
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "app-20",
 			RichNotes: []string{
 				"dominant_state=runnable",
 				"running=3.500",
