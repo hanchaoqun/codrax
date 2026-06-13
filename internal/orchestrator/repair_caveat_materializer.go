@@ -258,12 +258,12 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 }
 
 func suppressRuntimeObservationOnlyLowPrecisionCaveats(violations []types.Violation, ctx *types.BusContext) []types.Violation {
-	if len(violations) == 0 || !runtimeObservationOnlyCaveatContext(ctx) {
+	if len(violations) == 0 || !runtimeLowPrecisionCaveatSuppressionContext(ctx) {
 		return violations
 	}
 	out := make([]types.Violation, 0, len(violations))
 	for _, v := range violations {
-		if runtimeObservationOnlyLowPrecisionCaveat(v) {
+		if runtimeObservationOnlyLowPrecisionCaveat(v, ctx) {
 			continue
 		}
 		out = append(out, v)
@@ -271,12 +271,96 @@ func suppressRuntimeObservationOnlyLowPrecisionCaveats(violations []types.Violat
 	return out
 }
 
-func runtimeObservationOnlyLowPrecisionCaveat(v types.Violation) bool {
-	if v.Kind != types.ViolSelfContradiction {
+func runtimeLowPrecisionCaveatSuppressionContext(ctx *types.BusContext) bool {
+	return runtimeObservationOnlyCaveatContext(ctx) || runtimeArtifactPrincipalAnswerSurfaceContext(ctx)
+}
+
+func runtimeObservationOnlyLowPrecisionCaveat(v types.Violation, ctx *types.BusContext) bool {
+	switch v.Kind {
+	case types.ViolSelfContradiction:
+		summary, body := parseSelfContradictionClaims(v.Detail)
+		return summary == "" && body == ""
+	case types.ViolEnumerationEvidenceUnderspecified:
+		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx) && !runtimeSurfaceRequiresPrincipalEnumeration(ctx)
+	default:
 		return false
 	}
-	summary, body := parseSelfContradictionClaims(v.Detail)
-	return summary == "" && body == ""
+}
+
+func runtimeArtifactPrincipalAnswerSurfaceContext(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := ctx.Mutable.RequestModel()
+	if rm == nil || !requestModelHasRuntimeOrExternalObservation(*rm) {
+		return false
+	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 {
+		return false
+	}
+	principal := 0
+	external := 0
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		principal++
+		if !answerBlockHasOnlyExternalObservationClaimUses(block) {
+			return false
+		}
+		if answerBlockUsesCitation(block, doc.Citations) {
+			return false
+		}
+		external++
+	}
+	return principal > 0 && external == principal
+}
+
+func requestModelHasRuntimeOrExternalObservation(rm types.RequestModel) bool {
+	return rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil ||
+		rm.ArtifactObservationProfile != nil
+}
+
+func answerBlockHasOnlyExternalObservationClaimUses(block types.AnswerBlock) bool {
+	seen := false
+	for _, claim := range block.ClaimUses {
+		if claim.IsEmpty() {
+			continue
+		}
+		seen = true
+		if claim.ClaimForm != types.ClaimExternalObservation {
+			return false
+		}
+	}
+	return seen
+}
+
+func answerBlockUsesCitation(block types.AnswerBlock, citations []types.Citation) bool {
+	for _, item := range block.Items {
+		if item.CitationRef >= 0 && item.CitationRef < len(citations) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSurfaceRequiresPrincipalEnumeration(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := ctx.Mutable.RequestModel()
+	if rm == nil {
+		return false
+	}
+	return rm.Intent == types.IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		types.RequiresRelationMemberSetHandoff(*rm) ||
+		rm.CompletenessObligation.IsActive()
 }
 
 func softContractCaveatViolations(violations []types.Violation) []types.Violation {

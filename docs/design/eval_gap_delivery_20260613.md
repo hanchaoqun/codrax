@@ -1513,10 +1513,33 @@ Executable task list:
 
 - [x] B20-T1: Record post-Batch-18 runtime caveat audit and answer-surface
   root cause in this design doc.
-- [ ] B20-T2: Add a bus-aware answer-surface runtime predicate based on
+- [x] B20-T2: Add a bus-aware answer-surface runtime predicate based on
   `AnswerDocumentV2` principal block `claim_uses` and citation metadata.
-- [ ] B20-T3: Use that predicate to suppress generic low-precision runtime
+- [x] B20-T3: Use that predicate to suppress generic low-precision runtime
   caveats while preserving concrete contradictions and boundary caveats.
-- [ ] B20-T4: Add regression tests for default-current-source runtime requests
+- [x] B20-T4: Add regression tests for default-current-source runtime requests
   whose accepted answer surface is external-observation-only.
-- [ ] B20-T5: Run focused tests, full tests/build hygiene, commit and push.
+- [x] B20-T5: Run focused tests, full tests/build hygiene, commit and push.
+
+Implementation notes:
+
+- Runtime low-precision caveat suppression now accepts either the original
+  observation-only request model signal or a typed answer-surface signal:
+  principal `AnswerDocumentV2` blocks must all declare
+  `claim_form=external_observation`, and none may use a resolved citation from
+  the current-source citation pool.
+- The suppression removes only generic unlocalized self-consistency caveats and
+  non-principal runtime metric-list enumeration support caveats. Specific
+  SUMMARY/BODY contradictions still materialize, and principal runtime
+  enumeration requests still keep enumeration evidence caveats.
+- The predicate consumes typed request/answer metadata and citation references.
+  It does not inspect natural-language request text or rendered answer prose.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/orchestrator -run 'TestAppend(User|Soft).*CaveatsToAnswerForBus_(ObservationOnly|RuntimeAnswerSurface|PureHistory|Mechanism)'`
+- Package tests: `go test ./internal/orchestrator`
+- Full tests: `go test ./...`
+- Build: `make`
+- Diff hygiene: `git diff --check`

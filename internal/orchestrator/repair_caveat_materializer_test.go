@@ -152,6 +152,57 @@ func TestAppendUserCaveatsToAnswerForBus_ObservationOnlyKeepsSpecificSelfContrad
 	}
 }
 
+func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesGenericCaveats(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceCaveatTestContext("分析这段 trace", false)
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{
+		{
+			Kind:       types.ViolSelfContradiction,
+			ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+		},
+		{
+			Kind:       types.ViolEnumerationEvidenceUnderspecified,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("generic runtime answer-surface caveats should stay telemetry-only, got:\n%s", out)
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsSpecificContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceCaveatTestContext("分析这段 trace", false)
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     `self_contradiction[trace] — SUMMARY: "runnable=5.0ms" ⇄ BODY: "runnable=2.0ms"`,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	for _, want := range []string{"**补充说明：**", "runnable=5.0ms", "runnable=2.0ms"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("specific runtime answer-surface contradiction missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_RuntimePrincipalEnumerationKeepsEnumerationCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceCaveatTestContext("列出 trace 中所有事件", true)
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolEnumerationEvidenceUnderspecified,
+		ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+	}}, "zh", ctx)
+	if !strings.Contains(out, "枚举类条目") {
+		t.Fatalf("principal runtime enumeration should keep enumeration caveat:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesCurrentSourceCaveats(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -219,6 +270,65 @@ func observationOnlyRuntimeCaveatTestContext(request string) *types.BusContext {
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
+		},
+	})
+	return &types.BusContext{Mutable: mut}
+}
+
+func runtimeAnswerSurfaceCaveatTestContext(request string, enumerate bool) *types.BusContext {
+	mut := types.NewMutableState(request)
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "trace",
+			Message: "state_churn runnable dominates",
+		}},
+	}
+	intent := types.IntentRootCause
+	if enumerate {
+		intent = types.IntentEnumerate
+	}
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: request,
+		Intent:     intent,
+		Scenario:   types.ScenarioPerformanceBottleneck,
+		LogTriage:  logBundle,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+	})
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "runtime trace summary",
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+			},
+			{
+				ID:          "metrics",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "dominant", Label: "dominant_state", Text: "runnable"},
+				},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+			},
 		},
 	})
 	return &types.BusContext{Mutable: mut}
