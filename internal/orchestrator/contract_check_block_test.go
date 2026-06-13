@@ -2008,6 +2008,75 @@ func TestEnumerationLabelGrounding_RuntimeArtifactLabelsPass(t *testing.T) {
 	}
 }
 
+func TestEnumerationLabelGrounding_RuntimeAggregateFactLabelsPass(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetRequestModel(types.RequestModel{
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+		},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 dominant_state",
+			Value:      "runnable",
+			Provenance: "trace_query:window_stats:state_churn",
+			Dimensions: []types.AnswerAggregateDimension{{
+				Name:  "origin",
+				Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 max_segment",
+			Value:      "0.5ms",
+			Provenance: "trace_query:window_stats:state_churn",
+			Dimensions: []types.AnswerAggregateDimension{{
+				Name:  "origin",
+				Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+		},
+		{
+			Kind:       types.AnswerAggregateGroupedCount,
+			Label:      "root_cause_rank",
+			Value:      "10",
+			Provenance: "trace_query:root_cause_rank",
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "tertiary", Value: "fragmented_running rival-30 impact=6.6ms"},
+			},
+			Members: []string{"rank3: fragmented_running rival-30 impact=6.6ms"},
+		},
+	})
+	mut.SetInvestigationComplete("trace_query aggregate facts accepted")
+	doc := docWithEnumItems("metrics", "dominant_state", "max_segment", "rival-30竞争")
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("runtime aggregate fact labels should satisfy label grounding, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelGrounding_RuntimeAggregateFactDoesNotCoverUnrelatedCodeLabel(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateScalar,
+		Label:      "app-20 running",
+		Value:      "3.5ms",
+		Provenance: "trace_query:window_stats:state_churn",
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+		}},
+	}})
+	mut.SetInvestigationComplete("trace_query aggregate facts accepted")
+	doc := docWithEnumItems("metrics", "missingController")
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) == 0 {
+		t.Fatal("unrelated code-looking label should not be vouched by runtime aggregate facts")
+	}
+}
+
 func TestEnumerationLabelHallucination_UserBucketLabelPassesOracleMiss(t *testing.T) {
 	mut := &types.MutableState{}
 	mut.SetRequestModel(types.RequestModel{
@@ -2021,6 +2090,27 @@ func TestEnumerationLabelHallucination_UserBucketLabelPassesOracleMiss(t *testin
 
 	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("user bucket label should not require code symbol oracle hit, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelHallucination_RuntimeAggregateFactLabelPassesOracleMiss(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateScalar,
+		Label:      "app-20 dominant_state",
+		Value:      "runnable",
+		Provenance: "trace_query:window_stats:state_churn",
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+		}},
+	}})
+	mut.SetInvestigationComplete("trace_query aggregate facts accepted")
+	doc := docWithEnumItems("metrics", "dominant_state")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
+		t.Fatalf("runtime aggregate fact label should not require code symbol oracle hit, got %+v", vs)
 	}
 }
 

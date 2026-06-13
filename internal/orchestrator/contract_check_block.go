@@ -2853,7 +2853,91 @@ func answerItemLabelSupportedByRuntimeArtifact(label string, mut *types.MutableS
 			}
 		}
 	}
+	if answerItemLabelSupportedByRuntimeAggregateFact(label, mut) {
+		return true
+	}
 	return false
+}
+
+func answerItemLabelSupportedByRuntimeAggregateFact(label string, mut *types.MutableState) bool {
+	label = strings.TrimSpace(label)
+	if mut == nil || label == "" {
+		return false
+	}
+	rm := mut.RequestModel()
+	for _, fact := range mut.StableInvestigationAggregateFacts() {
+		if !answerAggregateFactHasEvidenceOrigin(fact, rm, types.AnswerEvidenceOriginRuntimeArtifact) {
+			continue
+		}
+		if runtimeAggregateFactSupportsLabel(label, fact) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerAggregateFactHasEvidenceOrigin(fact types.AnswerAggregateFact, rm *types.RequestModel, want types.AnswerEvidenceOrigin) bool {
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == want {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeAggregateFactSupportsLabel(label string, fact types.AnswerAggregateFact) bool {
+	for _, surface := range runtimeAggregateFactSupportSurfaces(fact) {
+		if runtimeAggregateSurfaceSupportsLabel(surface, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeAggregateFactSupportSurfaces(fact types.AnswerAggregateFact) []string {
+	out := []string{fact.Label, fact.Value, fact.Provenance, fact.Unit}
+	for _, dim := range fact.Dimensions {
+		out = append(out, dim.Name, dim.Value)
+	}
+	out = append(out, fact.Members...)
+	out = append(out, fact.MemberNotes...)
+	out = append(out, fact.SupportRefs...)
+	return out
+}
+
+func runtimeAggregateSurfaceSupportsLabel(surface, label string) bool {
+	if typedLabelTokenSupportsLabel(surface, label) || typedLabelTokenSupportsLabel(label, surface) {
+		return true
+	}
+	surfaceKey := asciiCodeSupportKey(surface)
+	labelKey := asciiCodeSupportKey(label)
+	if surfaceKey == "" || labelKey == "" {
+		return false
+	}
+	return strings.Contains(surfaceKey, labelKey) || strings.Contains(labelKey, surfaceKey)
+}
+
+func asciiCodeSupportKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_',
+			r == '-':
+			b.WriteRune(r)
+		}
+	}
+	key := normalizer.NormalizeCodeKey(b.String())
+	if len(key) < 4 {
+		return ""
+	}
+	return key
 }
 
 func answerItemLabelSupportedByAggregateMemberSet(label string, item types.AnswerBlockItem, mut *types.MutableState) bool {

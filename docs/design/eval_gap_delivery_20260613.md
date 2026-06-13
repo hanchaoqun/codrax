@@ -836,7 +836,7 @@ Executable task list:
 - [x] B12-T4: Add answer intent contract coverage for default runtime
   source-scope/metric-dimension cases staying runtime-only.
 - [x] B12-T5: Run focused tests, full tests, rebuild, commit/push.
-- [ ] B12-T6: Rerun representative eval cases two at a time and manually audit
+- [x] B12-T6: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 
 Batch 12 verification before commit:
@@ -845,3 +845,88 @@ Batch 12 verification before commit:
 - `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus'`
 - `go test ./...`
 - `make`
+
+Post-Batch-12 eval root:
+
+- `eval/results/eval-gap-20260613-post-57d492ad`
+
+Manual audit after rerun:
+
+- `data_json_strict_ids`: PASS, final answer was strict JSON
+  `{"ids":["u1","u3"]}`, `data_rounds=1`, `data_repair_rounds=0`,
+  `tool_read_file=0`, wall 32s. The prior synthetic `all` key issue stayed
+  fixed.
+- `trace_query_state_churn_window_stats`: PASS. The run used the efficient
+  runtime lane (`tool_trace_query=2`, `tool_repo_map=0`, `tool_read_file=0`,
+  explorer iterations reduced to 3, wall 173s). The final answer preserved the
+  bounded `trace_query` metrics: `dominant_state=runnable`,
+  `running=3.5ms`, `runnable=5.0ms`, `sleep/d_state/io_wait=0ms`,
+  `fragments=21`, `switches=20`, `max_segment=0.5ms`,
+  `p95_segment=0.5ms`, `cpu_pressure` as the primary root cause, and the
+  concrete next-step handoff (`wakeup_chain`, `event_search`, compare
+  no-competition windows).
+- Residual commercial-quality gap: even though the semantic answer passed and
+  the source lane stayed closed, the final surface still appended generic
+  system material: a requested-dimension quote supplement and generic
+  "enumeration/consistency" caveats. Logs show two causes:
+  1. The last-mile requested-dimension supplement listed every dimension whose
+     source quote differed from its label, without first checking whether the
+     structured answer already covered that dimension.
+  2. V2 label oracles treated trace metric `ordered_list` labels as code/source
+     enumeration labels unless they were visible in log frames. The accepted
+     `trace_query` aggregate facts already carried
+     `evidence_origin=runtime_artifact`, but those typed aggregate labels were
+     not part of the runtime label support pool. The resulting soft violation
+     made LLM reviewers run and compare stale pre-triage hand calculations
+     against the later authoritative `trace_query` values.
+
+## Batch 13 Gap: Runtime Observation Answers Need Surface-Noise Suppression
+
+Deep root cause:
+
+- The answer pipeline now carries rich typed runtime facts, but two downstream
+  consumers still failed to consume that handoff:
+  - last-mile dimension supplements consumed `RequestedAnswerDimensions`
+    directly instead of the already-computed missing-dimension set;
+  - label grounding/hallucination oracles consumed log frames and code evidence
+    but not runtime-origin aggregate facts accepted from deterministic tools
+    such as `trace_query`.
+- This is not a case-specific wording problem. The same class affects any
+  origin-specific tool output that produces metric labels or structured rows:
+  trace windows, command measurements, MCP/connector rows, external documents,
+  and cross-repo indexes. Accepted typed aggregate facts must be a first-class
+  authority lane for final display and validation.
+- Prompt-only fixes are inappropriate: the finalizer already produced a rich
+  correct body. The gap is deterministic downstream consumption of typed
+  handoff evidence.
+
+Generalized design:
+
+- Requested-dimension source-quote supplements become missing-only: reuse the
+  existing `missingRequestedAnswerDimensionsInDocument` result so the supplement
+  appears only when the structured answer still lacks requested visible
+  dimensions.
+- Runtime artifact label support now includes stable aggregate facts whose
+  evidence origin projects to `runtime_artifact`. The support surfaces are
+  structured fields (`label`, `value`, `provenance`, dimensions, members,
+  support refs), not user intent prose or model answer prose.
+- Code/source hallucination checks remain intact: unrelated code-looking labels
+  still fail unless the code oracle, citations, answer symbols, question
+  buckets, runtime artifacts, or aggregate member sets support them.
+- Once runtime aggregate labels pass the typed oracle, observation-only/source-
+  optional artifact answers can skip LLM reviewers that would otherwise compare
+  stale pre-triage guesses with later deterministic `trace_query` outputs.
+
+Executable task list:
+
+- [x] B13-T1: Reuse missing requested-dimension coverage for last-mile
+  source-quote supplements.
+- [x] B13-T2: Add runtime aggregate facts to the runtime artifact label support
+  lane for label grounding and hallucination oracles.
+- [x] B13-T3: Add regression tests proving covered requested dimensions do not
+  receive duplicate system supplements.
+- [x] B13-T4: Add regression tests proving runtime aggregate labels pass while
+  unrelated code-looking labels still fail.
+- [ ] B13-T5: Run focused tests, full tests, rebuild, commit/push, then rerun
+  representative evals two at a time and manually audit final answer surface
+  plus logs.

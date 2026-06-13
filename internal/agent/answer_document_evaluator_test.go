@@ -6592,6 +6592,59 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhen
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendCoveredRequestedDimensionSourceQuotes(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "时序图已经覆盖核心路径。",
+			},
+			{
+				ID:          "table",
+				Kind:        types.BlockTable,
+				SurfaceRole: types.SurfacePrincipal,
+				Title:       "阶段状态表",
+				Columns:     []string{"阶段", "输入", "输出"},
+				Items: []types.AnswerBlockItem{{
+					ID:    "r1",
+					Label: "分析阶段",
+					Cells: []string{"analyze", "request", "AnalysisIR"},
+				}},
+			},
+		},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "时序图", SourceQuote: "必须给一张时序图", Required: true, Role: types.RequestedAnswerDimensionOther},
+					{Index: 2, Label: "阶段状态表", SourceQuote: "再给一张表列出每个阶段的输入、输出和状态载体，例如 甲/乙", Required: true, Role: types.RequestedAnswerDimensionOther},
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：输出维度核对") {
+		t.Fatalf("covered requested dimensions should not get a source-quote supplement:\n%s", out.FinalAnswer)
+	}
+	for _, want := range []string{"时序图", "阶段状态表"} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer should preserve covered dimension %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")

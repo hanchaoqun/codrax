@@ -9923,7 +9923,7 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
-	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, e.language); strings.TrimSpace(supplement) != "" {
+	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			return strings.TrimSpace(supplement)
 		}
@@ -9932,8 +9932,8 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	return prose
 }
 
-func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, lang string) string {
-	rows := requestedAnswerDimensionSourceQuoteRows(ctx)
+func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	rows := requestedAnswerDimensionSourceQuoteRows(ctx, doc)
 	if len(rows) == 0 {
 		return ""
 	}
@@ -9963,14 +9963,21 @@ type requestedAnswerDimensionSourceQuoteRow struct {
 	SourceQuote string
 }
 
-func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext) []requestedAnswerDimensionSourceQuoteRow {
+func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []requestedAnswerDimensionSourceQuoteRow {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
 		return nil
 	}
-	rows := make([]requestedAnswerDimensionSourceQuoteRow, 0, len(view.Presentation.RequestedDimensions))
+	dimensions := view.Presentation.RequestedDimensions
+	if doc != nil {
+		dimensions = missingRequestedAnswerDimensionsInDocument(ctx, doc)
+	}
+	if len(dimensions) == 0 {
+		return nil
+	}
+	rows := make([]requestedAnswerDimensionSourceQuoteRow, 0, len(dimensions))
 	seen := map[string]bool{}
-	for _, dim := range view.Presentation.RequestedDimensions {
+	for _, dim := range dimensions {
 		label := strings.TrimSpace(dim.Label)
 		quote := strings.TrimSpace(dim.SourceQuote)
 		if label == "" || quote == "" {
