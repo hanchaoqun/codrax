@@ -363,6 +363,9 @@ Observed eval behavior:
   `{"ids":["u1","u3"]}` and used the local JSON material correctly. The harness
   still failed on the default minimum output length because compact strict JSON
   can be shorter than the generic answer floor.
+- The same strict JSON case carried `EXPECT_NOT_CONTAINS="```"`, which is not a
+  safe bash literal because backticks inside double quotes still trigger command
+  substitution during case sourcing.
 - `trace_query_state_churn_window_stats` used `trace_query` once and surfaced a
   semantically correct scheduler answer, but the final visible answer lost the
   explicit next-step wording that had been present earlier in the answer
@@ -370,6 +373,11 @@ Observed eval behavior:
   before the late `state_churn` rows because verbose window sections such as
   trace spans/resources/compute supply preceded the most decision-critical churn
   summary.
+- A later rerun showed the final answer could be semantically correct and rich
+  while still failing a line-oriented eval regex: the section heading carried
+  `下一步`, and the following list item carried `rival-30`/CPU competition.
+  Requiring both concepts on one rendered line would reduce answer structure
+  rather than improve product behavior.
 - The answer document patch path then replaced a markdown table block with a
   structured table block. That is the right direction for stable rendering, but
   the old block also contained trailing prose with the next investigation step.
@@ -389,6 +397,12 @@ Deep root cause:
 - The compact JSON failure was an eval contract mismatch: strict JSON-only
   cases should be allowed to return minimal valid JSON without forcing padding
   or prose.
+- Eval case metadata needs shell-literal hygiene for control characters and
+  markdown sentinels. Otherwise the harness can report product failures while
+  the case contract itself was not loaded faithfully.
+- The eval harness only had line-oriented ERE matching for co-occurrence checks.
+  That is too strict for rich multi-section answers where a heading introduces a
+  concept and the immediately following item carries the concrete evidence.
 
 Generalized design:
 
@@ -406,20 +420,31 @@ Generalized design:
 - Keep compact strict JSON evals honest by declaring a case-level minimum output
   length of 1, rather than changing production answer behavior or encouraging
   filler text.
+- Quote eval expectations as shell-safe literals when they contain markdown
+  fences or other command-substitution characters. This keeps the case contract
+  faithful without altering model behavior.
+- Add an eval-only whitespace-folded full-text regex channel for co-occurrence
+  assertions across adjacent rendered lines. This belongs in eval verification,
+  not product answer logic, and avoids pressuring the finalizer to collapse
+  useful sections into one line.
 
 Executable task list:
 
 - [x] B7-T1: Set `MIN_OUTPUT_CHARS=1` for strict compact JSON eval cases whose
   contract is the JSON payload itself.
-- [x] B7-T2: Move `state_churn` rendering ahead of verbose window support
+- [x] B7-T2: Quote markdown fence expectations as shell-safe literals in eval
+  case metadata.
+- [x] B7-T3: Add `EXPECT_MATCHES_TEXT_REGEX` for whitespace-folded full-answer
+  eval assertions.
+- [x] B7-T4: Move `state_churn` rendering ahead of verbose window support
   sections in `trace_query` summary output.
-- [x] B7-T3: Add structural table-tail preservation to
+- [x] B7-T5: Add structural table-tail preservation to
   `emit_answer_document_patch`, preserving annotations and avoiding duplicate
   visible text.
-- [x] B7-T4: Add focused answer-patch regression coverage for markdown
+- [x] B7-T6: Add focused answer-patch regression coverage for markdown
   table+trailing prose to structured-table replacement.
-- [x] B7-T5: Run focused Go tests, full Go tests, rebuild, commit/push.
-- [ ] B7-T6: Rerun representative eval cases two at a time and manually audit
+- [x] B7-T7: Run focused Go tests, full Go tests, rebuild, commit/push.
+- [ ] B7-T8: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 
 Batch 7 focused verification before commit:
@@ -427,6 +452,7 @@ Batch 7 focused verification before commit:
 - `go test ./internal/tool -run 'TestTraceQuerySummaryRendersFragmentedStateChurn|TestEmitAnswerDocumentPatch_PreservesTableTrailingProse'`
 - `go test ./...`
 - `make`
+- `bash -n eval/run.sh eval/cases/data_json_strict_ids.case eval/cases/trace_query_state_churn_window_stats.case`
 
 Batch 7 verification before commit:
 

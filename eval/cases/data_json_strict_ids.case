@@ -6,6 +6,6 @@ MIN_OUTPUT_CHARS=1
 EXPECT_MATCHES_REGEX="\"ids\"
 \"u1\"
 \"u3\""
-EXPECT_NOT_CONTAINS="```"
+EXPECT_NOT_CONTAINS='```'
 EXPECT_LOG_MATCHES_REGEX="route=data
 \\[.*data\\] data task result"

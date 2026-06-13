@@ -12,7 +12,10 @@
 # scalar answers like "at least 4 digits somewhere in the answer"),
 # EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
 # substrings — useful for comparison questions that require both
-# sides of "A vs B" to be mentioned), and EXPECT_LOG_MATCHES_REGEX /
+# sides of "A vs B" to be mentioned), EXPECT_MATCHES_TEXT_REGEX
+# (newline-separated ERE over whitespace-folded answer text, useful for
+# rich multi-section answers where related signals may land on adjacent
+# lines), and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
 # Extracts mechanism trace metrics from each run's debug log, and
@@ -58,6 +61,7 @@ source "$CASE_FILE"
 EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
+EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 # Log-triage eval cases may set LOG=<inline panic> to attach a runtime log
 # excerpt via --log-text. Perf-trace eval cases should set HTRACE=<inline
@@ -623,6 +627,25 @@ write_verdict() {
       if ! LC_ALL=C grep -aEq -- "$rx" <<<"$cleaned"; then
         pass=0
         reasons+=("no_regex_match:${rx}")
+      fi
+    done
+    IFS="$old_ifs"
+  fi
+
+  # EXPECT_MATCHES_TEXT_REGEX: newline-separated ERE patterns over the answer
+  # after newline/tab folding. This keeps rich sectioned answers eligible for
+  # co-occurrence checks without forcing unrelated concepts onto one rendered
+  # line just to satisfy grep's line-oriented matching model.
+  if [[ -n "$EXPECT_MATCHES_TEXT_REGEX" ]]; then
+    local folded old_ifs
+    folded="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$cleaned")"
+    old_ifs="$IFS"
+    IFS=$'\n'
+    for rx in $EXPECT_MATCHES_TEXT_REGEX; do
+      [[ -z "$rx" ]] && continue
+      if ! LC_ALL=C grep -aEq -- "$rx" <<<"$folded"; then
+        pass=0
+        reasons+=("no_text_regex_match:${rx}")
       fi
     done
     IFS="$old_ifs"

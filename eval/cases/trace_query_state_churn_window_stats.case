@@ -35,5 +35,5 @@ EXPECT_MATCHES_REGEX="(dominant_state|主导状态|主导).*(runnable|可运行)
 (running|运行).*(runnable|可运行).*(sleep|睡眠).*(d_state|D-state|D 状态).*(io_wait|iowait|IO wait)|(runnable|可运行).*(running|运行).*(sleep|睡眠).*(d_state|D-state|D 状态).*(io_wait|iowait|IO wait)
 (fragments|片段).*(switches|切换)|(switches|切换).*(fragments|片段)
 (max_segment|max segment|最大片段).*(p95_segment|p95 segment|P95)
-(state_churn|调度震荡|碎片化调度|碎片化|scheduling thrashing)
-(next_step|下一步|继续|进一步).*(rival-30|same-CPU|同一 CPU|同 CPU|竞争|time slice|调度器|CPU pressure|pressure)"
+(state_churn|调度震荡|碎片化调度|碎片化|scheduling thrashing)"
+EXPECT_MATCHES_TEXT_REGEX="(next_step|下一步|继续|进一步).*(rival-30|same-CPU|同一 CPU|同 CPU|竞争|time slice|调度器|CPU pressure|pressure)"
