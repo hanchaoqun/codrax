@@ -5239,15 +5239,8 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		items = append(items, item)
 	}
 	items = enrichRootCauseItemsWithChainContext(chain, items)
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Score != items[j].Score {
-			return items[i].Score > items[j].Score
-		}
-		if items[i].ImpactMs != items[j].ImpactMs {
-			return items[i].ImpactMs > items[j].ImpactMs
-		}
-		return items[i].LineStart < items[j].LineStart
-	})
+	normalizeRootCauseChainRelevance(items, hasCausalChain)
+	sortRootCauseRankItems(items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
 		limit = 12
@@ -5332,15 +5325,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		rank.Items = append(rank.Items, candidate)
 	}
-	sort.SliceStable(rank.Items, func(i, j int) bool {
-		if rank.Items[i].Score != rank.Items[j].Score {
-			return rank.Items[i].Score > rank.Items[j].Score
-		}
-		if rank.Items[i].ImpactMs != rank.Items[j].ImpactMs {
-			return rank.Items[i].ImpactMs > rank.Items[j].ImpactMs
-		}
-		return rank.Items[i].LineStart < rank.Items[j].LineStart
-	})
+	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
+	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
 		limit = 12
@@ -5355,6 +5341,52 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	}
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
 	return rank
+}
+
+func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain bool) {
+	if !hasCausalChain {
+		return
+	}
+	for i := range items {
+		if strings.TrimSpace(items[i].ChainRelevance) != "" {
+			continue
+		}
+		if rel := chainRelevanceFromCausality(items[i].Causality); rel != "" {
+			items[i].ChainRelevance = rel
+			continue
+		}
+		items[i].ChainRelevance = "background"
+		if strings.TrimSpace(items[i].Causality) == "" {
+			items[i].Causality = "background"
+		}
+	}
+}
+
+func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if chainAware {
+			ri := rootCauseChainRelevanceSortRank(items[i])
+			rj := rootCauseChainRelevanceSortRank(items[j])
+			if ri != rj {
+				return ri < rj
+			}
+		}
+		if items[i].Score != items[j].Score {
+			return items[i].Score > items[j].Score
+		}
+		if items[i].ImpactMs != items[j].ImpactMs {
+			return items[i].ImpactMs > items[j].ImpactMs
+		}
+		return items[i].LineStart < items[j].LineStart
+	})
+}
+
+func rootCauseChainRelevanceSortRank(item RootCauseRankItem) int {
+	relevance := strings.TrimSpace(item.ChainRelevance)
+	if relevance == "" {
+		relevance = chainRelevanceFromCausality(item.Causality)
+	}
+	return chainRelevanceRank(relevance)
 }
 
 func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {

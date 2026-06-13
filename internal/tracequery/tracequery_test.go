@@ -1488,6 +1488,40 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankPrioritizesOnChainBeforeLargeBackgroundTraceSpan(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_vs_background_span.systrace", `
+             app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+   SensorService-9388 ( 888) [006] .... 1.001000: tracing_mark_write: B|9388|H::ISensors::poll::C
+   SensorService-9388 ( 888) [006] .... 1.110000: tracing_mark_write: E|9388
+      cookie-200 (100) [002] .... 1.100000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+     network-300 (100) [003] .... 1.101000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+  threadpool-400 (100) [004] .... 1.102000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120
+          irq-2 (2) [004] .... 1.103000: sched_blocked_reason: pid=400 iowait=1 caller=fscache_page_wait_on_page_bit
+          irq-2 (2) [004] .... 1.110000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004
+  threadpool-400 (100) [004] .... 1.110500: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20
+  threadpool-400 (100) [004] .... 1.111000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003
+     network-300 (100) [003] .... 1.111500: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20
+     network-300 (100) [003] .... 1.112000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002
+      cookie-200 (100) [002] .... 1.112500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20
+      cookie-200 (100) [002] .... 1.113000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+             app-100 (100) [001] .... 1.113200: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.120, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	if len(rank.Items) == 0 {
+		t.Fatalf("expected root-cause candidates")
+	}
+	if rank.Items[0].ChainRelevance != "on_chain" || rank.Items[0].Thread.PID != 400 {
+		t.Fatalf("on-chain dependency should outrank large off-chain trace span: %+v", rank.Items)
+	}
+	for _, item := range rank.Items {
+		if item.Thread.PID == 9388 {
+			if item.ChainRelevance != "background" || item.Tier == "primary" {
+				t.Fatalf("off-chain trace span should remain background/supporting, got %+v", item)
+			}
+		}
+	}
+}
+
 func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testing.T) {
 	idx := buildTraceIndex(t, "bundle_rich.systrace", `
         app-100 (100) [001] .... 10.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
@@ -1531,14 +1565,10 @@ func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testin
 	if bundle.RootCauseRank.Items[0].StartTs <= 0 || bundle.RootCauseRank.Items[0].EndTs <= bundle.RootCauseRank.Items[0].StartTs {
 		t.Fatalf("primary root cause should carry a precise candidate window: %+v", bundle.RootCauseRank.Items[0])
 	}
-	foundBackground := false
 	for _, item := range bundle.RootCauseRank.Items {
-		if item.Thread.PID == 900 && item.ChainRelevance == "background" {
-			foundBackground = true
+		if item.Thread.PID == 900 && item.ChainRelevance != "background" {
+			t.Fatalf("off-chain D-state should remain background if retained in root rank: %+v", item)
 		}
-	}
-	if !foundBackground {
-		t.Fatalf("off-chain D-state should remain background: %+v", bundle.RootCauseRank.Items)
 	}
 	if len(bundle.IOBurstEpisodes) == 0 || bundle.IOBurstEpisodes[0].ChainRelevance != "on_chain" || bundle.IOBurstEpisodes[0].TopInode != "0xabc" {
 		t.Fatalf("expected on-chain IO burst by inode: %+v", bundle.IOBurstEpisodes)
