@@ -522,7 +522,7 @@ Executable task list:
 - [x] B8-T5: Allow `continue_after` plans with an assembled final projection to
   satisfy final-candidate policy after existing ledger checks pass.
 - [x] B8-T6: Run focused tests, full tests, rebuild, commit/push.
-- [ ] B8-T7: Rerun representative eval cases two at a time and manually audit
+- [x] B8-T7: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
 
 Batch 8 focused verification before commit:
@@ -531,3 +531,74 @@ Batch 8 focused verification before commit:
 - `go test ./internal/dataworkflow -run TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy`
 - `go test ./...`
 - `make`
+
+Post-Batch-8 eval root:
+
+- `eval/results/eval-gap-20260613-post-7a7e08b5`
+
+Manual audit after rerun:
+
+- `trace_query_state_churn_window_stats` passed. It used the high-signal
+  `trace_query` path and kept the `rival-30` next-step evidence visible in the
+  final answer. The remaining optimization opportunity is efficiency telemetry,
+  not answer correctness.
+- `data_json_strict_ids` still failed after 14 data rounds and 6 repair rounds.
+  The workflow had already materialized active-user rows and contribution
+  records for `u1/u3`, but the terminal validation compared reconcile
+  `expected_answer="4"` against an internally rendered artifact bullet summary
+  instead of carrying forward the richer structured answer.
+
+## Batch 9 Gap: Typed Contribution Semantics and Internal Summary Isolation
+
+Deep root cause:
+
+- `compute_contributions` supports both numeric aggregation operations and
+  member-value operations. The executor already aggregates `include`, `set`,
+  and `rank` as text values, but the numeric value contract still treated every
+  operation except `count` as numeric. That produced a misleading hard failure
+  for `operation=include,value_field=id`, pushing repair into unrelated
+  normalize/mapping branches.
+- `ActionRunner` can render an artifact list as an intermediate answer when no
+  final projection exists in the current batch. Existing summary detection
+  handled compact renderer-owned forms such as `N artifact(s)` and internal
+  JSON artifact payloads, but the runner also knows when an answer was produced
+  by `renderArtifactsAnswer`. That internal provenance was not used when
+  choosing between the current batch summary, the seed answer, and reconcile
+  output.
+- Final validation should compare user-facing answers with reconcile answers,
+  not compare system-generated intermediate summaries with reconcile answers.
+  The missing boundary is provenance-aware answer selection inside the runner,
+  plus operation-aware type gating at contribution execution time.
+
+Generalized design:
+
+- Reuse the existing normalized contribution operation enum as the source of
+  truth for type requirements. Only numeric contribution operations (`add`,
+  `subtract`, and the empty/default numeric op) require numeric field values;
+  member-value operations (`include`, `set`, `rank`) and `count` do not.
+- Preserve intermediate artifact summaries for non-terminal exploration
+  batches, but do not let a renderer-owned summary override a stronger seed
+  answer or reconcile-rendered answer. This uses runner provenance, not user
+  text or model prose matching.
+- Keep public artifact-summary detection conservative. It should continue to
+  reject renderer-owned compact/JSON summaries as final answers without
+  broadly classifying arbitrary markdown bullet lists from users as internal
+  artifacts.
+
+Executable task list:
+
+- [ ] B9-T1: Add operation-aware contribution value type gating using
+  `normalizeContributionOperation`.
+- [ ] B9-T2: Preserve member-value `include` contributions with string
+  `value_field` values and source anchors.
+- [ ] B9-T3: Track runner-local provenance when `renderArtifactsAnswer`
+  produces the current batch answer.
+- [ ] B9-T4: Prefer seed answers over renderer-owned intermediate summaries
+  when the current batch has no `assemble_answer` projection.
+- [ ] B9-T5: Prefer reconcile-rendered answers over renderer-owned summaries
+  when no stronger seed answer is available.
+- [ ] B9-T6: Add focused regression tests for string-valued include
+  contributions and summary isolation.
+- [ ] B9-T7: Run focused tests, full tests, rebuild, commit/push.
+- [ ] B9-T8: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
