@@ -4374,6 +4374,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"prio=41, prio=51, and prio=52 are RT",
 		"Recompute every concrete `prio=N` classification",
 		"Runtime trace presentation hint",
+		"Runtime metric snapshot hint",
+		"one metric snapshot line",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
 		"prefer the bounded `trace_query` facts",

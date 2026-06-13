@@ -1657,14 +1657,35 @@ Generalized design:
 
 Executable task list:
 
-- [ ] B25-T1: Extend observation prompt projection options with a bounded
+- [x] B25-T1: Extend observation prompt projection options with a bounded
   origin-specific supporting note limit.
-- [ ] B25-T2: Add tests showing a runtime `trace_query` supporting observation
+- [x] B25-T2: Add tests showing a runtime `trace_query` supporting observation
   carries the full compact metric note set into the finalizer handoff.
-- [ ] B25-T3: Add generic runtime trace guidance for compact metric snapshots
+- [x] B25-T3: Add generic runtime trace guidance for compact metric snapshots
   sourced from typed observation notes.
-- [ ] B25-T4: Run focused types/agent tests, full tests/build hygiene, commit,
+- [x] B25-T4: Run focused types/agent tests, full tests/build hygiene, commit,
   and push.
+
+Implementation notes:
+
+- `ObservationPromptProjectionOptions` now has
+  `OriginSpecificSupportingNoteLimit`. Default finalizer projection keeps up to
+  10 compact notes for origin-specific supporting observations, while semantic
+  review keeps a smaller bounded budget.
+- Runtime supporting observations such as `trace_query` `state_churn` now keep
+  the complete compact metric set (`dominant_state`, state totals,
+  fragments/switches, max/p95 segment) in the typed observation handoff.
+- Runtime trace guidance now asks finalization to preserve multi-metric typed
+  notes as one metric snapshot line before the richer explanation, preserving
+  answer richness while making required dimensions easier to scan.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/types -run 'TestProjectObservationPromptRecords_(RuntimeQueryOutranksPreTriageBudget|RuntimeSupportingMetricsKeepCompactNotes)'`
+- Focused tests:
+  `go test ./internal/agent -run TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder`
+- Package tests: `go test ./internal/types ./internal/agent`
 
 Post-Batch-22 eval audit:
 

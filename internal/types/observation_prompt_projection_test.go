@@ -118,6 +118,48 @@ func TestProjectObservationPromptRecords_RuntimeQueryOutranksPreTriageBudget(t *
 	}
 }
 
+func TestProjectObservationPromptRecords_RuntimeSupportingMetricsKeepCompactNotes(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:              "tool:0#trace_query:state_churn:1",
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace"},
+		Summary:         "app-20 had frequent state switching",
+		RichNotes: []string{
+			"dominant_state=runnable",
+			"fragments=21",
+			"switches=20",
+			"max_segment=0.500ms",
+			"p95_segment=0.500ms",
+			"running=3.500ms",
+			"runnable=5.000ms",
+			"sleep=0.000ms",
+			"d_state=0.000ms",
+			"io_wait=0.000ms",
+			"total=8.500ms",
+		},
+	}}
+	got := ProjectObservationPromptRecords(records, nil, nil, DefaultObservationPromptProjectionOptions(1))
+	if len(got) != 1 {
+		t.Fatalf("got %d records, want 1", len(got))
+	}
+	if len(got[0].Notes) != 10 {
+		t.Fatalf("runtime supporting metric notes=%d (%+v), want bounded compact metric set", len(got[0].Notes), got[0].Notes)
+	}
+	joined := strings.Join(got[0].Notes, " ")
+	for _, want := range []string{"dominant_state=runnable", "running=3.500ms", "runnable=5.000ms", "sleep=0.000ms", "d_state=0.000ms", "io_wait=0.000ms", "max_segment=0.500ms", "p95_segment=0.500ms"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("runtime metric handoff lost %q in notes %+v", want, got[0].Notes)
+		}
+	}
+	if strings.Contains(joined, "total=8.500ms") {
+		t.Fatalf("notes should remain bounded to the origin-specific supporting limit: %+v", got[0].Notes)
+	}
+}
+
 func TestProjectObservationPromptRecords_SourceInventoryDoesNotCrowdMixedOrigins(t *testing.T) {
 	records := []ObservationRecord{
 		{

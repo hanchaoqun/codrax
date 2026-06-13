@@ -23,6 +23,7 @@ type ObservationPromptProjectionOptions struct {
 	NoteLimit                             int
 	PrincipalNoteLimit                    int
 	StrongCurrentSourceNoteLimit          int
+	OriginSpecificSupportingNoteLimit     int
 	OriginSpecificPrincipalNoteLimit      int
 	IncludeCurrentSourceExcerpt           bool
 	IncludeSummaryInNotesWhenOnlyNoteData bool
@@ -53,17 +54,18 @@ type ObservationPromptRecord struct {
 
 func DefaultObservationPromptProjectionOptions(limit int) ObservationPromptProjectionOptions {
 	return ObservationPromptProjectionOptions{
-		Limit:                            limit,
-		SourceMaxLen:                     90,
-		ValueMaxLen:                      120,
-		SummaryMaxLen:                    180,
-		NoteMaxLen:                       160,
-		ExcerptMaxLen:                    180,
-		PrincipalExcerptMaxLen:           260,
-		NoteLimit:                        2,
-		PrincipalNoteLimit:               4,
-		StrongCurrentSourceNoteLimit:     3,
-		OriginSpecificPrincipalNoteLimit: 4,
+		Limit:                             limit,
+		SourceMaxLen:                      90,
+		ValueMaxLen:                       120,
+		SummaryMaxLen:                     180,
+		NoteMaxLen:                        160,
+		ExcerptMaxLen:                     180,
+		PrincipalExcerptMaxLen:            260,
+		NoteLimit:                         2,
+		PrincipalNoteLimit:                4,
+		StrongCurrentSourceNoteLimit:      3,
+		OriginSpecificSupportingNoteLimit: 10,
+		OriginSpecificPrincipalNoteLimit:  4,
 	}
 }
 
@@ -72,6 +74,7 @@ func SemanticReviewObservationPromptProjectionOptions(limit int) ObservationProm
 	opts.ExcerptMaxLen = 120
 	opts.PrincipalExcerptMaxLen = 180
 	opts.PrincipalNoteLimit = 3
+	opts.OriginSpecificSupportingNoteLimit = 6
 	opts.OriginSpecificPrincipalNoteLimit = 4
 	return opts
 }
@@ -152,6 +155,9 @@ func normalizeObservationPromptProjectionOptions(opts ObservationPromptProjectio
 	}
 	if opts.StrongCurrentSourceNoteLimit <= 0 {
 		opts.StrongCurrentSourceNoteLimit = defaults.StrongCurrentSourceNoteLimit
+	}
+	if opts.OriginSpecificSupportingNoteLimit <= 0 {
+		opts.OriginSpecificSupportingNoteLimit = defaults.OriginSpecificSupportingNoteLimit
 	}
 	if opts.OriginSpecificPrincipalNoteLimit <= 0 {
 		opts.OriginSpecificPrincipalNoteLimit = defaults.OriginSpecificPrincipalNoteLimit
@@ -270,10 +276,14 @@ func observationPromptNoteLimit(record ObservationRecord, opts ObservationPrompt
 		limit < opts.StrongCurrentSourceNoteLimit {
 		limit = opts.StrongCurrentSourceNoteLimit
 	}
-	if AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) &&
-		NormalizeAnswerAggregateRole(record.Role).IsPrincipal() &&
-		limit < opts.OriginSpecificPrincipalNoteLimit {
-		limit = opts.OriginSpecificPrincipalNoteLimit
+	if AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+		if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
+			if limit < opts.OriginSpecificPrincipalNoteLimit {
+				limit = opts.OriginSpecificPrincipalNoteLimit
+			}
+		} else if limit < opts.OriginSpecificSupportingNoteLimit {
+			limit = opts.OriginSpecificSupportingNoteLimit
+		}
 	}
 	return limit
 }
