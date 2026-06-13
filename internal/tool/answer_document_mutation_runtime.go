@@ -365,11 +365,13 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 		"p95_segment",
 	}
 	values := make(map[string]string, len(required)+1)
-	for _, key := range append([]string{"dominant_state"}, required...) {
+	keys := append([]string{"dominant_state"}, required...)
+	for _, key := range keys {
 		if value := runtimeTraceObservationRichNoteValue(record.RichNotes, key); value != "" {
 			values[key] = value
 		}
 	}
+	runtimeTraceMergeSummaryMetricTokens(values, record.Summary, keys)
 	for _, key := range required {
 		if values[key] == "" {
 			return ""
@@ -512,6 +514,43 @@ func runtimeTraceObservationRichNoteValue(notes []string, key string) string {
 		return strings.TrimSpace(strings.TrimPrefix(note, prefix))
 	}
 	return ""
+}
+
+func runtimeTraceMergeSummaryMetricTokens(values map[string]string, summary string, keys []string) {
+	if values == nil || strings.TrimSpace(summary) == "" || len(keys) == 0 {
+		return
+	}
+	allowed := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			allowed[key] = struct{}{}
+		}
+	}
+	for _, token := range strings.FieldsFunc(summary, runtimeTraceMetricSummaryTokenSeparator) {
+		key, value, ok := strings.Cut(strings.TrimSpace(token), "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if _, exists := allowed[key]; !exists || values[key] != "" {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), `"'()[]{}<>`)
+		if value == "" {
+			continue
+		}
+		values[key] = value
+	}
+}
+
+func runtimeTraceMetricSummaryTokenSeparator(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '\r', ';', '；', ',', '，', '、', '。':
+		return true
+	default:
+		return false
+	}
 }
 
 func trimRuntimeTraceNextStepText(s string) string {

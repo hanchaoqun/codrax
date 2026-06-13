@@ -251,6 +251,74 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryTokens(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:state_churn:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Subject:   "app-20",
+			Predicate: "state_churn",
+			Summary: "app-20 had frequent state switching; dominant_state=runnable " +
+				"impact=5.000ms total=8.500ms fragments=21 switches=20 " +
+				"max_segment=0.500ms p95_segment=0.500ms totals running=3.500ms " +
+				"runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; " +
+				"next_step=inspect rival-30 on same CPU",
+			RichNotes: []string{
+				"max_segment=0.500",
+				"p95_segment=0.500",
+				"running=3.500",
+				"runnable=5.000",
+				"next_step=inspect rival-30 on same CPU",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 4 {
+		t.Fatalf("runtime trace metric snapshot and next-step blocks should be inserted before caveat, got %+v", doc)
+	}
+	snapshot := doc.Blocks[1]
+	if snapshot.ID != "runtime_trace_metric_snapshot" || snapshot.Kind != types.BlockBulletList {
+		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
+	}
+	line := snapshot.Items[0].Text
+	for _, want := range []string{
+		"dominant_state=runnable",
+		"running=3.500ms",
+		"runnable=5.000ms",
+		"sleep=0.000ms",
+		"d_state=0.000ms",
+		"io_wait=0.000ms",
+		"fragments=21",
+		"switches=20",
+		"max_segment=0.500ms",
+		"p95_segment=0.500ms",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("summary-token metric snapshot missing %q:\n%s", want, line)
+		}
+	}
+	if !strings.Contains(line, "max_segment=0.500ms; p95_segment=0.500ms") {
+		t.Fatalf("max/p95 metrics should stay on one snapshot line:\n%s", line)
+	}
+}
+
 func TestEmitAnswerDocumentV2_DoesNotDuplicateExistingRuntimeTraceNextStepsBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.ToolResults = []types.ToolResult{{
