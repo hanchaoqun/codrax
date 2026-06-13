@@ -291,21 +291,16 @@ func runtimeArtifactPrincipalAnswerSurfaceContext(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	rm := ctx.Mutable.RequestModel()
-	if rm == nil || !requestModelHasRuntimeOrExternalObservation(*rm) {
-		return false
-	}
 	doc := ctx.Mutable.AnswerDocumentV2()
 	if doc == nil || len(doc.Blocks) == 0 {
 		return false
 	}
-	principal := 0
+	blocks := runtimeAnswerSurfaceCandidateBlocks(doc)
+	if len(blocks) == 0 {
+		return false
+	}
 	external := 0
-	for _, block := range doc.Blocks {
-		if block.SurfaceRole != types.SurfacePrincipal {
-			continue
-		}
-		principal++
+	for _, block := range blocks {
 		if !answerBlockHasOnlyExternalObservationClaimUses(block) {
 			return false
 		}
@@ -314,7 +309,46 @@ func runtimeArtifactPrincipalAnswerSurfaceContext(ctx *types.BusContext) bool {
 		}
 		external++
 	}
-	return principal > 0 && external == principal
+	return external == len(blocks)
+}
+
+func runtimeAnswerSurfaceCandidateBlocks(doc *types.AnswerDocumentV2) []types.AnswerBlock {
+	if doc == nil {
+		return nil
+	}
+	var principal []types.AnswerBlock
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole == types.SurfacePrincipal {
+			principal = append(principal, block)
+		}
+	}
+	if len(principal) > 0 {
+		return principal
+	}
+	var visible []types.AnswerBlock
+	for _, block := range doc.Blocks {
+		if !runtimePrincipalLikeAnswerBlockKind(block.Kind) {
+			continue
+		}
+		visible = append(visible, block)
+	}
+	return visible
+}
+
+func runtimePrincipalLikeAnswerBlockKind(kind types.AnswerBlockKind) bool {
+	switch kind {
+	case types.BlockSummary,
+		types.BlockSection,
+		types.BlockOrderedList,
+		types.BlockBulletList,
+		types.BlockScalar,
+		types.BlockDecision,
+		types.BlockTable,
+		types.BlockDiagram:
+		return true
+	default:
+		return false
+	}
 }
 
 func requestModelHasRuntimeOrExternalObservation(rm types.RequestModel) bool {

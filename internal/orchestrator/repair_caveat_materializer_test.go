@@ -172,6 +172,62 @@ func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesGenericCa
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesGenericCaveats(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(true)
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{
+			Kind:       types.ViolSelfContradiction,
+			ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+		},
+		{
+			Kind:       types.ViolEnumerationEvidenceUnderspecified,
+			ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "block_items_label"),
+		},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("generic runtime answer-surface soft caveats should stay telemetry-only, got:\n%s", out)
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceUsesPrincipalLikeBlocks(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(false)
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("principal-like external observation blocks should suppress generic caveats, got:\n%s", out)
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsMixedVisibleBlocks(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(false)
+	doc := ctx.Mutable.AnswerDocumentV2()
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "unannotated",
+		Kind: types.BlockSection,
+		Text: "current-source explanation without typed external claim",
+	})
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	if !strings.Contains(out, "答案前后某些表述") {
+		t.Fatalf("mixed visible blocks should keep generic caveat disclosure:\n%s", out)
+	}
+}
+
 func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsSpecificContradiction(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -323,6 +379,47 @@ func runtimeAnswerSurfaceCaveatTestContext(request string, enumerate bool) *type
 				SurfaceRole: types.SurfacePrincipal,
 				Items: []types.AnswerBlockItem{
 					{ID: "dominant", Label: "dominant_state", Text: "runnable"},
+				},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+			},
+		},
+	})
+	return &types.BusContext{Mutable: mut}
+}
+
+func runtimeAnswerSurfaceOnlyCaveatTestContext(useSurfaceRole bool) *types.BusContext {
+	mut := types.NewMutableState("分析外部 trace 观测")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "分析外部 trace 观测",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioGeneric,
+	})
+	surfaceRole := types.SurfaceRole("")
+	if useSurfaceRole {
+		surfaceRole = types.SurfacePrincipal
+	}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: surfaceRole,
+				Text:        "external observation summary",
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+			},
+			{
+				ID:          "metrics",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: surfaceRole,
+				Items: []types.AnswerBlockItem{
+					{ID: "dominant", Label: "dominant_state", Text: "runnable", CitationRef: -1},
 				},
 				ClaimUses: []types.RenderedClaimUse{{
 					ClaimForm: types.ClaimExternalObservation,

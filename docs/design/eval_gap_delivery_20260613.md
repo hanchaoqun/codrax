@@ -1669,13 +1669,33 @@ Generalized design:
 
 Executable task list:
 
-- [ ] B22-T1: Add production-path regression tests for
+- [x] B22-T1: Add production-path regression tests for
   `AppendSoftContractCaveatsToAnswerForBus` on runtime answer-surface
   documents.
-- [ ] B22-T2: Adjust the runtime answer-surface predicate if needed so it
+- [x] B22-T2: Adjust the runtime answer-surface predicate if needed so it
   consumes typed block/claim/citation metadata available at append time.
-- [ ] B22-T3: Keep generic low-precision caveats telemetry-only for runtime
+- [x] B22-T3: Keep generic low-precision caveats telemetry-only for runtime
   answer surfaces while preserving specific contradictions and principal
   enumeration caveats.
-- [ ] B22-T4: Run focused orchestrator tests, full tests/build hygiene, commit,
+- [x] B22-T4: Run focused orchestrator tests, full tests/build hygiene, commit,
   and push.
+
+Implementation notes:
+
+- Runtime answer-surface filtering now uses accepted `AnswerDocumentV2` blocks
+  directly. Explicit `surface_role=principal` blocks are authoritative; when no
+  explicit principal role exists, visible principal-like blocks
+  (summary/section/list/scalar/decision/table/diagram) are checked as the
+  fallback surface.
+- A surface qualifies only when every candidate block declares
+  `claim_form=external_observation` and none of its item citations resolve to a
+  current-source citation. Mixed or unannotated visible blocks keep the
+  generic caveat disclosure.
+- The suppression path applies to both user-caveat and soft-contract-caveat
+  appenders. Concrete SUMMARY/BODY contradictions and true principal
+  enumeration requests remain user-visible.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/orchestrator -run 'TestAppend(User|Soft).*CaveatsToAnswerForBus_(ObservationOnly|RuntimeAnswerSurface|PureHistory|Mechanism)'`
