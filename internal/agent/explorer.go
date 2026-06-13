@@ -699,6 +699,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
 
+	if runtimeArtifactWithoutRequiredSourceForExplorer(ctx) {
+		e.phase = 1
+		if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
+			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		}
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
+	}
+
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
 		e.phase = 1
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))

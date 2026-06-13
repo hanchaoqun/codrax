@@ -467,9 +467,9 @@ Tasks:
   attached trace artifact citation, attached blob path classification, binder
   `flags=0x12` vs `0x11` semantics, critical-blocking peer-state + binder
   semantics, schema/prompt teaching, and typed-observation preservation.
-- [ ] Follow-up route-cost batch: make explicit runtime trace-only requests
-  avoid user-facing repo indexing/stage wording unless current source is a
-  typed required lane.
+- [x] Follow-up route-cost batch: make typed runtime-artifact/source-optional
+  requests avoid analyzer repo overview and explorer source breadth unless
+  current source is a typed required lane.
 - [x] Follow-up fallback batch: restrict post-trace_query source/generic tool
   fallback when `trace_query` has already published hard runtime observations;
   leave fallback available after failed/empty trace_query and for typed
@@ -517,6 +517,12 @@ Design:
   `trace_query` follow-up and `emit_investigation_complete`. The guard uses
   typed observation metadata only; it does not parse model prose or user intent
   keywords.
+- Close the route-cost gap with existing typed lane predicates: analyzer uses
+  `HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)`
+  to skip precomputed repo overview for source-optional runtime traces, while
+  explorer starts from runtime/trace instructions instead of `## Breadth Scan`.
+  Requests with typed required current-source anchors still keep the source
+  lane.
 
 Tasks:
 
@@ -534,3 +540,5 @@ Tasks:
 - [x] Add tests for post-trace_query fallback: failed/empty trace_query still
   allows fallback; successful hard runtime observations block source/generic
   fallback but keep trace follow-up/completion available.
+- [x] Add route-cost tests for analyzer source-optional runtime shortcuts,
+  current-source-required escape, and explorer trace_query-first startup.

@@ -136,6 +136,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if observationOnlyRuntimeArtifactForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeObservationOnlyShortcut()))
 	}
+	if runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeSourceOptionalShortcut()))
+	}
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeTracePathShortcut()))
 	}
@@ -185,6 +188,14 @@ func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 		"Without that typed exclusion, keep the default mixed external-observation plus current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express useful source leads through structured required_files / exact_targets when concrete files or targets are found. " +
 		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
 		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external.\n\n"
+}
+
+func renderAnalyzerRuntimeSourceOptionalShortcut() string {
+	return "## Runtime Artifact Source-Optional Classification Shortcut\n\n" +
+		"The typed request model already carries a runtime artifact lane and current checkout/source evidence is not required. " +
+		"Do not run repo pre-scan just to classify trace/log literals, thread labels, timestamps, wakeup chains, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
+		"Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
+		"Keep current-source analysis allowed by default in the emitted model unless the typed external_observation_policy explicitly excludes it; later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
 }
 
 func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {

@@ -295,6 +295,82 @@ func TestExplorer_BuildInitialInstruction_ExplicitTracePathKeepsNormalBreadthByD
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_SourceOptionalTraceStartsWithTraceQuery(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Kind:    "attached_trace",
+			Subject: "com.baidu.tieba-59566",
+			Summary: "attached runtime trace artifact is present",
+		}}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+			Confidence:        0.8,
+		},
+	}
+	ctx := &types.AgentContext{
+		Objective:  `分析 attached trace 中 com.baidu.tieba-59566 的卡顿原因`,
+		Stage:      types.StageExplore,
+		PerfTrace:  rm.PerfTrace,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("source-optional runtime trace should skip breadth scan, got phase=%d", eval.phase)
+	}
+	for _, want := range []string{
+		"Explicit Runtime Trace Path Start",
+		"Start with `trace_query`",
+		"Treat this as a runtime-artifact investigation first",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("source-optional trace start prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("source-optional runtime trace should not render source breadth prompt:\n%s", prompt)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_SourceOptionalLogDoesNotUseTraceQueryStart(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioRootCause,
+		LogTriage: &types.LogBundle{Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "runtime error in external process",
+		}}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+			Confidence:        0.8,
+		},
+	}
+	ctx := &types.AgentContext{
+		Objective:  `分析 attached log 的异常原因`,
+		Stage:      types.StageExplore,
+		LogTriage:  rm.LogTriage,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("source-optional runtime log should skip breadth scan, got phase=%d", eval.phase)
+	}
+	if !strings.Contains(prompt, "Runtime Artifact Only Start") {
+		t.Fatalf("source-optional runtime log should use runtime artifact start:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Explicit Runtime Trace Path Start") || strings.Contains(prompt, "Start with `trace_query`") {
+		t.Fatalf("source-optional runtime log must not use trace_query start:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("source-optional runtime log should not render source breadth prompt:\n%s", prompt)
+	}
+}
+
 func TestExplorer_BuildInitialInstruction_ExternalObservationFirstSkipsSourceBreadth(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: `请解释 MCP 资源 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12`,

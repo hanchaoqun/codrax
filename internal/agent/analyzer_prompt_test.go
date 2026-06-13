@@ -309,6 +309,79 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	}
 }
 
+func TestAnalyzerPrompt_RuntimeSourceOptionalSkipsRepoOverview(t *testing.T) {
+	mut := types.NewMutableState("分析这份 trace 的卡顿原因")
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Kind:    "attached_trace",
+			Subject: "com.baidu.tieba-59566",
+			Summary: "attached runtime trace artifact is present",
+		}}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+			Confidence:        0.8,
+		},
+	}
+	mut.SetRequestModel(rm)
+	mut.SetPerfTrace(rm.PerfTrace)
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "分析这份 trace 的卡顿原因",
+		RepoRoot:  ".",
+		Mutable:   mut,
+		PerfTrace: rm.PerfTrace,
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	for _, want := range []string{
+		"Runtime Artifact Source-Optional Classification Shortcut",
+		"current checkout/source evidence is not required",
+		"Do not run repo pre-scan just to classify trace/log literals",
+		"Keep current-source analysis allowed by default",
+		"call `emit_analysis` now",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime source-optional shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("runtime source-optional shortcut must skip precomputed repo overview; got:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_RuntimeSourceOptionalKeepsSourceWhenRequired(t *testing.T) {
+	mut := types.NewMutableState("结合当前代码分析这份 trace")
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Kind:    "attached_trace",
+			Subject: "com.baidu.tieba-59566",
+		}}},
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{
+			Path:       "internal/tracequery/query.go",
+			Confidence: 0.9,
+		}}},
+	}
+	mut.SetRequestModel(rm)
+	mut.SetPerfTrace(rm.PerfTrace)
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "结合当前代码分析这份 trace",
+		Mutable:   mut,
+		PerfTrace: rm.PerfTrace,
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	if strings.Contains(got, "Runtime Artifact Source-Optional Classification Shortcut") {
+		t.Fatalf("current-source-required runtime request must not take source-optional shortcut:\n%s", got)
+	}
+}
+
 func TestAnalyzerPrompt_ExternalObservationTurnHintSkipsRepoOverview(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,

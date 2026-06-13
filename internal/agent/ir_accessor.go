@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/hanchaoqun/codrax/internal/types"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 // The ir* helpers read analyzer-sourced hints from the AnalysisIR
 // populated by the analyze stage. They return zero values when the IR
@@ -196,6 +200,22 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
+func explorerHasTraceQueryRuntimeTraceCarrier(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	if ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.PerfTrace != nil
+}
+
 func originSpecificObservationWithoutRequiredSourceForExplorer(ctx *types.AgentContext, facts []types.AnswerAggregateFact) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
@@ -230,6 +250,35 @@ func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
 		}
 	}
 	return false
+}
+
+func runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	attachedTrace := analyzerHasAttachedTraceContext(ctx)
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+	}
+	return false
+}
+
+func analyzerHasAttachedTraceContext(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable == nil {
+		return false
+	}
+	return ctx.Mutable.PerfTrace() != nil
 }
 
 // analyzerRequiredFilesFromIR returns the analyzer's EvidencePlan
