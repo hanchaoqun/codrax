@@ -132,6 +132,29 @@ func TestRenderV2_BlockOrderedList(t *testing.T) {
 	if !strings.Contains(out, "1. **Step 1**") || !strings.Contains(out, "2. **Step 2**") {
 		t.Errorf("ordered list rendering wrong; got %q", out)
 	}
+	if strings.Contains(out, "Next steps") || strings.Contains(out, "下一步") {
+		t.Errorf("ordinary untitled ordered list should not get a synthetic heading; got %q", out)
+	}
+}
+
+func TestRenderV2_NextStepsListIDGetsLocalizedHeading(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "next_steps",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{Label: "查看 rival-30", Text: "确认 same-CPU pressure"},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "**下一步**") ||
+		!strings.Contains(out, "1. **查看 rival-30**") ||
+		!strings.Contains(out, "same-CPU pressure") {
+		t.Fatalf("next_steps list should preserve a visible next-step heading:\n%s", out)
+	}
 }
 
 func TestRenderV2_BlockBulletList(t *testing.T) {

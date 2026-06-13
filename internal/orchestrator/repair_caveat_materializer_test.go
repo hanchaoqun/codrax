@@ -191,6 +191,10 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesG
 			Detail:     `answer block "d1" names token "trace中无UI渲染span可关联" without disclosing it as unverified / external`,
 			ClusterKey: "denied_token_undeclared:d1",
 		},
+		{
+			Kind:       types.ViolUncertaintyBlockMissing,
+			ClusterKey: types.BlockKindClusterKey(types.BlockCaveat, "uncertainty_block"),
+		},
 	}, "zh", ctx)
 	if out != "正文" {
 		t.Fatalf("generic runtime answer-surface soft caveats should stay telemetry-only, got:\n%s", out)
@@ -253,6 +257,29 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsDenied
 	}}, "zh", ctx)
 	if !strings.Contains(out, "答案前后某些表述") {
 		t.Fatalf("mixed visible blocks should keep typed-denial caveat disclosure:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsUncertaintyForMixedBlocks(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceCaveatTestContext("分析这段 trace", false)
+	doc := ctx.Mutable.AnswerDocumentV2()
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:          "unannotated",
+		Kind:        types.BlockSection,
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "current-source explanation without typed external claim",
+	})
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolUncertaintyBlockMissing,
+		ClusterKey: types.BlockKindClusterKey(types.BlockCaveat, "uncertainty_block"),
+	}}, "zh", ctx)
+	if !strings.Contains(out, "覆盖度可能不充分") {
+		t.Fatalf("mixed visible blocks should keep uncertainty caveat disclosure:\n%s", out)
 	}
 }
 

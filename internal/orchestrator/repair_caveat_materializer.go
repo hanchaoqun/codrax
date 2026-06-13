@@ -284,6 +284,8 @@ func runtimeObservationOnlyLowPrecisionCaveat(v types.Violation, ctx *types.BusC
 		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx) && !runtimeSurfaceRequiresPrincipalEnumeration(ctx)
 	case types.ViolDeniedTokenUndeclared:
 		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx)
+	case types.ViolUncertaintyBlockMissing:
+		return runtimeArtifactPrincipalAnswerSurfaceContext(ctx)
 	default:
 		return false
 	}

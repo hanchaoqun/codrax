@@ -212,8 +212,8 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.
 }
 
 func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
-	if strings.TrimSpace(blk.Title) != "" {
-		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	if heading := renderV2ListHeading(blk, lang); heading != "" {
+		fmt.Fprintf(b, "**%s**\n\n", heading)
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)
@@ -234,8 +234,8 @@ func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *ty
 }
 
 func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
-	if strings.TrimSpace(blk.Title) != "" {
-		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	if heading := renderV2ListHeading(blk, lang); heading != "" {
+		fmt.Fprintf(b, "**%s**\n\n", heading)
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)
@@ -252,6 +252,30 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 	}
 	if rendered > 0 {
 		b.WriteString("\n")
+	}
+}
+
+func renderV2ListHeading(blk types.AnswerBlock, lang answerDocLang) string {
+	if title := strings.TrimSpace(blk.Title); title != "" {
+		return title
+	}
+	if !answerBlockIDIsNextStepCarrier(blk.ID) {
+		return ""
+	}
+	if lang == answerDocLangZH {
+		return "下一步"
+	}
+	return "Next steps"
+}
+
+func answerBlockIDIsNextStepCarrier(id string) bool {
+	id = strings.ToLower(strings.TrimSpace(id))
+	id = strings.NewReplacer("-", "_", " ", "_").Replace(id)
+	switch id {
+	case "next_step", "next_steps":
+		return true
+	default:
+		return false
 	}
 }
 

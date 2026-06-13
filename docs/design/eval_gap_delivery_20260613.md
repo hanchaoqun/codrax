@@ -1687,6 +1687,121 @@ Verification:
   `go test ./internal/agent -run TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder`
 - Package tests: `go test ./internal/types ./internal/agent`
 
+Post-Batch-25 eval audit:
+
+- `eval/results/eval-gap-20260613-post-28051d92-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 29s. Metrics: `data_rounds=1`,
+  `data_repair_rounds=0`, `data_answer_len=19`, and terminal answer
+  `{"ids":["u1","u3"]}`. Manual audit: no completion-gate override,
+  no output-contract warning, and both required materials were consumed.
+- `trace_query_state_churn_window_stats`: runner exit code 0 but eval verdict
+  FAIL on the next-step surface regex. Manual audit: semantics are correct and
+  rich; the run uses `trace_query=2`, preserves all requested metrics, root
+  cause (`rival-30` / same-CPU CPU pressure), and useful follow-up actions.
+  Residual gaps: the follow-up actions render as an untitled ordered list, so
+  the explicit next-step relationship can be missed; a soft
+  `uncertainty_block_missing` caveat still materializes as generic
+  source-check wording even though the accepted surface is external
+  observation only.
+
+## Batch 26 Gap: Runtime Answer Surfaces Must Demote Generic Uncertainty-Block Caveats
+
+Deep root cause:
+
+- Runtime observation-only answers already have a typed waiver path that turns
+  `uncertainty_block_missing` into a precise runtime-boundary caveat or
+  suppresses generic block-coverage wording.
+- The post-Batch-25 trace answer uses a different but equally typed accept
+  context: principal answer blocks declare `claim_form=external_observation`
+  and use no current-source citations. That surface is runtime-observation-only,
+  but the soft caveat path does not treat `ViolUncertaintyBlockMissing` as
+  low-precision telemetry for this accepted surface.
+- This is not trace-specific. It applies to any accepted external-observation
+  answer surface where the only missing item is a generic uncertainty block and
+  the answer already avoids current-source citation pressure.
+
+Generalized design:
+
+- Extend the runtime low-precision caveat filter to demote
+  `ViolUncertaintyBlockMissing` when the accepted answer surface is
+  external-observation-only and citation-free.
+- Keep the validator telemetry and strict retry behavior intact. Mixed visible
+  current-source blocks or unannotated blocks continue to surface the caveat.
+- Do not parse caveat prose or answer prose; consume only violation kind,
+  block claim metadata, and citation metadata.
+
+Executable task list:
+
+- [x] B26-T1: Add regression coverage for runtime answer-surface
+  `ViolUncertaintyBlockMissing` suppression.
+- [x] B26-T2: Extend `runtimeObservationOnlyLowPrecisionCaveat` for the typed
+  uncertainty-block violation under the accepted runtime surface predicate.
+- [x] B26-T3: Preserve mixed-surface disclosure tests.
+
+Implementation notes:
+
+- `runtimeObservationOnlyLowPrecisionCaveat` now treats
+  `ViolUncertaintyBlockMissing` as telemetry-only only when the same typed
+  `runtimeArtifactPrincipalAnswerSurfaceContext` predicate is true:
+  principal/principal-like blocks must carry only external-observation claims
+  and no citations.
+- Mixed principal surfaces with an unannotated current-source block still
+  materialize the existing user caveat. This keeps the hard/soft split on typed
+  answer-document metadata, not answer prose.
+
+Verification:
+
+- Focused caveat tests:
+  `go test ./internal/orchestrator -run 'TestAppend(SoftContract|User)CaveatsToAnswerForBus_RuntimeAnswerSurface'`
+- Package tests: `go test ./internal/orchestrator`
+
+## Batch 27 Gap: Follow-Up Action Blocks Need a Stable Visible Relation Label
+
+Deep root cause:
+
+- The finalizer emitted a structured `ordered_list` block with
+  `id="next_steps"` and external-observation claim metadata. The renderer
+  intentionally does not invent headings for ordinary untitled lists, so the
+  follow-up actions are semantically present but visually detached from the
+  "next step" relation.
+- This is a structured answer-document rendering gap. Any model can emit a
+  semantic next-step block ID without a title, and the renderer should preserve
+  the relation label in the user surface without relying on natural-language
+  item text or user-keyword matching.
+
+Generalized design:
+
+- Add a narrow renderer fallback for answer-document list blocks whose
+  structured block ID is the next-step carrier (`next_step` / `next_steps`):
+  when `title` is empty, render a localized title (`下一步` / `Next steps`).
+- Leave all ordinary untitled ordered/bullet lists unchanged.
+- This consumes only structured block ID and block kind, not user intent text,
+  model prose, item labels, or answer contents.
+
+Executable task list:
+
+- [x] B27-T1: Add renderer tests for localized next-step headings on structured
+  `next_steps` list blocks.
+- [x] B27-T2: Add the renderer fallback for ordered and bullet list blocks.
+- [ ] B27-T3: Run focused render/orchestrator tests, full hygiene, commit,
+  push, and rerun the two representative eval cases.
+
+Implementation notes:
+
+- The answer-document renderer now renders a localized heading only when a
+  list block has structured ID `next_step` / `next_steps` and no explicit
+  title.
+- Ordinary untitled ordered and bullet lists remain unchanged. The renderer
+  consumes block ID and kind only; it does not inspect user intent text, item
+  labels, or model prose.
+
+Verification:
+
+- Focused render tests:
+  `go test ./internal/render -run 'TestRenderV2_(BlockOrderedList|NextStepsListIDGetsLocalizedHeading)'`
+- Package tests: `go test ./internal/render`
+
 Post-Batch-22 eval audit:
 
 - `eval/results/eval-gap-20260613-post-c1224262-b1`
