@@ -158,7 +158,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// otherwise the timeline reads as "wrap-up, wrap-up, wrap-up,
 	// wrap-up". Vocabulary by phase:
 	//
-	//   evidence   → 探索代码并收集证据 / Exploring code, collecting evidence
+	//   evidence   → 收集证据 / Collecting evidence
 	//   validate   → 交叉验证证据      / Cross-validating evidence
 	//                    (was "校核分析结论" — no "结论" exists yet at this point)
 	//   reconcile  → 归纳探索线索 (running) / 归纳探索结果 (done)
@@ -213,9 +213,10 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// umbrella over the per-topic evidence work.
 		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析未完成", "模型响应出错,正在重新深入分析"},
 		// "evidence" is the NodeEvidence sub-step where the agent
-		// actually reads code (read_file / grep / repo_map) and
-		// emits structured evidence.
-		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "未收集到足够证据", "模型响应出错,正在重新收集证据"},
+		// collects grounded facts from the active lane: source files,
+		// runtime artifacts, VCS metadata, command output, or external
+		// observations.
+		"evidence":  {"正在收集证据", "已完成证据收集", "待收集证据", "未收集到足够证据", "模型响应出错,正在重新收集证据"},
 		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "交叉验证未完成", "模型响应出错,正在重新交叉验证"},
 		"reconcile": {"正在归纳探索线索", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "模型响应出错,正在重新归纳证据"},
 		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现", "模型响应出错,正在重新提炼关键发现"},
@@ -261,7 +262,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"multi_repo_focus": {"Selecting focused sub-repos", "Focused sub-repos selected", "Awaiting sub-repo focus", "Could not select focused sub-repos", "Model response error, re-selecting focused sub-repos"},
 		"analyze":          {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
 		"explore":          {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
-		"evidence":         {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
+		"evidence":         {"Collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
 		"validate":         {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
 		"reconcile":        {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
 		"extract":          {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},

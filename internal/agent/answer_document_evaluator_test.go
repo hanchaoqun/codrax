@@ -4376,6 +4376,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"Runtime trace presentation hint",
 		"Runtime metric snapshot hint",
 		"one metric snapshot line",
+		"Runtime root-cause layering hint",
+		"direct scheduler wait",
+		"upstream dependency-chain IO/D-state",
+		"auxiliary context",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
 		"prefer the bounded `trace_query` facts",
@@ -4541,6 +4545,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Runtime Grounding Disposition",
+		"Runtime root-cause layering hint",
 		"Runtime trace handoff hint",
 		"preserve that next-step guidance visibly",
 	} {

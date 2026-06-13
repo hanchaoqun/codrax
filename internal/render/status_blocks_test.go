@@ -57,12 +57,12 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 	out := renderRows(t, "zh", rows...)
 	for _, want := range []string{
 		// Topic group's parent line uses the "evidence" key so the
-		// substantive "探索代码" wording reaches the UI. The
+		// substantive evidence-gathering wording reaches the UI. The
 		// previous "explore" → "正在深入分析" framing was an
 		// artificial umbrella that hid the load-bearing label
 		// because production flows are predominantly multi-topic
 		// and per-row evidence labels fold into the bullet list.
-		"正在探索代码并收集证据", "拆分为 3 个调查单元",
+		"正在收集证据", "拆分为 3 个调查单元",
 		"调查单元 1：", "调查单元 2：", "调查单元 3：",
 		"analyzers 包", "trace 分析器",
 		"reporters 包",
@@ -98,7 +98,7 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	out := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Exploring code, collecting evidence", "3 investigation units",
+		"Collecting evidence", "3 investigation units",
 		"Unit 1:", "Unit 2:", "Unit 3:",
 		"analyzers package trace analyzers",
 	} {
@@ -363,15 +363,14 @@ func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
 	}
 }
 
-// TestStatus_SingleTopicEvidenceUsesExploreCodeLabel pins the
+// TestStatus_SingleTopicEvidenceUsesCollectEvidenceLabel pins the
 // "evidence" canonical key — single-topic NodeEvidence rows
 // (no _tN suffix, so no topic-group aggregation) MUST surface as
-// the explicit "正在探索代码并收集证据" / "Exploring code,
-// collecting evidence" label rather than collapsing into the
+// the explicit "正在收集证据" / "Collecting evidence" label rather than collapsing into the
 // generic "正在深入分析" umbrella. The umbrella loses the most
 // informative substep — this test prevents a regression that
 // re-collapses evidence into explore.
-func TestStatus_SingleTopicEvidenceUsesExploreCodeLabel(t *testing.T) {
+func TestStatus_SingleTopicEvidenceUsesCollectEvidenceLabel(t *testing.T) {
 	row := &taskRow{
 		isNodeRow: true,
 		nodeID:    "evN", // no _tN suffix → single-topic, NOT aggregated
@@ -379,15 +378,15 @@ func TestStatus_SingleTopicEvidenceUsesExploreCodeLabel(t *testing.T) {
 		objective: "investigate the explorer agent",
 	}
 	zhOut := renderRows(t, "zh", row)
-	if !strings.Contains(zhOut, "正在探索代码并收集证据") {
-		t.Errorf("zh: expected '正在探索代码并收集证据' for single-topic evidence row; got:\n%s", zhOut)
+	if !strings.Contains(zhOut, "正在收集证据") {
+		t.Errorf("zh: expected '正在收集证据' for single-topic evidence row; got:\n%s", zhOut)
 	}
 	if strings.Contains(zhOut, "正在深入分析") {
 		t.Errorf("zh: single-topic evidence row must NOT collapse into the parent 'explore' umbrella; got:\n%s", zhOut)
 	}
 	enOut := renderRows(t, "en", row)
-	if !strings.Contains(enOut, "Exploring code, collecting evidence") {
-		t.Errorf("en: expected 'Exploring code, collecting evidence'; got:\n%s", enOut)
+	if !strings.Contains(enOut, "Collecting evidence") {
+		t.Errorf("en: expected 'Collecting evidence'; got:\n%s", enOut)
 	}
 	if strings.Contains(enOut, "Investigating the problem") {
 		t.Errorf("en: single-topic evidence row must NOT collapse to 'Investigating'; got:\n%s", enOut)
@@ -576,7 +575,7 @@ func TestStatus_PendingDistinctFromDone(t *testing.T) {
 // placement of the topic group: it MUST surface AFTER the analyze
 // row but BEFORE downstream stages (validate / reconcile / extract
 // / finalize). Pre-2026-04-30 it was prepended to blocks[0] which
-// put "正在探索代码 ..." ABOVE "已理解问题"; users read the analyze
+// put the evidence row ABOVE "已理解问题"; users read the analyze
 // row first and looked below for the next stage, missing the topic
 // group entirely. Anchoring on the first downstream block restores
 // pipeline order.
@@ -604,7 +603,7 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	// All three primary phrases must appear. Validate is pending in
 	// this fixture (queued behind running evidence) so it carries
 	// the "待校核 …" form, not "正在校核 …".
-	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "待交叉验证证据"} {
+	for _, want := range []string{"已理解问题", "正在收集证据", "待交叉验证证据"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output; got:\n%s", want, out)
 		}
@@ -612,7 +611,7 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	// Order check: analyze must come BEFORE the topic group, which
 	// must come BEFORE validate.
 	idxAnalyze := strings.Index(out, "已理解问题")
-	idxEvidence := strings.Index(out, "正在探索代码并收集证据")
+	idxEvidence := strings.Index(out, "正在收集证据")
 	idxValidate := strings.Index(out, "待交叉验证证据")
 	if !(idxAnalyze < idxEvidence && idxEvidence < idxValidate) {
 		t.Errorf("expected order analyze < evidence < validate; got idx %d / %d / %d in:\n%s",
@@ -674,7 +673,7 @@ func TestStatus_AgentThinkingParksOtherRows(t *testing.T) {
 // Expected behaviour: validate's EventTaskNodeStart MUST be detected
 // as cross-window (gap >> dispatchWindowGroupingMs), bump
 // r.dispatchGen, and park the older-gen evidence row. Evidence then
-// reads lexically as pending ("待探索代码并收集证据") and visually
+// reads lexically as pending ("待收集证据") and visually
 // dim, while only validate carries the active spinner + LightBlue.
 //
 // If this test PASSES but the user still sees concurrent rows, the
@@ -719,10 +718,10 @@ func TestStatus_SingleEvidenceCrossWindowValidate(t *testing.T) {
 	rows := []*taskRow{evRow, vRow}
 	r.mu.Unlock()
 	zhOut := stripAnsiEscapes(renderRows(t, "zh", rows...))
-	if !strings.Contains(zhOut, "待探索代码并收集证据") {
+	if !strings.Contains(zhOut, "待收集证据") {
 		t.Errorf("evidence must render lexically as pending '待 …'; got:\n%s", zhOut)
 	}
-	if strings.Contains(zhOut, "正在探索代码并收集证据") {
+	if strings.Contains(zhOut, "正在收集证据") {
 		t.Errorf("evidence must NOT render as running '正在 …'; got:\n%s", zhOut)
 	}
 	if !strings.Contains(zhOut, "正在交叉验证证据") {
@@ -846,10 +845,10 @@ func TestStatus_PausedRowRendersAsPending(t *testing.T) {
 	}
 	// Paused evidence reads as pending — same lexical form pending
 	// rows use, so the user sees only ONE active stage at a time.
-	if !strings.Contains(out, "待探索代码并收集证据") {
+	if !strings.Contains(out, "待收集证据") {
 		t.Errorf("paused evidence row must show pending phrase; got:\n%s", out)
 	}
-	if strings.Contains(out, "正在探索代码并收集证据") {
+	if strings.Contains(out, "正在收集证据") {
 		t.Errorf("paused evidence row must NOT show running phrase; got:\n%s", out)
 	}
 }
@@ -872,7 +871,7 @@ func TestStatus_TopicGroupAllDoneIconAndState(t *testing.T) {
 	if !strings.Contains(out, "已完成证据收集") {
 		t.Errorf("all-done topic group must show done primary text; got:\n%s", out)
 	}
-	if strings.Contains(out, "正在探索代码并收集证据") {
+	if strings.Contains(out, "正在收集证据") {
 		t.Errorf("all-done topic group must NOT show running text; got:\n%s", out)
 	}
 }
@@ -890,7 +889,7 @@ func TestStatus_TopicGroupPartialDoneStaysRunning(t *testing.T) {
 			objective: "topic B" /* no endTime → still running */},
 	}
 	out := renderRows(t, "zh", rows...)
-	if !strings.Contains(out, "正在探索代码并收集证据") {
+	if !strings.Contains(out, "正在收集证据") {
 		t.Errorf("partial-done topic group must show running text; got:\n%s", out)
 	}
 	if strings.Contains(out, "已完成证据收集") {

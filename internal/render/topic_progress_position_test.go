@@ -77,7 +77,7 @@ func TestComposeDockRow2_TopicOrdinalHidden(t *testing.T) {
 	row := composeDockRow2(dockRowState{
 		stageProgress:         "2/4",
 		topicProgress:         topicText,
-		stageLabel:            "正在探索代码并收集证据",
+		stageLabel:            "正在收集证据",
 		modelID:               "MiniMax-M2.7-highspeed",
 		contextTokensEstimate: 61000,
 		contextWindowTokens:   200000,
@@ -85,7 +85,7 @@ func TestComposeDockRow2_TopicOrdinalHidden(t *testing.T) {
 	})
 	plain := stripAnsiEscapes(row)
 
-	for _, want := range []string{"2/4", "正在探索代码并收集证据", "模型 MiniMax-M2.7-highspeed", "约 61k/200k tok"} {
+	for _, want := range []string{"2/4", "正在收集证据", "模型 MiniMax-M2.7-highspeed", "约 61k/200k tok"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("live dock row missing %q; got %q", want, plain)
 		}

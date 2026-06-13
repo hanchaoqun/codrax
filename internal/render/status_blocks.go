@@ -13,9 +13,8 @@ import (
 // statusBlock is one logical unit in the spinner area. Two shapes:
 //
 //   - Kind="line" — a single status row, primary text + detail + meta
-//   - Kind="topic_group" — a parent stage line ("Exploring code,
-//     collecting evidence") followed by an indented list of investigation
-//     units
+//   - Kind="topic_group" — a parent stage line ("Collecting evidence")
+//     followed by an indented list of investigation units
 //
 // All taskRow → screen rendering goes through buildStatusBlocks +
 // renderStatusBlock so taskRow consumers (event handlers) can stay
@@ -64,12 +63,12 @@ func (r *Renderer) buildStatusBlocks(rows []*taskRow, frame string, now time.Tim
 	// timeline reads in pipeline order:
 	//
 	//   ✓ 已理解问题 (analyze)
-	//   ⠙ 正在探索代码并收集证据 (topic group, with focus bullets)
+	//   ⠙ 正在收集证据 (topic group, with focus bullets)
 	//   · 正在校核分析结论 (validate)
 	//   ...
 	//
 	// Pre-2026-04-30 the group was UNCONDITIONALLY prepended to
-	// blocks[0]; that put "正在探索 …" ABOVE the analyze row, which
+	// blocks[0]; that put the evidence row ABOVE the analyze row, which
 	// the user read as "topic group is missing" because the eye
 	// scans down from "已理解问题" and lands on the next stage
 	// (校核分析结论) without registering the dim pending evidence
@@ -159,13 +158,14 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	// each topic row is a per-sub-topic NodeEvidence
 	// (compiler.expandEvidenceNodes splits explore into N evidence
 	// nodes when multiple sub-topics are present). Using the
-	// "evidence" key surfaces the substantive label "正在探索代码
-	// 并收集证据 / Exploring code, collecting evidence" that tells
-	// the user this is the read_file / grep / repo_map phase.
+	// "evidence" key surfaces the substantive label "正在收集证据 /
+	// Collecting evidence" that tells the user this is the grounded
+	// evidence phase, regardless of whether the active lane is source,
+	// trace/log, history, command output, or an external observation.
 	//
 	// Pre-2026-04-30 the parent line used "explore" → "正在深入
 	// 分析" as an artificial umbrella layer; the user reported the
-	// "探索代码" wording never reached the UI because production
+	// evidence wording never reached the UI because production
 	// runs are predominantly multi-topic and individual evidence
 	// rows fold into the bullet list. The substantive label only
 	// rendered for single-topic flow which is rare. Switching the
@@ -183,7 +183,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	//   - otherwise:  at least one row is actively running → state=running
 	// The pending / paused folding is load-bearing — without it a
 	// group whose topics are all parked behind validate's dispatch
-	// would still render "正在探索代码 …" and read as concurrent
+	// would still render a running evidence row and read as concurrent
 	// execution next to the active validate row.
 	allDone := true
 	allPending := true

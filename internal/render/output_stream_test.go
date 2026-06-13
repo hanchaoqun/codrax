@@ -639,7 +639,7 @@ func TestRenderer_NonTTYProgressUsesREPLStagePhrases(t *testing.T) {
 	})
 
 	out := stripAnsiEscapes(buf.String())
-	for _, want := range []string{"→ 正在深入分析", "→ 正在探索代码并收集证据", "✓ 已交叉验证证据"} {
+	for _, want := range []string{"→ 正在深入分析", "→ 正在收集证据", "✓ 已交叉验证证据"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("non-TTY progress should use REPL stage phrase %q; got %q", want, out)
 		}
@@ -649,7 +649,7 @@ func TestRenderer_NonTTYProgressUsesREPLStagePhrases(t *testing.T) {
 			t.Fatalf("non-TTY progress leaked internal label/objective %q; got %q", banned, out)
 		}
 	}
-	if got := strings.Count(out, "→ 正在探索代码并收集证据"); got != 1 {
+	if got := strings.Count(out, "→ 正在收集证据"); got != 1 {
 		t.Fatalf("non-TTY progress should collapse consecutive duplicate node labels, got %d in %q", got, out)
 	}
 }

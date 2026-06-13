@@ -5,8 +5,8 @@
 This document records the residual gaps found after running the real
 `xxx_all.systrace` customer trace through the current system. The validation
 question must be low-leading: ask for "卡顿原因" / "jank causes" and require
-multi-level analysis, but do not bake in a negative hint such as "排除 isplogcat
-D 状态".
+multi-level analysis, but do not bake in a negative hint that names a specific
+off-chain thread/state to rule out.
 
 Target trace:
 
@@ -72,9 +72,9 @@ Commercial requirement:
 ### Gap 3: Trace-only runs still carry source-oriented workflow artifacts
 
 The end-to-end run still performed repository index work and displayed
-"探索代码" style status text, even though the user explicitly requested trace
+source-oriented stage text, even though the user explicitly requested trace
 analysis only. Exploration eventually used `trace_query`, but perf-triage and
-stage presentation still create a source-analysis feel and extra cost.
+stage presentation still created a source-analysis feel and extra cost.
 
 Commercial requirement:
 
@@ -105,10 +105,11 @@ Commercial requirement:
 Future validation questions for `xxx_all.systrace` should be low-leading and
 multi-level:
 
-- Use "卡顿原因" instead of "卡顿主因".
+- Use "卡顿原因" as the canonical wording.
 - Ask for direct trigger, dependency-chain cause, scheduler/resource context,
   and auxiliary investigation directions.
-- Do not include a negative hint like "排除 isplogcat D 状态".
+- Do not include a negative hint that names a specific off-chain thread/state
+  to rule out.
 - Do not pre-give the expected wakeup chain; the system must derive it.
 
 Example:
@@ -164,4 +165,3 @@ Example:
   and auxiliary-only rows.
 - Verify no off-chain log/system thread is presented as primary when on-chain
   evidence exists.
-

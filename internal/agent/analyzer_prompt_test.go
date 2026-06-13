@@ -636,6 +636,7 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		"do NOT run a source-code pre-scan",
 		"External observations default to mixed external + current-source analysis",
 		"external_observation_policy.current_source_mode=exclude",
+		"copy the exact user phrase into source_quotes",
 		"keep the default current-source lane available",
 	} {
 		if !strings.Contains(rendered, want) {

@@ -352,7 +352,7 @@ func TestComposeDockRow2_ParallelMetaSitsWithStageBeforeModel(t *testing.T) {
 	state := dockRowState{
 		stageKey:      "evidence",
 		stageProgress: "2/4",
-		stageLabel:    "正在探索代码并收集证据",
+		stageLabel:    "正在收集证据",
 		modelID:       "MiniMax-M2.7-highspeed",
 		lang:          "zh",
 		parallel: &parallelActivitySnapshot{
@@ -705,7 +705,7 @@ func TestRenderer_LiveExploreContentAnchorsDockBeforeExtractFallback(t *testing.
 	if !strings.Contains(row1, "接收中") {
 		t.Fatalf("explore stream content must show receiving activity; got row1=%q", row1)
 	}
-	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+	for _, want := range []string{"2/4", "正在收集证据"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("live explore content must anchor row2 to explore, missing %q: %q", want, row2)
 		}
@@ -735,7 +735,7 @@ func TestRenderer_LiveExploreToolBatchAnchorsDockBeforeExtractFallback(t *testin
 	})
 
 	row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+	for _, want := range []string{"2/4", "正在收集证据"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("explore tool batch must anchor row2 to explore, missing %q: %q", want, row2)
 		}
@@ -770,7 +770,7 @@ func TestRenderer_RepoMapNoticeUsesExplicitEventStage(t *testing.T) {
 		t.Fatalf("repo_map notice must not inherit extract fallback progress, got output:\n%s", persistent)
 	}
 	row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+	for _, want := range []string{"2/4", "正在收集证据"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("repo_map scan activity must anchor row2 to explore, missing %q: %q", want, row2)
 		}
@@ -873,7 +873,7 @@ func TestRenderer_LocalExtractWorkCannotLeapfrogUnstartedExplore(t *testing.T) {
 	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(30 * time.Millisecond), Stage: "extract"})
 
 	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+	for _, want := range []string{"2/4", "正在收集证据"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("local extract prep must stay on unstarted upstream explore, missing %q: %q", want, row)
 		}
@@ -899,7 +899,7 @@ func TestRenderer_LocalFinalizeWorkCannotLeapfrogUnstartedExploreWithoutAnalyzeR
 	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(10 * time.Millisecond), Stage: "finalize"})
 
 	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+	for _, want := range []string{"2/4", "正在收集证据"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("downstream local prep must stay on unstarted upstream explore even without an analyze row, missing %q: %q", want, row)
 		}
@@ -986,7 +986,7 @@ func TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract(t *testing.T) {
 	if !strings.Contains(row1, "并行") {
 		t.Fatalf("active parallel dispatch must own row1 until the dispatch ends; got %q", row1)
 	}
-	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个调查单元", "证据通道：历史"} {
+	for _, want := range []string{"2/4", "正在收集证据", "并行 2 路", "2 个调查单元", "证据通道：历史"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("active parallel explore row missing %q: %q", want, row2)
 		}
@@ -1026,7 +1026,7 @@ func TestRenderer_ActiveExploreParallelUsesExploreSlotAfterHighWater(t *testing.
 	})
 
 	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路"} {
+	for _, want := range []string{"2/4", "正在收集证据", "并行 2 路"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("active parallel explore after high-water missing %q: %q", want, row)
 		}
@@ -1059,7 +1059,7 @@ func TestRenderer_DockBacktrackKeepsProgressAndNamesRepairStage(t *testing.T) {
 	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(80 * time.Millisecond), Stage: "explore"})
 
 	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
-	if !strings.Contains(row, "4/4") || !strings.Contains(row, "修复中：正在探索代码并收集证据") {
+	if !strings.Contains(row, "4/4") || !strings.Contains(row, "修复中：正在收集证据") {
 		t.Fatalf("post-finalize backtrack should keep primary progress and name repair sub-stage; got %q", row)
 	}
 	if strings.Contains(row, "2/4") {

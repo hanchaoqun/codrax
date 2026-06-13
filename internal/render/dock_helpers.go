@@ -80,7 +80,7 @@ func (r *Renderer) focusRow() *taskRow {
 //     reads cleaner than "what just ended" when the next dispatch
 //     is imminent (e.g. between evidence_t0 end and evidence_t1
 //     start, fallback returns evidence_t1 so row 2 shows
-//     "正在探索代码并收集证据" continuously instead of flickering
+//     "正在收集证据" continuously instead of flickering
 //     to "已 X" between siblings).
 //  2. Otherwise, the most recently finished row (max endTime) so
 //     the user reads "已 X" of the just-completed step instead of
