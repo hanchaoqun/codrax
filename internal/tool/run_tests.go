@@ -218,9 +218,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	var p runTestsParams
 	if len(params) > 0 {
-		params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
-		if err := json.Unmarshal(params, &p); err != nil {
-			return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
+		if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+			return *decodeFailure, err
 		}
 	}
 

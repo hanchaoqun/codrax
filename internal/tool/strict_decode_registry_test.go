@@ -35,17 +35,12 @@ import (
 // DisallowUnknownFields, then the typed strict-decode failure path) and
 // remove its entry here.
 var strictDecodeExemptTools = map[string]string{
-	"exec_command":                "lenient decode; not yet onboarded",
-	"grep":                        "lenient decode; not yet onboarded",
-	"read_file":                   "lenient decode; not yet onboarded",
-	"list_files":                  "lenient decode; not yet onboarded",
 	"git_diff":                    "lenient decode; not yet onboarded",
 	"git_show":                    "lenient decode; not yet onboarded",
 	"git_log":                     "lenient decode; not yet onboarded",
 	"git_history_search":          "lenient decode; not yet onboarded",
 	"emit_multi_repo_focus":       "lenient decode; not yet onboarded",
 	"emit_analysis":               "lenient decode with bespoke local-model normalization; not yet onboarded",
-	"run_tests":                   "lenient decode; not yet onboarded",
 	"recall_memory":               "lenient decode; not yet onboarded",
 	"list_memory":                 "lenient decode; not yet onboarded",
 	"propose_sub_agents":          "lenient decode; not yet onboarded",

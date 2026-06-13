@@ -431,8 +431,8 @@ func (t *ExecCommand) Parameters() json.RawMessage {
 
 func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p execCommandParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 	command := p.Command
 	var compatibilityNote string
@@ -1111,8 +1111,8 @@ func (t *GrepTool) Parameters() json.RawMessage {
 
 func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p grepToolParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	// L1 negative-knowledge gate (R3 second-axis enforcement):
@@ -2823,22 +2823,36 @@ func (t *ReadFile) Parameters() json.RawMessage {
 }`)
 }
 
-func decodeReadFileParams(raw json.RawMessage) (readFileParams, bool, error) {
+func readFileDecodeParameters() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "path":        {"type": "string",  "description": "Path to the file to read"},
+    "line_offset": {"type": "integer", "description": "Preferred starting zero-based LINE offset. line_offset=100 starts at source line 101. This is not a byte or character offset."},
+    "offset":      {"type": "integer", "description": "Deprecated backend-only alias for line_offset. Kept for compatibility; model-facing schema must use line_offset."},
+    "limit":       {"type": "integer", "description": "Maximum number of lines to return (optional)"}
+  },
+  "required": ["path"]
+}`)
+}
+
+func decodeReadFileParams(raw json.RawMessage) (readFileParams, bool, *types.ToolResult, error) {
 	var p readFileParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return p, false, err
+	normalized, decodeFailure, err := decodeStrictToolParams("read_file", raw, readFileDecodeParameters(), &p, nil)
+	if err != nil {
+		return p, false, decodeFailure, err
 	}
 	if p.LineOffset != nil {
 		p.Offset = *p.LineOffset
-		return p, false, nil
+		return p, false, nil, nil
 	}
 	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &probe); err == nil {
+	if err := json.Unmarshal(normalized, &probe); err == nil {
 		if _, ok := probe["offset"]; ok {
-			return p, true, nil
+			return p, true, nil, nil
 		}
 	}
-	return p, false, nil
+	return p, false, nil, nil
 }
 
 // Denial lookups for refusal rendering live on TypedDenialSet itself
@@ -2846,9 +2860,9 @@ func decodeReadFileParams(raw json.RawMessage) (readFileParams, bool, error) {
 // match rules, one lock acquisition, shared with the repo_map gate.
 
 func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
-	p, usedLegacyOffset, err := decodeReadFileParams(params)
+	p, usedLegacyOffset, decodeFailure, err := decodeReadFileParams(params)
 	if err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+		return *decodeFailure, err
 	}
 	lineOffset := p.Offset.Int()
 	limit := p.Limit.Int()
@@ -3120,8 +3134,8 @@ func (t *ListFiles) Parameters() json.RawMessage {
 
 func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p listFilesParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
+		return *decodeFailure, err
 	}
 
 	// L1 multi-repo active-set gate (Phase 1.L1, 2026-05-08): refuse
