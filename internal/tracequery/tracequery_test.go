@@ -1015,6 +1015,35 @@ func TestSchedulerLatencyStatsQuantifiesRunnableWaitAndCompetition(t *testing.T)
 	}
 }
 
+func TestSchedulerLatencyStatsIncludesWakeupToRunDelay(t *testing.T) {
+	idx := buildTraceIndex(t, "wakeup_latency.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+         net-300 (100) [003] .... 1.001200: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 1.009500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 1.010000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 1.010020: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	res := Run(idx, Query{View: "scheduler_latency_stats", PID: 200, TimeStart: 1.001, TimeEnd: 1.010, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if res.SchedulerLatency == nil || res.SchedulerLatency.Count != 1 {
+		t.Fatalf("expected wakeup-to-run latency item, got %+v", res.SchedulerLatency)
+	}
+	item := res.SchedulerLatency.Items[0]
+	if item.Thread.PID != 200 || !near(item.DurationMs, 8.3, 0.001) || item.StartLine == 0 || item.Priority != 20 {
+		t.Fatalf("wakeup-to-run latency should use sched_wakeup start and wakee priority: %+v", item)
+	}
+	stats := ComputeWindowStats(idx, Query{PID: 200, TimeStart: 1.001, TimeEnd: 1.010, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	found := false
+	for _, td := range stats.RunnableTop {
+		if td.Thread.PID == 200 && near(td.DurationMs, 8.3, 0.001) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("window_stats runnable_top should include wakeup-to-run wait: %+v", stats.RunnableTop)
+	}
+}
+
 func TestWindowStatsComputeSupplyAndRootCauseRankUseSchedulerLatency(t *testing.T) {
 	idx := buildTraceIndex(t, "scheduler.systrace", schedulerLatencyTrace)
 	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
@@ -1298,6 +1327,93 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 	if len(chain.RootEvidence) == 0 {
 		t.Fatalf("expected root evidence: %+v", chain)
+	}
+}
+
+func TestWakeupChainCausalImpactPromotesLongRunnableDependency(t *testing.T) {
+	idx := buildTraceIndex(t, "causal_runnable.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+         net-300 (100) [003] .... 1.001200: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 1.009500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 1.010000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 1.010020: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.010, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(chain.Edges) != 1 || chain.Edges[0].Waker.PID != 200 || !chain.Edges[0].PriorityInversionCandidate {
+		t.Fatalf("expected direct lower-priority wakeup edge: %+v", chain.Edges)
+	}
+	var worker *WakeupCausalImpact
+	for i := range chain.CausalImpacts {
+		if chain.CausalImpacts[i].Thread.PID == 200 {
+			worker = &chain.CausalImpacts[i]
+			break
+		}
+	}
+	if worker == nil || worker.DominantState != string(StateRunnable) || !near(worker.RunnableMs, 8.3, 0.001) || !worker.PriorityInversionCandidate {
+		t.Fatalf("long runnable dependency should dominate over short sleep: %+v", chain.CausalImpacts)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.010, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 8})
+	if len(rank.Items) == 0 || rank.Items[0].Causality != "on_wakeup_chain" || rank.Items[0].Thread.PID != 200 || rank.Items[0].Type != "priority_inversion_candidate" {
+		t.Fatalf("root cause rank should promote on-chain runnable priority inversion: %+v", rank.Items)
+	}
+}
+
+func TestWakeupChainUsesBoundaryToleranceForAdjacentWakeup(t *testing.T) {
+	idx := buildTraceIndex(t, "boundary.systrace", `
+        app-100 (100) [001] .... 1.020000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.030001: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.030020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 1.020, TimeEnd: 1.030000, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(chain.Edges) != 1 || chain.Edges[0].WakeupLine == 0 {
+		t.Fatalf("adjacent wakeup should match with boundary tolerance: %+v", chain)
+	}
+	if !containsSubstring(chain.Caveats, "boundary tolerance") {
+		t.Fatalf("tolerance match should be auditable: %+v", chain.Caveats)
+	}
+}
+
+func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
+	idx := buildTraceIndex(t, "causal_io.systrace", `
+        app-100 (100) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-900 (900) [005] .... 2.000500: sched_switch: prev_comm=logger prev_pid=900 prev_prio=20 prev_state=D ==> next_comm=idle/5 next_pid=0 next_prio=120
+      cookie-200 (100) [002] .... 2.001000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+     network-300 (100) [003] .... 2.002000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+  threadpool-400 (100) [004] .... 2.003000: sched_switch: prev_comm=threadpool prev_pid=400 prev_prio=20 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120
+          irq-2 (2) [004] .... 2.004000: sched_blocked_reason: pid=400 iowait=1 caller=fscache_page_wait_on_page_bit
+          irq-2 (2) [004] .... 2.014000: sched_wakeup: comm=threadpool pid=400 prio=20 target_cpu=004
+  threadpool-400 (100) [004] .... 2.015000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=threadpool next_pid=400 next_prio=20
+  threadpool-400 (100) [004] .... 2.016000: sched_wakeup: comm=network pid=300 prio=20 target_cpu=003
+     network-300 (100) [003] .... 2.017000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=network next_pid=300 next_prio=20
+     network-300 (100) [003] .... 2.018000: sched_wakeup: comm=cookie pid=200 prio=20 target_cpu=002
+      cookie-200 (100) [002] .... 2.019000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=cookie next_pid=200 next_prio=20
+      cookie-200 (100) [002] .... 2.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 2.020020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+          irq-2 (2) [005] .... 2.020500: sched_wakeup: comm=logger pid=900 prio=20 target_cpu=005
+	`)
+	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 2.0, TimeEnd: 2.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(chain.Edges) != 3 {
+		t.Fatalf("expected threadpool->network->cookie->app chain: %+v", chain.Edges)
+	}
+	var pool *WakeupCausalImpact
+	for i := range chain.CausalImpacts {
+		if chain.CausalImpacts[i].Thread.PID == 400 {
+			pool = &chain.CausalImpacts[i]
+			break
+		}
+	}
+	if pool == nil || pool.DominantState != string(StateIOWait) || pool.IOWaitMs < 10 || !pool.PriorityInversionCandidate {
+		t.Fatalf("threadpool D/IO impact should be on chain: %+v", chain.CausalImpacts)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 2.0, TimeEnd: 2.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 10})
+	if len(rank.Items) == 0 || rank.Items[0].Causality != "on_wakeup_chain" || rank.Items[0].Thread.PID != 400 {
+		t.Fatalf("on-chain threadpool D/IO should rank before off-chain pressure: %+v", rank.Items)
+	}
+	for _, item := range rank.Items {
+		if item.Thread.PID == 900 && item.Causality != "background" {
+			t.Fatalf("off-chain D-state should be background, got %+v", item)
+		}
 	}
 }
 

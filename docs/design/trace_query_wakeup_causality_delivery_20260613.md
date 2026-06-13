@@ -80,9 +80,11 @@ decode.
   can be combined for the blocking summary while still preserving separate
   raw totals.
 - The target node explains the symptom. Dependency nodes explain causes.
-- Lower-priority dependency + target wait + dependency runnable/D/IO/sleep
-  impact becomes `priority_inversion_candidate=true` when the trace flavor has
-  known priority ordering.
+- Lower-priority dependency + target wait + dependency runnable/D/IO impact
+  becomes `priority_inversion_candidate=true` when the trace flavor has known
+  priority ordering. Intermediate sleep nodes that have an upstream waker remain
+  in `wakeup_chain.causal_impacts` as path evidence, but do not become primary
+  root-cause rank items by themselves.
 - When a wakeup chain exists, background pressure remains in the result but its
   rank impact is capped to a fraction of the selected window unless it is
   directly attached to a chain thread. This prevents unrelated long D-state or
@@ -112,35 +114,35 @@ decode.
 
 - [x] A1: Record the generalized design, fields, ranking rules, prompt/hint
   obligations, JSON repair obligations, and tests in this document.
-- [ ] A2: Add tests that lock current gaps with synthetic traces:
+- [x] A2: Add tests that lock current gaps with synthetic traces:
   wakeup-to-run latency, short-sleep/long-runnable dependency, boundary
   tolerance, chain D/IO root, and off-chain background pressure demotion.
 
 ### Batch B: Causal Impact Data Model
 
-- [ ] B1: Add `WakeupCausalImpact` and optional causal fields on
+- [x] B1: Add `WakeupCausalImpact` and optional causal fields on
   `RootCauseRankItem`.
-- [ ] B2: Add a helper that summarizes a thread's aligned timeline into
+- [x] B2: Add a helper that summarizes a thread's aligned timeline into
   cumulative state impact, fragments, p95/max segment, line range, priority,
   and next-step guidance.
-- [ ] B3: Attach `causal_impacts` to `ChainResult` for every node.
-- [ ] B4: Change chain node selection to prefer cumulative/duration impact over
+- [x] B3: Attach `causal_impacts` to `ChainResult` for every node.
+- [x] B4: Change chain node selection to prefer cumulative/duration impact over
   state-name priority while preserving recursive wakeup traversal.
 
 ### Batch C: Scheduler and Boundary Semantics
 
-- [ ] C1: Extend `scheduler_latency_stats` to count wakeup-to-run runnable
+- [x] C1: Extend `scheduler_latency_stats` to count wakeup-to-run runnable
   delay from `sched_wakeup` / `sched_waking`.
-- [ ] C2: Add a small timestamp boundary tolerance to wakeup matching and
+- [x] C2: Add a small timestamp boundary tolerance to wakeup matching and
   disclose it through caveats when used.
-- [ ] C3: Add trace-flavor-aware priority comparison helpers and surface
+- [x] C3: Add trace-flavor-aware priority comparison helpers and surface
   priority inversion candidates on chain impacts and wakeup edges.
 
 ### Batch D: Ranking and Handoff
 
-- [ ] D1: Add on-chain causal root-cause candidates from
+- [x] D1: Add on-chain causal root-cause candidates from
   `wakeup_chain.causal_impacts`.
-- [ ] D2: Demote off-chain background pressure when an on-chain dependency
+- [x] D2: Demote off-chain background pressure when an on-chain dependency
   exists, without hiding the supporting evidence.
 - [ ] D3: Extend trace-query summaries and typed observations for
   causal-impact records.

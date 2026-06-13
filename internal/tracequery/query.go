@@ -13,6 +13,8 @@ import (
 // Soft guidance only: the typed UnparsedLines counter gates nothing.
 const unparsedLineCaveatRatio = 0.5
 
+const wakeupMatchToleranceSec = 0.000005
+
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
 	explicitTimeEnd := q.TimeEnd != 0
@@ -562,14 +564,14 @@ func normalizeQuery(idx *Index, q Query) Query {
 }
 
 func ensureQueryFlavor(idx *Index, q Query) Query {
-	if q.TraceFlavor != "" && q.TraceFlavor != TraceFlavorAuto {
+	if q.TraceFlavor != "" && q.TraceFlavor != TraceFlavorAuto && q.TraceFlavor != TraceFlavorGenericFtrace {
 		return q
 	}
-	if idx != nil && idx.TraceFlavor != "" {
-		q.TraceFlavor = idx.TraceFlavor
-	} else {
-		q.TraceFlavor = TraceFlavorGenericFtrace
+	flavor, _, _, _ := resolveTraceFlavor(idx, q)
+	if flavor == "" || flavor == TraceFlavorAuto {
+		flavor = TraceFlavorGenericFtrace
 	}
+	q.TraceFlavor = flavor
 	return q
 }
 
@@ -1290,7 +1292,33 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 		}
 	}
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
+		if !eventLineInWindow(ev, q) {
+			continue
+		}
+		if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
+			if ev.WakeePID <= 0 || !timeInWindow(ev.Ts, q) {
+				continue
+			}
+			if start, ok := open[ev.WakeePID]; ok {
+				switch start.state {
+				case StateRunnable:
+					continue
+				case StateDSleep, StateIOWait:
+					addDuration(dstate, start, ev.Ts, ev.Line)
+				}
+			}
+			open[ev.WakeePID] = offCPUStart{
+				thread:        ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID},
+				state:         StateRunnable,
+				ts:            ev.Ts,
+				line:          ev.Line,
+				cpu:           ev.TargetCPU,
+				priority:      ev.WakeePrio,
+				priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
+			}
+			continue
+		}
+		if ev.Type != EventSchedSwitch {
 			continue
 		}
 		if ev.NextPID > 0 {
@@ -1442,6 +1470,31 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	}
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
+			if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
+				if ev.WakeePID > 0 {
+					if target.PID > 0 || target.Comm != "" {
+						if !threadMatches(target, ev.WakeePID, ev.WakeeComm) {
+							continue
+						}
+					}
+					if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
+						continue
+					}
+					if q.TimeStart > 0 && ev.Ts < q.TimeStart {
+						continue
+					}
+					if existing, ok := open[ev.WakeePID]; !ok || ev.Ts < existing.ts {
+						open[ev.WakeePID] = startInfo{
+							thread:        ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID},
+							ts:            ev.Ts,
+							line:          ev.Line,
+							cpu:           ev.TargetCPU,
+							priority:      ev.WakeePrio,
+							priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
+						}
+					}
+				}
+			}
 			continue
 		}
 		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
@@ -3542,6 +3595,7 @@ func sortedIntSet(in map[int]bool) []int {
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {
 	q = normalizeQuery(idx, q)
+	q = ensureQueryFlavor(idx, q)
 	target := resolveThread(idx, q)
 	res := ChainResult{Target: target, Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
 	if target.PID == 0 && target.Comm == "" {
@@ -3555,13 +3609,15 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 	branches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
 	if len(branches) == 0 {
 		visited := map[int]bool{}
-		expandChain(idx, q, target, q.TimeStart, q.TimeEnd, 0, visited, &res, "")
+		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
+		expandChain(idx, q, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "")
 		attachIPCGraphToChain(idx, q, &res)
 		return res
 	}
 	for _, branch := range branches {
 		visited := map[int]bool{}
-		expandChain(idx, q, target, branch.StartTs, branch.EndTs, 0, visited, &res, "")
+		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
+		expandChain(idx, q, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "")
 	}
 	attachIPCGraphToChain(idx, q, &res)
 	return res
@@ -3721,6 +3777,17 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
 	}
 	var items []RootCauseRankItem
+	chainThreads := wakeupChainThreadSet(chain)
+	hasCausalChain := len(chainThreads) > 1
+	for _, impact := range chain.CausalImpacts {
+		if impact.ChainDepth <= 0 || impact.TotalMs <= 0 {
+			continue
+		}
+		if isIntermediateSleepImpact(chain, impact) {
+			continue
+		}
+		items = append(items, rootCauseItemFromCausalImpact(impact))
+	}
 	for _, root := range chain.RootEvidence {
 		items = append(items, rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary))
 	}
@@ -3736,10 +3803,17 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		if pressure.HighPriorityRunningMs > 0 {
 			summary = fmt.Sprintf("%s; high-priority running time %.3fms", summary, pressure.HighPriorityRunningMs)
 		}
-		items = append(items, rootCauseItem("cpu_pressure", ThreadRef{}, pressure.RunnableWaitMs, conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary))
+		item := rootCauseItem("cpu_pressure", ThreadRef{}, backgroundImpactMs(q, pressure.RunnableWaitMs, hasCausalChain, false), conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary)
+		if hasCausalChain {
+			item.Causality = "background"
+		}
+		items = append(items, item)
 	}
 	for _, io := range stats.IOLatencies {
-		items = append(items, rootCauseItem("io_latency", io.IssueThread, io.DurationMs, 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs)))
+		onChain := threadInSet(chainThreads, io.IssueThread) || threadInSet(chainThreads, io.CompleteThread)
+		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, io.DurationMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs))
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	for _, file := range stats.FileIOByInode {
 		impact := file.TotalLatencyMs
@@ -3753,21 +3827,30 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		if file.EntryName != "" {
 			summary = fmt.Sprintf("%s name=%s", summary, file.EntryName)
 		}
-		items = append(items, rootCauseItem("file_io_hot_inode", file.Thread, impact, 0.72, file.LineStart, file.LineEnd, "window_stats.file_io_by_inode", summary))
+		onChain := threadInSet(chainThreads, file.Thread)
+		item := rootCauseItem("file_io_hot_inode", file.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.72, file.LineStart, file.LineEnd, "window_stats.file_io_by_inode", summary)
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	for _, cache := range stats.PageCacheByInode {
 		impact := float64(cache.Churn) * 0.3
 		if impact <= 0 {
 			continue
 		}
-		items = append(items, rootCauseItem("page_cache_churn", cache.Thread, impact, 0.66, cache.LineStart, cache.LineEnd, "window_stats.page_cache_by_inode", fmt.Sprintf("page cache churn inode=%s dev=%s adds=%d deletes=%d churn=%d", cache.Inode, cache.Dev, cache.Adds, cache.Deletes, cache.Churn)))
+		onChain := threadInSet(chainThreads, cache.Thread)
+		item := rootCauseItem("page_cache_churn", cache.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.66, cache.LineStart, cache.LineEnd, "window_stats.page_cache_by_inode", fmt.Sprintf("page cache churn inode=%s dev=%s adds=%d deletes=%d churn=%d", cache.Inode, cache.Dev, cache.Adds, cache.Deletes, cache.Churn))
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	if stats.IOPressureSummary != nil && stats.IOPressureSummary.Score > 0 {
 		thread := ThreadRef{}
 		if len(stats.FileIOByInode) > 0 {
 			thread = stats.FileIOByInode[0].Thread
 		}
-		items = append(items, rootCauseItem("io_pressure", thread, stats.IOPressureSummary.Score, 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary))
+		onChain := threadInSet(chainThreads, thread)
+		item := rootCauseItem("io_pressure", thread, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, onChain), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	windowImpactMs := (q.TimeEnd - q.TimeStart) * 1000
 	if windowImpactMs < 0 {
@@ -3783,13 +3866,22 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		items = append(items, rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs)))
 	}
 	for _, td := range stats.RunnableTop {
-		items = append(items, rootCauseItem("runnable_wait", td.Thread, td.DurationMs, 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td))))
+		onChain := threadInSet(chainThreads, td.Thread)
+		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	for _, td := range stats.DStateTop {
-		items = append(items, rootCauseItem("d_state_or_io_wait", td.Thread, td.DurationMs, 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td))))
+		onChain := threadInSet(chainThreads, td.Thread)
+		item := rootCauseItem("d_state_or_io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	for _, churn := range stats.StateChurn {
-		items = append(items, rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, stateChurnRankImpactMs(churn), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary))
+		onChain := threadInSet(chainThreads, churn.Thread)
+		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		items = append(items, item)
 	}
 	for _, burst := range stats.IRQBursts {
 		items = append(items, rootCauseItem("irq_burst", ThreadRef{}, burst.DurationMs, 0.66, burst.LineStart, burst.LineEnd, "window_stats", fmt.Sprintf("IRQ burst %s irq=%d on cpu=%d had %d event(s) over %.3fms", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.DurationMs)))
@@ -3829,6 +3921,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	for _, cpu := range stats.CPU {
 		cpus[cpu.CPU] = cpu
 	}
+	chainThreads := rankCausalThreadSet(rank)
+	hasCausalChain := len(chainThreads) > 0
 	for _, item := range latency.Items {
 		conf := 0.78
 		if item.HighPriorityRunningMs > 0 {
@@ -3838,9 +3932,14 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		if len(item.SameCPUTopRunning) > 0 {
 			summary = fmt.Sprintf("%s; same_cpu_top_running=%s", summary, threadLabel(item.SameCPUTopRunning[0].Thread))
 		}
-		rank.Items = append(rank.Items, rootCauseItem("scheduler_latency", item.Thread, item.DurationMs, conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary))
+		onChain := threadInSet(chainThreads, item.Thread)
+		candidate := rootCauseItem("scheduler_latency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary)
+		candidate.Causality = causalityLabel(hasCausalChain, onChain)
+		rank.Items = append(rank.Items, candidate)
 		if frequencyIsLowForCPU(item.Frequency, cpus[item.CPU]) {
-			rank.Items = append(rank.Items, rootCauseItem("low_frequency", item.Thread, item.DurationMs, 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU)))
+			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU))
+			low.Causality = causalityLabel(hasCausalChain, onChain)
+			rank.Items = append(rank.Items, low)
 		}
 	}
 	for _, supply := range stats.ComputeSupply {
@@ -3850,7 +3949,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			if strings.Contains(supply.Verdict, "low_frequency") {
 				typ = "low_frequency"
 			}
-			rank.Items = append(rank.Items, rootCauseItem(typ, supply.Thread, supply.DurationMs, supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary))
+			onChain := threadInSet(chainThreads, supply.Thread)
+			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
+			candidate.Causality = causalityLabel(hasCausalChain, onChain)
+			rank.Items = append(rank.Items, candidate)
 		}
 	}
 	sort.SliceStable(rank.Items, func(i, j int) bool {
@@ -3878,6 +3980,16 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	return rank
 }
 
+func rankCausalThreadSet(rank RootCauseRankResult) map[int]bool {
+	out := map[int]bool{}
+	for _, item := range rank.Items {
+		if item.Causality == "on_wakeup_chain" && item.Thread.PID > 0 {
+			out[item.Thread.PID] = true
+		}
+	}
+	return out
+}
+
 func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence float64, lineStart, lineEnd int, source, summary string) RootCauseRankItem {
 	if confidence <= 0 {
 		confidence = 0.5
@@ -3895,10 +4007,100 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 	}
 }
 
+func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
+	typ := causalImpactRootType(impact)
+	if impact.PriorityInversionCandidate {
+		typ = "priority_inversion_candidate"
+	}
+	conf := 0.86
+	if impact.PriorityInversionCandidate {
+		conf = 0.91
+	}
+	impactMs := causalImpactBlockingMs(impact)
+	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
+	item.Causality = "on_wakeup_chain"
+	item.ChainDepth = impact.ChainDepth
+	item.TargetImpactMs = impact.TargetBlockedMs
+	item.Score = impactMs * conf * 2.0
+	return item
+}
+
+func wakeupChainThreadSet(chain ChainResult) map[int]bool {
+	out := map[int]bool{}
+	if chain.Target.PID > 0 {
+		out[chain.Target.PID] = true
+	}
+	for _, node := range chain.Nodes {
+		if node.Thread.PID > 0 {
+			out[node.Thread.PID] = true
+		}
+	}
+	for _, impact := range chain.CausalImpacts {
+		if impact.Thread.PID > 0 {
+			out[impact.Thread.PID] = true
+		}
+	}
+	for _, edge := range chain.Edges {
+		if edge.Waker.PID > 0 {
+			out[edge.Waker.PID] = true
+		}
+		if edge.Wakee.PID > 0 {
+			out[edge.Wakee.PID] = true
+		}
+	}
+	return out
+}
+
+func isIntermediateSleepImpact(chain ChainResult, impact WakeupCausalImpact) bool {
+	if impact.ChainDepth <= 0 || impact.DominantState != string(StateSSleep) || impact.Thread.PID <= 0 {
+		return false
+	}
+	for _, edge := range chain.Edges {
+		if edge.Wakee.PID == impact.Thread.PID {
+			return true
+		}
+	}
+	return false
+}
+
+func threadInSet(set map[int]bool, thread ThreadRef) bool {
+	return thread.PID > 0 && set[thread.PID]
+}
+
+func causalityLabel(hasCausalChain, onChain bool) string {
+	if !hasCausalChain {
+		return ""
+	}
+	if onChain {
+		return "on_wakeup_chain"
+	}
+	return "background"
+}
+
+func backgroundImpactMs(q Query, impact float64, hasCausalChain, onChain bool) float64 {
+	if impact <= 0 || !hasCausalChain || onChain {
+		return impact
+	}
+	windowMs := (q.TimeEnd - q.TimeStart) * 1000
+	if windowMs <= 0 {
+		return impact
+	}
+	capMs := windowMs * 0.35
+	if capMs < 0.1 {
+		capMs = 0.1
+	}
+	if impact > capMs {
+		return capMs
+	}
+	return impact
+}
+
 func rootCauseTypeWeight(typ string) float64 {
 	switch typ {
 	case "io_wait", "d_state_or_io_wait", "binder_wait":
 		return 1.25
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		return 1.35
 	case "io_pressure":
 		return 1.12
 	case "file_io_hot_inode":
@@ -4556,7 +4758,7 @@ func tracePeerLabel(peer ThreadRef, edge IPCEdge) string {
 	return ""
 }
 
-func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, depth int, visited map[int]bool, res *ChainResult, parentID string) string {
+func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string) string {
 	if depth >= q.MaxDepth {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("max_depth=%d reached at pid=%d", q.MaxDepth, thread.PID))
 		return ""
@@ -4575,6 +4777,7 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 	tq.TimeStart = start
 	tq.TimeEnd = end
 	tl := ThreadTimeline(idx, tq)
+	impact := summarizeWakeupCausalImpact(idx, q, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
 	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}}
@@ -4587,6 +4790,16 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 		node.Dominant = StateUnknown
 		node.Summary = "no decisive scheduler interval found in aligned window"
 	}
+	if impact.TotalMs > 0 {
+		node.Impact = &impact
+		if impact.DominantState != "" {
+			node.Dominant = ThreadState(impact.DominantState)
+			node.DurationMs = impact.DominantImpactMs
+			node.EvidenceLine = firstPositive(impact.LineStart, node.EvidenceLine, impact.LineEnd)
+			node.Summary = impact.Summary
+		}
+		res.CausalImpacts = append(res.CausalImpacts, impact)
+	}
 	res.Nodes = append(res.Nodes, node)
 	if parentID != "" {
 		// Edge is added by the caller once it knows the wakeup row.
@@ -4597,7 +4810,7 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 	}
 	switch interesting.State {
 	case StateSSleep:
-		wakeup := findWakeupFor(idx, thread, interesting.StartTs, interesting.EndTs)
+		wakeup, usedTolerance := findWakeupFor(idx, thread, interesting.StartTs, interesting.EndTs)
 		if wakeup == nil {
 			res.RootEvidence = append(res.RootEvidence, RootEvidence{
 				Type:       "missing_wakeup",
@@ -4610,43 +4823,275 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 			})
 			return nodeID
 		}
+		if usedTolerance {
+			res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, interesting.EndTs, (wakeup.Ts-interesting.EndTs)*1000000))
+		}
 		waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
-		childID := expandChain(idx, q, waker, interesting.StartTs, wakeup.Ts, depth+1, visited, res, nodeID)
+		childID := expandChain(idx, q, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID)
 		if childID != "" {
+			wakerPrio, wakerClass := threadPriorityNear(idx, q.TraceFlavor, waker, wakeup.Ts)
+			wakeePrio := wakeup.WakeePrio
+			if wakeePrio <= 0 {
+				wakeePrio, _ = threadPriorityNear(idx, q.TraceFlavor, thread, wakeup.Ts)
+			}
+			wakeeClass := classifyTracePriority(q.TraceFlavor, wakeePrio)
+			relation := priorityRelation(q.TraceFlavor, wakeePrio, wakerPrio)
 			res.Edges = append(res.Edges, WakeupEdge{
-				From:         childID,
-				To:           nodeID,
-				Waker:        waker,
-				Wakee:        thread,
-				WakeupTs:     wakeup.Ts,
-				WakeupLine:   wakeup.Line,
-				LatencyMs:    (wakeup.Ts - interesting.StartTs) * 1000,
-				EvidenceLine: wakeup.Line,
+				From:                       childID,
+				To:                         nodeID,
+				Waker:                      waker,
+				Wakee:                      thread,
+				WakeupTs:                   wakeup.Ts,
+				WakeupLine:                 wakeup.Line,
+				LatencyMs:                  (wakeup.Ts - interesting.StartTs) * 1000,
+				WakerPriority:              wakerPrio,
+				WakerPriorityClass:         wakerClass,
+				WakeePriority:              wakeePrio,
+				WakeePriorityClass:         wakeeClass,
+				PriorityRelation:           relation,
+				PriorityInversionCandidate: relation == "lower_priority_waker",
+				EvidenceLine:               wakeup.Line,
 			})
 		}
 	case StateRunnable:
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "runnable_wait", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread was runnable but not running; inspect CPU pressure and priority context", Confidence: 0.8})
+		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread was runnable but not running; inspect CPU pressure and priority context", 0.8))
 	case StateDSleep, StateIOWait:
-		rootType := "d_state_or_io_wait"
-		summary := "thread slept in D state; IO or uninterruptible wait is a root-cause candidate"
-		lineEnd := interesting.EndLine
-		if interesting.State == StateIOWait {
-			rootType = "io_wait"
-		}
+		root := rootEvidenceFromCausalImpact(impact, "thread slept in D state; IO or uninterruptible wait is a root-cause candidate", 0.88)
 		if reason := findBlockedReasonFor(idx, thread, interesting.StartTs, interesting.EndTs); reason != nil {
 			if reason.IOWait > 0 {
-				rootType = "io_wait"
+				root.Type = "io_wait"
 			}
-			lineEnd = firstPositive(reason.Line, lineEnd)
-			summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%d caller=%s", reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
+			root.LineEnd = firstPositive(reason.Line, root.LineEnd)
+			root.Summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%d caller=%s", reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
 		}
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: rootType, Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: lineEnd, Summary: summary, Confidence: 0.88})
+		res.RootEvidence = append(res.RootEvidence, root)
 	case StateRunning:
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "running", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread was running in the aligned window; its own CPU work is root-cause evidence", Confidence: 0.75})
+		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread was running in the aligned window; its own CPU work is root-cause evidence", 0.75))
 	default:
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "unknown_state", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread state could not be classified from scheduler rows", Confidence: 0.5})
+		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread state could not be classified from scheduler rows", 0.5))
 	}
 	return nodeID
+}
+
+func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, intervals []Interval, start, end float64, depth int, targetBlockedMs float64, target ThreadRef) WakeupCausalImpact {
+	item := WakeupCausalImpact{
+		Thread:          thread,
+		Window:          TimeWindow{StartTs: start, EndTs: end},
+		ChainDepth:      depth,
+		OnChain:         true,
+		TargetBlockedMs: targetBlockedMs,
+	}
+	var segments []float64
+	for _, it := range intervals {
+		if it.DurationMs < 0 {
+			continue
+		}
+		item.TotalMs += it.DurationMs
+		item.FragmentCount++
+		segments = append(segments, it.DurationMs)
+		if it.DurationMs > item.MaxSegmentMs {
+			item.MaxSegmentMs = it.DurationMs
+		}
+		if item.LineStart == 0 {
+			item.LineStart = firstPositive(it.StartLine, it.WakeupLine, it.EndLine)
+		}
+		item.LineEnd = firstPositive(it.EndLine, it.WakeupLine, item.LineEnd)
+		switch it.State {
+		case StateRunning:
+			item.RunningMs += it.DurationMs
+		case StateRunnable:
+			item.RunnableMs += it.DurationMs
+		case StateSSleep:
+			item.SleepMs += it.DurationMs
+		case StateDSleep:
+			item.DStateMs += it.DurationMs
+		case StateIOWait:
+			item.IOWaitMs += it.DurationMs
+		}
+	}
+	if item.FragmentCount > 0 {
+		item.StateSwitches = item.FragmentCount - 1
+	}
+	item.P95SegmentMs = percentileFloat64(segments, 0.95)
+	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
+	item.Priority, item.PriorityClass = threadPriorityNear(idx, q.TraceFlavor, thread, (start+end)/2)
+	item.TargetPriority, item.TargetPriorityClass = threadPriorityNear(idx, q.TraceFlavor, target, start)
+	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
+	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" && causalImpactIsPrioritySensitiveRoot(item)
+	item.NextStep = causalImpactNextStep(item)
+	item.Summary = renderWakeupCausalImpactSummary(item)
+	return item
+}
+
+func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
+	type candidate struct {
+		state string
+		ms    float64
+	}
+	candidates := []candidate{
+		{state: string(StateIOWait), ms: item.IOWaitMs},
+		{state: string(StateDSleep), ms: item.DStateMs},
+		{state: string(StateRunnable), ms: item.RunnableMs},
+		{state: string(StateSSleep), ms: item.SleepMs},
+		{state: string(StateRunning), ms: item.RunningMs},
+	}
+	best := candidates[0]
+	for _, cand := range candidates[1:] {
+		if cand.ms > best.ms {
+			best = cand
+		}
+	}
+	return best.state, best.ms
+}
+
+func causalImpactIsPrioritySensitiveRoot(item WakeupCausalImpact) bool {
+	switch item.DominantState {
+	case string(StateRunnable), string(StateDSleep), string(StateIOWait):
+		return causalImpactBlockingMs(item) > 0
+	default:
+		return false
+	}
+}
+
+func causalImpactBlockingMs(item WakeupCausalImpact) float64 {
+	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+		return item.DStateMs + item.IOWaitMs
+	}
+	return item.DominantImpactMs
+}
+
+func causalImpactNextStep(item WakeupCausalImpact) string {
+	base := stateChurnNextStep(item.DominantState)
+	if item.PriorityInversionCandidate {
+		return "inspect lower-priority dependency scheduling delay and same-window CPU pressure; then " + base
+	}
+	return base
+}
+
+func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {
+	summary := fmt.Sprintf("%s on wakeup chain depth=%d dominant_state=%s impact=%.3fms total=%.3fms target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
+		threadLabel(item.Thread), item.ChainDepth, item.DominantState, item.DominantImpactMs, item.TotalMs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.P95SegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
+	if item.Priority > 0 || item.TargetPriority > 0 {
+		summary = fmt.Sprintf("%s priority=%d/%s target_priority=%d/%s relation=%s", summary, item.Priority, item.PriorityClass, item.TargetPriority, item.TargetPriorityClass, item.PriorityRelation)
+	}
+	if item.PriorityInversionCandidate {
+		summary += " priority_inversion_candidate=true"
+	}
+	if item.NextStep != "" {
+		summary += "; next_step=" + item.NextStep
+	}
+	return summary
+}
+
+func rootEvidenceFromCausalImpact(item WakeupCausalImpact, fallback string, confidence float64) RootEvidence {
+	typ := causalImpactRootType(item)
+	duration := causalImpactBlockingMs(item)
+	if duration <= 0 {
+		duration = item.DominantImpactMs
+	}
+	summary := item.Summary
+	if summary == "" {
+		summary = fallback
+	}
+	return RootEvidence{
+		Type:       typ,
+		Thread:     item.Thread,
+		DurationMs: duration,
+		LineStart:  item.LineStart,
+		LineEnd:    item.LineEnd,
+		Summary:    summary,
+		Confidence: confidence,
+	}
+}
+
+func causalImpactRootType(item WakeupCausalImpact) string {
+	switch item.DominantState {
+	case string(StateRunnable):
+		if item.PriorityInversionCandidate {
+			return "priority_inversion_runnable_wait"
+		}
+		return "runnable_wait"
+	case string(StateDSleep):
+		if item.IOWaitMs > 0 {
+			return "io_wait"
+		}
+		return "d_state_or_io_wait"
+	case string(StateIOWait):
+		return "io_wait"
+	case string(StateSSleep):
+		return "sleep_wait"
+	case string(StateRunning):
+		return "running"
+	default:
+		return "unknown_state"
+	}
+}
+
+func threadPriorityNear(idx *Index, flavor TraceFlavor, thread ThreadRef, ts float64) (int, string) {
+	if idx == nil || (thread.PID <= 0 && thread.Comm == "") {
+		return 0, ""
+	}
+	bestPrio := 0
+	bestDist := 0.0
+	consider := func(ev Event, pid int, comm string, prio int) {
+		if prio <= 0 || !threadMatches(thread, pid, comm) {
+			return
+		}
+		dist := ev.Ts - ts
+		if dist < 0 {
+			dist = -dist
+		}
+		if bestPrio == 0 || dist < bestDist {
+			bestPrio = prio
+			bestDist = dist
+		}
+	}
+	for _, ev := range idx.Events {
+		switch ev.Type {
+		case EventSchedSwitch:
+			consider(ev, ev.PrevPID, ev.PrevComm, ev.PrevPrio)
+			consider(ev, ev.NextPID, ev.NextComm, ev.NextPrio)
+		case EventSchedWakeup, EventSchedWaking:
+			consider(ev, ev.WakeePID, ev.WakeeComm, ev.WakeePrio)
+		}
+	}
+	return bestPrio, classifyTracePriority(flavor, bestPrio)
+}
+
+func dependencyPriorityRelation(flavor TraceFlavor, targetPrio, dependencyPrio, depth int) string {
+	if depth <= 0 || targetPrio <= 0 || dependencyPrio <= 0 {
+		return ""
+	}
+	switch flavor {
+	case TraceFlavorHarmonyHitrace:
+		if dependencyPrio < targetPrio {
+			return "lower_priority_dependency"
+		}
+		if dependencyPrio > targetPrio {
+			return "higher_priority_dependency"
+		}
+		return "same_priority_dependency"
+	default:
+		return "raw_priority_uninterpreted"
+	}
+}
+
+func priorityRelation(flavor TraceFlavor, wakeePrio, wakerPrio int) string {
+	if wakeePrio <= 0 || wakerPrio <= 0 {
+		return ""
+	}
+	switch flavor {
+	case TraceFlavorHarmonyHitrace:
+		if wakerPrio < wakeePrio {
+			return "lower_priority_waker"
+		}
+		if wakerPrio > wakeePrio {
+			return "higher_priority_waker"
+		}
+		return "same_priority"
+	default:
+		return "raw_priority_uninterpreted"
+	}
 }
 
 func mostInterestingInterval(intervals []Interval, minDurationMs float64) *Interval {
@@ -4689,6 +5134,9 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 		out = append(out, intervals[i])
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if diff := out[i].DurationMs - out[j].DurationMs; diff > 0.050 || diff < -0.050 {
+			return out[i].DurationMs > out[j].DurationMs
+		}
 		si, sj := score(out[i].State), score(out[j].State)
 		if si != sj {
 			return si > sj
@@ -4713,21 +5161,27 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 	return out
 }
 
-func findWakeupFor(idx *Index, thread ThreadRef, start, end float64) *Event {
+func findWakeupFor(idx *Index, thread ThreadRef, start, end float64) (*Event, bool) {
 	var best *Event
+	usedTolerance := false
 	for i := range idx.Events {
 		ev := &idx.Events[i]
 		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
 			continue
 		}
-		if ev.Ts < start || ev.Ts > end {
+		if ev.Ts < start {
+			continue
+		}
+		inStrict := ev.Ts <= end
+		if !inStrict && ev.Ts > end+wakeupMatchToleranceSec {
 			continue
 		}
 		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
 			best = ev
+			usedTolerance = !inStrict
 		}
 	}
-	return best
+	return best, usedTolerance
 }
 
 func findBlockedReasonFor(idx *Index, thread ThreadRef, start, end float64) *Event {
@@ -5404,7 +5858,7 @@ func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {
 				if it.State != StateSSleep || it.DurationMs < q.MinDurationMs {
 					continue
 				}
-				if findWakeupFor(idx, target, it.StartTs, it.EndTs) == nil {
+				if wakeup, _ := findWakeupFor(idx, target, it.StartTs, it.EndTs); wakeup == nil {
 					out = append(out, fmt.Sprintf("trace completeness: %s has %.3fms sleep interval lines=%d-%d without matching sched_wakeup/sched_waking in the selected window", threadLabel(target), it.DurationMs, it.StartLine, it.EndLine))
 					break
 				}
