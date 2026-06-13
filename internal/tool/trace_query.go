@@ -72,7 +72,7 @@ func traceQueryMemoryForLog() (heapAlloc, heapSys uint64, gcCount uint32) {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path, per-edge wakeup_chain_edge rows, causal_impact rows, and chain_relevance fields (on_chain, adjacent, background); consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, preserve peer, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/workqueue/supply/trace-mark evidence in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, workqueue_activity, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, or inode discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, or one exact timestamp/event token before broad grep. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path, per-edge wakeup_chain_edge rows, causal_impact rows, and chain_relevance fields (on_chain, adjacent, background); consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. root_cause_rank rows carry dominant_state plus running/runnable/sleep/d_state/io_wait totals; when an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background. wakeup_chain also reports aggregated_impact rows when repeated fragmented branches share a common dependency path, so compare the aggregate against single long intervals. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, preserve peer, peer_state, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/workqueue/supply/trace-mark evidence in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, workqueue_activity, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, or inode discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, or one exact timestamp/event token before broad grep. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -83,7 +83,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional platform hint. Use donghu when the user says 东湖: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
-		    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates, including fragmented state_churn candidates when frequent short state switches cumulatively dominate and wakeup_chain causal_impacts candidates when cumulative on-chain dependency impact dominates; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
+		    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates, including dominant_state/running/runnable/sleep/d_state/io_wait totals, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
@@ -1632,6 +1632,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(impact.PriorityRelation), impact.PriorityInversionCandidate,
 				impact.LineStart, impact.LineEnd, sanitizeForBanner(impact.Summary))
 		}
+		for _, aggregate := range result.WakeupChain.AggregatedImpacts {
+			fmt.Fprintf(&b, "- aggregated_impact thread=%s path=%s depth=%d occurrences=%d dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms fragments=%d switches=%d max_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+				traceThreadLabel(aggregate.Thread), sanitizeForBanner(aggregate.Path), aggregate.ChainDepth, aggregate.OccurrenceCount,
+				sanitizeForBanner(aggregate.DominantState), aggregate.DominantImpactMs, aggregate.TotalMs, aggregate.TargetBlockedMs,
+				aggregate.FragmentCount, aggregate.StateSwitches, aggregate.MaxSegmentMs,
+				aggregate.RunningMs, aggregate.RunnableMs, aggregate.SleepMs, aggregate.DStateMs, aggregate.IOWaitMs,
+				sanitizeForBanner(aggregate.PriorityRelation), aggregate.PriorityInversion, aggregate.LineStart, aggregate.LineEnd, sanitizeForBanner(aggregate.Summary))
+		}
 		for _, root := range result.WakeupChain.RootEvidence {
 			fmt.Fprintf(&b, "- root_evidence=%s thread=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
 				root.Type, traceThreadLabel(root.Thread), root.DurationMs, root.LineStart, root.LineEnd, root.Confidence, root.Summary)
@@ -1649,8 +1657,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.RootCauseRank != nil {
 		b.WriteString("## Root cause rank\n")
 		for _, item := range result.RootCauseRank.Items {
-			fmt.Fprintf(&b, "- rank=%d tier=%s type=%s thread=%s window=%.6f..%.6f impact=%.3fms target_impact=%.3fms score=%.3f confidence=%.2f lines=%d-%d source=%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f — %s\n",
+			fmt.Fprintf(&b, "- rank=%d tier=%s type=%s thread=%s window=%.6f..%.6f dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%.3fms target_impact=%.3fms score=%.3f confidence=%.2f lines=%d-%d source=%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f — %s\n",
 				item.Rank, item.Tier, item.Type, traceThreadLabel(item.Thread), item.StartTs, item.EndTs,
+				sanitizeForBanner(item.DominantState), item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs,
 				item.ImpactMs, item.TargetImpactMs, item.Score, item.Confidence,
 				item.LineStart, item.LineEnd, item.Source, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, item.Summary)
@@ -1879,6 +1888,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, item := range result.CriticalBlocking.Items {
 			fmt.Fprintf(&b, "- blocking type=%s thread=%s peer=%s chain_relevance=%s overlap=%.3fms edge_count=%d nearest_chain=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
 				item.Type, traceThreadLabel(item.Thread), traceThreadLabel(item.Peer), sanitizeForBanner(item.ChainRelevance), item.OverlapMs, item.EdgeCount, traceThreadLabel(item.NearestChainThread), item.DurationMs, item.LineStart, item.LineEnd, item.Confidence, item.Summary)
+			if item.PeerState != nil {
+				fmt.Fprintf(&b, "  peer_state thread=%s window=%.6f..%.6f dominant_state=%s total=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms fragments=%d max_segment=%.3fms lines=%d-%d — %s\n",
+					traceThreadLabel(item.PeerState.Thread), item.PeerState.Window.StartTs, item.PeerState.Window.EndTs, sanitizeForBanner(item.PeerState.DominantState), item.PeerState.TotalMs,
+					item.PeerState.RunningMs, item.PeerState.RunnableMs, item.PeerState.SleepMs, item.PeerState.DStateMs, item.PeerState.IOWaitMs,
+					item.PeerState.FragmentCount, item.PeerState.MaxSegmentMs, item.PeerState.LineStart, item.PeerState.LineEnd, sanitizeForBanner(item.PeerState.Summary))
+			}
 		}
 		for _, caveat := range result.CriticalBlocking.Caveats {
 			fmt.Fprintf(&b, "- critical_blocking_caveat=%s\n", caveat)
@@ -1943,8 +1958,8 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 		traceQueryBundleRootCauseCount(bundle), traceQueryBundleBlockingCount(bundle), len(bundle.IOBurstEpisodes), len(bundle.BlockIOByInode), len(bundle.IRQActivity), len(bundle.SoftIRQActivity), len(bundle.WorkqueueActivity), len(bundle.TraceMarkCategories), len(bundle.AsyncFileWork))
 	if bundle.RootCauseRank != nil && len(bundle.RootCauseRank.Items) > 0 {
 		top := bundle.RootCauseRank.Items[0]
-		fmt.Fprintf(b, "- bundle_top_cause type=%s thread=%s chain_relevance=%s impact=%.3fms score=%.3f source=%s — %s\n",
-			top.Type, traceThreadLabel(top.Thread), sanitizeForBanner(top.ChainRelevance), top.ImpactMs, top.Score, sanitizeForBanner(top.Source), sanitizeForBanner(top.Summary))
+		fmt.Fprintf(b, "- bundle_top_cause type=%s thread=%s chain_relevance=%s dominant_state=%s impact=%.3fms d_state=%.3fms io_wait=%.3fms score=%.3f source=%s — %s\n",
+			top.Type, traceThreadLabel(top.Thread), sanitizeForBanner(top.ChainRelevance), sanitizeForBanner(top.DominantState), top.ImpactMs, top.DStateMs, top.IOWaitMs, top.Score, sanitizeForBanner(top.Source), sanitizeForBanner(top.Summary))
 	}
 	if bundle.WakeupChain != nil {
 		if path := traceQueryWakeupChainPath(*bundle.WakeupChain); path != "" {
@@ -2605,6 +2620,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				continue
 			}
 			notes := traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.TargetImpactMs)
+			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				{"chain_relevance", item.ChainRelevance},
 				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
@@ -2776,6 +2792,40 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Confidence:  0.78,
 			})
 		}
+		for i, aggregate := range result.WakeupChain.AggregatedImpacts {
+			if i >= traceQueryTypedFamilyRowCap {
+				break
+			}
+			if strings.TrimSpace(aggregate.DominantState) == "" && strings.TrimSpace(aggregate.Summary) == "" {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_aggregate:%d", scope, i+1),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					LineStart: aggregate.LineStart,
+					LineEnd:   aggregate.LineEnd,
+					StartTs:   aggregate.FirstTs,
+					EndTs:     aggregate.LastTs,
+				},
+				ClaimKey:    "wakeup_causal_aggregate:" + firstNonEmptyTraceString(traceThreadLabel(aggregate.Thread), aggregate.DominantState),
+				Subject:     traceThreadLabel(aggregate.Thread),
+				Predicate:   "wakeup_causal_aggregate",
+				Object:      aggregate.DominantState,
+				Value:       traceQueryObservationMSValue(aggregate.DominantImpactMs),
+				Unit:        "ms",
+				Summary:     aggregate.Summary,
+				RichNotes:   traceQueryTypedCausalAggregateRichNotes(aggregate),
+				SupportRefs: traceQueryObservationSupportRefs(ref, aggregate.LineStart, aggregate.LineEnd),
+				ObservedAt:  at,
+				Confidence:  0.80,
+			})
+		}
 		for i, root := range result.WakeupChain.RootEvidence {
 			if i >= traceQueryTypedFamilyRowCap {
 				break
@@ -2876,6 +2926,17 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality str
 	return notes
 }
 
+func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
+	return traceQueryTypedKVNotes([][2]string{
+		{"dominant_state", item.DominantState},
+		{"running", traceQueryObservationMSValue(item.RunningMs)},
+		{"runnable", traceQueryObservationMSValue(item.RunnableMs)},
+		{"sleep", traceQueryObservationMSValue(item.SleepMs)},
+		{"d_state", traceQueryObservationMSValue(item.DStateMs)},
+		{"io_wait", traceQueryObservationMSValue(item.IOWaitMs)},
+	})
+}
+
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
 	return traceQueryTypedKVNotes([][2]string{
 		{"depth", traceQueryTypedCount(impact.ChainDepth)},
@@ -2901,8 +2962,30 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 	})
 }
 
-func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
+func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {
 	return traceQueryTypedKVNotes([][2]string{
+		{"depth", traceQueryTypedCount(aggregate.ChainDepth)},
+		{"path", aggregate.Path},
+		{"occurrences", traceQueryTypedCount(aggregate.OccurrenceCount)},
+		{"dominant_state", aggregate.DominantState},
+		{"impact", traceQueryObservationMSValue(aggregate.DominantImpactMs)},
+		{"total", traceQueryObservationMSValue(aggregate.TotalMs)},
+		{"target_impact", traceQueryObservationMSValue(aggregate.TargetBlockedMs)},
+		{"fragments", traceQueryTypedCount(aggregate.FragmentCount)},
+		{"switches", traceQueryTypedCount(aggregate.StateSwitches)},
+		{"max_segment", traceQueryObservationMSValue(aggregate.MaxSegmentMs)},
+		{"running", traceQueryObservationMSValue(aggregate.RunningMs)},
+		{"runnable", traceQueryObservationMSValue(aggregate.RunnableMs)},
+		{"sleep", traceQueryObservationMSValue(aggregate.SleepMs)},
+		{"d_state", traceQueryObservationMSValue(aggregate.DStateMs)},
+		{"io_wait", traceQueryObservationMSValue(aggregate.IOWaitMs)},
+		{"priority_relation", aggregate.PriorityRelation},
+		{"priority_inversion_candidate", traceQueryTypedBool(aggregate.PriorityInversion)},
+	})
+}
+
+func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
+	notes := traceQueryTypedKVNotes([][2]string{
 		{"type", item.Type},
 		{"peer", traceThreadLabel(item.Peer)},
 		{"chain_relevance", item.ChainRelevance},
@@ -2910,6 +2993,19 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},
 	})
+	if item.PeerState != nil {
+		notes = append(notes, traceQueryTypedKVNotes([][2]string{
+			{"peer_state_dominant", item.PeerState.DominantState},
+			{"peer_state_total", traceQueryObservationMSValue(item.PeerState.TotalMs)},
+			{"peer_state_running", traceQueryObservationMSValue(item.PeerState.RunningMs)},
+			{"peer_state_runnable", traceQueryObservationMSValue(item.PeerState.RunnableMs)},
+			{"peer_state_sleep", traceQueryObservationMSValue(item.PeerState.SleepMs)},
+			{"peer_state_d_state", traceQueryObservationMSValue(item.PeerState.DStateMs)},
+			{"peer_state_io_wait", traceQueryObservationMSValue(item.PeerState.IOWaitMs)},
+			{"peer_state_fragments", traceQueryTypedCount(item.PeerState.FragmentCount)},
+		})...)
+	}
+	return notes
 }
 
 func traceQuerySortedWakeupEdges(chain tracequery.ChainResult) []tracequery.WakeupEdge {

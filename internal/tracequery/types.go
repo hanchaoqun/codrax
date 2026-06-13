@@ -953,6 +953,12 @@ type RootCauseRankItem struct {
 	Thread             ThreadRef  `json:"thread,omitempty"`
 	StartTs            float64    `json:"start_ts,omitempty"`
 	EndTs              float64    `json:"end_ts,omitempty"`
+	DominantState      string     `json:"dominant_state,omitempty"`
+	RunningMs          float64    `json:"running_ms,omitempty"`
+	RunnableMs         float64    `json:"runnable_ms,omitempty"`
+	SleepMs            float64    `json:"sleep_ms,omitempty"`
+	DStateMs           float64    `json:"d_state_ms,omitempty"`
+	IOWaitMs           float64    `json:"io_wait_ms,omitempty"`
 	ImpactMs           float64    `json:"impact_ms,omitempty"`
 	TargetImpactMs     float64    `json:"target_impact_ms,omitempty"`
 	Score              float64    `json:"score,omitempty"`
@@ -1070,21 +1076,39 @@ type CriticalBlockingResult struct {
 }
 
 type CriticalBlockingCandidate struct {
-	Type               string     `json:"type,omitempty"`
-	Thread             ThreadRef  `json:"thread,omitempty"`
-	Peer               ThreadRef  `json:"peer,omitempty"`
-	ChainRelevance     string     `json:"chain_relevance,omitempty"`
-	OverlapMs          float64    `json:"overlap_ms,omitempty"`
-	EdgeCount          int        `json:"edge_count,omitempty"`
-	NearestChainThread ThreadRef  `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow TimeWindow `json:"nearest_chain_window,omitempty"`
-	DurationMs         float64    `json:"duration_ms,omitempty"`
-	StartTs            float64    `json:"start_ts,omitempty"`
-	EndTs              float64    `json:"end_ts,omitempty"`
-	LineStart          int        `json:"line_start,omitempty"`
-	LineEnd            int        `json:"line_end,omitempty"`
-	Confidence         float64    `json:"confidence,omitempty"`
-	Summary            string     `json:"summary,omitempty"`
+	Type               string                `json:"type,omitempty"`
+	Thread             ThreadRef             `json:"thread,omitempty"`
+	Peer               ThreadRef             `json:"peer,omitempty"`
+	PeerState          *ThreadStateBreakdown `json:"peer_state,omitempty"`
+	ChainRelevance     string                `json:"chain_relevance,omitempty"`
+	OverlapMs          float64               `json:"overlap_ms,omitempty"`
+	EdgeCount          int                   `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef             `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow            `json:"nearest_chain_window,omitempty"`
+	DurationMs         float64               `json:"duration_ms,omitempty"`
+	StartTs            float64               `json:"start_ts,omitempty"`
+	EndTs              float64               `json:"end_ts,omitempty"`
+	LineStart          int                   `json:"line_start,omitempty"`
+	LineEnd            int                   `json:"line_end,omitempty"`
+	Confidence         float64               `json:"confidence,omitempty"`
+	Summary            string                `json:"summary,omitempty"`
+}
+
+type ThreadStateBreakdown struct {
+	Thread        ThreadRef  `json:"thread,omitempty"`
+	Window        TimeWindow `json:"window,omitempty"`
+	DominantState string     `json:"dominant_state,omitempty"`
+	TotalMs       float64    `json:"total_ms,omitempty"`
+	RunningMs     float64    `json:"running_ms,omitempty"`
+	RunnableMs    float64    `json:"runnable_ms,omitempty"`
+	SleepMs       float64    `json:"sleep_ms,omitempty"`
+	DStateMs      float64    `json:"d_state_ms,omitempty"`
+	IOWaitMs      float64    `json:"io_wait_ms,omitempty"`
+	FragmentCount int        `json:"fragment_count,omitempty"`
+	MaxSegmentMs  float64    `json:"max_segment_ms,omitempty"`
+	LineStart     int        `json:"line_start,omitempty"`
+	LineEnd       int        `json:"line_end,omitempty"`
+	Summary       string     `json:"summary,omitempty"`
 }
 
 type RecipeResult struct {
@@ -1095,15 +1119,16 @@ type RecipeResult struct {
 }
 
 type ChainResult struct {
-	Target        ThreadRef            `json:"target"`
-	Window        TimeWindow           `json:"window"`
-	Nodes         []ChainNode          `json:"nodes"`
-	Edges         []WakeupEdge         `json:"edges,omitempty"`
-	CausalImpacts []WakeupCausalImpact `json:"causal_impacts,omitempty"`
-	IPCEdges      []IPCEdge            `json:"ipc_edges,omitempty"`
-	BinderWaits   []BinderWaitSummary  `json:"binder_waits,omitempty"`
-	RootEvidence  []RootEvidence       `json:"root_evidence,omitempty"`
-	Caveats       []string             `json:"caveats,omitempty"`
+	Target            ThreadRef               `json:"target"`
+	Window            TimeWindow              `json:"window"`
+	Nodes             []ChainNode             `json:"nodes"`
+	Edges             []WakeupEdge            `json:"edges,omitempty"`
+	CausalImpacts     []WakeupCausalImpact    `json:"causal_impacts,omitempty"`
+	AggregatedImpacts []WakeupCausalAggregate `json:"aggregated_impacts,omitempty"`
+	IPCEdges          []IPCEdge               `json:"ipc_edges,omitempty"`
+	BinderWaits       []BinderWaitSummary     `json:"binder_waits,omitempty"`
+	RootEvidence      []RootEvidence          `json:"root_evidence,omitempty"`
+	Caveats           []string                `json:"caveats,omitempty"`
 }
 
 type IPCGraphResult struct {
@@ -1202,6 +1227,32 @@ type WakeupCausalImpact struct {
 	PriorityInversionCandidate bool       `json:"priority_inversion_candidate,omitempty"`
 	Summary                    string     `json:"summary,omitempty"`
 	NextStep                   string     `json:"next_step,omitempty"`
+}
+
+type WakeupCausalAggregate struct {
+	Thread            ThreadRef `json:"thread"`
+	Path              string    `json:"path,omitempty"`
+	ChainDepth        int       `json:"chain_depth,omitempty"`
+	OccurrenceCount   int       `json:"occurrence_count,omitempty"`
+	DominantState     string    `json:"dominant_state,omitempty"`
+	DominantImpactMs  float64   `json:"dominant_impact_ms,omitempty"`
+	TotalMs           float64   `json:"total_ms,omitempty"`
+	RunningMs         float64   `json:"running_ms,omitempty"`
+	RunnableMs        float64   `json:"runnable_ms,omitempty"`
+	SleepMs           float64   `json:"sleep_ms,omitempty"`
+	DStateMs          float64   `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64   `json:"io_wait_ms,omitempty"`
+	TargetBlockedMs   float64   `json:"target_blocked_ms,omitempty"`
+	FragmentCount     int       `json:"fragment_count,omitempty"`
+	StateSwitches     int       `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64   `json:"max_segment_ms,omitempty"`
+	FirstTs           float64   `json:"first_ts,omitempty"`
+	LastTs            float64   `json:"last_ts,omitempty"`
+	LineStart         int       `json:"line_start,omitempty"`
+	LineEnd           int       `json:"line_end,omitempty"`
+	PriorityRelation  string    `json:"priority_relation,omitempty"`
+	PriorityInversion bool      `json:"priority_inversion_candidate,omitempty"`
+	Summary           string    `json:"summary,omitempty"`
 }
 
 type RootEvidence struct {

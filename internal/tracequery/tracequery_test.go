@@ -1481,10 +1481,143 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	if len(rank.Items) == 0 || rank.Items[0].Causality != "on_wakeup_chain" || rank.Items[0].Thread.PID != 400 {
 		t.Fatalf("on-chain threadpool D/IO should rank before off-chain pressure: %+v", rank.Items)
 	}
+	if rank.Items[0].Tier != "primary" || rank.Items[0].DominantState != string(StateIOWait) || rank.Items[0].IOWaitMs <= 0 {
+		t.Fatalf("on-chain D/IO dependency should remain a primary typed cause with state totals: %+v", rank.Items[0])
+	}
 	for _, item := range rank.Items {
 		if item.Thread.PID == 900 && item.Causality != "background" {
 			t.Fatalf("off-chain D-state should be background, got %+v", item)
 		}
+	}
+}
+
+func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
+	items := []RootCauseRankItem{
+		{
+			Type:           "priority_inversion_candidate",
+			Thread:         ThreadRef{Comm: "cookie", PID: 200},
+			ImpactMs:       12,
+			ChainRelevance: "on_chain",
+			Causality:      "on_wakeup_chain",
+			DominantState:  string(StateRunnable),
+			RunnableMs:     12,
+		},
+		{
+			Type:           "priority_inversion_candidate",
+			Thread:         ThreadRef{Comm: "threadpool", PID: 400},
+			ImpactMs:       9.149,
+			ChainRelevance: "on_chain",
+			Causality:      "on_wakeup_chain",
+			DominantState:  string(StateIOWait),
+			DStateMs:       9.149,
+		},
+		{
+			Type:           "d_state_or_io_wait",
+			Thread:         ThreadRef{Comm: "logger", PID: 900},
+			ImpactMs:       50,
+			ChainRelevance: "background",
+			Causality:      "background",
+			DominantState:  string(StateDSleep),
+			DStateMs:       50,
+		},
+		{
+			Type:           "compute_supply",
+			Thread:         ThreadRef{Comm: "renderer", PID: 500},
+			ImpactMs:       7.5,
+			ChainRelevance: "on_chain",
+			Causality:      "on_wakeup_chain",
+			DominantState:  string(StateRunning),
+			RunningMs:      7.5,
+		},
+		{
+			Type:           "cpu_affinity_or_cpuset",
+			Thread:         ThreadRef{Comm: "network", PID: 300},
+			ImpactMs:       4.0,
+			ChainRelevance: "on_chain",
+			Causality:      "on_wakeup_chain",
+			DominantState:  string(StateRunnable),
+			RunnableMs:     4.0,
+		},
+	}
+	assignRootCauseRanksAndTiers(items)
+	if items[0].Tier != "primary" {
+		t.Fatalf("first ranked runnable cause should remain primary: %+v", items[0])
+	}
+	if items[1].Tier != "primary" {
+		t.Fatalf("on-chain D/IO dependency should be co-primary, got %+v", items[1])
+	}
+	if items[2].Tier == "primary" {
+		t.Fatalf("background D-state must not be promoted: %+v", items[2])
+	}
+	if items[3].Tier != "primary" || items[4].Tier != "primary" {
+		t.Fatalf("on-chain compute supply and affinity constraints should be co-primary: %+v", items)
+	}
+}
+
+func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
+	threadpool := ThreadRef{Comm: "ThreadPoolForeg", PID: 60555}
+	network := ThreadRef{Comm: "NetworkService", PID: 60595}
+	cookie := ThreadRef{Comm: "CookieMonsterCl", PID: 59843}
+	app := ThreadRef{Comm: "com.baidu.tieba", PID: 59566}
+	chain := ChainResult{
+		Target: app,
+		Edges: []WakeupEdge{
+			{Waker: threadpool, Wakee: network},
+			{Waker: network, Wakee: cookie},
+			{Waker: cookie, Wakee: app},
+		},
+		CausalImpacts: []WakeupCausalImpact{
+			{
+				Thread:                     threadpool,
+				Window:                     TimeWindow{StartTs: 34579.525319, EndTs: 34579.534164},
+				ChainDepth:                 3,
+				OnChain:                    true,
+				DominantState:              string(StateIOWait),
+				DominantImpactMs:           3.1,
+				TotalMs:                    3.1,
+				IOWaitMs:                   3.1,
+				TargetBlockedMs:            8.8,
+				FragmentCount:              1,
+				MaxSegmentMs:               3.1,
+				LineStart:                  10,
+				LineEnd:                    20,
+				PriorityRelation:           "lower_priority_dependency",
+				PriorityInversionCandidate: true,
+			},
+			{
+				Thread:                     threadpool,
+				Window:                     TimeWindow{StartTs: 34579.546416, EndTs: 34579.553415},
+				ChainDepth:                 3,
+				OnChain:                    true,
+				DominantState:              string(StateIOWait),
+				DominantImpactMs:           6.049,
+				TotalMs:                    6.049,
+				IOWaitMs:                   6.049,
+				TargetBlockedMs:            7.0,
+				FragmentCount:              1,
+				MaxSegmentMs:               6.049,
+				LineStart:                  30,
+				LineEnd:                    40,
+				PriorityRelation:           "lower_priority_dependency",
+				PriorityInversionCandidate: true,
+			},
+		},
+	}
+	aggregates := aggregateWakeupCausalImpacts(chain)
+	if len(aggregates) != 1 {
+		t.Fatalf("expected one common dependency aggregate, got %+v", aggregates)
+	}
+	agg := aggregates[0]
+	if agg.OccurrenceCount != 2 || !near(agg.IOWaitMs, 9.149, 0.001) || !strings.Contains(agg.Path, "ThreadPoolForeg") || !strings.Contains(agg.Path, "com.baidu.tieba") {
+		t.Fatalf("aggregate should preserve occurrence count, cumulative IO wait, and chain path: %+v", agg)
+	}
+	item := rootCauseItemFromCausalAggregate(agg)
+	if item.Source != "wakeup_chain.aggregated_impacts" || item.Tier != "" || item.ImpactMs < 9.148 || item.ChainRelevance != "on_chain" || item.DominantState != string(StateIOWait) {
+		t.Fatalf("aggregate should become an on-chain ranked root-cause candidate: %+v", item)
+	}
+	assignRootCauseRanksAndTiers([]RootCauseRankItem{item})
+	if rootCauseShouldBeCoPrimary(item) != true {
+		t.Fatalf("aggregate D/IO candidate should be co-primary eligible: %+v", item)
 	}
 }
 
@@ -1654,6 +1787,40 @@ func TestWakeupChainReportsBinderWaitCandidate(t *testing.T) {
 	}
 	if !foundRoot {
 		t.Fatalf("binder wait should be carried as root evidence candidate: %+v", chain.RootEvidence)
+	}
+}
+
+func TestCriticalBlockingDecomposesBinderPeerState(t *testing.T) {
+	idx := buildTraceIndex(t, "ipc_peer_state.systrace", `
+     client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+ binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
+ binder:100_1-101 (  100) [002] .... 3.012100: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=binder:100_1 next_pid=101 next_prio=20
+     client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+ binder:100_1-101 (  100) [002] .... 3.016000: sched_switch: prev_comm=binder:100_1 prev_pid=101 prev_prio=20 prev_state=R+ ==> next_comm=rival next_pid=300 next_prio=20
+      rival-300  (  300) [002] .... 3.018000: sched_switch: prev_comm=rival prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=binder:100_1 next_pid=101 next_prio=20
+ binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
+     client-20   (   20) [001] .... 3.030000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+	`)
+	blocking := BuildCriticalBlockingCalls(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.04, MaxDepth: 4, MinDurationMs: 1})
+	var binder *CriticalBlockingCandidate
+	for i := range blocking.Items {
+		if blocking.Items[i].Type == "binder_wait" {
+			binder = &blocking.Items[i]
+			break
+		}
+	}
+	if binder == nil {
+		t.Fatalf("expected binder wait candidate: %+v", blocking.Items)
+	}
+	if binder.Peer.PID != 101 {
+		t.Fatalf("binder wait should preserve peer thread: %+v", binder)
+	}
+	if binder.PeerState == nil {
+		t.Fatalf("binder peer should be decomposed into scheduler state: %+v", binder)
+	}
+	if binder.PeerState.DominantState != string(StateRunning) || binder.PeerState.RunningMs <= 0 || binder.PeerState.RunnableMs <= 0 {
+		t.Fatalf("peer_state should include running/runnable totals, got %+v", binder.PeerState)
 	}
 }
 

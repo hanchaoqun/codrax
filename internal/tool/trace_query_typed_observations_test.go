@@ -45,7 +45,10 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					Score:          0.91, Confidence: 0.88,
 					LineStart: 10, LineEnd: 20, Source: "wakeup_chain",
 					Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 2,
-					Summary: "binder reply stalled the frame",
+					DominantState: string(tracequery.StateIOWait),
+					DStateMs:      4.0,
+					IOWaitMs:      2.5,
+					Summary:       "binder reply stalled the frame",
 				},
 				{
 					Rank: 2, Tier: "secondary", Type: "cpu_pressure",
@@ -103,6 +106,27 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 				NextStep:                   "inspect lower-priority dependency scheduling delay",
 				Summary:                    "worker runnable dependency dominated the wakeup chain",
 			}},
+			AggregatedImpacts: []tracequery.WakeupCausalAggregate{{
+				Thread:            tracequery.ThreadRef{Comm: "worker", PID: 21},
+				Path:              "worker-21 -> app-20",
+				ChainDepth:        1,
+				OccurrenceCount:   2,
+				DominantState:     string(tracequery.StateRunnable),
+				DominantImpactMs:  12.0,
+				TotalMs:           13.0,
+				RunnableMs:        12.0,
+				TargetBlockedMs:   20.0,
+				FragmentCount:     4,
+				StateSwitches:     2,
+				MaxSegmentMs:      8.0,
+				FirstTs:           1.010,
+				LastTs:            1.050,
+				LineStart:         21,
+				LineEnd:           35,
+				PriorityRelation:  "lower_priority_dependency",
+				PriorityInversion: true,
+				Summary:           "worker aggregate runnable dependency repeated across fragments",
+			}},
 			RootEvidence: []tracequery.RootEvidence{{
 				Type:       "long_sleep",
 				Thread:     tracequery.ThreadRef{Comm: "app", PID: 20},
@@ -114,9 +138,22 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		},
 		CriticalBlocking: &tracequery.CriticalBlockingResult{
 			Items: []tracequery.CriticalBlockingCandidate{{
-				Type:       "futex",
-				Thread:     tracequery.ThreadRef{Comm: "app", PID: 20},
-				Peer:       tracequery.ThreadRef{Comm: "worker", PID: 21},
+				Type:   "futex",
+				Thread: tracequery.ThreadRef{Comm: "app", PID: 20},
+				Peer:   tracequery.ThreadRef{Comm: "worker", PID: 21},
+				PeerState: &tracequery.ThreadStateBreakdown{
+					Thread:        tracequery.ThreadRef{Comm: "worker", PID: 21},
+					Window:        tracequery.TimeWindow{StartTs: 1.010, EndTs: 1.020},
+					DominantState: string(tracequery.StateRunnable),
+					TotalMs:       10.0,
+					RunningMs:     2.0,
+					RunnableMs:    8.0,
+					FragmentCount: 2,
+					MaxSegmentMs:  8.0,
+					LineStart:     39,
+					LineEnd:       41,
+					Summary:       "worker peer_state dominant_state=runnable",
+				},
 				DurationMs: 7.5, LineStart: 40, LineEnd: 41,
 				Confidence: 0.7, Summary: "futex hold",
 			}},
@@ -237,7 +274,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace-query-result-abcd1234.json", "/blobs/trace_query-eeff.txt", "", time.Now())
 
-	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + len(facts)
+	wantRows := 2 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + len(facts)
 	if len(rows) != wantRows {
 		t.Fatalf("expected %d typed rows, got %d", wantRows, len(rows))
 	}
@@ -281,7 +318,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
 	}
 	rootNotes := strings.Join(rootCause.RichNotes, "\n")
-	for _, want := range []string{"target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2"} {
+	for _, want := range []string{"target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
 		if !strings.Contains(rootNotes, want) {
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}
@@ -326,7 +363,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("critical-blocking peer/value fields drifted: %+v", criticalBlocking)
 	}
 	blockingNotes := strings.Join(criticalBlocking.RichNotes, "\n")
-	for _, want := range []string{"type=futex", "peer=worker-21"} {
+	for _, want := range []string{"type=futex", "peer=worker-21", "peer_state_dominant=runnable", "peer_state_runnable=8.000"} {
 		if !strings.Contains(blockingNotes, want) {
 			t.Fatalf("critical-blocking notes missing %q: %+v", want, criticalBlocking.RichNotes)
 		}
@@ -350,6 +387,19 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		wakeupEdge.Subject != "worker-21" || wakeupEdge.Object != "app-20" ||
 		!strings.Contains(strings.Join(wakeupEdge.RichNotes, "\n"), "priority_inversion_candidate=true") {
 		t.Fatalf("missing structured wakeup chain edge row: %+v", wakeupEdge)
+	}
+	var wakeupAggregate *types.ObservationRecord
+	for i := range rows {
+		if strings.Contains(rows[i].ID, "#wakeup_causal_aggregate:1") {
+			wakeupAggregate = &rows[i]
+			break
+		}
+	}
+	if wakeupAggregate == nil || wakeupAggregate.Predicate != "wakeup_causal_aggregate" ||
+		wakeupAggregate.Value != "12.000" ||
+		!strings.Contains(strings.Join(wakeupAggregate.RichNotes, "\n"), "occurrences=2") ||
+		!strings.Contains(strings.Join(wakeupAggregate.RichNotes, "\n"), "path=worker-21 -> app-20") {
+		t.Fatalf("missing structured wakeup aggregate row: %+v", wakeupAggregate)
 	}
 	var runnableContext *types.ObservationRecord
 	for i := range rows {

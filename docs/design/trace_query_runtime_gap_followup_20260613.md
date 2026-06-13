@@ -285,3 +285,107 @@ Example:
   only in summary text.
 - Add tests for critical-blocking typed observations where `object` preserves
   the peer and `rich_notes` preserves the blocking type.
+
+### Batch 9: On-chain IO co-primary and blocking peer-state decomposition
+
+Gap confirmed from the Donghu frame audit:
+
+- A dependency thread on the actual wakeup chain can spend a material slice in
+  D-state/io_wait while another chain node contributes runnable scheduling
+  delay. The D/IO dependency is part of the same causal path and must not be
+  rendered as generic background pressure merely because runnable rows sort
+  ahead of it.
+- `critical_blocking_calls` carried binder peer identity, but did not
+  structurally decompose the peer thread state in the bounded wait window. That
+  let final answers stop at "binder synchronous wait" instead of continuing to
+  the peer's scheduler state or stating a precise trace gap.
+
+Design:
+
+- Extend `root_cause_rank` items with `dominant_state` plus
+  `running/runnable/sleep/d_state/io_wait` totals. This keeps the state evidence
+  on the same ranked row even when the type is a broader
+  `priority_inversion_candidate`.
+- Assign tiers with causality semantics as well as rank position: on-chain
+  D-state/IO rows (`io_wait`, `d_state_or_io_wait`, `io_burst_episode`,
+  `block_io_by_inode`, `fragmented_d_state_or_io_wait`, or a priority-inversion
+  candidate whose typed state totals show D/io_wait) remain `tier=primary`.
+  Background rows still stay background/supporting because promotion requires
+  typed `on_chain` causality.
+- Extend `critical_blocking_calls` with output-only `peer_state`, computed by
+  reusing `ThreadTimeline` over the candidate's peer and bounded wait window.
+  This is generic for binder/futex/lock/sync/IO candidates and does not read
+  model-authored prose.
+- Render the new fields through the tool banner, typed observations,
+  finalizer supplement notes, explorer guidance, runtime answer guidance, tool
+  schema description, and the shared trace-query view teaching matrix.
+- No model tool-call JSON input is added. Existing JSON repair remains focused
+  on input fields such as `view` aliases and `event_types`; `peer_state` and the
+  state-total fields are result fields consumed downstream.
+
+Tasks:
+
+- [x] Add `RootCauseRankItem` state-total fields and populate them from causal
+  impacts, window stats, state churn, IO bursts, and scheduler-latency rows.
+- [x] Replace rank-position-only tier assignment with a typed co-primary rule
+  for on-chain D-state/IO dependencies.
+- [x] Add `CriticalBlockingCandidate.peer_state` and compute it from peer
+  thread timeline intervals.
+- [x] Propagate the new output fields into trace-query banners and
+  `traceQueryTypedObservations` rich notes.
+- [x] Update runtime trace prompt/handoff guidance and shared view teaching so
+  models consume `peer_state` and state totals without guessing from prose.
+- [x] Add unit tests for on-chain runnable + D/IO co-primary behavior and
+  binder peer-state decomposition.
+
+### Batch 10: Generalized on-chain primary layers and fragmented-chain aggregation
+
+Additional audit requirement:
+
+- Every structurally on-chain blocking/supply layer can be a primary cause:
+  runnable delay, D-state/io_wait, running work that lacks compute supply,
+  low CPU frequency, unreasonable affinity/cpuset binding, CPU frequency limit
+  context, and supply-side DDR/L3/thermal context when tied to a bounded chain
+  row. These must compete as root causes instead of being summarized only as
+  background.
+- Sleep on a dependency chain is a waiting surface. The chain should continue
+  through the top sleep interval until a wakeup edge, IPC edge, root evidence,
+  or trace gap stops it. Avoid expanding every tiny sleep fragment, but do not
+  stop at a top sleep row that has a structural waker.
+- Multiple fragmented target sleeps can share the same upstream chain. Their
+  cumulative common dependency can exceed one larger-looking continuous state,
+  so the system needs an aggregate lane in addition to per-branch rows.
+
+Design:
+
+- Extend co-primary tiering to all typed on-chain dependency causes:
+  `runnable_wait`, `scheduler_latency`, `priority_inversion_runnable_wait`,
+  `running`, `fragmented_running`, `compute_supply`, `low_frequency`,
+  `cpu_affinity_or_cpuset`, `io_wait`, `d_state_or_io_wait`, `io_latency`,
+  `io_pressure`, `io_burst_episode`, `block_io_by_inode`,
+  `file_io_hot_inode`, and fragmented D/IO/runnable rows. Promotion still
+  requires `chain_relevance=on_chain` or `causality=on_wakeup_chain`.
+- Preserve compute-supply state totals on root-cause rows:
+  running supply candidates carry `running_ms`; runnable supply/affinity rows
+  carry `runnable_ms`.
+- Add `wakeup_chain.aggregated_impacts`: group repeated causal impacts by
+  thread and dominant state, preserve `path`, occurrence count, cumulative
+  state totals, target-blocked total, line range, and priority relation.
+- Feed aggregate rows into `root_cause_rank` as
+  `source=wakeup_chain.aggregated_impacts`, so fragmented common paths can rank
+  above single branch rows when their cumulative impact is larger.
+- Render aggregate fields through the trace_query banner, typed observations,
+  finalizer supplement whitelist, explorer guidance, finalizer runtime
+  guidance, tool description, and shared trace-query view teaching.
+
+Tasks:
+
+- [x] Expand co-primary tiering to on-chain runnable/running/compute-supply and
+  affinity/low-frequency causes.
+- [x] Populate state totals for compute-supply and CPU-affinity root-cause rows.
+- [x] Add wakeup-chain aggregate data model and deterministic aggregation.
+- [x] Add aggregate root-rank candidate generation.
+- [x] Add banner, typed-observation, prompt, and teaching surfaces for
+  aggregated wakeup impacts.
+- [x] Add tests for compute-supply co-primary and fragmented common dependency
+  aggregation.

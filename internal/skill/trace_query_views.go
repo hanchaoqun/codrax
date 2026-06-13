@@ -67,11 +67,11 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "wakeup_chain",
-			When: "recursive sleep/wakeup source chains",
+			When: "recursive sleep/wakeup source chains with causal impacts and aggregated common fragmented dependency paths",
 		},
 		{
 			View: "root_cause_rank",
-			When: "deterministic primary/secondary/tertiary cause candidates, including fragmented state-churn causes and inode-level IO causes",
+			When: "deterministic primary/secondary/tertiary cause candidates, including dominant_state state totals, co-primary on-chain runnable/running/compute-supply/D-state/IO dependency causes, fragmented state-churn causes, aggregated wakeup-chain causes, and inode-level IO causes",
 		},
 		{
 			View: "frame_root_cause_bundle",
@@ -79,7 +79,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "critical_blocking_calls",
-			When: "futex/lock/sync/binder/IO/D-state blocking candidates",
+			When: "futex/lock/sync/binder/IO/D-state blocking candidates with peer_state breakdown when the peer thread timeline is visible",
 		},
 		{
 			View: "interaction_stats",

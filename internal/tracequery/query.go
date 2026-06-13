@@ -4898,6 +4898,7 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
 		expandChain(idx, q, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "")
+		res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 		attachIPCGraphToChain(idx, q, &res)
 		return res
 	}
@@ -4906,8 +4907,170 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
 		expandChain(idx, q, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "")
 	}
+	res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 	attachIPCGraphToChain(idx, q, &res)
 	return res
+}
+
+func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
+	type acc struct {
+		item      WakeupCausalAggregate
+		prioVotes map[string]int
+		invCount  int
+	}
+	accs := map[string]*acc{}
+	for _, impact := range chain.CausalImpacts {
+		if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TotalMs <= 0 || strings.TrimSpace(impact.DominantState) == "" {
+			continue
+		}
+		key := fmt.Sprintf("%d/%s", impact.Thread.PID, impact.DominantState)
+		a := accs[key]
+		if a == nil {
+			a = &acc{prioVotes: map[string]int{}}
+			a.item.Thread = impact.Thread
+			a.item.ChainDepth = impact.ChainDepth
+			a.item.DominantState = impact.DominantState
+			a.item.Path = wakeupChainPathFromThread(chain, impact.Thread)
+			accs[key] = a
+		}
+		a.item.OccurrenceCount++
+		if impact.ChainDepth < a.item.ChainDepth {
+			a.item.ChainDepth = impact.ChainDepth
+		}
+		a.item.TotalMs += impact.TotalMs
+		a.item.RunningMs += impact.RunningMs
+		a.item.RunnableMs += impact.RunnableMs
+		a.item.SleepMs += impact.SleepMs
+		a.item.DStateMs += impact.DStateMs
+		a.item.IOWaitMs += impact.IOWaitMs
+		a.item.TargetBlockedMs += impact.TargetBlockedMs
+		a.item.FragmentCount += impact.FragmentCount
+		a.item.StateSwitches += impact.StateSwitches
+		if impact.MaxSegmentMs > a.item.MaxSegmentMs {
+			a.item.MaxSegmentMs = impact.MaxSegmentMs
+		}
+		if impact.Window.StartTs > 0 && (a.item.FirstTs == 0 || impact.Window.StartTs < a.item.FirstTs) {
+			a.item.FirstTs = impact.Window.StartTs
+		}
+		if impact.Window.EndTs > a.item.LastTs {
+			a.item.LastTs = impact.Window.EndTs
+		}
+		if impact.LineStart > 0 && (a.item.LineStart == 0 || impact.LineStart < a.item.LineStart) {
+			a.item.LineStart = impact.LineStart
+		}
+		if impact.LineEnd > a.item.LineEnd {
+			a.item.LineEnd = impact.LineEnd
+		}
+		if impact.PriorityRelation != "" {
+			a.prioVotes[impact.PriorityRelation]++
+		}
+		if impact.PriorityInversionCandidate {
+			a.invCount++
+		}
+	}
+	var out []WakeupCausalAggregate
+	for _, a := range accs {
+		if a.item.OccurrenceCount < 2 {
+			continue
+		}
+		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
+		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
+		a.item.PriorityInversion = a.invCount > 0
+		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
+		out = append(out, a.item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DominantImpactMs != out[j].DominantImpactMs {
+			return out[i].DominantImpactMs > out[j].DominantImpactMs
+		}
+		if out[i].OccurrenceCount != out[j].OccurrenceCount {
+			return out[i].OccurrenceCount > out[j].OccurrenceCount
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return out
+}
+
+func dominantAggregateState(item WakeupCausalAggregate) (string, float64) {
+	type candidate struct {
+		state string
+		ms    float64
+	}
+	candidates := []candidate{
+		{state: string(StateIOWait), ms: item.IOWaitMs},
+		{state: string(StateDSleep), ms: item.DStateMs},
+		{state: string(StateRunnable), ms: item.RunnableMs},
+		{state: string(StateSSleep), ms: item.SleepMs},
+		{state: string(StateRunning), ms: item.RunningMs},
+	}
+	best := candidates[0]
+	for _, cand := range candidates[1:] {
+		if cand.ms > best.ms {
+			best = cand
+		}
+	}
+	return best.state, best.ms
+}
+
+func mostFrequentString(in map[string]int) string {
+	best := ""
+	bestCount := 0
+	for value, count := range in {
+		if count > bestCount || (count == bestCount && (best == "" || value < best)) {
+			best = value
+			bestCount = count
+		}
+	}
+	return best
+}
+
+func wakeupChainPathFromThread(chain ChainResult, thread ThreadRef) string {
+	if thread.PID <= 0 {
+		return ""
+	}
+	var parts []string
+	current := thread
+	seen := map[int]bool{}
+	for current.PID > 0 {
+		if seen[current.PID] {
+			break
+		}
+		seen[current.PID] = true
+		parts = append(parts, threadLabel(current))
+		if chain.Target.PID > 0 && current.PID == chain.Target.PID {
+			break
+		}
+		next := ThreadRef{}
+		for _, edge := range chain.Edges {
+			if edge.Waker.PID == current.PID {
+				next = edge.Wakee
+				break
+			}
+		}
+		if next.PID <= 0 {
+			break
+		}
+		current = next
+	}
+	return strings.Join(parts, " -> ")
+}
+
+func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
+	summary := fmt.Sprintf("%s aggregated on wakeup chain occurrences=%d dominant_state=%s impact=%.3fms total=%.3fms target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
+		threadLabel(item.Thread), item.OccurrenceCount, item.DominantState, item.DominantImpactMs, item.TotalMs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
+	if item.Path != "" {
+		summary += " path=" + item.Path
+	}
+	if item.PriorityRelation != "" {
+		summary += " priority_relation=" + item.PriorityRelation
+	}
+	if item.PriorityInversion {
+		summary += " priority_inversion_candidate=true"
+	}
+	return summary
 }
 
 func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
@@ -5075,6 +5238,15 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 		items = append(items, rootCauseItemFromCausalImpact(impact))
 	}
+	for _, aggregate := range chain.AggregatedImpacts {
+		if aggregate.ChainDepth <= 0 || aggregate.DominantImpactMs <= 0 {
+			continue
+		}
+		if isIntermediateSleepAggregate(chain, aggregate) {
+			continue
+		}
+		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
+	}
 	for _, root := range chain.RootEvidence {
 		items = append(items, rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary))
 	}
@@ -5159,6 +5331,9 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = episode.StartTs
 		item.EndTs = episode.EndTs
+		item.DominantState = ioBurstDominantState(episode)
+		item.DStateMs = episode.DStateMs
+		item.IOWaitMs = episode.IOWaitMs
 		items = append(items, item)
 	}
 	for _, inode := range stats.BlockIOByInode {
@@ -5195,6 +5370,8 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
 		item.EndTs = td.EndTs
+		item.DominantState = string(StateRunnable)
+		item.RunnableMs = td.DurationMs
 		items = append(items, item)
 	}
 	for _, td := range stats.DStateTop {
@@ -5203,12 +5380,20 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
 		item.EndTs = td.EndTs
+		item.DominantState = string(StateDSleep)
+		item.DStateMs = td.DurationMs
 		items = append(items, item)
 	}
 	for _, churn := range stats.StateChurn {
 		onChain := threadInSet(chainThreads, churn.Thread)
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
 		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.DominantState = churn.DominantState
+		item.RunningMs = churn.RunningMs
+		item.RunnableMs = churn.RunnableMs
+		item.SleepMs = churn.SleepMs
+		item.DStateMs = churn.DStateMs
+		item.IOWaitMs = churn.IOWaitMs
 		items = append(items, item)
 	}
 	for _, burst := range stats.IRQBursts {
@@ -5249,10 +5434,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", len(items), limit))
 		items = items[:limit]
 	}
-	for i := range items {
-		items[i].Rank = i + 1
-		items[i].Tier = rootCauseTier(i)
-	}
+	assignRootCauseRanksAndTiers(items)
 	if len(items) == 0 {
 		res.Caveats = append(res.Caveats, "no deterministic root-cause candidates were found in the selected window")
 	}
@@ -5287,6 +5469,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		candidate.StartTs = item.StartTs
 		candidate.EndTs = item.EndTs
+		candidate.DominantState = string(StateRunnable)
+		candidate.RunnableMs = item.DurationMs
 		rank.Items = append(rank.Items, candidate)
 		if frequencyIsLowForCPU(item.Frequency, cpus[item.CPU]) {
 			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU))
@@ -5294,6 +5478,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			low.ChainRelevance = chainRelevanceFromCausality(low.Causality)
 			low.StartTs = item.StartTs
 			low.EndTs = item.EndTs
+			low.DominantState = string(StateRunnable)
+			low.RunnableMs = item.DurationMs
 			rank.Items = append(rank.Items, low)
 		}
 	}
@@ -5308,6 +5494,12 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
 			candidate.Causality = causalityLabel(hasCausalChain, onChain)
 			candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
+			candidate.DominantState = computeSupplyDominantState(supply)
+			if candidate.DominantState == string(StateRunning) {
+				candidate.RunningMs = supply.DurationMs
+			} else if candidate.DominantState == string(StateRunnable) {
+				candidate.RunnableMs = supply.DurationMs
+			}
 			rank.Items = append(rank.Items, candidate)
 		}
 	}
@@ -5323,6 +5515,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, constraint.RunnableWaitMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
+		candidate.DominantState = string(StateRunnable)
+		candidate.RunnableMs = constraint.RunnableWaitMs
 		rank.Items = append(rank.Items, candidate)
 	}
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
@@ -5335,10 +5529,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", len(rank.Items), limit))
 		rank.Items = rank.Items[:limit]
 	}
-	for i := range rank.Items {
-		rank.Items[i].Rank = i + 1
-		rank.Items[i].Tier = rootCauseTier(i)
-	}
+	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
 	return rank
 }
@@ -5470,8 +5661,80 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.TargetImpactMs = impact.TargetBlockedMs
 	item.StartTs = impact.Window.StartTs
 	item.EndTs = impact.Window.EndTs
+	item.DominantState = impact.DominantState
+	item.RunningMs = impact.RunningMs
+	item.RunnableMs = impact.RunnableMs
+	item.SleepMs = impact.SleepMs
+	item.DStateMs = impact.DStateMs
+	item.IOWaitMs = impact.IOWaitMs
 	item.Score = impactMs * conf * 2.0
 	return item
+}
+
+func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
+	typ := aggregateRootCauseType(aggregate)
+	if aggregate.PriorityInversion && aggregateRootCauseIsPrioritySensitive(aggregate) {
+		typ = "priority_inversion_candidate"
+	}
+	conf := 0.82
+	if aggregate.PriorityInversion {
+		conf = 0.88
+	}
+	impactMs := aggregateBlockingMs(aggregate)
+	item := rootCauseItem(typ, aggregate.Thread, impactMs, conf, aggregate.LineStart, aggregate.LineEnd, "wakeup_chain.aggregated_impacts", aggregate.Summary)
+	item.Causality = "on_wakeup_chain"
+	item.ChainRelevance = "on_chain"
+	item.ChainDepth = aggregate.ChainDepth
+	item.TargetImpactMs = aggregate.TargetBlockedMs
+	item.StartTs = aggregate.FirstTs
+	item.EndTs = aggregate.LastTs
+	item.DominantState = aggregate.DominantState
+	item.RunningMs = aggregate.RunningMs
+	item.RunnableMs = aggregate.RunnableMs
+	item.SleepMs = aggregate.SleepMs
+	item.DStateMs = aggregate.DStateMs
+	item.IOWaitMs = aggregate.IOWaitMs
+	item.Score = impactMs * conf * 2.05
+	return item
+}
+
+func aggregateBlockingMs(item WakeupCausalAggregate) float64 {
+	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+		return item.DStateMs + item.IOWaitMs
+	}
+	return item.DominantImpactMs
+}
+
+func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
+	switch item.DominantState {
+	case string(StateRunnable), string(StateDSleep), string(StateIOWait):
+		return aggregateBlockingMs(item) > 0
+	default:
+		return false
+	}
+}
+
+func aggregateRootCauseType(item WakeupCausalAggregate) string {
+	switch item.DominantState {
+	case string(StateRunnable):
+		if item.PriorityInversion {
+			return "priority_inversion_runnable_wait"
+		}
+		return "runnable_wait"
+	case string(StateDSleep):
+		if item.IOWaitMs > 0 {
+			return "io_wait"
+		}
+		return "d_state_or_io_wait"
+	case string(StateIOWait):
+		return "io_wait"
+	case string(StateSSleep):
+		return "sleep_wait"
+	case string(StateRunning):
+		return "running"
+	default:
+		return "unknown_state"
+	}
 }
 
 func wakeupChainThreadSet(chain ChainResult) map[int]bool {
@@ -5506,6 +5769,18 @@ func isIntermediateSleepImpact(chain ChainResult, impact WakeupCausalImpact) boo
 	}
 	for _, edge := range chain.Edges {
 		if edge.Wakee.PID == impact.Thread.PID {
+			return true
+		}
+	}
+	return false
+}
+
+func isIntermediateSleepAggregate(chain ChainResult, aggregate WakeupCausalAggregate) bool {
+	if aggregate.ChainDepth <= 0 || aggregate.DominantState != string(StateSSleep) || aggregate.Thread.PID <= 0 {
+		return false
+	}
+	for _, edge := range chain.Edges {
+		if edge.Wakee.PID == aggregate.Thread.PID {
 			return true
 		}
 	}
@@ -5801,6 +6076,27 @@ func stateChurnRootCauseType(state string) string {
 	}
 }
 
+func ioBurstDominantState(episode IOBurstEpisodeSummary) string {
+	if episode.IOWaitMs >= episode.DStateMs && episode.IOWaitMs > 0 {
+		return string(StateIOWait)
+	}
+	if episode.DStateMs > 0 {
+		return string(StateDSleep)
+	}
+	return ""
+}
+
+func computeSupplyDominantState(item ComputeSupplySummary) string {
+	switch strings.TrimSpace(item.State) {
+	case string(StateRunning):
+		return string(StateRunning)
+	case string(StateRunnable):
+		return string(StateRunnable)
+	default:
+		return strings.TrimSpace(item.State)
+	}
+}
+
 func rootCauseTier(idx int) string {
 	switch idx {
 	case 0:
@@ -5809,6 +6105,65 @@ func rootCauseTier(idx int) string {
 		return "secondary"
 	default:
 		return "tertiary"
+	}
+}
+
+func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
+	for i := range items {
+		items[i].Rank = i + 1
+		tier := rootCauseTier(i)
+		if rootCauseShouldBeCoPrimary(items[i]) {
+			tier = "primary"
+		}
+		items[i].Tier = tier
+	}
+}
+
+func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
+	if !rootCauseItemIsOnChain(item) || item.ImpactMs <= 0 {
+		return false
+	}
+	switch item.Type {
+	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
+		"running", "fragmented_running",
+		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
+		"io_wait", "d_state_or_io_wait", "io_latency", "io_pressure", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
+		return true
+	case "priority_inversion_candidate":
+		return rootCauseItemHasDStateOrIO(item) || rootCauseItemHasRunnableOrRunning(item)
+	default:
+		return false
+	}
+}
+
+func rootCauseItemIsOnChain(item RootCauseRankItem) bool {
+	if strings.TrimSpace(item.ChainRelevance) == "on_chain" {
+		return true
+	}
+	return strings.TrimSpace(item.Causality) == "on_wakeup_chain"
+}
+
+func rootCauseItemHasDStateOrIO(item RootCauseRankItem) bool {
+	if item.DStateMs > 0 || item.IOWaitMs > 0 {
+		return true
+	}
+	switch strings.TrimSpace(item.DominantState) {
+	case string(StateDSleep), string(StateIOWait):
+		return true
+	default:
+		return false
+	}
+}
+
+func rootCauseItemHasRunnableOrRunning(item RootCauseRankItem) bool {
+	if item.RunnableMs > 0 || item.RunningMs > 0 {
+		return true
+	}
+	switch strings.TrimSpace(item.DominantState) {
+	case string(StateRunnable), string(StateRunning):
+		return true
+	default:
+		return false
 	}
 }
 
@@ -6345,6 +6700,9 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		if item.Confidence <= 0 {
 			item.Confidence = 0.6
 		}
+		if item.PeerState == nil {
+			item.PeerState = buildCriticalBlockingPeerState(idx, q, item)
+		}
 		res.Items = append(res.Items, item)
 	}
 	for _, br := range stats.BlockedReasons {
@@ -6464,6 +6822,98 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	return res
+}
+
+func buildCriticalBlockingPeerState(idx *Index, q Query, item CriticalBlockingCandidate) *ThreadStateBreakdown {
+	if idx == nil || item.Peer.PID <= 0 {
+		return nil
+	}
+	start := item.StartTs
+	end := item.EndTs
+	if start <= 0 {
+		start = q.TimeStart
+	}
+	if end <= start {
+		end = q.TimeEnd
+	}
+	if end <= start {
+		return nil
+	}
+	tq := q
+	tq.View = ""
+	tq.PID = item.Peer.PID
+	tq.Thread = item.Peer.Comm
+	tq.ThreadInput = ""
+	tq.TimeStart = start
+	tq.TimeEnd = end
+	tl := ThreadTimeline(idx, tq)
+	return summarizeThreadStateBreakdown(tl)
+}
+
+func summarizeThreadStateBreakdown(tl TimelineResult) *ThreadStateBreakdown {
+	if len(tl.Intervals) == 0 {
+		return nil
+	}
+	out := ThreadStateBreakdown{
+		Thread: tl.Thread,
+		Window: tl.Window,
+	}
+	for _, it := range tl.Intervals {
+		if it.DurationMs < 0 {
+			continue
+		}
+		out.TotalMs += it.DurationMs
+		out.FragmentCount++
+		if it.DurationMs > out.MaxSegmentMs {
+			out.MaxSegmentMs = it.DurationMs
+		}
+		if startLine := firstPositive(it.StartLine, it.WakeupLine, it.EndLine); startLine > 0 && (out.LineStart == 0 || startLine < out.LineStart) {
+			out.LineStart = startLine
+		}
+		if endLine := firstPositive(it.EndLine, it.WakeupLine, it.StartLine); endLine > out.LineEnd {
+			out.LineEnd = endLine
+		}
+		switch it.State {
+		case StateRunning:
+			out.RunningMs += it.DurationMs
+		case StateRunnable:
+			out.RunnableMs += it.DurationMs
+		case StateSSleep:
+			out.SleepMs += it.DurationMs
+		case StateDSleep:
+			out.DStateMs += it.DurationMs
+		case StateIOWait:
+			out.IOWaitMs += it.DurationMs
+		}
+	}
+	if out.TotalMs <= 0 {
+		return nil
+	}
+	out.DominantState = dominantThreadStateBreakdown(out)
+	out.Summary = fmt.Sprintf("%s peer_state dominant_state=%s total=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms fragments=%d max_segment=%.3fms",
+		threadLabel(out.Thread), out.DominantState, out.TotalMs, out.RunningMs, out.RunnableMs, out.SleepMs, out.DStateMs, out.IOWaitMs, out.FragmentCount, out.MaxSegmentMs)
+	return &out
+}
+
+func dominantThreadStateBreakdown(item ThreadStateBreakdown) string {
+	type candidate struct {
+		state string
+		ms    float64
+	}
+	candidates := []candidate{
+		{state: string(StateIOWait), ms: item.IOWaitMs},
+		{state: string(StateDSleep), ms: item.DStateMs},
+		{state: string(StateRunnable), ms: item.RunnableMs},
+		{state: string(StateSSleep), ms: item.SleepMs},
+		{state: string(StateRunning), ms: item.RunningMs},
+	}
+	best := candidates[0]
+	for _, cand := range candidates[1:] {
+		if cand.ms > best.ms {
+			best = cand
+		}
+	}
+	return best.state
 }
 
 func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
