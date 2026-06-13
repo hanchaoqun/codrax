@@ -332,8 +332,70 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
+	out = reconcileRuntimeObservationProducerPrecedence(out)
 	out = dedupeObservationRecords(out)
 	return ObservationLedger{Records: out}
+}
+
+func reconcileRuntimeObservationProducerPrecedence(records []ObservationRecord) []ObservationRecord {
+	if len(records) == 0 || !hasDeterministicRuntimeQueryObservation(records) {
+		return records
+	}
+	out := append([]ObservationRecord(nil), records...)
+	for i := range out {
+		record := out[i]
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact || !runtimeObservationProducerIsPreTriage(record.Producer) {
+			continue
+		}
+		if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
+			record.Role = AnswerAggregateRoleSupportingCoverage
+			record.GroundingPolicy = AnswerClaimBindingGroundingPolicy(record.Origin, record.Role)
+		}
+		record.RichNotes = appendUniqueObservationString(record.RichNotes, "advisory_pretriage; deterministic_runtime_query_present=true")
+		out[i] = record
+	}
+	return out
+}
+
+func hasDeterministicRuntimeQueryObservation(records []ObservationRecord) bool {
+	for _, record := range records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact {
+			continue
+		}
+		if runtimeObservationProducerIsDeterministicQuery(record.Producer) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeObservationProducerIsDeterministicQuery(producer string) bool {
+	switch runtimeObservationProducerBase(producer) {
+	case "trace_query":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeObservationProducerIsPreTriage(producer string) bool {
+	switch runtimeObservationProducerBase(producer) {
+	case "perf_trace", "emit_perf_trace":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeObservationProducerBase(producer string) string {
+	producer = strings.ToLower(strings.TrimSpace(producer))
+	if producer == "" {
+		return ""
+	}
+	if before, _, ok := strings.Cut(producer, ":"); ok {
+		producer = before
+	}
+	return strings.TrimSpace(producer)
 }
 
 type observationRecordMergeKey struct {
@@ -620,6 +682,12 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank -= 30
 	case AnswerEvidenceOriginRepoNegativeSearch:
 		rank -= 25
+	}
+	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsDeterministicQuery(record.Producer) {
+		rank -= 70
+	}
+	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsPreTriage(record.Producer) {
+		rank += 10
 	}
 	if record.Negative {
 		rank -= 20

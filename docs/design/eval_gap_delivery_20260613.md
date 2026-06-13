@@ -129,8 +129,8 @@ Verification commands:
 ## Task List
 
 - [x] T0: 记录 eval 审计、根因和泛化设计。
-- [ ] T1: 实现 ObservationLedger runtime producer precedence。
-- [ ] T2: 增加 runtime precedence 单测和 prompt budget 单测。
+- [x] T1: 实现 ObservationLedger runtime producer precedence。
+- [x] T2: 增加 runtime precedence 单测和 prompt budget 单测。
 - [ ] T3: 实现 executable conservative `compute_contributions` scaffold。
 - [ ] T4: 将 contribution ledger completion fallback 接入 completion repair
       transition。
@@ -144,3 +144,7 @@ Verification commands:
 
 - 2026-06-13: Batch 0 document recorded. Worktree was clean and `main` was
   already up to date before implementation.
+- 2026-06-13: Batch 1 implemented runtime observation producer precedence.
+  `trace_query` deterministic runtime rows now retain principal status and tight
+  prompt-budget priority, while perf pre-triage rows remain available as
+  supporting/advisory context when deterministic runtime query rows exist.

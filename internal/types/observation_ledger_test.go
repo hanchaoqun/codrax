@@ -205,6 +205,46 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:       AnswerAggregateScalar,
+			Label:      "app-20 runnable total",
+			Value:      "5.000",
+			Unit:       "ms",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "trace_query:/tmp/trace.systrace#state_churn",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "artifact_id", Value: "attached_trace"},
+				{Name: "artifact_kind", Value: "trace"},
+				{Name: "target", Value: "app-20"},
+				{Name: "predicate", Value: "state_churn"},
+			},
+		}},
+		PerfBundle: &PerfBundle{Observations: []PerfObservation{{
+			Kind:       "state_churn",
+			Subject:    "app-20",
+			Summary:    "pre-triage runnable total was estimated before trace_query",
+			LineStart:  7,
+			DurationMs: 3,
+		}}},
+	})
+	trace := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
+	if trace.Producer != "trace_query:/tmp/trace.systrace#state_churn" ||
+		trace.Role != AnswerAggregateRolePrincipalAnswer ||
+		trace.GroundingPolicy != ClaimGroundingRepairable {
+		t.Fatalf("trace_query aggregate should remain principal runtime support: %+v", trace)
+	}
+	perf := findObservationRecord(t, ledger, "perf:observation:0")
+	if perf.Role != AnswerAggregateRoleSupportingCoverage || perf.GroundingPolicy != ClaimGroundingSoft {
+		t.Fatalf("perf pre-triage should be demoted to supporting/soft when trace_query exists: %+v", perf)
+	}
+	if !observationLedgerTestContainsString(perf.RichNotes, "advisory_pretriage; deterministic_runtime_query_present=true") {
+		t.Fatalf("perf pre-triage demotion should preserve an advisory note: %+v", perf.RichNotes)
+	}
+}
+
 func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRuntimeRecords(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		ToolResults: []ToolResult{{
