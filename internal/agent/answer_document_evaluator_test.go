@@ -4371,6 +4371,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"prio=41, prio=51, and prio=52 are RT",
 		"Recompute every concrete `prio=N` classification",
 		"Runtime trace presentation hint",
+		"Runtime trace handoff hint",
+		"preserve that next-step guidance visibly",
+		"prefer the bounded `trace_query` facts",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

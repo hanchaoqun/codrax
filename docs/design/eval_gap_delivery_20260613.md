@@ -677,12 +677,13 @@ Executable task list:
 - [x] B10-T5: Run focused tests, full tests, rebuild, commit/push.
 - [ ] B10-T6: Rerun representative eval cases two at a time and manually audit
   final answers plus logs.
-- [ ] B10-T7: Design the trace-query handoff monotonicity fix as a separate
-  batch if rerun still shows repeated trace_query or stale perf-triage facts in
-  final answers.
+- [x] B10-T7: Add finalizer trace handoff guidance so `state_churn.next_step`
+  remains visible and bounded `trace_query` facts take precedence over stale
+  pre-triage caveats for the same window.
 
 Batch 10 verification before commit:
 
 - `go test ./internal/dataquery -run 'TestActionRunnerAssembleAnswerUsesMetricKeyForSyntheticAllMembers|TestActionRunnerAssembleAnswerProjectsExplicitValueFieldMembers|TestActionRunnerAssembleAnswerCountJSONObjectDefaultsToNumeric|TestActionRunnerAssembleAnswerProjectsJSONObjectValues'`
+- `go test ./internal/agent -run TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder`
 - `go test ./...`
 - `make`
