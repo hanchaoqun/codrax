@@ -25,86 +25,12 @@ const (
 	turnAToolResultsMergedByteCap  = 2 << 20 // 2 MiB
 )
 
-// turnAToolResultBytes is the deterministic byte accounting for the snapshot
-// bound: the carried text surfaces of the result plus its attached typed
-// observation rows. It intentionally over-counts a little (fixed per-row
-// overhead) rather than marshaling for an exact figure.
-func turnAToolResultBytes(r types.ToolResult) int {
-	n := len(r.ToolName) + len(r.Summary) + len(r.RawRef) + 64
-	for _, obs := range r.Observations {
-		n += len(obs.ID) + len(obs.ClaimKey) + len(obs.Subject) + len(obs.Predicate) +
-			len(obs.Object) + len(obs.Value) + len(obs.Summary) + len(obs.RawExcerpt)
-		for _, note := range obs.RichNotes {
-			n += len(note)
-		}
-		for _, ref := range obs.SupportRefs {
-			n += len(ref)
-		}
-		n += 64
-	}
-	return n
-}
-
-// boundTurnAToolResults applies the count + byte cap to a chronological tool
-// result slice, dropping oldest entries first. Slices already inside the caps
-// are returned unchanged (no copy), keeping the default path byte-identical.
-//
-// Gate preservation: extractor.InvestigationStructurallyEmpty accepts an
-// investigation if at least one SUCCESSFUL investigation-class tool result
-// survives in this slice. When dropping the oldest prefix would remove every
-// such result, the newest one from the dropped prefix is retained at the head
-// (still oldest-first order), so the bound can never flip that gate from
-// "real investigation" to "structurally empty". The explorer's own
-// completionReadiness counters run over the in-window dispatch history before
-// the snapshot is taken, so they are unaffected by this bound.
 func boundTurnAToolResults(results []types.ToolResult, countCap, byteCap int) []types.ToolResult {
-	if len(results) == 0 || countCap <= 0 || byteCap <= 0 {
-		return results
-	}
-	total := 0
-	for _, r := range results {
-		total += turnAToolResultBytes(r)
-	}
-	if len(results) <= countCap && total <= byteCap {
-		return results
-	}
-	// Walk newest → oldest, keeping entries while both caps hold.
-	start := len(results)
-	kept := 0
-	keptBytes := 0
-	for i := len(results) - 1; i >= 0; i-- {
-		size := turnAToolResultBytes(results[i])
-		if kept+1 > countCap || keptBytes+size > byteCap {
-			break
-		}
-		kept++
-		keptBytes += size
-		start = i
-	}
-	if start == 0 {
-		return results
-	}
-	out := results[start:]
-	if !hasSuccessfulInvestigationToolResult(out) {
-		for i := start - 1; i >= 0; i-- {
-			if results[i].Success && investigationToolKinds[results[i].ToolName] {
-				preserved := make([]types.ToolResult, 0, len(out)+1)
-				preserved = append(preserved, results[i])
-				preserved = append(preserved, out...)
-				return preserved
-			}
-		}
-	}
-	return append([]types.ToolResult(nil), out...)
+	return types.BoundTurnAToolResults(results, countCap, byteCap, preserveSuccessfulInvestigationToolResult)
 }
 
-func hasSuccessfulInvestigationToolResult(results []types.ToolResult) bool {
-	for _, r := range results {
-		if r.Success && investigationToolKinds[r.ToolName] {
-			return true
-		}
-	}
-	return false
+func preserveSuccessfulInvestigationToolResult(r types.ToolResult) bool {
+	return r.Success && investigationToolKinds[r.ToolName]
 }
 
 // mergeTurnAArtifactsWithPrior folds a prior TurnAArtifacts snapshot into the

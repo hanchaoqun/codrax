@@ -871,6 +871,8 @@ type TurnAArtifacts struct {
 	// are external resource observations, never current-source citations.
 	// Keeping them beside ToolResults lets downstream stages reuse typed
 	// line/row coordinates without pushing the model back to grep/read_file.
+	// The fork merge point bounds count + bytes with oldest-first dropping and
+	// payload-bearing successful response preservation.
 	MCPResponses []MCPResponse
 
 	// AcceptedClosureReason is the model-authored rationale from the
@@ -3826,6 +3828,13 @@ type turnAArtifactsMergeBase struct {
 	FlowLen               int
 }
 
+const (
+	turnAArtifactsMutableToolResultsCountCap  = 320
+	turnAArtifactsMutableToolResultsByteCap   = 2 << 20
+	turnAArtifactsMutableMCPResponsesCountCap = 320
+	turnAArtifactsMutableMCPResponsesByteCap  = 2 << 20
+)
+
 func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts, base turnAArtifactsMergeBase) TurnAArtifacts {
 	if prior == nil {
 		if cloned := cloneTurnAArtifactsPtr(&current); cloned != nil {
@@ -3851,9 +3860,21 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		append([]ToolResult(nil), prior.ToolResults...),
 		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,
 	)
+	merged.ToolResults = BoundTurnAToolResults(
+		merged.ToolResults,
+		turnAArtifactsMutableToolResultsCountCap,
+		turnAArtifactsMutableToolResultsByteCap,
+		PreserveSuccessfulToolResultWithPayload,
+	)
 	merged.MCPResponses = append(
 		append([]MCPResponse(nil), prior.MCPResponses...),
 		current.MCPResponses[clampMergeSliceBase(base.MCPLen, len(current.MCPResponses)):]...,
+	)
+	merged.MCPResponses = BoundTurnAMCPResponses(
+		merged.MCPResponses,
+		turnAArtifactsMutableMCPResponsesCountCap,
+		turnAArtifactsMutableMCPResponsesByteCap,
+		PreserveSuccessfulMCPResponseWithPayload,
 	)
 	if current.AcceptedClosureReason != "" {
 		merged.AcceptedClosureReason = current.AcceptedClosureReason
