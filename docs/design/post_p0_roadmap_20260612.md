@@ -48,6 +48,10 @@ eval bar 不降级，FAIL 修系统；分批 commit+push。
   教学)/operation_web(operation 答案 prompt+answer-document 双表面用户词
   复用教学)/s3a(探针 case 定性反转,词表第三次扩充)。libgit2/opweb gate
   PASS 且内容逐项核绿;s3a+qf_architecture 回归 gate 批 2 进行中。
+- 2026-06-13: 第二梯队 #5/#6 启动设计账本
+  `docs/design/post_p0_tier2_5_6_delivery_plan_20260613.md`。确认复用现有
+  strict decode repair、tracequery windowed index、TurnA handoff、normalizer/repomap
+  resolver；任务拆为 6A/6B/6C + strict decode 5A/5B/5C，按批提交推送。
 
 ## repeat-FAIL 专项（2026-06-13 交付完毕,全部 prompt/case 级,过 BLOCKING 流程）
 
