@@ -224,6 +224,53 @@ func TestEmitAnswerDocumentPatch_ReplaceBlock(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_PreservesTableTrailingProse(t *testing.T) {
+	bus := &types.BusContext{Mutable: &types.MutableState{}}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:       "metrics",
+			Kind:     types.BlockTable,
+			Text:     "| metric | value |\n|---|---|\n| running | 3.5ms |\n\nNext step: inspect rival-30 on same CPU for CPU pressure.",
+			FacetIDs: []string{"observed_artifact_fact"},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimExternalObservation,
+				FacetID:   "observed_artifact_fact",
+			}},
+		}},
+	})
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"replace_blocks": [{
+			"id": "metrics",
+			"kind": "table",
+			"columns": ["metric", "value"],
+			"items": [{"id": "r1", "cells": ["running", "3.5ms"]}],
+			"facet_ids": ["observed_artifact_fact"],
+			"claim_uses": [{"claim_form": "external_observation", "facet_id": "observed_artifact_fact"}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("table-tail preservation patch must succeed: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("merged doc=%+v, want replacement table plus preserved tail block", doc)
+	}
+	if doc.Blocks[0].ID != "metrics" || len(doc.Blocks[0].Items) != 1 || strings.TrimSpace(doc.Blocks[0].Text) != "" {
+		t.Fatalf("replacement table not preserved structurally: %+v", doc.Blocks[0])
+	}
+	if doc.Blocks[1].Kind != types.BlockSection || !strings.Contains(doc.Blocks[1].Text, "Next step: inspect rival-30") {
+		t.Fatalf("table trailing prose was not preserved: %+v", doc.Blocks[1])
+	}
+	if len(doc.Blocks[1].FacetIDs) == 0 || len(doc.Blocks[1].ClaimUses) == 0 {
+		t.Fatalf("preserved tail block lost annotations: %+v", doc.Blocks[1])
+	}
+}
+
 // TestEmitAnswerDocumentPatch_AddNewBlock pins add path through
 // tool layer (kind validation + id uniqueness).
 func TestEmitAnswerDocumentPatch_AddNewBlock(t *testing.T) {

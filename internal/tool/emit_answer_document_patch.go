@@ -246,6 +246,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := preservePatchReplacementTableTails(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved visible table-tail prose from previous block(s): %s",
+			strings.Join(fields, ", "))
+	}
 
 	// v3 B4 (2026-05-04): route the patch-emit write through the
 	// unified mutation runtime — same chokepoint as the full path.
@@ -364,6 +368,120 @@ func normalizePatchBlockList(field string, blocks []types.AnswerBlock, fields *[
 		out = append(out, block)
 	}
 	return out
+}
+
+func preservePatchReplacementTableTails(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil || len(patch.ReplaceBlocks) == 0 {
+		return false, nil
+	}
+	prevByID := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	usedIDs := make(map[string]bool, len(prev.Blocks)+len(patch.AddBlocks)+len(patch.ReplaceBlocks))
+	for _, block := range prev.Blocks {
+		prevByID[block.ID] = block
+		if strings.TrimSpace(block.ID) != "" {
+			usedIDs[block.ID] = true
+		}
+	}
+	for _, block := range patch.AddBlocks {
+		if strings.TrimSpace(block.ID) != "" {
+			usedIDs[block.ID] = true
+		}
+	}
+	for _, block := range patch.ReplaceBlocks {
+		if strings.TrimSpace(block.ID) != "" {
+			usedIDs[block.ID] = true
+		}
+	}
+	var fields []string
+	for _, replacement := range patch.ReplaceBlocks {
+		if replacement.Kind != types.BlockTable ||
+			strings.TrimSpace(replacement.Text) != "" ||
+			(len(replacement.Items) == 0 && len(replacement.Columns) == 0) {
+			continue
+		}
+		prevBlock, ok := prevByID[replacement.ID]
+		if !ok || prevBlock.Kind != types.BlockTable {
+			continue
+		}
+		tail := markdownTableTrailingProse(prevBlock.Text)
+		if tail == "" || answerPatchSurfaceAlreadyCarriesText(patch, tail) {
+			continue
+		}
+		id := uniquePatchBlockID(usedIDs, replacement.ID+"_tail")
+		usedIDs[id] = true
+		patch.AddBlocks = append(patch.AddBlocks, types.AnswerBlock{
+			ID:          id,
+			Kind:        types.BlockSection,
+			Text:        tail,
+			FacetIDs:    append([]string(nil), replacement.FacetIDs...),
+			ClaimUses:   append([]types.RenderedClaimUse(nil), replacement.ClaimUses...),
+			SurfaceRole: replacement.SurfaceRole,
+		})
+		fields = append(fields, fmt.Sprintf("replace_blocks[%q].tail→add_blocks[%q]", replacement.ID, id))
+	}
+	return len(fields) > 0, fields
+}
+
+func markdownTableTrailingProse(text string) string {
+	text = strings.TrimRight(strings.TrimSpace(text), "\n")
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	i := 0
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
+	}
+	if i >= len(lines) || !isMarkdownTableLine(lines[i]) {
+		return ""
+	}
+	tableLines := 0
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			i++
+			break
+		}
+		if !isMarkdownTableLine(line) {
+			break
+		}
+		tableLines++
+		i++
+	}
+	if tableLines < 2 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(lines[i:], "\n"))
+}
+
+func isMarkdownTableLine(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") && strings.Count(line, "|") >= 2
+}
+
+func answerPatchSurfaceAlreadyCarriesText(patch *types.AnswerDocumentV2Patch, text string) bool {
+	needle := strings.TrimSpace(text)
+	if needle == "" || patch == nil {
+		return false
+	}
+	for _, block := range append(append([]types.AnswerBlock(nil), patch.ReplaceBlocks...), patch.AddBlocks...) {
+		if strings.Contains(types.AnswerBlockVisibleSurface(block), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func uniquePatchBlockID(used map[string]bool, base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "preserved_tail"
+	}
+	id := base
+	for i := 2; used[id]; i++ {
+		id = fmt.Sprintf("%s_%d", base, i)
+	}
+	return id
 }
 
 func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {

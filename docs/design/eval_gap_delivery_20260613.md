@@ -350,3 +350,86 @@ Executable task list:
 Batch 6 focused verification before commit:
 
 - `go test ./internal/tracequery ./internal/tool -run 'TestRootCauseRankPromotesFragmentedStateChurn|TestTraceQuerySummaryRendersFragmentedStateChurn|TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps'`
+
+## Batch 7 Gap: High-Signal Handoff Ordering And Patch Surface Preservation
+
+Post-Batch-6 eval root:
+
+- `eval/results/eval-gap-20260613-post-18c6a163`
+
+Observed eval behavior:
+
+- `data_json_strict_ids` produced the exact valid final answer
+  `{"ids":["u1","u3"]}` and used the local JSON material correctly. The harness
+  still failed on the default minimum output length because compact strict JSON
+  can be shorter than the generic answer floor.
+- `trace_query_state_churn_window_stats` used `trace_query` once and surfaced a
+  semantically correct scheduler answer, but the final visible answer lost the
+  explicit next-step wording that had been present earlier in the answer
+  document. The runtime log showed the inline `trace_query` result was capped
+  before the late `state_churn` rows because verbose window sections such as
+  trace spans/resources/compute supply preceded the most decision-critical churn
+  summary.
+- The answer document patch path then replaced a markdown table block with a
+  structured table block. That is the right direction for stable rendering, but
+  the old block also contained trailing prose with the next investigation step.
+  The replacement had structured rows/cells and no text, so the prose was not
+  carried forward into the final surface.
+
+Deep root cause:
+
+- Handoff priority was based on the producer's natural rendering order instead
+  of signal criticality. Under a bounded tool-result budget, verbose supporting
+  sections can push principal diagnostic facts and next-step evidence out of the
+  model-visible slice even when those facts exist in typed products.
+- Partial answer mutation preserved structure but did not preserve all visible
+  surface semantics when converting a mixed markdown table+prose block into a
+  pure structured table. This is a renderer/mutation fidelity gap, not a
+  finalizer content gap.
+- The compact JSON failure was an eval contract mismatch: strict JSON-only
+  cases should be allowed to return minimal valid JSON without forcing padding
+  or prose.
+
+Generalized design:
+
+- Render deterministic runtime summaries in decision-priority order. Principal
+  CPU pressure and state-churn rows should appear before verbose supporting
+  sections so bounded handoff keeps the highest-value typed evidence. This uses
+  typed product categories and existing structured fields only; it does not
+  inspect user intent or finalizer prose.
+- Add a structural answer-patch preservation layer for table replacements. When
+  a previous table block contains a markdown table followed by non-empty prose,
+  and the replacement is a structured table with no text surface, carry that
+  trailing prose into a separate section block with the replacement's
+  annotations. The trigger is purely structural: previous block kind, markdown
+  table shape, replacement block kind, and visible-surface absence.
+- Keep compact strict JSON evals honest by declaring a case-level minimum output
+  length of 1, rather than changing production answer behavior or encouraging
+  filler text.
+
+Executable task list:
+
+- [x] B7-T1: Set `MIN_OUTPUT_CHARS=1` for strict compact JSON eval cases whose
+  contract is the JSON payload itself.
+- [x] B7-T2: Move `state_churn` rendering ahead of verbose window support
+  sections in `trace_query` summary output.
+- [x] B7-T3: Add structural table-tail preservation to
+  `emit_answer_document_patch`, preserving annotations and avoiding duplicate
+  visible text.
+- [x] B7-T4: Add focused answer-patch regression coverage for markdown
+  table+trailing prose to structured-table replacement.
+- [x] B7-T5: Run focused Go tests, full Go tests, rebuild, commit/push.
+- [ ] B7-T6: Rerun representative eval cases two at a time and manually audit
+  final answers plus logs.
+
+Batch 7 focused verification before commit:
+
+- `go test ./internal/tool -run 'TestTraceQuerySummaryRendersFragmentedStateChurn|TestEmitAnswerDocumentPatch_PreservesTableTrailingProse'`
+- `go test ./...`
+- `make`
+
+Batch 7 verification before commit:
+
+- `go test ./internal/tool -run 'TestTraceQuerySummaryRendersFragmentedStateChurn|TestEmitAnswerDocumentPatch_PreservesTableTrailingProse'`
+- `go test ./...`
+- `make`
