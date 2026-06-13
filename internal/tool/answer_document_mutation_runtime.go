@@ -138,6 +138,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
+	if materializeRuntimeTraceNextStepsBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace next-step block from structured observation notes", toolName)
+	}
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
@@ -254,6 +257,130 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 	return fixed
 }
 
+func materializeRuntimeTraceNextStepsBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace next-step block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if answerDocumentHasNextStepsBlock(doc) {
+		return false
+	}
+	items := runtimeTraceNextStepItems(doc, ctx)
+	if len(items) == 0 {
+		return false
+	}
+	block := types.AnswerBlock{
+		ID:    "next_steps",
+		Kind:  types.BlockOrderedList,
+		Items: items,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+func answerDocumentHasNextStepsBlock(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if answerDocumentBlockIDIsNextSteps(block.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentBlockIDIsNextSteps(id string) bool {
+	id = strings.ToLower(strings.TrimSpace(id))
+	id = strings.NewReplacer("-", "_", " ", "_").Replace(id)
+	switch id {
+	case "next_step", "next_steps":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
+	if doc == nil || ctx == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []types.AnswerBlockItem
+	for _, record := range ledger.Records {
+		step := runtimeTraceNextStepFromObservationRecord(record)
+		if step == "" {
+			continue
+		}
+		if seen[step] {
+			continue
+		}
+		seen[step] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       "下一步",
+			Text:        step,
+			CitationRef: -1,
+		})
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
+func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord) string {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
+		return ""
+	}
+	if strings.TrimSpace(record.Producer) != "trace_query" {
+		return ""
+	}
+	return trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step"))
+}
+
+func runtimeTraceObservationRichNoteValue(notes []string, key string) string {
+	prefix := strings.TrimSpace(key) + "="
+	if prefix == "=" {
+		return ""
+	}
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if !strings.HasPrefix(note, prefix) {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+	}
+	return ""
+}
+
+func trimRuntimeTraceNextStepText(s string) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if s == "" {
+		return ""
+	}
+	const maxRunes = 360
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes-1]) + "…"
+}
+
 func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
@@ -291,17 +418,23 @@ func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *t
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := len(doc.Blocks)
-	for i, existing := range doc.Blocks {
-		if existing.Kind == types.BlockCaveat {
-			insertAt = i
-			break
-		}
-	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
 	return true
+}
+
+func answerDocumentInsertionIndexBeforeCaveat(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	for i, existing := range doc.Blocks {
+		if existing.Kind == types.BlockCaveat {
+			return i
+		}
+	}
+	return len(doc.Blocks)
 }
 
 func runtimeTraceObservationItems(doc *types.AnswerDocumentV2, perf *types.PerfBundle) []types.AnswerBlockItem {

@@ -127,6 +127,98 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceStructuredFacts(t *testing
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservation(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			RichNotes: []string{
+				"running=3.500",
+				"next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "metrics", "kind": "ordered_list", "items": [
+				{"id": "m1", "label": "fragments", "text": "21 段", "citation_ref": -1}
+			]},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 4 {
+		t.Fatalf("runtime trace next-step block should be inserted before caveat, got %+v", doc)
+	}
+	next := doc.Blocks[2]
+	if next.ID != "next_steps" || next.Kind != types.BlockOrderedList {
+		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
+	}
+	if len(next.Items) != 1 || next.Items[0].Label != "下一步" ||
+		!strings.Contains(next.Items[0].Text, "rival-30") ||
+		!strings.Contains(next.Items[0].Text, "CPU pressure") {
+		t.Fatalf("next step item did not preserve typed note: %+v", next.Items)
+	}
+	if len(next.ClaimUses) != 1 || next.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("next_steps block must stay in external-observation lane: %+v", next.ClaimUses)
+	}
+	if len(doc.Citations) != 0 || next.Items[0].CitationRef != -1 {
+		t.Fatalf("runtime next step must not create repo citations: citations=%+v item=%+v", doc.Citations, next.Items[0])
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotDuplicateExistingRuntimeTraceNextStepsBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:state_churn:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			RichNotes: []string{"next_step=inspect rival-30 on same CPU cpu=1"},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "next_steps", "kind": "ordered_list", "items": [
+				{"id": "n1", "label": "下一步", "text": "查看 rival-30 的 wakeup 链", "citation_ref": -1}
+			]},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	count := 0
+	for _, block := range doc.Blocks {
+		if block.ID == "next_steps" {
+			count++
+		}
+	}
+	if count != 1 || len(doc.Blocks) != 3 {
+		t.Fatalf("existing next_steps block should be preserved without duplication: %+v", doc.Blocks)
+	}
+}
+
 func TestEmitAnswerDocumentV2_DoesNotMaterializeRuntimeFactsForCodeOnlyDoc(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

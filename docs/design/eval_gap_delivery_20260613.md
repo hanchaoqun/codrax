@@ -1784,7 +1784,7 @@ Executable task list:
 - [x] B27-T1: Add renderer tests for localized next-step headings on structured
   `next_steps` list blocks.
 - [x] B27-T2: Add the renderer fallback for ordered and bullet list blocks.
-- [ ] B27-T3: Run focused render/orchestrator tests, full hygiene, commit,
+- [x] B27-T3: Run focused render/orchestrator tests, full hygiene, commit,
   push, and rerun the two representative eval cases.
 
 Implementation notes:
@@ -1801,6 +1801,80 @@ Verification:
 - Focused render tests:
   `go test ./internal/render -run 'TestRenderV2_(BlockOrderedList|NextStepsListIDGetsLocalizedHeading)'`
 - Package tests: `go test ./internal/render`
+
+Post-Batch-27 eval audit:
+
+- `eval/results/eval-gap-20260613-post-e52171c5-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 158s. Manual audit: final answer is strict
+  JSON `{"ids":["u1","u3"]}`. Logs show two repair rounds: one invalid
+  `group_key_field=group` for contribution computation and one field-name
+  repair from `id_lists` to `ids`. No output-contract warning remains, but the
+  higher round count is a separate data-planning efficiency signal, not a
+  correctness gap for this batch.
+- `trace_query_state_churn_window_stats`: runner exit code 0 but eval verdict
+  still FAIL on the next-step surface regex. Manual audit: scalar metrics and
+  root-cause semantics are correct, and `trace_query` was used once with a
+  bounded `window_stats` call. The accepted answer document has only summary,
+  metrics ordered list, auto-materialized trace facts, and caveat. The typed
+  observation ledger contains `RichNotes` with
+  `next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition`,
+  but no structured `next_steps` block reaches the final surface, so the
+  Batch-27 renderer fallback has nothing to render.
+
+## Batch 28 Gap: Runtime Next-Step Handoff Must Materialize From Typed Observation Notes
+
+Deep root cause:
+
+- The trace tool already emits next-step guidance as structured observation
+  metadata: `ObservationRecord.RichNotes` contains a typed `next_step=...`
+  entry on the `trace_query` runtime-artifact row.
+- The prompt asks the finalizer to preserve that guidance, but preservation is
+  model-authored and therefore optional in practice. The answer contract stays
+  quiet because no hard structural requirement says a typed next-step note must
+  have a visible answer-document carrier.
+- Batch 27 fixed the renderer for an existing structured `next_steps` block;
+  it did not guarantee such a block exists when upstream typed notes contain
+  the relation.
+
+Generalized design:
+
+- Extend the unified answer-document mutation chokepoint with a deterministic
+  materializer that consumes only `ObservationLedger` records from accepted
+  tool results.
+- When a runtime-artifact `trace_query` observation carries a typed
+  `RichNotes` key `next_step`, and the accepted document does not already have
+  a `next_step` / `next_steps` block, insert a support ordered-list block with
+  `id="next_steps"` before caveats.
+- Keep the inserted block in the external-observation lane and do not create
+  repository citations. Skip insertion only when the document already has a
+  structured next-step block.
+- This does not parse user text, model prose, or answer prose for intent; the
+  only trigger is a producer-owned structured note key.
+
+Executable task list:
+
+- [x] B28-T1: Add regression coverage for typed `trace_query`
+  `next_step` notes materializing into a `next_steps` block.
+- [x] B28-T2: Add duplicate protection when the model already emitted a
+  structured next-step block.
+- [x] B28-T3: Implement the mutation-chokepoint materializer using
+  `ObservationLedgerInputFromBusContext` and typed `ObservationRecord` fields.
+- [ ] B28-T4: Run full hygiene, commit, push, rebuild, and rerun the two
+  representative eval cases.
+
+Implementation notes:
+
+- `persistMergedAnswerDocument` now runs the next-step materializer before the
+  runtime trace facts materializer, giving requested follow-up guidance priority
+  when block headroom is tight.
+- The inserted item label is `下一步`, while the text preserves the typed note
+  value exactly after whitespace normalization and bounded length trimming.
+
+Verification:
+
+- Focused tool tests:
+  `go test ./internal/tool -run 'TestEmitAnswerDocumentV2_(MaterializesRuntimeTraceStructuredFacts|MaterializesRuntimeTraceNextStepFromTypedObservation|DoesNotDuplicateExistingRuntimeTraceNextStepsBlock|DoesNotMaterializeRuntimeFactsForCodeOnlyDoc)'`
 
 Post-Batch-22 eval audit:
 
