@@ -67,6 +67,31 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	}
 }
 
+func TestConservativeContributionLedgerScaffoldBuildsExecutableAuditCount(t *testing.T) {
+	scaffolds := ConservativeContributionLedgerScaffolds([]ArtifactSchemaProjection{{
+		ID:        "eligible_records",
+		Kind:      string(dataquery.DataActionFilterRecords),
+		NodeClass: ArtifactNodeClassRecord,
+		Aliases:   []string{"eligible_records.json"},
+		JSONShape: "array(len=2,item=object(keys=id,status))",
+		Fields:    []string{"id", "status"},
+	}}, 2)
+	if len(scaffolds) != 1 {
+		t.Fatalf("scaffolds=%+v, want one conservative contribution scaffold", scaffolds)
+	}
+	action, ok := ConcreteActionFromScaffold(scaffolds[0])
+	if !ok {
+		t.Fatalf("ConcreteActionFromScaffold returned ok=false for %+v", scaffolds[0])
+	}
+	if action.Kind != dataquery.DataActionComputeContribs ||
+		!slices.Equal(action.InputPaths, []string{"eligible_records.json"}) ||
+		action.Params["operation"] != "count" ||
+		action.Params["role"] != "audit" ||
+		action.Params["value_field"] != "" {
+		t.Fatalf("action=%+v, want executable audit count contribution action", action)
+	}
+}
+
 func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 	scaffolds := BuildActionScaffolds(ActionScaffoldBuildInput{
 		State: WorkflowStateView{

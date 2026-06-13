@@ -460,6 +460,50 @@ func TestBuildWorkflowNextStageFallbackPlanCompletesReconcileStage(t *testing.T)
 	}
 }
 
+func TestBuildCompletionRepairTransitionCompletesMissingContributionsFromArtifact(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+		HasAnswer:                  true,
+	})
+	guard := LedgerGraphCompletionGuardResult(graph)
+	if guard.Empty() {
+		t.Fatal("fixture should produce a missing contribution ledger guard")
+	}
+	transition := BuildCompletionRepairTransition(CompletionRepairTransitionInput{
+		Current:        dataquery.TaskPlan{Goal: "finish strict answer validation"},
+		Coverage:       dataquery.CoverageContract{ContributionLedgerRequired: true},
+		Output:         dataquery.OutputContract{Format: dataquery.OutputJSONOnly},
+		Result:         dataquery.Result{Answer: `{"ids":["u1","u3"]}`},
+		LedgerGraph:    graph,
+		UseLedgerGraph: true,
+		Guard:          guard,
+		Artifacts: []ArtifactSchemaProjection{{
+			ID:        "active_user_records",
+			Kind:      string(dataquery.DataActionFilterRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{"active_user_records.json"},
+			JSONShape: "array(len=2,item=object(keys=id,active))",
+			Fields:    []string{"id", "active"},
+			RowCount:  2,
+		}},
+	})
+	if !transition.Deterministic || !transition.HasPlan() {
+		t.Fatalf("transition=%+v, want deterministic contribution completion plan", transition)
+	}
+	if len(transition.Plan.Actions) != 1 {
+		t.Fatalf("actions=%+v, want one compute_contributions action", transition.Plan.Actions)
+	}
+	action := transition.Plan.Actions[0]
+	if action.Kind != dataquery.DataActionComputeContribs ||
+		action.Params["operation"] != "count" ||
+		action.Params["role"] != "audit" ||
+		action.Params["group_key"] != "workflow_audit" ||
+		!strings.Contains(transition.Plan.WhyThisBatch, "missing contribution ledger") {
+		t.Fatalf("action=%+v plan=%+v, want conservative audit compute contribution plan", action, transition.Plan)
+	}
+}
+
 func TestBuildWorkflowNextStageFallbackPlanProjectsFinalAnswer(t *testing.T) {
 	result := dataquery.Result{
 		Contributions: []dataquery.ContributionRecord{{

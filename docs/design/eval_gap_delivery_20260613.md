@@ -131,10 +131,10 @@ Verification commands:
 - [x] T0: 记录 eval 审计、根因和泛化设计。
 - [x] T1: 实现 ObservationLedger runtime producer precedence。
 - [x] T2: 增加 runtime precedence 单测和 prompt budget 单测。
-- [ ] T3: 实现 executable conservative `compute_contributions` scaffold。
-- [ ] T4: 将 contribution ledger completion fallback 接入 completion repair
+- [x] T3: 实现 executable conservative `compute_contributions` scaffold。
+- [x] T4: 将 contribution ledger completion fallback 接入 completion repair
       transition。
-- [ ] T5: 增加 dataworkflow/repl 单测，覆盖 missing contributions deterministic
+- [x] T5: 增加 dataworkflow/repl 单测，覆盖 missing contributions deterministic
       recovery。
 - [ ] T6: 分批提交并推送文档、runtime handoff、data workflow fallback。
 - [ ] T7: 运行 Go 测试和代表 eval，每批 2 case。
@@ -148,3 +148,8 @@ Verification commands:
   `trace_query` deterministic runtime rows now retain principal status and tight
   prompt-budget priority, while perf pre-triage rows remain available as
   supporting/advisory context when deterministic runtime query rows exist.
+- 2026-06-13: Batch 2 implemented deterministic contribution-ledger recovery.
+  Completion repair now receives artifact projections and can generate a
+  conservative `compute_contributions(operation=count, role=audit)` action over
+  handed-off record artifacts when required contribution ledgers are missing and
+  DAG prerequisites are satisfied.

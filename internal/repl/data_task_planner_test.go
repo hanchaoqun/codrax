@@ -2007,6 +2007,55 @@ func TestDataTaskEvaluationDecisionUsesCompletionFallbackForNoisyRepair(t *testi
 	}
 }
 
+func TestDataTaskEvaluationDecisionUsesArtifactHandoffForMissingContributionFallback(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true},
+		},
+		Result: &dataquery.Result{
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "active_user_records",
+				Kind:    string(dataquery.DataActionFilterRecords),
+				Headers: []string{"id", "active"},
+				Fields: map[string]string{
+					"artifact_aliases": "active_user_records.json",
+					"json_shape":       "array(len=2,item=object(keys=id,active))",
+				},
+				RowCount: 2,
+			}},
+		},
+	}}
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly},
+		CoverageContract: dataquery.CoverageContract{
+			ContributionLedgerRequired: true,
+		},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: current.OutputContract,
+	}
+	decision := dataTaskEvaluationDecisionWithRepo("", records, current, result, dataquery.Evaluation{
+		Status: dataquery.EvalRepairNode,
+		Reason: "older node still asks for repair",
+	}, true, true, 0, DefaultDataTaskMaxRepairRounds)
+	if decision.Action != dataworkflow.EvaluationDecisionFallbackPlan ||
+		decision.Source != "ledger" ||
+		!decision.HasPlan() {
+		t.Fatalf("decision=%+v, want ledger completion fallback", decision)
+	}
+	if len(decision.Plan.Actions) != 1 {
+		t.Fatalf("fallback plan=%+v, want one compute_contributions action", decision.Plan)
+	}
+	action := decision.Plan.Actions[0]
+	if action.Kind != dataquery.DataActionComputeContribs ||
+		action.Params["operation"] != "count" ||
+		action.Params["role"] != "audit" ||
+		action.InputPaths[0] != "active_user_records" {
+		t.Fatalf("fallback action=%+v, want audit count over handed-off artifact", action)
+	}
+}
+
 func TestDataTaskWorkflowCompletionGateRejectsUnprojectedSameCountReferenceAnswer(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {

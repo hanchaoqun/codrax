@@ -283,6 +283,30 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 			OutputArtifact: concreteScaffoldArtifactID("value_distribution", []string{inputPath}),
 			Params:         params,
 		}, true
+	case dataquery.DataActionComputeContribs:
+		inputPath := strings.TrimSpace(scaffold.InputPath)
+		if inputPath == "" && len(scaffold.InputPaths) > 0 {
+			inputPath = strings.TrimSpace(scaffold.InputPaths[0])
+		}
+		if inputPath == "" || !scaffoldParamsConcrete(params, "operation", "group_key", "metric") {
+			return dataquery.DataAction{}, false
+		}
+		if strings.ToLower(strings.TrimSpace(params["operation"])) != "count" {
+			return dataquery.DataAction{}, false
+		}
+		if strings.TrimSpace(params["value_field"]) != "" {
+			return dataquery.DataAction{}, false
+		}
+		params["role"] = firstNonEmpty(params["role"], "audit")
+		params["allow_unqualified_records"] = firstNonEmpty(params["allow_unqualified_records"], "true")
+		return dataquery.DataAction{
+			ID:             concreteScaffoldActionID("continue_compute_contributions", []string{inputPath}),
+			Kind:           dataquery.DataActionComputeContribs,
+			Purpose:        "complete the missing contribution ledger from an existing record artifact without changing business decisions",
+			InputPaths:     []string{inputPath},
+			OutputArtifact: concreteScaffoldArtifactID("contributions", []string{inputPath}),
+			Params:         params,
+		}, true
 	default:
 		return dataquery.DataAction{}, false
 	}
@@ -851,6 +875,39 @@ func ComputeContributionScaffolds(records []ArtifactSchemaProjection, limit int)
 				"item_id_field":   "<existing stable row id field if available>",
 			},
 			Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
+		})
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func ConservativeContributionLedgerScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+	if limit <= 0 {
+		return nil
+	}
+	var out []ActionScaffold
+	for _, artifact := range recordActionProjections(records) {
+		alias := firstProjectionAlias(artifact)
+		if alias == "" || len(artifact.Fields) == 0 {
+			continue
+		}
+		out = append(out, ActionScaffold{
+			Kind:       string(dataquery.DataActionComputeContribs),
+			Executable: true,
+			UseWhen:    "complete a required contribution ledger from an already materialized record artifact without changing the answer projection",
+			InputPath:  alias,
+			Fields:     clampStrings(artifact.Fields, 20),
+			ParamsTemplate: map[string]string{
+				"operation":                 "count",
+				"group_key":                 "workflow_audit",
+				"metric":                    "record_count",
+				"role":                      "audit",
+				"allow_unqualified_records": "true",
+				"reason":                    "deterministic workflow ledger completion from existing record artifact",
+			},
+			Note: "This scaffold is for deterministic workflow recovery only. It creates sourced audit contributions and does not participate in numeric final-answer reconciliation.",
 		})
 		if len(out) >= limit {
 			return out

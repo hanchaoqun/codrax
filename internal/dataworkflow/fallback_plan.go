@@ -62,6 +62,8 @@ type CompletionRepairTransitionInput struct {
 	OutputGraph            OutputProjectionGraph
 	UseOutputGraph         bool
 	Guard                  GuardResult
+	Artifacts              []ArtifactSchemaProjection
+	SeenActionKeys         map[string]bool
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
 }
@@ -133,6 +135,8 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 		UseLedgerGraph:         input.UseLedgerGraph,
 		OutputGraph:            input.OutputGraph,
 		UseOutputGraph:         input.UseOutputGraph,
+		Artifacts:              input.Artifacts,
+		SeenActionKeys:         input.SeenActionKeys,
 		ReferenceGap:           input.ReferenceGap,
 		PlanHasCustomTransform: input.PlanHasCustomTransform,
 	}); ok {
@@ -666,6 +670,8 @@ type RequiredLedgerCompletionPlanInput struct {
 	UseLedgerGraph         bool
 	OutputGraph            OutputProjectionGraph
 	UseOutputGraph         bool
+	Artifacts              []ArtifactSchemaProjection
+	SeenActionKeys         map[string]bool
 	ReferenceGap           ReferenceProjectionGap
 	PlanHasCustomTransform bool
 }
@@ -705,6 +711,26 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 		plan.InputPaths = mergeActionInputPaths(plan.InputPaths, action.InputPaths)
 		plan.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
 		return plan, true
+	case string(LedgerContributions):
+		if dep.Status == LedgerStatusBlockedByPrerequisite {
+			return dataquery.TaskPlan{}, false
+		}
+		continuation, _, ok := BuildConcreteFallbackPlan(ConcreteFallbackPlanInput{
+			Current:        plan,
+			Coverage:       input.Coverage,
+			Output:         plan.OutputContract,
+			Scaffolds:      ConservativeContributionLedgerScaffolds(input.Artifacts, 4),
+			Facts:          StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true},
+			ReasonPrefix:   "complete missing contribution ledger",
+			SeenActionKeys: input.SeenActionKeys,
+		})
+		if !ok {
+			return dataquery.TaskPlan{}, false
+		}
+		continuation.ContinueAfter = true
+		continuation.WhyThisBatch = "complete missing contribution ledger from an existing record artifact using sourced audit count contributions"
+		continuation.NextBatch = "re-run workflow completion checks; continue to reconcile or final answer projection only after required ledgers are present"
+		return continuation, true
 	case string(LedgerReconcile):
 		if len(input.Result.Contributions) == 0 || dep.Status == LedgerStatusBlockedByPrerequisite {
 			return dataquery.TaskPlan{}, false

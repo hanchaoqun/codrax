@@ -5939,6 +5939,9 @@ func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []
 	if hasReferenceGap {
 		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 	}
+	completionRecords := make([]dataTaskWorkflowRecord, 0, len(records)+1)
+	completionRecords = append(completionRecords, records...)
+	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
 	return dataworkflow.CompletionRepairTransitionInput{
 		Current:                current,
 		Coverage:               dataTaskWorkflowCoverageContract(records, current),
@@ -5949,6 +5952,8 @@ func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []
 		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
 		UseOutputGraph:         true,
 		Guard:                  guard,
+		Artifacts:              dataTaskWorkflowArtifactSchemaProjections(completionRecords),
+		SeenActionKeys:         dataTaskWorkflowSeenActionKeys(records),
 		ReferenceGap:           gap,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
 	}
