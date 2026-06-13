@@ -138,6 +138,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
+	if materializeRuntimeTraceMetricSnapshotBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace metric snapshot from structured observation notes", toolName)
+	}
 	if materializeRuntimeTraceNextStepsBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace next-step block from structured observation notes", toolName)
 	}
@@ -255,6 +258,152 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 		}
 	}
 	return fixed
+}
+
+func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace metric snapshot block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if answerDocumentHasBlockID(doc, "runtime_trace_metric_snapshot") {
+		return false
+	}
+	items := runtimeTraceMetricSnapshotItems(ctx)
+	if len(items) == 0 {
+		return false
+	}
+	block := types.AnswerBlock{
+		ID:    "runtime_trace_metric_snapshot",
+		Kind:  types.BlockBulletList,
+		Title: "Trace 指标快照",
+		Items: items,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+func answerDocumentHasBlockID(doc *types.AnswerDocumentV2, id string) bool {
+	if doc == nil {
+		return false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) == id {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTraceMetricSnapshotItems(ctx *types.BusContext) []types.AnswerBlockItem {
+	if ctx == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []types.AnswerBlockItem
+	for _, record := range ledger.Records {
+		text := runtimeTraceMetricSnapshotFromObservationRecord(record)
+		if text == "" {
+			continue
+		}
+		if seen[text] {
+			continue
+		}
+		seen[text] = true
+		label := strings.TrimSpace(record.Subject)
+		if label == "" {
+			label = "state_churn"
+		} else {
+			label += " state_churn"
+		}
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_metric_snapshot_%d", len(out)+1),
+			Label:       label,
+			Text:        text,
+			CitationRef: -1,
+		})
+		if len(out) >= 2 {
+			break
+		}
+	}
+	return out
+}
+
+func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRecord) string {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
+		return ""
+	}
+	if strings.TrimSpace(record.Producer) != "trace_query" {
+		return ""
+	}
+	if strings.TrimSpace(record.Predicate) != "state_churn" && !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "state_churn:") {
+		return ""
+	}
+	required := []string{
+		"running",
+		"runnable",
+		"sleep",
+		"d_state",
+		"io_wait",
+		"fragments",
+		"switches",
+		"max_segment",
+		"p95_segment",
+	}
+	values := make(map[string]string, len(required)+1)
+	for _, key := range append([]string{"dominant_state"}, required...) {
+		if value := runtimeTraceObservationRichNoteValue(record.RichNotes, key); value != "" {
+			values[key] = value
+		}
+	}
+	for _, key := range required {
+		if values[key] == "" {
+			return ""
+		}
+	}
+	parts := make([]string, 0, len(required)+1)
+	if values["dominant_state"] != "" {
+		parts = append(parts, "dominant_state="+values["dominant_state"])
+	}
+	for _, key := range []string{"running", "runnable", "sleep", "d_state", "io_wait"} {
+		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
+	}
+	for _, key := range []string{"fragments", "switches"} {
+		parts = append(parts, key+"="+values[key])
+	}
+	for _, key := range []string{"max_segment", "p95_segment"} {
+		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func runtimeTraceMetricWithMS(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	if strings.HasSuffix(lower, "ms") || strings.HasSuffix(value, "毫秒") {
+		return value
+	}
+	return value + "ms"
 }
 
 func materializeRuntimeTraceNextStepsBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

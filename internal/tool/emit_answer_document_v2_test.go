@@ -179,6 +179,80 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObservation(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:state_churn:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Subject:   "app-20",
+			Predicate: "state_churn",
+			ClaimKey:  "state_churn:runnable",
+			RichNotes: []string{
+				"dominant_state=runnable",
+				"running=3.500",
+				"runnable=5.000",
+				"sleep=0.000",
+				"d_state=0.000",
+				"io_wait=0.000",
+				"fragments=21",
+				"switches=20",
+				"max_segment=0.500",
+				"p95_segment=0.500",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("runtime trace metric snapshot block should be inserted before caveat, got %+v", doc)
+	}
+	snapshot := doc.Blocks[1]
+	if snapshot.ID != "runtime_trace_metric_snapshot" || snapshot.Kind != types.BlockBulletList {
+		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
+	}
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 state_churn" {
+		t.Fatalf("unexpected metric snapshot items: %+v", snapshot.Items)
+	}
+	line := snapshot.Items[0].Text
+	for _, want := range []string{
+		"running=3.500ms",
+		"runnable=5.000ms",
+		"sleep=0.000ms",
+		"d_state=0.000ms",
+		"io_wait=0.000ms",
+		"fragments=21",
+		"switches=20",
+		"max_segment=0.500ms",
+		"p95_segment=0.500ms",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("metric snapshot missing %q:\n%s", want, line)
+		}
+	}
+	if len(snapshot.ClaimUses) != 1 || snapshot.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("snapshot block must stay in external-observation lane: %+v", snapshot.ClaimUses)
+	}
+	if len(doc.Citations) != 0 || snapshot.Items[0].CitationRef != -1 {
+		t.Fatalf("runtime metric snapshot must not create repo citations: citations=%+v item=%+v", doc.Citations, snapshot.Items[0])
+	}
+}
+
 func TestEmitAnswerDocumentV2_DoesNotDuplicateExistingRuntimeTraceNextStepsBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.ToolResults = []types.ToolResult{{

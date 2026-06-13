@@ -1860,7 +1860,7 @@ Executable task list:
   structured next-step block.
 - [x] B28-T3: Implement the mutation-chokepoint materializer using
   `ObservationLedgerInputFromBusContext` and typed `ObservationRecord` fields.
-- [ ] B28-T4: Run full hygiene, commit, push, rebuild, and rerun the two
+- [x] B28-T4: Run full hygiene, commit, push, rebuild, and rerun the two
   representative eval cases.
 
 Implementation notes:
@@ -1875,6 +1875,78 @@ Verification:
 
 - Focused tool tests:
   `go test ./internal/tool -run 'TestEmitAnswerDocumentV2_(MaterializesRuntimeTraceStructuredFacts|MaterializesRuntimeTraceNextStepFromTypedObservation|DoesNotDuplicateExistingRuntimeTraceNextStepsBlock|DoesNotMaterializeRuntimeFactsForCodeOnlyDoc)'`
+
+Post-Batch-28 eval audit:
+
+- `eval/results/eval-gap-20260613-post-24f2ad99-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 37s. Metrics returned to the stable fast
+  shape: `data_rounds=1`, `data_repair_rounds=0`, `data_answer_len=19`.
+- `trace_query_state_churn_window_stats`: runner exit code 0 but eval verdict
+  FAIL on line-oriented metric regexes for the state cumulative values and
+  `max_segment`/`p95_segment`. Manual audit: the next-step relation is now
+  visibly present, and the answer is rich. However, the final surface rendered
+  the scalar metrics as table rows and then duplicated next-step prose through
+  finalizer patch repair, so the required runtime scalar set no longer has a
+  stable compact line.
+- Logs show `trace_query` usage improved (`window_stats` plus
+  `root_cause_rank`) with bounded windows. The run also exercised the strict
+  JSON repair layer: the first finalizer emit sent `blocks` as a JSON-encoded
+  string and was rejected with a precise retry hint, then re-emitted native
+  blocks. Performance stayed bounded: trace_query index/run phases were
+  sub-millisecond, with heap_sys around 573 MB under `GOMEMLIMIT=12GiB`.
+
+## Batch 29 Gap: Runtime Scalar Metrics Need a Stable Typed Snapshot Surface
+
+Deep root cause:
+
+- `trace_query` state_churn rows already carry all requested scalar metrics as
+  typed `RichNotes` (`running`, `runnable`, `sleep`, `d_state`, `io_wait`,
+  `fragments`, `switches`, `max_segment`, `p95_segment`).
+- The answer prompt asks the model to preserve metric snapshots, but the model
+  can choose a table, repeated sections, or prose. Those are semantically rich,
+  yet they do not provide a stable compact scalar surface for downstream audit,
+  copy/paste, or line-oriented consumers.
+- This is broader than one eval case: any runtime tool that emits a typed
+  scalar bundle needs one deterministic visible carrier so rich narrative and
+  stable machine-auditable surfaces can coexist.
+
+Generalized design:
+
+- Add a second mutation-chokepoint materializer for runtime trace metric
+  snapshots, parallel to the next-step materializer.
+- Consume only accepted `ObservationLedger` records from `trace_query` whose
+  typed subject/predicate or claim key identifies `state_churn`, and only when
+  all required metric note keys are present.
+- Insert a support bullet-list block `id="runtime_trace_metric_snapshot"` before
+  caveats. Each item is a single compact line preserving the typed state
+  cumulative values, fragments/switches, and segment percentiles.
+- Keep the block in the external-observation lane and do not create repo
+  citations. Do not inspect user text, model prose, or rendered answer prose to
+  decide whether to insert it.
+
+Executable task list:
+
+- [x] B29-T1: Add regression coverage for typed state_churn metric notes
+  materializing into a compact snapshot line.
+- [x] B29-T2: Implement the runtime metric snapshot materializer in the same
+  unified answer-document mutation chokepoint.
+- [x] B29-T3: Preserve no-citation external-observation lane semantics.
+- [ ] B29-T4: Run full hygiene, commit, push, rebuild, and rerun the two
+  representative eval cases.
+
+Implementation notes:
+
+- `persistMergedAnswerDocument` now runs metric snapshot materialization before
+  next-step and trace-facts materialization so requested scalar outputs have
+  priority when block headroom is constrained.
+- Snapshot rows are derived from exact typed note keys only. Missing any
+  required metric key causes a no-op rather than a partial/inferred snapshot.
+
+Verification:
+
+- Focused tool tests:
+  `go test ./internal/tool -run 'TestEmitAnswerDocumentV2_(MaterializesRuntimeTraceMetricSnapshotFromTypedObservation|MaterializesRuntimeTraceNextStepFromTypedObservation|DoesNotDuplicateExistingRuntimeTraceNextStepsBlock|MaterializesRuntimeTraceStructuredFacts)'`
 
 Post-Batch-22 eval audit:
 
