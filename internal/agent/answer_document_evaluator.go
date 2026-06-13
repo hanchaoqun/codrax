@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -7504,7 +7505,111 @@ func requestedDimensionCoveredByVisibleText(dim types.RequestedAnswerDimension, 
 			return true
 		}
 	}
+	if requestedDimensionIdentifierAnchorsCovered(dim, normalizedVisible) {
+		return true
+	}
+	if requestedDimensionCJKBoundaryCovered(dim, normalizedVisible) {
+		return true
+	}
 	return false
+}
+
+func requestedDimensionIdentifierAnchorsCovered(dim types.RequestedAnswerDimension, normalizedVisible string) bool {
+	anchors := requestedDimensionIdentifierTokens(dim.Label + " " + dim.SourceQuote)
+	if len(anchors) < 2 || normalizedVisible == "" {
+		return false
+	}
+	hits := 0
+	for _, anchor := range anchors {
+		if strings.Contains(normalizedVisible, anchor) {
+			hits++
+		}
+	}
+	if hits == len(anchors) {
+		return true
+	}
+	threshold := requestedDimensionIdentifierCoverageThreshold(len(anchors))
+	return threshold > 0 && hits >= threshold
+}
+
+func requestedDimensionIdentifierCoverageThreshold(n int) int {
+	switch {
+	case n <= 1:
+		return 0
+	case n <= 3:
+		return 2
+	default:
+		threshold := (n*3 + 4) / 5
+		if threshold < 4 {
+			threshold = 4
+		}
+		if threshold > n {
+			threshold = n
+		}
+		return threshold
+	}
+}
+
+func requestedDimensionIdentifierTokens(s string) []string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	var b strings.Builder
+	flush := func() {
+		token := strings.Trim(b.String(), "-_")
+		b.Reset()
+		if len(token) < 3 && !strings.Contains(token, "_") {
+			return
+		}
+		if seen[token] {
+			return
+		}
+		seen[token] = true
+		out = append(out, token)
+	}
+	for _, r := range s {
+		if requestedDimensionIdentifierRune(r) {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func requestedDimensionIdentifierRune(r rune) bool {
+	return r == '_' ||
+		(r >= 'a' && r <= 'z') ||
+		(r >= '0' && r <= '9')
+}
+
+func requestedDimensionCJKBoundaryCovered(dim types.RequestedAnswerDimension, normalizedVisible string) bool {
+	for _, candidate := range []string{dim.Label, dim.SourceQuote} {
+		chars := requestedDimensionCJKChars(candidate)
+		if len(chars) < 4 {
+			continue
+		}
+		prefix := string(chars[:2])
+		suffix := string(chars[len(chars)-2:])
+		if strings.Contains(normalizedVisible, prefix) && strings.Contains(normalizedVisible, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestedDimensionCJKChars(s string) []rune {
+	var out []rune
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func answerDocumentV2VisibleTextForDimensionCoverage(doc *types.AnswerDocumentV2) string {
@@ -9923,6 +10028,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			return strings.TrimSpace(supplement)
@@ -10002,6 +10114,138 @@ func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext, doc *types
 		})
 	}
 	return rows
+}
+
+type runtimeAggregateMetricCompactRow struct {
+	Order int
+	Key   string
+	Value string
+}
+
+func renderRuntimeAggregateMetricCompactSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	rows := runtimeAggregateMetricCompactRows(ctx, doc)
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Order != rows[j].Order {
+			return rows[i].Order < rows[j].Order
+		}
+		return rows[i].Key < rows[j].Key
+	})
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.Key == "" || row.Value == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", row.Key, row.Value))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	if zh {
+		return "---\n\n> **系统补充：结构化指标核对**：" + strings.Join(parts, "；")
+	}
+	return "---\n\n> **System supplement: structured metric check**: " + strings.Join(parts, "; ")
+}
+
+func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []runtimeAggregateMetricCompactRow {
+	if ctx == nil || doc == nil {
+		return nil
+	}
+	requested := requestedRuntimeMetricTokens(ctx)
+	if len(requested) == 0 {
+		return nil
+	}
+	requestedSet := make(map[string]int, len(requested))
+	for i, token := range requested {
+		if _, ok := requestedSet[token]; !ok {
+			requestedSet[token] = i
+		}
+	}
+	var rm *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	seen := map[string]bool{}
+	var rows []runtimeAggregateMetricCompactRow
+	for _, fact := range answerDocStableAggregateFacts(ctx) {
+		if fact.Kind != types.AnswerAggregateScalar {
+			continue
+		}
+		if !answerDocAggregateFactHasEvidenceOrigin(fact, rm, types.AnswerEvidenceOriginRuntimeArtifact) {
+			continue
+		}
+		key, order := runtimeAggregateMetricCompactKey(fact, requestedSet)
+		if key == "" || strings.TrimSpace(fact.Value) == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, runtimeAggregateMetricCompactRow{
+			Order: order,
+			Key:   key,
+			Value: runtimeAggregateMetricCompactValue(fact),
+		})
+	}
+	return rows
+}
+
+func requestedRuntimeMetricTokens(ctx *types.AgentContext) []string {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return nil
+	}
+	dimensions := requestedDimensionsToCover(view.Presentation.RequestedDimensions)
+	seen := map[string]bool{}
+	var out []string
+	for _, dim := range dimensions {
+		for _, token := range requestedDimensionIdentifierTokens(dim.SourceQuote + " " + dim.Label) {
+			if seen[token] {
+				continue
+			}
+			seen[token] = true
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func runtimeAggregateMetricCompactKey(fact types.AnswerAggregateFact, requested map[string]int) (string, int) {
+	bestOrder := len(requested) + 1
+	bestKey := ""
+	for _, token := range requestedDimensionIdentifierTokens(fact.Label) {
+		order, ok := requested[token]
+		if !ok {
+			continue
+		}
+		if order < bestOrder {
+			bestOrder = order
+			bestKey = token
+		}
+	}
+	return bestKey, bestOrder
+}
+
+func runtimeAggregateMetricCompactValue(fact types.AnswerAggregateFact) string {
+	value := strings.TrimSpace(fact.Value)
+	unit := strings.TrimSpace(fact.Unit)
+	if value == "" || unit == "" || strings.EqualFold(unit, "state") {
+		return value
+	}
+	if strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
+		return value
+	}
+	return value + unit
+}
+
+func answerDocAggregateFactHasEvidenceOrigin(fact types.AnswerAggregateFact, rm *types.RequestModel, want types.AnswerEvidenceOrigin) bool {
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == want {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizedRequestedDimensionText(s string) string {

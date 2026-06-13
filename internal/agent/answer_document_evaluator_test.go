@@ -6645,6 +6645,132 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendCoveredRequestedDimens
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_TreatsMetricAnchorsAsCoveredRequestedDimension(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "app-20 dominant_state=runnable，running累计3.5ms，runnable累计5.0ms；下一步应追查 rival-30 来源以确认主因。",
+			},
+			{
+				ID:          "metrics",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "s1", Label: "sleep累计", Text: "0.0ms"},
+					{ID: "s2", Label: "d_state累计", Text: "0.0ms"},
+					{ID: "s3", Label: "io_wait累计", Text: "0.0ms"},
+					{ID: "s4", Label: "fragments", Text: "21"},
+					{ID: "s5", Label: "switches", Text: "20"},
+					{ID: "s6", Label: "max_segment", Text: "0.5ms"},
+					{ID: "s7", Label: "p95_segment", Text: "0.5ms"},
+				},
+			},
+		},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "state_churn 统计", SourceQuote: "输出 state_churn 的 dominant_state、running/runnable/sleep/d_state/io_wait 累计、fragments、switches、max_segment、p95_segment", Required: true, Role: types.RequestedAnswerDimensionStageWorkflow},
+					{Index: 2, Label: "下一步查主因", SourceQuote: "说明下一步应该如何往下查主因", Required: true, Role: types.RequestedAnswerDimensionFunctionOrPurpose},
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：输出维度核对") {
+		t.Fatalf("metric anchor coverage should suppress requested-dimension supplement:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "### state_churn 统计") || strings.Contains(out.FinalAnswer, "### 下一步查主因") {
+		t.Fatalf("covered dimensions should not require synthetic heading patches:\n%s", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompactSupplement(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 max_segment",
+			Value:      "0.5",
+			Unit:       "ms",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
+		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 p95_segment",
+			Value:      "0.5",
+			Unit:       "ms",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
+		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 running",
+			Value:      "3.5",
+			Unit:       "ms",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
+		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 dominant_state",
+			Value:      "runnable",
+			Unit:       "state",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "app-20 dominant_state=runnable，running累计3.5ms，max_segment为0.5ms，p95_segment为0.5ms；下一步应追查 rival-30 来源以确认主因。",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "state_churn 统计", SourceQuote: "输出 state_churn 的 dominant_state、running/runnable/sleep/d_state/io_wait 累计、fragments、switches、max_segment、p95_segment", Required: true, Role: types.RequestedAnswerDimensionStageWorkflow},
+					{Index: 2, Label: "下一步查主因", SourceQuote: "说明下一步应该如何往下查主因", Required: true, Role: types.RequestedAnswerDimensionFunctionOrPurpose},
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	wantLine := "max_segment=0.5ms；p95_segment=0.5ms"
+	if !strings.Contains(out.FinalAnswer, "系统补充：结构化指标核对") || !strings.Contains(out.FinalAnswer, wantLine) {
+		t.Fatalf("final answer missing compact runtime metric supplement %q:\n%s", wantLine, out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "dominant_state=runnablestate") {
+		t.Fatalf("state-valued metrics should not append unit suffix:\n%s", out.FinalAnswer)
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")

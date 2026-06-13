@@ -927,6 +927,108 @@ Executable task list:
   receive duplicate system supplements.
 - [x] B13-T4: Add regression tests proving runtime aggregate labels pass while
   unrelated code-looking labels still fail.
-- [ ] B13-T5: Run focused tests, full tests, rebuild, commit/push, then rerun
-  representative evals two at a time and manually audit final answer surface
-  plus logs.
+- [x] B13-T5: Run focused tests, full tests, rebuild, commit/push. The
+  representative rerun exposed the Batch 14 gaps below rather than a prompt
+  or semantic-answer defect.
+
+Post-Batch-13 eval root:
+
+- `eval/results/eval-gap-20260613-post-96b644f3`
+
+Manual audit after rerun:
+
+- `data_json_strict_ids`: FAIL. The first batch had already computed the
+  correct strict JSON answer `{"ids":["u1","u3"]}` and carried a pass
+  answer-level reconcile, but the terminal `assemble_answer` batch failed with
+  `assemble_answer requires reconcile groups`. Logs show
+  `data_rounds=16`, `data_repair_rounds=6`, `data_answer_len=0`,
+  `data_record_count=26`, and no source/read/repo tools. The root cause is a
+  typed-action projection gap: answer-level reconciliation is a valid
+  structural state when all contribution records are auxiliary/audit ledgers,
+  but `runAssembleAnswer` only accepted non-empty group-level reconcile.
+- `trace_query_state_churn_window_stats`: FAIL only on surface regex
+  `max_segment.*p95_segment`; `exit_code=0`, `tool_trace_query=2`,
+  `tool_repo_map=0`, `answer_contract_violations=0`, wall 203s. Manual audit
+  found the answer semantically correct and rich: it used `trace_query`
+  `window_stats` and `root_cause_rank`, preserved `dominant_state=runnable`,
+  `running=3.5ms`, `runnable=5.0ms`, `sleep/d_state/io_wait=0`,
+  `fragments=21`, `switches=20`, `max_segment=0.5ms`,
+  `p95_segment=0.5ms`, and next-step root-cause guidance. The surface problem
+  came from exact-only requested-dimension coverage: the metrics were visible
+  as structured list rows, but the finalizer still asked for explicit
+  `state_churn 统计` / `下一步查主因` headings, producing duplicate empty-ish
+  sections. A separate auditability gap is that runtime scalar facts were not
+  projected into one compact metric line for humans/evals to verify quickly.
+
+## Batch 14 Gap: Answer-Level Reconcile and Runtime Metric Projection Need Typed Bridges
+
+Deep root cause:
+
+- Data workflows already support answer-level reconciliation (`scope=answer`)
+  when contribution records exist only as audit/coverage/material ledgers, but
+  the assemble boundary assumed every terminal answer must be assembled from
+  per-group reconcile rows. This turns a valid pass reconcile plus valid seed
+  answer into a terminal failure. The failure is systemic for JSON-only,
+  scalar, CSV, and freeform outputs whose final projection has already been
+  produced by a prior typed/custom action and whose later ledgers are
+  non-target audit evidence.
+- Final answer coverage checks used exact label/source-quote substring
+  matching. That misses a common commercial answer shape: a requested dimension
+  such as "output these metrics" is satisfied by a structured table/list whose
+  rows are the metric names, not by a repeated heading. Exact-only coverage
+  creates unnecessary repair turns and duplicate surface sections.
+- Runtime scalar aggregate facts reached the finalizer as typed handoff, but
+  there was no deterministic compact projection for requested metric sets.
+  The rich prose/list answer can be semantically correct while remaining hard
+  to audit or line-match. This is not an eval-regex problem; it is a generic
+  answer-surface observability gap for trace/log/measurement/MCP metric
+  answers.
+- Perf pre-triage still attempted `read_file /dev/stdin` once before the
+  deterministic trace lane took over. This did not corrupt the answer, but it
+  is a tool-selection resilience gap: stdin-backed runtime blobs should be
+  represented as typed attachments/trace-query inputs, not as normal repo file
+  reads.
+
+Generalized design:
+
+- `assemble_answer` accepts answer-level reconcile only under precise typed
+  conditions: reconcile exists, status is `pass`, reconcile groups are empty,
+  target contributions are empty, the seed answer is non-empty, the seed answer
+  is not an internal artifact summary, and it satisfies the effective
+  `OutputContract`. It then emits a deterministic `final_answer` projection
+  group so downstream reconcile validation still has an answer-level carrier.
+- Requested-dimension coverage remains display-only and soft, but expands from
+  exact substring to generic structural anchors: ASCII identifier-token quorum
+  for metric/source-quote lists and CJK prefix/suffix boundary anchors for
+  compact Chinese labels. These anchors are derived from analyzer-validated
+  `RequestedAnswerDimensions`, not from user-intent keyword matching or model
+  prose classification.
+- Runtime metric compaction is additive and evidence-typed: it selects
+  `scalar_value` aggregate facts whose evidence origin projects to
+  `runtime_artifact`, intersects their labels with requested-dimension
+  identifier tokens, and renders one compact verification line. It never
+  derives values from final answer prose and never replaces the model-authored
+  rich answer.
+- Existing hard gates stay precise: source/citation gates remain unchanged,
+  internal artifact summaries cannot become final answers, and unrelated
+  code-looking labels still need their normal evidence lanes.
+
+Executable task list:
+
+- [x] B14-T1: Record post-Batch-13 eval results, manual audit, and generalized
+  root-cause analysis in this design doc.
+- [x] B14-T2: Add answer-level reconcile projection in `runAssembleAnswer`
+  guarded by typed pass/empty-target/valid-seed-answer signals.
+- [x] B14-T3: Add dataquery regression tests for valid seed JSON projection
+  and internal artifact-summary rejection.
+- [x] B14-T4: Add generic requested-dimension coverage anchors for metric
+  identifier lists and compact CJK labels.
+- [x] B14-T5: Add runtime aggregate scalar compact metric supplement sourced
+  only from typed runtime aggregate facts and requested metric tokens.
+- [x] B14-T6: Add finalizer regression tests for covered metric dimensions and
+  compact runtime metric projection.
+- [x] B14-T7: Run focused package tests, full test suite, rebuild, and diff
+  hygiene.
+- [ ] B14-T8: Commit and push Batch 14.
+- [ ] B14-T9: Rerun representative eval cases two at a time and manually audit
+  answers/logs again.

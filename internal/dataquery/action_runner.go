@@ -8589,7 +8589,11 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 			Message:       "assemble_answer requires prior reconcile report",
 		}
 	}
+	contract = r.effectiveAssembleOutputContract(contract)
 	if len(reconcile.Groups) == 0 {
+		if artifact, answer, next, ok, err := r.runAssembleAnswerFromAnswerLevelReconcile(action, reconcile, contract, contributions); ok || err != nil {
+			return artifact, answer, next, err
+		}
 		return DataArtifact{}, "", nil, DataActionDependencyError{
 			ActionKind:    DataActionAssembleAnswer,
 			Role:          "reconcile_groups",
@@ -8600,7 +8604,6 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 			Message:       "assemble_answer requires reconcile groups",
 		}
 	}
-	contract = contract.Normalize()
 	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
 	projectionInfo := assembleReferenceProjection{}
 	groups, projectionInfo = r.completeAssembleAnswerGroups(action, contract, artifacts, groups)
@@ -8764,6 +8767,57 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		Summary:     fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
 		Fields:      fields,
 	}, answer, &next, nil
+}
+
+func (r ActionRunner) effectiveAssembleOutputContract(contract OutputContract) OutputContract {
+	if contract.Format == "" && r.Seed.OutputContract.Format != "" {
+		contract = r.Seed.OutputContract
+	}
+	return contract.Normalize()
+}
+
+func (r ActionRunner) runAssembleAnswerFromAnswerLevelReconcile(action DataAction, reconcile *ReconcileReport, contract OutputContract, contributions []ContributionRecord) (DataArtifact, string, *ReconcileReport, bool, error) {
+	if reconcile == nil || len(reconcile.Groups) > 0 {
+		return DataArtifact{}, "", nil, false, nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(reconcile.Status.String()), "pass") {
+		return DataArtifact{}, "", nil, false, nil
+	}
+	if len(reconcileTargetContributions(contributions)) != 0 {
+		return DataArtifact{}, "", nil, false, nil
+	}
+	answer := strings.TrimSpace(r.Seed.Answer)
+	if answer == "" || AnswerLooksLikeArtifactSummary(answer) {
+		return DataArtifact{}, "", nil, false, nil
+	}
+	if err := ValidateAnswer(answer, contract); err != nil {
+		return DataArtifact{}, "", nil, true, fmt.Errorf("assemble_answer seed answer does not satisfy output contract: %w", err)
+	}
+	next := *reconcile
+	next.ActualAnswer = LooseText(answer)
+	next.ExpectedAnswer = LooseText(answer)
+	next.Groups = append(withoutFinalAnswerProjectionGroups(reconcile.Groups), ReconcileGroup{
+		GroupKey:   LooseText("final_answer"),
+		Metric:     LooseText("projection"),
+		Scope:      LooseText("final_answer"),
+		Role:       LooseText("output"),
+		Expected:   LooseText(answer),
+		Actual:     LooseText(answer),
+		Difference: LooseText("0"),
+	})
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "assembled_answer")
+	return DataArtifact{
+		ID:          id,
+		Kind:        string(DataActionAssembleAnswer),
+		SourcePaths: assembleAnswerConsumedPaths(action, contract, assembleReferenceProjection{}),
+		Summary:     "assembled final answer from answer-level reconcile",
+		Fields: map[string]string{
+			"group_count":  "0",
+			"projection":   "answer_level_seed",
+			"answer_level": "true",
+			"answer_len":   fmt.Sprintf("%d", len(answer)),
+		},
+	}, answer, &next, true, nil
 }
 
 func assembleAnswerConsumedPaths(action DataAction, contract OutputContract, projection assembleReferenceProjection) []string {

@@ -9376,6 +9376,84 @@ func TestActionRunnerReconcileMarkdownArtifactSummaryKeepsSeedJSONAnswer(t *test
 	}
 }
 
+func TestActionRunnerAssembleAnswerProjectsSeedAnswerForAnswerLevelReconcile(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "answer", Kind: DataActionAssembleAnswer}},
+	}
+	seed := Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("audit-1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:1"),
+			GroupKey:      LooseText("audit"),
+			Metric:        LooseText("coverage"),
+			Value:         LooseText("2"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("audit"),
+		}},
+		Reconcile: &ReconcileReport{Status: LooseText("pass")},
+	}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != seed.Answer {
+		t.Fatalf("Answer=%q, want seed JSON answer", res.Answer)
+	}
+	if res.Reconcile == nil {
+		t.Fatal("Reconcile=nil, want answer-level projection report")
+	}
+	if got := res.Reconcile.ActualAnswer.String(); got != seed.Answer {
+		t.Fatalf("ActualAnswer=%q, want final answer", got)
+	}
+	if len(res.Reconcile.Groups) != 1 || res.Reconcile.Groups[0].Scope.String() != "final_answer" {
+		t.Fatalf("Reconcile.Groups=%+v, want final_answer projection group", res.Reconcile.Groups)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[len(res.Artifacts)-1].Fields["projection"] != "answer_level_seed" {
+		t.Fatalf("Artifacts=%+v, want answer_level_seed assemble artifact", res.Artifacts)
+	}
+}
+
+func TestActionRunnerAssembleAnswerRejectsArtifactSummarySeedForAnswerLevelReconcile(t *testing.T) {
+	plan := TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "answer", Kind: DataActionAssembleAnswer}},
+	}
+	seed := Result{
+		Answer:         `{"artifacts":[{"id":"emitted_payload","kind":"custom_payload","summary":"script emitted extra payload field(s): ids","fields":{"json_shape":"object(keys=ids)"}}],"reconcile":{"status":"pass"}}`,
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID:        LooseText("audit-1"),
+			Source:        LooseText("users.json"),
+			SourceLocator: LooseText("line:1"),
+			GroupKey:      LooseText("audit"),
+			Metric:        LooseText("coverage"),
+			Value:         LooseText("2"),
+			Operation:     LooseText("count"),
+			Role:          LooseText("audit"),
+		}},
+		Reconcile: &ReconcileReport{Status: LooseText("pass")},
+	}
+	_, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run err=nil, want artifact summary seed rejection")
+	}
+	if !strings.Contains(err.Error(), "assemble_answer requires reconcile groups") {
+		t.Fatalf("Run err=%v, want reconcile groups dependency error", err)
+	}
+}
+
 func TestActionRunnerComputeContributionsProducesDecisionRows(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("query,amount,status\nQ002,7,done\nQ001,5,draft\nQ001,10,done\n"), 0600); err != nil {
