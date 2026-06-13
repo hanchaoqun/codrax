@@ -102,28 +102,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCave
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
 
-	mut := types.NewMutableState("这是什么错误？")
-	logBundle := &types.LogBundle{
-		Errors: []types.LogError{{
-			Type:    "panic",
-			Message: "called Option::unwrap() on a None value",
-		}},
-	}
-	mut.SetRequestModel(types.RequestModel{
-		RawRequest: "这是什么错误？",
-		Intent:     types.IntentRootCause,
-		Scenario:   types.ScenarioRootCause,
-		LogTriage:  logBundle,
-		DiagnosticProfile: types.DiagnosticIntentProfile{
-			IsDiagnostic: true,
-		},
-		ExternalObservationPolicy: &types.ExternalObservationPolicy{
-			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
-			SourceQuotes:      []string{"只分析日志"},
-			Confidence:        0.9,
-		},
-	})
-	ctx := &types.BusContext{Mutable: mut}
+	ctx := observationOnlyRuntimeCaveatTestContext("这是什么错误？")
 	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
 		{Kind: types.ViolBlockCoverageMissing, ClusterKey: types.BlockKindClusterKey(types.BlockSummary, "answer_block_coverage")},
 		{Kind: types.ViolUncertaintyBlockMissing, ClusterKey: types.BlockKindClusterKey(types.BlockCaveat, "uncertainty_block")},
@@ -138,6 +117,37 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCave
 	for _, banned := range []string{"覆盖度可能不充分", "结合源码进一步核对", "answer_block_coverage", "uncertainty_block"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("observation-only soft caveat leaked generic/internal wording %q:\n%s", banned, out)
+		}
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_ObservationOnlySuppressesGenericSelfContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := observationOnlyRuntimeCaveatTestContext("只分析这段 trace")
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("generic runtime self-contradiction caveat should stay telemetry-only, got:\n%s", out)
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_ObservationOnlyKeepsSpecificSelfContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := observationOnlyRuntimeCaveatTestContext("只分析这段 trace")
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     `self_contradiction[trace] — SUMMARY: "running=3.5ms" ⇄ BODY: "running=2.7ms"`,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	for _, want := range []string{"**补充说明：**", "running=3.5ms", "running=2.7ms"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("specific runtime self-contradiction caveat missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -187,6 +197,31 @@ func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesC
 	if !strings.Contains(mixedOut, "**补充说明：**") {
 		t.Fatalf("mixed history/current-code request should keep caveat disclosure:\n%s", mixedOut)
 	}
+}
+
+func observationOnlyRuntimeCaveatTestContext(request string) *types.BusContext {
+	mut := types.NewMutableState(request)
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "called Option::unwrap() on a None value",
+		}},
+	}
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: request,
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		LogTriage:  logBundle,
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
+	})
+	return &types.BusContext{Mutable: mut}
 }
 
 func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericEnumerationAdvisories(t *testing.T) {

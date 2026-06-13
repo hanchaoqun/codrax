@@ -200,7 +200,9 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 }
 
 func AppendUserCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
-	filtered := suppressGenericSoftCaveatsForAcceptedSurface(FilterDerivedViolations(violations), ctx)
+	filtered := FilterDerivedViolations(violations)
+	filtered = suppressRuntimeObservationOnlyLowPrecisionCaveats(filtered, ctx)
+	filtered = suppressGenericSoftCaveatsForAcceptedSurface(filtered, ctx)
 	if len(filtered) == 0 {
 		return answer
 	}
@@ -222,6 +224,10 @@ func AppendSoftContractCaveatsToAnswer(answer string, violations []types.Violati
 
 func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
 	soft := softContractCaveatViolations(violations)
+	if len(soft) == 0 {
+		return answer
+	}
+	soft = suppressRuntimeObservationOnlyLowPrecisionCaveats(soft, ctx)
 	if len(soft) == 0 {
 		return answer
 	}
@@ -249,6 +255,28 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 		return answer
 	}
 	return AppendUserCaveatsToAnswer(answer, soft, lang)
+}
+
+func suppressRuntimeObservationOnlyLowPrecisionCaveats(violations []types.Violation, ctx *types.BusContext) []types.Violation {
+	if len(violations) == 0 || !runtimeObservationOnlyCaveatContext(ctx) {
+		return violations
+	}
+	out := make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		if runtimeObservationOnlyLowPrecisionCaveat(v) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func runtimeObservationOnlyLowPrecisionCaveat(v types.Violation) bool {
+	if v.Kind != types.ViolSelfContradiction {
+		return false
+	}
+	summary, body := parseSelfContradictionClaims(v.Detail)
+	return summary == "" && body == ""
 }
 
 func softContractCaveatViolations(violations []types.Violation) []types.Violation {

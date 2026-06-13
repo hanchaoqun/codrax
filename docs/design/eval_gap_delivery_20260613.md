@@ -1292,8 +1292,8 @@ Executable task list:
   satisfies output projection without forcing unrelated ledger stages when
   ledger requirements are not declared.
 - [x] B17-T5: Run focused tests, full tests, rebuild, diff hygiene.
-- [ ] B17-T6: Commit and push Batch 17.
-- [ ] B17-T7: Rerun representative eval cases two at a time and manually audit
+- [x] B17-T6: Commit and push Batch 17.
+- [x] B17-T7: Rerun representative eval cases two at a time and manually audit
   answers/logs again.
 
 Implementation notes:
@@ -1315,3 +1315,68 @@ Verification:
 - Full tests: `go test ./...`
 - Build: `make`
 - Diff hygiene: `git diff --check`
+
+Post-Batch-17 eval audit:
+
+- `eval/results/eval-gap-20260613-post-97786673-b1`
+- Parallel batch: `data_json_strict_ids` + `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 34s. Metrics:
+  `data_rounds=1`, `data_repair_rounds=0`, `data_answer_len=19`,
+  `data_record_count=1`, no repo/runtime tools, no contract violations.
+  Manual audit: final answer is exactly `{"ids":["u1","u3"]}`; both
+  `instructions.md` and `users.json` were consumed; workflow completion says
+  `final_projection` is present and optional ledgers stayed optional.
+- `trace_query_state_churn_window_stats`: PASS in 167s. Metrics:
+  `tool_trace_query=4`, `tool_read_file=0`, `unavailable_tool_attempts=0`,
+  `finalizer_rejects=0`, `max_context_window_pct=19`. Manual audit: model
+  actively used `trace_query` for `window_stats`, `scheduler_latency_stats`,
+  and `root_cause_rank`; answer preserves `dominant_state=runnable`,
+  `running=3.5ms`, `runnable=5.0ms`, `sleep/d_state/io_wait=0ms`,
+  `fragments=21`, `switches=20`, `max_segment=0.5ms`,
+  `p95_segment=0.5ms`, and next-step guidance. Residual quality gap: the
+  system appended a generic consistency caveat even though the authoritative
+  trace_query carrier covered the principal metrics.
+
+## Batch 18 Gap: Runtime-Artifact Answers Should Not Surface Generic Consistency Caveats
+
+Deep root cause:
+
+- Observation-only runtime answers can receive weak preliminary perf/log
+  summaries before later bounded tools such as `trace_query` produce
+  authoritative typed carriers. The finalizer correctly prefers trace_query
+  metrics, but CGEC/self-consistency can still record a medium-soft
+  `ViolSelfContradiction` without structured SUMMARY/BODY claims.
+- `AppendUserCaveatsToAnswerForBus` only applied generic accepted-surface
+  suppression. Unlike `AppendSoftContractCaveatsToAnswerForBus`, it did not
+  treat observation-only runtime context specially, so an unlocalized
+  consistency template became user-visible as “答案前后某些表述存在不完全一致”.
+- This is not a trace-case wording problem. The same issue applies to any
+  observation-only log/perf/MCP/connector artifact answer where a precise typed
+  carrier supersedes earlier weak prose, but a low-precision reviewer signal
+  remains in telemetry.
+
+Generalized design:
+
+- Add a bus-aware suppression layer for observation-only runtime caveats that
+  demotes only low-precision `ViolSelfContradiction` entries to telemetry when
+  they lack parseable SUMMARY/BODY claims. Specific self-contradiction entries
+  with concrete conflicting claims remain user-visible.
+- Apply the same suppression to user-caveat and soft-contract-caveat paths so
+  retry-exhausted and soft-accept flows behave consistently.
+- Keep existing LLM-authored caveats and runtime boundary caveats intact. The
+  goal is to remove generic non-actionable system templates, not to shorten or
+  weaken the answer body.
+
+Executable task list:
+
+- [x] B18-T1: Record post-Batch-17 eval audit and generic consistency-caveat
+  root cause in this design doc.
+- [x] B18-T2: Add bus-aware suppression for generic observation-only runtime
+  `ViolSelfContradiction` caveats while preserving specific SUMMARY/BODY
+  contradictions.
+- [x] B18-T3: Add regression tests for user-caveat suppression and specific
+  contradiction preservation under observation-only runtime context.
+- [x] B18-T4: Run focused tests, full tests, rebuild, diff hygiene.
+- [ ] B18-T5: Commit and push Batch 18.
+- [ ] B18-T6: Rerun representative eval cases two at a time and manually audit
+  answers/logs again.
