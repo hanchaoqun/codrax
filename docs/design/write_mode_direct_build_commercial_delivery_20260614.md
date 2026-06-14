@@ -1661,4 +1661,5 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Design commit: `0fa28cdd` (`docs: record write autopilot redesign`), pushed to `origin/main`.
-  - Implementation commit: pending.
+  - Implementation commit: `b15d2b6c` (`write-mode: enter autopilot from repl write route`), pushed to `origin/main`.
+  - Residual follow-up: Batch 34 should replace the remaining plan/approval/blocked/complete command menus with typed next-action cards; this batch intentionally kept recovery commands available as advanced escape hatches.
