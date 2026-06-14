@@ -627,6 +627,35 @@ func TestChangePlanSkill_DebugWorkflowOnRetry(t *testing.T) {
 	}
 }
 
+func TestTestExecuteSkill_NoTestsRunnersGuidanceMentionsSurfaceEscalation(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("test-execute-skill")
+	if err != nil {
+		t.Fatalf("Get(test-execute-skill): %v", err)
+	}
+	blob := strings.Join(sk.Workflow, "\n")
+	for _, want := range []string{
+		"NoTestsRunners",
+		"run_tests automatically escalates",
+		"typed test surface",
+		"run_tests owns syntax fallback",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("test execute skill missing %q; got:\n%s", want, blob)
+		}
+	}
+	for _, bad := range []string{
+		"The verdict is PASSED — that is a clean run with no test work to do",
+		"Just stop.",
+	} {
+		if strings.Contains(blob, bad) {
+			t.Fatalf("test execute skill still contains stale NoTestsRunners guidance %q; got:\n%s", bad, blob)
+		}
+	}
+}
+
 // TestSkills_NoInternalGoNamesInPrompts pins the audit-2026-04-30
 // red line: LLM-facing skill prompts (Workflow / Goal / OutputFormat
 // / Prohibitions) must NOT contain Go-internal identifiers like

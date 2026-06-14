@@ -116,10 +116,10 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"  1. Briefly inspect the worktree (list_files / grep on test-file patterns) so you can pick the runner whose language matches the plan-touched files. Skip lengthy probes — one or two list_files calls is enough.\n" +
 		"  2. Call run_tests EXACTLY ONCE with `runner=<choice>` and (optionally) `working_dir=<repo-relative dir>`. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
 		"  3. STOP after run_tests returns. Read its tool result:\n" +
-		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the runner ran cleanly but found zero test cases (e.g. a plan that creates a Python script in a repo without a pytest suite). That is NOT a failure — it is a clean run with no test work to do. Do not invent additional checks.\n" +
+		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the selected runner found no direct test work or used a syntax fallback. run_tests automatically escalates to another typed runnable candidate before returning when one exists, so do not invent additional checks.\n" +
 		"     - verdict=FAILED → optionally call emit_test_results once with a 1-4 sentence failure_summary narrative + classification arrays. Do not re-run tests; the verify→plan retry loop owns recovery.\n\n" +
 		"Hard rules:\n" +
-		"  - Do NOT call exec_command for ad-hoc syntax checks (py_compile, node --check, gofmt, etc.) AFTER run_tests has produced its results — the parser-derived Passed verdict is authoritative and your exec_command output cannot override it.\n" +
+		"  - Do NOT call exec_command for ad-hoc syntax checks (py_compile, node --check, gofmt, etc.) AFTER run_tests has produced its results — run_tests owns syntax fallback, typed test-surface escalation, and the authoritative verdict.\n" +
 		"  - Do NOT emit_change_plan (that was the plan stage).\n" +
 		"  - Do NOT read files or shell out to construct a diff — the plan is already applied.\n" +
 		"  - Do NOT re-run tests to chase flakiness — verify is fail-loud.\n")
@@ -384,8 +384,8 @@ func countFailedResults(results []types.TestResult) int {
 // detected facts instead of language guesses. The same detectors feed
 // run_tests itself, so the listed commands match what would execute. The
 // section is soft guidance — run_tests still validates the model's choice
-// and escalates typed dead ends (zero tests / missing binary) to the next
-// candidate with test work on its own.
+// and escalates typed dead ends (zero tests / syntax fallback / missing
+// binary) to the next candidate with test work on its own.
 func renderVerifierTestSurfaceSection(repoRoot string) string {
 	if strings.TrimSpace(repoRoot) == "" {
 		return ""
@@ -419,7 +419,8 @@ func renderVerifierTestSurfaceSection(repoRoot string) string {
 	}
 	s.WriteString("\nPrefer the highest-ranked candidate with test_work=yes; pass its runner " +
 		"(plus working_dir when it is not \".\"). Only deviate when the plan-touched language " +
-		"clearly requires another listed candidate. If your choice reports zero tests or a " +
-		"missing binary, the system runs the next candidate with test work automatically.\n")
+		"clearly requires another listed candidate. If your choice reports zero tests, uses a " +
+		"syntax fallback, or hits a missing binary, the system runs the next candidate with " +
+		"test work automatically.\n")
 	return s.String()
 }

@@ -1,0 +1,18 @@
+ID="github_issue_memoclaw_text_search_multirepo_ts"
+NAME="memoclaw TypeScript SDK text-search contract drift in multirepo"
+
+# Source: https://github.com/anajuliabit/memoclaw-sdk/issues/168
+# Shape: multi-language SDKs drifted from the documented text-search API.
+QUESTION="真实上游记录：anajuliabit/memoclaw-sdk issue #168。这个多仓 SDK workspace 里，请 focus typescript-sdk。用户报告 TypeScript SDK 的 text search 调用会命中错误路由或返回 405，而仓内 API reference 是 source of truth。请先根据这个现象探索定位 SDK 构造请求的位置，再修复 TypeScript SDK；不要改 API reference 或弱化测试。上游 issue: https://github.com/anajuliabit/memoclaw-sdk/issues/168"
+
+MODE="apply"
+MULTIREPO="multirepo-sdk-contract"
+MULTIREPO_WRITE_ROOT="typescript-sdk"
+POST_APPLY_FILE="src/client.ts"
+EXPECT_MATCHES_REGEX='method[[:space:]]*:[[:space:]]*"POST"
+/v1/search
+JSON\.stringify
+query
+limit'
+EXPECT_NOT_CONTAINS="/v1/memories/search URLSearchParams"
+EXPECT_LOG_MATCHES_REGEX="write mode scoped multi-repo parent"

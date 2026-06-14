@@ -215,6 +215,58 @@ func TestRunTests_ZeroTestChoiceEscalatesToSurfaceCandidate(t *testing.T) {
 	}
 }
 
+// Syntax fallback is useful for bare script edits, but it is not
+// authoritative when the typed surface still has a runnable contract. This is
+// the multi-repo SDK shape: a source file parses, while Makefile check is the
+// real package-level contract.
+func TestRunTests_SyntaxFallbackEscalatesToSurfaceCandidate(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\t@echo contract ok\n")
+	writeSurfaceFile(t, root, "pkg/client.py", "def search(query):\n    return query\n")
+	writeSurfaceFile(t, root, "tests/check_contract.py", "print('contract')\n")
+
+	mu := types.NewMutableState("syntax-fallback-escalate")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-syntax-fallback",
+		TargetPaths: []string{"pkg/client.py"},
+	})
+	ctx := &types.BusContext{Mutable: mu, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("make check passes, so syntax fallback escalation must pass: %+v report=%+v", result, mu.ChangeReport())
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("verify run must install ChangeReport")
+	}
+	var sawPythonSyntax, sawMakeExec bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Outcome == "syntax_check_fallback" && cmd.Source == "llm_choice" {
+			sawPythonSyntax = true
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.Source == "syntax_check_fallback_escalation" && cmd.Command == "make check" {
+			sawMakeExec = true
+		}
+	}
+	if !sawPythonSyntax || !sawMakeExec {
+		t.Fatalf("expected python syntax fallback then make check escalation, got %+v", report.ExecutedCommands)
+	}
+	if report.TestSurface == nil {
+		t.Fatal("report must carry the typed test surface")
+	}
+}
+
 func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")

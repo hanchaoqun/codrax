@@ -432,6 +432,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 							Source:     planSourceFor(plan),
 							Outcome:    "syntax_check_fallback",
 						})
+						// Syntax fallback proves the changed files parse,
+						// but it is not a full verification contract when
+						// the typed surface still has an unexecuted runnable
+						// candidate (for example Makefile check). Queue that
+						// candidate so fallback success cannot prematurely
+						// stand in for package/test verification.
+						if report != nil && report.Passed {
+							if next := escalateToSurfaceCandidate("syntax_check_fallback_escalation"); next != nil {
+								combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+									fmt.Sprintf("[run_tests: %s] syntax-check fallback passed, but typed test surface still has runnable work — continuing with %s",
+										label, runnerPlanLabel(ctx.RepoRoot, *next))))
+								plans = append(plans, *next)
+							}
+						}
 						continue
 					}
 				}

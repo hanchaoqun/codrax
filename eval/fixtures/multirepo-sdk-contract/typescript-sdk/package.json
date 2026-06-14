@@ -1,0 +1,9 @@
+{
+  "name": "@memoclaw/memory-client",
+  "version": "0.9.0",
+  "private": true,
+  "main": "src/client.ts",
+  "scripts": {
+    "test": "python3 tests/check_search_client.py"
+  }
+}

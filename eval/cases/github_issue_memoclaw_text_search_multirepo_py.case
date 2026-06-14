@@ -1,0 +1,18 @@
+ID="github_issue_memoclaw_text_search_multirepo_py"
+NAME="memoclaw Python SDK text-search contract drift in multirepo"
+
+# Source: https://github.com/anajuliabit/memoclaw-sdk/issues/168
+# Shape: multi-language SDKs drifted from the documented text-search API.
+QUESTION="真实上游记录：anajuliabit/memoclaw-sdk issue #168。这个多仓 SDK workspace 里，请 focus python-sdk。用户报告 Python SDK 的 text_search 调用会命中错误路由或返回 405，而仓内 API reference 是 source of truth。请先根据这个现象探索定位 SDK 构造请求的位置，再同时修复 sync 和 async Python SDK；不要改 API reference 或弱化测试。上游 issue: https://github.com/anajuliabit/memoclaw-sdk/issues/168"
+
+MODE="apply"
+MULTIREPO="multirepo-sdk-contract"
+MULTIREPO_WRITE_ROOT="python-sdk"
+POST_APPLY_FILE="memoclaw/client.py"
+EXPECT_MATCHES_REGEX='POST
+/v1/search
+json[[:space:]]*=
+query
+limit'
+EXPECT_NOT_CONTAINS="/v1/memories/search urlencode"
+EXPECT_LOG_MATCHES_REGEX="write mode scoped multi-repo parent"

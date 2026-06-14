@@ -256,6 +256,35 @@ func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	}
 }
 
+func TestVerifier_BuildInitialInstruction_NoTestsRunnersMentionsSurfaceEscalation(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan",
+		TargetPaths: []string{"pkg/client.py"},
+		Changes:     []types.FileChange{{Path: "pkg/client.py", Kind: "modify"}},
+	}
+	ctx := verifierFixtureCtx(nil, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	for _, want := range []string{
+		"NoTestsRunners",
+		"run_tests automatically escalates",
+		"typed runnable candidate",
+		"run_tests owns syntax fallback",
+	} {
+		if !strings.Contains(inst, want) {
+			t.Fatalf("verifier prompt missing %q; got:\n%s", want, inst)
+		}
+	}
+	for _, bad := range []string{
+		"The verdict is PASSED — that is a clean run with no test work to do",
+		"Just stop.",
+	} {
+		if strings.Contains(inst, bad) {
+			t.Fatalf("verifier prompt still contains stale NoTestsRunners guidance %q; got:\n%s", bad, inst)
+		}
+	}
+}
+
 func TestVerifier_BuildInitialInstruction_RendersVerifierContextPackView(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:          "plan",

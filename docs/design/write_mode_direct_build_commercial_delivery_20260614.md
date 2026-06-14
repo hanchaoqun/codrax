@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion delivered
+Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion and typed test-surface verification delivered
 
 ## 1. Summary
 
@@ -586,6 +586,8 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 26 | pushed | Added two symptom-driven external issue cases: `github_issue_chrono_duration_min_symptom` (Rust, chronotope/chrono PR #1385) and `github_issue_commons_lang_random_ascii_symptom` (Java, apache/commons-lang PR #1273). Baseline summary `eval/results/write_mode_symptom_chrono_commons_20260614_summary.md` failed 2/2: chrono had `plan_written=false`, `apply_attempted=false` after exploration completed but no `ChangePlan` was installed; commons-lang had `plan_written=true`, `apply_attempted=true`, but no durable worktree/report after apply incomplete and controller dispatch transport failure. Implemented typed recovery only from durable state: no-plan retry after typed exploration/verify handoff; dispatch-error recovery to `apply_plan` for auto-executable plans and `verify_batch` for applied-but-unverified plans. Re-run `eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Verification includes targeted orchestrator tests, affected package tests, rebuild, and symptom eval. |
 | 2026-06-14 | 27 | pushed | Added two more symptom-driven external issue cases: `github_issue_pyo3_iter_nth_overflow_symptom` (Rust-shaped, PyO3 PR #6086) and `github_issue_napi_force_wasi_env_symptom` (TypeScript, napi-rs PR #3236). The prompts describe observed behavior and upstream refs, not target files or patch recipes. Initial mixed run `eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md` passed napi-rs and failed PyO3 after authoritative verify failure/replan drift. After strengthening the PyO3 oracle and fixing write exploration handoff isolation, `eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md` passed 1/1; it exercised exploration, first apply failure, P2 verify evidence, small replan, second apply, and authoritative verify success. Product fix: write exploration no longer hard-blocks on read-mode final-answer anchor skeleton gates because it consumes typed `WriteExplorationRequest`/handoff artifacts, not final answer surface requirements. Verification: case bash syntax, oracle Python compile, targeted `internal/tool` test, affected write-mode package regression, rebuild, napi/PyO3 symptom eval evidence. Implementation commit `b0b45a3a`; this ledger update records the pushed Batch 27 evidence. |
 | 2026-06-14 | 28 | pushed | Closed the Batch 27 structured-edit recovery gap by adding typed `expected_old_text` and `retry_instruction` fields to `old_text_mismatch` diagnostics for range edits and insert anchors. This gives the planner an exact reusable snippet instead of forcing repeated line-range guessing after a stale `old_text` rejection. The hard gate still only validates structured edits against current file bytes; it does not parse user intent, model prose, summaries, rationale, logs, or `<think>`. Verification: targeted structured-edit diagnostics tests plus full `go test ./internal/tool`. Implementation commit `81ee3734`; this ledger update records the pushed Batch 28 evidence. |
+| 2026-06-14 | 29 | pushed | Added C/C++ symptom-only localization cases for fmtlib/fmt and libgit2, then fixed a controller typed-state recovery gap where coder transport EOF after all typed changes landed blocked verify. Re-run `eval/results/write_mode_c_cpp_symptom_fmt_libgit2_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Implementation commit `757e5fa5`; evidence doc follow-up commit `81f27745`. |
+| 2026-06-14 | 30 | pushed | Added multi-repo SDK contract drift cases from `anajuliabit/memoclaw-sdk#168` for TypeScript and Python SDKs. Initial PASS exposed a verifier gap: Python `run_tests` accepted `syntax_check_fallback` while a typed `Makefile check` surface was still runnable. Implemented generalized escalation from successful syntax fallback to the next unexecuted `TestSurfaceCandidate` with `HasTestSignal`, updated verifier prompt guidance, then re-ran `eval/results/write_mode_memoclaw_multirepo_sdk_after_surface_20260614_summary.md`: PASS 2/2, flagged 0/2. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1385,3 +1387,67 @@ Consumers:
   - Implementation commit: `757e5fa5` (`write-mode: recover completed apply after transport errors`).
   - Push status: pushed to `origin/main` (`61f54a22..757e5fa5`).
   - Residual follow-up: eval summary snippets should include changed/matched lines when first-20-line previews omit the relevant hunk; this is observability-only and did not affect typed product verdicts.
+
+#### Batch 30: Multi-Repo SDK Symptom Eval And Syntax-Fallback Surface Escalation
+
+- Evidence sources:
+  - `anajuliabit/memoclaw-sdk` issue #168 (`https://github.com/anajuliabit/memoclaw-sdk/issues/168`), reconstructed as a multi-repo fixture under `eval/fixtures/multirepo-sdk-contract`.
+  - New cases: `eval/cases/github_issue_memoclaw_text_search_multirepo_ts.case` and `eval/cases/github_issue_memoclaw_text_search_multirepo_py.case`.
+  - Local typed report evidence for syntax-fallback escalation: `eval/results/github_issue_memoclaw_text_search_multirepo_py-20260614-200356/plan-1781438850134343000-56577.report.json`.
+  - Local typed report evidence after prompt guidance cleanup: `eval/results/github_issue_memoclaw_text_search_multirepo_py-20260614-201206/plan-1781439267197237000-62440.report.json`.
+- Case design:
+  - The prompts are symptom-driven: they say the SDK text-search call hits the wrong route or returns 405, identify the focused sub-repo, and state that the local API reference is the source of truth.
+  - The prompts do not provide target filenames, line numbers, concrete replacement snippets, or a patch recipe.
+  - The fixture is a parent workspace with sibling `api-docs`, `typescript-sdk`, and `python-sdk` roots. Write mode must honor `MULTIREPO_WRITE_ROOT` and not mutate API reference files or sibling sub-repos.
+  - TypeScript and Python both start with stale `GET /v1/memories/search?...` implementations while tests expect `POST /v1/search` with a JSON body.
+- Initial evidence:
+  - First local run before the verifier fix passed both cases, but artifact review showed the Python verifier selected `runner=python` and produced `NoTestsRunners=["python"]` through syntax fallback.
+  - The typed test surface already advertised `make@. — test_work=yes source=Makefile target=check`, but `run_tests` accepted the Python syntax fallback before executing that real contract.
+  - This was not a prompt issue: the missing behavior was in the typed test runner scheduler. The verifier prompt can be imperfect and still must not be able to bypass a runnable typed contract.
+- Generalized gap:
+  - Syntax fallback is appropriate for bare script edits when no package/test contract exists.
+  - Syntax fallback is insufficient as authoritative verification when the same verify root still has an unexecuted `TestSurfaceCandidate` with `HasTestSignal=true`.
+  - Accepting fallback-only success in that situation weakens `post_apply_verify` authority and can mark a package-level change verified without running its declared check target.
+- Target architecture:
+  - Treat successful syntax fallback as a typed dead-end only when another runnable test-surface candidate remains.
+  - Reuse the existing `BuildTestSurface`, `nextTestSurfaceEscalation`, `executedKeys`, and `maxTestSurfaceEscalations` mechanisms already used for `no_tests`, `runner_missing`, and parser-confirmed `zero_tests`.
+  - Queue the next candidate with source `syntax_check_fallback_escalation`, preserving the original syntax fallback as `ExecutedCommand{Outcome:"syntax_check_fallback"}`.
+  - Keep failure semantics unchanged: a failed syntax fallback remains an authoritative build failure because it proves changed source does not parse.
+  - Keep auto-detect semantics unchanged: auto-detect already runs discovered candidates and must not add escalation rows.
+- Safety and prompt hygiene:
+  - The hard route reads only `TestSurfaceCandidate.HasTestSignal`, normalized runner/framework/working-dir keys, `executedKeys`, `ChangePlan.TargetPaths`, and syntax-fallback `ChangeReport.Passed`.
+  - It does not read user request keywords, model prose, plan rationale, verifier narrative, log text, fixture oracle regexes, or `<think>`.
+  - It does not special-case memoclaw, SDKs, TypeScript, Python, Makefile names beyond the existing typed runner surface, or `/v1/search` strings.
+  - It does not alter read mode, trace/log/data, operation/computer mode, approval policy, worktree cleanup, or controller finish authority.
+- Handoff and verify authority:
+  - The syntax-fallback eval report carries both command rows:
+    - `runner=python framework=pytest outcome=syntax_check_fallback`
+    - `runner=make command="make check" outcome=executed source=syntax_check_fallback_escalation`
+  - These command rows are projected into P2 context as executed-command evidence, so controller finish and any later replan can consume typed verification provenance.
+  - In the passing Python eval run, logs show `test-surface escalation (syntax_check_fallback_escalation): queueing make@.` followed by `make@. exec: make check` and `exit=0`.
+  - After verifier prompt cleanup, the repeated Python eval chose `runner=python working_dir=tests`; runtime recorded `outcome=synthetic_no_tests` then escalated through `source=no_tests_escalation` to `make check`, preserving the same typed package-level verification rule.
+- Implementation tasks:
+  - [x] Add the `multirepo-sdk-contract` fixture with sibling docs, TypeScript SDK, and Python SDK roots.
+  - [x] Add symptom-driven TypeScript and Python cases scoped through `MULTIREPO_WRITE_ROOT`.
+  - [x] Confirm seed fixtures fail their local `make check` contracts before Codrax writes.
+  - [x] Extend `RunTests.Execute` so successful syntax fallback queues the next unexecuted typed test-surface candidate when one exists.
+  - [x] Add `TestRunTests_SyntaxFallbackEscalatesToSurfaceCandidate` covering Python syntax fallback followed by Makefile contract execution.
+  - [x] Update verifier skill/agent prompt guidance so `NoTestsRunners` is no longer described as an unconditional final pass when another typed runnable surface exists.
+  - [x] Add prompt tests preventing stale `NoTestsRunners` guidance from returning.
+  - [x] Rebuild `codrax` and re-run the multi-repo SDK eval with external network access for provider calls.
+- Verification:
+  - `bash -n eval/cases/github_issue_memoclaw_text_search_multirepo_ts.case eval/cases/github_issue_memoclaw_text_search_multirepo_py.case`
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/multirepo-sdk-contract/typescript-sdk/tests/check_search_client.py eval/fixtures/multirepo-sdk-contract/python-sdk/tests/check_search_client.py`
+  - `make -C eval/fixtures/multirepo-sdk-contract/typescript-sdk check` failed on the seed fixture as expected: stale `/v1/memories/search` remained.
+  - `make -C eval/fixtures/multirepo-sdk-contract/python-sdk check` failed on the seed fixture as expected: stale `/v1/memories/search` remained.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestRunTests_(SyntaxFallbackEscalatesToSurfaceCandidate|ZeroTestChoiceEscalatesToSurfaceCandidate|RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate|ParserZeroTestsEscalatesAgainToMake|EscalatedCandidateFailureFailsVerdict|AutoDetectDoesNotEscalate)|TestBuildTestSurface'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/agent ./internal/skill -run 'TestRunTests_(SyntaxFallbackEscalatesToSurfaceCandidate|ZeroTestChoiceEscalatesToSurfaceCandidate|RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate|ParserZeroTestsEscalatesAgainToMake|EscalatedCandidateFailureFailsVerdict|AutoDetectDoesNotEscalate)|TestBuildTestSurface|TestVerifier_BuildInitialInstruction_NoTestsRunnersMentionsSurfaceEscalation|TestTestExecuteSkill_NoTestsRunnersGuidanceMentionsSurfaceEscalation'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/orchestrator ./internal/types ./internal/writeflow ./internal/agent ./internal/skill`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+  - Sandbox-only eval attempt failed before write mode due provider DNS: `lookup api.minimaxi.com: no such host`; this is environment/network evidence, not a product verdict.
+  - Escalated network eval before prompt cleanup: `eval/results/write_mode_memoclaw_multirepo_sdk_after_surface_20260614_summary.md` at sweep `20260614-200356` PASS 2/2, flagged 0/2; Python report showed `syntax_check_fallback_escalation`.
+  - Escalated network eval after prompt cleanup: `eval/results/write_mode_memoclaw_multirepo_sdk_after_surface_20260614_summary.md` at sweep `20260614-201206` PASS 2/2, flagged 0/2; Python report showed `synthetic_no_tests` followed by `no_tests_escalation` to `make check`.
+- Progress:
+  - Implementation commit: `write-mode: escalate syntax fallback to test surface`.
+  - Push status: pushed to `origin/main` after verification.
+  - Residual follow-up: eval summary snippets should eventually include command provenance from the authoritative report, not only source previews; this is observability-only and does not affect typed product verdicts.
