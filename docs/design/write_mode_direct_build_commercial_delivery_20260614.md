@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Direct-build hardening complete; external GitHub issue eval ledger current; Rust expansion delivered; multi-repo expansion open
+Status: Direct-build hardening complete; external GitHub issue eval ledger current; Rust/multi-repo/symptom-driven recovery expansion delivered
 
 ## 1. Summary
 
@@ -583,6 +583,7 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 6 | complete | Focused write workflow packages passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/agent ./internal/orchestrator ./internal/repl`. Full `go test ./...` and `make test` both initially hit sandbox local-port bind restrictions in `internal/llm` / `internal/preview`, then passed in the approved escalated environment with the same cache settings. Write-mode eval sweep passed for `eval/cases/patch_python_typo.case`, `eval/cases/patch_cpp_typo.case`, and `eval/cases/patch_java_typo.case`; aggregate summary `eval/results/write_mode_hardening_20260614_summary.md` reports PASS for 3/3 and flagged 0/3. |
 | 2026-06-14 | 18-20 | pushed | External GitHub issue hardening continued from the 8-case sweep. Batch 18 fixed eval source aggregation so non-git materialized applied trees nested under the Codrax repo use file traversal instead of Codrax `git ls-files`; `zod` recheck passed. Batch 19 added one-shot typed replan for off-scope high-risk paths before surfacing manual approval, preserving true build/config approval; `commons-lang` recheck passed. Batch 20 broadened two fixture content oracles to accept semantic-equivalent source shapes and case-insensitive hex literals. Verification: `bash -n eval/run.sh`; `bash -n eval/runner_lib.sh`; `bash -n eval/runner_lib_test.sh`; `bash eval/runner_lib_test.sh`; `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ReplansOffScopeHighRiskBuildManifest|TestRunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval'`; `go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`; targeted eval summaries `write_mode_zod_prefault_after_b18_20260614_summary.md`, `write_mode_commons_lang_offscope_replan_20260614_summary.md`, and `write_mode_github_issue_oracle_recheck_20260614_summary.md` all passed their targeted cases. Code implementation committed on `main` in `506d68cd`; this document records the design/evidence follow-up. |
 | 2026-06-14 | 21 | pushed | Added Rust-shaped external issue fixture `github_issue_chrono_duration_min` from chronotope/chrono PR #1385. First run `eval/results/write_mode_chrono_duration_min_20260614_summary.md` failed with authoritative `post_apply_verify passed=false`, exposing an over-narrow fixture oracle plus a real explore-stage soft-guidance gap (`unavailable_tool_attempts=1` from write exploration attempting shell/write work). The fixture oracle was corrected to encode the upstream `Option<Duration>` / `-i64::MAX` / non-recursive MIN/MAX contract and test-file structure checks. Re-run `eval/results/write_mode_chrono_duration_min_after_oracle_20260614_summary.md` passed 1/1 with `verify_authoritative=true`, `report_channel=post_apply_verify`, and `report_passed=true`. Product follow-up added read-only handoff guidance to write exploration and a prompt hygiene test. Verification: `bash -n eval/cases/github_issue_chrono_duration_min.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py`; expected initial `make check` failure on the seed fixture; targeted eval PASS; `go test ./internal/agent`; rebuilt `codrax` with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` (exit 0; Go stat-cache warning only). |
+| 2026-06-14 | 26 | pushed | Added two symptom-driven external issue cases: `github_issue_chrono_duration_min_symptom` (Rust, chronotope/chrono PR #1385) and `github_issue_commons_lang_random_ascii_symptom` (Java, apache/commons-lang PR #1273). Baseline summary `eval/results/write_mode_symptom_chrono_commons_20260614_summary.md` failed 2/2: chrono had `plan_written=false`, `apply_attempted=false` after exploration completed but no `ChangePlan` was installed; commons-lang had `plan_written=true`, `apply_attempted=true`, but no durable worktree/report after apply incomplete and controller dispatch transport failure. Implemented typed recovery only from durable state: no-plan retry after typed exploration/verify handoff; dispatch-error recovery to `apply_plan` for auto-executable plans and `verify_batch` for applied-but-unverified plans. Re-run `eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Verification includes targeted orchestrator tests, affected package tests, rebuild, and symptom eval. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1190,3 +1191,60 @@ Consumers:
 - [x] Fix `eval/run.sh` no-focus write-mode plan/apply execution under `set -u`.
 - [x] Verification: `bash -n eval/run.sh`; `bash -n eval/cases/github_issue_dayjs_duration_nan_symptom.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/dayjs_duration_nan/tests/check_duration.py`.
 - [x] Eval: `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_dayjs_duration_nan_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_dayjs_duration_nan_symptom_after_numeric_oracle_20260614_summary.md bash eval/convergence_audit.sh` PASS. Metrics showed localization work (`read_file=6`, `repo_map=3`, `source_lens=1`, `explorer_iters=5`, `midloop=2`); authoritative report: `report_channel=post_apply_verify`, `report_passed=true`, `verify_authoritative=true`; command chain `node/npm runner_missing -> make check executed`; final worktree used `Number(value) || 0` and preserved the numeric PT1H regression assertion.
+
+#### Batch 26: Symptom-Driven Exploration-To-Fix Recovery
+
+- Evidence sources:
+  - chronotope/chrono PR #1385 (`https://github.com/chronotope/chrono/pull/1385`), reconstructed as `eval/cases/github_issue_chrono_duration_min_symptom.case`.
+  - apache/commons-lang PR #1273 (`https://github.com/apache/commons-lang/pull/1273`), reconstructed as `eval/cases/github_issue_commons_lang_random_ascii_symptom.case`.
+- Case design:
+  - The prompt describes only the externally visible symptom and upstream reference.
+  - It deliberately avoids naming the exact implementation line or patch recipe.
+  - The test forces end-to-end behavior: controller must trigger exploration/localization, planner must create a bounded plan, coder must apply, verifier must run typed tests, and verify failure must drive small replan.
+- Baseline failure evidence:
+  - `eval/results/write_mode_symptom_chrono_commons_20260614_summary.md` reported FAIL 2/2.
+  - `eval/results/github_issue_chrono_duration_min_symptom-20260614-170918/run-1.write-apply.json`: `plan_written=false`, `apply_attempted=false`, no report. Logs show `exploration_complete` followed by repeated planner `no change plan was produced this round`.
+  - `eval/results/github_issue_commons_lang_random_ascii_symptom-20260614-170918/run-1.write-apply.json`: `plan_written=true`, `apply_attempted=true`, no durable worktree/report. Logs show `coder: apply incomplete (1 missing)` followed by controller dispatch transport failure (`unexpected EOF`).
+- Generalized gaps:
+  - P0-A no-plan recovery was too narrow: a first empty planning round was retried only when `VerifyFailureHandoff` existed. Symptom-driven tasks can have sufficient `WriteExplorationHandoff` evidence before any verify attempt exists.
+  - P0-B controller dispatch failure could interrupt an already determined typed transition. If durable state proves a plan is auto-executable or an applied plan is pending post-apply verify, the scheduler does not need a fresh model decision to continue.
+  - P1 state rendering still can show stale `pending_approval` on a plan after auto approval; current typed barrier reads workflow attempts and approval policy instead of trusting that label. This remains an observability cleanup item, not a correctness blocker for this batch.
+- Target architecture:
+  - `runControllerPlanBatch` grants exactly one bounded re-dispatch when no `ChangePlan` is installed and either `VerifyFailureHandoff` or `WriteExplorationHandoff` is present.
+  - The retry hint is a soft planning directive only. The hard trigger reads typed state: no current plan plus handoff object presence.
+  - `controllerDecisionFromTypedStateAfterDispatchError` recovers only in `ModeApply` and only from typed state:
+    - current `ChangePlan`;
+    - deterministic `AssessWriteRisk + DecideWriteApproval` result and approval/fingerprint records;
+    - active batch id and ordered apply/verify attempts.
+  - Recovery action:
+    - auto-executable pending plan -> synthesize `apply_plan`;
+    - applied active plan with no later verify attempt -> synthesize `verify_batch`;
+    - all other dispatch errors remain fail-loud.
+- Safety and prompt hygiene:
+  - The scheduler does not parse user keywords, model summary, plan rationale, verifier narrative, logs, HTTP error strings, or `<think>`.
+  - Critical and high-risk gates are unchanged: denied plans remain blocked; manual/high-risk plans still pause; stale fingerprints are not auto-converted.
+  - Low/medium auto-executable plans continue without extra user approval, reducing CLI/eval interruption.
+- Handoff contract:
+  - Exploration evidence stays in `WriteExplorationHandoff` and `WriteContextPack` P1/P2 fields and survives planning-state reset.
+  - Verify failures remain P2 and are consumed by replan before broader rediscovery.
+  - Progress ledger records scheduler correction with typed reason codes:
+    - `controller_dispatch_recovered_ready_plan`
+    - `controller_dispatch_recovered_post_apply_verify`
+    - existing `ready_plan_action_overridden` / `post_apply_verify_action_overridden` remain for successful controller dispatches that emit stale actions.
+- Implementation tasks:
+  - [x] Add symptom-driven Rust chrono case.
+  - [x] Add symptom-driven Java commons-lang case.
+  - [x] Extend no-plan retry to typed exploration handoff.
+  - [x] Add controller dispatch-error typed-state recovery.
+  - [x] Add tests for exploration-handoff no-plan retry.
+  - [x] Add tests for dispatch-error recovery to apply and verify.
+  - [x] Keep other modes untouched; changes are isolated to write controller scheduler and eval cases.
+- Verification:
+  - `bash -n eval/cases/github_issue_chrono_duration_min_symptom.case`
+  - `bash -n eval/cases/github_issue_commons_lang_random_ascii_symptom.case`
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py`
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/commons_lang_random_ascii/tests/check_random_string_utils.py`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunControllerPlanBatch_(NoPlanAfterExplorationHandoffGetsOneRetry|NoPlanReplanRoundGetsOneRetry)|TestRunWriteControllerWorkflow_(SynthesizesApplyAfterControllerDispatchError|SynthesizesVerifyAfterControllerDispatchError|AppliesReadyPlanBeforeRepeatedPlanningDecision|VerifiesAppliedPlanBeforeRepeatedPlanningDecision)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/tool ./internal/agent ./internal/types ./internal/writeflow`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_chrono_duration_min_symptom.case eval/cases/github_issue_commons_lang_random_ascii_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 2/2, flagged 0/2.

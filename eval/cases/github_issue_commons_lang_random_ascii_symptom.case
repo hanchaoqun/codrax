@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: apache/commons-lang#1273, symptom-driven variant.
+ID="github_issue_commons_lang_random_ascii_symptom"
+NAME="commons-lang Java RandomStringUtils non-ASCII symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/commons_lang_random_ascii"
+QUESTION="真实上游记录：apache/commons-lang PR #1273。这个最小 Java 复现仓里，用户报告随机字符串工具在请求非 ASCII 字母或数字范围时，会表现得像只支持 ASCII 范围：返回范围被收缩、非 ASCII digit/letter 场景被错误处理；普通 ASCII 字母数字场景应继续正常。请先根据现象探索定位分支条件，再修复实现并补充或保留非 ASCII letter/digit 回归测试；不要通过改测试期望绕过问题。上游 PR: https://github.com/apache/commons-lang/pull/1273"
+EXPECT_MATCHES_REGEX='end[[:space:]]*<=[[:space:]]*0x7[fF]
+0x(4e00|370|400|660|66a|6f0|966|ff10)'

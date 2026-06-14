@@ -1,7 +1,9 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -240,6 +242,185 @@ func TestRunWriteControllerWorkflow_VerifiesAppliedPlanBeforeRepeatedPlanningDec
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "post_apply_verify_action_overridden") {
 		t.Fatalf("post-apply verify override progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_SynthesizesApplyAfterControllerDispatchError(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("apply ready plan after controller dispatch error")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "apply ready plan"}}})
+	controllerSteps := []scriptedControllerStep{
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"}}},
+		{err: fmt.Errorf("controller transport unavailable")},
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionVerifyBatch, ReasonCode: "after_apply"}},
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedControllerWithErrors(t, controllerSteps, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-ready-after-error",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair",
+				TargetPaths: []string{"src/fix.py"},
+				Changes: []types.FileChange{{
+					Path:       "src/fix.py",
+					Kind:       "modify",
+					NewContent: "def fixed():\n    return True\n",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-ready-after-error", Passed: true})
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 1 || applyCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/apply/verify = %d/%d/%d, want 1/1/1", planCalls, applyCalls, verifyCalls)
+	}
+	if controllerCalls != len(controllerSteps) {
+		t.Fatalf("controller calls = %d, want %d", controllerCalls, len(controllerSteps))
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after typed-state recovery, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_recovered_ready_plan") {
+		t.Fatalf("ready-plan dispatch recovery progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_SynthesizesVerifyAfterControllerDispatchError(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("verify applied plan after controller dispatch error")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "verify applied plan"}}})
+	controllerSteps := []scriptedControllerStep{
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"}}},
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"}},
+		{err: fmt.Errorf("controller transport unavailable")},
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedControllerWithErrors(t, controllerSteps, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-applied-after-error",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair",
+				TargetPaths: []string{"src/fix.py"},
+				Changes: []types.FileChange{{
+					Path:       "src/fix.py",
+					Kind:       "modify",
+					NewContent: "def fixed():\n    return True\n",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-applied-after-error", Passed: true})
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 1 || applyCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/apply/verify = %d/%d/%d, want 1/1/1", planCalls, applyCalls, verifyCalls)
+	}
+	if controllerCalls != len(controllerSteps) {
+		t.Fatalf("controller calls = %d, want %d", controllerCalls, len(controllerSteps))
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after typed-state recovery, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_recovered_post_apply_verify") {
+		t.Fatalf("post-apply verify dispatch recovery progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_DoesNotRecoverCanceledControllerDispatch(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("do not recover canceled controller dispatch")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "cancel after plan"}}})
+	controllerSteps := []scriptedControllerStep{
+		{decision: writeflow.WriteWorkflowDecision{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"}}},
+		{err: context.Canceled},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedControllerWithErrors(t, controllerSteps, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	applyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-ready-canceled",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair",
+				TargetPaths: []string{"src/fix.py"},
+				Changes: []types.FileChange{{
+					Path:       "src/fix.py",
+					Kind:       "modify",
+					NewContent: "def fixed():\n    return True\n",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled controller dispatch must not be recovered, got %v", err)
+	}
+	if applyCalls != 0 {
+		t.Fatalf("canceled dispatch should not continue to apply, applyCalls=%d", applyCalls)
 	}
 }
 
@@ -1168,6 +1349,32 @@ func scriptedController(t *testing.T, decisions []writeflow.WriteWorkflowDecisio
 	}
 }
 
+type scriptedControllerStep struct {
+	decision writeflow.WriteWorkflowDecision
+	err      error
+}
+
+func scriptedControllerWithErrors(t *testing.T, steps []scriptedControllerStep, calls *int) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+	t.Helper()
+	return func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+		if *calls >= len(steps) {
+			t.Fatalf("unexpected extra controller call %d", *calls+1)
+		}
+		step := steps[*calls]
+		(*calls)++
+		if step.err != nil {
+			return nil, step.err
+		}
+		decision := writeflow.NormalizeWriteWorkflowDecision(step.decision)
+		raw, err := json.Marshal(decision)
+		if err != nil {
+			t.Fatalf("marshal decision: %v", err)
+		}
+		ctx.Mutable.SetWriteWorkflowDecisionJSON(raw)
+		return &agent.StageOutput{Data: raw}, nil
+	}
+}
+
 func workflowProgressHasReason(items []types.WriteWorkflowProgress, reason string) bool {
 	for _, item := range items {
 		if item.ReasonCode == reason {
@@ -1607,6 +1814,75 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	}
 	if !strings.Contains(mu.PlanningHint(), "previous planning round ended without a stored change plan") {
 		t.Fatalf("retry hint must cite the empty round, got %q", mu.PlanningHint())
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatal("retry round should have installed the plan")
+	}
+}
+
+func TestRunControllerPlanBatch_NoPlanAfterExplorationHandoffGetsOneRetry(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan retry after exploration handoff")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "symptom-driven repair"}}})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		Goal:        "locate boundary logic from symptom",
+		TargetFiles: []string{"src/duration.rs"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			ID:        "evidence-1",
+			Kind:      "source",
+			Source:    "src/duration.rs",
+			LineStart: 12,
+			LineEnd:   18,
+			Summary:   "constructor lower-bound branch handles milliseconds",
+		}},
+		Confidence: "medium",
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		if planCalls == 1 {
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		}
+		hint := mu.PlanningHint()
+		if !strings.Contains(hint, "previous planning round ended without a stored change plan") {
+			t.Fatalf("retry hint must cite the empty round, got %q", hint)
+		}
+		if !strings.Contains(hint, "exploration findings") {
+			t.Fatalf("retry hint must preserve typed exploration handoff, got %q", hint)
+		}
+		handoff := mu.WriteExplorationHandoff()
+		if handoff == nil || len(handoff.EvidenceRefs) != 1 || handoff.TargetFiles[0] != "src/duration.rs" {
+			t.Fatalf("exploration handoff should survive planning reset: %+v", handoff)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-exploration-retry",
+			Status:      types.PlanStatusPending,
+			Summary:     "repair localized boundary branch",
+			TargetPaths: []string{"src/duration.rs"},
+			Changes: []types.FileChange{{
+				Path:       "src/duration.rs",
+				Kind:       "modify",
+				NewContent: "pub fn fixed() {}\n",
+			}},
+		})
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair boundary bug"}, &steps); err != nil {
+		t.Fatalf("one empty round with exploration handoff active must be retried, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan stage calls = %d, want 2 (one empty + one retry)", planCalls)
 	}
 	if mu.ChangePlan() == nil {
 		t.Fatal("retry round should have installed the plan")

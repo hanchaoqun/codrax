@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: chronotope/chrono#1385, symptom-driven variant.
+ID="github_issue_chrono_duration_min_symptom"
+NAME="chrono Rust duration minimum-bound symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/chrono_duration_min"
+QUESTION="真实上游记录：chronotope/chrono PR #1385。这个最小 Rust 复现仓里，用户报告毫秒 Duration 的最低边界行为不一致：靠近下界的值可以构造，但再减去零却可能被判为越界；同时最大边界和普通毫秒值应继续正常。请先根据这个现象探索定位边界/构造逻辑，再修复实现并补充或保留边界回归测试；不要通过弱化测试绕过问题。上游 PR: https://github.com/chronotope/chrono/pull/1385"
+EXPECT_MATCHES_REGEX='try_milliseconds
+-i64::MAX
+i64::MIN'

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,7 +81,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		decision, err := o.dispatchWriteControllerDecision()
 		*stepsUsed++
 		if err != nil {
-			return err
+			if errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled) {
+				return err
+			}
+			var recovered bool
+			decision, recovered = o.controllerDecisionFromTypedStateAfterDispatchError(&run)
+			if !recovered {
+				return err
+			}
 		}
 		decision = o.normalizeControllerTypedStateDecision(decision, &run)
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
@@ -630,19 +638,25 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		// evidence is waiting: grant exactly one re-dispatch whose planning
 		// hint cites the empty round. The condition reads typed state only
 		// (no plan installed + handoff present), never the error text.
-		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && o.busCtx.Mutable.VerifyFailureHandoff() != nil {
+		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && (o.busCtx.Mutable.VerifyFailureHandoff() != nil || o.busCtx.Mutable.WriteExplorationHandoff() != nil) {
 			noPlanRetried = true
 			o.busCtx.TaskState.LastError = ""
 			hint := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 			if hint != "" {
 				hint += "\n\n"
 			}
-			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded repair plan via emit_change_plan that addresses the verification failure section above; do not finish the round without the emit."
+			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded ChangePlan via emit_change_plan using the typed handoff context above; do not finish the round without the emit."
+			if o.busCtx.Mutable.VerifyFailureHandoff() != nil {
+				hint += " Address the verification failure section above."
+			}
+			if o.busCtx.Mutable.WriteExplorationHandoff() != nil {
+				hint += " Preserve the exploration findings and evidence refs already supplied to this planning batch."
+			}
 			if rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults()); rejection != "" {
 				hint += "\n\nThe previous round's plan emit was rejected by validation with this exact reason — correct it in the re-emit:\n" + rejection
 			}
 			o.busCtx.Mutable.SetPlanningHint(hint)
-			logging.Warning("[orchestrator] controller replan round produced no plan; granting one re-dispatch with typed failure context")
+			logging.Warning("[orchestrator] controller planning round produced no plan; granting one re-dispatch with typed handoff context")
 			continue
 		}
 		if err != nil {
@@ -1289,6 +1303,36 @@ func writeWorkflowApplyRef(plan *types.ChangePlan, status string) string {
 		return ""
 	}
 	return worktree.AppliedRef(plan.ID)
+}
+
+func (o *Orchestrator) controllerDecisionFromTypedStateAfterDispatchError(run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.Mode != types.ModeApply {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	batchID := ""
+	if run != nil {
+		batchID = run.ActiveBatchID
+	}
+	if activeBatchAppliedPlanPendingVerify(run, plan) {
+		appendControllerProgress(run, batchID, "controller_dispatch_recovered_post_apply_verify",
+			"controller dispatch failed, but typed workflow state requires post-apply verification of the active plan")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionVerifyBatch,
+			ReasonCode: "post_apply_verify_required",
+			Reason:     "typed workflow state requires post-apply verification of the active plan",
+		}), true
+	}
+	if o.writePlanCanProceedWithoutApprovalPause(plan) {
+		appendControllerProgress(run, batchID, "controller_dispatch_recovered_ready_plan",
+			"controller dispatch failed, but deterministic write approval policy allows the current plan to apply")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionApplyPlan,
+			ReasonCode: "auto_executable_plan",
+			Reason:     "deterministic write approval policy allows this pending plan to apply",
+		}), true
+	}
+	return writeflow.WriteWorkflowDecision{}, false
 }
 
 func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
