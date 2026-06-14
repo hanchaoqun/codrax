@@ -330,7 +330,9 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProgressLines(&b, lang, run)
-		b.WriteString("\n使用 `/approve` 批准当前 batch 的 plan，或 `/reject <reason>` 拒绝当前 batch；`/workflow list` 查看历史 workflow。")
+		for _, line := range writeWorkflowNextActionLines(lang, batch, hasBatch) {
+			b.WriteString("\n" + line)
+		}
 		return strings.TrimSpace(b.String())
 	}
 	fmt.Fprintf(&b, "Write workflow `%s`\n\n", run.RunID)
@@ -342,8 +344,51 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProgressLines(&b, lang, run)
-	b.WriteString("\nRun `/approve` to approve the current batch plan, or `/reject <reason>` to reject only that batch. Use `/workflow list` for saved workflows.")
+	for _, line := range writeWorkflowNextActionLines(lang, batch, hasBatch) {
+		b.WriteString("\n" + line)
+	}
 	return strings.TrimSpace(b.String())
+}
+
+func writeWorkflowNextActionLines(lang string, batch types.WriteWorkflowBatch, hasBatch bool) []string {
+	advanced := "/workflow list"
+	if hasBatch {
+		switch batch.Status {
+		case types.WriteWorkflowBatchPendingApproval:
+			return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
+		case types.WriteWorkflowBatchComplete:
+			return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /workflow list")
+		case types.WriteWorkflowBatchBlocked:
+			return writeNextActionCardLines(lang, writeActionVerifyFailed, "/workflow show · /reject <reason> · /workflow list")
+		case types.WriteWorkflowBatchPlanned, types.WriteWorkflowBatchReadyToPlan:
+			return writeNextActionCardLines(lang, writeActionPlanReady, "/approve · /reject <reason> · /workflow list")
+		case types.WriteWorkflowBatchApplying, types.WriteWorkflowBatchVerifying, types.WriteWorkflowBatchNeedsExploration:
+			if isZh(lang) {
+				return []string{
+					"  状态：workflow 正在推进；暂不需要用户操作。",
+					"  下一步：等待当前 batch 完成、暂停审批或写入失败证据。",
+					"  高级入口：" + advanced,
+				}
+			}
+			return []string{
+				"  Status: workflow is running; no user action is needed yet.",
+				"  Next: wait for the current batch to finish, pause for approval, or record failure evidence.",
+				"  Advanced: " + advanced,
+			}
+		}
+	}
+	if isZh(lang) {
+		return []string{
+			"  状态：没有 active batch。",
+			"  下一步：查看 workflow 列表或重新发起写目标。",
+			"  高级入口：" + advanced,
+		}
+	}
+	return []string{
+		"  Status: no active batch.",
+		"  Next: inspect saved workflows or start a new write goal.",
+		"  Advanced: " + advanced,
+	}
 }
 
 func writeWorkflowBudgetLine(b *strings.Builder, lang string, budget types.WriteWorkflowBudget) {
@@ -419,12 +464,13 @@ func writeWorkflowApprovalLines(b *strings.Builder, lang string, batch types.Wri
 		}
 		return
 	}
-	fmt.Fprintf(b, "- policy=`%s` risk=`%s` action=`%s` user=`%s` reason=`%s`\n",
+	fmt.Fprintf(b, "- policy=`%s` risk=`%s` action=`%s` user=`%s` reason=`%s` fingerprint=`%s`\n",
 		firstNonEmptyString(plan.Approval.Policy, "unknown"),
 		firstNonEmptyString(plan.Approval.RiskLevel, "unknown"),
 		firstNonEmptyString(plan.Approval.Action, "unknown"),
 		firstNonEmptyString(plan.Approval.UserDecision, "pending"),
-		firstNonEmptyString(plan.Approval.ReasonCode, "none"))
+		firstNonEmptyString(plan.Approval.ReasonCode, "none"),
+		firstNonEmptyString(plan.Approval.PlanFingerprint, "none"))
 }
 
 func writeWorkflowContextLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {

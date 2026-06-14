@@ -1694,3 +1694,33 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `494f8748` (`write-mode: render next action cards`), pushed to `origin/main`.
+
+#### Batch 35: Approval Resume Card And Fingerprint Visibility
+
+- Evidence source:
+  - Batch 34 converted plan surfaces to state-first cards, but `/workflow show` still ended with a command sentence for pending approval.
+  - Approval/fingerprint hard gates already existed in `WriteApprovalRecord`, apply-pre gate, active workflow binding, and tests; the missing piece was user-visible state continuity in the workflow view.
+- Generalized gap:
+  - Pending approval must be recoverable as the same run/batch/plan/fingerprint, not as an abstract command reminder.
+  - `/workflow show` should expose the approval fingerprint and semantic next action so users understand why one approval is enough and when re-approval is required.
+- Target architecture:
+  - Reuse the typed next-action card renderer from Batch 34 for workflow states.
+  - Render pending approval as `Status / Next / Advanced`.
+  - Include `PlanFingerprint` in the approval line when available.
+  - Keep `/approve` and `/reject` as advanced entry points bound to active workflow plan logic; no new text parsing.
+- Safety and prompt hygiene:
+  - Render-only change. Inputs are `WriteWorkflowBatch.Status` and `WriteApprovalRecord.PlanFingerprint`.
+  - Does not change approval, apply, verify, merge, risk, fingerprint, or resume hard gates.
+  - Does not parse user keywords, model prose, `<think>`, or workflow progress messages.
+- Implementation tasks:
+  - [x] Add `writeWorkflowNextActionLines`.
+  - [x] Use next-action cards in `writeWorkflowRunMarkdown`.
+  - [x] Render approval `fingerprint`.
+  - [x] Update workflow tests to assert approval card, fingerprint visibility, and active workflow approval behavior.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestWorkflowShowDisplaysActiveWriteWorkflow|TestApproveUsesActiveWorkflowBatchPlan|TestRejectMarksOnlyActiveWorkflowBatchBlocked|TestWorkflowResumeSelectsNextIncompleteBatch|TestWorkflowResumeThenApproveUsesSameRun'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+- Progress:
+  - Implementation commit: pending.

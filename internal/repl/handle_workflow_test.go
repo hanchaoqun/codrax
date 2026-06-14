@@ -19,11 +19,12 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"internal/repl/repl.go"},
 		Approval: &types.WriteApprovalRecord{
-			Policy:       "auto_safe",
-			RiskLevel:    "high",
-			Action:       "ask",
-			UserDecision: "pending",
-			ReasonCode:   "high_risk",
+			Policy:          "auto_safe",
+			RiskLevel:       "high",
+			Action:          "ask",
+			UserDecision:    "pending",
+			ReasonCode:      "high_risk",
+			PlanFingerprint: "fp-show",
 		},
 	}
 	if _, err := planStore.SaveForTest(plan); err != nil {
@@ -94,8 +95,12 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 		"apply `applied/p1`",
 		"verify `p1.report.json`",
 		"policy=`auto_safe` risk=`high` action=`ask`",
+		"fingerprint=`fp-show`",
 		"Handoff context: 1 pack(s), P0=1 P1=1",
 		"do not break read mode",
+		"Status: approval required",
+		"Next: review risk and diff",
+		"Advanced: /approve",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("workflow show missing %q:\n%s", want, got)
