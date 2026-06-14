@@ -2530,4 +2530,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
 - Progress:
-  - Implementation commit pending.
+  - Implementation commit: `8b8a9bd2` (`docs: demote write workflow commands from main path`), pushed to `origin/main` with this ledger follow-up.
