@@ -188,6 +188,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 43 | Advisory vs deterministic risk observability | REPL 风险展示拆成 planned-change risk/approval preview 与 analysis risk advisory，避免 advisory high 被误解为审批硬门 |
 | 44 | Eval summary provenance snippets | apply eval summary 追加 oracle matched lines、applied diff hunk、post-apply verify command provenance，减少人工翻 artifact |
 | 45 | Zero-command Auto Pilot CLI/REPL contract | `--mode=write` 默认 Auto Pilot apply；`--auto-apply` 降级兼容；prompt/status/docs 不再把 plan-first 或模式切换当主路径 |
+| 46 | Mode-projected controller decision repair | controller decision 的 model schema、JSON repair schema、runtime mode guard 共享同一 typed action 投影，避免宽 schema repair/hint 增加模型和用户心智 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2088,4 +2089,43 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
   - `git diff --check` PASS.
 - Progress:
-  - Implementation commit: `9b50ebc5` (`write-mode: make autopilot the default write entry`), push pending with this ledger follow-up.
+  - Implementation commit: `9b50ebc5` (`write-mode: make autopilot the default write entry`), pushed to `origin/main`.
+  - Ledger follow-up commit: `98db5be5` (`docs: record autopilot default entry progress`), pushed to `origin/main`.
+
+#### Batch 46: Mode-Projected Controller Decision Repair
+
+- Evidence source:
+  - User feedback continues to emphasize lower cognitive load and fewer interruptions. That requires the controller's available next actions, model-facing schema, JSON compatibility repair, and runtime rejection hints to be the same narrow typed contract.
+  - Code evidence before this batch:
+    - `internal/tool/emit_write_workflow_decision.go` projected the model-facing schema through `ParametersFor(ctx)` using `WorkflowActionsForMode(ctx.Mode)`.
+    - The same tool's `Execute` still called `applyStructuredPayloadCompat(t.Name(), params, t.Parameters())`, so the repair layer saw the full action enum even when the dispatched tool schema had removed actions such as `plan_batch` in `ModeVerify` or `apply_plan` in `ModePlan`.
+    - Runtime validation still rejected disallowed actions with `workflow_action_not_in_mode`, but the repair contract was broader than the schema presented to the controller.
+- Generalized gap:
+  - A controller-first Auto Pilot can reduce user commands only if every automation boundary has a single source of truth. When model schema, repair schema, and runtime guard diverge, failures become noisier and recovery hints become less precise even if final validation is safe.
+  - This is a system contract issue, not a one-case issue: any future mode-specific action projection would inherit the same mismatch if repair uses the full schema.
+- Target architecture:
+  - Introduce a single helper for write workflow decision schema by `PipelineMode`.
+  - `ParametersFor(ctx)` and `Execute(ctx, params)` both use this helper.
+  - `WorkflowActionsForMode` remains the authoritative typed action source; the scheduler and tool runtime guards continue consuming the same enum set.
+  - Unsupported controller actions remain structurally absent from the tool schema, then fail-loud with typed `workflow_action_not_in_mode` if emitted anyway.
+- Safety and prompt hygiene:
+  - Hard routing still consumes only decoded `WriteWorkflowDecision.Action`, `PipelineMode`, and the typed `WorkflowActionsForMode` set.
+  - The change does not inspect user keywords, model prose, summaries, rationales, eval text, logs, or `<think>`.
+  - It does not alter read/log/trace/data/operation/computer modes, write risk policy, approval records, worktrees, or verifier authority.
+- Handoff and evidence contract:
+  - No new P0-P3 facts are introduced. This batch improves the controller action boundary so downstream planner/apply/verify handoff is not polluted by unsupported action suggestions.
+  - Invalid decisions remain unstored in `Mutable.WriteWorkflowDecisionJSON`, preserving the durable DAG's typed state boundary.
+- Implementation tasks:
+  - [x] Add `writeWorkflowDecisionSchemaForMode(mode)` helper.
+  - [x] Route `ParametersFor(ctx)` through the helper.
+  - [x] Route `Execute(ctx, params)` JSON repair through the same mode-projected schema.
+  - [x] Add regression coverage that `ModeVerify` repair/dispatch schema exposes only `verify_batch`, `ask_user`, `finish`, and `block`, and that rejected masked actions do not get stored.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestEmitWriteWorkflowDecision|TestStructuredPayloadCompatCoverageForStructuredEmitTools|TestStructuredEmitToolsAttachTypedDecodeRepair|TestEveryRegistryToolIsStrictDecodeWiredOrExempt'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow -run 'TestWorkflowActionsForMode|TestValidateWriteWorkflowDecision|TestWriteWorkflowDecision'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/writeflow` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.

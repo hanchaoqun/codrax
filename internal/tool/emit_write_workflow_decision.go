@@ -29,15 +29,20 @@ func (t *EmitWriteWorkflowDecision) Parameters() json.RawMessage {
 	return writeflow.WriteWorkflowDecisionSchema()
 }
 
+func writeWorkflowDecisionSchemaForMode(mode types.PipelineMode) json.RawMessage {
+	return writeflow.WriteWorkflowDecisionSchemaForActions(writeflow.WorkflowActionsForMode(mode))
+}
+
 // ParametersFor projects the decision schema per dispatch: the action enum
 // is restricted to the typed mode's allowed set (ModePlan drops apply_plan /
 // verify_batch) so masked actions are structurally invisible to the model
-// instead of failing after emission. Mirrors EmitAnswerDocument.ParametersFor.
+// instead of failing after emission. The runtime decoder uses the same schema
+// for structured JSON repair so prompt, repair, and validation stay aligned.
 func (t *EmitWriteWorkflowDecision) ParametersFor(ctx *types.AgentContext) json.RawMessage {
 	if ctx == nil {
 		return t.Parameters()
 	}
-	return writeflow.WriteWorkflowDecisionSchemaForActions(writeflow.WorkflowActionsForMode(ctx.Mode))
+	return writeWorkflowDecisionSchemaForMode(ctx.Mode)
 }
 
 func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -51,7 +56,7 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	params = applyStructuredPayloadCompat(t.Name(), params, writeWorkflowDecisionSchemaForMode(ctx.Mode))
 	var decision writeflow.WriteWorkflowDecision
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()

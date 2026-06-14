@@ -105,3 +105,72 @@ func TestEmitWriteWorkflowDecision_ModePlanMasksApplyVerify(t *testing.T) {
 		t.Fatalf("plan_batch in ModePlan must pass, got res=%+v err=%v", res, err)
 	}
 }
+
+func TestEmitWriteWorkflowDecision_RepairSchemaIsModeProjected(t *testing.T) {
+	tl := &EmitWriteWorkflowDecision{}
+
+	projected := string(writeWorkflowDecisionSchemaForMode(types.ModeVerify))
+	if got := string(tl.ParametersFor(&types.AgentContext{Mode: types.ModeVerify})); got != projected {
+		t.Fatalf("runtime repair schema must match dispatch schema for ModeVerify\nrepair=%s\ndispatch=%s", projected, got)
+	}
+
+	var decoded struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(projected), &decoded); err != nil {
+		t.Fatalf("projected schema must decode: %v", err)
+	}
+	actionSchema, ok := decoded.Properties["action"]
+	if !ok {
+		t.Fatal("projected schema must include action property")
+	}
+	allowed := map[string]bool{}
+	for _, action := range actionSchema.Enum {
+		allowed[action] = true
+	}
+	for _, action := range []writeflow.WorkflowAction{
+		writeflow.ActionVerifyBatch,
+		writeflow.ActionAskUser,
+		writeflow.ActionFinish,
+		writeflow.ActionBlock,
+	} {
+		if !allowed[string(action)] {
+			t.Fatalf("ModeVerify schema omitted allowed action %q; enum=%v", action, actionSchema.Enum)
+		}
+	}
+	for _, masked := range []writeflow.WorkflowAction{
+		writeflow.ActionExploreCode,
+		writeflow.ActionPlanBatch,
+		writeflow.ActionApplyPlan,
+		writeflow.ActionAppendBatch,
+		writeflow.ActionSplitBatch,
+		writeflow.ActionReplanBatch,
+	} {
+		if allowed[string(masked)] || strings.Contains(projected, `"`+string(masked)+`"`) {
+			t.Fatalf("ModeVerify repair schema must not expose masked action %q; schema=%s", masked, projected)
+		}
+	}
+
+	mu := types.NewMutableState("mode verify")
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModeVerify}
+	res, err := tl.Execute(ctx, json.RawMessage(`{"action":"plan_batch","batch":{"id":"b1","goal":"bounded"}}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("plan_batch in ModeVerify must be rejected, got %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Code != "workflow_action_not_in_mode" {
+		t.Fatalf("rejection must carry typed mode repair, got %+v", res.Repair)
+	}
+	if strings.Contains(res.Repair.Hint, string(writeflow.ActionPlanBatch)) ||
+		strings.Contains(res.Repair.Hint, string(writeflow.ActionApplyPlan)) ||
+		strings.Contains(res.Repair.Hint, string(writeflow.ActionExploreCode)) {
+		t.Fatalf("mode repair hint must only name ModeVerify actions, got %q", res.Repair.Hint)
+	}
+	if len(mu.WriteWorkflowDecisionJSON()) != 0 {
+		t.Fatal("masked action must not be stored as a decision")
+	}
+}
