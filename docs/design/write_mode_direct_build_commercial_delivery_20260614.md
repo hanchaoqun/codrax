@@ -1381,3 +1381,7 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
   - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_libgit2_symptom_after_apply_transport_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 1/1, flagged 0/1.
   - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_fmt_tm_year_overflow_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_c_cpp_symptom_fmt_libgit2_after_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 2/2, flagged 0/2.
+- Progress:
+  - Implementation commit: `757e5fa5` (`write-mode: recover completed apply after transport errors`).
+  - Push status: pushed to `origin/main` (`61f54a22..757e5fa5`).
+  - Residual follow-up: eval summary snippets should include changed/matched lines when first-20-line previews omit the relevant hunk; this is observability-only and did not affect typed product verdicts.
