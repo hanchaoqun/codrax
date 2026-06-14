@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion and typed test-surface verification delivered
+Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion and typed test-surface verification delivered; Auto Pilot low-cognitive-load redesign in progress
 
 ## 1. Summary
 
@@ -56,6 +56,117 @@ direct-build** 的商用路径：
 | Progress ledger | commit hash、push status、commands run、失败与剩余风险 | 每批结束更新，不等最终统一补 |
 
 这张表是本文档其余章节的索引合同：Sections 4-16 给出基础设计，Section 17 记录交付证据，Section 18 固化未来补充模板，Section 19 追加外部实战 eval 发现的新 gap 和对应系统设计。
+
+### 1.2 Auto Pilot Cognitive-Load Redesign
+
+#### Problem
+
+当前写模式已经具备 controller-first DAG、typed risk gate、priority handoff、durable workflow、统一 JSON repair/strict decode、症状型 eval 等商用基础，但用户交互层仍暴露了过多命令心智：
+
+- REPL auto `route=write` 只进入 `ModePlan`，清晰的代码变更请求仍要求用户继续记忆 `/plan show`、`/approve`、`/verify`、`/merge` 等步骤。
+- 文档和状态提示把命令当主路径，导致用户读完计划后还要理解内部阶段，而不是让系统按风险策略自动推进。
+- 复杂问题本应由 controller 在探索、拆批、apply、verify、replan 之间动态收敛，但 plan-only 主入口让用户成为外层调度器。
+- 高风险审批是必要打断；低/中风险审批、重复状态查看、手工 resume 不应成为日常路径。
+
+这不是文案问题，而是写模式产品形态问题：Codrax 应该像一个带可审计边界的自动驾驶工作流，用户输入目标后系统自己推进，只有真正需要用户判断的节点才停。
+
+#### External Practice References
+
+可借鉴的业界实践：
+
+- OpenCode permission model 将工具权限归一为 `allow / ask / deny`，并支持按 tool/agent 覆盖：`https://opencode.ai/docs/permissions/`、`https://opencode.ai/docs/agents/`、`https://opencode.ai/docs/tools/`
+- Claude Code security/permissions 强调默认只读、写入/命令审批、路径沙箱、deny 规则优先，以及 hook 的结构化 JSON 决策：`https://docs.anthropic.com/en/docs/claude-code/security`、`https://docs.anthropic.com/en/docs/claude-code/settings`、`https://docs.anthropic.com/en/docs/claude-code/hooks-guide`
+
+Codrax 吸收的是架构经验，而不是复刻 UX 命令：权限三态、agent 级最小权限、deny 优先、低风险自动、高风险可恢复审批、结构化 hook/decision。所有硬门仍只读 Codrax 自己的 typed artifacts，不读用户关键词、模型散文、外部文档 prose 或 `<think>`。
+
+#### Target Product Model
+
+Auto Pilot 是写模式默认主路径：
+
+1. 用户只输入目标，例如“修复这个边界问题并补测试”。
+2. TurnPolicy 若 typed `route=write` 且 gate 通过，REPL 直接启动 `ModeApply`，不是 `ModePlan`。
+3. Controller 自行选择 `explore_code / plan_batch / apply_plan / verify_batch / replan_batch / split_batch / append_batch / finish / block`。
+4. Low/medium deterministic risk 自动 apply/verify/replan。
+5. High deterministic risk 暂停为一个可恢复 approval card，用户只需批准或拒绝当前 batch；计划 fingerprint 变化自动失效。
+6. Critical/deny policy 自动 block，不询问用户。
+7. Verify failure 的 build/test/path/line/command typed evidence 写入 P2 context pack，controller 优先做小批量 replan，而不是让用户重新发命令。
+8. Finish 只由 typed post-apply verify verdict、finish disposition、batch state、budget 决定。
+
+CLI `--mode=write --write-phase=plan|apply|verify` 和 REPL `/plan`、`/workflow`、`/approve`、`/reject`、`/verify`、`/merge` 保留为高级逃生口/审计工具，不再是主流程。文档、REPL hint、AGENTS 都要把自然语言目标 + 自动推进作为默认模型。
+
+#### Interrupt Policy
+
+用户打断最小化规则：
+
+| Condition | System action | User burden |
+| --- | --- | --- |
+| Low/medium risk, typed plan valid, worktree bounded | 自动 apply + verify + retry/replan | 无 |
+| High risk from deterministic path/content/command policy | 暂停当前 batch，生成 approval record + card | 一次批准/拒绝 |
+| Critical/deny policy | 自动 block，记录 reason code 和 evidence | 无审批；用户需改目标 |
+| Semantic ambiguity that cannot be resolved by exploration | `ask_user`，问题必须引用 typed unknowns | 一次澄清 |
+| Budget exhausted | fail-loud，保留 reports/diffs/run | 用户缩小目标或调预算 |
+| Merge to main branch | 不自动合并；给出清晰 next action | 用户显式 merge/restore |
+
+`ask_user` 不是模型自由提问逃生门。它必须带 typed missing facts、blocking edge、consumer 和 reason code；controller 不能因为 prompt 犹豫就频繁打断。
+
+#### Command Surface Demotion
+
+命令层重新定位：
+
+- `/write <goal>`：单次强制进入 Auto Pilot `ModeApply`。
+- `/mode write`：后续写目标默认 Auto Pilot；不再意味着只生成计划。
+- 自动 `route=write`：同样进入 Auto Pilot，但仍受 `write_enabled`、confidence、unsettled workflow、risk gate 限制。
+- `/plan show`：审计当前/最近 batch 的计划和 diff，不是日常必需步骤。
+- `/workflow show/list/resume`：恢复和排障工具；pending approval、verify failure、budget stop 必须可见。
+- `/approve` / `/reject`：只在 high-risk pending approval 或用户主动覆盖时使用。
+- `/verify`：重跑验证工具，不是正常完成路径。
+- `/merge`：主仓合入仍需显式动作，避免把沙箱成功误当发布。
+
+#### Typed Next-Action Card
+
+引导文案不再以命令菜单为中心，而以状态 + 少量 typed next actions 呈现：
+
+- `running`: 正在探索/规划/应用/验证，无需用户动作。
+- `needs_approval`: 当前 batch 高风险，展示 plan id、fingerprint、risk reasons、approve/reject 两个动作。
+- `blocked`: 展示 reason code、evidence refs、可恢复 ref/report/diff。
+- `complete`: 展示 verified plan/report、applied ref、可选 merge action。
+
+Renderer 可以把这些 action 渲染成命令、按钮或自然语言提示，但 backend 只消费 typed action id + run/batch/plan/fingerprint。不能通过匹配“批准/approve/同意”等用户文本直接越过 approval record。
+
+#### Handoff And Evidence Preservation
+
+Auto Pilot 更依赖前序证据，context pack 必须成为跨阶段事实总线：
+
+- P0：用户硬约束、scope boundary、risk/approval、deny/high reasons、budget。
+- P1：目标文件、符号、invariants、line-backed exploration evidence。
+- P2：verify failure、build/test command、exit code、file/line、assertion、next test surface。
+- P3：style/pattern hints、local conventions。
+
+Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完整 evidence refs 持久化。去重 key 至少包含 priority、source stage、path、line/symbol、reason code、consumer。失败证据必须先进入 P2，再驱动 replan；不能只存在日志或模型 narrative。
+
+#### Prompt Hygiene
+
+新增/修改 prompt 必须满足：
+
+- 只说明 typed action contract、权限边界和软策略。
+- 不把用户关键词、issue 名、错误文本、模型 summary/rationale、`<think>` 写成硬路由。
+- 不承诺“看到某词就 apply/approve/explore”。
+- Controller prompt 的 action 枚举必须来自 `WorkflowActionsForMode`，unsupported action 不能出现在 schema 或 prompt。
+- JSON tool 输出先过统一 repair layer，再 strict decode；业务逻辑只消费解码后的 typed struct。
+
+#### Auto Pilot Delivery Tasks
+
+| Batch | Task | Acceptance |
+| --- | --- | --- |
+| 32 | Design and docs realignment | 本节落盘；`AGENTS.md`、`docs/architecture.md`、`docs/user_guide.md` 从 plan-only/命令主路径改为 Auto Pilot 主路径 |
+| 33 | REPL Auto Pilot entry | typed `route=write`、`/write`、`/mode write` 默认进入 `ModeApply`；`write_enabled=false`、低置信、unsettled workflow/plan 仍阻断 |
+| 34 | Low-command next-action renderer | plan/approval/blocked/complete guidance 改为状态卡；slash commands 作为 advanced fallback |
+| 35 | Approval resume card | high-risk pending approval 的 `/workflow show/list/resume`、fingerprint、approval record、继续同 run/batch 覆盖测试 |
+| 36 | Ask-user throttle and typed unknowns | `ask_user` 只允许 typed missing facts；预算和重复提问 guard 防止频繁打断 |
+| 37 | Handoff consumer Top-N hardening | P0-P3 去重、consumer view、verify failure P2 replan 消费增加回归测试 |
+| 38 | Eval and UX regression | 症状型非 Go cases、low-risk autopilot、high-risk approval、critical deny、verify fail replan、read/log/trace/data/operation isolation |
+
+每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
 ## 2. Goals
 
@@ -1513,3 +1624,34 @@ Consumers:
 - Progress:
   - Implementation commit: `91085866` (`write-mode: smooth repl planning route`).
   - Push status: pushed to `origin/main` (`8c0cb29c..91085866`).
+
+#### Batch 32: Auto Pilot Low-Cognitive-Load Redesign
+
+- Evidence sources:
+  - User feedback: command-heavy write flow increases user cognitive load; routine write tasks should not require remembering `/mode write`, `/plan show`, `/approve`, `/verify`, and `/workflow` as the normal path.
+  - Current code evidence: `internal/repl/turn_policy.go` and `internal/repl/repl.go` auto `route=write` dispatches `ModePlan`; `AGENTS.md`, `docs/architecture.md`, and `docs/user_guide.md` still describe plan-only auto write and command-led apply.
+  - Current product evidence: controller-first DAG, typed risk policy, durable workflow store, priority handoff, verify authority, JSON repair, and symptom-driven evals are already present; the remaining gap is making that engine the default smooth path.
+- Generalized gap:
+  - Plan-only auto routing turns the user into the outer workflow scheduler.
+  - A commercial write mode should automatically explore, split, apply, verify, and replan for low/medium risk work, interrupting only for high risk, critical deny, true ambiguity, merge, or budget exhaustion.
+  - Slash commands are necessary for recovery/audit but should not be the primary mental model.
+- Target architecture:
+  - Auto `route=write`, `/write`, and sticky `/mode write` enter Auto Pilot `ModeApply` by default.
+  - Controller owns dynamic DAG expansion and small-batch convergence.
+  - Low/medium deterministic risk auto-runs; high risk pauses with a typed approval card; critical risk denies.
+  - Next-action rendering is state/card based; commands are rendered as advanced fallbacks.
+  - Backend only consumes typed action id, run id, batch id, plan id, fingerprint, approval record, and risk/verify artifacts.
+- Safety and prompt hygiene:
+  - Hard gates continue to read only typed TurnPolicy fields, PlanStore/WorkflowStore state, risk policy outputs, approval fingerprints, path/content parsers, and verify reports.
+  - No hard route reads user request keywords, model prose, issue names, `<think>`, prompt examples, or eval oracle regexes.
+  - `ask_user` is reserved for typed missing facts and cannot become a generic model hesitation loop.
+- Implementation tasks:
+  - [x] Record Auto Pilot cognitive-load design and task ledger in this document.
+  - [ ] Update `AGENTS.md`, `docs/architecture.md`, and `docs/user_guide.md` to describe Auto Pilot as the default write path.
+  - [ ] Change REPL auto `route=write`, `/write`, and sticky `/mode write` to dispatch `ModeApply`.
+  - [ ] Keep `ModePlan` as explicit CLI/advanced planning lane only.
+  - [ ] Replace plan-ready command menu with status/next-action guidance that does not require command memorization.
+  - [ ] Add/adjust tests for auto write dispatch, write disabled gate, unsettled plan/workflow gate, and read/log/trace/data/operation isolation.
+  - [ ] Run focused REPL tests, writeflow/orchestrator tests, and full regression before push.
+- Progress:
+  - Design update: in progress.
