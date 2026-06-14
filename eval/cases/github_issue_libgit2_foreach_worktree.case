@@ -5,5 +5,5 @@ MODE="apply"
 FIXTURE="eval/fixtures/github_issues/libgit2_foreach_worktree"
 QUESTION="真实上游记录：libgit2/libgit2 issue #7216 由 PR #7231 修复，git_repository_foreach_worktree 中赋值和比较的优先级错误会把负数错误码压成布尔 1。请在这个最小 C 复现仓里修复同类问题，保持改动范围精准，只修改 repository.c，不改测试。上游 PR: https://github.com/libgit2/libgit2/pull/7231"
 POST_APPLY_FILE="repository.c"
-EXPECT_MATCHES_REGEX='[(]error = cb_result[)][[:space:]]*!= 0
-[(]error = lookup_result[)][[:space:]]*< 0'
+EXPECT_MATCHES_REGEX='(error[[:space:]]*=[[:space:]]*cb_result[[:space:]]*;|[(]error[[:space:]]*=[[:space:]]*cb_result[)][[:space:]]*!=[[:space:]]*0)
+(return[[:space:]]+lookup_result[[:space:]]*;|[(]error[[:space:]]*=[[:space:]]*lookup_result[)][[:space:]]*<[[:space:]]*0)'

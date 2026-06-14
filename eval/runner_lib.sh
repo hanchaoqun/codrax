@@ -201,10 +201,16 @@ eval_materialize_write_apply_source() {
 
 eval_collect_apply_source_text() {
   local source="$1"
+  local source_real="" git_top="" git_top_real=""
   if [[ -z "$source" || ! -d "$source" ]]; then
     return 1
   fi
-  if git -C "$source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  source_real="$(cd "$source" && pwd -P)" || return 1
+  git_top="$(git -C "$source" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$git_top" && -d "$git_top" ]]; then
+    git_top_real="$(cd "$git_top" && pwd -P)" || git_top_real=""
+  fi
+  if [[ -n "$git_top_real" && "$git_top_real" == "$source_real" ]]; then
     git -C "$source" ls-files -z 2>/dev/null | (cd "$source" && xargs -0 cat 2>/dev/null)
     return 0
   fi

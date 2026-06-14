@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -568,6 +569,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	}
 	transientUsed := 0
 	noPlanRetried := false
+	offScopeRiskReplanRetried := false
 	lastStallSignature := ""
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
@@ -588,6 +590,19 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			continue
 		}
 		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
+			if !offScopeRiskReplanRetried {
+				if hint, paths := o.offScopeHighRiskReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+					offScopeRiskReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] controller plan touched off-scope high-risk path(s); retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			}
 			return nil
 		}
 		if plannerProbePassedExistingAppliedWorktree(o.busCtx.Mutable, priorPlan) {
@@ -640,6 +655,116 @@ func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan
 			continue
 		}
 		return report.Passed
+	}
+	return false
+}
+
+func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (string, []string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return "", nil
+	}
+	ir := plan.WriteAnalysisIR
+	if ir == nil {
+		ir = o.busCtx.Mutable.WriteAnalysisIR()
+	}
+	if ir == nil {
+		return "", nil
+	}
+	if ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig {
+		return "", nil
+	}
+	anchors := normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors)
+	if len(anchors) == 0 {
+		return "", nil
+	}
+	policy := o.writeApprovalPolicy
+	if policy == "" {
+		policy = writeflow.ApprovalPolicyAutoSafe
+	}
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
+	decision := writeflow.DecideWriteApproval(policy, assessment)
+	if decision.Action != writeflow.ApprovalActionManual || assessment.Level != writeflow.RiskHigh {
+		return "", nil
+	}
+	offScope := map[string]bool{}
+	highReasons := 0
+	for _, reason := range assessment.Reasons {
+		switch reason.Level {
+		case writeflow.RiskCritical:
+			return "", nil
+		case writeflow.RiskHigh:
+		default:
+			continue
+		}
+		clean, ok := normalizeWorkflowScopePath(reason.Path)
+		if !ok {
+			return "", nil
+		}
+		highReasons++
+		if workflowPathWithinAnyScope(clean, anchors) {
+			return "", nil
+		}
+		offScope[clean] = true
+	}
+	if highReasons == 0 || len(offScope) == 0 {
+		return "", nil
+	}
+	paths := make([]string, 0, len(offScope))
+	for p := range offScope {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	sort.Strings(anchors)
+	var b strings.Builder
+	b.WriteString("## Typed plan-risk critique\n\n")
+	b.WriteString("The previous ChangePlan touched high-risk paths outside the WriteAnalysisIR scope anchors. Replan this same batch without those off-scope high-risk paths unless a later typed exploration result expands the scope.\n\n")
+	b.WriteString("Off-scope high-risk paths to exclude:\n")
+	for _, p := range paths {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	b.WriteString("\nCurrent scope anchors:\n")
+	for _, p := range anchors {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	b.WriteString("\nKeep the next ChangePlan bounded to the scope anchors and necessary same-scope tests. If a high-risk build/config change is truly required, produce the source/test plan first and let the approval boundary handle the separate high-risk batch.")
+	return strings.TrimSpace(b.String()), paths
+}
+
+func normalizedWorkflowScopeAnchors(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for _, p := range paths {
+		clean, ok := normalizeWorkflowScopePath(p)
+		if !ok || seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		out = append(out, clean)
+	}
+	return out
+}
+
+func normalizeWorkflowScopePath(p string) (string, bool) {
+	p = strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "/") {
+		return "", false
+	}
+	clean := filepath.ToSlash(filepath.Clean(p))
+	if clean == "" {
+		return "", false
+	}
+	return clean, true
+}
+
+func workflowPathWithinAnyScope(path string, anchors []string) bool {
+	for _, anchor := range anchors {
+		if anchor == "." {
+			return true
+		}
+		trimmed := strings.TrimSuffix(anchor, "/")
+		if path == trimmed || strings.HasPrefix(path, trimmed+"/") {
+			return true
+		}
 	}
 	return false
 }

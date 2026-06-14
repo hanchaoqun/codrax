@@ -243,6 +243,135 @@ func TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan(t *testing.T) {
 	}
 }
 
+func TestRunWriteControllerWorkflow_ReplansOffScopeHighRiskBuildManifest(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("avoid off-scope build drift")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix source and tests"},
+			Risk: types.WriteRiskProfile{Overall: types.RiskBandLow, ChangesBuildSystem: false},
+			ScopeAnchors: []string{
+				"src/main/java/org/apache/commons/lang3/RandomStringUtils.java",
+				"src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java",
+			},
+		},
+	})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix source and tests"}},
+			{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+			{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+			{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		}, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:      "plan-with-build-drift",
+					Status:  types.PlanStatusPending,
+					Summary: "source fix plus unnecessary build edit",
+					Changes: []types.FileChange{
+						{Path: "src/main/java/org/apache/commons/lang3/RandomStringUtils.java", Kind: "patch"},
+						{Path: "src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java", Kind: "patch"},
+						{Path: "Makefile", Kind: "modify", NewContent: "check:\n\t@echo ok\n"},
+					},
+					TargetPaths: []string{
+						"src/main/java/org/apache/commons/lang3/RandomStringUtils.java",
+						"src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java",
+						"Makefile",
+					},
+				})
+			} else {
+				if hint := mu.PlanningHint(); !strings.Contains(hint, "Makefile") || !strings.Contains(hint, "Typed plan-risk critique") {
+					t.Fatalf("replan hint should carry typed off-scope high-risk path, got:\n%s", hint)
+				}
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:      "plan-source-tests-only",
+					Status:  types.PlanStatusPending,
+					Summary: "source and test fix only",
+					Changes: []types.FileChange{
+						{Path: "src/main/java/org/apache/commons/lang3/RandomStringUtils.java", Kind: "patch"},
+						{Path: "src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java", Kind: "patch"},
+					},
+					TargetPaths: []string{
+						"src/main/java/org/apache/commons/lang3/RandomStringUtils.java",
+						"src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java",
+					},
+				})
+			}
+		case types.StageVerify:
+			if plan := mu.ChangePlan(); plan != nil {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+			}
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.ID != "plan-source-tests-only" || containsString(plan.TargetPaths, "Makefile") {
+		t.Fatalf("workflow should finish with re-scoped source/test plan, got %+v", plan)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after replan, got %+v", store.last)
+	}
+}
+
+func TestRunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval(t *testing.T) {
+	mu := types.NewMutableState("real build change")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskConfig, Scope: types.ScopeProject, Summary: "update build"},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandHigh, ChangesBuildSystem: true},
+			ScopeAnchors: []string{"src/main/java/App.java"},
+		},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-build-system",
+			Status:      types.PlanStatusPending,
+			Summary:     "intentional build update",
+			Changes:     []types.FileChange{{Path: "Makefile", Kind: "modify", NewContent: "check:\n\t@echo ok\n"}},
+			TargetPaths: []string{"Makefile"},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "build update"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("typed build-system change should not be internally replanned, plan calls = %d", planCalls)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.ID != "plan-build-system" {
+		t.Fatalf("expected original build-system plan, got %+v", plan)
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("repair failing verify")

@@ -5,5 +5,5 @@ MODE="apply"
 FIXTURE="eval/fixtures/github_issues/commons_lang_random_ascii"
 QUESTION="真实上游记录：apache/commons-lang PR #1273 修复 RandomStringUtils 中 ASCII 优化错误套用到非 ASCII letter/number 范围的问题。请在最小 Java 复现仓里做泛化修复：只有 end <= 0x7f 的 ASCII 范围才应用 ASCII 快路径和范围收缩，并为非 ASCII letters 与 digits 增加回归测试。上游 PR: https://github.com/apache/commons-lang/pull/1273"
 EXPECT_MATCHES_REGEX='end[[:space:]]*<=[[:space:]]*0x7[fF]
-0x(4e00|370|400)
+0x(4[eE]00|370|400)
 0x0?(66[0Aa]|6[Ff][0-9A-Fa-f]|96[6-9A-Fa-f]|[Ff][Ff]1[0-9])'

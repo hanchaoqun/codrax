@@ -115,6 +115,38 @@ eval_write_apply_result_record "$tmp/write-eval/mismatch.json" "$tmp/write-eval/
 assert_eq "$(eval_json_top_string_field "$tmp/write-eval/mismatch.json" report_plan_id)" "other-plan" "write apply mismatched report plan"
 assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/mismatch.json" verify_authoritative)" "false" "write apply mismatched report not authoritative"
 
+mkdir -p "$tmp/source-parent/archive-tree" "$tmp/source-root"
+git -C "$tmp/source-parent" init -q || fail "source-parent git init failed"
+printf 'parent tracked\n' >"$tmp/source-parent/tracked.txt"
+git -C "$tmp/source-parent" add tracked.txt || fail "source-parent git add failed"
+printf 'archive applied source\n' >"$tmp/source-parent/archive-tree/main.py"
+archive_collected="$(eval_collect_apply_source_text "$tmp/source-parent/archive-tree")"
+case "$archive_collected" in
+  *"archive applied source"*)
+    ;;
+  *)
+    fail "non-git materialized tree under a parent git repo should be collected by file traversal"
+    ;;
+esac
+
+git -C "$tmp/source-root" init -q || fail "source-root git init failed"
+printf 'root tracked\n' >"$tmp/source-root/tracked.txt"
+printf 'root untracked\n' >"$tmp/source-root/untracked.txt"
+git -C "$tmp/source-root" add tracked.txt || fail "source-root git add failed"
+root_collected="$(eval_collect_apply_source_text "$tmp/source-root")"
+case "$root_collected" in
+  *"root tracked"*)
+    ;;
+  *)
+    fail "git-root source should collect tracked files"
+    ;;
+esac
+case "$root_collected" in
+  *"root untracked"*)
+    fail "git-root source should not collect untracked files"
+    ;;
+esac
+
 cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source mentions finalizer_rejects=7 and 成文校验未通过 but this is answer text
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: ⟳ 4/4 答案待完善，正在重写 is quoted customer text
