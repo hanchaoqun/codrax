@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: In progress
+Status: Complete
 
 ## 1. Summary
 
@@ -527,11 +527,11 @@ ask for approval on low/medium cases.
 
 ### Batch 6: Commercial Hardening
 
-- [ ] Run focused write workflow package tests.
-- [ ] Run `go test ./...`.
-- [ ] Run `make test`.
-- [ ] Re-run write-mode eval cases as requested.
-- [ ] Update this ledger with final verdicts and pushed commits.
+- [x] Run focused write workflow package tests.
+- [x] Run `go test ./...`.
+- [x] Run `make test`.
+- [x] Re-run write-mode eval cases as requested.
+- [x] Update this ledger with final verdicts and pushed commits.
 
 ## 16. Acceptance Criteria
 
@@ -557,3 +557,20 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 3 | pushed | Durable approval resume production path already exists through `WriteWorkflowRunStore`, active workflow plan binding, `/workflow resume`, `/approve`, and apply-pre fingerprint gate. Added regression coverage for resume -> approve continuing the same pending-approval run, persisted approval record fingerprint integrity, `/workflow list` snapshots, and stale fingerprint blocking at apply-pre. Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl ./internal/orchestrator -run 'Test(WorkflowShowDisplaysActiveWriteWorkflow|ApproveUsesActiveWorkflowBatchPlan|WorkflowResumeSelectsSavedWriteWorkflow|WorkflowResumeThenApproveContinuesSamePendingApprovalRun|WorkflowListDisplaysSavedWriteWorkflowSnapshots|RejectMarksOnlyActiveWorkflowBatchBlocked|ApplyPreHook_PlanFileStaleManualApprovalBlocks)'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl ./internal/orchestrator ./internal/types ./internal/writeflow`. Implementation pushed on `main` in commit `c05c4554`. |
 | 2026-06-14 | 4 | pushed | Failure evidence store now persists a standalone `<plan>.attempt-N.surface.json` artifact, adds `surface_ref` to verify attempts, carries `surface_artifact_ref` in `VerifyFailureHandoff`, and renders the surface artifact in the planner replan handoff section. Existing report and diff refs remain typed fields (`report_id`, `artifact_ref`). Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/agent ./internal/orchestrator -run 'Test(WriteTestSurfaceToFileRoundTripNormalizesSelectedID|NormalizeWriteWorkflowRunPersistsContextPacks|BuildVerifyFailureHandoff_ProjectsTypedRows|BuildVerifyFailureHandoff_NilForPassedOrNil|BuildVerifyFailureHandoff_Bounds|BuildVerifyFailureHandoffSection_LeadsReplanPrompt|RunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears|RunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff)'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/agent ./internal/orchestrator ./internal/tool ./internal/repl`. Implementation pushed on `main` in commit `5b1c03ec`. |
 | 2026-06-14 | 5 | pushed | Context pack retry dedupe now uses stable typed item IDs for failed tests, build errors, executed commands, regression assertions, no-tests runners, and failure blobs. `WriteContextPack.View` gives planner replan views a typed ordering where verify failure P2 evidence outranks stale P1 code facts while P0 constraints remain first. Added tests for failure identity dedupe, planner failure-first ordering, existing consumer filtering, and bounded defensive Top-N views. Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestWriteContextPack(FromChangeReportCarriesVerifyFailure|FromChangeReportDedupesVerifyFailureIdentity|PlannerViewPrioritizesVerifyFailureBeforeStaleP1Facts|ViewBoundsAndDefensiveCopy|FromExplorationHandoffPrioritizesEvidence|FromWriteAnalysisIRPreservesP0Constraints)'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/agent ./internal/orchestrator ./internal/writeflow ./internal/repl`. Implementation pushed on `main` in commit `652ab27c`. |
+| 2026-06-14 | 6 | complete | Focused write workflow packages passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/agent ./internal/orchestrator ./internal/repl`. Full `go test ./...` and `make test` both initially hit sandbox local-port bind restrictions in `internal/llm` / `internal/preview`, then passed in the approved escalated environment with the same cache settings. Write-mode eval sweep passed for `eval/cases/patch_python_typo.case`, `eval/cases/patch_cpp_typo.case`, and `eval/cases/patch_java_typo.case`; aggregate summary `eval/results/write_mode_hardening_20260614_summary.md` reports PASS for 3/3 and flagged 0/3. |
+
+## 18. Design Document Coverage Checklist
+
+This document is the canonical delivery ledger for the write-mode commercial hardening work. It intentionally includes the full set of design-document supplements needed to evaluate and continue the system-level architecture without reconstructing intent from commits:
+
+- Current code evidence and system-level gap ledger: Sections 4 and 5.
+- Target controller-first DAG, dynamic batch loop, and direct-build semantics: Sections 6 and 7.
+- ModePlan / ModeApply / ModeVerify terminal behavior and action boundaries: Sections 5, 6, 7, and 14.
+- Permission model, apply-pre approval gate, high-risk resume, critical deny, and fingerprint rules: Sections 8 and 13.
+- Agent/tool permission split for controller, planner, replan, coder, explorer, and verifier: Section 9.
+- Typed JSON repair and strict decode contract: Section 10.
+- Verify result authority and post-apply typed report requirements: Sections 5, 10, and 14.
+- Failure evidence handoff, test/build/path/line/command surfaces, and P2 replan consumption: Sections 5 and 11.
+- Durable run/batch/attempt state, single state derivation, report/surface/diff refs, and restart behavior: Sections 11, 12, and 13.
+- Prompt hygiene red lines: Sections 1, 3, 8, 9, and 10.
+- Eval, e2e, regression matrix, final verdicts, and batch-by-batch delivery evidence: Sections 14, 15, and 17.
