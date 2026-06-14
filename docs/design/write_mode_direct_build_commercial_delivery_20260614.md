@@ -1756,3 +1756,33 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `b71fd632` (`write-mode: require typed ask-user facts`), pushed to `origin/main`.
+
+#### Batch 37: Context Pack Consumer Dedupe And Limited-View Retention
+
+- Evidence source:
+  - Priority context packs already projected P0-P3 facts and gave planner replan views a typed rank boost for verify failures.
+  - The remaining systemic risk was bounded consumer rendering: the same typed fact could occupy multiple prompt rows when projected for different consumers, and a limited Top-N view could still drop the current verify-failure lane when many older P0/P1 facts were present.
+- Generalized gap:
+  - Handoff persistence must keep the full pack, while each consumer receives a compact typed view.
+  - Compact views need deterministic lane retention, not prompt prose asking the model to "remember" failure evidence.
+  - Duplicate projection should merge consumers for the same typed fact instead of spending scarce context on repeated evidence.
+- Target architecture:
+  - Normalize duplicate `WriteContextItem` rows by stable typed fact key, excluding `Consumers`, then union the consumer set.
+  - Keep the existing full pack bounded and persisted; apply limited-view selection only in `WriteContextPack.View`.
+  - Add a planner-specific must-carry lane for typed verify evidence (`verify_failure`, `build_failure`, `failed_test`, `build_error`, command and artifact refs) so replan keeps current failure context even when Top-N is crowded.
+  - Preserve a minimum P0 budget in limited views before allowing excess P0 rows to yield to must-carry failure evidence.
+- Safety and prompt hygiene:
+  - Hard routing still reads typed artifacts and enums, not prompt text.
+  - The must-carry lane is keyed by structured `SourceStage`, `Priority`, and `Kind`; it does not inspect user intent, model prose, summaries, rationale, logs, or `<think>`.
+  - This changes only write context-pack projection; read/log/trace/data/operation/computer entries are untouched.
+- Implementation tasks:
+  - [x] Merge duplicate typed facts across consumer-specific projections.
+  - [x] Add limited-view selection with deterministic must-carry lane retention.
+  - [x] Retain bounded view length while preserving core P0 context.
+  - [x] Add tests for cross-consumer duplicate merge and crowded planner replan views.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestWriteContextPack|TestNormalizeWriteContextPack|TestWriteWorkflowRun'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/agent ./internal/orchestrator ./internal/repl`
+  - Full regression is run before push for the implementation commit.
+- Progress:
+  - Implementation commit: pending.

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -209,6 +210,76 @@ func TestWriteContextPackPlannerViewPrioritizesVerifyFailureBeforeStaleP1Facts(t
 	}
 }
 
+func TestNormalizeWriteContextPackMergesDuplicateConsumerViews(t *testing.T) {
+	pack := NormalizeWriteContextPack(WriteContextPack{
+		PackID: "pack-1",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "internal/write.go",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "internal/write.go",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerVerifier},
+		}},
+	})
+	if len(pack.Items) != 1 {
+		t.Fatalf("duplicate typed fact should merge, got %+v", pack.Items)
+	}
+	if !writeContextConsumersContain(pack.Items[0].Consumers, WriteConsumerPlanner) ||
+		!writeContextConsumersContain(pack.Items[0].Consumers, WriteConsumerVerifier) {
+		t.Fatalf("duplicate merge should union consumers, got %+v", pack.Items[0].Consumers)
+	}
+	if got := len(pack.View(WriteConsumerPlanner, 10).Items); got != 1 {
+		t.Fatalf("planner view should see merged fact once, got %d", got)
+	}
+	if got := len(pack.View(WriteConsumerVerifier, 10).Items); got != 1 {
+		t.Fatalf("verifier view should see merged fact once, got %d", got)
+	}
+}
+
+func TestWriteContextPackPlannerLimitedViewRetainsVerifyFailureLane(t *testing.T) {
+	manyP0 := WriteContextPack{
+		PackID:      "risk",
+		BatchID:     "batch-1",
+		SourceStage: "risk",
+	}
+	for i := 0; i < 8; i++ {
+		manyP0.Items = append(manyP0.Items, WriteContextItem{
+			Priority:    WriteContextP0,
+			Kind:        "constraint",
+			Text:        fmt.Sprintf("hard constraint %d", i),
+			SourceStage: "risk",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		})
+	}
+	failure := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID:         "plan-1",
+		Passed:         false,
+		FailureKind:    FailureKindTestsFailed,
+		FailureSummary: "red test",
+		TestResults: []TestResult{{
+			AssertionID: "TestRepair",
+			Suite:       "pkg",
+			Passed:      false,
+		}},
+	})
+	view := MergeWriteContextPacks("batch-1", "repair", manyP0, failure).View(WriteConsumerPlanner, 5)
+	if len(view.Items) != 5 {
+		t.Fatalf("limited view should remain bounded, got %d: %+v", len(view.Items), view.Items)
+	}
+	if !writeContextViewContains(view, "verify_failure", "red test") {
+		t.Fatalf("planner limited view should retain typed verify failure lane: %+v", view.Items)
+	}
+	if got := writeContextViewPriorityCount(view, WriteContextP0); got < 3 {
+		t.Fatalf("planner limited view should retain core p0 context, got %d: %+v", got, view.Items)
+	}
+}
+
 func TestWriteContextPackViewBoundsAndDefensiveCopy(t *testing.T) {
 	pack := WriteContextPack{PackID: "x"}
 	for i := 0; i < 20; i++ {
@@ -242,6 +313,25 @@ func TestWriteContextPackViewBoundsAndDefensiveCopy(t *testing.T) {
 	if again.Items[0].Text == "mutated" {
 		t.Fatalf("view mutation leaked back into pack")
 	}
+}
+
+func writeContextConsumersContain(consumers []WriteContextConsumer, want WriteContextConsumer) bool {
+	for _, c := range consumers {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
+func writeContextViewPriorityCount(view WriteContextView, priority WriteContextPriority) int {
+	count := 0
+	for _, item := range view.Items {
+		if item.Priority == priority {
+			count++
+		}
+	}
+	return count
 }
 
 func writeContextViewKindCount(view WriteContextView, kind string) int {

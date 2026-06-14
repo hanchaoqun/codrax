@@ -70,7 +70,7 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 	in.BatchID = trimWriteContextText(in.BatchID)
 	in.Goal = trimWriteContextText(in.Goal)
 	in.SourceStage = trimWriteContextText(in.SourceStage)
-	seen := map[string]struct{}{}
+	seenIndex := map[string]int{}
 	items := make([]WriteContextItem, 0, len(in.Items))
 	for _, item := range in.Items {
 		item = normalizeWriteContextItem(item)
@@ -78,10 +78,11 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 			continue
 		}
 		key := writeContextItemKey(item)
-		if _, ok := seen[key]; ok {
+		if idx, ok := seenIndex[key]; ok {
+			items[idx] = mergeWriteContextDuplicateItem(items[idx], item)
 			continue
 		}
-		seen[key] = struct{}{}
+		seenIndex[key] = len(items)
 		items = append(items, item)
 		if len(items) >= writeContextPackMaxItems {
 			break
@@ -127,7 +128,7 @@ func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteCo
 		return writeContextPriorityRank(items[i].Priority) < writeContextPriorityRank(items[j].Priority)
 	})
 	if limit > 0 && len(items) > limit {
-		items = items[:limit]
+		items = writeContextLimitedViewItems(items, consumer, limit)
 	}
 	return WriteContextView{Consumer: consumer, Items: cloneWriteContextItems(items)}
 }
@@ -456,21 +457,45 @@ func normalizeWriteContextConsumers(in []WriteContextConsumer) []WriteContextCon
 	return out
 }
 
+func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteContextItem {
+	out := existing
+	if out.ID == "" {
+		out.ID = incoming.ID
+	}
+	if out.Text == "" {
+		out.Text = incoming.Text
+	}
+	if out.SourceStage == "" {
+		out.SourceStage = incoming.SourceStage
+	}
+	if out.SourceID == "" {
+		out.SourceID = incoming.SourceID
+	}
+	if out.EvidenceRef == nil && incoming.EvidenceRef != nil {
+		ref := *incoming.EvidenceRef
+		out.EvidenceRef = &ref
+	}
+	if len(existing.Consumers) == 0 || len(incoming.Consumers) == 0 {
+		out.Consumers = nil
+		return out
+	}
+	out.Consumers = normalizeWriteContextConsumers(append(append([]WriteContextConsumer(nil), existing.Consumers...), incoming.Consumers...))
+	return out
+}
+
 func writeContextItemKey(item WriteContextItem) string {
 	ref := ""
 	if item.EvidenceRef != nil {
 		ref = fmt.Sprintf("%s:%d:%d:%s", item.EvidenceRef.Source, item.EvidenceRef.LineStart, item.EvidenceRef.LineEnd, item.EvidenceRef.ID)
 	}
-	consumers := append([]WriteContextConsumer(nil), item.Consumers...)
-	sort.Slice(consumers, func(i, j int) bool { return consumers[i] < consumers[j] })
-	consumerParts := make([]string, 0, len(consumers))
-	for _, c := range consumers {
-		consumerParts = append(consumerParts, string(c))
-	}
 	// Items anchored to a typed evidence location dedupe on the fact, not
 	// its wording: retries re-project the same file:line finding with
 	// slightly different text, and re-worded duplicates of one fact must
 	// not crowd consumer Top-N views.
+	//
+	// Consumers are intentionally excluded. The same typed fact may be
+	// projected for planner in one stage and verifier in another; normalize
+	// merges those consumer sets instead of preserving duplicate prompt rows.
 	text := strings.ToLower(item.Text)
 	if item.ID != "" || (item.EvidenceRef != nil && strings.TrimSpace(item.EvidenceRef.Source) != "" && item.EvidenceRef.LineStart > 0) {
 		text = ""
@@ -483,7 +508,6 @@ func writeContextItemKey(item WriteContextItem) string {
 		item.SourceStage,
 		item.SourceID,
 		ref,
-		strings.Join(consumerParts, ","),
 	}, "\x00")
 }
 
@@ -496,6 +520,99 @@ func writeContextViewRank(item WriteContextItem, consumer WriteContextConsumer) 
 		return rank + 1
 	}
 	return rank
+}
+
+func writeContextLimitedViewItems(items []WriteContextItem, consumer WriteContextConsumer, limit int) []WriteContextItem {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	selected := cloneWriteContextItems(items[:limit])
+	selectedKeys := map[string]struct{}{}
+	for _, item := range selected {
+		selectedKeys[writeContextItemKey(item)] = struct{}{}
+	}
+	for _, item := range items[limit:] {
+		if !writeContextMustCarryInLimitedView(item, consumer) {
+			continue
+		}
+		key := writeContextItemKey(item)
+		if _, ok := selectedKeys[key]; ok {
+			continue
+		}
+		replace := writeContextLimitedViewReplacementIndex(selected, consumer, limit)
+		if replace < 0 {
+			continue
+		}
+		delete(selectedKeys, writeContextItemKey(selected[replace]))
+		selected[replace] = item
+		selectedKeys[key] = struct{}{}
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		ri := writeContextViewRank(selected[i], consumer)
+		rj := writeContextViewRank(selected[j], consumer)
+		if ri != rj {
+			return ri < rj
+		}
+		return writeContextPriorityRank(selected[i].Priority) < writeContextPriorityRank(selected[j].Priority)
+	})
+	return selected
+}
+
+func writeContextMustCarryInLimitedView(item WriteContextItem, consumer WriteContextConsumer) bool {
+	return consumer == WriteConsumerPlanner &&
+		item.SourceStage == "verify" &&
+		item.Priority == WriteContextP2 &&
+		writeContextVerifyFailureKind(item.Kind)
+}
+
+func writeContextLimitedViewReplacementIndex(selected []WriteContextItem, consumer WriteContextConsumer, limit int) int {
+	p0Count := 0
+	for _, item := range selected {
+		if item.Priority == WriteContextP0 {
+			p0Count++
+		}
+	}
+	minP0 := writeContextMinimumP0InLimitedView(limit)
+	best := -1
+	bestRank := -1
+	for i, item := range selected {
+		if writeContextMustCarryInLimitedView(item, consumer) {
+			continue
+		}
+		if item.Priority == WriteContextP0 {
+			continue
+		}
+		rank := writeContextViewRank(item, consumer)
+		if rank > bestRank || (rank == bestRank && i > best) {
+			best = i
+			bestRank = rank
+		}
+	}
+	if best >= 0 {
+		return best
+	}
+	if p0Count <= minP0 {
+		return -1
+	}
+	for i := len(selected) - 1; i >= 0; i-- {
+		if selected[i].Priority == WriteContextP0 && !writeContextMustCarryInLimitedView(selected[i], consumer) {
+			return i
+		}
+	}
+	return -1
+}
+
+func writeContextMinimumP0InLimitedView(limit int) int {
+	switch {
+	case limit <= 0:
+		return 0
+	case limit == 1:
+		return 1
+	case limit < 4:
+		return 1
+	default:
+		return 3
+	}
 }
 
 func writeContextVerifyFailureKind(kind string) bool {
