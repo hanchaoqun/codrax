@@ -33,6 +33,7 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		"emit_write_workflow_decision.go",
 		"apply_patch.go",
 		"emit_test_results.go",
+		"run_tests.go",
 	}
 	for _, name := range files {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
@@ -73,6 +74,7 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		"emit_write_workflow_decision.go",
 		"apply_patch.go",
 		"emit_test_results.go",
+		"run_tests.go",
 	}
 	for _, name := range files {
 		raw, err := os.ReadFile(filepath.Join(dir, name))

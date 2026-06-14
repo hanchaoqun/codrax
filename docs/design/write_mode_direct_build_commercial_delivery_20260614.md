@@ -168,6 +168,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 39 | Ask-user repeat suppression | `ask_user` missing facts 写入 durable typed fact keys；重复事实转 typed block，避免同一问题反复打断用户 |
 | 40 | Single state-machine invariants | 新增 typed workflow invariant validator；active batch、attempt plan_id、approval action 与 batch 状态冲突可观测 |
 | 41 | Auto Pilot recovery copy and eval regression | 主提示/文档不再把 `/mode write -> /approve -> /merge` 命令链当主路径；低风险和 JS 现象型 issue eval 回归 PASS |
+| 42 | Write tool JSON repair coverage guard | `run_tests` 纳入统一 structured payload repair / strict decode 结构测试，防止验证工具绕开修复层 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1935,3 +1936,28 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
 - Progress:
   - Implementation commit: `ee34703b` (`write-mode: reduce autopilot recovery command burden`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 42: Write Tool JSON Repair Coverage Guard
+
+- Evidence source:
+  - `run_tests` is the verifier's authoritative typed report producer and the planner's dry-run probe tool. It is one of the highest-frequency model-output JSON surfaces in write mode.
+  - The tool already uses `decodeStrictToolParams`, and all registered tools are covered by strict-decode registry tests, but the structured payload compatibility coverage list did not explicitly include `run_tests.go`.
+- Generalized gap:
+  - A future refactor could preserve strict decode while accidentally bypassing the shared model-output repair path for the write-mode verification tool.
+  - The invariant should live in the existing structural test suite, not in prompt wording or case-specific eval expectations.
+- Target design:
+  - Reuse `TestStructuredPayloadCompatCoverageForStructuredEmitTools` and `TestStructuredEmitToolsAttachTypedDecodeRepair` as the guard.
+  - Include `run_tests.go` in the covered write-mode JSON boundary files. The test accepts `decodeStrictToolParams` as the unified helper path, so no duplicate repair layer is introduced.
+- Safety and prompt hygiene:
+  - This batch is a test guard only. It does not change `run_tests` behavior, runner selection, verifier authority, or controller routing.
+  - The hard invariant is file/function level: the tool must call an existing structured repair/strict-decode helper. It does not parse model prose, user keywords, summaries, rationales, logs, eval oracle text, or `<think>`.
+- Implementation tasks:
+  - [x] Add `run_tests.go` to structured payload compat coverage.
+  - [x] Add `run_tests.go` to typed decode repair coverage.
+  - [x] Run focused tool structural tests.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestStructuredPayloadCompatCoverageForStructuredEmitTools|TestStructuredEmitToolsAttachTypedDecodeRepair|TestEveryRegistryToolIsStrictDecodeWiredOrExempt'` PASS.
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool` PASS.
+- Progress:
+  - Implementation commit: pending.
