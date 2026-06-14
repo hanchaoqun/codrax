@@ -81,6 +81,7 @@ type WriteWorkflowAttempt struct {
 	PlanID      string    `json:"plan_id,omitempty"`
 	ReportID    string    `json:"report_id,omitempty"`
 	ArtifactRef string    `json:"artifact_ref,omitempty"`
+	SurfaceRef  string    `json:"surface_ref,omitempty"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	FinishedAt  time.Time `json:"finished_at,omitempty"`
 }
@@ -198,8 +199,10 @@ func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAt
 		attempt.PlanID = trimWriteWorkflowRunText(attempt.PlanID)
 		attempt.ReportID = trimWriteWorkflowRunText(attempt.ReportID)
 		attempt.ArtifactRef = trimWriteWorkflowRunText(attempt.ArtifactRef)
+		attempt.SurfaceRef = trimWriteWorkflowRunText(attempt.SurfaceRef)
 		if attempt.ID == "" && attempt.Kind == "" && attempt.Status == "" && attempt.ReasonCode == "" &&
-			attempt.PlanID == "" && attempt.ReportID == "" && attempt.ArtifactRef == "" && attempt.StartedAt.IsZero() && attempt.FinishedAt.IsZero() {
+			attempt.PlanID == "" && attempt.ReportID == "" && attempt.ArtifactRef == "" && attempt.SurfaceRef == "" &&
+			attempt.StartedAt.IsZero() && attempt.FinishedAt.IsZero() {
 			continue
 		}
 		out = append(out, attempt)

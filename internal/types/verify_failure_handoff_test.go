@@ -26,7 +26,7 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 			{ID: "go@sub", Runner: "go", WorkingDir: "sub", HasTestSignal: true},
 		}},
 	}
-	h := BuildVerifyFailureHandoff(report, "batch-1", 2, "plan-1.attempt-2.diff")
+	h := BuildVerifyFailureHandoff(report, "batch-1", 2, "plan-1.attempt-2.diff", "plan-1.attempt-2.surface.json")
 	if h == nil {
 		t.Fatal("failed report must build a handoff")
 	}
@@ -42,7 +42,9 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	if len(h.Executed) != 1 || h.Executed[0].Command != "make check" {
 		t.Fatalf("executed commands must carry over: %+v", h.Executed)
 	}
-	if h.DiffArtifactRef != "plan-1.attempt-2.diff" || h.BlobRef != "/tmp/blob/run.txt" {
+	if h.DiffArtifactRef != "plan-1.attempt-2.diff" ||
+		h.SurfaceArtifactRef != "plan-1.attempt-2.surface.json" ||
+		h.BlobRef != "/tmp/blob/run.txt" {
 		t.Fatalf("artifact refs missing: %+v", h)
 	}
 	// make@. was executed; go@sub is the next unexecuted candidate with work.
@@ -55,10 +57,10 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 }
 
 func TestBuildVerifyFailureHandoff_NilForPassedOrNil(t *testing.T) {
-	if h := BuildVerifyFailureHandoff(nil, "b", 1, ""); h != nil {
+	if h := BuildVerifyFailureHandoff(nil, "b", 1, "", ""); h != nil {
 		t.Fatal("nil report must not build a handoff")
 	}
-	if h := BuildVerifyFailureHandoff(&ChangeReport{Passed: true}, "b", 1, ""); h != nil {
+	if h := BuildVerifyFailureHandoff(&ChangeReport{Passed: true}, "b", 1, "", ""); h != nil {
 		t.Fatal("passed report must not build a handoff")
 	}
 }
@@ -70,7 +72,7 @@ func TestBuildVerifyFailureHandoff_Bounds(t *testing.T) {
 			AssertionID: strings.Repeat("t", 3), Passed: false,
 		})
 	}
-	h := BuildVerifyFailureHandoff(report, "b", 1, "")
+	h := BuildVerifyFailureHandoff(report, "b", 1, "", "")
 	if len(h.FailingTests) > maxHandoffFailingTests {
 		t.Fatalf("failing tests must be bounded, got %d", len(h.FailingTests))
 	}

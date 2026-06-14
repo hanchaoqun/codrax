@@ -271,8 +271,8 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				verifyFailures[run.ActiveBatchID]++
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_failed", innerErr.Error())
-				diffRef := o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
-				if handoff := types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef); handoff != nil {
+				diffRef, surfaceRef := o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
+				if handoff := types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef, surfaceRef); handoff != nil {
 					o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				}
 				o.persistWriteWorkflowRun(&run)
@@ -1135,19 +1135,17 @@ func writePlanDeniedByApproval(plan *types.ChangePlan) bool {
 // persistVerifyFailureEvidence makes a failed verify attempt durable before
 // the next controller turn (and before the unconditional worktree cleanup at
 // Run exit can destroy the bytes): the typed ChangeReport is saved through
-// the standard report path, and the attempt's applied-commit patch is written
-// next to it as <stem>.attempt-N.diff. The diff artifact ref is attached to
-// the batch's latest verify attempt record. Capture is best-effort and never
-// alters cleanup behaviour (red line L5); failures log at warning.
-func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun, report *types.ChangeReport, attempt int) string {
+// the standard report path, the typed TestSurface is saved as a standalone
+// artifact, and the attempt's applied-commit patch is written next to it as
+// <stem>.attempt-N.diff. Artifact refs are attached to the batch's latest
+// verify attempt record. Capture is best-effort and never alters cleanup
+// behaviour (red line L5); failures log at warning.
+func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun, report *types.ChangeReport, attempt int) (string, string) {
 	if o == nil || o.busCtx == nil || run == nil {
-		return ""
+		return "", ""
 	}
 	if report != nil {
 		o.saveChangeReport(report)
-	}
-	if o.busCtx.WorktreePath == "" || strings.TrimSpace(o.currentIterCommitSHA) == "" {
-		return ""
 	}
 	planID := ""
 	if report != nil {
@@ -1161,12 +1159,16 @@ func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun,
 	stem := writeWorkflowArtifactFileStem(planID)
 	planDir := o.ensureChangeReportDir()
 	if stem == "" || planDir == "" {
-		return ""
+		return "", ""
+	}
+	surfaceRef := o.persistVerifyFailureSurface(run, report, stem, planDir, attempt)
+	if o.busCtx.WorktreePath == "" || strings.TrimSpace(o.currentIterCommitSHA) == "" {
+		return "", surfaceRef
 	}
 	patch, err := worktree.CaptureCommitPatch(o.busCtx.WorktreePath, o.currentIterCommitSHA)
 	if err != nil {
 		logging.Warning("[orchestrator] verify-failure diff capture failed: %v", err)
-		return ""
+		return "", surfaceRef
 	}
 	if attempt < 1 {
 		attempt = 1
@@ -1175,11 +1177,29 @@ func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun,
 	diffPath := filepath.Join(planDir, diffName)
 	if err := os.WriteFile(diffPath, []byte(patch), 0o644); err != nil {
 		logging.Warning("[orchestrator] verify-failure diff save failed: %v", err)
-		return ""
+		return "", surfaceRef
 	}
 	logging.Info("[orchestrator] verify-failure attempt diff saved: %s", diffPath)
 	attachDiffArtifactToLatestVerifyAttempt(run, run.ActiveBatchID, diffName)
-	return diffName
+	return diffName, surfaceRef
+}
+
+func (o *Orchestrator) persistVerifyFailureSurface(run *types.WriteWorkflowRun, report *types.ChangeReport, stem, planDir string, attempt int) string {
+	if report == nil || report.TestSurface == nil || run == nil {
+		return ""
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	surfaceName := fmt.Sprintf("%s.attempt-%d.surface.json", stem, attempt)
+	surfacePath := filepath.Join(planDir, surfaceName)
+	if err := types.WriteTestSurfaceToFile(report.TestSurface, surfacePath); err != nil {
+		logging.Warning("[orchestrator] verify-failure test-surface save failed: %v", err)
+		return ""
+	}
+	logging.Info("[orchestrator] verify-failure test surface saved: %s", surfacePath)
+	attachSurfaceArtifactToLatestVerifyAttempt(run, run.ActiveBatchID, surfaceName)
+	return surfaceName
 }
 
 // attachDiffArtifactToLatestVerifyAttempt points the most recent verify
@@ -1198,6 +1218,25 @@ func attachDiffArtifactToLatestVerifyAttempt(run *types.WriteWorkflowRun, batchI
 				continue
 			}
 			run.Batches[i].Attempts[j].ArtifactRef = strings.TrimSpace(artifactRef)
+			return
+		}
+		return
+	}
+}
+
+func attachSurfaceArtifactToLatestVerifyAttempt(run *types.WriteWorkflowRun, batchID, surfaceRef string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || strings.TrimSpace(surfaceRef) == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID != batchID {
+			continue
+		}
+		for j := len(run.Batches[i].Attempts) - 1; j >= 0; j-- {
+			if run.Batches[i].Attempts[j].Kind != "verify" {
+				continue
+			}
+			run.Batches[i].Attempts[j].SurfaceRef = strings.TrimSpace(surfaceRef)
 			return
 		}
 		return
@@ -1298,7 +1337,7 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	if innerErr != nil {
 		appendControllerProgress(run, run.ActiveBatchID, "verify_failed", innerErr.Error())
 	}
-	o.persistVerifyFailureEvidence(run, report, writeflow.DeriveBatchAttemptState(*active).FailedVerifyAttempts+1)
+	_, _ = o.persistVerifyFailureEvidence(run, report, writeflow.DeriveBatchAttemptState(*active).FailedVerifyAttempts+1)
 	o.persistWriteWorkflowRun(run)
 	return false
 }
@@ -1383,7 +1422,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
 				diffRef = st.LatestVerifyArtifactRef
 			}
-			if handoff := types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef); handoff != nil {
+			if handoff := types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef, st.LatestVerifySurfaceRef); handoff != nil {
 				o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				logging.Info("[orchestrator] resume: rebuilt verify-failure context from %s", st.ReportID)
 			}

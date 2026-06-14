@@ -39,12 +39,14 @@ type BatchAttemptState struct {
 	PlanID   string `json:"plan_id,omitempty"`
 	ReportID string `json:"report_id,omitempty"`
 
-	// LatestVerifyStatus / LatestVerifyArtifactRef expose the newest verify
-	// attempt's typed status ("passed", "failed", "unverified", ...) and its
-	// artifact ref (the persisted attempt diff for failures) for resume
-	// hydration and finish caveats.
+	// LatestVerifyStatus / LatestVerifyArtifactRef / LatestVerifySurfaceRef
+	// expose the newest verify attempt's typed status ("passed", "failed",
+	// "unverified", ...), its artifact ref (the persisted attempt diff for
+	// failures), and the runnable-test-surface artifact for resume hydration
+	// and finish caveats.
 	LatestVerifyStatus      string `json:"latest_verify_status,omitempty"`
 	LatestVerifyArtifactRef string `json:"latest_verify_artifact_ref,omitempty"`
+	LatestVerifySurfaceRef  string `json:"latest_verify_surface_ref,omitempty"`
 
 	// FailedVerifyAttempts counts post-apply verify attempts with a failed
 	// status. Attempt records are only written by the scheduler's verify
@@ -83,6 +85,7 @@ func DeriveBatchAttemptState(batch types.WriteWorkflowBatch) BatchAttemptState {
 		st.ReportID = strings.TrimSpace(latestVerify.ReportID)
 		st.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
 		st.LatestVerifyArtifactRef = strings.TrimSpace(latestVerify.ArtifactRef)
+		st.LatestVerifySurfaceRef = strings.TrimSpace(latestVerify.SurfaceRef)
 	}
 	if batch.Status == types.WriteWorkflowBatchReadyToPlan && latestVerify != nil && latestVerify.Status == "failed" {
 		st.Phase = BatchPhaseNeedsReplan

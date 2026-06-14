@@ -1123,6 +1123,9 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	if h.DiffArtifactRef != "" {
 		fmt.Fprintf(&b, "- previous attempt patch: %s (in the plan directory)\n", h.DiffArtifactRef)
 	}
+	if h.SurfaceArtifactRef != "" {
+		fmt.Fprintf(&b, "- test surface artifact: %s (in the plan directory)\n", h.SurfaceArtifactRef)
+	}
 	if h.NextSurfaceCandidateID != "" {
 		fmt.Fprintf(&b, "- unexecuted runnable test candidate: %s\n", h.NextSurfaceCandidateID)
 	}

@@ -1,6 +1,10 @@
 package types
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -139,4 +143,39 @@ func testSurfacePathDepth(rel string) int {
 		return -1
 	}
 	return strings.Count(rel, "/")
+}
+
+func WriteTestSurfaceToFile(surface *TestSurface, path string) error {
+	if surface == nil {
+		return fmt.Errorf("WriteTestSurfaceToFile: nil surface")
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("WriteTestSurfaceToFile: empty path")
+	}
+	normalized := NormalizeTestSurface(*surface)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("WriteTestSurfaceToFile: mkdir %s: %w", filepath.Dir(path), err)
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WriteTestSurfaceToFile: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteTestSurfaceToFile: write %s: %w", path, err)
+	}
+	return nil
+}
+
+func LoadTestSurfaceFromFile(path string) (*TestSurface, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var surface TestSurface
+	if err := json.Unmarshal(data, &surface); err != nil {
+		return nil, fmt.Errorf("parse test surface %s: %w", path, err)
+	}
+	normalized := NormalizeTestSurface(surface)
+	return &normalized, nil
 }

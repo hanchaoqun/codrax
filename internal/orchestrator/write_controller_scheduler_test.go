@@ -632,6 +632,15 @@ func workflowBatchHasAttemptArtifact(batch types.WriteWorkflowBatch, kind, statu
 	return false
 }
 
+func workflowBatchHasAttemptSurface(batch types.WriteWorkflowBatch, kind, status, reasonCode, surfaceRef string) bool {
+	for _, attempt := range batch.Attempts {
+		if attempt.Kind == kind && attempt.Status == status && attempt.ReasonCode == reasonCode && attempt.SurfaceRef == surfaceRef {
+			return true
+		}
+	}
+	return false
+}
+
 func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring string) bool {
 	if run == nil {
 		return false
@@ -921,6 +930,7 @@ func TestRunWriteControllerWorkflow_RejectsNonAuthoritativeVerifyReports(t *test
 
 func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
+	planDir := t.TempDir()
 	mu := types.NewMutableState("handoff lifecycle")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "handoff lifecycle"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
@@ -940,6 +950,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
 	o.SetWriteRetryBudget(2)
 	attempt := 0
 	var handoffSeenAtReplan *types.VerifyFailureHandoff
@@ -961,6 +972,12 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 					FailureKind:    types.FailureKindTestsFailed,
 					FailureSummary: "TestA failed",
 					TestResults:    []types.TestResult{{AssertionID: "TestA", Passed: false, FailureDetail: "want 2 got 3"}},
+					TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+						ID:            "go@.",
+						Runner:        "go",
+						WorkingDir:    ".",
+						HasTestSignal: true,
+					}}},
 				})
 			} else {
 				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
@@ -978,6 +995,16 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 	}
 	if handoffSeenAtReplan.PlanID != "plan-1" || len(handoffSeenAtReplan.FailingTests) != 1 {
 		t.Fatalf("handoff should carry the failing plan's typed rows: %+v", handoffSeenAtReplan)
+	}
+	if handoffSeenAtReplan.SurfaceArtifactRef != "plan-1.attempt-1.surface.json" {
+		t.Fatalf("handoff should carry the persisted test surface ref, got %q", handoffSeenAtReplan.SurfaceArtifactRef)
+	}
+	if _, err := types.LoadTestSurfaceFromFile(filepath.Join(planDir, handoffSeenAtReplan.SurfaceArtifactRef)); err != nil {
+		t.Fatalf("persisted test surface should be readable: %v", err)
+	}
+	if store.last == nil || len(store.last.Batches) == 0 ||
+		!workflowBatchHasAttemptSurface(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-1.attempt-1.surface.json") {
+		t.Fatalf("failed verify attempt should reference persisted surface: %+v", store.last)
 	}
 	if got := mu.VerifyFailureHandoff(); got != nil {
 		t.Fatalf("green verify must clear the handoff, got %+v", got)
@@ -1269,7 +1296,13 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 		t.Fatalf("seed plan: %v", err)
 	}
 	failedReport := &types.ChangeReport{PlanID: "plan-resume", Passed: false, FailureKind: types.FailureKindTestsFailed,
-		FailureSummary: "red", TestResults: []types.TestResult{{AssertionID: "TestX", Passed: false}}}
+		FailureSummary: "red", TestResults: []types.TestResult{{AssertionID: "TestX", Passed: false}},
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			HasTestSignal: true,
+		}}}}
 	if err := types.WriteChangeReportToFile(failedReport, filepath.Join(planDir, "plan-resume.report.json")); err != nil {
 		t.Fatalf("seed report: %v", err)
 	}
@@ -1280,7 +1313,7 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 			Attempts: []types.WriteWorkflowAttempt{
 				{Kind: "plan", Status: "complete", PlanID: "plan-resume"},
 				{Kind: "apply", Status: "applied", PlanID: "plan-resume"},
-				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-resume", ReportID: "plan-resume.report.json", ArtifactRef: "plan-resume.attempt-1.diff"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-resume", ReportID: "plan-resume.report.json", ArtifactRef: "plan-resume.attempt-1.diff", SurfaceRef: "plan-resume.attempt-1.surface.json"},
 			},
 		}},
 	}
@@ -1322,6 +1355,9 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	}
 	if handoffAtApply.DiffArtifactRef != "plan-resume.attempt-1.diff" {
 		t.Fatalf("resume carrier should reference the persisted attempt diff, got %q", handoffAtApply.DiffArtifactRef)
+	}
+	if handoffAtApply.SurfaceArtifactRef != "plan-resume.attempt-1.surface.json" {
+		t.Fatalf("resume carrier should reference the persisted test surface, got %q", handoffAtApply.SurfaceArtifactRef)
 	}
 }
 

@@ -44,6 +44,10 @@ type VerifyFailureHandoff struct {
 	// (<stem>.attempt-N.diff) in the plan directory.
 	DiffArtifactRef string `json:"diff_artifact_ref,omitempty"`
 
+	// SurfaceArtifactRef names the persisted runnable test surface
+	// (<stem>.attempt-N.surface.json) in the plan directory.
+	SurfaceArtifactRef string `json:"surface_artifact_ref,omitempty"`
+
 	// NextSurfaceCandidateID names the highest-ranked unexecuted test
 	// surface candidate with real test work, when one exists — the typed
 	// "what verification to aim at next" suggestion.
@@ -52,21 +56,22 @@ type VerifyFailureHandoff struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
-// BuildVerifyFailureHandoff projects a failed post-apply ChangeReport into
-// the typed replan carrier. Returns nil for nil/passed reports.
-func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int, diffArtifactRef string) *VerifyFailureHandoff {
+// BuildVerifyFailureHandoff projects a failed post-apply ChangeReport into the
+// typed replan carrier. Returns nil for nil/passed reports.
+func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int, diffArtifactRef, surfaceArtifactRef string) *VerifyFailureHandoff {
 	if report == nil || report.Passed {
 		return nil
 	}
 	h := &VerifyFailureHandoff{
-		PlanID:          strings.TrimSpace(report.PlanID),
-		BatchID:         strings.TrimSpace(batchID),
-		Attempt:         attempt,
-		FailureKind:     report.FailureKind,
-		FailureSummary:  strings.TrimSpace(report.FailureSummary),
-		BlobRef:         strings.TrimSpace(report.FailureSummaryBlobRef),
-		DiffArtifactRef: strings.TrimSpace(diffArtifactRef),
-		GeneratedAt:     time.Now(),
+		PlanID:             strings.TrimSpace(report.PlanID),
+		BatchID:            strings.TrimSpace(batchID),
+		Attempt:            attempt,
+		FailureKind:        report.FailureKind,
+		FailureSummary:     strings.TrimSpace(report.FailureSummary),
+		BlobRef:            strings.TrimSpace(report.FailureSummaryBlobRef),
+		DiffArtifactRef:    strings.TrimSpace(diffArtifactRef),
+		SurfaceArtifactRef: strings.TrimSpace(surfaceArtifactRef),
+		GeneratedAt:        time.Now(),
 	}
 	if h.Attempt < 1 {
 		h.Attempt = 1
