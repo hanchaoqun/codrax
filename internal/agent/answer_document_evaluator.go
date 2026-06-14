@@ -10223,6 +10223,8 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 	}
 	claimKey := strings.TrimSpace(record.ClaimKey)
 	switch {
+	case traceQueryObservationHasRichNotePrefix(record, "occurrence_windows="):
+		return 8
 	case strings.HasPrefix(claimKey, "root_cause_primary"):
 		return 10
 	case strings.HasPrefix(claimKey, "critical_blocking"):
@@ -10241,6 +10243,15 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 		return 60
 	}
 	return 0
+}
+
+func traceQueryObservationHasRichNotePrefix(record types.ObservationRecord, prefix string) bool {
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(strings.TrimSpace(note), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func traceQueryObservationSupplementKey(record types.ObservationRecord) string {

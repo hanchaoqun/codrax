@@ -1,0 +1,13 @@
+# Trace query — explicit relative trace path in question
+#
+# Coverage target: repo/workspace-relative trace paths mentioned in the question
+# should resolve through trace_query(path) without requiring --htrace.
+ID="trace_query_path_question_relative_donghu_short"
+NAME="trace query — relative path mentioned in question"
+QUESTION="只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.475857s 的短窗口卡顿原因，说明直接唤醒关系、链上线程状态和调度资源背景。"
+EXPECT_CONTAINS="CookieMonsterCl com.baidu.tieba"
+EXPECT_MATCHES_REGEX="(runnable|可运行|调度|scheduler|CPU|runqueue).*(CookieMonsterCl|优先级反转|priority inversion)|(CookieMonsterCl|优先级反转|priority inversion).*(runnable|可运行|调度|scheduler|CPU|runqueue)
+(唤醒|依赖|wakeup|chain)"
+EXPECT_MATCHES_TEXT_REGEX="CookieMonsterCl.*com\\.baidu\\.tieba|com\\.baidu\\.tieba.*CookieMonsterCl"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

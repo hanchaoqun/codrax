@@ -1,0 +1,20 @@
+# Trace query — real Donghu frame, multi-layer causes
+#
+# Coverage target: with a large customer-scale trace attached by file path, the
+# system should derive repeated on-chain wakeup dependencies itself, rank
+# cumulative on-chain runnable and D/io_wait causes as primary layers, and keep
+# source-status wording out of a trace-only answer.
+ID="trace_query_donghu_real_frame_multicausal"
+NAME="trace query — real Donghu frame multi-layer causes"
+QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.587805s 这一帧窗口内的卡顿原因。请分层说明直接阻塞/唤醒关系、链上主要原因、调度/资源背景，以及代表性时间窗。"
+HTRACE_FILE="../customlogs/xxx_all.systrace"
+EXPECT_CONTAINS="CookieMonsterCl NetworkService ThreadPoolForeg"
+EXPECT_MATCHES_REGEX="(唤醒链|依赖链|wakeup chain|chain).*(ThreadPoolForeg|NetworkService|CookieMonsterCl|com\\.baidu\\.tieba)
+(runnable|可运行|调度|scheduler|CPU|runqueue).*(CookieMonsterCl|NetworkService|优先级反转|priority inversion)|(CookieMonsterCl|NetworkService|优先级反转|priority inversion).*(runnable|可运行|调度|scheduler|CPU|runqueue)
+(D-state|D 状态|Uninterruptible|io_wait|iowait|不可中断|IO).*(ThreadPoolForeg|fscache|block|page cache)|(ThreadPoolForeg|fscache|block|page cache).*(D-state|D 状态|Uninterruptible|io_wait|iowait|不可中断|IO)
+34579\\.525
+34579\\.546
+34579\\.576
+(主因|主要原因|primary|co-primary|并列|共同|多层)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1636,7 +1636,8 @@ const (
 // EvidenceItems into BusContext by the time this runs.
 func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{
-		Data: json.RawMessage(`{}`),
+		Data:        json.RawMessage(`{}`),
+		StageReport: renderExtractorStageReport(ctx),
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return out, nil
@@ -1744,6 +1745,54 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	}
 
 	return out, nil
+}
+
+func renderExtractorStageReport(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Extraction Summary\n")
+	runtimeSourceOptional := extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx)
+	if runtimeSourceOptional {
+		b.WriteString("- source_lane: runtime_artifact_without_required_current_source\n")
+		b.WriteString("- final_surface: accepted runtime observations and aggregate facts; current-source verdicts are not required\n")
+	} else {
+		b.WriteString("- source_lane: current_source_or_mixed\n")
+	}
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			fmt.Fprintf(&b, "- runtime_observation_only_completion: %v\n", ta.RuntimeObservationOnlyCompletion)
+			if kind := strings.TrimSpace(ta.AcceptedResultKind); kind != "" {
+				fmt.Fprintf(&b, "- accepted_result_kind: %s\n", kind)
+			}
+			if len(ta.AcceptedAggregateFacts) > 0 {
+				fmt.Fprintf(&b, "- accepted_aggregate_facts: %d\n", len(ta.AcceptedAggregateFacts))
+			}
+			if len(ta.EvidenceItems) > 0 {
+				fmt.Fprintf(&b, "- evidence_items: %d\n", len(ta.EvidenceItems))
+			}
+			if len(ta.FlowFindings) > 0 {
+				fmt.Fprintf(&b, "- flow_findings: %d\n", len(ta.FlowFindings))
+			}
+		}
+	}
+	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 && !runtimeSourceOptional {
+		pending := 0
+		if ctx.Mutable != nil {
+			verdicted := make(map[string]bool)
+			for _, v := range ctx.Mutable.EmittedHypothesisVerdicts() {
+				verdicted[v.HypothesisID] = true
+			}
+			for _, h := range ctx.AnalysisIR.HypothesisSet {
+				if !verdicted[h.ID] {
+					pending++
+				}
+			}
+		}
+		fmt.Fprintf(&b, "- hypothesis_verdicts_pending: %d\n", pending)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractorObservationOnlyRuntimeArtifact(ctx *types.AgentContext) bool {

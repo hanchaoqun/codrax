@@ -598,3 +598,287 @@ Tasks:
 - [x] Add focused tests for aggregate/root-rank occurrence preservation,
   summary rendering, typed observations, final supplement, and prompt/schema
   teaching.
+
+### Batch 13: Real large-trace eval guard residuals
+
+Audit input:
+
+- Real trace: `/Users/han/opt/customlogs/xxx_all.systrace`
+- Parallel eval batch:
+  - `trace_query_donghu_real_frame_multicausal`
+  - `trace_query_donghu_real_short_runnable`
+- Captured outputs:
+  - `.codrax/tmp/eval_results/trace_query_donghu_real_frame_multicausal-20260614-022651`
+  - `.codrax/tmp/eval_results/trace_query_donghu_real_short_runnable-20260614-022652`
+
+Observed residual gaps:
+
+- The eval harness only supported inline `LOG` / `HTRACE` attachments. A
+  customer-scale systrace cannot be passed through `--htrace-text` safely
+  because shell argument size becomes a hidden failure mode. The same gap also
+  affected older oversized log cases that declared `LOG_FILE`.
+- The trace-only answer recovered the important runtime facts, but the final
+  answer could still render an optional `decision` block containing
+  `still_present` / `not_enough_evidence` and current-code persistence wording.
+  This happened even though the typed source lane was source-optional and no
+  current-source observation was available. A second audit showed the output
+  cleanup was necessary but insufficient: the upstream `AnswerSurfacePlan` /
+  semantic-view builders could still mark `CurrentStatusDiagnosticRequired`
+  true because they did not see attached trace or later `trace_query` runtime
+  observations when `RequestModel.PerfTrace` was absent.
+- The trace_query JSON and summary already carried the repeated on-chain
+  occurrence windows for the Donghu frame. The visible answer layer did not
+  reliably keep those concrete windows in front of the model/user because the
+  deterministic trace_query supplement capped rows after ordinary root-cause
+  rows.
+- The first low-leading eval expectations used a phrase in
+  `EXPECT_NOT_CONTAINS`; the shell runner splits that field by whitespace, so
+  a normal word such as `not` became a banned token and created false failures.
+- Direct path-in-question support had not been evaluated. `trace_query` already
+  supports `source=path` with repo/workspace-relative or absolute paths, and the
+  analyzer/explorer have explicit runtime trace path guidance, but coverage only
+  exercised `--htrace` attachment input. Runtime log paths mentioned in the
+  question are weaker: they can be read as files, but they do not yet have a
+  trace_query-equivalent structured runtime-artifact route.
+- The real-frame rerun exposed a cross-stage handoff leak: source-optional
+  runtime trace analysis no longer required hypothesis verdicts, but the
+  extractor stage still had no deterministic `StageReport`, so BaseAgent could
+  auto-capture the extractor model's free-form "inconclusive / no repo code
+  evidence" explanation and pass it to the finalizer. That polluted otherwise
+  correct trace-only answers with repo-status noise.
+- The 2026-06-14 short-window rerun no longer emitted current-status verdicts,
+  but manual audit showed the final answer could still lead with perf-triage
+  pre-scan seeds (`perf_jank` / `perf_stall` / `perf_observation`) even after
+  bounded `trace_query` rows had identified the requested CookieMonsterCl ->
+  com.baidu.tieba wakeup path. ObservationLedger already demoted perf pre-triage
+  rows when `trace_query` existed, but the separate `ExternalObservationSeeds`
+  support-lane projection did not consume that demotion.
+
+Design:
+
+- Add file-path attachment support to the eval runner:
+  `LOG_FILE` maps to `--log`, `HTRACE_FILE` maps to `--htrace`, with mutual
+  exclusion against inline attachment variables and between log/trace lanes.
+- Reuse the existing typed predicate
+  `HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)`
+  at the surface-plan layer and final-answer cleanup layer. If runtime trace
+  observations are answer-grade, current-source is not required, and the
+  accepted ledger has no current-source observation, close the current-status
+  diagnostic obligation before semantic-view compilation and remove optional
+  decision blocks when other visible payload exists. This is typed output
+  hygiene; it does not parse model prose and does not affect active
+  current-status contracts backed by current-source evidence.
+- Treat `trace_query` typed observation rows as answer-surface revision inputs.
+  Appending such rows bumps the mutable answer-surface revision so cached Bus
+  plans/views cannot remain stuck in the pre-trace state.
+- Keep current-source backed decisions intact: a non-runtime current-source
+  citation carrier or a current-source ledger observation blocks the cleanup.
+- Prioritize trace_query observation-supplement rows that carry
+  `occurrence_windows=`. This preserves repeated fragmented dependency chains
+  such as the three ThreadPoolForeg D/IO windows even when ordinary primary
+  rows are numerous.
+- Keep eval negative checks exact-token only (`still_present`,
+  `not_enough_evidence`) to avoid false failures from normal prose words.
+- Add path-in-question evals:
+  - Absolute trace path: `/Users/han/opt/customlogs/xxx_all.systrace`
+  - Relative trace path: `../customlogs/xxx_all.systrace`
+  - Relative log path: `eval/fixtures/runtime_path_panic.log`
+  These cases must not attach artifacts through eval runner variables; they
+  validate whether the model can discover and consume paths from the user
+  question using the normal tool schema and hints.
+- Add a deterministic extractor `StageReport`, mirroring the explorer P1.2
+  design. For source-optional runtime artifact turns, the report carries only
+  typed lane counts/result-kind metadata and explicitly does not serialize
+  model-authored hypothesis verdict prose. This preserves structured runtime
+  facts while preventing optional analyzer hypotheses from becoming final-answer
+  obligations.
+- Split two runtime trace signals at the surface-plan layer:
+  runtime-trace-artifact presence can close source-optional current-status
+  obligations, while `producer=trace_query` hard observations alone trigger
+  removal of perf pre-triage `ExternalObservationSeeds` from the principal
+  support lane. The perf pre-triage rows remain available in ObservationLedger
+  as low-priority advisory records; they just stop competing with bounded
+  trace_query rows for the final answer's primary cause order.
+
+Tasks:
+
+- [x] Add `LOG_FILE` / `HTRACE_FILE` support and validation to `eval/run.sh`.
+- [x] Add low-leading real-trace evals for the full multi-cause frame and the
+  short runnable-only window.
+- [x] Replace broad negative phrases in those evals with exact status tokens.
+- [x] Add source-optional runtime trace decision-block normalization using
+  typed source-lane and observation-ledger predicates.
+- [x] Add unit tests that drop source-status decisions for trace-only answers
+  while preserving decision-only payloads and current-source-cited decisions.
+- [x] Prioritize `occurrence_windows` trace_query supplement rows and add a
+  finalizer test where the aggregate would otherwise be clipped by eight
+  ordinary root rows.
+- [x] Apply attached-trace / trace_query source-optional current-status
+  suppression before semantic-view compilation, guarded by current-source
+  ledger observations.
+- [x] Bump answer-surface revision when trace_query publishes hard runtime
+  observations, preventing stale BusContext plan caches.
+- [x] Add surface-plan tests for trace_query-driven current-status suppression,
+  cache invalidation after trace_query, and current-source evidence preserving
+  current-status diagnostics.
+- [x] Add path-in-question eval cases for absolute trace path, relative trace
+  path, and relative log path.
+- [x] Add deterministic extractor `StageReport` for source-optional runtime
+  artifact turns and a regression test that model-authored hypothesis verdict
+  prose does not leak into cross-stage handoff.
+- [x] Filter perf pre-triage external-observation seeds from the support lane
+  when answer-grade `trace_query` observations exist, while preserving them for
+  perf-only artifact questions.
+- [x] Add tests for both sides of that filter: trace_query suppresses perf
+  pre-triage seeds, perf-only keeps them.
+- [x] Add path-in-question eval cases for absolute log path, multiple log
+  paths, and multiple trace paths using lightweight fixtures.
+- [x] Re-run the two real-trace eval cases with parallelism 2 after the code
+  changes, then record pass/fail and any remaining gaps before expanding the
+  eval set further.
+- [x] Run the path-in-question eval cases in batches of 2 and record whether
+  trace path and log path support are stable or still need a dedicated runtime
+  artifact routing design.
+
+## 2026-06-14 Explicit Runtime Path Audit
+
+Scope:
+
+- Users may provide runtime artifacts without `--log` / `--htrace` attachment by
+  writing one or more paths directly in the question.
+- Covered path families: absolute and relative `.log`, `.systrace`, `.htrace`,
+  `.atrace`, `.trace`, `.perfetto`, plus synthetic eval fixtures for multiple
+  runtime files.
+- Hard gates must use typed/path-shape signals only: analyzer structured fields,
+  tool-call parameter strings, and exact current-request path substrings. No
+  final-answer prose parsing and no keyword intent matching.
+
+Audit results before the Batch 14 fix:
+
+- Explicit trace paths were already usable through `trace_query source=path`.
+  Absolute, relative, and multi-trace eval cases reached `trace_query` and did
+  not need attachment variables.
+- Explicit log paths were answerable through `read_file`, but local `.log`
+  evidence could be misprojected as `current_source` in the authority/ledger
+  path. That allowed current-status wording such as `still_present` /
+  `not_enough_evidence` in one earlier absolute-path run.
+- The analyzer prompt taught direct classification for trace paths, but not log
+  paths. One absolute-path eval run used `repo_map` / `list_files` on the log's
+  parent directory before `emit_analysis`, despite the user saying not to
+  analyze code.
+- `emit_hypothesis_verdict` prompt/hint said `runtime_artifact:1-5` was valid
+  for observation-only runtime artifacts, but the validator only recognized that
+  form when a `LogBundle`/`PerfBundle` or attachment field existed. Explicit
+  path-only log runs therefore saw a misleading rejection even though the final
+  answer recovered.
+- `emit_analysis.required_files` still had avoidable JSON-shape friction:
+  `required_files:["path.log"]` was a common model shorthand but previously
+  forced a strict-decode retry instead of being repaired into object entries.
+
+Design:
+
+- Promote explicit runtime artifact paths to a typed request signal via
+  `RequestModel.HasRuntimeArtifactPathReference()` and
+  `RuntimeArtifactPathReferenceKind()`. Strong structured carriers
+  (`required_files`) win over softer entity/mentioned-entity carriers when
+  choosing log vs trace.
+- Project local runtime artifact path evidence as pure artifact support:
+  `ClaimOriginLog` for log paths, `ClaimOriginPerf` for trace paths, then
+  ObservationLedger emits `origin=runtime_artifact` with
+  `source_ref.kind=runtime_artifact`.
+- Let AnswerSurfacePlan suppress current-status/current-source obligations for
+  explicit runtime path artifacts when current-source is not required and the
+  ledger has no current-source observation. Use external-log disposition for
+  log paths and external-trace disposition for trace paths.
+- Add an analyzer first-turn runtime artifact path shortcut and schema filter:
+  when the current request carries concrete path-like runtime artifact tokens,
+  StageAnalyze exposes only `emit_analysis`. This prevents repo pre-scan from
+  being the normal path for `.log` / `.systrace` questions while preserving
+  mixed runtime-artifact + current-source semantics in the emitted model.
+- Keep a matching analyzer hard gate and retry hint for providers that still
+  attempt unavailable tools: any StageAnalyze `repo_map` / `grep` / `list_files`
+  or other non-`emit_analysis` tool call under the explicit runtime path signal
+  fails with a precise `runtime-artifact-path-first` repair hint.
+- Limit the hard signal to path-like artifact names (`foo.log`,
+  `dir/foo.systrace`, absolute paths, and attachment basenames), not bare
+  extension discussions such as `.log` implementation questions.
+- Align prompt and validator: analysis-skill now names `.log` as an explicit
+  runtime artifact path, and `emit_hypothesis_verdict` accepts artifact-local
+  `log:N` / `trace:N-M` / `runtime_artifact:N-M` citations when the request
+  model carries an explicit runtime path and current-source is optional.
+- Extend the `emit_analysis` JSON repair layer so string entries in
+  `required_files` are upgraded to `{path, confidence, rationale}` before
+  strict decode; semantic validation still decides whether the path is usable.
+
+Tasks:
+
+- [x] Add explicit runtime path request-kind projection and tests.
+- [x] Add authority projection for `.log` / trace local artifact evidence.
+- [x] Add ObservationLedger runtime-artifact source refs for log/perf evidence
+  items.
+- [x] Add AnswerSurfacePlan log-path current-status suppression test.
+- [x] Add `required_files` string-entry JSON repair and test.
+- [x] Update analysis-skill and analyzer shortcut prompt text from trace-only
+  to log/trace runtime artifact paths.
+- [x] Add analyzer hard gate for exact current-request runtime artifact path
+  pre-scan attempts and test parent-directory coverage.
+- [x] Add analyzer first-turn schema filtering and retry-hint alignment so
+  explicit runtime artifact path classification is `emit_analysis`-only before
+  the model can call repo pre-scan tools.
+- [x] Add tests that bare `.log` extension discussions do not trigger the
+  runtime artifact path gate.
+- [x] Tighten runtime trace explorer guidance so answer-grade `trace_query`
+  observations complete through `emit_investigation_complete` instead of being
+  repackaged through `emit_evidence`.
+- [x] Extend `emit_hypothesis_verdict` artifact-local citation normalization to
+  explicit path-only runtime artifacts and add a regression test.
+- [x] Run package tests:
+  `go test ./internal/agent ./internal/types ./internal/authority ./internal/tool ./internal/skill -count=1`.
+- [x] Rebuild eval snapshot and rerun path-in-question evals in batches of two:
+  single log absolute/relative, multi log + multi trace, and trace
+  absolute/relative if time permits.
+- [x] Record post-fix eval pass/fail and manual audit notes here.
+
+Post-fix eval results:
+
+- Package tests passed:
+  `go test ./internal/agent ./internal/types ./internal/authority ./internal/tool ./internal/skill -count=1`.
+- Single explicit log path, no attachments:
+  - `log_path_question_absolute_panic-20260614-040321`: 3/3 PASS;
+    `tool_read_file=1`, `tool_repo_map=0`, `tool_list_files=0`,
+    `tool_trace_query=0`, `answer_contract_violations=0`.
+  - `log_path_question_relative_panic-20260614-040321`: 3/3 PASS;
+    `tool_read_file=1`, `tool_repo_map=0`, `tool_list_files=0`,
+    `tool_trace_query=0`, `answer_contract_violations=0`.
+- Multiple explicit runtime paths:
+  - `log_path_question_multi_runtime_files-20260614-040711`: 3/3 PASS;
+    `tool_read_file=4`, `tool_repo_map=0`, `tool_list_files=0`,
+    `tool_trace_query=0`. One run needed answer-contract repair but final
+    output passed.
+  - `trace_query_path_question_multi_trace_files-20260614-040712`: 3/3 PASS;
+    median `tool_trace_query=4`, `tool_repo_map=0`, `tool_list_files=0`.
+    Some runs used `read_file` for artifact-local follow-up, not repo search.
+- Real Donghu trace path from the question:
+  - `trace_query_path_question_absolute_donghu_short-20260614-041423`:
+    3/3 PASS; median `tool_trace_query=4`, `tool_repo_map=0`,
+    `tool_list_files=0`, `answer_contract_violations=0`.
+  - `trace_query_path_question_relative_donghu_short-20260614-041423`:
+    3/3 PASS; median `tool_trace_query=3`, `tool_repo_map=0`,
+    `tool_list_files=0`.
+- Existing real-trace regression cases after the path gate:
+  - `trace_query_donghu_real_short_runnable-20260614-042145`: 3/3 PASS;
+    median `tool_trace_query=6`, `tool_repo_map=0`, `tool_list_files=0`,
+    `answer_contract_violations=0`.
+  - `trace_query_donghu_real_frame_multicausal-20260614-042145`: 3/3 PASS;
+    median `tool_trace_query=18`, `tool_repo_map=0`, `tool_list_files=0`.
+    Two runs needed answer-contract repair and one/two tool-history prunes, but
+    final answers passed and no source-code search was attempted.
+- After tightening the explorer runtime trace guidance, reran smoke cases:
+  - `log_path_question_absolute_panic-20260614-043818`: 3/3 PASS;
+    `tool_read_file=1`, `tool_repo_map=0`, `tool_list_files=0`,
+    `answer_contract_violations=0`.
+  - `trace_query_path_question_multi_trace_files-20260614-043818`: 3/3 PASS;
+    median `tool_trace_query=4`, `tool_read_file=0`, `tool_repo_map=0`,
+    `tool_list_files=0`, `answer_contract_violations=0`. The earlier
+    trace-query-to-emit-evidence repackaging noise was not reproduced in this
+    smoke run.

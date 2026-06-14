@@ -1,0 +1,7 @@
+panic: runtime error: invalid memory address or nil pointer dereference
+
+goroutine 42 [running]:
+github.com/acme/demo/internal/cache.(*Store).Get(0x0, {0x104f2, 0x6})
+	/Users/build/demo/internal/cache/store.go:88 +0x31
+github.com/acme/demo/internal/server.(*Handler).ServeHTTP(0x140001, 0x140002)
+	/Users/build/demo/internal/server/handler.go:52 +0x95

@@ -234,7 +234,7 @@ type Projection struct {
 //     LogBundle frame (or PerfBundle frame). Run drift detection:
 //
 //     - DriftStatusNone with a current-code match → cross_source +
-//       factual.
+//     factual.
 //     - LineDrift / TailRename → cross_source + conditional.
 //     - FileMoved / Unmappable → cross_source + historical.
 //
@@ -255,6 +255,14 @@ type Projection struct {
 func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) Projection {
 	if bus == nil {
 		return Projection{}
+	}
+
+	// (1.5) Explicit runtime artifact paths named in the request are
+	// artifact observations, even when they are local files. They must
+	// not be projected as current_repo just because read_file returned
+	// line-shaped evidence from a .log/.systrace path.
+	if proj, matched := computeFromRuntimeArtifactPath(item, bus); matched {
+		return proj
 	}
 
 	// (2) Schema-level scopes: factual current_repo by construction.
@@ -322,6 +330,33 @@ func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) Projecti
 		Origin:    types.ClaimOriginCurrentRepo,
 		Authority: types.AuthorityFactual,
 	}
+}
+
+func computeFromRuntimeArtifactPath(item types.EvidenceItem, bus *types.BusContext) (Projection, bool) {
+	if bus == nil || bus.AnalysisIR == nil {
+		return Projection{}, false
+	}
+	kind := types.RuntimeArtifactPathKind(item.Source)
+	if kind == "" {
+		return Projection{}, false
+	}
+	rm := bus.AnalysisIR.RequestModel
+	if !rm.HasRuntimeArtifactPathReference() &&
+		!rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		return Projection{}, false
+	}
+	if rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return Projection{}, false
+	}
+	origin := types.ClaimOriginPerf
+	if kind == "log" {
+		origin = types.ClaimOriginLog
+	}
+	return Projection{
+		Origin:    origin,
+		Authority: types.AuthorityHistorical,
+		Reason:    "runtime artifact path observation; not current repo source",
+	}, true
 }
 
 func hasAttachedArtifact(bus *types.BusContext) bool {

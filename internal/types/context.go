@@ -1969,7 +1969,11 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
-	m.traceQueryRuntimeObservationCount += traceQueryRuntimeObservationToolResultCount(r)
+	traceRuntimeObservations := traceQueryRuntimeObservationToolResultCount(r)
+	m.traceQueryRuntimeObservationCount += traceRuntimeObservations
+	if traceRuntimeObservations > 0 {
+		m.bumpAnswerSurfaceRevisionLocked()
+	}
 }
 
 // TraceQueryRuntimeObservationCount returns how many hard-grounded runtime

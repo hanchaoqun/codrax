@@ -1940,6 +1940,17 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 	)
 	if plan != nil {
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
+		ledger := CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 64))
+		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+		if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
+			attachedTrace = true
+		}
+		applyRuntimeTraceSourceOptionalSurfacePlan(
+			plan,
+			ctx.AnalysisIR,
+			attachedTrace,
+			ledger,
+		)
 	}
 	ctx.storeAnswerSurfacePlan(plan)
 	return cloneAnswerSurfacePlan(plan)
@@ -1970,9 +1981,146 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 	)
 	if plan != nil {
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
+		ledger := CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, 64))
+		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+		if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
+			attachedTrace = true
+		}
+		applyRuntimeTraceSourceOptionalSurfacePlan(
+			plan,
+			ctx.AnalysisIR,
+			attachedTrace,
+			ledger,
+		)
 	}
 	ctx.storeAnswerSurfacePlan(plan)
 	return cloneAnswerSurfacePlan(plan)
+}
+
+func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *AnalysisIR, attachedTrace bool, ledger ObservationLedger) {
+	if plan == nil || ir == nil {
+		return
+	}
+	if observationLedgerHasRuntimeTraceArtifact(ledger) {
+		attachedTrace = true
+	}
+	if observationLedgerHasTraceQueryRuntimeObservation(ledger) {
+		plan.ExternalObservationSeeds = filterPreTriagePerfExternalObservationSeeds(plan.ExternalObservationSeeds)
+	}
+	if !ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) {
+		return
+	}
+	if observationLedgerHasCurrentSourceRecord(ledger) {
+		return
+	}
+	plan.CurrentStatusDiagnosticRequired = false
+	plan.CurrentSourceEvidenceOrigin = false
+	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedTrace, ledger)
+	}
+}
+
+func sourceOptionalRuntimeArtifactDisposition(rm RequestModel, attachedTrace bool, ledger ObservationLedger) *RuntimeGroundingDisposition {
+	reason := EvidenceFloorWaiverExternalTrace
+	rationale := "runtime trace observations were available without a required current-source lane"
+	if requestModelRuntimeArtifactPathKind(rm) == "log" || observationLedgerHasRuntimeLogArtifact(ledger) {
+		reason = EvidenceFloorWaiverExternalLog
+		rationale = "runtime log observations were available without a required current-source lane"
+	} else if !attachedTrace && !observationLedgerHasRuntimeTraceArtifact(ledger) && rm.HasRuntimeArtifactPathReference() {
+		rationale = "runtime artifact observations were available without a required current-source lane"
+	}
+	return &RuntimeGroundingDisposition{
+		Source:         RuntimeGroundingSystemDetected,
+		Reason:         reason,
+		Rationale:      rationale,
+		CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+	}
+}
+
+func requestModelRuntimeArtifactPathKind(rm RequestModel) string {
+	return rm.RuntimeArtifactPathReferenceKind()
+}
+
+func filterPreTriagePerfExternalObservationSeeds(seeds []ExternalObservationSeed) []ExternalObservationSeed {
+	if len(seeds) == 0 {
+		return seeds
+	}
+	out := make([]ExternalObservationSeed, 0, len(seeds))
+	for _, seed := range seeds {
+		if externalObservationSeedKindIsPerfPreTriage(seed.Kind) {
+			continue
+		}
+		out = append(out, seed)
+	}
+	if len(out) == len(seeds) {
+		return seeds
+	}
+	return append([]ExternalObservationSeed(nil), out...)
+}
+
+func externalObservationSeedKindIsPerfPreTriage(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "perf_jank", "perf_stall", "perf_frame", "perf_observation", "perf_startup":
+		return true
+	default:
+		return false
+	}
+}
+
+func observationLedgerHasRuntimeTraceArtifact(ledger ObservationLedger) bool {
+	for _, record := range ledger.Records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact {
+			continue
+		}
+		if record.SourceRef.Kind != ObservationSourceRuntimeArtifact {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(record.Producer), "trace_query") ||
+			strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactKind), "trace") {
+			return true
+		}
+	}
+	return false
+}
+
+func observationLedgerHasRuntimeLogArtifact(ledger ObservationLedger) bool {
+	for _, record := range ledger.Records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact {
+			continue
+		}
+		if record.SourceRef.Kind != ObservationSourceRuntimeArtifact {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactKind), "log") {
+			return true
+		}
+	}
+	return false
+}
+
+func observationLedgerHasTraceQueryRuntimeObservation(ledger ObservationLedger) bool {
+	for _, record := range ledger.Records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact {
+			continue
+		}
+		if record.SourceRef.Kind != ObservationSourceRuntimeArtifact {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(record.Producer), "trace_query") {
+			return true
+		}
+	}
+	return false
+}
+
+func observationLedgerHasCurrentSourceRecord(ledger ObservationLedger) bool {
+	for _, record := range ledger.Records {
+		if record.Origin == AnswerEvidenceOriginCurrentSource ||
+			record.SourceRef.Kind == ObservationSourceCurrentSource {
+			return true
+		}
+	}
+	return false
 }
 
 // subRepoNameSource is the narrow contract that internal/types relies

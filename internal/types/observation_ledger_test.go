@@ -709,6 +709,33 @@ func TestCompileObservationLedger_MixedDiffAndCurrentSourceStaySeparate(t *testi
 	}
 }
 
+func TestCompileObservationLedger_RuntimeArtifactEvidenceItemStaysRuntime(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		EvidenceItems: []EvidenceItem{{
+			ID:              "panic-log",
+			Origin:          ClaimOriginLog,
+			Source:          "eval/fixtures/runtime_path_panic.log",
+			LineStart:       7,
+			LineEnd:         9,
+			Summary:         "panic stack frame from explicit log path",
+			Salience:        SalienceLoadBearing,
+			GroundingStatus: GroundingGrounded,
+		}},
+	})
+	got := findObservationRecord(t, ledger, "evidence:panic-log")
+	if got.Origin != AnswerEvidenceOriginRuntimeArtifact {
+		t.Fatalf("log evidence origin = %s, want runtime_artifact: %+v", got.Origin, got)
+	}
+	if got.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+		got.SourceRef.ArtifactKind != "log" ||
+		got.SourceRef.Path != "eval/fixtures/runtime_path_panic.log" {
+		t.Fatalf("log evidence source ref drifted: %+v", got.SourceRef)
+	}
+	if got.GroundingPolicy != ClaimGroundingRepairable {
+		t.Fatalf("runtime artifact evidence should not become current-source hard line gate: %+v", got)
+	}
+}
+
 func TestCompileObservationLedger_CurrentSourceHardRequiresExactLineSpan(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		EvidenceItems: []EvidenceItem{{

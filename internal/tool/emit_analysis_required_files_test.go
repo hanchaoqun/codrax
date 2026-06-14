@@ -63,6 +63,75 @@ func TestValidateAndBuildRequiredFileHints_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisExecute_RepairsRequiredFilesStringEntries(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("只分析 eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码")
+	payload := `{
+		"intent": "root_cause",
+		"scenario": "root_cause",
+		"complexity": "moderate",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.9,
+		"keywords": ["panic", "log", "runtime"],
+		"entities": ["runtime_path_panic.log"],
+		"question_kind": "diagnostic",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.9
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": 0.7
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": false,
+			"confidence": 0.7
+		},
+		"required_files": ["eval/fixtures/runtime_path_panic.log"],
+		"external_observation_policy": {
+			"artifact_citation_mode": "external_only",
+			"current_source_mode": "default",
+			"confidence": 0.9
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("string-shaped required_files should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	got := rm.AnalyzerHints.RequiredFileHints
+	if len(got) != 1 || got[0].Path != "eval/fixtures/runtime_path_panic.log" {
+		t.Fatalf("required_files = %+v, want repaired log path", got)
+	}
+	if !strings.Contains(res.Summary, "required_files: repaired 1 string entries to object shape") {
+		t.Fatalf("summary should disclose required_files repair, got %q", res.Summary)
+	}
+}
+
 func TestValidateAndBuildRequiredFileHints_WindowsBackslashCanonicalised(t *testing.T) {
 	in := []emitRequiredFileParam{
 		{Path: `internal\foo.go`, Confidence: 0.9},

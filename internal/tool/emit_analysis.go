@@ -953,6 +953,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		params = repaired
 		compatWarnings = append(compatWarnings, warnings...)
 	}
+	if repaired, warnings, ok := repairEmitAnalysisRequiredFileStringEntries(params); ok {
+		params = repaired
+		compatWarnings = append(compatWarnings, warnings...)
+	}
 
 	var p emitAnalysisParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, nil); err != nil {
@@ -4112,6 +4116,89 @@ func repairEmitAnalysisIrrelevantFilePathObjects(raw json.RawMessage) (json.RawM
 	}
 	if dropped > 0 {
 		warnings = append(warnings, fmt.Sprintf("irrelevant_files: dropped %d malformed optional entries before decode", dropped))
+	}
+	return json.RawMessage(patched), warnings, true
+}
+
+// repairEmitAnalysisRequiredFileStringEntries accepts the common shorthand
+// required_files:["path"] and upgrades it to the documented object shape. The
+// semantic validator still decides whether the path is usable; this repair only
+// removes avoidable JSON-shape retries from the analyzer loop.
+func repairEmitAnalysisRequiredFileStringEntries(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
+		return raw, nil, false
+	}
+	listRaw, ok := obj["required_files"]
+	if !ok {
+		return raw, nil, false
+	}
+	trimmedList := strings.TrimSpace(string(listRaw))
+	if trimmedList == "" || trimmedList == "null" {
+		return raw, nil, false
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(listRaw, &entries); err != nil || len(entries) == 0 {
+		return raw, nil, false
+	}
+	out := make([]json.RawMessage, 0, len(entries))
+	repaired := 0
+	dropped := 0
+	changed := false
+	for _, entry := range entries {
+		trimmed := strings.TrimSpace(string(entry))
+		if trimmed == "" || trimmed == "null" {
+			dropped++
+			changed = true
+			continue
+		}
+		switch trimmed[0] {
+		case '{':
+			out = append(out, entry)
+		case '"':
+			var path string
+			if err := json.Unmarshal(entry, &path); err != nil || strings.TrimSpace(path) == "" {
+				dropped++
+				changed = true
+				continue
+			}
+			objEntry := emitRequiredFileParam{
+				Path:       strings.TrimSpace(path),
+				Confidence: 0.8,
+				Rationale:  "compat repaired from string path",
+			}
+			encoded, err := json.Marshal(objEntry)
+			if err != nil {
+				dropped++
+				changed = true
+				continue
+			}
+			out = append(out, encoded)
+			repaired++
+			changed = true
+		default:
+			dropped++
+			changed = true
+		}
+	}
+	if !changed {
+		return raw, nil, false
+	}
+	encodedList, err := json.Marshal(out)
+	if err != nil {
+		return raw, nil, false
+	}
+	obj["required_files"] = encodedList
+	patched, err := json.Marshal(obj)
+	if err != nil || !json.Valid(patched) {
+		return raw, nil, false
+	}
+	warnings := make([]string, 0, 2)
+	if repaired > 0 {
+		warnings = append(warnings, fmt.Sprintf("required_files: repaired %d string entries to object shape", repaired))
+	}
+	if dropped > 0 {
+		warnings = append(warnings, fmt.Sprintf("required_files: dropped %d malformed optional entries before decode", dropped))
 	}
 	return json.RawMessage(patched), warnings, true
 }

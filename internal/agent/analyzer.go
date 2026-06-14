@@ -139,8 +139,11 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeSourceOptionalShortcut()))
 	}
+	if explicitRuntimeArtifactPathInObjective(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
+	}
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeTracePathShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
 	}
 	if externalObservationFirstTurnHintForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExternalObservationFirstShortcut(ctx.TurnRouteHint)))
@@ -173,12 +176,13 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, ""))
 }
 
-func renderAnalyzerExplicitRuntimeTracePathShortcut() string {
-	return "## Explicit Runtime Trace Classification Shortcut\n\n" +
-		"The current request names a runtime trace artifact path (for example .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace) and explicitly excludes current checkout/source analysis through the typed external_observation_policy. " +
-		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the trace path, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
-		"Classify from the user's wording and call `emit_analysis` now; later exploration can use `trace_query` for deterministic trace evidence. " +
-		"Without that typed exclusion, the default is mixed runtime-artifact plus current-source analysis. Do not collapse mixed trace + current-code requests into artifact-only.\n\n"
+func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
+	return "## Explicit Runtime Artifact Path Classification Shortcut\n\n" +
+		"The current request explicitly names one or more runtime artifact paths (for example a concrete .log / .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace file). " +
+		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the artifact path, stack-frame literal, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
+		"Classify from the user's wording and call `emit_analysis` now; later exploration can read the log artifact or use `trace_query` for deterministic trace evidence. " +
+		"If the current request also asks to compare with, verify against, or explain current source, keep the mixed runtime-artifact plus current-source lane in the emitted model; do not collapse mixed artifact + current-code requests into artifact-only. " +
+		"If the current request explicitly forbids current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude and copy the exact user phrase into source_quotes.\n\n"
 }
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {
@@ -1027,7 +1031,7 @@ func (e *analyzerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	if ctx == nil || ctx.Stage != types.StageAnalyze || len(schemas) == 0 {
 		return schemas
 	}
-	emitOnly := analyzerTerminalEmitOnly(ctx)
+	emitOnly := analyzerEmitOnly(ctx)
 	out := make([]llm.ToolSchema, 0, len(schemas))
 	for _, schema := range schemas {
 		name := strings.TrimSpace(schema.Name)
@@ -1062,7 +1066,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		// swallow the second continuation — the LLM tends to produce
 		// multiple content-only turns before finally issuing tool calls.
 		hint := "You wrote text but did not call any tool. Do NOT write more analysis — call emit_analysis NOW with the fields you have. If you need to verify entities first, call grep(files_only=true) in the SAME response as your reasoning, not in a separate turn."
-		if analyzerTerminalEmitOnly(ctx) {
+		if analyzerEmitOnly(ctx) {
 			hint = analyzerTerminalEmitOnlyHint()
 			e.terminalEmitOnlyInstructionIssued = true
 		}
@@ -1093,6 +1097,13 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	}
 	if obs.LastToolResult.Repair != nil {
 		switch obs.LastToolResult.Repair.Code {
+		case analyzerExplicitRuntimeArtifactPathEmitOnlyCode:
+			e.terminalEmitOnlyInstructionIssued = true
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.runtime-artifact-path.emit-only",
+				Hint:          analyzerExplicitRuntimeArtifactPathEmitOnlyHint(),
+			}
 		case analyzerPrescanBudgetReachedCode, analyzerPrescanTerminalEmitModeCode:
 			if analyzerToolResultsContainEmitAnalysis(obs.CurrentToolResults) {
 				// The model attempted the required terminal emit in
@@ -1127,7 +1138,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 			}
 		case analyzerToolNotAllowedCode:
 			hint := analyzerToolNotAllowedGuidance()
-			if analyzerTerminalEmitOnly(ctx) {
+			if analyzerEmitOnly(ctx) {
 				hint = analyzerTerminalEmitOnlyHint()
 				e.terminalEmitOnlyInstructionIssued = true
 			}
@@ -1241,6 +1252,10 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 
 func analyzerTerminalEmitOnlyHint() string {
 	return "Classification is now in terminal emit-only mode. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; unresolved targets belong in structured fields for later evidence gathering to verify."
+}
+
+func analyzerExplicitRuntimeArtifactPathEmitOnlyHint() string {
+	return "The current request explicitly names a runtime artifact path, so classification is runtime-artifact-path-first. Do not call repo_map, grep, list_files, read_file, or any other tool in the analyze stage. The next response must call emit_analysis exactly once; preserve the artifact path in exact_targets or required_files, set external_observation_policy only from explicit user wording, and let later exploration read the log artifact or use trace_query."
 }
 
 func analyzerToolResultsContainSuccessfulEmitAnalysis(results []types.ToolResult) bool {

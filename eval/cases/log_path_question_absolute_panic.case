@@ -1,0 +1,13 @@
+# Log triage — explicit absolute log path in question
+#
+# Coverage target: absolute runtime log paths mentioned in the question should
+# be consumable without --log attachment and should stay artifact-only when the
+# user excludes code analysis.
+ID="log_path_question_absolute_panic"
+NAME="log triage — absolute log path mentioned in question"
+QUESTION="只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。请说明 panic 类型、关键栈帧和最可能的直接触发点。"
+EXPECT_CONTAINS="panic nil"
+EXPECT_MATCHES_REGEX="runtime error|nil pointer|空指针
+store\\.go:88|\\(\\*Store\\)\\.Get|Store\\.Get
+handler\\.go:52|\\(\\*Handler\\)\\.ServeHTTP|ServeHTTP"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

@@ -453,6 +453,51 @@ func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdictWhenSou
 	}
 }
 
+func TestEmitHypothesisVerdict_NormalizesExplicitPathRuntimeArtifactLineCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	mut := types.NewMutableState("")
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language: "zh",
+				Intent:   types.IntentRootCause,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "eval/fixtures/runtime_path_panic.log",
+						Confidence: 0.8,
+					}},
+				},
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"panic 记录在显式日志路径里","citation":"runtime_artifact:1-5"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("explicit path artifact-local citation should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("artifact-local line must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "附件日志行：1-5") {
+		t.Fatalf("rationale should preserve explicit path artifact-local line, got %q", got[0].Rationale)
+	}
+}
+
 func TestEmitHypothesisVerdict_NormalizesArtifactLocalTraceLineCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	perfBundle := &types.PerfBundle{

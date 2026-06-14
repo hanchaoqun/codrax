@@ -428,9 +428,21 @@ func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testi
 	sk := skill.BuildAnalysisSkill()
 
 	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
-	if strings.Contains(got, "Explicit Runtime Trace Classification Shortcut") ||
-		explicitRuntimeTraceArtifactOnlyRequest(ac) {
-		t.Fatalf("explicit trace path must not suppress source analysis without typed exclusion:\n%s", got)
+	for _, want := range []string{
+		"Explicit Runtime Artifact Path Classification Shortcut",
+		"call `emit_analysis` now",
+		"keep the mixed runtime-artifact plus current-source lane",
+		"do not collapse mixed artifact + current-code requests into artifact-only",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("explicit trace path shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if explicitRuntimeTraceArtifactOnlyRequest(ac) {
+		t.Fatalf("explicit trace path must not become typed artifact-only without emitted policy")
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("explicit runtime artifact path shortcut must skip precomputed repo overview; got:\n%s", got)
 	}
 }
 
@@ -443,11 +455,30 @@ func TestAnalyzerPrompt_ExplicitTracePathWithCurrentSourceCueKeepsSourceLane(t *
 	sk := skill.BuildAnalysisSkill()
 
 	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
-	if strings.Contains(got, "Explicit Runtime Trace Classification Shortcut") {
-		t.Fatalf("mixed trace+source request must not take artifact-only shortcut:\n%s", got)
+	for _, want := range []string{
+		"Explicit Runtime Artifact Path Classification Shortcut",
+		"keep the mixed runtime-artifact plus current-source lane",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mixed trace+source request should keep source-lane guidance %q in:\n%s", want, got)
+		}
 	}
 	if explicitRuntimeTraceArtifactOnlyRequest(ac) {
 		t.Fatalf("mixed trace+source request should not be classified as explicit-runtime-only")
+	}
+}
+
+func TestAnalyzerPrompt_BareRuntimeExtensionDoesNotTriggerArtifactPathShortcut(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "分析当前代码里 .log 路径识别的实现流程",
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	if strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
+		t.Fatalf("bare .log extension discussion must remain an ordinary source question:\n%s", got)
 	}
 }
 
@@ -705,6 +736,8 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
 	for _, want := range []string{
 		"external-source log / trace",
+		"explicit runtime artifact paths",
+		".log",
 		"resolved_files=0",
 		"do NOT run a source-code pre-scan",
 		"External observations default to mixed external + current-source analysis",

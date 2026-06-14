@@ -2203,6 +2203,54 @@ func TestExtractor_ParseOutput_SkipsAutoVerdictsForSourceOptionalRuntimeArtifact
 	}
 }
 
+func TestExtractor_ParseOutput_SourceOptionalRuntimeStageReportDoesNotLeakHypothesisVerdictProse(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:    "state_churn",
+			Subject: "app-20",
+			Summary: "state_churn app-20 dominant_state=runnable",
+		}},
+	}
+	mu := types.NewMutableState("runtime trace")
+	mu.SetPerfTrace(perf)
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{{
+		HypothesisID: "h1",
+		Status:       types.HypInconclusive,
+		Rationale:    "no repo code evidence for this runtime trace hypothesis",
+	}})
+	ctx := &types.AgentContext{
+		Objective: "runtime trace",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioPerformanceBottleneck,
+				PerfTrace: perf,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:     "h1",
+				Status: types.HypUnknown,
+			}},
+		},
+	}
+
+	out, err := (&extractorEvaluator{}).ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out == nil {
+		t.Fatal("ParseOutput returned nil")
+	}
+	if !strings.Contains(out.StageReport, "runtime_artifact_without_required_current_source") {
+		t.Fatalf("stage report should preserve typed runtime source lane:\n%s", out.StageReport)
+	}
+	for _, bad := range []string{"no repo code evidence", "inconclusive", "hypothesis_verdict"} {
+		if strings.Contains(out.StageReport, bad) {
+			t.Fatalf("stage report leaked model-authored hypothesis verdict prose %q:\n%s", bad, out.StageReport)
+		}
+	}
+}
+
 func TestExtractor_ParseOutputHandlesNilMutable(t *testing.T) {
 	// Defensive: sub-agent dispatch passes a context with Mutable nil.
 	// The extractor is not a sub-agent target today, but the symmetry

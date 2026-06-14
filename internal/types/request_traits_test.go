@@ -236,6 +236,53 @@ func TestCurrentSourceLaneDecision_ExternalArtifactCoordinatesDoNotRequireSource
 	}
 }
 
+func TestCurrentSourceLaneDecision_RuntimeArtifactPathReferencesDoNotRequireSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "eval/fixtures/runtime_path_panic.log",
+				Confidence: 0.8,
+				Rationale:  "user named a runtime log path",
+			}},
+			MentionedEntities: []string{"/tmp/app_window.systrace"},
+		},
+	}
+	if !rm.HasRuntimeArtifactPathReference() {
+		t.Fatal("explicit log/trace paths should be recognized as runtime artifact path references")
+	}
+	if !rm.HasExternalObservationArtifactReference() {
+		t.Fatal("runtime artifact paths should also count as external observation references")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("runtime artifact path references should keep source optional, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("runtime artifact path references should satisfy no-required-current-source")
+	}
+	if got := rm.RuntimeArtifactPathReferenceKind(); got != "log" {
+		t.Fatalf("first runtime artifact path kind = %q, want log", got)
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, RequiredFileHint{
+		Path:       "internal/agent/analyzer.go",
+		Confidence: 0.9,
+		Rationale:  "user also asked for current implementation",
+	})
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("separate current-source path should require source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("current-source path must clear runtime-artifact-only completion")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,

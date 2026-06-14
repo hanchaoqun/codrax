@@ -683,6 +683,12 @@ func hypothesisVerdictHasLogTraceArtifacts(ctx *types.BusContext) (hasLog, hasTr
 	if ctx.AnalysisIR != nil {
 		hasLog = hasLog || ctx.AnalysisIR.RequestModel.LogTriage != nil
 		hasTrace = hasTrace || ctx.AnalysisIR.RequestModel.PerfTrace != nil
+		switch ctx.AnalysisIR.RequestModel.RuntimeArtifactPathReferenceKind() {
+		case "log":
+			hasLog = true
+		case "trace":
+			hasTrace = true
+		}
 	}
 	return hasLog, hasTrace
 }

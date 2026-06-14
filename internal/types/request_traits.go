@@ -968,6 +968,66 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 	return false
 }
 
+// HasRuntimeArtifactPathReference reports whether the analyzer preserved an
+// explicit log/trace artifact path in structured request fields. This covers
+// user-provided paths in the question (absolute or relative) where no
+// log_triage/perf_triage bundle exists because the artifact was not attached
+// via --log/--htrace. The signal is deliberately typed: callers inspect only
+// analyzer-emitted path carriers plus the external-artifact citation policy,
+// never final-answer prose.
+func (rm RequestModel) HasRuntimeArtifactPathReference() bool {
+	if rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() {
+		return false
+	}
+	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
+		if LooksLikeRuntimeArtifactPath(raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// RuntimeArtifactPathReferenceKind returns the first explicit runtime artifact
+// path family preserved in structured analyzer fields. Empty means no typed
+// runtime path reference is active. Callers use this for origin-specific
+// handling (log vs trace) without parsing model prose.
+func (rm RequestModel) RuntimeArtifactPathReferenceKind() string {
+	if !rm.HasRuntimeArtifactPathReference() {
+		return ""
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if kind := RuntimeArtifactPathKind(hint.Path); kind != "" {
+			return kind
+		}
+	}
+	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
+		if kind := RuntimeArtifactPathKind(raw); kind != "" {
+			return kind
+		}
+	}
+	return ""
+}
+
+func (rm RequestModel) runtimeArtifactPathReferenceCandidates() []string {
+	var out []string
+	out = append(out, rm.AnalyzerHints.ExactTargets...)
+	out = append(out, rm.AnalyzerHints.MentionedEntities...)
+	out = append(out, rm.AnalyzerHints.PrimaryEntities...)
+	out = append(out, rm.AnalyzerHints.Entities...)
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		out = append(out, hint.Path)
+	}
+	if rm.CurrentSourceExplanationProfile != nil {
+		out = append(out, rm.CurrentSourceExplanationProfile.SourceQuotes...)
+	}
+	if rm.RequestedAnswerDimensions != nil {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			out = append(out, dim.SourceQuote, dim.Label)
+		}
+	}
+	return out
+}
+
 // HasExternalObservationArtifactReference reports whether the analyzer has
 // explicitly classified visible line/row references as external-observation
 // citations. This covers MCP/resources/web/docs where there may be no attached
@@ -989,6 +1049,16 @@ func (rm RequestModel) HasExternalObservationArtifactReference() bool {
 	}
 	for _, entity := range rm.AnalyzerHints.PrimaryEntities {
 		if looksLikeExternalObservationReference(entity) || looksLikeExternalArtifactCoordinate(entity) {
+			return true
+		}
+	}
+	for _, entity := range rm.AnalyzerHints.MentionedEntities {
+		if looksLikeExternalObservationReference(entity) || looksLikeExternalArtifactCoordinate(entity) {
+			return true
+		}
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if looksLikeExternalObservationReference(hint.Path) || looksLikeExternalArtifactCoordinate(hint.Path) {
 			return true
 		}
 	}
@@ -1029,7 +1099,7 @@ func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 // suppressing current-source citation/read/review hard gates while preserving the
 // default policy that source exploration remains allowed when useful.
 func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
-	return rm.HasExternalOnlyRuntimeArtifact() &&
+	return (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference()) &&
 		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 

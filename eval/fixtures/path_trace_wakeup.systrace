@@ -1,0 +1,8 @@
+# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-100   (  100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200   (  100) [002] .... 1.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        net-300   (  100) [003] .... 1.001200: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200   (  100) [002] .... 1.009500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200   (  100) [002] .... 1.010000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200   (  100) [002] .... 1.010020: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=app next_pid=100 next_prio=52

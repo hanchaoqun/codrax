@@ -112,12 +112,12 @@ func IsRuntimeArtifactPathExtension(ext string) bool {
 	return runtimeArtifactPathExtensions[strings.ToLower(ext)]
 }
 
-// LooksLikeRuntimeArtifactPath reports whether s names a log/trace/perfetto
-// runtime artifact. It is path-shape only; it must not be used to infer user
-// intent from prose.
-func LooksLikeRuntimeArtifactPath(s string) bool {
+// RuntimeArtifactPathKind reports the coarse artifact family for a log/trace
+// runtime artifact path. It is path-shape only; it must not be used to infer
+// user intent from prose.
+func RuntimeArtifactPathKind(s string) string {
 	if s == "" {
-		return false
+		return ""
 	}
 	lower := strings.ToLower(strings.TrimSpace(s))
 	base := lower
@@ -125,13 +125,25 @@ func LooksLikeRuntimeArtifactPath(s string) bool {
 		base = base[idx+1:]
 	}
 	switch base {
-	case "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt", "attached_log.txt":
-		return true
+	case "attached_log.txt":
+		return "log"
+	case "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt":
+		return "trace"
+	}
+	if strings.HasSuffix(lower, ".log") {
+		return "log"
 	}
 	for ext := range runtimeArtifactPathExtensions {
 		if strings.HasSuffix(lower, ext) {
-			return true
+			return "trace"
 		}
 	}
-	return false
+	return ""
+}
+
+// LooksLikeRuntimeArtifactPath reports whether s names a log/trace/perfetto
+// runtime artifact. It is path-shape only; it must not be used to infer user
+// intent from prose.
+func LooksLikeRuntimeArtifactPath(s string) bool {
+	return RuntimeArtifactPathKind(s) != ""
 }

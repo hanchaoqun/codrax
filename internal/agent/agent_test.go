@@ -845,6 +845,65 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit runtime artifact path blocks artifact prescan", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:     types.StageAnalyze,
+			Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+		}
+		calls := []llm.ToolCall{
+			{Name: "repo_map", Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures","view":"file_map"}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures"}`)},
+			{Name: "grep", Params: json.RawMessage(`{"pattern":"runtime_path_panic.log","path":"/Users/han/opt/codrax/eval/fixtures","files_only":true}`)},
+		}
+		for _, tc := range calls {
+			got := validateAnalyzerPrescanToolCall(ctx, tc)
+			if got == nil {
+				t.Fatalf("tool=%s should be blocked for explicit runtime artifact path", tc.Name)
+			}
+			if got.Success {
+				t.Fatalf("tool=%s rejection should fail, got %+v", tc.Name, got)
+			}
+			if got.Repair == nil || got.Repair.Code != analyzerExplicitRuntimeArtifactPathEmitOnlyCode {
+				t.Fatalf("tool=%s repair code = %+v, want %q", tc.Name, got.Repair, analyzerExplicitRuntimeArtifactPathEmitOnlyCode)
+			}
+			if !strings.Contains(got.Summary, "emit_analysis") ||
+				!strings.Contains(got.Summary, "runtime-artifact-path-first") {
+				t.Fatalf("tool=%s summary should redirect to emit_analysis, got %q", tc.Name, got.Summary)
+			}
+		}
+	})
+
+	t.Run("explicit runtime artifact path blocks generic prescan params", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:     types.StageAnalyze,
+			Objective: "根据 eval/fixtures/runtime_path_panic.log 总结 panic 类型和关键栈。",
+		}
+		for _, tc := range []llm.ToolCall{
+			{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"panic"}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"."}`)},
+			{Name: "grep", Params: json.RawMessage(`{"pattern":"panic","files_only":true}`)},
+		} {
+			got := validateAnalyzerPrescanToolCall(ctx, tc)
+			if got == nil {
+				t.Fatalf("tool=%s should be blocked even when params omit the artifact path", tc.Name)
+			}
+			if got.Repair == nil || got.Repair.Code != analyzerExplicitRuntimeArtifactPathEmitOnlyCode {
+				t.Fatalf("tool=%s repair code = %+v, want %q", tc.Name, got.Repair, analyzerExplicitRuntimeArtifactPathEmitOnlyCode)
+			}
+		}
+	})
+
+	t.Run("bare runtime extension keeps normal prescan", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:     types.StageAnalyze,
+			Objective: "分析当前代码里 .log 路径识别的实现流程",
+		}
+		tc := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"log path"}`)}
+		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+			t.Fatalf("bare .log extension should not trigger runtime-artifact-path gate, got %+v", got)
+		}
+	})
+
 	t.Run("external runtime first preserves typed current-source requirement", func(t *testing.T) {
 		rm := types.RequestModel{
 			PerfTrace: &types.PerfBundle{
@@ -1377,6 +1436,34 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeKeepsAnalyzerPrescanTools(t *tes
 	}
 	if !got["emit_analysis"] {
 		t.Fatalf("emit_analysis must stay exposed for direct classification: %+v", schemas)
+	}
+}
+
+func TestBuildToolSchemas_ExplicitRuntimeArtifactPathHidesAnalyzerPrescanTools(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(&tool.GrepTool{})
+	registry.Register(&tool.ListFiles{})
+	registry.Register(&tool.EmitAnalysis{})
+
+	agent := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: registry}, &stubEvaluator{})
+	ctx := &types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+	}
+	schemas := agent.buildToolSchemas(&skill.Config{
+		ToolSuggestions: []string{"grep", "list_files", "emit_analysis"},
+	}, ctx)
+	got := map[string]bool{}
+	for _, s := range schemas {
+		got[s.Name] = true
+	}
+	for _, hidden := range []string{"grep", "list_files"} {
+		if got[hidden] {
+			t.Fatalf("explicit runtime artifact path should hide analyzer prescan tool %q; schemas=%+v", hidden, schemas)
+		}
+	}
+	if !got["emit_analysis"] {
+		t.Fatalf("emit_analysis must stay exposed for direct runtime-artifact classification: %+v", schemas)
 	}
 }
 

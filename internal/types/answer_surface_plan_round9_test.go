@@ -105,6 +105,283 @@ func TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus
 	}
 }
 
+func TestBuildAnswerSurfacePlanForBusContext_ExplicitRuntimeLogPathSuppressesCurrentStatus(t *testing.T) {
+	bus := &BusContext{
+		Mutable: NewMutableState("只分析 eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码"),
+		AnalysisIR: &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent:   IntentRootCause,
+				Scenario: ScenarioRootCause,
+				DiagnosticProfile: DiagnosticIntentProfile{
+					IsDiagnostic: true,
+					CurrentRisk:  true,
+					Confidence:   0.9,
+				},
+				ExternalObservationPolicy: &ExternalObservationPolicy{
+					ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				AnalyzerHints: AnalyzerHints{
+					RequiredFileHints: []RequiredFileHint{{
+						Path:       "eval/fixtures/runtime_path_panic.log",
+						Confidence: 0.8,
+					}},
+				},
+			},
+			AnswerContract: AnswerContract{
+				CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+		EvidenceItems: []EvidenceItem{{
+			ID:              "panic-log",
+			Origin:          ClaimOriginLog,
+			Source:          "eval/fixtures/runtime_path_panic.log",
+			LineStart:       1,
+			Summary:         "panic from explicit log path",
+			GroundingStatus: GroundingGrounded,
+		}},
+	}
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlanForBusContext returned nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("explicit runtime log path must not force current-status diagnostic")
+	}
+	if plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("explicit runtime log path must not force current-source evidence origin")
+	}
+	if plan.RuntimeGroundingDisposition == nil ||
+		!plan.RuntimeGroundingDisposition.IsActive() ||
+		plan.RuntimeGroundingDisposition.Reason != EvidenceFloorWaiverExternalLog {
+		t.Fatalf("runtime log path should activate external-log grounding disposition: %+v", plan.RuntimeGroundingDisposition)
+	}
+}
+
+func TestBuildAnswerSurfacePlanForBusContext_TraceQuerySuppressesCurrentStatusAfterRevision(t *testing.T) {
+	mut := NewMutableState("trace_query after first surface plan")
+	bus := &BusContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+	before := BuildAnswerSurfacePlanForBusContext(bus)
+	if before == nil {
+		t.Fatal("initial surface plan is nil")
+	}
+	if !before.CurrentStatusDiagnosticRequired {
+		t.Fatal("initial plan should keep current-status diagnostic before runtime trace observations arrive")
+	}
+
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
+	after := BuildAnswerSurfacePlanForBusContext(bus)
+	if after == nil {
+		t.Fatal("surface plan after trace_query is nil")
+	}
+	if after.CurrentStatusDiagnosticRequired {
+		t.Fatal("trace_query runtime observations without current-source evidence should suppress current-status diagnostic")
+	}
+	if after.CurrentSourceEvidenceOrigin {
+		t.Fatal("trace_query runtime observations without current-source evidence should suppress current-source origin")
+	}
+	if after.RuntimeGroundingDisposition == nil || !after.RuntimeGroundingDisposition.IsActive() {
+		t.Fatalf("trace_query runtime observations should activate runtime grounding disposition: %+v", after.RuntimeGroundingDisposition)
+	}
+}
+
+func TestBuildAnswerSurfacePlanForAgentContext_TraceQueryCountSuppressesCurrentStatusWithoutAttachedPath(t *testing.T) {
+	mut := NewMutableState("trace_query agent context")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
+	ctx := &AgentContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+
+	plan := BuildAnswerSurfacePlanForAgentContext(ctx)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("trace_query runtime observation count should suppress current-status diagnostic even without AttachedHitrace")
+	}
+	if plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("trace_query runtime observation count should suppress current-source origin even without AttachedHitrace")
+	}
+	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		t.Fatalf("trace_query runtime observation count should activate runtime grounding disposition: %+v", plan.RuntimeGroundingDisposition)
+	}
+}
+
+func TestBuildAnswerSemanticViewForAgentContext_TraceQueryCountDropsCurrentStatusDecisionRequirement(t *testing.T) {
+	mut := NewMutableState("trace_query semantic view")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
+	ctx := &AgentContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+
+	view := BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		t.Fatal("semantic view is nil")
+	}
+	if view.CurrentStatusDiagnostic != nil {
+		t.Fatalf("source-optional trace_query observations should not expose current-status diagnostic: %+v", view.CurrentStatusDiagnostic)
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == BlockDecision {
+			t.Fatalf("source-optional trace_query observations should not require decision block: %+v", view.RequiredBlocks)
+		}
+	}
+}
+
+func TestBuildAnswerSurfacePlanForAgentContext_TraceQueryFiltersPerfPreTriageSeeds(t *testing.T) {
+	mut := NewMutableState("trace_query plus perf pretriage")
+	mut.SetPerfTrace(perfPreTriageBundleForSurfacePlanTest())
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
+	ctx := &AgentContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+
+	plan := BuildAnswerSurfacePlanForAgentContext(ctx)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	for _, kind := range []string{"perf_jank", "perf_stall", "perf_observation"} {
+		if externalObservationSeedKindPresent(plan.ExternalObservationSeeds, kind) {
+			t.Fatalf("trace_query runtime observations should keep perf pre-triage seeds out of principal support lane; found %s in %+v", kind, plan.ExternalObservationSeeds)
+		}
+	}
+}
+
+func TestBuildAnswerSurfacePlanForAgentContext_KeepsPerfPreTriageSeedsWithoutTraceQuery(t *testing.T) {
+	mut := NewMutableState("perf pretriage only")
+	mut.SetPerfTrace(perfPreTriageBundleForSurfacePlanTest())
+	ctx := &AgentContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+
+	plan := BuildAnswerSurfacePlanForAgentContext(ctx)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	for _, kind := range []string{"perf_jank", "perf_stall", "perf_observation"} {
+		if !externalObservationSeedKindPresent(plan.ExternalObservationSeeds, kind) {
+			t.Fatalf("perf-only runtime artifact should keep %s support seed: %+v", kind, plan.ExternalObservationSeeds)
+		}
+	}
+}
+
+func TestBuildAnswerSurfacePlanForBusContext_TraceContextKeepsCurrentStatusWithCurrentSourceEvidence(t *testing.T) {
+	mut := NewMutableState("trace_query plus current source")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
+	bus := &BusContext{
+		Mutable:    mut,
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+		EvidenceItems: []EvidenceItem{{
+			ID:              "ev-current",
+			Kind:            EvidenceMechanism,
+			Subject:         "CurrentCode",
+			Predicate:       "guards",
+			Object:          "risk",
+			Summary:         "current source was inspected",
+			Source:          "internal/demo.go",
+			LineStart:       12,
+			LineEnd:         12,
+			Scope:           ScopeLine,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "CurrentCode",
+			GroundingStatus: GroundingGrounded,
+		}},
+	}
+
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	if !plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("current-source evidence should preserve current-status diagnostic")
+	}
+	if !plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("current-source evidence should preserve current-source origin")
+	}
+}
+
+func perfPreTriageBundleForSurfacePlanTest() *PerfBundle {
+	return &PerfBundle{
+		Meta: PerfMeta{Source: "trace"},
+		Janks: []PerfJank{{
+			StartTsMs:   34579471.722,
+			DurationMs:  3,
+			TriggerSpan: "sync_buffer_read_wi",
+			Reason:      "io",
+		}},
+		Stalls: []PerfStall{{
+			StartTsMs:  34579471.722,
+			DurationMs: 3,
+			Kind:       "io",
+			Symbol:     "sync_buffer_read_wi",
+			Line:       2534,
+		}},
+		Observations: []PerfObservation{{
+			Kind:      "io_wait",
+			Subject:   "udk-irq-4 -> com.baidu.tieba",
+			Summary:   "pre-triage observed udk-irq-4 wakeup near the selected window",
+			LineStart: 2534,
+			LineEnd:   2535,
+		}},
+	}
+}
+
+func externalObservationSeedKindPresent(seeds []ExternalObservationSeed, kind string) bool {
+	for _, seed := range seeds {
+		if strings.TrimSpace(seed.Kind) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTraceCurrentStatusIRForTest() *AnalysisIR {
+	return &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:   IntentRootCause,
+			Scenario: ScenarioPerformanceBottleneck,
+			DiagnosticProfile: DiagnosticIntentProfile{
+				IsDiagnostic: true,
+				CurrentRisk:  true,
+				Confidence:   0.9,
+			},
+		},
+		AnswerContract: AnswerContract{
+			CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+		},
+	}
+}
+
+func traceQueryRuntimeObservationToolResultForSurfacePlanTest() ToolResult {
+	return ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		RawRef:   "[trace_query params: view=root_cause_rank source=path path=/tmp/app.systrace origin=runtime_artifact artifact_id=trace_query artifact_kind=trace payload_ref=/tmp/payload.json]",
+		Observations: []ObservationRecord{{
+			ID:              "tool:0#trace_query:root_cause_rank:1",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			SourceRef: ObservationSourceRef{
+				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactID:   "trace_query",
+				ArtifactKind: "trace",
+				Path:         "/tmp/app.systrace",
+			},
+			Subject: "app-20",
+			Summary: "root_cause_rank rank=1 state=runnable impact=8.0ms",
+		}},
+	}
+}
+
 // TestPreferredAnswerSummarySurfaceMode_ScenarioNoLongerHardCap:
 // pre-round-9 the gate read rm.Scenario; now it reads rm.Intent.
 // A non-RootCause Scenario should NOT block drift mode when the

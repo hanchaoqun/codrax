@@ -1048,6 +1048,24 @@ func TestAnalyzer_FilterToolSchemas_EmitOnlyAfterPrescanLimit(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_FilterToolSchemas_ExplicitRuntimeArtifactPathEmitOnly(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: "只分析 eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	}
+
+	got := (&analyzerEvaluator{}).FilterToolSchemas(ctx, schemas)
+	if len(got) != 1 || got[0].Name != "emit_analysis" {
+		t.Fatalf("explicit runtime artifact path should leave only emit_analysis, got %+v", got)
+	}
+}
+
 func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
 	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"internal/agent/analyzer.go","limit":"200"}`)})
@@ -1084,6 +1102,39 @@ func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 	})
 	if len(gotSchemas) != 1 || gotSchemas[0].Name != "emit_analysis" {
 		t.Fatalf("blocked deep-read intent should force next analyzer request to emit-only, got %+v", gotSchemas)
+	}
+}
+
+func TestAnalyzer_Observe_ExplicitRuntimeArtifactPathHintIsEmitOnly(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+		Mutable:   types.NewMutableState("question"),
+	}
+	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+		Name:   "list_files",
+		Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures"}`),
+	})
+	if res == nil || res.Repair == nil || res.Repair.Code != analyzerExplicitRuntimeArtifactPathEmitOnlyCode {
+		t.Fatalf("expected explicit runtime artifact path repair, got %+v", res)
+	}
+	sig := (&analyzerEvaluator{}).Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: res,
+		AllToolResults: []types.ToolResult{*res},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("expected runtime-artifact emit-only hint, got %+v", sig)
+	}
+	for _, want := range []string{"runtime artifact path", "emit_analysis exactly once", "trace_query"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("hint missing %q in %q", want, sig.Hint)
+		}
+	}
+	for _, forbidden := range []string{"grep(files_only=true)", "repo_map overview", "list_files for light"} {
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("runtime-artifact hint should not invite navigation tools, got %q", sig.Hint)
+		}
 	}
 }
 

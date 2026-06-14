@@ -1,0 +1,12 @@
+# Log triage — multiple explicit log paths in question
+#
+# Coverage target: when more than one runtime log path is named in the question,
+# the system should inspect both artifact files instead of collapsing to a
+# single current-source/code lane.
+ID="log_path_question_multi_runtime_files"
+NAME="log triage — multiple log paths mentioned in question"
+QUESTION="只分析 eval/fixtures/runtime_path_panic.log 和 eval/fixtures/runtime_path_timeout.log 这两个日志文件，不分析代码。请分别说明两个日志里的错误类型、关键栈帧和直接触发点。"
+EXPECT_CONTAINS="runtime_path_panic runtime_path_timeout Fetch"
+EXPECT_MATCHES_REGEX="(panic|nil pointer|空指针).*(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88)|(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88).*(panic|nil pointer|空指针)
+(context deadline exceeded|deadline|超时).*(\\(\\*Client\\)\\.Fetch|Client\\.Fetch|client\\.go:41)|(\\(\\*Client\\)\\.Fetch|Client\\.Fetch|client\\.go:41).*(context deadline exceeded|deadline|超时)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

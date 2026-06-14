@@ -768,16 +768,14 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 		} else {
 			id = "evidence:" + id
 		}
+		origin := evidenceItemObservationOrigin(ev)
 		add(ObservationRecord{
 			ID:              id,
-			Origin:          AnswerEvidenceOriginCurrentSource,
+			Origin:          origin,
 			Producer:        firstNonEmptyString(ev.Producer, "evidence_item"),
 			Role:            role,
-			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginCurrentSource, role),
-			SourceRef: ObservationSourceRef{
-				Kind: ObservationSourceCurrentSource,
-				Path: strings.TrimSpace(ev.Source),
-			},
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+			SourceRef:       sourceRefForEvidenceItem(ev, origin),
 			Span: ObservationSpan{
 				LineStart: ev.LineStart,
 				LineEnd:   ev.LineEnd,
@@ -796,6 +794,49 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 			Confidence:      ev.Confidence,
 		})
 	}
+}
+
+func evidenceItemObservationOrigin(ev EvidenceItem) AnswerEvidenceOrigin {
+	switch ev.Origin {
+	case ClaimOriginLog, ClaimOriginPerf:
+		return AnswerEvidenceOriginRuntimeArtifact
+	default:
+		return AnswerEvidenceOriginCurrentSource
+	}
+}
+
+func sourceRefForEvidenceItem(ev EvidenceItem, origin AnswerEvidenceOrigin) ObservationSourceRef {
+	path := strings.TrimSpace(ev.Source)
+	if origin != AnswerEvidenceOriginRuntimeArtifact {
+		return ObservationSourceRef{
+			Kind: ObservationSourceCurrentSource,
+			Path: path,
+		}
+	}
+	artifactKind := runtimeArtifactKindForEvidenceItem(ev)
+	artifactID := path
+	if artifactID == "" {
+		artifactID = "runtime_artifact"
+	}
+	return ObservationSourceRef{
+		Kind:         ObservationSourceRuntimeArtifact,
+		Path:         path,
+		ArtifactID:   artifactID,
+		ArtifactKind: artifactKind,
+	}
+}
+
+func runtimeArtifactKindForEvidenceItem(ev EvidenceItem) string {
+	switch ev.Origin {
+	case ClaimOriginLog:
+		return "log"
+	case ClaimOriginPerf:
+		return "trace"
+	}
+	if kind := RuntimeArtifactPathKind(ev.Source); kind != "" {
+		return kind
+	}
+	return "runtime_artifact"
 }
 
 func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {

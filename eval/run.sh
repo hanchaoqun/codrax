@@ -63,14 +63,23 @@ EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
-# Log-triage eval cases may set LOG=<inline panic> to attach a runtime log
-# excerpt via --log-text. Perf-trace eval cases should set HTRACE=<inline
-# trace> so the binary exercises the dedicated --htrace-text / perf_triage
-# channel instead of the generic log_triager.
+# Runtime-artifact eval cases may attach either inline text or a file path:
+# LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
+# HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
 LOG="${LOG:-}"
+LOG_FILE="${LOG_FILE:-}"
 HTRACE="${HTRACE:-}"
-if [[ -n "$LOG" && -n "$HTRACE" ]]; then
-  echo "case must not set both LOG and HTRACE" >&2
+HTRACE_FILE="${HTRACE_FILE:-}"
+if [[ -n "$LOG" && -n "$LOG_FILE" ]]; then
+  echo "case must not set both LOG and LOG_FILE" >&2
+  exit 2
+fi
+if [[ -n "$HTRACE" && -n "$HTRACE_FILE" ]]; then
+  echo "case must not set both HTRACE and HTRACE_FILE" >&2
+  exit 2
+fi
+if [[ ( -n "$LOG" || -n "$LOG_FILE" ) && ( -n "$HTRACE" || -n "$HTRACE_FILE" ) ]]; then
+  echo "case must not set log and htrace attachments together" >&2
   exit 2
 fi
 # Write-mode eval vars (session 35). MODE=plan|apply switches the
@@ -163,6 +172,14 @@ if [[ -f "$ROOT/providers.yaml" ]]; then
 fi
 if [[ -n "$SETTINGS" && ! -f "$SETTINGS" ]]; then
   echo "case SETTINGS file not found: $SETTINGS" >&2
+  exit 2
+fi
+if [[ -n "$LOG_FILE" && ! -f "$LOG_FILE" ]]; then
+  echo "case LOG_FILE not found: $LOG_FILE" >&2
+  exit 2
+fi
+if [[ -n "$HTRACE_FILE" && ! -f "$HTRACE_FILE" ]]; then
+  echo "case HTRACE_FILE not found: $HTRACE_FILE" >&2
   exit 2
 fi
 
@@ -342,8 +359,12 @@ run_read_step() {
   local attach_args=()
   if [[ -n "$LOG" ]]; then
     attach_args=(--log-text "$LOG")
+  elif [[ -n "$LOG_FILE" ]]; then
+    attach_args=(--log "$LOG_FILE")
   elif [[ -n "$HTRACE" ]]; then
     attach_args=(--htrace-text "$HTRACE")
+  elif [[ -n "$HTRACE_FILE" ]]; then
+    attach_args=(--htrace "$HTRACE_FILE")
   fi
   if [[ ${#attach_args[@]} -gt 0 ]]; then
     if [[ -n "$FOCUS" ]]; then

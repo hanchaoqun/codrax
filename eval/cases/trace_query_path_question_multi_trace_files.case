@@ -1,0 +1,13 @@
+# Trace query — multiple explicit trace paths in question
+#
+# Coverage target: when a question names more than one trace path, the model
+# should issue path-based trace_query calls for the relevant files and preserve
+# both files' trace-local conclusions without requiring attachments.
+ID="trace_query_path_question_multi_trace_files"
+NAME="trace query — multiple trace paths mentioned in question"
+QUESTION="只分析 eval/fixtures/path_trace_state_churn.systrace 和 eval/fixtures/path_trace_wakeup.systrace 这两个 trace 文件，不分析代码。第一个请看 11.000s 到 11.008s 的 app-20 窗口，第二个请看 1.000s 到 1.010s 的 app-100 窗口；分别说明各自的卡顿原因和关键链路。"
+EXPECT_CONTAINS="app-20 app-100 rival-30 worker-200"
+EXPECT_MATCHES_REGEX="(app-20).*(runnable|state_churn|碎片化|rival-30)|(runnable|state_churn|碎片化|rival-30).*(app-20)
+(app-100).*(worker-200|wakeup|唤醒|优先级)|(worker-200|wakeup|唤醒|优先级).*(app-100)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

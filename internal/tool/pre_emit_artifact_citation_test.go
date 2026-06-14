@@ -256,6 +256,103 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_DoesNotTouchCurrentSou
 	}
 }
 
+func TestNormalizeRuntimeObservationOnlyDecisionBlocks_DropsSourceOptionalTraceStatusDecision(t *testing.T) {
+	ctx := runtimeSourceOptionalTraceBusContextForTest()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "/tmp/.codrax/blob/session/attached_trace.txt", Line: 12}},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "trace_query 观测到 CookieMonsterCl-59843 runnable 等待导致主线程 sleep。",
+			},
+			{
+				ID:                   "decision",
+				Kind:                 types.BlockDecision,
+				CurrentStatusVerdict: types.CurrentStatusNotEnoughEvidence,
+				Text:                 "not_enough_evidence: 未读取源码，无法验证当前代码是否已修复。",
+			},
+		},
+	}
+
+	fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, &types.AnswerSemanticView{}, ctx)
+	if fixed != 1 {
+		t.Fatalf("fixed=%d, want decision block removal; doc=%+v", fixed, doc)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "not_enough_evidence") || strings.Contains(visible, "当前代码是否已修复") {
+		t.Fatalf("runtime trace answer should not keep source-status decision prose:\n%s", visible)
+	}
+	if !strings.Contains(visible, "CookieMonsterCl-59843") {
+		t.Fatalf("summary payload should be preserved:\n%s", visible)
+	}
+}
+
+func TestNormalizeRuntimeObservationOnlyDecisionBlocks_KeepsOnlyVisibleDecision(t *testing.T) {
+	ctx := runtimeSourceOptionalTraceBusContextForTest()
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:                   "decision",
+		Kind:                 types.BlockDecision,
+		CurrentStatusVerdict: types.CurrentStatusNotEnoughEvidence,
+		Text:                 "trace-only answer has no other visible payload yet",
+	}}}
+
+	if fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, &types.AnswerSemanticView{}, ctx); fixed != 0 {
+		t.Fatalf("only visible block must be preserved, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Kind != types.BlockDecision {
+		t.Fatalf("decision-only payload should stay intact: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeRuntimeObservationOnlyDecisionBlocks_KeepsCurrentSourceCitedDecision(t *testing.T) {
+	ctx := runtimeSourceOptionalTraceBusContextForTest()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/scheduler.go", Line: 42}},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "trace fact plus current source check."},
+			{ID: "decision", Kind: types.BlockDecision, Text: "current source backed decision", Items: []types.AnswerBlockItem{{ID: "d", CitationRef: 0}}},
+		},
+	}
+
+	if fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, &types.AnswerSemanticView{}, ctx); fixed != 0 {
+		t.Fatalf("current-source cited decisions must not be removed, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("current-source cited decision should remain: %+v", doc.Blocks)
+	}
+}
+
+func runtimeSourceOptionalTraceBusContextForTest() *types.BusContext {
+	mut := types.NewMutableState("trace window")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:root:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt", ArtifactKind: "trace"},
+			Subject:         "CookieMonsterCl-59843",
+			Predicate:       "root_cause_primary",
+			Summary:         "CookieMonsterCl-59843 runnable wait delayed the target thread",
+		}},
+	})
+	return &types.BusContext{
+		Mutable:         mut,
+		AttachedHitrace: "com.baidu.tieba-59566 (59566) [000] .... 34579.472865: sched_switch: prev_state=S",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				ExactTargets: []string{"com.baidu.tieba-59566", "34579.472865s"},
+			},
+		}},
+	}
+}
+
 func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesVCSOnlyAnswers(t *testing.T) {
 	mut := types.NewMutableState("history")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

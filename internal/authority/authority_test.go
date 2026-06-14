@@ -31,7 +31,9 @@ func (f *fakeLocator) SymbolsInFile(file string) []types.SymbolLocation {
 // nil for unit tests.
 func TestComputeForEvidence_NilBusSafePassthrough(t *testing.T) {
 	item := types.EvidenceItem{Scope: types.ScopeLine}
-	p := ComputeForEvidence(item, nil); o, a := p.Origin, p.Authority; _ = ""
+	p := ComputeForEvidence(item, nil)
+	o, a := p.Origin, p.Authority
+	_ = ""
 	if o != types.ClaimOriginUnknown || a != types.AuthorityUnknown {
 		t.Errorf("nil bus: got (origin=%q, auth=%q); want zero", o, a)
 	}
@@ -58,7 +60,9 @@ func TestComputeForEvidence_SchemaLevelScopeAlwaysFactual(t *testing.T) {
 			GroundingStatus: types.GroundingGrounded,
 			FileRoleLabel:   types.FileRoleConfigCanonical,
 		}
-		p := ComputeForEvidence(item, bus); o, a := p.Origin, p.Authority; _ = ""
+		p := ComputeForEvidence(item, bus)
+		o, a := p.Origin, p.Authority
+		_ = ""
 		if o != types.ClaimOriginCurrentRepo {
 			t.Errorf("scope=%q: Origin = %q; want current_repo", scope, o)
 		}
@@ -81,7 +85,8 @@ func TestComputeForEvidence_IllustrativeOnlyForcesIllustrative(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
 	}
-	p := ComputeForEvidence(item, bus); a := p.Authority
+	p := ComputeForEvidence(item, bus)
+	a := p.Authority
 	if a != types.AuthorityIllustrative {
 		t.Errorf("illustrative_only: Authority = %q; want illustrative", a)
 	}
@@ -98,7 +103,8 @@ func TestComputeForEvidence_UngroundedIsIllustrative(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingUngrounded,
 	}
-	p := ComputeForEvidence(item, bus); a := p.Authority
+	p := ComputeForEvidence(item, bus)
+	a := p.Authority
 	if a != types.AuthorityIllustrative {
 		t.Errorf("ungrounded: Authority = %q; want illustrative", a)
 	}
@@ -117,12 +123,58 @@ func TestComputeForEvidence_CurrentRepoLineGrounded(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}
-	p := ComputeForEvidence(item, bus); o, a := p.Origin, p.Authority; _ = ""
+	p := ComputeForEvidence(item, bus)
+	o, a := p.Origin, p.Authority
+	_ = ""
 	if o != types.ClaimOriginCurrentRepo {
 		t.Errorf("Origin = %q; want current_repo", o)
 	}
 	if a != types.AuthorityFactual {
 		t.Errorf("Authority = %q; want factual", a)
+	}
+}
+
+func TestComputeForEvidence_RuntimeArtifactPathStaysArtifactOrigin(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test-objective"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "eval/fixtures/runtime_path_panic.log",
+						Confidence: 0.8,
+					}},
+				},
+			},
+		},
+	}
+	item := types.EvidenceItem{
+		Scope:           types.ScopeFile,
+		Source:          "eval/fixtures/runtime_path_panic.log",
+		LineStart:       1,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}
+	p := ComputeForEvidence(item, bus)
+	if p.Origin != types.ClaimOriginLog {
+		t.Fatalf("runtime log path origin = %s, want log (reason=%q)", p.Origin, p.Reason)
+	}
+	if p.Authority != types.AuthorityHistorical {
+		t.Fatalf("runtime log path authority = %s, want historical (reason=%q)", p.Authority, p.Reason)
+	}
+
+	item.Source = "/tmp/frame.systrace"
+	bus.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints[0].Path = "/tmp/frame.systrace"
+	p = ComputeForEvidence(item, bus)
+	if p.Origin != types.ClaimOriginPerf {
+		t.Fatalf("runtime trace path origin = %s, want perf (reason=%q)", p.Origin, p.Reason)
 	}
 }
 
@@ -140,7 +192,8 @@ func TestComputeForEvidence_RecoveredFactualWithoutLog(t *testing.T) {
 		GroundingStatus: types.GroundingRecovered,
 		GroundingTier:   types.TierFQNameSameFile,
 	}
-	p := ComputeForEvidence(item, bus); a := p.Authority
+	p := ComputeForEvidence(item, bus)
+	a := p.Authority
 	if a != types.AuthorityFactual {
 		t.Errorf("recovered without log: Authority = %q; want factual", a)
 	}
@@ -163,7 +216,8 @@ func TestComputeForEvidence_RecoveredConditionalWithLog(t *testing.T) {
 		GroundingStatus: types.GroundingRecovered,
 		GroundingTier:   types.TierFQNameSameFile,
 	}
-	p := ComputeForEvidence(item, bus); a := p.Authority
+	p := ComputeForEvidence(item, bus)
+	a := p.Authority
 	if a != types.AuthorityConditional {
 		t.Errorf("recovered with log: Authority = %q; want conditional", a)
 	}
@@ -199,7 +253,8 @@ func TestComputeForEvidence_LogMatchPerfectCrossSource(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}
-	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
+	p := ComputeForEvidence(item, bus)
+	o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginCrossSource {
 		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}
@@ -237,7 +292,8 @@ func TestComputeForEvidence_LogMatchLineDriftConditional(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingGrounded,
 	}
-	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
+	p := ComputeForEvidence(item, bus)
+	o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginCrossSource {
 		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}
@@ -275,7 +331,8 @@ func TestComputeForEvidence_LogMatchFileMovedHistorical(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingGrounded,
 	}
-	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
+	p := ComputeForEvidence(item, bus)
+	o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginCrossSource {
 		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}

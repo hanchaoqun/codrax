@@ -1,0 +1,7 @@
+2026-06-14T10:00:01.100Z ERROR request failed
+error: context deadline exceeded
+goroutine 88 [running]:
+github.com/acme/demo/client.(*Client).Fetch()
+	/Users/han/src/demo/client.go:41 +0x78
+github.com/acme/demo/handler.(*Handler).ServeHTTP()
+	/Users/han/src/demo/handler.go:59 +0x111

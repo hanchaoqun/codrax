@@ -327,6 +327,31 @@ func TestAnswerAggregateFactEvidenceOrigins_RuntimeArtifact(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_RuntimeArtifactPathReference(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "panic frames",
+		Value: "2",
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "eval/fixtures/runtime_path_panic.log",
+				Confidence: 0.8,
+			}},
+		},
+	})
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime artifact path origin mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_RuntimeBehaviorOutcome(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:  AnswerAggregateBehaviorOutcome,

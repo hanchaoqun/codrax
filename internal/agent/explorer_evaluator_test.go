@@ -270,7 +270,9 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"carry that same `time_start`/`time_end`",
 		"thread/pid alone is not a bounded query",
 		"Trace timestamps are seconds",
-		"Preserve trace findings as runtime-artifact observations",
+		"trace_query` result already publishes typed runtime-artifact observations",
+		"do not call `emit_evidence` just to repackage those rows",
+		"Complete with `emit_investigation_complete`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("explicit trace start prompt missing %q:\n%s", want, prompt)
@@ -327,6 +329,9 @@ func TestExplorer_BuildInitialInstruction_SourceOptionalTraceStartsWithTraceQuer
 		"Explicit Runtime Trace Path Start",
 		"Start with `trace_query`",
 		"Treat this as a runtime-artifact investigation first",
+		"trace_query` result already publishes typed runtime-artifact observations",
+		"do not call `emit_evidence` just to repackage those rows",
+		"Complete with `emit_investigation_complete`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("source-optional trace start prompt missing %q:\n%s", want, prompt)

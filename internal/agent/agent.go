@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -3055,6 +3056,9 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 	if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
 		return true
 	}
+	if analyzerExplicitRuntimeArtifactPathBlocksTool(ctx, toolName) {
+		return true
+	}
 	if analyzerExternalObservationFirstBlocksTool(ctx, toolName) {
 		return true
 	}
@@ -3436,6 +3440,10 @@ func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
 	}
 	limit := ctx.Mutable.PrescanRoundLimit()
 	return limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit
+}
+
+func analyzerEmitOnly(ctx *types.AgentContext) bool {
+	return analyzerTerminalEmitOnly(ctx) || explicitRuntimeArtifactPathInObjective(ctx)
 }
 
 // buildInitialMessages is the sole entry point for producing the
@@ -3905,7 +3913,7 @@ func stageAllowedToolSummary(ctx *types.AgentContext) string {
 	}
 	switch ctx.Stage {
 	case types.StageAnalyze:
-		if analyzerTerminalEmitOnly(ctx) {
+		if analyzerEmitOnly(ctx) {
 			return "emit_analysis"
 		}
 		return "emit_analysis, grep(files_only=true), repo_map"
@@ -4043,6 +4051,11 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	if !isPrescanTool(tc.Name) {
 		return nil
 	}
+	if analyzerExplicitRuntimeArtifactPathBlocksTool(ctx, tc.Name) ||
+		analyzerPrescanTargetsExplicitRuntimeArtifactPath(ctx, tc) {
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerExplicitRuntimeArtifactPathEmitOnlyCode,
+			"classification is runtime-artifact-path-first for a log/trace path explicitly named in the current request; do not run repo_map / grep / list_files just to confirm the artifact path. Call emit_analysis now and preserve the path in exact_targets or required_files for later runtime-artifact exploration.")
+	}
 	if analyzerExternalObservationFirstBlocksTool(ctx, tc.Name) {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerExternalObservationFirstEmitOnlyCode,
 			"classification is external-observation-first for an attached runtime artifact; do not run repo_map / grep / list_files just to classify trace or log terms. Call emit_analysis now from the typed runtime artifact context. Later exploration will use trace_query or current-source tools if the structured request model requires them.")
@@ -4085,13 +4098,148 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 }
 
 const (
-	analyzerToolNotAllowedCode                   = "analyzer_tool_not_allowed"
-	analyzerPrescanTerminalEmitModeCode          = "analyzer_terminal_emit_mode"
-	analyzerPrescanBudgetReachedCode             = "analyzer_prescan_budget_reached"
-	analyzerGrepFilesOnlyRequiredCode            = "analyzer_grep_files_only_required"
-	analyzerSourceInventoryAnalyzeBoundaryCode   = "analyzer_source_inventory_analyze_boundary"
-	analyzerExternalObservationFirstEmitOnlyCode = "analyzer_external_observation_first_emit_only"
+	analyzerToolNotAllowedCode                      = "analyzer_tool_not_allowed"
+	analyzerPrescanTerminalEmitModeCode             = "analyzer_terminal_emit_mode"
+	analyzerPrescanBudgetReachedCode                = "analyzer_prescan_budget_reached"
+	analyzerGrepFilesOnlyRequiredCode               = "analyzer_grep_files_only_required"
+	analyzerSourceInventoryAnalyzeBoundaryCode      = "analyzer_source_inventory_analyze_boundary"
+	analyzerExternalObservationFirstEmitOnlyCode    = "analyzer_external_observation_first_emit_only"
+	analyzerExplicitRuntimeArtifactPathEmitOnlyCode = "analyzer_explicit_runtime_artifact_path_emit_only"
 )
+
+var analyzerRuntimeArtifactPathTokenRE = regexp.MustCompile(`(?i)[^\s"'` + "`" + `<>()[\]{}，。；;、]+?\.(?:log|trace|systrace|htrace|atrace|perfetto)`)
+
+func explicitRuntimeArtifactPathInObjective(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	return len(analyzerRuntimeArtifactPathsFromObjective(ctx.Objective)) > 0
+}
+
+func analyzerExplicitRuntimeArtifactPathBlocksTool(ctx *types.AgentContext, toolName string) bool {
+	if !explicitRuntimeArtifactPathInObjective(ctx) {
+		return false
+	}
+	return isPrescanTool(toolName)
+}
+
+func analyzerPrescanTargetsExplicitRuntimeArtifactPath(ctx *types.AgentContext, tc llm.ToolCall) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || !isPrescanTool(tc.Name) {
+		return false
+	}
+	artifacts := analyzerRuntimeArtifactPathsFromObjective(ctx.Objective)
+	if len(artifacts) == 0 {
+		return false
+	}
+	for _, surface := range analyzerRuntimeArtifactToolParamSurfaces(tc.Params) {
+		for _, artifact := range artifacts {
+			if analyzerPathSurfaceRelatesToRuntimeArtifact(surface, artifact) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func analyzerRuntimeArtifactPathsFromObjective(objective string) []string {
+	objective = strings.TrimSpace(types.StripConversationPrefix(objective))
+	if objective == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		path := normalizeAnalyzerRuntimeArtifactPathSurface(raw)
+		if path == "" || !analyzerRuntimeArtifactPathLike(path) || types.RuntimeArtifactPathKind(path) == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	for _, match := range analyzerRuntimeArtifactPathTokenRE.FindAllString(objective, -1) {
+		add(match)
+	}
+	for _, field := range strings.Fields(objective) {
+		add(field)
+	}
+	return out
+}
+
+func analyzerRuntimeArtifactPathLike(path string) bool {
+	path = normalizeAnalyzerRuntimeArtifactPathSurface(path)
+	if path == "" {
+		return false
+	}
+	base := path
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return false
+	}
+	lowerBase := strings.ToLower(base)
+	switch lowerBase {
+	case "attached_log.txt", "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt":
+		return true
+	}
+	for _, ext := range []string{".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto"} {
+		if strings.HasSuffix(lowerBase, ext) {
+			return len(lowerBase) > len(ext)
+		}
+	}
+	return false
+}
+
+func analyzerRuntimeArtifactToolParamSurfaces(raw json.RawMessage) []string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case string:
+			if s := normalizeAnalyzerRuntimeArtifactPathSurface(t); s != "" {
+				out = append(out, s)
+			}
+		case []any:
+			for _, elem := range t {
+				walk(elem)
+			}
+		case map[string]any:
+			for _, elem := range t {
+				walk(elem)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+func normalizeAnalyzerRuntimeArtifactPathSurface(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "`\"'<> \t\r\n，。；;、()[]{}")
+	s = strings.TrimSuffix(s, ":")
+	s = strings.ReplaceAll(s, "\\", "/")
+	return strings.TrimSpace(s)
+}
+
+func analyzerPathSurfaceRelatesToRuntimeArtifact(surface, artifact string) bool {
+	surface = strings.ToLower(normalizeAnalyzerRuntimeArtifactPathSurface(surface))
+	artifact = strings.ToLower(normalizeAnalyzerRuntimeArtifactPathSurface(artifact))
+	if surface == "" || artifact == "" {
+		return false
+	}
+	if surface == artifact || strings.HasSuffix(artifact, "/"+surface) {
+		return true
+	}
+	if strings.HasPrefix(artifact, surface+"/") || strings.Contains(artifact, "/"+surface+"/") {
+		return true
+	}
+	return false
+}
 
 func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name string) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze || !isPrescanTool(name) {
@@ -4137,7 +4285,11 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return nil
 	}
-	if analyzerTerminalEmitOnly(ctx) && tc.Name != "emit_analysis" {
+	if explicitRuntimeArtifactPathInObjective(ctx) && tc.Name != "emit_analysis" {
+		return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerExplicitRuntimeArtifactPathEmitOnlyCode,
+			fmt.Sprintf("classification is runtime-artifact-path-first for a log/trace path explicitly named in the current request; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis now and preserve unresolved runtime/source targets in structured fields for later evidence gathering.", tc.Name))
+	}
+	if analyzerEmitOnly(ctx) && tc.Name != "emit_analysis" {
 		return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerPrescanTerminalEmitModeCode,
 			fmt.Sprintf("classification is already in terminal emit mode; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis with the best classification and routing hints you have.", tc.Name))
 	}

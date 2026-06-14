@@ -3265,7 +3265,8 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	b.WriteString("- Once a `trace_query` result gives a selected time/line window, carry that same `time_start`/`time_end` or `line_start`/`line_end` into every follow-up heavy view (`scheduler_latency_stats`, `root_cause_rank`, `window_stats`, `critical_blocking_calls`, `recipe`); thread/pid alone is not a bounded query on large traces.\n")
 	b.WriteString("- Trace timestamps are seconds end-to-end, so values such as 2942.124416 and 2942.260210 are seconds, not milliseconds; durations from the tool are reported in ms.\n")
 	b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
-	b.WriteString("- Preserve trace findings as runtime-artifact observations through `emit_investigation_complete.reason` and `aggregate_facts`; use `emit_evidence` only for load-bearing trace line gutters you have actually read, and do not turn trace rows into current-source citations.\n")
+	b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context.\n")
+	b.WriteString("- Preserve any additional model-authored synthesis through `emit_investigation_complete.reason` and, when useful, `aggregate_facts`. Use `emit_evidence` only for load-bearing trace line gutters you manually read outside trace_query, and never turn trace rows into current-source citations.\n")
 	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
 	if ctx != nil {
 		b.WriteString("**User question:** ")

@@ -20,6 +20,36 @@ func answerDocumentRuntimeObservationOnly(ctx *types.BusContext) bool {
 		!plan.CurrentSourceEvidenceOrigin
 }
 
+func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusContext) bool {
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return true
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+	if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
+		attachedTrace = true
+	}
+	if !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) {
+		return false
+	}
+	return !answerDocumentHasCurrentSourceObservationSupport(ctx)
+}
+
+func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	for _, record := range ledger.Records {
+		if record.Origin == types.AnswerEvidenceOriginCurrentSource {
+			return true
+		}
+	}
+	return false
+}
+
 func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
@@ -207,10 +237,76 @@ func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[
 // answers enter this path. Current-source and Codrax-internal answers keep their
 // literal text untouched.
 func normalizeRuntimeArtifactVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || !answerDocumentRuntimeObservationOnly(ctx) {
+	if doc == nil || !answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 		return 0
 	}
 	return normalizeVisibleCitationSentinels(doc, runtimeArtifactVisibleCitationBoundaryText(ctx))
+}
+
+// normalizeRuntimeObservationOnlyDecisionBlocks removes optional current-status
+// style decision carriers from observation-only runtime answers. The decision is
+// typed: it fires only when the answer surface plan says runtime artifact facts
+// are sufficient and current-source/status verdict lanes are inactive. This
+// keeps trace/log answers from rendering stale `still_present`/`fixed` verdict
+// prose as a principal conclusion while preserving the model's summary/list
+// payload.
+func normalizeRuntimeObservationOnlyDecisionBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
+	if doc == nil || view == nil || !answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
+		return 0
+	}
+	if view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
+		return 0
+	}
+	if view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active() {
+		return 0
+	}
+	if answerDocumentHasCurrentSourceCitationCarrier(doc) {
+		return 0
+	}
+	if !answerDocumentHasNonDecisionVisiblePayload(doc) {
+		return 0
+	}
+	removed := 0
+	blocks := doc.Blocks[:0]
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockDecision {
+			removed++
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	doc.Blocks = blocks
+	return removed
+}
+
+func answerDocumentHasNonDecisionVisiblePayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockDecision {
+			continue
+		}
+		if preEmitBlockHasVisiblePayload(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasCurrentSourceCitationCarrier(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, cit := range doc.Citations {
+		if cit.Line <= 0 || strings.TrimSpace(cit.File) == "" {
+			continue
+		}
+		if !types.LooksLikeRuntimeArtifactPath(cit.File) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeExternalObservationVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

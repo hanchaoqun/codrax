@@ -6980,6 +6980,80 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_PrioritizesTraceQueryOccurrenceWindowsSupplement(t *testing.T) {
+	observations := make([]types.ObservationRecord, 0, 9)
+	for i := 0; i < 8; i++ {
+		observations = append(observations, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:root:%d", i),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+			ClaimKey:        "root_cause_primary",
+			Subject:         fmt.Sprintf("background-%d", i),
+			Predicate:       "root_cause_primary",
+			Object:          "compute_supply",
+			Value:           "1.000",
+			Unit:            "ms",
+			RichNotes:       []string{"chain_relevance=background"},
+			SupportRefs:     []string{fmt.Sprintf("attached_trace.txt:%d", 100+i)},
+		})
+	}
+	observations = append(observations, types.ObservationRecord{
+		ID:              "trace_query:aggregate:threadpool",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+		ClaimKey:        "wakeup_causal_aggregate:ThreadPoolForeg-60555",
+		Subject:         "ThreadPoolForeg-60555",
+		Predicate:       "wakeup_causal_aggregate",
+		Object:          "d_sleep",
+		Value:           "17.442",
+		Unit:            "ms",
+		RichNotes: []string{
+			"occurrence_windows=34579.525319..34579.534164,state=d_sleep,total=7.562ms;34579.546416..34579.553415,state=d_sleep,total=6.620ms;34579.576702..34579.587805,state=d_sleep,total=10.249ms",
+			"path=ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
+			"chain_relevance=on_chain",
+		},
+		SupportRefs: []string{"attached_trace.txt:8712-15131"},
+	})
+
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: observations,
+	}}})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "ThreadPoolForeg 聚合链路需要保留代表性窗口。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"wakeup_causal_aggregate:ThreadPoolForeg-60555",
+		"occurrence_windows=34579.525319..34579.534164",
+		"34579.546416..34579.553415",
+		"34579.576702..34579.587805",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing prioritized occurrence-window fragment %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")

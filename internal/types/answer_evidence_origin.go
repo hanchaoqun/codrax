@@ -32,7 +32,8 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 		if rm.Predicates.IsCountQuestion && aggregateFactKindCanCarryCommandMeasurement(fact.Kind) {
 			add(AnswerEvidenceOriginCommandMeasurement)
 		}
-		if rm.HasExternalOnlyRuntimeArtifact() && aggregateFactKindCanCarryRuntimeArtifact(fact.Kind) {
+		if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference()) &&
+			aggregateFactKindCanCarryRuntimeArtifact(fact.Kind) {
 			add(AnswerEvidenceOriginRuntimeArtifact)
 		}
 		if len(out) == 0 {
