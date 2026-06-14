@@ -585,6 +585,7 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 21 | pushed | Added Rust-shaped external issue fixture `github_issue_chrono_duration_min` from chronotope/chrono PR #1385. First run `eval/results/write_mode_chrono_duration_min_20260614_summary.md` failed with authoritative `post_apply_verify passed=false`, exposing an over-narrow fixture oracle plus a real explore-stage soft-guidance gap (`unavailable_tool_attempts=1` from write exploration attempting shell/write work). The fixture oracle was corrected to encode the upstream `Option<Duration>` / `-i64::MAX` / non-recursive MIN/MAX contract and test-file structure checks. Re-run `eval/results/write_mode_chrono_duration_min_after_oracle_20260614_summary.md` passed 1/1 with `verify_authoritative=true`, `report_channel=post_apply_verify`, and `report_passed=true`. Product follow-up added read-only handoff guidance to write exploration and a prompt hygiene test. Verification: `bash -n eval/cases/github_issue_chrono_duration_min.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py`; expected initial `make check` failure on the seed fixture; targeted eval PASS; `go test ./internal/agent`; rebuilt `codrax` with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` (exit 0; Go stat-cache warning only). |
 | 2026-06-14 | 26 | pushed | Added two symptom-driven external issue cases: `github_issue_chrono_duration_min_symptom` (Rust, chronotope/chrono PR #1385) and `github_issue_commons_lang_random_ascii_symptom` (Java, apache/commons-lang PR #1273). Baseline summary `eval/results/write_mode_symptom_chrono_commons_20260614_summary.md` failed 2/2: chrono had `plan_written=false`, `apply_attempted=false` after exploration completed but no `ChangePlan` was installed; commons-lang had `plan_written=true`, `apply_attempted=true`, but no durable worktree/report after apply incomplete and controller dispatch transport failure. Implemented typed recovery only from durable state: no-plan retry after typed exploration/verify handoff; dispatch-error recovery to `apply_plan` for auto-executable plans and `verify_batch` for applied-but-unverified plans. Re-run `eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Verification includes targeted orchestrator tests, affected package tests, rebuild, and symptom eval. |
 | 2026-06-14 | 27 | pushed | Added two more symptom-driven external issue cases: `github_issue_pyo3_iter_nth_overflow_symptom` (Rust-shaped, PyO3 PR #6086) and `github_issue_napi_force_wasi_env_symptom` (TypeScript, napi-rs PR #3236). The prompts describe observed behavior and upstream refs, not target files or patch recipes. Initial mixed run `eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md` passed napi-rs and failed PyO3 after authoritative verify failure/replan drift. After strengthening the PyO3 oracle and fixing write exploration handoff isolation, `eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md` passed 1/1; it exercised exploration, first apply failure, P2 verify evidence, small replan, second apply, and authoritative verify success. Product fix: write exploration no longer hard-blocks on read-mode final-answer anchor skeleton gates because it consumes typed `WriteExplorationRequest`/handoff artifacts, not final answer surface requirements. Verification: case bash syntax, oracle Python compile, targeted `internal/tool` test, affected write-mode package regression, rebuild, napi/PyO3 symptom eval evidence. Implementation commit `b0b45a3a`; this ledger update records the pushed Batch 27 evidence. |
+| 2026-06-14 | 28 | pending push | Closed the Batch 27 structured-edit recovery gap by adding typed `expected_old_text` and `retry_instruction` fields to `old_text_mismatch` diagnostics for range edits and insert anchors. This gives the planner an exact reusable snippet instead of forcing repeated line-range guessing after a stale `old_text` rejection. The hard gate still only validates structured edits against current file bytes; it does not parse user intent, model prose, summaries, rationale, logs, or `<think>`. Verification: targeted structured-edit diagnostics tests plus full `go test ./internal/tool`. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1291,7 +1292,7 @@ Consumers:
   - [x] Add write-exploration completion test proving final-answer anchor skeleton gates do not block planner handoff.
   - [x] Keep read-mode final-answer skeleton tests unchanged.
   - [x] Rebuild `codrax` before eval.
-  - [ ] Follow-up: add typed structured-edit mismatch repair hints or single-line replacement mode so replan does not spend multiple model turns recovering exact text.
+  - [x] Follow-up delivered in Batch 28: add typed structured-edit mismatch repair hints so replan does not spend multiple model turns recovering exact text.
   - [ ] Follow-up: improve risk observability by separating advisory write-analysis risk from deterministic planned-change approval risk in workflow output.
 - Verification:
   - `bash -n eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case`
@@ -1302,3 +1303,29 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
   - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case eval/cases/github_issue_napi_force_wasi_env_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md bash eval/convergence_audit.sh` initial mixed run: napi-rs PASS, PyO3 FAIL.
   - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md bash eval/convergence_audit.sh` PASS 1/1.
+
+#### Batch 28: Typed Structured-Edit Mismatch Repair Hints
+
+- Evidence source:
+  - Batch 27 PyO3 replan succeeded only after several planner turns recovering from `structured edit builder ... old_text mismatch`.
+  - The diagnostic carried `current_bytes`, but the top-level message still encouraged re-reading and did not expose a clear typed retry field for copying the exact old text.
+- Generalized gap:
+  - Structured edit rejection is a normal commercial workflow event, not a fatal model failure.
+  - When the tool already knows the exact current bytes for the requested line range or anchor line, the planner should receive that snippet as a typed correction field.
+  - This avoids repeated broad reading or guessing and keeps replan small after verify-failure evidence.
+- Target design:
+  - Extend `structuredEditDiagnostic` with `expected_old_text` and `retry_instruction`.
+  - Populate both fields for range `replace/delete` old-text mismatch and insert-anchor mismatch.
+  - Keep `current_bytes` for backward compatibility and audit readability.
+  - Keep enforcement unchanged: apply/build still rejects stale edits; the new fields only improve the next planner attempt.
+- Safety and prompt hygiene:
+  - Inputs are current repository bytes, edit kind, line range, and anchor line.
+  - No hard route reads user request keywords, model summary, plan rationale, log prose, or `<think>`.
+  - This is a reusable tool diagnostic improvement for all languages and file types, not a PyO3-specific repair.
+- Implementation tasks:
+  - [x] Add `expected_old_text` and `retry_instruction` to `structuredEditDiagnostic`.
+  - [x] Update range old-text mismatch and insert-anchor mismatch diagnostics.
+  - [x] Update tests to assert reusable old-text fields and retry guidance.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestCompileStructuredEdits_(DiagnosticForOldTextMismatch|OldTextMismatchEchoesCurrentBytes|InsertAnchorMismatchEchoesCurrentBytes)|TestEmitInvestigationComplete_PreCompleteCheck_(DowngradesIncompleteMultiTopicAnchorSkeleton|WriteExplorationSkipsAnswerAnchorSkeleton|ArchitectureSkipsAnalyzerExtraTopicAnchors)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool`

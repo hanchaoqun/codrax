@@ -122,6 +122,8 @@ func TestCompileStructuredEdits_DiagnosticForOldTextMismatch(t *testing.T) {
 	}
 	if diag.diagnostic.ReasonCode != "old_text_mismatch" ||
 		diag.diagnostic.CurrentBytes != "two\n" ||
+		diag.diagnostic.ExpectedOldText != "two\n" ||
+		!strings.Contains(diag.diagnostic.RetryInstruction, "expected_old_text") ||
 		diag.diagnostic.StartLine != 2 {
 		t.Fatalf("unexpected diagnostic: %+v", diag.diagnostic)
 	}
@@ -307,7 +309,7 @@ func TestCompileStructuredEdits_OldTextMismatchEchoesCurrentBytes(t *testing.T) 
 	if !strings.Contains(msg, `"two\n"`) {
 		t.Fatalf("mismatch diagnostic must echo the current bytes, got: %s", msg)
 	}
-	if !strings.Contains(msg, "re-read the file") {
+	if !strings.Contains(msg, "expected_old_text") {
 		t.Fatalf("mismatch diagnostic must carry the repair direction, got: %s", msg)
 	}
 }
@@ -328,6 +330,9 @@ func TestCompileStructuredEdits_InsertAnchorMismatchEchoesCurrentBytes(t *testin
 	}
 	if !strings.Contains(err.Error(), `"one\n"`) {
 		t.Fatalf("anchor diagnostic must echo current bytes, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), `"expected_old_text":"one\n"`) {
+		t.Fatalf("anchor diagnostic must carry reusable old_text, got: %s", err.Error())
 	}
 }
 

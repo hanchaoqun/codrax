@@ -21,15 +21,17 @@ type compiledStructuredEdit struct {
 }
 
 type structuredEditDiagnostic struct {
-	ReasonCode    string   `json:"reason_code"`
-	Path          string   `json:"path,omitempty"`
-	EditIndex     int      `json:"edit_index,omitempty"`
-	FileLineCount int      `json:"file_line_count,omitempty"`
-	StartLine     int      `json:"start_line,omitempty"`
-	EndLine       int      `json:"end_line,omitempty"`
-	AnchorLine    int      `json:"anchor_line,omitempty"`
-	CurrentBytes  string   `json:"current_bytes,omitempty"`
-	SafeEditKinds []string `json:"safe_edit_kinds,omitempty"`
+	ReasonCode       string   `json:"reason_code"`
+	Path             string   `json:"path,omitempty"`
+	EditIndex        int      `json:"edit_index,omitempty"`
+	FileLineCount    int      `json:"file_line_count,omitempty"`
+	StartLine        int      `json:"start_line,omitempty"`
+	EndLine          int      `json:"end_line,omitempty"`
+	AnchorLine       int      `json:"anchor_line,omitempty"`
+	CurrentBytes     string   `json:"current_bytes,omitempty"`
+	ExpectedOldText  string   `json:"expected_old_text,omitempty"`
+	RetryInstruction string   `json:"retry_instruction,omitempty"`
+	SafeEditKinds    []string `json:"safe_edit_kinds,omitempty"`
 }
 
 type structuredEditDiagnosticError struct {
@@ -167,17 +169,19 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 				got := strings.Join(lines[start:end], "")
 				if !structuredEditOldTextMatches(got, edit.OldText) {
 					msg := fmt.Sprintf(
-						"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — re-read the file and resend old_text matching the current content",
+						"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
 						path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
 					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-						ReasonCode:    "old_text_mismatch",
-						Path:          path,
-						EditIndex:     i,
-						FileLineCount: lineCount,
-						StartLine:     edit.StartLine,
-						EndLine:       endLine,
-						CurrentBytes:  got,
-						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+						ReasonCode:       "old_text_mismatch",
+						Path:             path,
+						EditIndex:        i,
+						FileLineCount:    lineCount,
+						StartLine:        edit.StartLine,
+						EndLine:          endLine,
+						CurrentBytes:     got,
+						ExpectedOldText:  got,
+						RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, or omit end_line for a single-line edit",
+						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
 					})
 				}
 			}
@@ -224,17 +228,19 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 				}
 				if !structuredEditOldTextMatches(anchor, edit.OldText) {
 					msg := fmt.Sprintf(
-						"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — re-read the file and resend old_text matching the current content",
+						"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
 						path, i, edit.StartLine, boundedByteQuote(anchor, 160))
 					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-						ReasonCode:    "old_text_mismatch",
-						Path:          path,
-						EditIndex:     i,
-						FileLineCount: lineCount,
-						StartLine:     edit.StartLine,
-						AnchorLine:    edit.StartLine,
-						CurrentBytes:  anchor,
-						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+						ReasonCode:       "old_text_mismatch",
+						Path:             path,
+						EditIndex:        i,
+						FileLineCount:    lineCount,
+						StartLine:        edit.StartLine,
+						AnchorLine:       edit.StartLine,
+						CurrentBytes:     anchor,
+						ExpectedOldText:  anchor,
+						RetryInstruction: "resend this insertion with old_text exactly equal to expected_old_text for the anchor line, or omit old_text when line anchoring alone is acceptable",
+						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
 					})
 				}
 			}
