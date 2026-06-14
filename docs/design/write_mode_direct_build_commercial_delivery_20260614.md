@@ -169,6 +169,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 40 | Single state-machine invariants | 新增 typed workflow invariant validator；active batch、attempt plan_id、approval action 与 batch 状态冲突可观测 |
 | 41 | Auto Pilot recovery copy and eval regression | 主提示/文档不再把 `/mode write -> /approve -> /merge` 命令链当主路径；低风险和 JS 现象型 issue eval 回归 PASS |
 | 42 | Write tool JSON repair coverage guard | `run_tests` 纳入统一 structured payload repair / strict decode 结构测试，防止验证工具绕开修复层 |
+| 43 | Advisory vs deterministic risk observability | REPL 风险展示拆成 planned-change risk/approval preview 与 analysis risk advisory，避免 advisory high 被误解为审批硬门 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1416,7 +1417,7 @@ Consumers:
   - [x] Keep read-mode final-answer skeleton tests unchanged.
   - [x] Rebuild `codrax` before eval.
   - [x] Follow-up delivered in Batch 28: add typed structured-edit mismatch repair hints so replan does not spend multiple model turns recovering exact text.
-  - [ ] Follow-up: improve risk observability by separating advisory write-analysis risk from deterministic planned-change approval risk in workflow output.
+  - [x] Follow-up delivered in Batch 43: improve risk observability by separating advisory write-analysis risk from deterministic planned-change approval risk in workflow output.
 - Verification:
   - `bash -n eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case`
   - `bash -n eval/cases/github_issue_napi_force_wasi_env_symptom.case`
@@ -1962,3 +1963,33 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool` PASS.
 - Progress:
   - Implementation commit: `93deaf21` (`write-mode: guard run tests json repair coverage`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 43: Advisory Vs Deterministic Risk Observability
+
+- Evidence source:
+  - Batch 27 left a follow-up that write analyzer advisory risk could look confusing when the analyzer marks a task `high` but deterministic planned-change approval auto-executes a scoped source/test change as medium.
+  - Code evidence: `internal/repl/write_risk_render.go` rendered a single `write risk` line from `AssessWriteRisk`, then `approval preview`, without naming the analyzer risk as advisory when `ChangePlan.WriteAnalysisIR` is present.
+- Generalized gap:
+  - Users should not have to infer which risk signal controls approval. Advisory write-analysis risk is useful context for planner/verifier caution, but deterministic planned-change risk is the approval gate.
+  - Conflating those labels increases needless approval anxiety and harms the low-interruption Auto Pilot UX.
+- Target design:
+  - Render deterministic gate input as `planned-change risk` / `计划变更风险`.
+  - Render `WriteAnalysisIR.Request.Risk` separately as `analysis risk advisory`, including typed overall band and typed axes.
+  - Explicitly state the advisory line is not the approval gate.
+- Safety and prompt hygiene:
+  - Render-only change. It does not alter `AssessWriteRisk`, `DecideWriteApproval`, apply-pre gate, controller routing, or workflow state.
+  - Inputs are typed `ChangePlan` paths/content and typed `WriteAnalysisIR.Request.Risk` fields. No hard logic reads user keywords, model prose, summaries, rationales, logs, eval oracle text, or `<think>`.
+- Handoff and evidence contract:
+  - Deterministic risk/approval remains the P0 approval context produced by `ContextPackFromRiskAssessment`.
+  - Analyzer risk remains advisory context from `WriteAnalysisIR` and can guide planning/verifying caution without forcing approval.
+- Implementation tasks:
+  - [x] Rename user-facing deterministic risk label to planned-change risk.
+  - [x] Add analysis risk advisory line when `WriteAnalysisIR` is attached to the plan.
+  - [x] Add regression test showing advisory high/public/persistence risk with planned medium source change still renders auto-execute approval preview.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestRenderWriteRiskAssessment'` PASS.
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+- Progress:
+  - Implementation commit: pending.
