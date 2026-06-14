@@ -2213,4 +2213,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
   - `git diff --check` PASS.
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `d1986b2c` (`write-mode: render recovery guidance from typed next action`), pushed to `origin/main` with this ledger follow-up.
