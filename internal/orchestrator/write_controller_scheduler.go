@@ -47,6 +47,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	// durable artifacts so a resumed run behaves like the run that paused —
 	// the retry budget cannot silently reset and replan keeps its evidence.
 	o.hydrateResumedWorkflowState(&run, verifyFailures)
+	if msg := o.pendingApprovalResumeMessage(&run); msg != "" {
+		appendControllerProgress(&run, run.ActiveBatchID, "pending_approval_resume_paused", msg)
+		o.persistWriteWorkflowRun(&run)
+		o.publishBlockedRunGuidance(&run, "pending_approval")
+		return fmt.Errorf("%s", msg)
+	}
 	// importedPlanMirror is the --plan-file path this run was started
 	// with (empty otherwise). The controller workflow may replace the
 	// active plan across replan rounds; mirroring every accepted plan
@@ -469,6 +475,68 @@ func isResumableWriteWorkflowRun(run *types.WriteWorkflowRun) bool {
 	default:
 		return true
 	}
+}
+
+func (o *Orchestrator) pendingApprovalResumeMessage(run *types.WriteWorkflowRun) string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || o.busCtx.Mode != types.ModeApply {
+		return ""
+	}
+	batch, ok := activeWriteWorkflowControllerBatch(run)
+	if !ok || batch.Status != types.WriteWorkflowBatchPendingApproval {
+		return ""
+	}
+	planID := strings.TrimSpace(batch.PlanID)
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil && planID != "" {
+		plan = o.loadDurablePlanArtifact(planID)
+		if plan != nil {
+			o.busCtx.Mutable.SetChangePlan(plan)
+		}
+	}
+	if plan != nil && planID != "" && strings.TrimSpace(plan.ID) == planID &&
+		writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan)) {
+		return ""
+	}
+	if plan != nil && strings.TrimSpace(plan.ID) != "" {
+		planID = strings.TrimSpace(plan.ID)
+	}
+	if planID == "" {
+		return fmt.Sprintf("write workflow pending approval for batch %s", writeWorkflowActiveBatchIDOrDefault(run))
+	}
+	reason := ""
+	if plan != nil && plan.Approval != nil {
+		reason = strings.TrimSpace(plan.Approval.ReasonCode)
+	}
+	if reason == "" {
+		return fmt.Sprintf("write workflow pending approval for plan %s", planID)
+	}
+	return fmt.Sprintf("write workflow pending approval for plan %s: %s", planID, reason)
+}
+
+func writeWorkflowActiveBatchIDOrDefault(run *types.WriteWorkflowRun) string {
+	if run == nil {
+		return "active"
+	}
+	if id := strings.TrimSpace(run.ActiveBatchID); id != "" {
+		return id
+	}
+	return "active"
+}
+
+func activeWriteWorkflowControllerBatch(run *types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {
+	if run == nil {
+		return types.WriteWorkflowBatch{}, false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" && len(run.Batches) > 0 {
+		return run.Batches[0], true
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			return batch, true
+		}
+	}
+	return types.WriteWorkflowBatch{}, false
 }
 
 func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {

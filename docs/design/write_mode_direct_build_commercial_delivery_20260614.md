@@ -2380,3 +2380,41 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `3375c13a` (`write-mode: surface active workflow banner state`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 52: Safe Auto-Resume UX Hardening
+
+- Evidence source:
+  - User feedback: users should not need `/workflow resume` in normal operation, but reducing commands must not let a pending high-risk approval continue through model decisions.
+  - Code evidence before this batch:
+    - `loadOrSeedWriteWorkflowRun` loaded any non-terminal active run and appended `workflow_resumed`.
+    - `isResumableWriteWorkflowRun` treated `pending_approval` batches as resumable, and `TestRunWriteControllerWorkflow_ResumesActiveRun` used a pending-approval batch while expecting controller dispatch to continue.
+    - That shape conflicted with the safety model: high-risk approval is a required user decision, not an internal Auto Pilot continuation state.
+- Generalized gap:
+  - "Auto-resume" and "auto-continue" are different. Durable workflow recovery should restore the active run, but only typed safe states may proceed to controller dispatch.
+  - Pending approval must recover into a decision card/guidance state. It must not ask the model for a new action that could finish, replan, or otherwise obscure the outstanding approval boundary.
+- Target architecture:
+  - Keep active non-terminal run loading as the default continuation seed.
+  - After resume hydration, before any controller dispatch, check the active batch's typed status.
+  - If the active batch is `pending_approval` and the active plan does not contain a fingerprint-valid approved manual record, publish pending-approval guidance and return fail-loud without dispatching controller.
+  - If the batch is `ready_to_plan`, `planned`, `applying`, `verifying`, or approved pending approval, allow the existing controller loop to continue.
+- Safety and prompt hygiene:
+  - The gate reads only `WriteWorkflowRun`, active batch status, active plan id, `WriteApprovalRecord`, and `PlanFingerprint`.
+  - It does not parse user keywords, model prose, summaries, rationales, issue text, logs, eval oracle text, or `<think>`.
+  - No read/log/trace/data/operation/computer scheduler entry points are changed.
+- Handoff and evidence contract:
+  - No P0-P3 facts are removed. The resumed workflow is still persisted with `workflow_resumed`; pending approval adds `pending_approval_resume_paused` so `/workflow show` explains why auto-resume stopped.
+  - Existing approval guidance keeps run/batch/plan/fingerprint refs available for user review.
+- Implementation tasks:
+  - [x] Add a typed `pendingApprovalResumeMessage` gate after resume hydration and before controller dispatch.
+  - [x] Add active batch lookup for controller resume gating.
+  - [x] Keep approved manual plans eligible to continue by reusing `writeApprovalRecordAllowsManualApply`.
+  - [x] Update safe auto-resume regression so `ready_to_plan` still dispatches controller.
+  - [x] Add regression coverage that resumed `pending_approval` returns pending guidance and does not call the controller.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ResumesActiveRun|TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: PENDING.

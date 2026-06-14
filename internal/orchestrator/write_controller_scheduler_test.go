@@ -1435,7 +1435,7 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 		Batches: []types.WriteWorkflowBatch{{
 			ID:     "batch-9",
 			Goal:   "existing batch",
-			Status: types.WriteWorkflowBatchPendingApproval,
+			Status: types.WriteWorkflowBatchReadyToPlan,
 		}},
 	}}
 	mu := types.NewMutableState("new request should resume active run")
@@ -1460,6 +1460,56 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	if store.last.ActiveBatchID != "batch-9" || len(store.last.ProgressLedger) == 0 ||
 		!workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") {
 		t.Fatalf("resume progress should be persisted: %+v", store.last)
+	}
+}
+
+func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(t *testing.T) {
+	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
+		RunID:         "wf-approval",
+		Goal:          "resume approval",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-approval",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-approval",
+			Goal:   "existing approval batch",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-needs-human",
+		}},
+	}}
+	mu := types.NewMutableState("new request must not bypass approval")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "new seed"}}})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+			controllerCalls++
+			t.Fatalf("pending approval resume must pause before controller dispatch")
+			return &agent.StageOutput{}, nil
+		},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "write workflow pending approval for plan plan-needs-human") {
+		t.Fatalf("pending approval resume should fail-loud before controller, got %v", err)
+	}
+	if controllerCalls != 0 {
+		t.Fatalf("pending approval resume must not call controller, calls=%d", controllerCalls)
+	}
+	if store.last == nil || store.last.RunID != "wf-approval" {
+		t.Fatalf("workflow should remain active and persisted, got %+v", store.last)
+	}
+	if store.last.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("pending approval resume must not terminalize run: %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchPendingApproval {
+		t.Fatalf("pending approval batch should stay paused: %+v", store.last.Batches)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "pending_approval_resume_paused") {
+		t.Fatalf("resume pause progress missing: %+v", store.last.ProgressLedger)
 	}
 }
 
