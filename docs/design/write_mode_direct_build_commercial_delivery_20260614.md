@@ -2494,3 +2494,40 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `ddd7acc6` (`write-mode: cap ask user interruptions per batch`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 55: Docs Command Demotion Pass
+
+- Evidence source:
+  - User feedback: too many commands increase write-mode cognitive load; users should describe the desired code change and let Auto Pilot continue unless a typed safety or ambiguity boundary requires action.
+  - Documentation evidence before this batch:
+    - `docs/user_guide.md` described `/workflow resume` as the normal way to make a saved non-terminal run continue, even though Batch 52 made safe active runs auto-resume.
+    - `docs/user_guide.md` and `docs/architecture.md` still introduced `/workflow show/list/resume`, `/plan show`, and `/approve` close to the main flow without clearly demoting them to audit/recovery or high-risk-only decisions.
+    - `AGENTS.md` told future Codex sessions to use `/workflow`/`/plan`/`/approve` commands as the write-mode day-to-day surface, which can regress the product language even when backend behavior is already automatic.
+- Generalized gap:
+  - A commandless write engine can still feel command-heavy if its docs and agent guidance teach command chains as the mental model.
+  - The generalized solution is to align all user-facing and agent-facing documentation around one product contract: natural-language goal first, automatic safe continuation, typed status cards, and explicit user action only for high-risk approval, critical deny/block recovery, advanced audit, or publish/merge.
+- Target architecture:
+  - REPL and CLI docs describe Auto Pilot as the primary path: user states a goal, controller explores/plans/applies/verifies/replans in bounded batches.
+  - Safe active runs auto-resume; `/workflow resume` is only manual saved-run selection for recovery/debug.
+  - `/workflow show/list`, `/plan show`, `/verify`, `/worktree`, and `/phase` are advanced audit/recovery surfaces; state cards and startup banners proactively answer whether action is required.
+  - `/approve` remains high-risk pending approval only and surfaces the typed run/batch/plan/fingerprint payload at the decision point.
+- Safety and prompt hygiene:
+  - This batch changes documentation only. It does not alter scheduler logic, prompts, tools, approval policy, risk policy, merge behavior, or worktree cleanup.
+  - The documented behavior relies on typed artifacts: `WriteWorkflowRun`, `WriteWorkflowNextActionView`, `WriteApprovalRecord`, plan fingerprint, risk decision, and context packs.
+  - No hard gate is described as depending on user keywords, model prose, summaries, rationales, issue text, logs, eval oracle text, or `<think>`.
+  - The documentation explicitly preserves `<think>` log transparency as non-gating observable output.
+- Handoff and evidence contract:
+  - The docs keep `/workflow show/list` as the detailed evidence surface for P0-P3 context packs, verify reports, diffs, and budget state.
+  - No P0-P3 fact production or consumer Top-N logic changes in this batch.
+- Implementation tasks:
+  - [x] Update `AGENTS.md` so future sessions treat natural-language goal + Auto Pilot as the normal write flow.
+  - [x] Update `docs/user_guide.md` to demote `/workflow resume/show/list`, `/plan show`, and `/approve` from routine workflow steps to audit/recovery or high-risk-only actions.
+  - [x] Update `docs/architecture.md` to document safe auto-resume, proactive status cards, and manual resume as an advanced recovery path.
+  - [x] Update config/command reference wording so advanced commands do not become the recommended day-to-day flow.
+- Verification:
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl ./internal/orchestrator ./internal/types` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+- Progress:
+  - Implementation commit pending.

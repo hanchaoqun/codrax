@@ -33,8 +33,9 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 ./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json  # advanced plan-only
 ./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json                  # advanced saved-plan apply
 ./codrax --mode=write --write-phase=verify --plan-file=/tmp/p.json
-# REPL: type a clear code-change request, or use /write <request> / /mode write.
-# Advanced recovery/audit: /workflow show|list|resume|clear  /plan show|list  /approve  /reject  /verify  /merge
+# REPL: type a clear code-change request. /write <request> forces one write turn; /mode write keeps later code-change goals in Auto Pilot.
+# Routine Auto Pilot should not need /workflow or /plan commands; safe active runs auto-resume and typed status cards say when user action is required.
+# Advanced recovery/audit only: /workflow show|list|resume|clear  /plan show|list  /approve  /reject  /verify  /merge
 ```
 
 ## Pipeline at a glance
