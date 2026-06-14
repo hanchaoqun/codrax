@@ -600,6 +600,105 @@ When a new external eval uncovers gaps, add an addendum here with:
 - generalized design response: a system mechanism that handles the class of failures.
 - delivery tasks and acceptance criteria.
 
+### 18.1 Complete Design Supplement Contract
+
+Every future design supplement must be self-contained enough for a new engineer
+to continue implementation without reading chat history. The required payload is:
+
+1. **Problem statement**
+   - What user-visible or system-visible behavior is wrong or incomplete.
+   - Why the behavior is a class of failure, not a one-off fixture problem.
+   - Which existing stable paths must remain isolated.
+
+2. **Evidence inventory**
+   - Local files, line-backed code refs, eval artifacts, report JSON, run IDs,
+     plan IDs, batch IDs, approval fingerprints, and command outputs.
+   - Upstream issue/PR links when external cases are used.
+   - Typed fields that support the claim: enums, booleans, reason codes,
+     fingerprints, parser outputs, path resolver results, report channels.
+   - Explicit note when evidence is missing or only inferred.
+
+3. **Gap classification**
+   - Severity: P0 blocks correctness/safety/commercial delivery; P1 causes
+     repeated inefficiency or confusing recovery; P2 is polish or observability.
+   - Surface: controller, planner, coder, verifier, safety policy, artifact
+     store, handoff, CLI/REPL, eval harness, or documentation.
+   - Failure family: state contradiction, missing typed authority, permission
+     policy gap, lost evidence, brittle edit operation, verify infra failure,
+     unsupported workspace topology, or UX/reporting ambiguity.
+
+4. **Target architecture**
+   - The durable DAG shape affected by the change: run, batch, edge, attempt,
+     context pack, artifact refs, and derived state.
+   - Controller actions involved and whether they are existing actions or new
+     typed actions.
+   - Which agent consumes or produces each artifact.
+   - How the architecture generalizes beyond the observed eval case.
+
+5. **State and artifact contract**
+   - New or changed typed structs, enum values, reason codes, and artifact file
+     names.
+   - Persistence rules, resume behavior, cleanup boundaries, and stale-ref
+     behavior.
+   - Single source of truth for current state; progress ledger remains history,
+     not state.
+
+6. **Safety and approval contract**
+   - allow/ask/deny outcome for the affected path.
+   - Fingerprint rules, stale approval invalidation, and pending-approval resume
+     behavior.
+   - Critical deny behavior before mutation.
+   - Explicit statement that hard gates consume only typed artifacts and parser
+     outputs, never user keywords, model prose, summary, rationale, or
+     `<think>`.
+
+7. **Handoff contract**
+   - Which P0/P1/P2/P3 facts are produced.
+   - Stable dedupe identity for each fact type.
+   - Consumer-specific ordering and Top-N bounds.
+   - Evidence refs that must survive replan, restart, and worktree cleanup.
+   - How stale facts are demoted or superseded by newer verify/risk evidence.
+
+8. **Execution plan**
+   - Batch-sized tasks with owning packages or surfaces.
+   - Dependency order and rollback/compat notes.
+   - Whether a task is product code, eval harness, fixture, docs, or test-only.
+   - Commit/push expectation for each completed batch.
+
+9. **Test and eval matrix**
+   - Unit tests for typed policy/state/artifact behavior.
+   - Controller tests for dynamic DAG decisions and recovery.
+   - CLI/REPL tests for show/list/resume/approve/reject where applicable.
+   - Eval cases proving the generalized class, not only the first failure.
+   - Regression commands for affected packages and full-suite gates when scope
+     warrants it.
+
+10. **Acceptance and progress**
+    - Commercial acceptance criteria written as observable outcomes.
+    - Progress ledger row with commit hash, push status, commands run, failures,
+      caveats, and remaining risk.
+    - If implementation is intentionally deferred, the blocking condition and
+      exact next executable task.
+
+### 18.2 Current Supplement Backfill Map
+
+The current document already backfills the requested design content as follows:
+
+| Required content | Backfilled location | Remaining action |
+| --- | --- | --- |
+| Full write-mode architecture and dynamic DAG | Sections 6, 7, 12 | Keep updated when controller actions or run schema change |
+| Approval minimization and high/critical gates | Sections 8, 13, 16 | Add new reason codes to the ledger when policy expands |
+| Verify-result authority | Sections 5.1, 14, 19.1 P0-A | Re-run external sweep after Batches 8-10 |
+| ModePlan terminal semantics | Sections 5.2, 7, 14 | Keep prompt hygiene tests aligned with action schema |
+| Durable approval resume | Sections 5.3, 12, 13 | Expand if approval store schema changes |
+| Failure evidence handoff | Sections 5.4, 11, 19.1 P0-B | Ensure new verifier outcomes create P2 facts |
+| Single state machine | Sections 5.5, 12 | Use `DeriveBatchAttemptState` as the only rendered phase |
+| Planner/replan permissions | Sections 5.6, 9, 10 | New planner tools require typed schema tests |
+| Context pack dedupe and Top-N | Sections 5.7, 11 | New evidence kinds require stable IDs and view tests |
+| Worktree/report persistence | Sections 5.8, 12, 17 | Report user-facing refs from durable artifacts |
+| External issue evidence and new gaps | Section 19 | Continue appending eval addenda, not replacing history |
+| Multi-repo write fan-out | Section 19.1 P0-D and Batch 11 | Still open; requires product design and eval support |
+
 ## 19. External GitHub Issue Eval Addendum
 
 Date: 2026-06-14
