@@ -2665,3 +2665,33 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `e5030225` (`repl: make default help task-first`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 59: Help Documentation Sync
+
+- Evidence source:
+  - After Batch 58, code changed `/help` to concise task-first guidance and moved the complete command/subcommand table to `/help all`.
+  - Documentation evidence immediately after push:
+    - `docs/user_guide.md` still said `/help` lists all commands.
+    - `AGENTS.md` still showed `/help` as the only REPL discovery hint.
+    - `docs/architecture.md` listed slash commands but did not name the concise/default versus complete/full split.
+- Generalized gap:
+  - A product-surface change can still increase user cognitive load if docs teach the old command-heavy mental model.
+  - The generalized solution is to keep code, user guide, architecture guide, and agent operating instructions aligned whenever a discovery surface changes.
+- Target architecture:
+  - `/help` is documented as concise common-path guidance.
+  - `/help all` is documented as the complete command/subcommand reference.
+  - Write-mode docs continue to emphasize natural-language goal -> Auto Pilot, with command tables marked as reference/audit/recovery.
+- Safety and prompt hygiene:
+  - This batch changes documentation only. It does not change prompts, controller, tools, approval, risk, worktree behavior, eval harness, read/log/trace/data/operation modes, or `<think>` transparency.
+  - No hard gate uses user keywords, model prose, summary, rationale, issue text, eval oracle text, logs, or `<think>`.
+- Handoff and evidence contract:
+  - No P0-P3 context production or consumption changes.
+- Implementation tasks:
+  - [x] Update `AGENTS.md` REPL hint to mention concise `/help` and full `/help all`.
+  - [x] Update `docs/user_guide.md` slash-command section and table rows.
+  - [x] Update `docs/architecture.md` REPL command description.
+- Verification:
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestHelpLines|TestWorkflowHelp|TestSlashCommand|TestHandleSlashHelpAll'` PASS.
+- Progress:
+  - Implementation commit: pending.

@@ -19,7 +19,7 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 ```bash
 ./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
-./codrax                      # REPL: /exit /clear /history /compact /log /paste /chat /help
+./codrax                      # REPL: /help (common paths), /help all (full table), /exit /clear /history /compact /log /paste /chat
 ./codrax --log-level debug --log-stdout --request "task"
 
 # Log/perf-triage: attach a runtime artifact so analyzer extracts anchors and seeds RequiredFiles

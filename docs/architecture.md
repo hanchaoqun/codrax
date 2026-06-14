@@ -2488,6 +2488,8 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 `slashCommands`（`internal/repl/input.go`）驱动 Tab 补齐面板；`replCommandAliases`（`internal/types/conversation.go`）是 `NormalizeREPLCommandAlias` 唯一来源，`Loop` 先归一再派发给 `handleSlash`。两个列表的漂移由结构性测试 `TestSlashCommandsMatchCanonicalRegistry` + `TestHandleSlashDispatchMatchesRegistry` 固化——任一新 `/xxx` 的 case 没同步到 `replCommandAliases` 都会在 `go test` 时 fail-loud。
 
+`/help` 默认渲染任务优先的精简入口,突出自然语言目标、写模式 Auto Pilot、日志/trace 附加和少量恢复提示；`/help all` 才渲染由 `slashCommands` 自动生成的完整命令/子命令表。这样保留 autocomplete/dispatch 的完整性,同时避免把高级写模式审计命令作为日常心智负担。
+
 **`/chat <message>`**：绕过 analyze→explore→extract→finalize 流水线。memory 已接入时走**有界 2 轮 ReAct 循环**——第 1 轮 LLM 拿到 `recall_memory` / `list_memory` 工具描述，可选调一次查"我们之前聊过 X 吗"；第 2 轮（无工具）综合答复。LLM 不调工具就退化为单次 `adapter.Chat`。两个数值旋钮 `chitchat_recall_default_limit` / `chitchat_recall_max_limit` 夹在用户传给 recall_memory 的 limit 上。配合 `chitchat_classifier_enabled`（默认 true）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 false 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory；classifier 错 → 回落流水线（fail-safe）。
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
