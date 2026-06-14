@@ -884,11 +884,7 @@ run_one() {
           extra_reasons+=("post_apply_file_missing:$POST_APPLY_FILE")
         fi
       else
-        if git -C "$apply_source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-          # cat must resolve the repo-relative paths inside apply_source;
-          # plain `xargs cat` would resolve them against run.sh's CWD.
-          cleaned="$(git -C "$apply_source" ls-files -z 2>/dev/null | (cd "$apply_source" && xargs -0 cat 2>/dev/null))"
-        fi
+        cleaned="$(eval_collect_apply_source_text "$apply_source" || true)"
       fi
       eval_write_apply_result_record "$write_apply_result" "$plan" "$OUTDIR" "$scratch" "$plan_written" "$apply_attempted" "$ALLOW_UNVERIFIED_APPLY"
       if [[ "$ALLOW_UNVERIFIED_APPLY" != "1" && $plan_written -eq 1 && $apply_attempted -eq 1 ]]; then

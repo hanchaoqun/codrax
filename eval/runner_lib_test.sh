@@ -463,6 +463,22 @@ assert_eq "$(cat "$write_ref_dir/run-1.verdict")" "PASS" "write apply report pas
 assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" worktree_exists)" "false" "write apply result records discarded worktree"
 assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply recovery-ref result authoritative"
 
+write_ref_tree_case="$tmp/runner_write_apply_report_ref_tree.case"
+cat >"$write_ref_tree_case" <<'CASE'
+ID=runner_write_apply_report_ref_tree
+NAME="runner write apply report recovery ref tree"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_CLEANUP=1 CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_ref_tree_case" 1 >/dev/null 2>"$tmp/runner-write-ref-tree.err"
+write_ref_tree_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_report_ref_tree-*' | sort | tail -1)"
+if [[ -z "$write_ref_tree_dir" ]]; then
+  fail "eval/run.sh did not write write-mode recovery-ref tree result dir"
+fi
+assert_eq "$(cat "$write_ref_tree_dir/run-1.verdict")" "PASS" "write apply report pass should aggregate materialized recovery ref tree when no POST_APPLY_FILE is set"
+
 write_missing_case="$tmp/runner_write_apply_report_missing.case"
 cat >"$write_missing_case" <<'CASE'
 ID=runner_write_apply_report_missing

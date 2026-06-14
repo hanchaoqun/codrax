@@ -866,6 +866,18 @@ Target design:
 - POST_APPLY_FILE and content regex assertions run against that materialized source.
 - Missing worktree is a failure only when neither live worktree nor durable applied commit is available.
 
+Follow-up evidence after Batch 15:
+
+- `commons-lang` run `eval/results/github_issue_commons_lang_random_ascii-20260614-112955` produced authoritative success: `report_channel=post_apply_verify`, `report_passed=true`, `verify_authoritative=true`.
+- The materialized `run-1.applied-tree` contained both the fixed main source and non-ASCII regression tests.
+- The verdict still failed with `too_short:0chars` because `EXPECT_MATCHES_REGEX` without `POST_APPLY_FILE` tried `git ls-files` inside the materialized archive tree. That tree is intentionally not a git worktree, so the oracle source string was empty.
+
+Target design extension:
+
+- Apply-mode eval source aggregation must support both live git worktrees and archive-materialized trees.
+- When `POST_APPLY_FILE` is unset, aggregate deterministic text from the applied source tree rather than falling back to stdout.
+- This is an eval harness correctness issue; typed write-mode apply/verify artifacts remain the authority for product success.
+
 ### 19.5 Pending Approval / Auto-Apply Eval Gap
 
 Evidence:
@@ -955,3 +967,11 @@ Target design:
 - [x] Keep existing true high-risk/manual approval test green.
 - [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(AutoExecutableAskUserAppliesPlan|PendingApprovalKeepsRunActive)'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`.
 - Re-run `github_issue_commons_lang_random_ascii` and then the 8-case external issue sweep.
+
+#### Batch 16: Eval Applied Tree Aggregation
+
+- [x] Add `eval_collect_apply_source_text` for git worktrees and non-git materialized trees.
+- [x] Route apply-mode oracle checks without `POST_APPLY_FILE` through that helper.
+- [x] Add recovery-ref runner test where `POST_APPLY_FILE` is unset.
+- [x] Verification: `bash -n eval/run.sh`; `bash -n eval/runner_lib.sh`; `bash -n eval/runner_lib_test.sh`; `bash eval/runner_lib_test.sh`.
+- Re-run `github_issue_commons_lang_random_ascii` after this harness fix.

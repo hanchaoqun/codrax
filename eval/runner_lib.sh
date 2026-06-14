@@ -199,6 +199,21 @@ eval_materialize_write_apply_source() {
   return 1
 }
 
+eval_collect_apply_source_text() {
+  local source="$1"
+  if [[ -z "$source" || ! -d "$source" ]]; then
+    return 1
+  fi
+  if git -C "$source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$source" ls-files -z 2>/dev/null | (cd "$source" && xargs -0 cat 2>/dev/null)
+    return 0
+  fi
+  find "$source" -type f ! -path '*/.git/*' -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+    cat "$file" 2>/dev/null || true
+    printf '\n'
+  done
+}
+
 eval_write_apply_result_record() {
   local result_file="$1"
   local plan_path="$2"
