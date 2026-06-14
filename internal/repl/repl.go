@@ -7241,11 +7241,17 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/version":
 		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		// Auto-generated from slashCommands so the /help output and
-		// the autocomplete panel can never drift apart. Table-driven
-		// keeps the bilingual contract and lists EVERY command — the
-		// pre-T4 hardcoded list omitted /htrace and /atrace.
-		for _, line := range helpLines(r.language) {
+		fields := strings.Fields(line)
+		lines := helpLines(r.language)
+		if len(fields) > 1 {
+			switch strings.ToLower(fields[1]) {
+			case "all", "full", "--all":
+				// Full help is still generated from slashCommands so
+				// autocomplete and operator documentation cannot drift.
+				lines = helpLinesAll(r.language)
+			}
+		}
+		for _, line := range lines {
 			r.info(line)
 		}
 	default:

@@ -2789,15 +2789,56 @@ func composeFocusTag(focus []string) string {
 	}
 }
 
-// helpLines auto-generates the /help command's bilingual output from
-// the canonical slashCommands table. Returns one line per command
-// followed by a generic multi-line-input tip. Drift-proof: a new
-// command added to slashCommands shows up here automatically.
+func helpLines(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"常用入口(输入 /help all 查看完整命令和子命令):",
+			"  直接描述任务  自动选择代码分析、写代码 Auto Pilot、电脑操作、数据处理或本地回答。",
+			helpCommandLine(lang, "/write"),
+			helpCommandLine(lang, "/mode"),
+			helpCommandLine(lang, "/log"),
+			helpCommandLine(lang, "/htrace"),
+			helpCommandLine(lang, "/history"),
+			helpCommandLine(lang, "/clear"),
+			helpCommandLine(lang, "/exit"),
+			"  写模式审批  低/中风险自动继续；只有状态卡显示高风险 pending approval 时才用 /approve 或 /reject。",
+			"  高级审计/恢复  /workflow show · /plan show · /verify · /merge · /worktree；完整表见 /help all。",
+			"提示:行尾加 \\ 进入多行输入;以 ! 开头执行系统 shell 命令,工作目录是仓根。",
+		}
+	}
+	return []string{
+		"common paths (use /help all for every command and subcommand):",
+		"  describe the task  auto-routes to code analysis, write Auto Pilot, computer operation, data processing, or local answer.",
+		helpCommandLine(lang, "/write"),
+		helpCommandLine(lang, "/mode"),
+		helpCommandLine(lang, "/log"),
+		helpCommandLine(lang, "/htrace"),
+		helpCommandLine(lang, "/history"),
+		helpCommandLine(lang, "/clear"),
+		helpCommandLine(lang, "/exit"),
+		"  write approval  low/medium risk continues automatically; use /approve or /reject only when a status card shows high-risk pending approval.",
+		"  advanced audit/recovery  /workflow show · /plan show · /verify · /merge · /worktree; full table: /help all.",
+		"tip: end a line with \\ for multi-line input; prefix a line with ! to run a system shell command, cwd = repo root.",
+	}
+}
+
+func helpCommandLine(lang, name string) string {
+	cmd, ok := slashCommandByName(name)
+	if !ok {
+		return "  " + name
+	}
+	return "  " + name + "  " + cmd.Help(lang)
+}
+
+// helpLinesAll auto-generates /help all's bilingual output from the
+// canonical slashCommands table. Returns one line per command followed
+// by a generic multi-line-input tip. Drift-proof: a new command added
+// to slashCommands shows up here automatically.
 //
 // Format per line: "  <name>  <padding>  <help>" with name padded to
 // the longest command width so the help columns line up. Header is
 // localized; per-command help text comes from slashCommand.Help(lang).
-func helpLines(lang string) []string {
+func helpLinesAll(lang string) []string {
 	// Two-column alignment: the parent-command and subcommand
 	// columns share a width budget so all rows line up. Width is
 	// the longest name across BOTH levels (parent + sub) since

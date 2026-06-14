@@ -52,10 +52,11 @@ import (
 // contract.
 //
 // Subs is the optional sub-syntax surface — subcommands and named
-// flags that the parent command accepts. /help renders these
-// indented under the parent so a user typing /help sees, e.g.,
+// flags that the parent command accepts. /help all renders these
+// indented under the parent so a user can discover that, e.g.,
 // `/plan list` exists, not just `/plan`. Empty Subs means "this
-// command takes no subcommands".
+// command takes no subcommands". The default /help intentionally
+// stays concise and task-first.
 type slashCommand struct {
 	Name   string
 	HelpEn string
@@ -181,7 +182,14 @@ func slashSubNeedsArg(syntax string) bool {
 // /mode boundary and rendered under the write-mode header.
 var slashCommands = []slashCommand{
 	// ── Universal core: session / memory / display ───────────────
-	{Name: "/help", HelpEn: "show available commands", HelpZh: "显示可用命令"},
+	{
+		Name:   "/help",
+		HelpEn: "show concise help; use /help all for every command",
+		HelpZh: "显示精简帮助;用 /help all 查看完整命令",
+		Subs: []slashSubcommand{
+			{"all", "show every command and subcommand", "显示所有命令和子命令"},
+		},
+	},
 	{Name: "/history", HelpEn: "show recent turns", HelpZh: "显示最近会话"},
 	{Name: "/compact", HelpEn: "compact memory", HelpZh: "压缩 memory(整理索引,腾出空间)"},
 	{Name: "/clear", HelpEn: "wipe conversation memory", HelpZh: "清空会话 memory"},

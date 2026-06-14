@@ -744,10 +744,34 @@ func TestCurrentUserModeMsg_BothLangs(t *testing.T) {
 func TestHelpLines_SurfaceHtraceConvertSubcommand(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			joined := strings.Join(helpLines(lang), "\n")
+			joined := strings.Join(helpLinesAll(lang), "\n")
 			for _, want := range []string{"/htrace", "/htrace convert <binary> [out.systrace]"} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("/help (%s) missing %q:\n%s", lang, want, joined)
+				}
+			}
+		})
+	}
+}
+
+func TestHelpLines_DefaultConciseFullDiscoverable(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			concise := strings.Join(helpLines(lang), "\n")
+			full := strings.Join(helpLinesAll(lang), "\n")
+
+			if !strings.Contains(concise, "/help all") {
+				t.Errorf("%s: concise help should point to /help all; got:\n%s", lang, concise)
+			}
+			if !strings.Contains(concise, "Auto Pilot") {
+				t.Errorf("%s: concise help should describe the write Auto Pilot path; got:\n%s", lang, concise)
+			}
+			for _, hidden := range []string{"/htrace convert <binary> [out.systrace]", "/plan clear --all", "/merge --include-failed"} {
+				if strings.Contains(concise, hidden) {
+					t.Errorf("%s: concise help should hide advanced subcommand %q; got:\n%s", lang, hidden, concise)
+				}
+				if !strings.Contains(full, hidden) {
+					t.Errorf("%s: full help should keep advanced subcommand %q; got:\n%s", lang, hidden, full)
 				}
 			}
 		})
@@ -818,13 +842,32 @@ func TestMemoryPressureHint_BothLangs(t *testing.T) {
 	}
 }
 
-// /help drift guard: every command in slashCommands must appear
-// in helpLines() output. Catches the historical bug where /htrace
+func TestHandleSlashHelpAllRendersFullTable(t *testing.T) {
+	r, out := newScriptedREPL(t, nil)
+
+	r.handleSlash("/help")
+	concise := out.String()
+	if strings.Contains(concise, "/htrace convert <binary> [out.systrace]") {
+		t.Fatalf("/help should be concise by default; got:\n%s", concise)
+	}
+
+	for _, line := range []string{"/help all", "/help full", "/help --all"} {
+		out.Reset()
+		r.handleSlash(line)
+		full := out.String()
+		if !strings.Contains(full, "/htrace convert <binary> [out.systrace]") {
+			t.Fatalf("%s should render the complete command table; got:\n%s", line, full)
+		}
+	}
+}
+
+// /help all drift guard: every command in slashCommands must appear
+// in helpLinesAll() output. Catches the historical bug where /htrace
 // and /atrace were missing from the hardcoded /help list.
 func TestHelpLines_CoversEveryCommand(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			lines := helpLines(lang)
+			lines := helpLinesAll(lang)
 			joined := strings.Join(lines, "\n")
 			for _, c := range slashCommands {
 				if !strings.Contains(joined, c.Name) {
@@ -875,13 +918,13 @@ func TestWorkflowHelpDemotesWriteCommands(t *testing.T) {
 }
 
 // TestHelpLines_WriteModeGroupingHeader pins commit 41 UX#3:
-// /help renders a grouping header before the first write-
+// /help all renders a grouping header before the first write-
 // mode command so first-time users see the workflow as a
 // coherent block instead of scattered through read commands.
 func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			lines := helpLines(lang)
+			lines := helpLinesAll(lang)
 			joined := strings.Join(lines, "\n")
 			wantSubstr := "Write-mode commands"
 			if isZh(lang) {
@@ -914,7 +957,7 @@ func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
 func TestHelpLines_NonWriteCommandsAboveWriteHeader(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			lines := helpLines(lang)
+			lines := helpLinesAll(lang)
 			joined := strings.Join(lines, "\n")
 			headerSubstr := "Write-mode commands"
 			if isZh(lang) {
@@ -1034,17 +1077,18 @@ func TestPlanReadyMultiPhaseNudge_NamesPhaseCount(t *testing.T) {
 	}
 }
 
-// /help renders bilingual: zh by default, en only with explicit lang.
+// /help renders concise bilingual guidance: zh by default, en only
+// with explicit lang. The complete command table is /help all.
 func TestHelpLines_BothLangs(t *testing.T) {
 	zhLines := helpLines("zh")
 	enLines := helpLines("en")
 	zhJoined := strings.Join(zhLines, "\n")
 	enJoined := strings.Join(enLines, "\n")
-	if !strings.Contains(zhJoined, "可用命令") {
-		t.Errorf("zh header missing 可用命令; got %q", zhJoined)
+	if !strings.Contains(zhJoined, "常用入口") {
+		t.Errorf("zh header missing 常用入口; got %q", zhJoined)
 	}
-	if !strings.Contains(enJoined, "available commands") {
-		t.Errorf("en header missing 'available commands'; got %q", enJoined)
+	if !strings.Contains(enJoined, "common paths") {
+		t.Errorf("en header missing 'common paths'; got %q", enJoined)
 	}
 	if zhJoined == enJoined {
 		t.Error("zh and en help output should differ")

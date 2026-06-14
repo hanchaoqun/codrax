@@ -2624,3 +2624,44 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `1f617f26` (`write-mode: align help and tool boundary guards`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 58: Default Help Compression
+
+- Evidence source:
+  - User feedback: too many commands are not useful for most users; the product should make the automatic path obvious and avoid frequent manual command prompts.
+  - Code evidence before this batch:
+    - `/help` rendered every command and every subcommand from `slashCommands`, including advanced write audit/recovery commands and their many flags.
+    - The complete table was useful for drift prevention, but it made a first-time user read the recovery/debug surface before understanding the normal "describe the task" path.
+    - The command table was also the canonical autocomplete source, so hiding commands from that table would risk discoverability and dispatch drift unless the full table remained available.
+- Generalized gap:
+  - Low-cognitive-load UX is not only about runtime automation. Discovery surfaces must also separate the common path from expert recovery paths.
+  - The generalized solution is a two-level help surface: concise default help for routine task entry, complete typed help for operators and tests.
+- Target architecture:
+  - `/help` defaults to a concise task-first guide:
+    - describe the task directly;
+    - use `/write <goal>` only when forcing write Auto Pilot;
+    - attach logs/traces when needed;
+    - use `/approve`/`/reject` only when a high-risk status card asks;
+    - use `/help all` for the complete command/subcommand table.
+  - `/help all` preserves the existing complete table generated from `slashCommands`, including every subcommand and the write-mode grouping header.
+  - Autocomplete keeps using `slashCommands` unchanged, so advanced commands remain discoverable by slash typing and dispatch tests remain strict.
+- Safety and prompt hygiene:
+  - This batch changes local REPL help rendering only. It does not change controller, prompts, permissions, approval, risk policy, worktree behavior, eval harness, read/log/trace/data/operation modes, or `<think>` transparency.
+  - The `/help all` selector is a typed slash subcommand. No user intent keyword, model prose, summary, rationale, issue text, eval oracle text, logs, or `<think>` output drives any hard workflow logic.
+- Handoff and evidence contract:
+  - No P0-P3 context production or consumption changes.
+  - `/workflow show` and `/plan show` remain advanced evidence surfaces; the default help tells users those exist only when they need audit/recovery detail.
+- Implementation tasks:
+  - [x] Add `/help all` metadata for autocomplete and full command discovery.
+  - [x] Split help rendering into concise default help and complete help.
+  - [x] Keep the complete help generated from `slashCommands` so drift tests still cover every command and subcommand.
+  - [x] Route `/help all` / `/help full` / `/help --all` to the complete renderer.
+  - [x] Add regression coverage that default help hides advanced subcommand noise while full help still covers the canonical table.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestHelpLines|TestWorkflowHelp|TestSlashCommand|TestHandleSlashHelpAll'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.
