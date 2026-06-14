@@ -205,12 +205,16 @@ type requestCapturingRunner struct {
 	seenRouteHints    []types.TurnRouteHint
 	curDirective      string
 	curRouteHint      types.TurnRouteHint
+	modeSetCalls      []types.PipelineMode
+	seenModes         []types.PipelineMode
+	curMode           types.PipelineMode
 }
 
 func (r *requestCapturingRunner) Run(req, repo, branch string) (*types.BusContext, error) {
 	r.requests = append(r.requests, req)
 	r.seenDirectives = append(r.seenDirectives, r.curDirective)
 	r.seenRouteHints = append(r.seenRouteHints, r.curRouteHint)
+	r.seenModes = append(r.seenModes, r.curMode)
 	return r.logAwareRunner.Run(req, repo, branch)
 }
 
@@ -222,6 +226,11 @@ func (r *requestCapturingRunner) SetPresentationDirective(directive string) {
 func (r *requestCapturingRunner) SetTurnRouteHint(hint types.TurnRouteHint) {
 	r.routeHintSetCalls = append(r.routeHintSetCalls, hint)
 	r.curRouteHint = hint
+}
+
+func (r *requestCapturingRunner) SetMode(mode types.PipelineMode) {
+	r.modeSetCalls = append(r.modeSetCalls, mode)
+	r.curMode = mode
 }
 
 // seedPriorAnswer appends a recent pipeline turn to the store so
@@ -737,6 +746,52 @@ func TestApplyTurnPolicyGuards_DataRoute(t *testing.T) {
 	}
 }
 
+func TestApplyTurnPolicyGuards_WriteRoute(t *testing.T) {
+	got := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:           RouteWrite,
+		NeedsRepoAccess: false,
+		Operation:       "code_change",
+		Source:          "repo",
+		Confidence:      0.86,
+		RiskLevel:       "medium",
+		SideEffects:     []string{"local_file_write"},
+		TargetSurface:   "file_artifact",
+	}, false, false)
+	if got.Route != RouteWrite {
+		t.Fatalf("Route=%q, want write", got.Route)
+	}
+	if !got.NeedsRepoAccess || got.NeedsOperationAccess || got.NeedsDataAccess {
+		t.Fatalf("write route access flags wrong: %+v", got)
+	}
+	if got.Operation != "code_change" || got.Source != "repo" {
+		t.Fatalf("write operation/source not normalized: %+v", got)
+	}
+	if got.RiskLevel != "medium" || len(got.SideEffects) != 0 || got.TargetSurface != "" || got.RequiresConfirmation {
+		t.Fatalf("write planning must not carry operation-side-effect authorization: %+v", got)
+	}
+
+	typedSignal := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:      RouteRepo,
+		Operation:  "code_change",
+		Source:     "repo",
+		Confidence: 0.9,
+	}, false, false)
+	if typedSignal.Route != RouteWrite || !typedSignal.NeedsRepoAccess {
+		t.Fatalf("typed code_change signal should route to write planning: %+v", typedSignal)
+	}
+
+	low := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:           RouteWrite,
+		NeedsRepoAccess: true,
+		Operation:       "code_change",
+		Source:          "repo",
+		Confidence:      0.2,
+	}, false, false)
+	if low.Route != RouteRepo || !low.NeedsRepoAccess || low.Operation != "investigate" {
+		t.Fatalf("low-confidence write should fail safe to repo investigation: %+v", low)
+	}
+}
+
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────
 
 // turnPolicyResp builds a single canned llm.Response carrying an
@@ -996,6 +1051,35 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 		"JSON-only, CSV-only",
 		"source-code implementation analysis",
 		"root-cause diagnosis",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"write","needs_repo_access":true,"needs_operation_access":false,"needs_data_access":false,"operation":"code_change","source":"repo","confidence":0.87,"reason":"user asked for a repository change","risk_level":"none","side_effects":[],"requires_confirmation":false}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "给 CLI 新增 --json 输出，并更新测试", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteWrite || !policy.NeedsRepoAccess || policy.NeedsOperationAccess || policy.Operation != "code_change" {
+		t.Fatalf("policy=%+v, want write planning route", policy)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"The seven routes",
+		"write   —",
+		"write PLANNING only",
+		"does not apply bytes",
+		"operation=code_change",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
@@ -1297,6 +1381,66 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	if len(runner.seenDirectives) != 1 || runner.seenDirectives[0] != "" {
 		t.Errorf("repo route without directive must clear typed presentation metadata; seen=%q setCalls=%q",
 			runner.seenDirectives, runner.directiveSetCalls)
+	}
+}
+
+func TestTurnPolicyDispatch_WriteRouteEntersPlanMode(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteWrite,
+			NeedsRepoAccess: true,
+			Operation:       "code_change",
+			Source:          "repo",
+			Confidence:      0.9,
+			Reason:          "repository change request",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "给 CLI 新增 --json 输出，并更新测试\n/exit\n")
+	r.writeEnabled = true
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 1 {
+		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
+	}
+	if got := runner.seenModes[0]; got != types.ModePlan {
+		t.Fatalf("auto route=write should dispatch ModePlan, got %q", got)
+	}
+	if r.userMode != UserModeAuto || r.currentMode != types.ModeRead {
+		t.Fatalf("auto write route must be one-shot; userMode=%q currentMode=%q", r.userMode, r.currentMode)
+	}
+	if strings.Contains(out.String(), "write_enabled") {
+		t.Fatalf("write-enabled plan route should not print gate rejection:\n%s", out.String())
+	}
+	if len(responder.localCalls) != 0 {
+		t.Fatalf("local responder must not fire on route=write; calls=%d", len(responder.localCalls))
+	}
+}
+
+func TestTurnPolicyDispatch_WriteRouteRespectsWriteEnabledGate(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteWrite,
+			NeedsRepoAccess: true,
+			Operation:       "code_change",
+			Source:          "repo",
+			Confidence:      0.9,
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "修复这个项目里的边界问题\n/exit\n")
+	r.writeEnabled = false
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("write_disabled route must not call runner: %v", runner.requests)
+	}
+	if !strings.Contains(out.String(), "write_enabled") {
+		t.Fatalf("write route rejection must name write_enabled:\n%s", out.String())
 	}
 }
 

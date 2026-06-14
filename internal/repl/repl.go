@@ -2716,6 +2716,8 @@ func turnPolicyRouteDisplay(route TurnRoute, lang string) string {
 		return "数据"
 	case RouteRepo:
 		return "源码"
+	case RouteWrite:
+		return "写方案"
 	case RouteHybrid:
 		return "混合"
 	case RouteLocal:
@@ -6465,6 +6467,11 @@ func (r *REPL) dispatch(line, display string) {
 				case RouteData:
 					r.dataTaskDispatch(line, display, policy)
 					return
+				case RouteWrite:
+					r.emitReplLLMTrace(tpc, "turn_policy_classifier", types.AgentName("turn_policy"), types.StageAnalyze)
+					r.emitTurnPolicyAudit(policy)
+					r.dispatchWithUserMode(line, display, UserModeWrite)
+					return
 				case RouteHybrid:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
 						return
@@ -6587,6 +6594,8 @@ func (r *REPL) dispatch(line, display string) {
 		return
 	}
 
+	var postAnswerHints []string
+
 	// Plan-mode auto-save. When Mode=ModePlan produced a
 	// ChangePlan, persist it via PlanStore so /plan show + /plan
 	// clear survive subsequent turns. Failure is non-fatal — the
@@ -6601,13 +6610,13 @@ func (r *REPL) dispatch(line, display string) {
 				r.warn("plan auto-save failed: %v\n", saveErr)
 			} else {
 				r.pendingPlanPath = path
-				r.info(fmt.Sprintf("plan saved: %s", path))
+				postAnswerHints = append(postAnswerHints, fmt.Sprintf("plan saved: %s", path))
 				// Action nudge: surface the next-step slash commands so
-				// the user does not have to remember /approve / /reject
-				// after seeing the bordered plan summary above.
-				for _, line := range planReadyNudge(r.language, plan.ID, len(plan.Changes)) {
-					r.info(line)
-				}
+				// the user does not have to remember /approve / /reject.
+				// Keep the nudge BELOW the answer panel: if printed here
+				// immediately, it lands above the bordered plan summary and
+				// users miss it after reading downward.
+				postAnswerHints = append(postAnswerHints, planReadyNudge(r.language, plan.ID, len(plan.Changes))...)
 				// Multi-phase signal (commit 41 UX#1): when the
 				// LLM emitted a sequential PhaseProposal with
 				// >=2 phases, surface that fact at plan-emit
@@ -6617,9 +6626,7 @@ func (r *REPL) dispatch(line, display string) {
 				if ir := busCtx.Mutable.WriteAnalysisIR(); ir != nil &&
 					ir.PhaseProposal.Split == "sequential" &&
 					len(ir.PhaseProposal.Phases) >= 2 {
-					for _, line := range planReadyMultiPhaseNudge(r.language, len(ir.PhaseProposal.Phases)) {
-						r.info(line)
-					}
+					postAnswerHints = append(postAnswerHints, planReadyMultiPhaseNudge(r.language, len(ir.PhaseProposal.Phases))...)
 				}
 			}
 		}
@@ -6674,12 +6681,18 @@ func (r *REPL) dispatch(line, display string) {
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, emptyResponseHint(r.language))
+		for _, line := range postAnswerHints {
+			r.info(line)
+		}
 		r.lastAnswerOrigin = replAnswerOriginPipeline
 		r.recordTurn(display, line, memResponse, memory.KindPipeline)
 		return
 	}
 
 	r.renderBordered(response)
+	for _, line := range postAnswerHints {
+		r.info(line)
+	}
 	if hint := finalAnswerMarkdownNotice(busCtx, r.language); hint != "" {
 		r.info(hint)
 	}
@@ -7262,29 +7275,8 @@ func (r *REPL) handleModeCmd(line string) {
 		return
 	}
 	target = target.Normalize()
-	// L2 gate: every non-read mode requires `write_enabled: true` in
-	// codrax.yaml. Explicit code/operation/data remain read-only or
-	// separately policy-gated and do not use this write gate.
-	if target == UserModeWrite && !r.writeEnabled {
-		for _, line := range writeModeDisabled(r.language, "/mode write", r.settingsPath) {
-			r.warn("%s\n", line)
-		}
+	if target == UserModeWrite && !r.canEnterWritePlanning("/mode write") {
 		return
-	}
-	// Single-pending-plan invariant — UX layer rejection. Switching
-	// to /mode write WHILE an unsettled plan exists in PlanStore is
-	// refused: the new plan would be drafted against the current
-	// repo state, which the unsettled plan may already be modifying
-	// (in worktree). Keep the user at their current mode and surface
-	// a status-tailored 3-way menu (merge / reject / clear) so they
-	// can pick the right resolution for that specific status.
-	if target == UserModeWrite && r.planStore != nil {
-		if blocker, ok := r.detectUnsettledPlan(); ok {
-			for _, line := range unsettledModePlanReject(r.language, blocker.ID, blocker.Status) {
-				r.info(line)
-			}
-			return
-		}
 	}
 	r.userMode = target
 	if target == UserModeWrite {
@@ -7302,6 +7294,28 @@ func (r *REPL) handleModeCmd(line string) {
 	}
 }
 
+// canEnterWritePlanning centralizes the write planning entry gate used by
+// /mode write, /write <request>, and structured auto-route=write. It only
+// authorizes planning, not applying. apply/merge still go through their own
+// approval, risk, and worktree gates.
+func (r *REPL) canEnterWritePlanning(command string) bool {
+	if !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, command, r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return false
+	}
+	if r.planStore != nil {
+		if blocker, ok := r.detectUnsettledPlan(); ok {
+			for _, line := range unsettledModePlanReject(r.language, blocker.ID, blocker.Status) {
+				r.info(line)
+			}
+			return false
+		}
+	}
+	return true
+}
+
 func (r *REPL) handleOneShotUserModeCmd(line, cmd string, mode UserMode) {
 	args := strings.TrimSpace(strings.TrimPrefix(line, cmd))
 	if args == "" {
@@ -7313,6 +7327,9 @@ func (r *REPL) handleOneShotUserModeCmd(line, cmd string, mode UserMode) {
 
 func (r *REPL) dispatchWithUserMode(line, display string, mode UserMode) {
 	mode = mode.Normalize()
+	if mode == UserModeWrite && !r.canEnterWritePlanning("/write") {
+		return
+	}
 	oldUserMode := r.userMode
 	oldPipelineMode := r.currentMode
 	r.userMode = mode
@@ -8821,15 +8838,16 @@ func (r *REPL) handleMergeCmd(line string) {
 		switch {
 		case strings.HasPrefix(tok, "--branch="):
 			target = strings.TrimSpace(strings.TrimPrefix(tok, "--branch="))
-		case tok == "--include-failed", tok == "--force":
-			// --include-failed (preferred name) and --force (alias)
-			// allow merging a verify_failed plan. Use case: tests
-			// require infra the local box can't run (integration DB,
-			// external API, GPU); the operator reviews the diff,
-			// decides the failures are acceptable, and merges to
-			// run tests in CI. Without this flag /merge skips
-			// verify_failed plans because the safe default is "only
-			// merge code that passed verify".
+		case tok == "--include-failed", tok == "--force", tok == "--skip-verify":
+			// --include-failed (preferred historical name), --force, and
+			// --skip-verify (UX alias) allow merging a verify_failed or
+			// unverified plan. Use case: tests require infra the local box
+			// can't run (integration DB, external API, GPU), or apply was
+			// deliberately run with --skip-verify; the operator reviews the
+			// diff, accepts that local verification is absent/red, and
+			// merges to run tests in CI. Without this flag /merge skips
+			// non-verified plans because the safe default is "only merge
+			// code that passed verify".
 			includeFailed = true
 		}
 	}
@@ -8904,6 +8922,11 @@ func (r *REPL) handleMergeCmd(line string) {
 			r.warn("%s\n", line)
 		}
 	}
+	if includeFailed && planStatus == types.PlanStatusUnverified {
+		for _, line := range mergeSkipVerifyWarning(r.language, planID) {
+			r.warn("%s\n", line)
+		}
+	}
 	if wt == "" && recoveryRef == "" {
 		// Commit 10 #4: when the no-eligible-plan path fires, scan
 		// once more for partially_applied / unverified plans so we
@@ -8926,8 +8949,7 @@ func (r *REPL) handleMergeCmd(line string) {
 			return
 		}
 		if unverifiedID != "" {
-			r.info(fmt.Sprintf("/merge skipped: plan %s is unverified (apply landed but no tests verified the change). use `/merge --include-failed` if you accept landing without local test proof.\n",
-				unverifiedID))
+			r.info(mergeUnverifiedNeedsSkipVerifyMsg(r.language, unverifiedID))
 			return
 		}
 		for _, line := range mergeNoApplyYet(r.language) {

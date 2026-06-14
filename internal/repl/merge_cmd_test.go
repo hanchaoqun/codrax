@@ -167,6 +167,31 @@ func TestHandleMergeCmd_NoApplyYet(t *testing.T) {
 	}
 }
 
+func TestHandleMergeCmd_UnverifiedSuggestsSkipVerify(t *testing.T) {
+	store := NewPlanStore(t.TempDir())
+	if _, err := store.SaveForTest(&types.ChangePlan{
+		ID:      "plan-unverified-1",
+		Summary: "unverified fixture",
+		Status:  types.PlanStatusUnverified,
+		Changes: []types.FileChange{{
+			Path: "feature.txt",
+			Kind: "modify",
+		}},
+		TargetPaths: []string{"feature.txt"},
+	}); err != nil {
+		t.Fatalf("save unverified plan: %v", err)
+	}
+	r, _ := newScriptedREPL(t, store)
+	out, _ := captureOut(r)
+
+	r.handleMergeCmd("/merge")
+
+	got := out.String()
+	if !strings.Contains(got, "/merge --skip-verify") || !strings.Contains(got, "/verify plan-unverified-1") {
+		t.Fatalf("unverified /merge hint should name verify and skip-verify actions; got:\n%s", got)
+	}
+}
+
 // TestHandleMergeCmd_WriteDisabled verifies the L2 gate fires when
 // codrax.yaml has write_enabled: false.
 func TestHandleMergeCmd_WriteDisabled(t *testing.T) {

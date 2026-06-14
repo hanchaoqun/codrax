@@ -557,6 +557,22 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 				"  /plan clear                delete outright (no audit)",
 			}
 		}
+	case "unverified":
+		if zh {
+			menu = []string{
+				"  /verify <id>               只重跑验证",
+				"  /merge --skip-verify       review 后跳过本地验证合并",
+				"  /reject                    丢弃改动(保留事后审查记录)",
+				"  /plan clear                彻底删除(无审查记录)",
+			}
+		} else {
+			menu = []string{
+				"  /verify <id>               run verification only",
+				"  /merge --skip-verify       merge after review without local verification",
+				"  /reject                    discard (keep audit record)",
+				"  /plan clear                delete outright (no audit)",
+			}
+		}
 	default:
 		// Should never happen — IsUnsettledStatus only matches the
 		// three above. Defensive fallback.
@@ -616,9 +632,14 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 		return formatN(lang, "%s applied, not merged — /merge · /reject · /plan clear%s", planID, suffix)
 	case "verify_failed":
 		if zh {
-			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /reject · /plan clear%s", planID, suffix)
+			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
 		}
-		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+	case "unverified":
+		if zh {
+			return formatN(lang, "%s 未本地验证 — /verify <id> · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+		}
+		return formatN(lang, "%s unverified — /verify <id> · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
 	}
 	if zh {
 		return formatN(lang, "%s 状态未结算 — /plan list 查看 · /reject · /plan clear%s", planID, suffix)
@@ -713,6 +734,34 @@ func mergeForceFailedWarning(lang, planID string) []string {
 		formatN(lang, "  · Force-merging plan %s — its verify stage previously failed.", planID),
 		"  Confirm the diff and failure summary via /plan show; only proceed if the failure is environmental (CI/infra), not a code defect.",
 	}
+}
+
+// mergeSkipVerifyWarning is the unverified counterpart to
+// mergeForceFailedWarning. The plan bytes landed, but no local
+// verifier produced a passing verdict. This is an explicit operator
+// override for hosts that cannot run the needed test surface locally.
+func mergeSkipVerifyWarning(lang, planID string) []string {
+	if isZh(lang) {
+		return []string{
+			formatN(lang, "  · 跳过本地验证合入 plan %s — 该 plan 尚无本地 verify 通过记录。", planID),
+			"  请先用 /plan show 核对 diff；只有在本地测试条件缺失、且后续 CI 会执行验证时再继续。",
+		}
+	}
+	return []string{
+		formatN(lang, "  · Merging plan %s without a local verification pass.", planID),
+		"  Review the diff via /plan show first; proceed only when local tests are unavailable and CI will verify the change.",
+	}
+}
+
+// mergeUnverifiedNeedsSkipVerifyMsg is printed when /merge sees an
+// unverified candidate but the user did not explicitly choose the
+// skip-verification override. Default /merge remains conservative:
+// it only accepts plans that verified locally.
+func mergeUnverifiedNeedsSkipVerifyMsg(lang, planID string) string {
+	if isZh(lang) {
+		return formatN(lang, "plan %s 已 apply 但未本地验证；先用 /verify %s 重跑验证，或 review 后执行 `/merge --skip-verify` 跳过本地验证合入。", planID, planID)
+	}
+	return formatN(lang, "plan %s is applied but unverified; run /verify %s first, or review it and use `/merge --skip-verify` to merge without local verification.", planID, planID)
 }
 
 // mergeFailure — printed when MergeIntoBranch returned an error.
@@ -922,11 +971,11 @@ func planShowFooter(lang string, planStatus string) []string {
 	case "verify_failed":
 		if zh {
 			return []string{
-				"  下一步：/approve --retry 重试 · /merge --include-failed 强行合入 · /reject 丢弃",
+				"  下一步：/approve --retry 重试 · /merge --include-failed 强行合入 · /merge --skip-verify 跳过本地验证合入 · /reject 丢弃",
 			}
 		}
 		return []string{
-			"  Next: /approve --retry to retry · /merge --include-failed to merge anyway · /reject to discard",
+			"  Next: /approve --retry to retry · /merge --include-failed to merge anyway · /merge --skip-verify to merge without local verification · /reject to discard",
 		}
 	case "partially_applied":
 		if zh {
@@ -940,11 +989,11 @@ func planShowFooter(lang string, planStatus string) []string {
 	case "unverified":
 		if zh {
 			return []string{
-				"  下一步：/approve --retry 重跑（加上 tests 后）· /merge --include-failed 跳过验证强行合入 · /reject 丢弃",
+				"  下一步：/verify <id> 重跑验证 · /merge --skip-verify 跳过本地验证合入 · /reject 丢弃",
 			}
 		}
 		return []string{
-			"  Next: /approve --retry to re-run (after adding tests) · /merge --include-failed to merge without verification · /reject to discard",
+			"  Next: /verify <id> to verify · /merge --skip-verify to merge without local verification · /reject to discard",
 		}
 	case "applied":
 		if zh {

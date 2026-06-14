@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: colinhacks/zod#5824, symptom-driven variant.
+ID="github_issue_zod_prefault_symptom"
+NAME="zod TypeScript JSON schema falsy prefault symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/zod_prefault"
+QUESTION="真实上游记录：colinhacks/zod issue #5824 / PR #5893。这个最小 TypeScript 复现仓里，用户报告 schema 转 JSON schema 时，prefault 的 true 或普通字符串能被保留下来，但 false、0、空字符串这些有效默认值会从输出里消失。请先根据这个现象探索定位默认值提取路径，再修复实现并保留或补充 falsy prefault 回归测试；不要通过改测试期望绕过问题。上游 issue: https://github.com/colinhacks/zod/issues/5824，上游 PR: https://github.com/colinhacks/zod/pull/5893"
+EXPECT_MATCHES_REGEX='(prefault[(]false[)]|_prefault:[[:space:]]*false)
+(prefault[(]0[)]|_prefault:[[:space:]]*0)
+(prefault[(]""[)]|_prefault:[[:space:]]*"")'

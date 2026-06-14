@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: google/gson LazilyParsedNumber value semantics, symptom-driven variant.
+ID="github_issue_gson_lazy_number_symptom"
+NAME="gson Java lazy number equality symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/gson_lazy_number"
+QUESTION="真实上游记录：google/gson LazilyParsedNumber 历史 value semantics 缺口。这个最小 Java 复现仓里，用户报告两个包装同一个数字字面量的 lazy number 实例在断言和 Map key 使用中表现得像不同值，导致相同输入无法命中已有 key；普通 Number 转换行为仍应保持不变。请先根据这个现象探索定位值语义缺口，再修复实现并保留回归校验；不要通过改测试期望绕过问题。上游文件: https://github.com/google/gson/blob/main/gson/src/main/java/com/google/gson/internal/LazilyParsedNumber.java"
+POST_APPLY_FILE="src/main/java/com/google/gson/internal/LazilyParsedNumber.java"
+EXPECT_MATCHES_REGEX='public[[:space:]]+boolean[[:space:]]+equals[[:space:]]*[(]
+public[[:space:]]+int[[:space:]]+hashCode[[:space:]]*[(]'

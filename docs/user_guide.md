@@ -2162,7 +2162,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写命令都拒绝(进入写模式始终需要 per-invocation 显式动词) |
+| `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写 planning/apply/verify/merge 都拒绝。REPL auto 可通过结构化 `route=write` 进入 plan-only,但不会自动 apply |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
@@ -2553,6 +2553,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/op <任务>` | 单次强制走电脑操作 |
 | `/data <任务>` | 单次强制走数据处理 |
 | `/write <改动需求>` | 单次强制走写模式;`write_enabled: false` 时被拒绝 |
+| auto `route=write` | REPL auto 下明确的代码变更请求可自动进入 plan-only;生成方案后仍需 `/approve` 才会写入 worktree |
 | `/plan show` | 渲染当前 pending plan(per-file diff,16 KB 上限) |
 | `/plan show <id>` | 按 ID 渲染任意 plan |
 | `/plan list` | 列出 PlanStore 里所有 plan |

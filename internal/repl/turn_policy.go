@@ -13,7 +13,7 @@ package repl
 // the finalizer simply restated the previous answer in a new shape.
 //
 // TurnPolicy is the structured replacement: every turn is one of
-// {local, repo, hybrid, clarify, operation, data} with a small set of orthogonal
+// {local, repo, hybrid, clarify, operation, data, write} with a small set of orthogonal
 // signals (operation / source / confidence + an optional
 // presentation_directive). The LLM emits the policy via
 // emit_turn_policy; deterministic guards then patch obvious
@@ -89,6 +89,12 @@ const (
 	// and RouteOperation (no ordinary computer-operation approval loop for pure
 	// read-only data math).
 	RouteData TurnRoute = "data"
+
+	// RouteWrite — the turn asks to change repository files. The
+	// dispatcher enters write planning only; it does not apply bytes
+	// to the main repo. apply/merge still require the write-mode plan,
+	// approval, risk, and worktree gates.
+	RouteWrite TurnRoute = "write"
 )
 
 // TurnPolicy is the structured classification result. All fields
@@ -180,12 +186,12 @@ var turnPolicyTool = llm.ToolSchema{
   "properties": {
     "route": {
       "type": "string",
-      "enum": ["local", "repo", "hybrid", "clarify", "operation", "data"],
-	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+      "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
+	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. write = produce a reviewable repository change proposal for source/config/test/doc edits; dispatch enters write planning only and never applies directly. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
-      "description": "true iff route is repo or hybrid, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the analyzer later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+      "description": "true iff route is repo, hybrid, or write, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the analyzer later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
     },
     "needs_operation_access": {
       "type": "boolean",
@@ -197,8 +203,8 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "operation": {
       "type": "string",
-      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
-      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
+      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "code_change", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
+      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. code_change = route=write candidate for producing a reviewable repository change proposal. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
     },
     "data_task_kind": {
       "type": "string",
@@ -259,7 +265,7 @@ var turnPolicyTool = llm.ToolSchema{
 // shape so the prompt grows without coupling to keyword tables.
 const turnPolicySystemPrompt = `You route each user turn in a code-analysis REPL into a structured TurnPolicy and emit it via emit_turn_policy.
 
-The six routes:
+The seven routes:
 
   local   — the answer can be produced from the user's CURRENT MESSAGE
             plus the PREVIOUS ANSWER and CONVERSATION CONTEXT. The
@@ -352,9 +358,21 @@ The six routes:
             citation gates or command-operation approval for pure read-only
             data math.
 
-needs_repo_access is true iff route ∈ {repo, hybrid}, or route=operation
-needs fresh repository facts before producing an artifact. The dispatcher
-re-checks this and corrects mismatches.
+  write   — the user is asking Codrax to change repository files:
+            source code, tests, build/config files, docs, examples, or other
+            repo-owned artifacts. The dispatcher enters write PLANNING only:
+            it may explore the repo and emit a reviewable ChangePlan, but it
+            does not apply bytes to the main repository. Applying, skipping
+            verification, and merging remain separate typed write-mode steps
+            guarded by write_enabled, plan lifecycle state, deterministic
+            risk policy, approval records, and git worktree isolation. If the
+            user asks to diagnose/explain without changing files, use repo,
+            not write. If the user asks for a non-code computer/artifact
+            workflow, use operation.
+
+needs_repo_access is true iff route ∈ {repo, hybrid, write}, or
+route=operation needs fresh repository facts before producing an artifact.
+The dispatcher re-checks this and corrects mismatches.
 
 needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact
@@ -373,6 +391,7 @@ operation:
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
   investigate — fresh code investigation that needs repo reads
+  code_change — produce a reviewable repository change proposal (route=write)
   computer_operation — operate desktop/browser/UI or external tools,
                 or run local commands to inspect the current machine,
                 environment, installed software, filesystem, versions,
@@ -527,6 +546,18 @@ Examples (illustrative, NOT exhaustive — judge by structure):
       data_task_kind=data_cleaning, source=data,
       risk_level=low, side_effects=[], requires_confirmation=false,
       confidence≈0.85
+
+  Current: "修复这个项目里导致单测失败的边界问题，并补回归测试"
+    → route=write, needs_repo_access=true,
+      needs_operation_access=false, operation=code_change,
+      source=repo, risk_level=none, side_effects=[],
+      requires_confirmation=false, confidence≈0.85
+
+  Current: "给 CLI 新增 --json 输出，并更新测试"
+    → route=write, needs_repo_access=true,
+      needs_operation_access=false, operation=code_change,
+      source=repo, risk_level=none, side_effects=[],
+      requires_confirmation=false, confidence≈0.85
 
   Current: "把上面的流程换成 mermaid，同时重新读仓库确认有没
             有 IO 分析" + last_answer_present=true
@@ -692,7 +723,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 	}
 	route := TurnRoute(parsed.Route)
 	switch route {
-	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify, RouteOperation, RouteData:
+	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify, RouteOperation, RouteData, RouteWrite:
 	default:
 		return zero, fmt.Errorf("turn-policy classifier: unknown route %q", parsed.Route)
 	}
@@ -1072,6 +1103,15 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.NeedsDataAccess = true
 	}
 
+	// Write lane self-contradiction: route=write or the typed
+	// operation=code_change means the user wants a reviewable repo
+	// change proposal. This only enters planning; apply/merge remain
+	// behind write-mode approval gates.
+	if p.Route != RouteWrite && hasWriteSignal(p) && !p.NeedsOperationAccess && !p.NeedsDataAccess {
+		p.Route = RouteWrite
+		p.NeedsRepoAccess = true
+	}
+
 	// Self-contradiction on the operation axis: a route or boolean hints at
 	// operation access, but the typed payload says this is an analysis-only
 	// investigation over repo / runtime artifact / external observation
@@ -1093,7 +1133,7 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// needed. Trust the typed operation signal rather than sending the turn
 	// to local chat or source analysis. This is structural, not prose-based:
 	// it only consumes schema fields emitted by the classifier.
-	if p.Route != RouteOperation && p.Route != RouteData && hasOperationSignal(p) {
+	if p.Route != RouteOperation && p.Route != RouteData && p.Route != RouteWrite && hasOperationSignal(p) {
 		p.Route = RouteOperation
 		p.NeedsOperationAccess = true
 	}
@@ -1101,11 +1141,27 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// Self-contradiction the other way: route says repo/hybrid
 	// but needs_repo_access is false. Trust the route enum (it's
 	// the explicit decision); patch needs_repo_access.
-	if p.Route == RouteRepo || p.Route == RouteHybrid {
+	if p.Route == RouteRepo || p.Route == RouteHybrid || p.Route == RouteWrite {
 		p.NeedsRepoAccess = true
 	}
 	if p.Route == RouteLocal || p.Route == RouteClarify {
 		p.NeedsRepoAccess = false
+	}
+	if p.Route == RouteWrite {
+		p.NeedsOperationAccess = false
+		p.NeedsDataAccess = false
+		if strings.TrimSpace(p.Operation) == "" || p.Operation == "investigate" {
+			p.Operation = "code_change"
+		}
+		if p.Source == "" {
+			p.Source = "repo"
+		}
+		if p.RiskLevel == "" {
+			p.RiskLevel = "none"
+		}
+		p.SideEffects = nil
+		p.TargetSurface = ""
+		p.RequiresConfirmation = false
 	}
 	if p.Route == RouteData {
 		p.NeedsRepoAccess = false
@@ -1191,11 +1247,20 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// running the pipeline against a "上面的" reference would produce a
 	// worse answer than asking the user to re-state.
 	if p.Confidence > 0 && p.Confidence < turnPolicyConfidenceFloor {
-		if p.Route == RouteLocal || p.Route == RouteOperation || p.Route == RouteData {
+		if p.Route == RouteLocal || p.Route == RouteOperation || p.Route == RouteData || p.Route == RouteWrite {
+			wasWrite := p.Route == RouteWrite
 			p.Route = RouteRepo
 			p.NeedsRepoAccess = true
 			p.NeedsOperationAccess = false
 			p.NeedsDataAccess = false
+			if wasWrite {
+				p.Operation = "investigate"
+				p.Source = "repo"
+				p.RiskLevel = "none"
+				p.SideEffects = nil
+				p.TargetSurface = ""
+				p.RequiresConfirmation = false
+			}
 		}
 	}
 
@@ -1278,6 +1343,10 @@ func hasDataSignal(p TurnPolicy) bool {
 
 func hasOperationSignal(p TurnPolicy) bool {
 	return concreteOperationSignal(p)
+}
+
+func hasWriteSignal(p TurnPolicy) bool {
+	return strings.TrimSpace(p.Operation) == "code_change"
 }
 
 // IsConcreteOperationPolicy reports whether a guarded TurnPolicy carries enough

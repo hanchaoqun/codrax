@@ -562,6 +562,25 @@ func TestPlanReadyNudge_NamesAllActions(t *testing.T) {
 	}
 }
 
+func TestMergeSkipVerifyMessagesNameExplicitAction(t *testing.T) {
+	msg := mergeUnverifiedNeedsSkipVerifyMsg("en", "plan-1")
+	for _, want := range []string{"plan-1", "/verify plan-1", "/merge --skip-verify"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("merge unverified hint missing %q; got:\n%s", want, msg)
+		}
+	}
+	warning := strings.Join(mergeSkipVerifyWarning("en", "plan-1"), "\n")
+	for _, want := range []string{"without a local verification pass", "/plan show", "CI"} {
+		if !strings.Contains(warning, want) {
+			t.Fatalf("merge skip-verify warning missing %q; got:\n%s", want, warning)
+		}
+	}
+	footer := strings.Join(planShowFooter("en", "unverified"), "\n")
+	if !strings.Contains(footer, "/merge --skip-verify") || strings.Contains(footer, "/merge --include-failed") {
+		t.Fatalf("unverified footer should prefer explicit skip-verify action; got:\n%s", footer)
+	}
+}
+
 // Locks the zh-as-default contract for every helper in messages.go:
 // only an explicit "en" flips to English; everything else (empty,
 // "zh", "fr", typos) stays zh.
@@ -903,7 +922,7 @@ func TestPlanShowFooter_StatusAware(t *testing.T) {
 		{"pending_approval", "/approve to apply"},
 		{"verify_failed", "--retry"},
 		{"partially_applied", "--retry"},
-		{"unverified", "--retry"},
+		{"unverified", "--skip-verify"},
 		{"applied", "/merge to merge"},
 	} {
 		lines := planShowFooter("en", c.status)

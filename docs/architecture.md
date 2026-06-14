@@ -3,7 +3,7 @@
 codrax 是一个**代码分析 + 变更提议**工具：
 
 - **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
-- **写模式**（per-invocation 显式进入:`--mode=write` 或 REPL `/mode write`;`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
+- **写模式**（CLI 仍需 `--mode=write`;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 **plan-only**；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
@@ -1331,14 +1331,14 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 ### 8.1 触发条件与用户模式
 
-> *写模式像家用电锯：用户必须显式按下扳机（CLI `--mode=write` 或 REPL `/mode write` / `/write`,任何自动路由都不会替用户按）;机身上另有一个物理断电开关（`write_enabled: false`）——组织可以拔掉钥匙,让谁按扳机都不通电。*
+> *写模式像带两段扳机的工具：REPL auto classifier 可以在结构化 `route=write` 时进入 plan-only,但 apply/merge 仍必须经过用户可见 plan、approval、risk gate 和 worktree 边界；`write_enabled: false` 是物理断电开关。*
 
 写模式的入口由两个独立 gate 控制，缺一不可：
 
 1. `codrax.yaml :: write_enabled` 未显式设为 false（默认 true;显式 false 是组织级 kill switch）
-2. 用户显式进入写入口：CLI `--mode=write`（再用 `--write-phase=plan|apply|verify` 选择内部阶段）或 REPL `/mode write` / `/write <request>`
+2. 写 planning 入口成立：CLI `--mode=write`（再用 `--write-phase=plan|apply|verify` 选择内部阶段）、REPL `/mode write` / `/write <request>`，或 REPL auto mode 中结构化 TurnPolicy 输出 `route=write` 且通过置信度/未结算 plan gate
 
-`Run()` 入口检查；任一不满足 → fail-loud。真实 consent 是 per-invocation 的模式显式选择——分类器永远不会自动路由进写模式;kill switch 留给需要全局禁写的部署。
+`Run()` 入口检查；任一不满足 → fail-loud。REPL auto `route=write` 只进入 `ModePlan` 生成可审查 ChangePlan，不授权 apply；低置信 `route=write` 会降级为 repo 分析。真实写入 consent 仍在 `/approve`/approval record/apply-pre gate，分类器输出不能跳过审批、risk、fingerprint 或 worktree 边界。kill switch 留给需要全局禁写的部署。
 
 用户模式是粘滞的：REPL `/mode auto|code|operation|data|write` 会影响后续 turns；`/code`、`/op`、`/data`、`/write` 是单次直达。内部 `PipelineMode` 仍只表示写阶段：`read`、`plan`、`apply`、`verify`。
 
@@ -1674,7 +1674,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 ### 8.21 红线总结
 
 - **L1**：读模式 Run 字节级行为不变；写模式 opt-in 从不影响读模式
-- **L2**：写模式必须 per-invocation 显式进入（无任何自动路由）;显式 `write_enabled: false` 为 kill switch,全链路拒启动
+- **L2**：写 planning 可由显式 `/mode write` / `/write` 或 REPL structured `route=write` 进入；auto 只允许 `ModePlan`、低置信降级 repo、未结算 plan 拒绝；apply/merge 仍必须走显式 `/approve`/`/merge` 和 approval/risk/worktree gates；显式 `write_enabled: false` 为 kill switch,全链路拒启动
 - **L3**：写工具（emit_change_plan / apply_patch / run_tests / emit_test_results）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化
 - **L5**：worktree 清理 defer 位于 Run() 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out
 - **L6**：写模式 skill（change-plan-skill / code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius

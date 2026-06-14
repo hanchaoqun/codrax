@@ -402,6 +402,8 @@ var slashCommands = []slashCommand{
 		Subs: []slashSubcommand{
 			{"--branch=<name>", "create a new branch on main repo + cherry-pick onto it (PR workflow); without this flag, fast-forward into r.branch",
 				"在主仓上拉新分支并 cherry-pick(PR 流);不传时 fast-forward 到 r.branch"},
+			{"--skip-verify", "also accept unverified plans after operator review; CI is expected to verify later",
+				"review 后允许合入未本地验证的 plan;后续交给 CI 验证"},
 			{"--include-failed", "also accept verify_failed plans (alias: --force) — for env/CI failures the operator decides to merge anyway",
 				"把 verify_failed plan 也纳入候选(别名 --force)— 适合环境/CI 类失败,review 后强合"},
 		},

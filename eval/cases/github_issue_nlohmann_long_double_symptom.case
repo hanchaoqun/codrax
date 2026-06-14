@@ -1,0 +1,7 @@
+# Real GitHub issue write-mode eval: nlohmann/json#3929, symptom-driven variant.
+ID="github_issue_nlohmann_long_double_symptom"
+NAME="nlohmann C++ long double serializer symptom-only localization and sync fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/nlohmann_long_double"
+QUESTION="真实上游记录：nlohmann/json PR #3929。这个最小 C++ 复现仓里，用户报告 long double 序列化在严格编译设置下触发 format 类型不匹配诊断，且工程同时发布普通头文件和 single include 版本，两个入口都必须保持一致；普通浮点格式化不应被破坏。请先根据编译现象探索定位 long double 格式化路径，再修复实现并保持两份发布头同步；不要通过降低编译告警或改测试绕过问题。上游 PR: https://github.com/nlohmann/json/pull/3929"
+EXPECT_MATCHES_REGEX='%[.][*]Lg'

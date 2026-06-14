@@ -6,8 +6,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type planPanelRunner struct {
+	mode types.PipelineMode
+}
+
+func (r *planPanelRunner) SetMode(mode types.PipelineMode) {
+	r.mode = mode
+}
+
+func (r *planPanelRunner) Run(req, _, _ string) (*types.BusContext, error) {
+	mut := types.NewMutableState(req)
+	mut.SetResult("PLAN PANEL")
+	mut.SetChangePlan(&types.ChangePlan{
+		ID:      "plan-ui",
+		Summary: "change proposal",
+		Status:  types.PlanStatusPending,
+		Changes: []types.FileChange{{
+			Path: "a.go",
+			Kind: "modify",
+		}},
+		TargetPaths: []string{"a.go"},
+	})
+	return &types.BusContext{Mutable: mut, Mode: r.mode}, nil
+}
 
 // newScriptedREPL returns a REPL wired for line-oriented scripted
 // tests (no Bubble Tea). Callers drive input by supplying a
@@ -151,6 +176,100 @@ func TestHandleMode_RejectedWithoutWriteEnabled(t *testing.T) {
 		if r.userMode != UserMode(m) {
 			t.Errorf("/mode %s should succeed without write_enabled; got userMode=%q output=%q", m, r.userMode, out.String())
 		}
+	}
+}
+
+func TestOneShotWriteRejectedWithoutWriteEnabled(t *testing.T) {
+	in := strings.NewReader("")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:   stubRunner{},
+		In:       in,
+		Out:      out,
+		RepoRoot: "/tmp/repo", Branch: "main",
+		Language: "en",
+		// WriteEnabled left false (default).
+	})
+	r.handleOneShotUserModeCmd("/write change files", "/write", UserModeWrite)
+	if r.userMode == UserModeWrite || r.currentMode == types.ModePlan {
+		t.Fatalf("/write must not enter write planning when write_enabled=false; userMode=%q currentMode=%q",
+			r.userMode, r.currentMode)
+	}
+	if !strings.Contains(out.String(), "write_enabled") {
+		t.Fatalf("/write rejection must name write_enabled; got: %q", out.String())
+	}
+}
+
+func TestOneShotWriteRejectedWithUnsettledPlan(t *testing.T) {
+	store := NewPlanStore(t.TempDir())
+	if _, err := store.Save(&types.ChangePlan{
+		ID:      "plan-blocker",
+		Summary: "existing applied plan",
+		Status:  types.PlanStatusApplied,
+		Changes: []types.FileChange{{
+			Path: "a.go",
+			Kind: "modify",
+		}},
+		TargetPaths: []string{"a.go"},
+	}); err != nil {
+		t.Fatalf("save blocker plan: %v", err)
+	}
+	in := strings.NewReader("")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:       stubRunner{},
+		In:           in,
+		Out:          out,
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		Language:     "en",
+		WriteEnabled: true,
+		PlanStore:    store,
+	})
+	r.handleOneShotUserModeCmd("/write change files", "/write", UserModeWrite)
+	if r.userMode == UserModeWrite || r.currentMode == types.ModePlan {
+		t.Fatalf("/write must not enter write planning with unsettled plan; userMode=%q currentMode=%q",
+			r.userMode, r.currentMode)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "unsettled plan") || !strings.Contains(printed, "/merge") {
+		t.Fatalf("/write unsettled rejection missing recovery menu:\n%s", printed)
+	}
+}
+
+func TestPlanReadyNudgeRendersBelowAnswerPanel(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	runner := &planPanelRunner{}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:       runner,
+		Store:        store,
+		Render:       func(*types.BusContext) string { return "PLAN PANEL" },
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		In:           strings.NewReader(""),
+		Out:          out,
+		Language:     "en",
+		WriteEnabled: true,
+		PlanStore:    NewPlanStore(t.TempDir()),
+	})
+	r.dispatchWithUserMode("change a.go", "change a.go", UserModeWrite)
+
+	printed := out.String()
+	panelIdx := strings.Index(printed, "PLAN PANEL")
+	approveIdx := strings.Index(printed, "/approve")
+	if panelIdx < 0 {
+		t.Fatalf("plan panel missing from output:\n%s", printed)
+	}
+	if approveIdx < 0 {
+		t.Fatalf("approve nudge missing from output:\n%s", printed)
+	}
+	if approveIdx < panelIdx {
+		t.Fatalf("approve nudge should render below the answer panel; output:\n%s", printed)
 	}
 }
 

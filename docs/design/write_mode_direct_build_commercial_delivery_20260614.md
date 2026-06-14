@@ -1451,3 +1451,65 @@ Consumers:
   - Implementation commit: `write-mode: escalate syntax fallback to test surface`.
   - Push status: pushed to `origin/main` after verification.
   - Residual follow-up: eval summary snippets should eventually include command provenance from the authoritative report, not only source previews; this is observability-only and does not affect typed product verdicts.
+
+#### Batch 31: REPL Write UX, Auto Plan Routing, And Symptom-Localization Eval Expansion
+
+- Evidence sources:
+  - User-observed UX gap: plan-ready `/approve` action hints were emitted before the answer panel, so users reading top-to-bottom often missed the next action.
+  - User-observed UX gap: `/merge` did not expose a clear skip-local-verification merge action for plans that were applied but unverified; users saw a refusal only after trying the generic command.
+  - User-observed workflow gap: smooth write mode should not require manually typing `/mode write` for every clear repository-change request, but auto routing must not become write authorization.
+  - Eval coverage gap: existing GitHub issue cases still contained several prompt variants with too much implementation detail, so they tested patch execution more than end-to-end symptom localization.
+- Target architecture:
+  - REPL plan generation collects plan-save and next-action hints as post-answer hints, then renders them after the bordered answer panel. The answer remains the primary artifact; actions are visible where the user finishes reading.
+  - `/merge --skip-verify` becomes the explicit UX alias for merging an unverified applied plan after operator review. `/merge --include-failed` remains for `verify_failed` override. Default `/merge` still accepts only locally verified applied plans.
+  - TurnPolicy adds `route=write` and `operation=code_change`. The dispatcher may auto-enter one-shot write planning only when the structured classifier emits this route and deterministic guards accept it.
+  - Auto `route=write` is **plan-only**: it sets `ModePlan`, emits/saves a ChangePlan, then restores auto/read state. It cannot call apply, skip verify, or merge. `/approve` and `/merge` remain explicit user actions with approval/risk/worktree gates.
+  - Low-confidence `route=write` demotes to repo analysis; an unsettled plan blocks new planning; `write_enabled=false` blocks explicit and auto write planning.
+  - `/write <request>` now shares the same `write_enabled` and unsettled-plan gate as `/mode write` and auto `route=write`.
+- Prompt hygiene and hard-gate rules:
+  - The classifier prompt describes `write` as soft routing guidance only.
+  - Go hard logic consumes only typed enum/boolean/confidence fields from `TurnPolicy`, plus typed PlanStore lifecycle state and `write_enabled`.
+  - No hard route scans user request keywords, model prose, summary/rationale, fixture oracle regexes, eval names, or `<think>`.
+  - The route does not affect read/log/trace/data/operation/computer dispatch unless the typed route is exactly `write`; existing local/repo/hybrid/operation/data guards remain in place.
+- Symptom-localization eval expansion:
+  - Added `eval/cases/github_issue_zod_prefault_symptom.case`: falsy prefault values disappear from generated JSON schema; prompt does not name target file/function or the `_prefault` implementation detail.
+  - Added `eval/cases/github_issue_gson_lazy_number_symptom.case`: two lazy numbers wrapping the same literal fail value semantics / map-key behavior; prompt does not name equals/hashCode as the required patch.
+  - Added `eval/cases/github_issue_dateutil_relativedelta_float_symptom.case`: integer-valued float month/year offsets fail during date arithmetic; prompt requires localization before fixing.
+  - Added `eval/cases/github_issue_nlohmann_long_double_symptom.case`: strict C++ compile reports long-double format mismatch and both published headers must stay synchronized; prompt does not reveal the exact `%.*Lg` patch.
+  - These cases complement, not replace, exact historical issue cases. Exact cases test implementation correctness with known patch details; symptom cases test exploration, localization, scoped planning, and verification.
+- Handoff expectations for symptom cases:
+  - The controller should perform read-only exploration before planning when the symptom does not identify target files.
+  - Planner context should preserve P1 target-symbol/path evidence and P2 verify/build failures with file/line/command evidence.
+  - Replan should consume the failure-specific P2 context and generate a bounded patch for the localized failure point instead of broad exploratory rewrites.
+- Implementation tasks:
+  - [x] Move plan-ready action hints below the answer panel.
+  - [x] Add `/merge --skip-verify` parsing, help/autocomplete, warnings, and unverified-plan recovery message.
+  - [x] Add `route=write` / `operation=code_change` to structured TurnPolicy schema, prompt, parser, deterministic guards, dispatch, and route audit display.
+  - [x] Add shared REPL write-planning entry gate for `/mode write`, `/write <request>`, and auto `route=write`.
+  - [x] Add tests for plan-hint render order, skip-verify merge UX, write route parsing/guards/dispatch, disabled write gate, and `/write` unsettled-plan gate.
+  - [x] Add four symptom-only GitHub issue eval cases.
+  - [x] Update `AGENTS.md`, `docs/architecture.md`, and `docs/user_guide.md` to reflect plan-only structured auto write routing.
+  - [x] Run focused REPL tests and full `go test ./...`.
+  - [x] Run bash syntax checks for new eval cases.
+  - [x] Rebuild `codrax`.
+  - [x] Confirm new symptom fixtures fail in seed state.
+  - [ ] Commit and push to `origin/main`.
+- Acceptance:
+  - Low-friction REPL: a clear code-change request in auto mode produces a plan without manual `/mode write`, but never writes files until `/approve`.
+  - Safety: `write_enabled=false`, low confidence, and unsettled plan state block auto write planning.
+  - Merge clarity: unverified plans show `/merge --skip-verify` before failure, and executing it surfaces a deliberate warning.
+  - Eval design: new symptom cases require localization from observed behavior rather than following embedded patch instructions.
+- Verification:
+  - `bash -n eval/cases/github_issue_zod_prefault_symptom.case eval/cases/github_issue_gson_lazy_number_symptom.case eval/cases/github_issue_dateutil_relativedelta_float_symptom.case eval/cases/github_issue_nlohmann_long_double_symptom.case`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'Test(ApplyTurnPolicyGuards_WriteRoute|ClassifyPolicy_TeachesWriteRoute|TurnPolicyDispatch_WriteRoute|PlanReadyNudgeRendersBelowAnswerPanel|MergeSkipVerifyMessagesNameExplicitAction|HandleMergeCmd_UnverifiedSuggestsSkipVerify|OneShotWriteRejected)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+  - Seed fixture checks failed as expected before Codrax repair:
+    - `make -C eval/fixtures/github_issues/zod_prefault check` exit 2
+    - `make -C eval/fixtures/github_issues/gson_lazy_number check` exit 2
+    - `make -C eval/fixtures/github_issues/nlohmann_long_double check` exit 2
+    - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m unittest -v eval/fixtures/github_issues/dateutil_relativedelta_float/test_relativedelta.py` exit 1
+- Progress:
+  - Implementation commit: pending.
+  - Push status: pending.

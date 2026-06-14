@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: dateutil gh-411 / gh-553, symptom-driven variant.
+ID="github_issue_dateutil_relativedelta_float_symptom"
+NAME="dateutil Python relativedelta whole-float symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/dateutil_relativedelta_float"
+QUESTION="真实上游记录：dateutil changelog 2.7.0 gh-411 / gh-553。这个最小 Python 复现仓里，用户报告使用 months=12.0 或 years=1.0 这类整数值浮点创建日期偏移时，构造阶段看似接受，但实际加到日期上会在日历运算里报类型错误；months=12 这类整数输入正常，非整数浮点仍应被拒绝。请先根据这个现象探索定位日期偏移构造/运算路径，再修复实现并保留回归测试；不要通过改测试期望绕过问题。上游记录: https://dateutil.readthedocs.io/en/2.8.2/changelog.html"
+POST_APPLY_FILE="relativedelta.py"
+EXPECT_MATCHES_REGEX='(is_integer|int[(])
+ValueError'
