@@ -75,14 +75,15 @@ func (o *Orchestrator) publishBlockedRunGuidance(run *types.WriteWorkflowRun, re
 		return
 	}
 	zh := isChineseLang(o.busCtx.Language)
+	nextView := types.DeriveWriteWorkflowNextActionView(*run)
 	var b strings.Builder
-	if zh {
-		b.WriteString("## 工作流已停止 — 恢复指引\n\n")
-	} else {
-		b.WriteString("## Workflow stopped — recovery guide\n\n")
-	}
+	b.WriteString(writeWorkflowGuidanceHeader(zh, nextView))
+	b.WriteString("\n\n")
 	if hint := blockedReasonKnobHint(reasonCode, zh); hint != "" {
 		b.WriteString("- " + hint + "\n")
+	}
+	if line := writeWorkflowGuidanceNextActionLine(zh, nextView); line != "" {
+		b.WriteString("- " + line + "\n")
 	}
 	reportDir := strings.TrimSpace(o.reportDir)
 	for _, batch := range run.Batches {
@@ -143,4 +144,45 @@ func (o *Orchestrator) publishBlockedRunGuidance(run *types.WriteWorkflowRun, re
 		return
 	}
 	o.busCtx.Mutable.SetResultPlain(guidance)
+}
+
+func writeWorkflowGuidanceHeader(zh bool, view types.WriteWorkflowNextActionView) string {
+	switch view.State {
+	case types.WriteWorkflowNextNeedsApproval:
+		if zh {
+			return "## 工作流已暂停 — 等待审批"
+		}
+		return "## Workflow paused — approval required"
+	case types.WriteWorkflowNextRunning:
+		if zh {
+			return "## 工作流正在推进 — 当前无需操作"
+		}
+		return "## Workflow running — no user action needed"
+	default:
+		if zh {
+			return "## 工作流已停止 — 恢复指引"
+		}
+		return "## Workflow stopped — recovery guide"
+	}
+}
+
+func writeWorkflowGuidanceNextActionLine(zh bool, view types.WriteWorkflowNextActionView) string {
+	switch view.State {
+	case types.WriteWorkflowNextNeedsApproval:
+		if zh {
+			return "下一步:审阅当前 batch 的风险、fingerprint 和 diff 后批准或拒绝;plan fingerprint 变化会要求重新审批。"
+		}
+		return "Next: review the current batch risk, fingerprint, and diff, then approve or reject it; fingerprint changes require re-approval."
+	case types.WriteWorkflowNextRunning:
+		if zh {
+			return "下一步:等待当前 batch 继续推进;只有高风险审批、critical 拒绝、预算耗尽或真实缺失事实会打断。"
+		}
+		return "Next: wait for the current batch to continue; only high-risk approval, critical denial, budget exhaustion, or real missing facts should interrupt."
+	case types.WriteWorkflowNextBlocked:
+		if zh {
+			return "下一步:查看下方证据和 durable refs;调整目标后重新启动 Auto Pilot,或取回已应用 ref。"
+		}
+		return "Next: inspect the evidence and durable refs below; restart Auto Pilot with a narrower goal or recover the applied ref."
+	}
+	return ""
 }

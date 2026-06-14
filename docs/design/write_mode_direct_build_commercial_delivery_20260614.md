@@ -190,6 +190,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 45 | Zero-command Auto Pilot CLI/REPL contract | `--mode=write` 默认 Auto Pilot apply；`--auto-apply` 降级兼容；prompt/status/docs 不再把 plan-first 或模式切换当主路径 |
 | 46 | Mode-projected controller decision repair | controller decision 的 model schema、JSON repair schema、runtime mode guard 共享同一 typed action 投影，避免宽 schema repair/hint 增加模型和用户心智 |
 | 47 | Typed workflow next-action view | `/workflow show` 先从 durable workflow 派生 typed next-action view，再渲染状态卡；`ready_to_plan` 显示 Auto Pilot 正在推进，不再误提示审批 |
+| 48 | CLI recovery guidance consumes next-action view | single-shot CLI / recovery result 使用 typed next-action view 区分 pending approval paused 与 true stopped，避免把可恢复审批误读成终止 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2173,3 +2174,43 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `9b0ea83c` (`write-mode: derive typed workflow next actions`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 48: CLI Recovery Guidance Consumes Next-Action View
+
+- Evidence source:
+  - Batch 47 introduced a typed next-action view for REPL `/workflow show`.
+  - Code evidence before this batch:
+    - `internal/orchestrator/write_run_guidance.go` publishes the recovery section used by single-shot CLI and REPL-visible controller failures.
+    - The function handled both blocked exits and `pending_approval`, but the header was always `Workflow stopped — recovery guide`.
+    - For `pending_approval`, the durable run remains `in_progress` and the active batch is paused for manual approval; this is not a terminal stopped workflow.
+- Generalized gap:
+  - If CLI/recovery output does not consume the same typed next-action view as REPL status rendering, users receive inconsistent mental models: one surface says "approval paused", another says "stopped".
+  - This is a broader product contract issue: every user-visible write-status surface should derive state from typed workflow artifacts, not hardcoded prose per call site.
+- Target architecture:
+  - `publishBlockedRunGuidance` uses `types.DeriveWriteWorkflowNextActionView(run)` before rendering.
+  - `needs_approval` renders as `Workflow paused — approval required`.
+  - true stopped/blocked/budget exits continue rendering as `Workflow stopped — recovery guide`.
+  - running states render as no-user-action-needed if such a guidance path is ever reused for a non-terminal continuation.
+  - Recovery details still include durable plan/report/diff/applied-ref artifacts and workflow show refs.
+- Safety and prompt hygiene:
+  - The guidance view is render-only. It does not control apply, approval, verification, merge, or scheduler transitions.
+  - Inputs are typed `WriteWorkflowRun`, active batch status, attempts, plan/report IDs, and static reason-code hints.
+  - No code path parses user keywords, model prose, summaries, rationales, eval text, logs, or `<think>`.
+  - No changes to read/log/trace/data/operation/computer modes, worktree cleanup, risk policy, or approval fingerprint enforcement.
+- Handoff and evidence contract:
+  - Existing durable artifact guidance is preserved: plan refs, report refs, verify diff refs, applied commit refs, and `/workflow show <run-id>`.
+  - The guidance now adds a typed next-action line for approval/running/blocked states without changing P0-P3 context pack content.
+- Implementation tasks:
+  - [x] Add guidance header selection from `WriteWorkflowNextActionView`.
+  - [x] Add typed next-action guidance lines for approval, running, and blocked states.
+  - [x] Keep durable artifact/ref rendering unchanged.
+  - [x] Add regression test that pending approval renders `Workflow paused — approval required`, includes plan/workflow refs, and does not render `Workflow stopped`.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestPublishBlockedRunGuidance|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestDeriveWriteWorkflowNextActionView'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/types ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.

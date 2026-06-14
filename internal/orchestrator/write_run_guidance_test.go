@@ -51,3 +51,37 @@ func TestPublishBlockedRunGuidance_AppendsToExistingResult(t *testing.T) {
 		t.Fatalf("guidance must append after existing result, got %q", got)
 	}
 }
+
+func TestPublishBlockedRunGuidance_PendingApprovalRendersPausedNotStopped(t *testing.T) {
+	mu := types.NewMutableState("pending")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "en"}}
+	o.publishBlockedRunGuidance(&types.WriteWorkflowRun{
+		RunID:         "wf-approval",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-approval",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "plan",
+				Status: "complete",
+				PlanID: "plan-approval",
+			}},
+		}},
+	}, "pending_approval")
+	got := mu.Result()
+	for _, want := range []string{
+		"Workflow paused — approval required",
+		"Next: review the current batch risk",
+		"plan `plan-approval`",
+		"/workflow show wf-approval",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pending approval guidance missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Workflow stopped") {
+		t.Fatalf("pending approval must not render as stopped:\n%s", got)
+	}
+}
