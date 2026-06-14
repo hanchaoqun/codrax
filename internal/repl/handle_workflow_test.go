@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
@@ -284,6 +285,183 @@ func TestWorkflowResumeSelectsSavedWriteWorkflow(t *testing.T) {
 	}
 	if len(loaded.ProgressLedger) == 0 || loaded.ProgressLedger[len(loaded.ProgressLedger)-1].ReasonCode != "resumed" {
 		t.Fatalf("resume progress missing: %+v", loaded.ProgressLedger)
+	}
+}
+
+func TestWorkflowResumeThenApproveContinuesSamePendingApprovalRun(t *testing.T) {
+	runner := &capturingRunner{}
+	planStore := NewPlanStore(t.TempDir())
+	plan := &types.ChangePlan{
+		ID:      "plan-resume-approve",
+		Summary: "resume and approve active batch",
+		Status:  types.PlanStatusPending,
+		Changes: []types.FileChange{{
+			Path: "internal/repl/repl.go",
+			Kind: "modify",
+		}},
+		TargetPaths: []string{"internal/repl/repl.go"},
+		CreatedAt:   time.Now(),
+	}
+	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	decision := writeflow.DecideWriteApproval(writeflow.ApprovalPolicyManual, assessment)
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "apply_pre_hook", "required", types.PlanFingerprint(plan), "operator")
+	planPath, err := planStore.SaveForTest(plan)
+	if err != nil {
+		t.Fatalf("SaveForTest: %v", err)
+	}
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-resume-approve",
+		Goal:          "resume pending approval",
+		Status:        types.WriteWorkflowRunPlanned,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:          "batch-1",
+			Goal:        "approve current plan",
+			Status:      types.WriteWorkflowBatchPendingApproval,
+			PlanID:      "plan-resume-approve",
+			ApprovalRef: "plan-resume-approve.json",
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+
+	resumeOut := &bytes.Buffer{}
+	resumeREPL := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   resumeOut,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+		WriteEnabled:          true,
+	})
+	resumeREPL.handleWorkflowCmd("/workflow resume wf-resume-approve")
+
+	memStore, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("memory.NewStore: %v", err)
+	}
+	t.Cleanup(func() { memStore.Close() })
+	approveOut := &bytes.Buffer{}
+	approveREPL := New(Config{
+		Runner:                runner,
+		Store:                 memStore,
+		In:                    strings.NewReader("y\n"),
+		Out:                   approveOut,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+		WriteEnabled:          true,
+		WriteApprovalPolicy:   writeflow.ApprovalPolicyManual,
+	})
+
+	approveREPL.handleApproveCmd("/approve")
+
+	if !runner.runCalled {
+		t.Fatal("/approve should dispatch the resumed workflow plan")
+	}
+	if runner.modeAtRun != types.ModeApply {
+		t.Fatalf("mode at Run = %q, want apply", runner.modeAtRun)
+	}
+	if runner.planPathAtRun != planPath {
+		t.Fatalf("plan path at Run = %q, want %q", runner.planPathAtRun, planPath)
+	}
+	approved, err := planStore.Load("plan-resume-approve")
+	if err != nil {
+		t.Fatalf("Load approved plan: %v", err)
+	}
+	if approved.Approval == nil || approved.Approval.UserDecision != "approved" {
+		t.Fatalf("approval record should be persisted as approved: %+v", approved.Approval)
+	}
+	if !approved.ApprovalRecordIntegrityOK() || !approved.ApprovalMatchesCurrentFingerprint() {
+		t.Fatalf("approval record should match current plan fingerprint: %+v", approved.Approval)
+	}
+	loaded, err := workflowStore.Load("wf-resume-approve")
+	if err != nil {
+		t.Fatalf("Load workflow: %v", err)
+	}
+	if loaded.Status != types.WriteWorkflowRunInProgress || loaded.ActiveBatchID != "batch-1" {
+		t.Fatalf("workflow should remain resumable on same run: %+v", loaded)
+	}
+	if loaded.Batches[0].Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("approved active batch should be complete: %+v", loaded.Batches[0])
+	}
+	if len(loaded.ProgressLedger) < 2 ||
+		loaded.ProgressLedger[len(loaded.ProgressLedger)-2].ReasonCode != "resumed" ||
+		loaded.ProgressLedger[len(loaded.ProgressLedger)-1].ReasonCode != "approved_batch_complete" {
+		t.Fatalf("resume and approval progress should both persist: %+v", loaded.ProgressLedger)
+	}
+}
+
+func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-list-a",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-a",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-a",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-a",
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			PackID:  "pack-a",
+			BatchID: "batch-a",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP0,
+				Kind:     "approval",
+				Text:     "manual approval required",
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow A: %v", err)
+	}
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-list-b",
+		Status:        types.WriteWorkflowRunBlocked,
+		ActiveBatchID: "batch-b",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-b",
+			Status: types.WriteWorkflowBatchBlocked,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow B: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow list")
+
+	got := out.String()
+	compact := strings.NewReplacer("\n", "", "\r", "", "\t", "", " ", "", "│", "").Replace(got)
+	for _, want := range []string{
+		"Writeworkflows",
+		"`wf-list-a`status=`in_progress`active=`batch-a`",
+		"`wf-list-b`status=`blocked`active=`batch-b`",
+		"packs=1",
+		"packs=0",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("workflow list missing %q:\n%s", want, got)
+		}
 	}
 }
 
