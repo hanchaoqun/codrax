@@ -167,6 +167,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 38 | Canonical action surface | Controller schema、validator、scheduler 只接受真实可执行 action；旧迁移别名 fail-loud，不静默归一到可执行动作 |
 | 39 | Ask-user repeat suppression | `ask_user` missing facts 写入 durable typed fact keys；重复事实转 typed block，避免同一问题反复打断用户 |
 | 40 | Single state-machine invariants | 新增 typed workflow invariant validator；active batch、attempt plan_id、approval action 与 batch 状态冲突可观测 |
+| 41 | Auto Pilot recovery copy and eval regression | 主提示/文档不再把 `/mode write -> /approve -> /merge` 命令链当主路径；低风险和 JS 现象型 issue eval 回归 PASS |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1228,14 +1229,14 @@ Consumers:
 
 ### 20.5 Remaining Delivery Tasks
 
-- [ ] P0 verify authority audit: assert every controller finish path requires current-plan authoritative post-apply success or a typed terminal block.
-- [ ] P0 ModePlan audit: ensure plan phase persists a plan and exits without scheduling apply/approval/verify.
-- [ ] P0 workflow approval resume: make pending approval durable across process restart and let `/approve` continue the same run/batch.
-- [ ] P0 failure evidence projection: move build/test failure path/line/command metadata into P2 context packs and consume them in replan prompts/tools.
+- [x] P0 verify authority audit: assert every controller finish path requires current-plan authoritative post-apply success or a typed terminal block. Delivered in Batch 2 and repeatedly covered by later post-apply verify/eval sweeps.
+- [x] P0 ModePlan audit: ensure plan phase persists a plan and exits without scheduling apply/approval/verify. Delivered through ModePlan action mask/runtime guard and `TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan`.
+- [x] P0 workflow approval resume: make pending approval durable across process restart and let `/approve` continue the same run/batch. Delivered in Batches 3 and 35 with workflow resume, active batch approval, fingerprint visibility, and stale fingerprint tests.
+- [x] P0 failure evidence projection: move build/test failure path/line/command metadata into P2 context packs and consume them in replan prompts/tools. Delivered in Batches 4, 26, 27, and 37 through report/diff/surface refs, P2 context projection, and limited-view retention.
 - [x] P1 single-state-machine audit: add invariant tests that plan status, approval record, apply refs, verify refs, and batch status cannot disagree. Delivered in Batch 40 with typed workflow invariant validation and runtime warnings.
-- [ ] P1 planner/replan permissions: route dry-run needs through typed dry-run tools, not generic planning-phase exec.
-- [ ] P1 context pack dedupe: add stable hash/evidence-ref dedupe and role-specific Top-N projections.
-- [ ] P1 worktree/report UX: update CLI/REPL/eval prompts to prefer durable refs over disposable live paths.
+- [x] P1 planner/replan permissions: route dry-run needs through typed dry-run tools, not generic planning-phase exec. Delivered in Batch 1 with planner tool schema projection and runtime hard gates.
+- [x] P1 context pack dedupe: add stable hash/evidence-ref dedupe and role-specific Top-N projections. Delivered in Batches 5 and 37 with typed item IDs, consumer merge, and must-carry failure lanes.
+- [x] P1 worktree/report UX: update CLI/REPL/eval prompts to prefer durable refs over disposable live paths. Delivered incrementally in Batches 14, 16, 34, 35, and 41; remaining UX changes should be added as new evidence-backed batches, not left as this stale open item.
 
 #### Batch 22: Repo-Scoped Multi-Repo Verify Surface And Zero-Test Authority
 
@@ -1887,3 +1888,49 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `2f1b929b` (`write-mode: validate workflow state invariants`), pushed to `origin/main`.
+
+#### Batch 41: Auto Pilot Recovery Copy And Eval Regression
+
+- Evidence sources:
+  - User feedback: too many user-facing commands increase write-mode cognitive load; routine work should flow automatically and only interrupt at high-risk approval, critical deny, true missing facts, budget exhaustion, or explicit merge.
+  - Code evidence: `internal/repl/messages.go` still had several recovery strings that made `/mode write`, `/approve`, and `/merge` look like the normal path after no-pending-plan, apply completion, merge-without-worktree, and non-reapprovable plan states.
+  - Regression eval command:
+
+```text
+CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval/cases/github_issue_dayjs_duration_nan_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_autopilot_regression_after_b40_20260614_summary.md bash eval/convergence_audit.sh
+```
+
+- Eval result:
+  - `patch_c_typo`: PASS. This confirms a low-risk localized non-Go write case can still complete without extra user approval.
+  - `github_issue_dayjs_duration_nan_symptom`: PASS. This confirms a symptom-driven JavaScript issue can trigger exploration/localization, bounded implementation, and typed post-apply verification without the prompt giving exact patch details.
+  - Aggregate summary: `eval/results/write_mode_autopilot_regression_after_b40_20260614_summary.md` reports PASS 2/2, flagged 0/2.
+- Generalized gap:
+  - The runtime Auto Pilot path was ahead of the user-facing copy. If the product keeps telling users to memorize command chains, the controller-first DAG still feels manual even when low/medium-risk tasks are capable of flowing automatically.
+  - UX guidance must be state-first and semantic-action-first: "describe the next change", "current batch paused", "approval required", "merge explicitly when ready". Slash commands remain advanced, auditable entry points.
+- Target design:
+  - No-pending-plan and post-completion hints prefer natural goal input or `/write <goal>` over sticky `/mode write`.
+  - Merge-without-worktree explains the semantic prerequisite: a worktree preserved after Auto Pilot apply/verify, not a hard-coded `/mode write -> /approve -> /merge` recipe.
+  - Startup unsettled banners render current typed state and durable workflow inspection, not a flat command menu.
+  - User-guide troubleshooting explains automatic P2 failure handoff and controller replan before listing manual recovery.
+- Safety and prompt hygiene:
+  - This batch is render/doc only plus eval evidence. It does not alter dispatch, approval, risk, verify, merge, or worktree cleanup hard gates.
+  - Inputs are persisted plan/workflow status and fixed UI helper state enums. No hard logic reads user keywords, model prose, summaries, rationales, logs, eval oracle text, or `<think>`.
+  - `<think>` visibility remains expected transparency and is not suppressed.
+- Handoff and evidence contract:
+  - The docs now describe failure recovery in terms of typed report/diff/surface refs and P2 context handoff.
+  - The eval summary is advisory evidence only. It does not authorize runtime success; runtime success remains based on typed `ChangePlan`, `WriteWorkflowRun`, `ChangeReport`, risk/approval records, and verifier reports.
+- Implementation tasks:
+  - [x] Update no-pending-plan, write-disabled recovery, apply-complete, merge-without-worktree, approve-refused, and unsettled-banner copy to prefer Auto Pilot state/goal guidance over command chains.
+  - [x] Add regression tests ensuring recovery hints point at Auto Pilot or `/write` and do not make `/mode write` the primary recovery path.
+  - [x] Update user-guide troubleshooting for apply/verify/no-plan failures to describe automatic typed recovery first.
+  - [x] Reconcile stale remaining ledger items with delivered batches.
+  - [x] Run low-risk and symptom-driven write-mode eval regression.
+- Verification:
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval/cases/github_issue_dayjs_duration_nan_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_autopilot_regression_after_b40_20260614_summary.md bash eval/convergence_audit.sh` PASS 2/2, flagged 0/2.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'Test(NoPendingPlan_BothLangs|WriteRecoveryHintsPreferAutoPilotPath|UnsettledBanner_WorktreeMissingTag|PlanReadyNudge_RendersStatusCard|PlanShowFooter_StatusAware)'` PASS.
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+- Progress:
+  - Implementation commit: pending.

@@ -581,6 +581,29 @@ func TestMergeSkipVerifyMessagesNameExplicitAction(t *testing.T) {
 	}
 }
 
+func TestWriteRecoveryHintsPreferAutoPilotPath(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		text string
+	}{
+		{"mergeNoApplyYet_en", strings.Join(mergeNoApplyYet("en"), "\n")},
+		{"mergeNoApplyYet_zh", strings.Join(mergeNoApplyYet("zh"), "\n")},
+		{"applyDone_en", strings.Join(applyDoneNudge("en"), "\n")},
+		{"applyDone_zh", strings.Join(applyDoneNudge("zh"), "\n")},
+		{"afterMerge_en", autoModeReadAfterMergeNudge("en")},
+		{"afterMerge_zh", autoModeReadAfterMergeNudge("zh")},
+		{"approveRefused_en", approveRefusedStatusMsg("en", "plan-1", "applied", "pending_approval", "verify_failed")},
+		{"approveRefused_zh", approveRefusedStatusMsg("zh", "plan-1", "applied", "pending_approval", "verify_failed")},
+	} {
+		if !strings.Contains(c.text, "Auto Pilot") && !strings.Contains(c.text, "/write") {
+			t.Errorf("%s should point at Auto Pilot or /write path; got:\n%s", c.name, c.text)
+		}
+		if strings.Contains(c.text, "/mode write") {
+			t.Errorf("%s should not make /mode write the primary recovery path; got:\n%s", c.name, c.text)
+		}
+	}
+}
+
 // Locks the zh-as-default contract for every helper in messages.go:
 // only an explicit "en" flips to English; everything else (empty,
 // "zh", "fr", typos) stays zh.
@@ -677,8 +700,11 @@ func TestNoPendingPlan_BothLangs(t *testing.T) {
 	if zh == en {
 		t.Error("zh and en should differ")
 	}
-	if !strings.Contains(zh, "/mode write") || !strings.Contains(en, "/mode write") {
-		t.Errorf("both should reference /mode write recovery; zh=%q en=%q", zh, en)
+	if !strings.Contains(zh, "/write <目标>") || !strings.Contains(zh, "Auto Pilot") {
+		t.Errorf("zh should point at low-command Auto Pilot recovery; got %q", zh)
+	}
+	if !strings.Contains(en, "/write <goal>") || !strings.Contains(en, "Auto Pilot") {
+		t.Errorf("en should point at low-command Auto Pilot recovery; got %q", en)
 	}
 }
 

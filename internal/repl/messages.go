@@ -344,14 +344,14 @@ func chitchatRouteSummary(lang string) (string, []string) {
 }
 
 // noPendingPlan — user typed /approve or /reject without a pending
-// plan to act on. Surface the recovery path (/mode write first), and
-// if write_enabled is off, name THAT first since a /mode write dispatch
+// plan to act on. Surface the low-command Auto Pilot recovery path, and
+// if write_enabled is off, name THAT first since any write dispatch
 // would just bounce off the L2 gate.
 func noPendingPlan(lang string) string {
 	if isZh(lang) {
-		return "当前没有待处理的方案 — 先用 /mode write 进入写模式并生成一份"
+		return "当前没有待处理的方案 — 直接描述要改的目标,或用 /write <目标> 启动 Auto Pilot"
 	}
-	return "No pending plan — run /mode write to generate one"
+	return "No pending plan — describe the next change directly, or use /write <goal> to start Auto Pilot"
 }
 
 // noPendingPlanWriteDisabled — same surface as noPendingPlan but for
@@ -361,12 +361,12 @@ func noPendingPlanWriteDisabled(lang string) []string {
 	if isZh(lang) {
 		return []string{
 			"没有待处理的 plan,且 write 模式被禁用。",
-			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启,然后 /mode write 生成 plan。",
+			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启,然后描述目标或用 /write <目标> 启动 Auto Pilot。",
 		}
 	}
 	return []string{
 		"No pending plan, and write mode is disabled.",
-		"  Set `write_enabled: true` in codrax.yaml and restart, then run /mode write to generate one.",
+		"  Set `write_enabled: true` in codrax.yaml and restart, then describe the change or use /write <goal> to start Auto Pilot.",
 	}
 }
 
@@ -455,7 +455,8 @@ func autoInitAuthorizedPreRun(lang, repoRoot string) string {
 
 // mergeNothingToDo — printed when /merge runs against a worktree
 // that hasn't produced any commits beyond the base. This usually
-// means /merge fired before /approve, or /approve produced an empty
+// means /merge fired before Auto Pilot produced a preserved worktree,
+// or the apply produced an empty
 // plan.
 func mergeNothingToDo(lang, baseBranch string) string {
 	if isZh(lang) {
@@ -465,17 +466,18 @@ func mergeNothingToDo(lang, baseBranch string) string {
 }
 
 // mergeNoApplyYet — /merge ran without a preserved worktree from a
-// successful /approve. Tell the user the prerequisite chain.
+// successful Auto Pilot apply/verify. Tell the user the semantic
+// prerequisite without making a command chain the primary workflow.
 func mergeNoApplyYet(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"没有可合并的 worktree。/merge 需要一次成功 /approve 留下的 worktree。",
-			"  先用 /mode write 生成方案，再 /approve 落地（请确认 codrax.yaml 里 pipeline_keep_worktree_on_success: true），最后 /merge。",
+			"没有可合并的 worktree。/merge 只合并 Auto Pilot apply/verify 后保留下来的 worktree。",
+			"  下一步:直接描述要改的目标,或用 /write <目标> 启动;完成后再显式 /merge。",
 		}
 	}
 	return []string{
-		"No worktree to merge from. /merge needs a worktree preserved by a successful /approve.",
-		"  Run /mode write, then /approve (with pipeline_keep_worktree_on_success: true), then /merge.",
+		"No worktree to merge from. /merge only merges a worktree preserved after Auto Pilot apply/verify.",
+		"  Next: describe the change directly, or use /write <goal>; merge explicitly after it completes.",
 	}
 }
 
@@ -622,29 +624,29 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 	switch status {
 	case "pending_approval":
 		if zh {
-			return formatN(lang, "%s 需要审批 — 查看 /workflow show 或 /plan show%s", planID, suffix)
+			return formatN(lang, "%s 需要审批 — 当前 batch 已暂停;/workflow show 可审阅 fingerprint 和 diff%s", planID, suffix)
 		}
-		return formatN(lang, "%s needs approval — inspect with /workflow show or /plan show%s", planID, suffix)
+		return formatN(lang, "%s needs approval — current batch is paused; /workflow show shows the fingerprint and diff%s", planID, suffix)
 	case "applied":
 		if zh {
-			return formatN(lang, "%s 已验证 apply,主仓未合并 — 准备好后 /merge%s", planID, suffix)
+			return formatN(lang, "%s 已 apply 且验证通过,主仓未合并 — 准备发布时显式 /merge%s", planID, suffix)
 		}
-		return formatN(lang, "%s applied and verified, not merged — /merge when ready%s", planID, suffix)
+		return formatN(lang, "%s applied and verified, not merged — merge explicitly when ready%s", planID, suffix)
 	case "verify_failed":
 		if zh {
-			return formatN(lang, "%s 验证失败 — /workflow show 查看失败证据%s", planID, suffix)
+			return formatN(lang, "%s 验证失败 — 失败证据已保留;/workflow show 可查看%s", planID, suffix)
 		}
-		return formatN(lang, "%s verify failed — /workflow show for failure evidence%s", planID, suffix)
+		return formatN(lang, "%s verify failed — failure evidence is preserved; /workflow show can inspect it%s", planID, suffix)
 	case "unverified":
 		if zh {
-			return formatN(lang, "%s 已 apply 但未本地验证 — 优先 /verify <id>%s", planID, suffix)
+			return formatN(lang, "%s 已 apply 但未本地验证 — 优先补跑验证%s", planID, suffix)
 		}
-		return formatN(lang, "%s applied but unverified — prefer /verify <id>%s", planID, suffix)
+		return formatN(lang, "%s applied but unverified — prefer re-running verification%s", planID, suffix)
 	}
 	if zh {
-		return formatN(lang, "%s 状态未结算 — /workflow show 或 /plan list 查看%s", planID, suffix)
+		return formatN(lang, "%s 状态未结算 — Auto Pilot 已暂停;/workflow show 可查看当前状态%s", planID, suffix)
 	}
-	return formatN(lang, "%s unsettled — inspect with /workflow show or /plan list%s", planID, suffix)
+	return formatN(lang, "%s unsettled — Auto Pilot is paused; /workflow show can inspect the current state%s", planID, suffix)
 }
 
 // autoModeReadAfterMergeNudge is the one-line confirmation printed
@@ -657,9 +659,9 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 // the mode flipped so they don't get surprised.
 func autoModeReadAfterMergeNudge(lang string) string {
 	if isZh(lang) {
-		return "  已自动切回 auto 模式 — 直接提问即可。要继续改代码就 /mode write。"
+		return "  已自动切回 auto 模式 — 直接提问即可。要继续改代码就描述目标,或用 /write <目标>。"
 	}
-	return "  Auto-switched back to auto mode — ask your next question directly. Use /mode write when you want to make another change."
+	return "  Auto-switched back to auto mode — ask your next question directly. To make another change, describe the goal or use /write <goal>."
 }
 
 // mergeSuccess — printed after a clean MergeIntoBranch return.
@@ -1048,18 +1050,18 @@ func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 }
 
 // applyDoneNudge prints next-step actions after /approve completed.
-// When apply succeeded, point at /mode auto for further questions and
-// /mode write for a new change. When apply failed, the
+// When apply succeeded, point at auto mode for further questions and
+// the low-command Auto Pilot path for a new change. When apply failed, the
 // renderVerifyFailure already carries the failure-path next-step inline — applyDoneNudge skips
 // the failure path so we don't double-print.
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"  Apply 完成，已自动切回 auto 模式。要继续改代码就 /mode write。",
+			"  Apply 完成，已自动切回 auto 模式。要继续改代码就描述目标,或用 /write <目标>。",
 		}
 	}
 	return []string{
-		"  Apply complete — auto-switched to auto mode. Use /mode write to make another change.",
+		"  Apply complete — auto-switched to auto mode. To make another change, describe the goal or use /write <goal>.",
 	}
 }
 
@@ -3011,13 +3013,13 @@ func approveRefusedStatusMsg(lang, planID, status, pending, retry string) string
 	if isZh(lang) {
 		return formatN(lang,
 			"approve 被拒：plan %s 当前状态为 %q。可重新 approve 的状态：%q（新生成的方案）、%q（修复环境后重试）。"+
-				"用 /mode write 生成新方案。\n",
+				"直接描述新目标或用 /write <目标> 生成新方案。\n",
 			planID, status, pending, retry)
 	}
 	return formatN(lang,
 		"Approve refused: plan %s is in status %q. "+
 			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
-			"Run /mode write to generate a fresh plan.\n",
+			"Describe the new goal directly or use /write <goal> to generate a fresh plan.\n",
 		planID, status, pending, retry)
 }
 

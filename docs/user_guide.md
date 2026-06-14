@@ -1885,18 +1885,18 @@ apply 成功的输出会原样给出这条命令(提交主题即 plan 摘要)。
 ## 4.4 失败排错
 
 **apply 失败**(代码 patch 没打进去 / 写入冲突):
-- 屏幕会打印失败原因 + worktree 保留(`/worktree list` 可看)
-- 推荐做法:`/mode write` + 把目标说更具体一点重发,planner 通过 `/history` 看到本轮失败摘要;或 `/reject` 弃掉这版重新规划
-- 也可以直接 `cd` 进 worktree 路径手工调,然后 `/worktree discard <plan-id>` 清掉
+- Auto Pilot 会把结构化失败原因、diff/report/surface refs 写入 workflow,优先由 controller 小批量 replan 或 block
+- 需要人工介入时,屏幕会给出状态卡;`/workflow show` 可查看当前 batch、失败证据和可恢复 refs
+- 人工恢复入口:`/write <更具体的目标>` 重新启动一次目标清晰的 Auto Pilot,或 `/reject` 弃掉这版;也可以直接 `cd` 进 worktree 路径手工调,然后 `/worktree discard <plan-id>` 清掉
 
 **verify 失败**(测试不过):
-- `pipeline_write_retry_budget`(默认 3)允许 planner 自动重新规划再 apply 再 verify;失败摘要会作为补丁提示喂回 planner
-- 重试用尽仍不过 → plan 标记为"验证失败"。下次 `/approve <plan-id>` 仍可重试(常见于环境/CI 类抖动)
-- 本地测试根本起不了(缺依赖、缺数据库等)→ `/approve --skip-verify` 跳过 verify,只 apply
+- `pipeline_write_retry_budget`(默认 3)允许 controller 自动把 typed build/test/path/line/command 证据写入 P2 handoff,再小批量 replan/apply/verify
+- 重试用尽仍不过 → workflow 保留失败 report/diff/surface refs 并 fail-loud;`/workflow show` 查看证据后再决定是否缩小目标或人工处理
+- 本地测试根本起不了(缺依赖、缺数据库等)时,系统会按 typed runner/surface outcome 区分 runner missing、zero tests、infra error、真实失败;跳过验证或强行合入都需要显式人工动作
 
 **plan 阶段返回文字回答而不是改动方案**(planner 觉得这是咨询性问题):
-- 屏幕打印一段二选一引导(咨询走 `/mode code` 或 `/mode auto`;真改代码就 `/mode write` 后把目标说具体再发)
-- 直接选你需要的路径继续
+- Auto Pilot 优先在探索、plan、replan 之间自动收敛;只有缺少 typed missing facts、预算耗尽或风险策略阻断时才暂停
+- 真要继续改代码,直接补充目标或用 `/write <目标>`;只是咨询则继续普通提问即可
 
 **目录还不是 git 仓库**(plan / apply 都需要 git 仓):
 - 屏幕打印**两种(plan 阶段)或三种(apply 阶段)授权方式**任选一种:
@@ -2721,7 +2721,7 @@ CLI 单次模式输出:
 → codrax 自动把错误回合用占位文替代,但若已经污染,`/clear` 一次。
 
 **写模式 verify 老失败**
-→ 看 `/history` 的 verify 失败摘要;调高 `pipeline_write_retry_budget`(让 codrax 多重 plan 几次);或者 `/approve --skip-verify` 跳过测试,本地手动验证。
+→ Auto Pilot 会把最新 typed verify failure 放进 P2 handoff 并自动小批量 replan;仍耗尽预算时,先看 `/workflow show` 的 report/diff/surface refs。需要更大预算再调高 `pipeline_write_retry_budget`;跳过验证或强行合入只作为显式人工覆盖。
 
 ## 8.3 性能
 
