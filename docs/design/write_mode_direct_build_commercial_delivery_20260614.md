@@ -2584,3 +2584,43 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
 - Progress:
   - Implementation commit: `4637b059` (`eval: add commandless write apply coverage`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 57: Commandless Help And Write Tool Boundary Guard
+
+- Evidence source:
+  - User feedback: users should describe the target change and let write mode flow automatically; too many commands increase cognitive load and make the product feel interruptive.
+  - Code evidence before this batch:
+    - `internal/repl/messages.go :: workflowHelpMsg` still said write batches continue with `/approve` or `/reject`, even though Auto Pilot now automatically explores, plans, applies, verifies, and safely resumes whenever typed gates allow.
+    - `internal/repl/input.go :: /workflow` help still framed `/workflow` as a normal state/resume command instead of an advanced audit/recovery surface.
+    - `internal/tool/write_mode_red_lines_test.go` still enforced L3 only for the original four write-mode tools, while controller-first write mode now has additional typed tools such as `emit_write_analysis`, `emit_plan_skeleton`, `emit_plan_change`, and `emit_write_workflow_decision`.
+- Generalized gap:
+  - A low-command write engine can regress through user-facing help drift: command tables start teaching users to drive the workflow manually even when the runtime is automatic.
+  - Tool-boundary red lines can also regress through stale test lists: new controller/planner tools might accidentally bypass the same no-grounding contract if each test maintains its own hand-written list.
+  - The generalized solution is to align the help surface with the Auto Pilot contract and centralize the write-tool test contract used by structured decode and L3 boundary tests.
+- Target architecture:
+  - `/workflow` remains available, but it is explicitly positioned as advanced audit/recovery for graph, queue, approval, and handoff evidence.
+  - Primary write UX remains natural-language goal -> Auto Pilot -> automatic safe continuation. `/approve` and `/reject` are only normal when a typed status card shows high-risk pending approval.
+  - Write-mode tool contract files are declared once and reused by structured payload compatibility, typed decode repair, and no-grounding red-line tests.
+  - Adding a new write-mode tool requires adding it to the shared contract list once, after which all structural guard tests apply.
+- Safety and prompt hygiene:
+  - This batch changes help text and structural tests only. It does not change prompts, scheduler decisions, approval policy, permission policy, worktree behavior, read/log/trace/data/operation modes, or `<think>` transparency.
+  - Hard boundaries remain typed: tests parse Go source/AST and exact command metadata, not user intent keywords, model prose, summaries, rationales, issue text, eval oracle prose, logs, or `<think>`.
+  - `/approve` remains a literal high-risk approval command; natural-language approval prose is not introduced as a backend approval signal.
+- Handoff and evidence contract:
+  - `/workflow show` remains the detailed evidence surface for P0-P3 context packs, verification failures, approval payloads, fingerprints, and budget status.
+  - The help text now tells users that the system will proactively show status cards when action is required, reducing the need to manually inspect workflow state.
+- Implementation tasks:
+  - [x] Reword `/workflow` direct help to advanced audit/recovery and Auto Pilot auto-resume semantics.
+  - [x] Reword canonical `/help` `/workflow` row and subcommands so manual resume is recovery/debug, not routine continuation.
+  - [x] Add regression coverage that `/workflow` help names Auto Pilot and does not advertise old command chains as the day-to-day write path.
+  - [x] Extract a shared write-mode tool contract file list.
+  - [x] Reuse the shared list from structured payload compatibility, typed decode repair, and L3 no-grounding tests.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestWorkflowHelp|TestHelpLines'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'Test(StructuredPayloadCompatCoverageForStructuredEmitTools|StructuredEmitToolsAttachTypedDecodeRepair|WriteModeToolsDontGroundCitations|EveryRegistryToolIsStrictDecodeWiredOrExempt)'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl ./internal/tool` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.

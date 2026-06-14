@@ -1725,9 +1725,9 @@ func workflowCancelledMsg(lang, id string) string {
 
 func workflowHelpMsg(lang string) string {
 	if isZh(lang) {
-		return "/workflow [show|list|resume|clear|cancel] — show 优先展示 active write workflow；resume/clear 作用于 write workflow；cancel 仅取消当前 operation skill workflow。写模式批次继续使用 /approve 或 /reject。"
+		return "/workflow [show|list|resume|clear|cancel] — 高级审计/恢复入口；写模式默认由 Auto Pilot 自动探索、计划、应用、验证并安全续跑。仅当状态卡显示高风险 pending approval 时才需要 /approve 或 /reject；cancel 仅取消当前 operation skill workflow。"
 	}
-	return "/workflow [show|list|resume|clear|cancel] — show prefers the active write workflow; resume/clear target write workflows; cancel only cancels the current operation skill workflow. Continue write batches with /approve or /reject."
+	return "/workflow [show|list|resume|clear|cancel] — advanced audit/recovery; write mode defaults to Auto Pilot exploration, planning, apply, verify, and safe auto-resume. Use /approve or /reject only when the status card shows high-risk pending approval; cancel only cancels the current operation skill workflow."
 }
 
 func providerWorkflowMarkdown(lang string, wf operation.WorkflowInstance) string {

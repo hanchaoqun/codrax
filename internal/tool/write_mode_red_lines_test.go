@@ -10,8 +10,8 @@ import (
 // TestWriteModeToolsDontGroundCitations is the session-33 R1
 // structural red-line test. Locks the L3 invariant:
 //
-//   B0 write-mode tools MUST NOT call ground.BuildContext or
-//   ground.GroundItem (or any other ground.* symbol).
+//	B0 write-mode tools MUST NOT call ground.BuildContext or
+//	ground.GroundItem (or any other ground.* symbol).
 //
 // Why: those helpers canonicalise paths against ctx.RepoRoot and
 // reconstruct citation line-indexes from tool-result history. In
@@ -29,22 +29,13 @@ import (
 // zero dependency on whether the ground package is even imported
 // (the test reads source strings).
 //
-// When the B2 / B3 tools land for real (apply_patch, run_tests,
-// emit_test_results), this test must continue to pass — it is
+// This test must continue to pass as write-mode grows — it is
 // enforcement, not documentation, of the L3 red line. If a future
 // change genuinely needs grounding inside a write-mode tool, the
 // first step is a design document explaining why the L3 boundary
 // moves.
 func TestWriteModeToolsDontGroundCitations(t *testing.T) {
-	// The four B0 write-mode tool files. Adding a new write-mode
-	// tool means extending this slice — a conscious step for the
-	// code author that signals "my new tool also falls under L3".
-	writeModeFiles := []string{
-		"emit_change_plan.go",
-		"apply_patch.go",
-		"run_tests.go",
-		"emit_test_results.go",
-	}
+	writeModeFiles := writeModeToolContractFiles()
 
 	// Banned identifier names on the ground package's side of a
 	// SelectorExpr. Keep this list tight: only symbols that

@@ -8,12 +8,7 @@ import (
 	"testing"
 )
 
-func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Dir(currentFile)
+func structuredPayloadContractFiles() []string {
 	files := []string{
 		"emit_analysis.go",
 		"emit_evidence.go",
@@ -26,6 +21,12 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		"emit_log_segmentation.go",
 		"emit_perf_trace.go",
 		"emit_perf_segmentation.go",
+	}
+	return append(files, writeModeToolContractFiles()...)
+}
+
+func writeModeToolContractFiles() []string {
+	return []string{
 		"emit_write_analysis.go",
 		"emit_change_plan.go",
 		"emit_plan_skeleton.go",
@@ -35,7 +36,15 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		"emit_test_results.go",
 		"run_tests.go",
 	}
-	for _, name := range files {
+}
+
+func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	dir := filepath.Dir(currentFile)
+	for _, name := range structuredPayloadContractFiles() {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -55,28 +64,7 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(currentFile)
-	files := []string{
-		"emit_analysis.go",
-		"emit_evidence.go",
-		"emit_investigation_complete.go",
-		"emit_log_triage.go",
-		"emit_answer_document_v2.go",
-		"emit_answer_document_patch.go",
-		"emit_answer_symbol.go",
-		"emit_hypothesis_verdict.go",
-		"emit_log_segmentation.go",
-		"emit_perf_trace.go",
-		"emit_perf_segmentation.go",
-		"emit_write_analysis.go",
-		"emit_change_plan.go",
-		"emit_plan_skeleton.go",
-		"emit_plan_change.go",
-		"emit_write_workflow_decision.go",
-		"apply_patch.go",
-		"emit_test_results.go",
-		"run_tests.go",
-	}
-	for _, name := range files {
+	for _, name := range structuredPayloadContractFiles() {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)

@@ -835,6 +835,45 @@ func TestHelpLines_CoversEveryCommand(t *testing.T) {
 	}
 }
 
+// TestWorkflowHelpDemotesWriteCommands keeps /workflow as an
+// audit/recovery surface. The primary write-mode path is natural
+// language goal -> Auto Pilot; high-risk approval is the only normal
+// write interruption that asks the user to type an approval command.
+func TestWorkflowHelpDemotesWriteCommands(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			direct := workflowHelpMsg(lang)
+			joinedHelp := strings.Join(helpLines(lang), "\n")
+
+			for surface, got := range map[string]string{
+				"direct": direct,
+				"help":   joinedHelp,
+			} {
+				if !strings.Contains(got, "Auto Pilot") {
+					t.Errorf("%s %s: workflow help should name Auto Pilot as the primary path; got %q", lang, surface, got)
+				}
+				if isZh(lang) {
+					if !strings.Contains(got, "审计") && !strings.Contains(got, "恢复") {
+						t.Errorf("%s %s: workflow help should demote commands to audit/recovery; got %q", lang, surface, got)
+					}
+					if strings.Contains(got, "写模式批次继续使用 /approve 或 /reject") ||
+						strings.Contains(got, "恢复已保存的写模式运行") {
+						t.Errorf("%s %s: workflow help must not present command chains as the day-to-day write path; got %q", lang, surface, got)
+					}
+					continue
+				}
+				if !strings.Contains(got, "audit") && !strings.Contains(got, "recovery") {
+					t.Errorf("%s %s: workflow help should demote commands to audit/recovery; got %q", lang, surface, got)
+				}
+				if strings.Contains(got, "Continue write batches with /approve or /reject") ||
+					strings.Contains(got, "resume saved write runs") {
+					t.Errorf("%s %s: workflow help must not present command chains as the day-to-day write path; got %q", lang, surface, got)
+				}
+			}
+		})
+	}
+}
+
 // TestHelpLines_WriteModeGroupingHeader pins commit 41 UX#3:
 // /help renders a grouping header before the first write-
 // mode command so first-time users see the workflow as a
