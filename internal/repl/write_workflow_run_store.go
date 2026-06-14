@@ -191,13 +191,17 @@ func (s *WriteWorkflowRunStore) Clear(id string) error {
 }
 
 type WorkflowRunInfo struct {
-	ID            string
-	Path          string
-	Status        string
-	ActiveBatchID string
-	Batches       int
-	ContextPacks  int
-	ModTime       int64
+	ID                string
+	Path              string
+	Status            string
+	ActiveBatchID     string
+	ActiveBatchStatus string
+	Batches           int
+	ContextPacks      int
+	NextState         string
+	NextAction        string
+	RequiresUser      bool
+	ModTime           int64
 }
 
 func (s *WriteWorkflowRunStore) List() ([]WorkflowRunInfo, error) {
@@ -230,23 +234,53 @@ func (s *WriteWorkflowRunStore) List() ([]WorkflowRunInfo, error) {
 		if err != nil {
 			continue
 		}
-		var probe struct {
-			Status        string     `json:"status"`
-			ActiveBatchID string     `json:"active_batch_id"`
-			Batches       []struct{} `json:"batches"`
-			ContextPacks  []struct{} `json:"context_packs"`
-		}
+		var run types.WriteWorkflowRun
 		if data, rerr := os.ReadFile(filepath.Join(s.workflowDir, name)); rerr == nil {
-			_ = json.Unmarshal(data, &probe)
+			_ = json.Unmarshal(data, &run)
+		}
+		run = types.NormalizeWriteWorkflowRun(run)
+		if run.RunID == "" {
+			run.RunID = id
+		}
+		next := types.DeriveWriteWorkflowNextActionView(run)
+		status := string(run.Status)
+		activeBatchID := run.ActiveBatchID
+		activeBatchStatus := string(next.BatchStatus)
+		if status == "" || activeBatchID == "" || len(run.Batches) == 0 {
+			var probe struct {
+				Status        string     `json:"status"`
+				ActiveBatchID string     `json:"active_batch_id"`
+				Batches       []struct{} `json:"batches"`
+				ContextPacks  []struct{} `json:"context_packs"`
+			}
+			if data, rerr := os.ReadFile(filepath.Join(s.workflowDir, name)); rerr == nil {
+				_ = json.Unmarshal(data, &probe)
+			}
+			if status == "" {
+				status = probe.Status
+			}
+			if activeBatchID == "" {
+				activeBatchID = probe.ActiveBatchID
+			}
+			if len(run.Batches) == 0 && len(probe.Batches) > 0 {
+				run.Batches = make([]types.WriteWorkflowBatch, len(probe.Batches))
+			}
+			if len(run.ContextPacks) == 0 && len(probe.ContextPacks) > 0 {
+				run.ContextPacks = make([]types.WriteContextPack, len(probe.ContextPacks))
+			}
 		}
 		out = append(out, WorkflowRunInfo{
-			ID:            id,
-			Path:          filepath.Join(s.workflowDir, name),
-			Status:        probe.Status,
-			ActiveBatchID: probe.ActiveBatchID,
-			Batches:       len(probe.Batches),
-			ContextPacks:  len(probe.ContextPacks),
-			ModTime:       info.ModTime().UnixNano(),
+			ID:                id,
+			Path:              filepath.Join(s.workflowDir, name),
+			Status:            status,
+			ActiveBatchID:     activeBatchID,
+			ActiveBatchStatus: activeBatchStatus,
+			Batches:           len(run.Batches),
+			ContextPacks:      len(run.ContextPacks),
+			NextState:         string(next.State),
+			NextAction:        string(next.PrimaryAction),
+			RequiresUser:      next.RequiresUser,
+			ModTime:           info.ModTime().UnixNano(),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

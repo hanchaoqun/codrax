@@ -481,6 +481,17 @@ func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Save workflow B: %v", err)
 	}
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-list-c",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-c",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-c",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow C: %v", err)
+	}
 	out := &bytes.Buffer{}
 	r := New(Config{
 		Runner:                stubRunner{},
@@ -501,7 +512,11 @@ func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
 	for _, want := range []string{
 		"Writeworkflows",
 		"`wf-list-a`status=`in_progress`active=`batch-a`",
+		"batch_status=`pending_approval`next=`needs_approval`action=`approve_batch`user=true",
 		"`wf-list-b`status=`blocked`active=`batch-b`",
+		"batch_status=`blocked`next=`blocked`action=`inspect_evidence`user=true",
+		"`wf-list-c`status=`in_progress`active=`batch-c`",
+		"batch_status=`ready_to_plan`next=`running`action=`wait`user=false",
 		"packs=1",
 		"packs=0",
 	} {

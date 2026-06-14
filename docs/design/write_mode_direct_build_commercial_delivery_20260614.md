@@ -191,6 +191,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 46 | Mode-projected controller decision repair | controller decision 的 model schema、JSON repair schema、runtime mode guard 共享同一 typed action 投影，避免宽 schema repair/hint 增加模型和用户心智 |
 | 47 | Typed workflow next-action view | `/workflow show` 先从 durable workflow 派生 typed next-action view，再渲染状态卡；`ready_to_plan` 显示 Auto Pilot 正在推进，不再误提示审批 |
 | 48 | CLI recovery guidance consumes next-action view | single-shot CLI / recovery result 使用 typed next-action view 区分 pending approval paused 与 true stopped，避免把可恢复审批误读成终止 |
+| 49 | Workflow list next-action index | `/workflow list` 的 durable run snapshot 也投影 typed next state/action/user 字段，列表页即可判断是否需要用户动作 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2214,3 +2215,42 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `d1986b2c` (`write-mode: render recovery guidance from typed next action`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 49: Workflow List Next-Action Index
+
+- Evidence source:
+  - Batches 47-48 created and reused `WriteWorkflowNextActionView` for `/workflow show` and CLI/recovery guidance.
+  - Code evidence before this batch:
+    - `WriteWorkflowRunStore.List()` returned only run status, active batch id, batch count, context-pack count, and mod time.
+    - `writeWorkflowListMarkdown` rendered only `status`, `active`, `batches`, and `packs`.
+    - Users had to open each run with `/workflow show` to learn whether a saved workflow needed approval, was blocked, or was simply continuing automatically.
+- Generalized gap:
+  - A low-command Auto Pilot needs status lists to answer "do I need to act?" at a glance. Otherwise the list view remains an index of internal state names and pushes users into command-driven drill-down.
+  - The generalized solution is to carry typed next-action projection into the durable list snapshot, not to add ad hoc wording for one status.
+- Target architecture:
+  - Extend `WorkflowRunInfo` with `ActiveBatchStatus`, `NextState`, `NextAction`, and `RequiresUser`.
+  - Derive these fields via `types.DeriveWriteWorkflowNextActionView(run)` while listing saved workflow runs.
+  - Render `/workflow list` rows with `batch_status`, `next`, `action`, and `user`.
+  - Keep `/workflow show` as the detailed audit surface; list remains a bounded snapshot capped by the existing row limit.
+- Safety and prompt hygiene:
+  - This is read-only rendering over durable workflow JSON. It does not change controller scheduling, risk policy, approval, verify, merge, or worktree behavior.
+  - Inputs are typed `WriteWorkflowRun` fields and `WriteWorkflowNextActionView` enums.
+  - No code path parses user keywords, model prose, summaries, rationales, eval text, logs, or `<think>`.
+  - Read/log/trace/data/operation/computer modes are unchanged.
+- Handoff and evidence contract:
+  - No new P0-P3 facts are produced. Context-pack counts remain visible; detailed handoff evidence stays in `/workflow show`.
+  - The list projection preserves the same typed action IDs used by show/recovery surfaces, so future UI can render buttons consistently without backend command parsing.
+- Implementation tasks:
+  - [x] Extend `WorkflowRunInfo` with typed next-action snapshot fields.
+  - [x] Derive list snapshot next state/action/user from `WriteWorkflowNextActionView`.
+  - [x] Render next-action fields in `/workflow list`.
+  - [x] Extend list regression coverage for pending approval, blocked, and ready-to-plan/running workflows.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestWorkflowListDisplaysSavedWriteWorkflowSnapshots|TestWorkflowShowReadyToPlanDoesNotAskForApproval|TestWorkflowShowDisplaysActiveWriteWorkflow'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestDeriveWriteWorkflowNextActionView'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl ./internal/types` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.

@@ -578,10 +578,14 @@ func writeWorkflowListMarkdown(lang string, infos []WorkflowRunInfo) string {
 	}
 	for i := 0; i < limit; i++ {
 		info := infos[i]
-		fmt.Fprintf(&b, "- `%s` status=`%s` active=`%s` batches=%d packs=%d\n",
+		fmt.Fprintf(&b, "- `%s` status=`%s` active=`%s` batch_status=`%s` next=`%s` action=`%s` user=%t batches=%d packs=%d\n",
 			info.ID,
 			firstNonEmptyString(info.Status, "unknown"),
 			firstNonEmptyString(info.ActiveBatchID, "none"),
+			firstNonEmptyString(info.ActiveBatchStatus, "unknown"),
+			firstNonEmptyString(info.NextState, "unknown"),
+			firstNonEmptyString(info.NextAction, "none"),
+			info.RequiresUser,
 			info.Batches,
 			info.ContextPacks)
 	}
