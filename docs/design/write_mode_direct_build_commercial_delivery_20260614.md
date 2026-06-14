@@ -90,12 +90,11 @@ direct-build** 的商用路径：
 - `authoritativeWriteControllerReport` 过滤非 post-apply report。
 - `FinishBlockedReason` 读取 typed verify attempt，拒绝失败后直接 finish。
 
-仍需补：
+闭环证据：
 
-- 增加 planner probe pass + post-apply fail 的 controller 测试。
-- 增加 planner probe fail + post-apply pass 的 controller 测试。
-- 增加 finish 不能消费 planner probe 的测试。
-- 增加 verify failure 后 replan 只读 latest active batch attempt 的测试。
+- `validateControllerPostApplyReport` 只接受当前 active plan 的 `post_apply_verify` typed report。
+- `FinishBlockedReason` 只读 typed attempt records 和 `finish_disposition` enum。
+- 测试覆盖 planner probe pass + post-apply fail、planner probe fail + post-apply pass、非 authoritative report rejection、verify failure 后 handoff/replan。
 
 ### P0-2 ModePlan Terminal Semantics
 
@@ -108,10 +107,11 @@ direct-build** 的商用路径：
 - `WorkflowActionsForMode(ModePlan)` 从 schema 删除 `apply_plan` / `verify_batch`。
 - scheduler 在 plan mode 中生成 plan 后 `plan_mode_complete`。
 
-仍需补：
+闭环证据：
 
-- Prompt/schema hygiene test 保证 ModePlan prompt 不再暗示 apply/verify。
-- Controller runtime rejection path 保持防御纵深。
+- `WorkflowActionsForMode(ModePlan)` 和 projected schema 均移除 `apply_plan` / `verify_batch`。
+- Runtime 对 ModePlan 中的 `apply_plan` / `verify_batch` 仍 fail-loud。
+- Skill hygiene 测试禁止旧静态 phase、unsupported action、用户关键词/prose 路由气味回流到 planner prompt。
 
 ### P0-3 Durable Workflow / Approval Resume
 
@@ -126,11 +126,10 @@ direct-build** 的商用路径：
 - `WriteWorkflowRun` 有 batch attempts 和 approval refs。
 - `WriteApprovalRecord`、plan fingerprint、REPL workflow store 已存在。
 
-仍需补：
+闭环证据：
 
-- approval resume e2e：pending -> restart/load -> approve -> apply -> verify -> finish。
-- stale fingerprint direct test。
-- show/list 输出 snapshot 覆盖 approval/risk/batch state。
+- `/workflow resume`、`/approve`、active workflow store 和 apply-pre fingerprint gate 已接入同一 run/batch/plan 记录。
+- 测试覆盖 pending approval reload 后 approve 继续同一 run、`/workflow list` snapshots、stale fingerprint apply-pre blocking、approval record integrity。
 
 ### P0-4 Failure Evidence Handoff
 
@@ -145,11 +144,12 @@ direct-build** 的商用路径：
 - `WriteContextPackFromChangeReport` 生成 P2 failure items。
 - `persistVerifyFailureEvidence` 保存 report JSON 和 attempt diff。
 
-仍需补：
+闭环证据：
 
-- standalone `TestSurface` artifact ref，不只依赖 report 内嵌。
-- P2 failure dedupe by command/assertion/build location。
-- Replan prompt snapshot：P2 failure 必须排在旧 P1 code facts 前。
+- failed verify attempt 持久化 report JSON、diff artifact、standalone `TestSurface` artifact，并将 `surface_ref` 写入 attempt。
+- `VerifyFailureHandoff` 携带 `surface_artifact_ref`、failure kind、command、test/build rows 和 retry attempt。
+- `WriteContextPackFromChangeReport` 使用 typed IDs 对 failed tests、build errors、executed commands、failure blobs 去重。
+- Planner consumer view 中 P2 verify failure 排在 stale P1 facts 前，P0 constraints 保持最高优先级。
 
 ### P1-1 Single State Machine
 
@@ -162,9 +162,10 @@ direct-build** 的商用路径：
 - `DeriveBatchAttemptState` 将 `ready_to_plan + failed verify` 派生为单一 `needs_replan`。
 - controller prompt 渲染 derived state，不直接混合 progress event 和 state。
 
-仍需补：
+闭环证据：
 
-- snapshot 覆盖 `pending_approval`、`needs_replan`、`unverified`、`accept_unverified`、`blocked`。
+- `DeriveBatchAttemptState` 是 controller-facing 单一状态派生入口。
+- Controller tests 覆盖 pending approval、needs replan、retry budget blocked、no-tests unverified caveat、accept unverified finish disposition。
 
 ### P1-2 Planner/Replan Tool Permission Split
 
@@ -202,10 +203,10 @@ direct-build** 的商用路径：
 - `WriteContextPack.View(consumer, limit)`。
 - evidence-backed items 基于 priority/kind/source/file/line key dedupe。
 
-仍需补：
+闭环证据：
 
-- verify failure item identity：runner/framework/cwd/assertion/build location/failure kind。
-- consumer-specific snapshot tests。
+- Verify failure item identity 使用 runner/framework/working_dir/command、assertion id、build file/line/column/symbol、failure kind 等 typed fields。
+- `WriteContextPack.View` 有 consumer-specific ordering/bounds/defensive-copy 测试；planner replan view 会优先消费 P2 failure evidence。
 
 ### P1-4 Worktree / Report Persistence
 
@@ -218,10 +219,11 @@ direct-build** 的商用路径：
 
 - plan mirror、report save、attempt diff capture、GeneratedAt backfill 已存在。
 
-仍需补：
+闭环证据：
 
-- Report/surface/diff/artifact refs 的一致性检查。
-- Eval runner 读取 latest workflow artifact，而不是固定 `run-1.plan.json`。
+- Verify failure persistence 将 report、diff、surface refs 绑定到 latest verify attempt；resume hydration 从 attempt state 恢复 handoff。
+- Active plan mirror 和 workflow run store 保证用户提示、report 和 resumed run 指向 live plan。
+- Write-mode eval sweep 覆盖 Python/C++/Java patch cases，3/3 PASS，flagged 0/3。
 
 ## 6. Target Architecture
 
@@ -354,10 +356,11 @@ Examples already aligned:
 - `emit_test_results`: shared compatibility path.
 - apply/plan tools: strict validators and structured edit compilation.
 
-Follow-up:
+闭环证据：
 
-- Add registry coverage test for new write tools.
-- Keep prompts/hints in sync with actual schema projection.
+- BaseAgent 在 local tool 与 MCP tool 执行前统一执行 structural JSON repair + schema-aware compat。
+- `emit_write_workflow_decision`、`run_tests`、`emit_test_results`、`emit_plan_skeleton` 均有 compat/strict decode tests。
+- Planner schema projection 和 prompt hints 由 tests 固定：write planner hides shell/apply/verifier tools，并要求 `run_tests(dry_run=true)`。
 
 ## 11. Handoff Design
 
