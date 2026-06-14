@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Complete
+Status: Direct-build hardening complete; external GitHub issue eval gap ledger open
 
 ## 1. Summary
 
@@ -577,3 +577,174 @@ This document is the canonical delivery ledger for the write-mode commercial har
 - Durable run/batch/attempt state, single state derivation, report/surface/diff refs, and restart behavior: Sections 11, 12, and 13.
 - Prompt hygiene red lines: Sections 1, 3, 8, 9, and 10.
 - Eval, e2e, regression matrix, final verdicts, and batch-by-batch delivery evidence: Sections 14, 15, and 17.
+
+Design updates after this point must keep the following full supplement shape in this document. A code fix without these fields is incomplete:
+
+| Required block | Content that must be recorded | Hard rule |
+| --- | --- | --- |
+| Problem evidence | Local file/log/artifact refs, typed report fields, eval case ids, upstream issue/PR links when applicable | Do not use model prose as evidence for a hard claim |
+| Scope boundary | Affected mode, stage, tool contract, artifact store, CLI/REPL surface, and unaffected modes | Read/log/trace/data/operation/computer isolation must be explicit |
+| Generalized gap | The class of failures the evidence represents | Do not describe only the single failing fixture |
+| Target architecture | Durable state, typed artifacts, action enums, policy gates, and handoff flow | No keyword matching over user intent or model output |
+| Safety and approval | allow/ask/deny behavior, fingerprint/resume behavior, critical deny path | Low/medium stays low-friction; high asks; critical denies |
+| Handoff plan | Which P0-P3 facts are produced, persisted, deduped, and consumed | Rich evidence must survive process restart and replan |
+| Implementation tasks | Batch-sized task list with owners by package or surface | Each task needs tests and rollback/compat notes |
+| Test matrix | Unit, controller, CLI/REPL, eval, and regression checks | PASS must be backed by typed artifacts where available |
+| Progress ledger | Commit hash, push status, commands run, failures, and caveats | The ledger is updated per batch, not only at the end |
+
+When a new external eval uncovers gaps, add an addendum here with:
+
+- source matrix: repo, language, upstream issue/PR, fixture/case id, result.
+- typed artifact summary: `ChangePlan`, `WriteApprovalRecord`, `ChangeReport`, workflow attempts, report/diff/surface refs.
+- failure class: eval oracle, planner structured edit recovery, verify runner/report installation, workflow resume, handoff, permission/risk, or multi-repo fan-out.
+- generalized design response: a system mechanism that handles the class of failures.
+- delivery tasks and acceptance criteria.
+
+## 19. External GitHub Issue Eval Addendum
+
+Date: 2026-06-14
+
+Command:
+
+```text
+CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_libgit2_foreach_worktree.case eval/cases/github_issue_gson_lazy_number.case eval/cases/github_issue_dateutil_relativedelta_float.case eval/cases/github_issue_dayjs_duration_nan.case eval/cases/github_issue_zod_prefault.case eval/cases/github_issue_nlohmann_long_double.case eval/cases/github_issue_fmt_tm_year_overflow.case eval/cases/github_issue_commons_lang_random_ascii.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_github_issue_apply_20260614_baseline_summary.md bash eval/convergence_audit.sh
+```
+
+Aggregate result:
+
+- 8 external GitHub-inspired write-mode apply cases.
+- 5 PASS, 3 FAIL.
+- Summary artifact: `eval/results/write_mode_github_issue_apply_20260614_baseline_summary.md`.
+
+Source/result matrix:
+
+| Case | Language | Upstream source | Result | Typed evidence |
+| --- | --- | --- | --- | --- |
+| `github_issue_libgit2_foreach_worktree` | C | libgit2/libgit2 issue #7216 / PR #7231 | FAIL by regex oracle | `plan-1781402164588833000-17983.report.json` has `channel=post_apply_verify`, `passed=true`, command `make check`, exit 0 |
+| `github_issue_gson_lazy_number` | Java | google/gson issue 627 family | FAIL before apply | no plan written; planner `emit_change_plan` rejected by structured edit diagnostics: old-text mismatch then invalid line range |
+| `github_issue_dateutil_relativedelta_float` | Python | python-dateutil relativedelta float handling issue family | PASS | apply completed |
+| `github_issue_dayjs_duration_nan` | TypeScript/JavaScript | iamkun/dayjs duration NaN issue family | PASS | apply completed |
+| `github_issue_zod_prefault` | TypeScript | colinhacks/zod issue #5824 / PR #5893 | FAIL by workflow/harness | plan applied; attempt diff persisted; first verify produced no `ChangeReport`; controller replanned over already-applied worktree; final verdict `worktree_discarded_or_missing` |
+| `github_issue_nlohmann_long_double` | C++ | nlohmann/json long double formatting issue family | PASS | apply completed |
+| `github_issue_fmt_tm_year_overflow` | C++ | fmtlib/fmt tm year overflow issue family | PASS | apply completed |
+| `github_issue_commons_lang_random_ascii` | Java | apache/commons-lang RandomStringUtils ASCII issue family | PASS | `plan-1781402836694027000-27015.report.json` persisted |
+
+### 19.1 P0 Gaps From External Eval
+
+#### P0-A Write Eval Verdict Must Consume Typed Verify Results
+
+Evidence:
+
+- `libgit2` produced a typed post-apply verify report with `passed=true`, but the eval failed because the post-apply file did not match the case regex.
+- Current `eval/run.sh` apply verdict primarily checks plan existence, apply exit, worktree presence, and content regex. It does not default to requiring an authoritative typed `ChangeReport` with `channel=post_apply_verify` and `passed=true`.
+
+Generalized gap:
+
+- The eval harness conflates three different judgments: workflow execution, typed verification, and content/oracle conformance.
+
+Target design:
+
+- Add a typed write eval result layer that records `plan_id`, `plan_written`, `apply_attempted`, `worktree_path`, `report_path`, `report_channel`, `report_passed`, `executed_commands`, `content_assertions`, and `oracle_assertions`.
+- For `MODE=apply`, default PASS requires an authoritative current-plan post-apply `ChangeReport.passed=true` unless a case explicitly opts into `ALLOW_UNVERIFIED_APPLY=1`.
+- Content regex failures remain separate `oracle_assertion_failed` reasons; they do not hide a passed typed verify report.
+
+#### P0-B Verify Infra Failure Needs Typed Retry Semantics
+
+Evidence:
+
+- `zod` applied the correct diff and persisted `plan-1781402485278036000-22136.attempt-1.diff`.
+- First verifier dispatch called `run_tests` late in the verifier loop, then no `ChangeReport` was installed.
+- Controller converted the state to replan; planner saw the worktree already fixed, ran dry-run probes, then failed because no new plan was produced.
+
+Generalized gap:
+
+- A verifier infrastructure failure is not the same as a code verification failure. Replanning over already-applied code can destroy convergence.
+
+Target design:
+
+- Introduce a typed `VerifyAttemptOutcome` with kinds: `report_passed`, `report_failed`, `tool_not_called`, `report_parse_failed`, `runner_missing`, `timeout`, `no_tests`, `infra_error`.
+- Controller maps retryable infra outcomes to `retry_verify`, not `replan_batch`.
+- Replan is only allowed when typed `ChangeReport` exists and says code/test behavior failed, or when retry budget for infra verification is exhausted and the selected fallback is explicitly typed.
+- Applied diff/report/surface refs remain attached to the active attempt so the retry consumes the same worktree state.
+
+#### P0-C Planner Structured Edit Recovery Is Too Fragile
+
+Evidence:
+
+- `gson` planner found the correct change but failed to install a plan after two structured edit rejections:
+  - old-text mismatch at anchor line.
+  - invalid line range for file length.
+
+Generalized gap:
+
+- The structured edit validator provides enough local diagnostics to the model, but the planner still has to reason about line counts and EOF manually. This creates avoidable no-plan failures for simple append/insert changes.
+
+Target design:
+
+- Return typed `EditDiagnostic` artifacts with file length, anchor line, nearest exact old-text candidates, safe EOF insertion options, and validator reason codes.
+- Add an append-before-final-brace / insert-at-EOF structured operation that is compiled by the builder from typed anchors, so the model does not manually calculate end-of-file line ranges.
+- Keep validators strict; improve repair affordances rather than weakening old-text checks.
+
+#### P0-D Multi-Repo Write Eval Is Unsupported
+
+Evidence:
+
+- `eval/run.sh` rejects `MULTIREPO` with `MODE=apply`: "multi-repo write-mode not yet supported".
+
+Generalized gap:
+
+- Write-mode DAG can split batches inside one repo, but the eval harness and product path do not yet support repo-scoped write fan-out across a discovered multi-repo workspace.
+
+Target design:
+
+- Model multi-repo write as repo-scoped workflow batches with explicit `repo_slug`, per-repo worktree, per-repo apply-pre gate, and cross-repo dependency edges.
+- Shared `WriteContextPack` stores cross-repo contract evidence, but hard apply/verify gates stay repo-local.
+- Read-mode multi-repo discovery remains unchanged.
+
+### 19.2 P1 Gaps From External Eval
+
+- Eval needs separate verdict channels: workflow execution, typed verification, code-shape oracle, and upstream-conformance oracle.
+- Workflow state rendering still exposes stale `pending_approval` wording after auto approval; derived state should render `approved_auto` or equivalent.
+- Worktree/report persistence should be reported from durable typed refs, not grep over `worktree_path` in a plan snapshot.
+- Planner no-plan after "already applied" state should become a typed no-op/verify decision when the active worktree satisfies the plan, not a generic planner failure.
+
+### 19.3 Addendum Delivery Tasks
+
+#### Batch 7: External Eval Evidence Ledger
+
+- [x] Run the 8-case GitHub issue write-mode apply sweep.
+- [x] Inspect failing case artifacts and classify by typed evidence.
+- [x] Record the result matrix, P0/P1 gaps, and generalized target design in this document.
+- [x] Commit and push this document update.
+
+#### Batch 8: Typed Write Eval Verdict
+
+- Add a structured apply-result collector in `eval/run.sh` or a small helper that reads typed report JSON and emits a machine-readable verdict record.
+- Require authoritative post-apply verify pass by default for `MODE=apply`.
+- Preserve content regex checks as oracle assertions with distinct failure reasons.
+- Add harness tests for: report passed + oracle fail, report missing, report failed, unverified opt-out.
+
+#### Batch 9: Verify Infra Retry
+
+- Add `VerifyAttemptOutcome` and controller transition tests for `tool_not_called` / `report_parse_failed` / `runner_missing`.
+- Add `retry_verify` action or an internal executor transition that does not require model prose routing.
+- Keep applied worktree and attempt refs stable across retry.
+- Test zod-style "applied diff, no report installed, retry verify" convergence.
+
+#### Batch 10: Structured Edit Diagnostics
+
+- Extend structured edit rejection records with typed diagnostics.
+- Add EOF/final-brace anchored insert operation compiled by the builder.
+- Test Java/C++/TypeScript append-before-final-brace edits without manual line-count dependence.
+
+#### Batch 11: Multi-Repo Write Fan-Out Design And Eval
+
+- Extend eval setup to allow `MULTIREPO + MODE=apply` behind an explicit case flag once product support exists.
+- Add repo-scoped workflow batch metadata and per-repo worktree/apply/verify refs.
+- Add one cross-repo fixture where a contract change touches two non-Go repos and must verify both.
+
+#### Batch 12: External Issue Fixture Expansion
+
+- Add at least one Rust-shaped external issue fixture using an upstream PR with a small localized fix, with a Makefile/Python oracle so local Rust toolchain absence does not block eval.
+- Keep all fixtures minimal reproductions; do not vendor external repos or rely on network during eval.
+- Run the external issue sweep after Batches 8-10 and update this ledger with pass/fail deltas.
