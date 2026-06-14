@@ -249,6 +249,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			report := o.busCtx.Mutable.ChangeReport()
 			if report != nil {
 				o.ensureChangeReportPlanID(report)
+				if reportErr := o.validateControllerPostApplyReport(report); reportErr != nil && innerErr == nil {
+					innerErr = reportErr
+				}
 				o.syncMutablePlanStatusAfterVerify(report, innerErr)
 				o.mirrorActivePlanToImportFile(importedPlanMirror)
 				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
@@ -623,6 +626,60 @@ func (o *Orchestrator) syncMutablePlanStatusAfterSkippedVerify() {
 		plan.WorktreePath = o.busCtx.WorktreePath
 	}
 	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
+func (o *Orchestrator) validateControllerPostApplyReport(report *types.ChangeReport) error {
+	if report == nil {
+		return nil
+	}
+	currentPlanID := ""
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+			currentPlanID = strings.TrimSpace(plan.ID)
+		}
+		if currentPlanID == "" {
+			if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+				for _, batch := range run.Batches {
+					if strings.TrimSpace(batch.ID) == strings.TrimSpace(run.ActiveBatchID) {
+						currentPlanID = strings.TrimSpace(batch.PlanID)
+						break
+					}
+				}
+			}
+		}
+	}
+	if report.Channel == "" {
+		report.Channel = types.ChangeReportChannelPostApplyVerify
+	}
+	if currentPlanID != "" && strings.TrimSpace(report.PlanID) == "" {
+		report.PlanID = currentPlanID
+	}
+	if report.Channel != types.ChangeReportChannelPostApplyVerify {
+		msg := fmt.Sprintf("verify produced non-post-apply ChangeReport channel %q for plan %s", report.Channel, strings.TrimSpace(report.PlanID))
+		markControllerInvalidVerifyReport(report, currentPlanID, msg)
+		return fmt.Errorf("%s", msg)
+	}
+	if currentPlanID != "" && strings.TrimSpace(report.PlanID) != currentPlanID {
+		msg := fmt.Sprintf("verify produced ChangeReport for stale plan %s; active plan is %s", strings.TrimSpace(report.PlanID), currentPlanID)
+		markControllerInvalidVerifyReport(report, currentPlanID, msg)
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+func markControllerInvalidVerifyReport(report *types.ChangeReport, planID, message string) {
+	if report == nil {
+		return
+	}
+	if strings.TrimSpace(planID) != "" {
+		report.PlanID = strings.TrimSpace(planID)
+	}
+	report.Passed = false
+	report.BuildFailed = false
+	report.FailureSummary = strings.TrimSpace(message)
+	if report.FailureKind == "" {
+		report.FailureKind = types.FailureKindTestsFailed
+	}
 }
 
 func (o *Orchestrator) runControllerWriteStage(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -1215,6 +1272,9 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	report := o.busCtx.Mutable.ChangeReport()
 	if report != nil {
 		o.ensureChangeReportPlanID(report)
+		if reportErr := o.validateControllerPostApplyReport(report); reportErr != nil && innerErr == nil {
+			innerErr = reportErr
+		}
 		o.syncMutablePlanStatusAfterVerify(report, innerErr)
 		o.mirrorActivePlanToImportFile(importedPlanMirror)
 		o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))

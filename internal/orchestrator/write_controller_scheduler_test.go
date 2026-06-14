@@ -737,6 +737,188 @@ func TestRunWriteControllerWorkflow_FinishAfterPassedVerifyNeedsNoDisposition(t 
 	}
 }
 
+func TestRunWriteControllerWorkflow_PlannerProbePassCannotFinishFailedPostApplyVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("probe pass but post-apply fails")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "probe pass but post-apply fails"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "probe_said_green"},
+		{Action: writeflow.ActionBlock, ReasonCode: "post_apply_failed"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(3)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-probe-pass", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+			mu.AppendPlanStageProbeReport(&types.ChangeReport{
+				PlanID:  "plan-probe-pass",
+				Channel: types.ChangeReportChannelPlannerProbe,
+				Passed:  true,
+			})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         "plan-probe-pass",
+				Channel:        types.ChangeReportChannelPostApplyVerify,
+				Passed:         false,
+				FailureSummary: "post-apply test failed",
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("workflow should block after bare finish is rejected and controller blocks")
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("workflow should be blocked by the final controller decision, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
+		t.Fatalf("planner probe pass must not unblock failed post-apply finish: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-probe-pass.report.json") {
+		t.Fatalf("post-apply failure should be the authoritative verify attempt: %+v", store.last.Batches[0].Attempts)
+	}
+}
+
+func TestRunWriteControllerWorkflow_PlannerProbeFailureDoesNotBlockPassedPostApplyVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("probe fails but post-apply passes")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "probe fails but post-apply passes"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "post_apply_green"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-probe-fail", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+			mu.AppendPlanStageProbeReport(&types.ChangeReport{
+				PlanID:         "plan-probe-fail",
+				Channel:        types.ChangeReportChannelPlannerProbe,
+				Passed:         false,
+				FailureSummary: "dry-run failure before apply",
+			})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:  "plan-probe-fail",
+				Channel: types.ChangeReportChannelPostApplyVerify,
+				Passed:  true,
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("post-apply pass should finish despite stale probe failure: %v", err)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete from post-apply green report, got %+v", store.last)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") ||
+		workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
+		t.Fatalf("planner probe failure must not pollute post-apply state: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "passed", "tests_passed", "plan-probe-fail.report.json") {
+		t.Fatalf("post-apply success should be the authoritative verify attempt: %+v", store.last.Batches[0].Attempts)
+	}
+}
+
+func TestRunWriteControllerWorkflow_RejectsNonAuthoritativeVerifyReports(t *testing.T) {
+	cases := []struct {
+		name       string
+		report     types.ChangeReport
+		wantDetail string
+	}{
+		{
+			name: "planner probe channel",
+			report: types.ChangeReport{
+				PlanID:  "plan-channel",
+				Channel: types.ChangeReportChannelPlannerProbe,
+				Passed:  true,
+			},
+			wantDetail: "non-post-apply ChangeReport channel",
+		},
+		{
+			name: "stale plan id",
+			report: types.ChangeReport{
+				PlanID:  "older-plan",
+				Channel: types.ChangeReportChannelPostApplyVerify,
+				Passed:  true,
+			},
+			wantDetail: "stale plan",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeWorkflowRunStore{}
+			mu := types.NewMutableState(tc.name)
+			mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: tc.name}}})
+			decisions := []writeflow.WriteWorkflowDecision{
+				{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+				{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+				{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+				{Action: writeflow.ActionBlock, ReasonCode: "invalid_report"},
+			}
+			controllerCalls := 0
+			ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+				types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+			})
+			o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+			o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+			o.cancelToken = NewCancelToken()
+			o.writeWorkflowRunStore = store
+			o.SetWriteRetryBudget(3)
+			o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+				switch stage {
+				case types.StagePlan:
+					mu.SetChangePlan(&types.ChangePlan{ID: "plan-channel", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+				case types.StageVerify:
+					report := tc.report
+					mu.SetChangeReport(&report)
+				}
+				*stepsUsed++
+				return &agent.StageOutput{}, nil
+			}
+			steps := 0
+			if err := o.runWriteControllerWorkflow(&steps); err == nil {
+				t.Fatal("workflow should block after invalid verify report")
+			}
+			if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
+				t.Fatalf("workflow should be blocked after invalid report, got %+v", store.last)
+			}
+			if !workflowProgressHasMessage(store.last.ProgressLedger, tc.wantDetail) {
+				t.Fatalf("invalid report detail %q should be persisted in progress: %+v", tc.wantDetail, store.last.ProgressLedger)
+			}
+			if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-channel.report.json") {
+				t.Fatalf("invalid report should become a failed verify attempt for active plan: %+v", store.last.Batches[0].Attempts)
+			}
+		})
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("handoff lifecycle")
@@ -1057,7 +1239,6 @@ func TestRunWriteControllerWorkflow_MirrorsActivePlanToImportFile(t *testing.T) 
 		t.Fatalf("mirror must carry the final verified status, got %s", mirrored.Status)
 	}
 }
-
 
 func TestLastPlanEmitRejectionSummary_PicksLatestPlanEmitFailure(t *testing.T) {
 	results := []types.ToolResult{

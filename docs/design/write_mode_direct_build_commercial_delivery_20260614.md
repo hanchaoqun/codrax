@@ -22,6 +22,21 @@ direct-build** 的商用路径：
 
 `<think>` / thinking stream 渲染到用户侧日志是期望的透明性能力，不作为本方案缺陷处理。
 
+本设计文档必须持续覆盖以下内容，后续批次不得只在代码里补丁式修复而不回写设计：
+
+- 当前代码证据和系统级 gap ledger。
+- 目标 controller-first DAG、batch 状态机、action executor 边界。
+- ModePlan / ModeApply / ModeVerify 的终态语义。
+- allow / ask / deny 权限模型、apply-pre gate、approval resume 和 fingerprint 规则。
+- planner/replan/verifier/coder 的工具权限分层。
+- typed JSON repair + strict decode 合同。
+- verify result authority：只消费当前 active plan 的 post-apply typed report。
+- failure evidence handoff：build/test/path/line/command 证据进入 P2 并参与小批量 replan。
+- context pack 持久化、去重、Top-N consumer view。
+- worktree、report、surface、diff artifact 的持久化和清理边界。
+- prompt hygiene 红线：prompt 只做软指导，硬逻辑不读取用户关键词、模型 prose、summary、rationale 或 `<think>`。
+- eval / e2e / regression 结果与每批交付进展。
+
 ## 2. Goals
 
 - **流畅直写**：简单、低风险、目标明确的任务应少打断用户，自动走完 plan/apply/verify。
@@ -461,7 +476,7 @@ ask for approval on low/medium cases.
 ### Batch 0: Direct-Build Design Ledger
 
 - [x] Create this full design document.
-- [ ] Commit and push.
+- [x] Commit and push.
 
 ### Batch 1: Planner Typed Tool Policy
 
@@ -472,13 +487,15 @@ ask for approval on low/medium cases.
 - [x] Add tests.
 - [x] Run targeted tests.
 - [x] Run affected-package regression.
-- [ ] Commit and push.
+- [x] Commit and push.
 
 ### Batch 2: Verify Authority Regression
 
-- [ ] Add planner-probe vs post-apply report authority tests.
-- [ ] Add finish rejection tests for stale/failed post-apply attempts.
-- [ ] Add controller artifact rendering tests for current plan id only.
+- [x] Add planner-probe vs post-apply report authority tests.
+- [x] Add finish rejection tests for stale/failed post-apply attempts.
+- [x] Add controller artifact rendering tests for current plan id only.
+- [x] Run targeted tests.
+- [x] Run affected-package regression.
 
 ### Batch 3: Durable Approval Resume
 
@@ -524,5 +541,6 @@ ask for approval on low/medium cases.
 
 | Date | Batch | Status | Evidence |
 | --- | --- | --- | --- |
-| 2026-06-14 | 0 | in_progress | Full design document created in working tree. |
-| 2026-06-14 | 1 | tests_passed_affected_packages | Implemented planner typed tool policy in `internal/agent/agent.go`; tests in `internal/agent/agent_tool_context_test.go`; updated `internal/skill/defaults.go`. Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache`: `go test ./internal/agent -run 'Test(BuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe|ValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests|ExecuteTool_WriteExplorationSubflowRejectsShellCommand|ChangePlanSkill_BatchLocalPlanningWorkflow)'`; `go test ./internal/skill -run 'TestChangePlanSkill_BatchLocalPlanningWorkflow|TestWriteControllerSkill'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/agent ./internal/skill ./internal/tool ./internal/types ./internal/writeflow ./internal/orchestrator ./internal/repl`. |
+| 2026-06-14 | 0 | pushed | Full design document created and pushed on `main` in commit `d4169108` together with Batch 1. |
+| 2026-06-14 | 1 | pushed | Implemented planner typed tool policy in `internal/agent/agent.go`; tests in `internal/agent/agent_tool_context_test.go`; updated `internal/skill/defaults.go`. Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache`: `go test ./internal/agent -run 'Test(BuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe|ValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests|ExecuteTool_WriteExplorationSubflowRejectsShellCommand|ChangePlanSkill_BatchLocalPlanningWorkflow)'`; `go test ./internal/skill -run 'TestChangePlanSkill_BatchLocalPlanningWorkflow|TestWriteControllerSkill'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/agent ./internal/skill ./internal/tool ./internal/types ./internal/writeflow ./internal/orchestrator ./internal/repl`. |
+| 2026-06-14 | 2 | tests_passed_affected_packages | Controller verify authority now rejects non-post-apply or stale-plan reports and records them as failed attempts for the active plan. Added planner-probe pass/post-apply fail, planner-probe fail/post-apply pass, and invalid verify report tests. Targeted tests passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(PlannerProbePassCannotFinishFailedPostApplyVerify|PlannerProbeFailureDoesNotBlockPassedPostApplyVerify|RejectsNonAuthoritativeVerifyReports|FinishGateRequiresTypedDisposition|FinishAfterPassedVerifyNeedsNoDisposition)'`. Affected package regression passed with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/agent ./internal/tool ./internal/types ./internal/repl`. |
