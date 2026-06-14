@@ -703,12 +703,10 @@ type MutableState struct {
 	// plan so retries don't accumulate stale reasons.
 	unvalidatedReasons []string
 
-	// patchStyleNudgeFired records that emit_change_plan already
-	// bounced one plan for line-structure compression this run.
-	// The nudge is a once-only soft retry-hint: the first compressed
-	// emission is rejected with re-emit guidance, every later
-	// emission is accepted as-is (advisory note only), so a planner
-	// that insists on the compressed shape is never hard-blocked.
+	// patchStyleNudgeFired is legacy bookkeeping for older callers that
+	// probed a once-per-run line-structure hint. emit_change_plan now
+	// treats patch style as a success-only advisory; noisy style signals
+	// must never consume planner retry budget.
 	patchStyleNudgeFired bool
 }
 
@@ -1774,11 +1772,10 @@ func (m *MutableState) DrainUnvalidatedReasons() []string {
 	return out
 }
 
-// TestAndSetPatchStyleNudge reports whether the once-per-run patch
-// line-structure nudge may fire now (true exactly once), marking it
-// consumed. emit_change_plan uses this to bounce the FIRST
-// line-compressing plan emission with a re-emit hint while accepting
-// any later emission unconditionally.
+// TestAndSetPatchStyleNudge reports whether the legacy once-per-run patch
+// line-structure marker may fire now (true exactly once), marking it consumed.
+// emit_change_plan no longer rejects on this marker; patch style is rendered
+// as an advisory on an otherwise successful tool result.
 func (m *MutableState) TestAndSetPatchStyleNudge() bool {
 	if m == nil {
 		return false

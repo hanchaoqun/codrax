@@ -77,10 +77,9 @@ func TestPatchStyleAdvisoryNote_AdvisoryNeverChangesAcceptance(t *testing.T) {
 	}
 }
 
-// The once-only nudge: the first line-compressing emission bounces
-// with re-emit guidance; the second identical emission is accepted
-// (advisory note only) — a bounded retry-hint, never a gate.
-func TestEmitChangePlan_LineStructureNudgeFiresOnce(t *testing.T) {
+// Legacy MutableState bookkeeping remains monotonic for callers that still
+// probe it, but emit_change_plan no longer turns the advisory into a retry.
+func TestPatchStyleLegacyNudgeBookkeepingFiresOnce(t *testing.T) {
 	mu := types.NewMutableState("nudge")
 	if !mu.TestAndSetPatchStyleNudge() {
 		t.Fatal("first test-and-set must report the nudge may fire")

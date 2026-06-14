@@ -120,6 +120,15 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackFromChangeReportCarriesNoTestsToController(t *testing.T) {
+	report := &ChangeReport{PlanID: "plan-no-tests", Passed: true, NoTestsRunners: []string{"python"}}
+	pack := WriteContextPackFromChangeReport(report)
+	view := pack.View(WriteConsumerController, 10)
+	if !writeContextViewContains(view, "no_tests_runner", "python") {
+		t.Fatalf("controller must receive no-tests context: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangeReportDedupesVerifyFailureIdentity(t *testing.T) {
 	first := WriteContextPackFromChangeReport(&ChangeReport{
 		PlanID:         "plan-1",

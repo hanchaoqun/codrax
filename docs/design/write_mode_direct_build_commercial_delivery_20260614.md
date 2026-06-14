@@ -2695,3 +2695,65 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestHelpLines|TestWorkflowHelp|TestSlashCommand|TestHandleSlashHelpAll'` PASS.
 - Progress:
   - Implementation commit: `7a6ae07b` (`docs: document concise help surface`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 60: Live Pytest Workflow Forensics And No-Tests Convergence Guard
+
+- Evidence source:
+  - Live run log inspected under `/Users/han/opt/fy/pytest/.codrax/logs/pytest-40842ba6/codrax-20260615-000348-000-84411.log`.
+  - Durable workflow inspected at `/Users/han/opt/fy/pytest/.codrax/plans/workflows/wf-1781453170327220000-84411.json`.
+  - Batch-1 plan/report inspected at `/Users/han/opt/fy/pytest/.codrax/plans/plan-1781453488912901000-84411.json` and `.report.json`.
+  - Observed symptoms:
+    - `apply_patch` succeeded, then verifier ran `run_tests` and produced a typed `no_tests/unverified` outcome.
+    - After that, controller emitted another `replan_batch` and created `batch-2`, making the workflow look like it had restarted from the original issue text.
+    - `emit_change_plan` retried multiple times: strict schema unknown-field rejection, structured edit `old_text` mismatch, final-brace insertion mismatch for Python, and a one-time line-structure style bounce.
+    - Workflow referenced `plan-1781454126574735000-84411` for pending approval, but no matching plan JSON existed under `.codrax/plans`.
+  - `<think>` text in logs remains expected transparency and is not a defect.
+- Generalized gap:
+  - `no_tests` is not a green behavioral verdict. It should complete only with an unverified caveat and must not be rendered or ledgered as `batch_verified`.
+  - `replan_batch` means "repair a failed active batch"; it requires typed failed-verification evidence or a failure handoff. It must not be triggered by stale original request prose after a completed no-tests batch.
+  - Noisy patch-style heuristics violated the precise-signal rule by consuming a retry. Style guidance belongs on successful tool output, not as a rejection.
+  - Pending approval must be durable before the run pauses. A workflow batch cannot point to a plan id that `/plan show` and `/approve` cannot load.
+  - Structured edit diagnostics must expose both the current bytes and the submitted `old_text`; otherwise the model and operator cannot distinguish invisible whitespace, range drift, and JSON escaping issues.
+- Target architecture:
+  - Controller normalization reads only typed batch attempts and failure handoff:
+    - active batch `complete` + latest verify `unverified/no_tests` + no verify failure handoff + controller `replan_batch` -> typed `finish` with `finish_disposition=accept_unverified`.
+    - typed failed verify handoff still allows `replan_batch`.
+    - `append_batch`/`split_batch` remain available for real multi-batch continuation.
+  - Verify success ledger distinguishes:
+    - `batch_verified` for passed authoritative tests/builds.
+    - `batch_unverified` for `no_tests` outcomes.
+  - Every controller-produced plan is stamped with workflow coordinates (`PhaseGroupID=run_id`, `PhaseIndex=batch index`) before approval fingerprinting and persistence, reusing the existing PlanStore same-group exemption instead of introducing another plan store.
+  - Plan snapshot persistence runs before pending approval, so high-risk pauses always have a loadable plan artifact.
+  - Patch-style compression emits advisory text only on successful `emit_change_plan`.
+  - Structured edit mismatch diagnostics include `current_bytes`, `supplied_old_text`, `expected_old_text`, byte lengths, and a typed retry instruction that permits omitting `old_text` when line numbers came from the latest `read_file` view.
+- Safety and prompt hygiene:
+  - Hard routing uses typed action enums, batch statuses, attempt statuses/reason codes, approval records, plan fingerprints, and handoff structs only.
+  - No user keyword, issue prose, model rationale/summary, log text, or `<think>` is parsed to decide finish/replan/apply.
+  - `old_text` remains exact byte matching with only the documented final-newline tolerance; no fuzzy or semantic matching was added.
+  - Critical/high approval behavior is unchanged; the fix makes pending approvals more durable, not easier to bypass.
+- Handoff and evidence contract:
+  - `no_tests_runner` is now projected to the controller P2 view as well as planner/verifier, so the controller has typed evidence that verification was unasserted.
+  - Failed verification handoff continues to be the only typed carrier that permits failure-local replan.
+  - Workflow progress now records no-tests completion as unverified, preserving restart/resume clarity.
+- Implementation tasks:
+  - [x] Remove the one-time patch-style rejection path from `emit_change_plan`; keep success advisory.
+  - [x] Add typed no-tests replan guard in controller normalization.
+  - [x] Change no-tests completion progress from `batch_verified` to `batch_unverified`.
+  - [x] Include no-tests P2 context in controller consumer views.
+  - [x] Stamp controller batch plans with workflow group coordinates before approval/persistence.
+  - [x] Persist current plan snapshots immediately after successful controller planning and before manual approval pauses.
+  - [x] Upgrade structured edit old-text diagnostics with supplied/current byte metadata.
+  - [x] Add unit tests for no-tests replan suppression, failure-handoff replan allowance, no-tests ledger, pending approval plan persistence, context-pack consumer projection, patch-style advisory, and structured edit diagnostics.
+- Verification:
+  - `go test ./internal/tool -run 'TestPatchStyle|TestAnalyzePatch'` PASS.
+  - `go test ./internal/types -run 'TestWriteContextPackFromChangeReportCarriesNoTestsToController|TestWriteContextPackFromChangeReportCarriesVerifyFailure'` PASS.
+  - `go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecisionReplan|TestRunWriteControllerWorkflow_NoTestsCompletionCarriesCaveat|TestRunWriteControllerWorkflow_PendingApprovalPersistsWorkflowPlan'` PASS.
+  - `go test ./internal/tool -run 'TestCompileStructuredEdits_DiagnosticForOldTextMismatch|TestCompileStructuredEdits_MismatchDiagnosticEchoesCurrentBytes|TestCompileStructuredEdits_InsertAnchorMismatchEchoesCurrentBytes|TestStructuredEditOldTextMatches_ByteRules|TestPatchStyle|TestAnalyzePatch'` PASS.
+  - `go test ./internal/orchestrator` PASS.
+  - `go test ./internal/types` PASS.
+  - `go test ./internal/tool` PASS.
+  - `git diff --check` PASS.
+  - `go test ./...` PASS.
+  - `make` PASS.
+- Progress:
+  - Implementation verified on `main`; commit and push pending.

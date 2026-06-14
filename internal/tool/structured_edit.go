@@ -29,7 +29,10 @@ type structuredEditDiagnostic struct {
 	EndLine          int      `json:"end_line,omitempty"`
 	AnchorLine       int      `json:"anchor_line,omitempty"`
 	CurrentBytes     string   `json:"current_bytes,omitempty"`
+	SuppliedOldText  string   `json:"supplied_old_text,omitempty"`
 	ExpectedOldText  string   `json:"expected_old_text,omitempty"`
+	CurrentByteLen   int      `json:"current_byte_len,omitempty"`
+	SuppliedByteLen  int      `json:"supplied_byte_len,omitempty"`
 	RetryInstruction string   `json:"retry_instruction,omitempty"`
 	SafeEditKinds    []string `json:"safe_edit_kinds,omitempty"`
 }
@@ -179,8 +182,11 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						StartLine:        edit.StartLine,
 						EndLine:          endLine,
 						CurrentBytes:     got,
+						SuppliedOldText:  edit.OldText,
 						ExpectedOldText:  got,
-						RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, or omit end_line for a single-line edit",
+						CurrentByteLen:   len(got),
+						SuppliedByteLen:  len(edit.OldText),
+						RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, omit end_line for a single-line edit, or omit old_text when the line numbers came from the latest read_file view",
 						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
 					})
 				}
@@ -238,7 +244,10 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						StartLine:        edit.StartLine,
 						AnchorLine:       edit.StartLine,
 						CurrentBytes:     anchor,
+						SuppliedOldText:  edit.OldText,
 						ExpectedOldText:  anchor,
+						CurrentByteLen:   len(anchor),
+						SuppliedByteLen:  len(edit.OldText),
 						RetryInstruction: "resend this insertion with old_text exactly equal to expected_old_text for the anchor line, or omit old_text when line anchoring alone is acceptable",
 						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
 					})

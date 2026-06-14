@@ -162,6 +162,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
 		plan.WriteAnalysisIR = ir
 	}
+	o.stampWorkflowPlanForActiveBatch(plan, nil)
 
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))

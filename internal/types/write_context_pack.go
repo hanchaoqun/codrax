@@ -356,7 +356,7 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 	}
 	for _, runner := range report.NoTestsRunners {
 		pack.Items = append(pack.Items, writeContextItem("no_tests_runner", WriteContextP2, runner, "verify",
-			WriteConsumerPlanner, WriteConsumerVerifier))
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		pack.Items[len(pack.Items)-1].ID = writeContextStableID("no_tests_runner", runner)
 	}
 	return NormalizeWriteContextPack(pack)

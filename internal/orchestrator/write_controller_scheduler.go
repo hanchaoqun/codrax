@@ -175,6 +175,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
 			plan := o.busCtx.Mutable.ChangePlan()
 			if plan != nil {
+				o.stampWorkflowPlanForActiveBatch(plan, &run)
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
@@ -196,6 +197,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
+			o.persistCurrentChangePlanSnapshot()
 			o.mirrorActivePlanToImportFile(importedPlanMirror)
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
@@ -376,7 +378,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				continue
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
-			appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
+			if outcome.Kind == writeflow.VerifyOutcomeNoTests {
+				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
+			} else {
+				appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
+			}
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionFinish:
@@ -1500,6 +1506,18 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 		return decision
 	}
+	if decision.Action == writeflow.ActionReplanBatch &&
+		activeBatchCompletedWithNoTestsVerdict(run) &&
+		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) {
+		appendControllerProgress(run, batchID, "replan_without_failure_evidence_overridden",
+			"controller replan_batch suppressed because the active batch completed with a typed no-tests verdict and no failed-verification handoff")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        "accept_unverified_no_tests",
+			Reason:            "active batch has no typed failure evidence; finish with an unverified caveat instead of replanning from stale goal context",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+		})
+	}
 	if o.writePlanCanProceedWithoutApprovalPause(plan) && controllerActionDelaysReadyPlan(decision.Action) {
 		reasonCode := "ready_plan_action_overridden"
 		message := fmt.Sprintf("controller action %s suppressed because deterministic write approval policy allows the current plan to apply", decision.Action)
@@ -1584,6 +1602,42 @@ func repeatedAskUserFactKeys(run *types.WriteWorkflowRun, decision writeflow.Wri
 	return repeated
 }
 
+func (o *Orchestrator) stampWorkflowPlanForActiveBatch(plan *types.ChangePlan, run *types.WriteWorkflowRun) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return
+	}
+	var snap *types.WriteWorkflowRun
+	if run != nil {
+		cp := types.CloneWriteWorkflowRun(*run)
+		snap = &cp
+	} else {
+		snap = o.busCtx.Mutable.WriteWorkflowRun()
+	}
+	if snap == nil {
+		return
+	}
+	runID := strings.TrimSpace(snap.RunID)
+	batchID := strings.TrimSpace(snap.ActiveBatchID)
+	if runID == "" || batchID == "" {
+		return
+	}
+	idx := 0
+	found := false
+	for i, batch := range snap.Batches {
+		if strings.TrimSpace(batch.ID) == batchID {
+			idx = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	plan.PhaseGroupID = runID
+	plan.PhaseIndex = idx
+	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
 func controllerActionDelaysReadyPlan(action writeflow.WorkflowAction) bool {
 	switch action {
 	case writeflow.ActionApplyPlan, writeflow.ActionBlock:
@@ -1643,6 +1697,49 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 		return true
 	}
 	return false
+}
+
+func activeBatchCompletedWithNoTestsVerdict(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		if batch.Status != types.WriteWorkflowBatchComplete {
+			return false
+		}
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			return strings.TrimSpace(attempt.Status) == "unverified" &&
+				strings.TrimSpace(attempt.ReasonCode) == "no_tests"
+		}
+		return false
+	}
+	return false
+}
+
+func activeBatchHasVerifyFailureHandoff(mu *types.MutableState, batchID string) bool {
+	if mu == nil {
+		return false
+	}
+	handoff := mu.VerifyFailureHandoff()
+	if handoff == nil {
+		return false
+	}
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return strings.TrimSpace(handoff.BatchID) != ""
+	}
+	return strings.TrimSpace(handoff.BatchID) == batchID
 }
 
 func (o *Orchestrator) writePlanCanProceedWithoutApprovalPause(plan *types.ChangePlan) bool {
@@ -1977,12 +2074,20 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	}
 	if innerErr == nil && report != nil && report.Passed {
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
-		appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
+		if len(report.NoTestsRunners) > 0 {
+			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", "no_tests")
+		} else {
+			appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
+		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
 		run.Status = types.WriteWorkflowRunComplete
 		o.persistWriteWorkflowRun(run)
 		if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-			o.busCtx.Mutable.SetResult("write workflow complete")
+			result := "write workflow complete"
+			if noTests := writeflow.UnverifiedBatchCaveats(*run); len(noTests) > 0 {
+				result += " — no tests executed for: " + strings.Join(noTests, ", ")
+			}
+			o.busCtx.Mutable.SetResult(result)
 		}
 		return true
 	}

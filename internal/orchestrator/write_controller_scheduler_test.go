@@ -39,6 +39,27 @@ func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) 
 	return &cp, nil
 }
 
+type capturePlanSaver struct {
+	dir   string
+	saved []*types.ChangePlan
+}
+
+func (s *capturePlanSaver) Save(plan *types.ChangePlan) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("nil capturePlanSaver")
+	}
+	if plan == nil {
+		return "", fmt.Errorf("nil plan")
+	}
+	path := filepath.Join(s.dir, plan.ID+".json")
+	if err := types.WritePlanToFile(plan, path); err != nil {
+		return "", err
+	}
+	cp := *plan
+	s.saved = append(s.saved, &cp)
+	return path, nil
+}
+
 func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("patch planner from exploration")
@@ -1465,6 +1486,62 @@ func TestNormalizeControllerTypedStateDecisionAskUserBudgetBlocksDistinctFacts(t
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionReplanAfterNoTestsFinishesUnverified(t *testing.T) {
+	mu := types.NewMutableState("no tests replan guard")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-no-tests",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "no_tests", PlanID: "plan-1"},
+			},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch,
+		Batch:  &writeflow.WriteBatchPlan{ID: "batch-2", Goal: "try again"},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("no-tests replan should finish with unverified caveat, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "replan_without_failure_evidence_overridden") {
+		t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionReplanWithFailureHandoffAllowed(t *testing.T) {
+	mu := types.NewMutableState("failed verify replan allowed")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-1", Attempt: 1})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-failed",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-1"},
+			},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch,
+		Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix failed verify"},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionReplanBatch {
+		t.Fatalf("typed failure handoff must allow replan, got %+v", got)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",
@@ -2763,5 +2840,69 @@ func TestRunWriteControllerWorkflow_NoTestsCompletionCarriesCaveat(t *testing.T)
 	}
 	if result := mu.Result(); !strings.Contains(result, "no tests executed for: batch-1") {
 		t.Fatalf("no-tests completion must carry the typed caveat, got %q", result)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
+		t.Fatalf("no-tests completion must be recorded as unverified, got %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "batch_verified") {
+		t.Fatalf("no-tests completion must not be recorded as verified, got %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_PendingApprovalPersistsWorkflowPlan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	saver := &capturePlanSaver{dir: t.TempDir()}
+	mu := types.NewMutableState("approval plan must persist")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "risky update"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "risky update"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetPlanSaver(saver)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-needs-approval",
+			Status:      types.PlanStatusPending,
+			Summary:     "risky update",
+			TargetPaths: []string{".github/workflows/ci.yml"},
+			Approval: &types.WriteApprovalRecord{
+				Action:     string(writeflow.ApprovalActionManual),
+				ReasonCode: "manual_review_required",
+			},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "pending approval") {
+		t.Fatalf("workflow should pause for manual approval, got %v", err)
+	}
+	if len(saver.saved) == 0 {
+		t.Fatal("pending approval plan was not persisted")
+	}
+	saved := saver.saved[len(saver.saved)-1]
+	if saved.ID != "plan-needs-approval" {
+		t.Fatalf("saved wrong plan: %+v", saved)
+	}
+	if store.last == nil || saved.PhaseGroupID != store.last.RunID || saved.PhaseIndex != 0 {
+		t.Fatalf("saved plan missing workflow coordinates: plan=%+v run=%+v", saved, store.last)
+	}
+	if _, err := os.Stat(filepath.Join(saver.dir, "plan-needs-approval.json")); err != nil {
+		t.Fatalf("persisted plan file missing: %v", err)
+	}
+	if store.last.Batches[0].PlanID != "plan-needs-approval" ||
+		store.last.Batches[0].Status != types.WriteWorkflowBatchPendingApproval {
+		t.Fatalf("workflow did not retain pending plan ref/status: %+v", store.last.Batches[0])
 	}
 }
