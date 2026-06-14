@@ -36,6 +36,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	o.persistWriteWorkflowRun(&run)
 	explorationRounds := map[string]int{}
 	verifyFailures := map[string]int{}
+	verifyInfraFailures := map[string]int{}
 	// Resume hydration: a run loaded from the store carries its history only
 	// in typed attempt records. Rebuild the in-memory retry ledger, the
 	// active plan, and the verify-failure carrier from those records and the
@@ -245,23 +246,66 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "verify_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: verify_batch is not valid in plan mode")
 			}
-			innerErr := o.runControllerVerifyBatch(stepsUsed)
-			report := o.busCtx.Mutable.ChangeReport()
-			if report != nil {
-				o.ensureChangeReportPlanID(report)
-				if reportErr := o.validateControllerPostApplyReport(report); reportErr != nil && innerErr == nil {
-					innerErr = reportErr
+			var innerErr error
+			var report *types.ChangeReport
+			var outcome writeflow.VerifyAttemptOutcome
+			for {
+				innerErr = o.runControllerVerifyBatch(stepsUsed)
+				report = o.busCtx.Mutable.ChangeReport()
+				if report != nil {
+					o.ensureChangeReportPlanID(report)
+					if reportErr := o.validateControllerPostApplyReport(report); reportErr != nil && innerErr == nil {
+						innerErr = reportErr
+					}
+					o.syncMutablePlanStatusAfterVerify(report, innerErr)
+					o.mirrorActivePlanToImportFile(importedPlanMirror)
+					o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
+					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
+					o.syncCurrentWriteContextPackToRun(&run)
+				} else if o.skipVerify {
+					o.syncMutablePlanStatusAfterSkippedVerify()
+					if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+						updateWorkflowRunBatchVerifySkipped(&run, run.ActiveBatchID, plan.ID)
+					}
 				}
-				o.syncMutablePlanStatusAfterVerify(report, innerErr)
-				o.mirrorActivePlanToImportFile(importedPlanMirror)
-				o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
-				updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
-				o.syncCurrentWriteContextPackToRun(&run)
-			} else if o.skipVerify {
-				o.syncMutablePlanStatusAfterSkippedVerify()
+				outcome = writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
+				if o.skipVerify || report != nil || !outcome.Retryable {
+					break
+				}
+				planID := ""
 				if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
-					updateWorkflowRunBatchVerifySkipped(&run, run.ActiveBatchID, plan.ID)
+					planID = plan.ID
 				}
+				if verifyInfraFailures[run.ActiveBatchID] >= o.writeRetryBudget {
+					lastInnerErr = innerErr
+					if lastInnerErr == nil {
+						lastInnerErr = fmt.Errorf("verify executor did not produce a ChangeReport")
+					}
+					run.Status = types.WriteWorkflowRunBlocked
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+					updateWorkflowRunBatchVerifyInfra(&run, run.ActiveBatchID, planID, "infra_error", outcome.ReasonCode)
+					appendControllerProgress(&run, run.ActiveBatchID, "verify_infra_retry_budget_exhausted", lastInnerErr.Error())
+					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "verify_infra_retry_budget_exhausted")
+					return lastInnerErr
+				}
+				verifyInfraFailures[run.ActiveBatchID]++
+				updateWorkflowRunBatchVerifyInfra(&run, run.ActiveBatchID, planID, "infra_error", outcome.ReasonCode)
+				appendControllerProgress(&run, run.ActiveBatchID, "verify_infra_retry", outcome.ReasonCode)
+				o.persistWriteWorkflowRun(&run)
+				o.busCtx.TaskState.LastError = ""
+			}
+			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing {
+				lastInnerErr = fmt.Errorf("verify runner missing")
+				if report != nil && strings.TrimSpace(report.FailureSummary) != "" {
+					lastInnerErr = fmt.Errorf("%s", strings.TrimSpace(report.FailureSummary))
+				}
+				run.Status = types.WriteWorkflowRunBlocked
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+				appendControllerProgress(&run, run.ActiveBatchID, "runner_missing", lastInnerErr.Error())
+				o.persistWriteWorkflowRun(&run)
+				o.publishBlockedRunGuidance(&run, "runner_missing")
+				return lastInnerErr
 			}
 			if innerErr != nil || (report != nil && !report.Passed) {
 				if innerErr == nil && report != nil {
@@ -980,6 +1024,32 @@ func updateWorkflowRunBatchVerifySkipped(run *types.WriteWorkflowRun, batchID, p
 	})
 }
 
+func updateWorkflowRunBatchVerifyInfra(run *types.WriteWorkflowRun, batchID, planID, status, reasonCode string) {
+	if run == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, strings.TrimSpace(planID), "", "")
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
+			ID:         fmt.Sprintf("attempt-%d", 1),
+			Kind:       "verify",
+			Status:     strings.TrimSpace(status),
+			ReasonCode: strings.TrimSpace(reasonCode),
+			PlanID:     strings.TrimSpace(planID),
+			FinishedAt: time.Now(),
+		}},
+	})
+}
+
 func writeWorkflowApplyAttemptStatus(plan *types.ChangePlan, err error) string {
 	if err == nil {
 		return "applied"
@@ -1046,6 +1116,11 @@ func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) str
 func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) string {
 	if report == nil {
 		return "missing_report"
+	}
+	switch report.FailureKind {
+	case types.FailureKindRunnerMissing, types.FailureKindTimeout, types.FailureKindOOM,
+		types.FailureKindCPULimit, types.FailureKindCrash:
+		return string(report.FailureKind)
 	}
 	if report.BuildFailed {
 		return "build_failed"

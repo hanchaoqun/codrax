@@ -727,10 +727,12 @@ Target design:
 
 #### Batch 9: Verify Infra Retry
 
-- Add `VerifyAttemptOutcome` and controller transition tests for `tool_not_called` / `report_parse_failed` / `runner_missing`.
-- Add `retry_verify` action or an internal executor transition that does not require model prose routing.
-- Keep applied worktree and attempt refs stable across retry.
-- Test zod-style "applied diff, no report installed, retry verify" convergence.
+- [x] Add `VerifyAttemptOutcome` for typed scheduler-facing verify outcomes: passed report, failed report, no report/tool-not-called, runner missing, no tests.
+- [x] Add internal scheduler retry for missing `ChangeReport` verify infra failures; this does not require a model action and does not parse prose.
+- [x] Keep applied worktree/plan state active across infra verify retry; record `infra_error` verify attempts and progress events.
+- [x] Block typed `runner_missing` reports instead of replanning code.
+- [x] Tests: `TestClassifyVerifyAttemptOutcome`, `TestRunWriteControllerWorkflow_VerifyInfraFailureRetriesVerify`, `TestRunWriteControllerWorkflow_VerifyInfraBudgetBlocksWithoutReplan`, `TestRunWriteControllerWorkflow_RunnerMissingBlocksWithoutReplan`.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow -run TestClassifyVerifyAttemptOutcome`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(VerifyInfraFailureRetriesVerify|VerifyInfraBudgetBlocksWithoutReplan|RunnerMissingBlocksWithoutReplan)'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`.
 
 #### Batch 10: Structured Edit Diagnostics
 

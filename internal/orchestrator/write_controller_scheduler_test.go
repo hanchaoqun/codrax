@@ -334,6 +334,166 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	}
 }
 
+func TestRunWriteControllerWorkflow_VerifyInfraFailureRetriesVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("retry missing verify report")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "retry missing verify report"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(1)
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-infra", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			verifyCalls++
+			if verifyCalls == 1 {
+				*stepsUsed++
+				return nil, fmt.Errorf("verifier executor did not install a report")
+			}
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:  "plan-infra",
+				Channel: types.ChangeReportChannelPostApplyVerify,
+				Passed:  true,
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if verifyCalls != 2 {
+		t.Fatalf("verify calls = %d, want one retry", verifyCalls)
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after verify retry: %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "verify_infra_retry") {
+		t.Fatalf("infra retry progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
+		t.Fatalf("infra retry should not be rendered as verify_failed: %+v", store.last.ProgressLedger)
+	}
+	batch := store.last.Batches[0]
+	if !workflowBatchHasAttempt(batch, "verify", "infra_error", "verify_tool_not_called", "") ||
+		!workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-infra.report.json") {
+		t.Fatalf("verify attempts should record infra retry then pass: %+v", batch.Attempts)
+	}
+}
+
+func TestRunWriteControllerWorkflow_VerifyInfraBudgetBlocksWithoutReplan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("missing verify report budget exhausted")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "missing verify report"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(0)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage == types.StagePlan {
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-infra-block", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		}
+		*stepsUsed++
+		if stage == types.StageVerify {
+			return nil, fmt.Errorf("verifier executor did not install a report")
+		}
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("workflow should block after verify infra budget is exhausted")
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("workflow should be blocked, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "verify_infra_retry_budget_exhausted") {
+		t.Fatalf("infra budget exhaustion progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
+		t.Fatalf("missing report should not be converted to code verify_failed: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "infra_error", "verify_tool_not_called", "") {
+		t.Fatalf("infra error attempt missing: %+v", store.last.Batches[0].Attempts)
+	}
+}
+
+func TestRunWriteControllerWorkflow_RunnerMissingBlocksWithoutReplan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("runner missing")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "runner missing"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(3)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-runner-missing", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         "plan-runner-missing",
+				Channel:        types.ChangeReportChannelPostApplyVerify,
+				Passed:         false,
+				FailureKind:    types.FailureKindRunnerMissing,
+				FailureSummary: "pytest: command not found",
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("workflow should block when typed report says runner_missing")
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("workflow should be blocked, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "runner_missing") {
+		t.Fatalf("runner_missing progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
+		t.Fatalf("runner_missing should not enter replan verify_failed path: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "runner_missing", "plan-runner-missing.report.json") {
+		t.Fatalf("runner_missing verify attempt missing: %+v", store.last.Batches[0].Attempts)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("apply fails structurally")
