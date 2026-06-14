@@ -544,6 +544,91 @@ func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
 	}
 }
 
+func TestActiveWriteWorkflowBannerLineUsesTypedNextAction(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-banner-running",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-running",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-running",
+			Status: types.WriteWorkflowBatchPlanned,
+			PlanID: "plan-running",
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-running",
+			ReasonCode: "batch_planned",
+		}},
+	}); err != nil {
+		t.Fatalf("Save running workflow: %v", err)
+	}
+	r := &REPL{
+		language:              "en",
+		writeWorkflowRunStore: workflowStore,
+	}
+	got := r.activeWriteWorkflowBannerLine()
+	for _, want := range []string{"wf-banner-running", "running automatically", "batch-running", "no user action needed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("running workflow banner missing %q: %q", want, got)
+		}
+	}
+	for _, blocked := range []string{"/workflow resume", "needs approval"} {
+		if strings.Contains(got, blocked) {
+			t.Fatalf("running workflow banner must not suggest %q: %q", blocked, got)
+		}
+	}
+}
+
+func TestStartupBannerPrefersActiveWorkflowOverUnsettledPlan(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	if _, err := planStore.SaveForTest(&types.ChangePlan{
+		ID:      "plan-banner-approval",
+		Status:  types.PlanStatusPending,
+		Summary: "high risk workflow approval",
+	}); err != nil {
+		t.Fatalf("SaveForTest: %v", err)
+	}
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-banner-approval",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-approval",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-approval",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-banner-approval",
+		}},
+	}
+	if _, err := workflowStore.Save(&run); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	line := writeWorkflowBannerLine("en", run, types.DeriveWriteWorkflowNextActionView(run))
+	for _, want := range []string{"write workflow `wf-banner-approval` needs approval", "batch `batch-approval`", "plan `plan-banner-approval`"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("workflow banner helper missing %q: %q", want, line)
+		}
+	}
+	out := &bytes.Buffer{}
+	r := &REPL{
+		out:                   out,
+		headerPrinted:         true,
+		language:              "en",
+		planStore:             planStore,
+		writeWorkflowRunStore: workflowStore,
+	}
+	r.banner()
+	got := out.String()
+	for _, want := range []string{"write workflow `wf-banner-approval` needs approval", "/workflow show audits fingerprint/diff"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("startup banner missing workflow state %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Auto Pilot paused: an unsettled change exists") {
+		t.Fatalf("startup banner should prefer workflow state over legacy unsettled plan text:\n%s", got)
+	}
+}
+
 func TestWorkflowClearDeletesActiveWriteWorkflow(t *testing.T) {
 	planStore := NewPlanStore(t.TempDir())
 	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())

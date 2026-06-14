@@ -5833,13 +5833,13 @@ func (r *REPL) banner() {
 				style.Sprint(line))
 		}
 	}
-	// Single-pending-plan invariant — user-perception layer. When
-	// the project carries an unsettled plan from a prior session
-	// (REPL was closed before /merge / /reject), surface ONE dim
-	// line in the startup banner so the user immediately knows
-	// what's still in flight and which command moves it forward.
-	// Status-specific wording so the right action is one glance away.
-	if blocker, ok := r.detectUnsettledPlan(); ok {
+	// Active write workflow state is surfaced before the legacy
+	// unsettled-plan banner so users see the controller's typed next action
+	// instead of an internal plan lifecycle when a durable run exists.
+	if line := r.activeWriteWorkflowBannerLine(); line != "" {
+		fmt.Fprintf(r.out, "  %s\n",
+			pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+	} else if blocker, ok := r.detectUnsettledPlan(); ok {
 		fmt.Fprintf(r.out, "  %s\n",
 			pterm.FgDarkGray.Sprint(clampToTermWidth(
 				unsettledBanner(r.language, blocker.ID, blocker.Status, blocker.WorktreeMissing),

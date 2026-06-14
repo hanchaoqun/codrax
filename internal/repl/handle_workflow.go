@@ -79,6 +79,22 @@ func (r *REPL) handleWriteWorkflowList() bool {
 	return true
 }
 
+func (r *REPL) activeWriteWorkflowBannerLine() string {
+	if r.writeWorkflowRunStore == nil {
+		return ""
+	}
+	run, err := r.writeWorkflowRunStore.FindActiveRun()
+	if err != nil {
+		logging.Warning("[repl/workflow] active workflow banner lookup failed: %v", err)
+		return ""
+	}
+	if run == nil {
+		return ""
+	}
+	view := types.DeriveWriteWorkflowNextActionView(*run)
+	return writeWorkflowBannerLine(r.language, *run, view)
+}
+
 func (r *REPL) handleWriteWorkflowResume(rest string) bool {
 	if r.writeWorkflowRunStore == nil {
 		return false
@@ -597,6 +613,42 @@ func writeWorkflowNoRunsMsg(lang string) string {
 		return "当前没有已保存的 write workflow。"
 	}
 	return "No saved write workflows."
+}
+
+func writeWorkflowBannerLine(lang string, run types.WriteWorkflowRun, view types.WriteWorkflowNextActionView) string {
+	runID := firstNonEmptyString(strings.TrimSpace(run.RunID), strings.TrimSpace(view.RunID), "unknown")
+	batchID := firstNonEmptyString(strings.TrimSpace(view.BatchID), strings.TrimSpace(run.ActiveBatchID), "none")
+	planID := firstNonEmptyString(strings.TrimSpace(view.PlanID), "none")
+	if isZh(lang) {
+		switch view.State {
+		case types.WriteWorkflowNextNeedsApproval:
+			return fmt.Sprintf("write workflow `%s` 需要审批 · batch `%s` plan `%s`; fingerprint/diff 可在 /workflow show 审计", runID, batchID, planID)
+		case types.WriteWorkflowNextRunning:
+			return fmt.Sprintf("write workflow `%s` 正在自动推进 · batch `%s`; 暂不需要用户操作", runID, batchID)
+		case types.WriteWorkflowNextPlanReady:
+			return fmt.Sprintf("write workflow `%s` 的计划已生成 · plan `%s`; 可审阅后再决定是否执行", runID, planID)
+		case types.WriteWorkflowNextComplete:
+			return fmt.Sprintf("write workflow `%s` 已验证完成 · 准备发布时显式 /merge", runID)
+		case types.WriteWorkflowNextBlocked:
+			return fmt.Sprintf("write workflow `%s` 已阻塞 · /workflow show 可查看 reason/evidence", runID)
+		default:
+			return fmt.Sprintf("write workflow `%s` 已保存 · /workflow show 可查看当前状态", runID)
+		}
+	}
+	switch view.State {
+	case types.WriteWorkflowNextNeedsApproval:
+		return fmt.Sprintf("write workflow `%s` needs approval · batch `%s` plan `%s`; /workflow show audits fingerprint/diff", runID, batchID, planID)
+	case types.WriteWorkflowNextRunning:
+		return fmt.Sprintf("write workflow `%s` is running automatically · batch `%s`; no user action needed", runID, batchID)
+	case types.WriteWorkflowNextPlanReady:
+		return fmt.Sprintf("write workflow `%s` plan is ready · plan `%s`; review before applying", runID, planID)
+	case types.WriteWorkflowNextComplete:
+		return fmt.Sprintf("write workflow `%s` is verified complete · merge explicitly when ready", runID)
+	case types.WriteWorkflowNextBlocked:
+		return fmt.Sprintf("write workflow `%s` is blocked · /workflow show can inspect reason/evidence", runID)
+	default:
+		return fmt.Sprintf("write workflow `%s` is saved · /workflow show can inspect current state", runID)
+	}
 }
 
 func writeWorkflowResumedMsg(lang, runID, batchID string) string {

@@ -2341,3 +2341,42 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `f311dea1` (`write-mode: disambiguate planned workflow next actions`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 51: Commandless Continuation Banner
+
+- Evidence source:
+  - User feedback: too many slash commands increase write-mode cognitive load; common states should be visible automatically instead of requiring `/workflow show/list/resume`.
+  - Code evidence before this batch:
+    - REPL startup banner only surfaced legacy unsettled `PlanStore` state and operation pending state.
+    - Active controller workflow state was persisted in `WriteWorkflowRunStore`, but users had to run `/workflow show` or `/workflow list` to learn whether the workflow was running, waiting for high-risk approval, blocked, or complete.
+    - When a workflow batch had a plan in `PlanStore`, the legacy unsettled-plan banner could appear before the workflow projection and expose the lower-level plan lifecycle as the product model.
+- Generalized gap:
+  - A commandless Auto Pilot must proactively answer "do I need to act?" at entry points. Otherwise users are forced to remember diagnostic commands even when the system already has typed durable state.
+  - The generalized solution is not more command hints. REPL/CLI status surfaces should render the same typed `WriteWorkflowNextActionView` used by `/workflow show/list` and recovery guidance.
+- Target architecture:
+  - Add a startup banner line for the active write workflow, derived from durable `WriteWorkflowRun` plus `WriteWorkflowNextActionView`.
+  - Prefer the workflow next-action banner over the legacy unsettled-plan banner when both artifacts exist, so controller state is the user-facing source of truth.
+  - Render `running` as "automatic, no user action needed"; render `needs_approval` as one explicit approval decision with run/batch/plan refs; render `blocked` and `complete` as audit/recovery summaries.
+  - Keep `/workflow show/list/resume` as advanced audit/recovery commands, not primary next steps.
+- Safety and prompt hygiene:
+  - This is render-only. It does not drive controller scheduling, approval, apply, verify, merge, or risk policy.
+  - Inputs are typed durable run fields and `WriteWorkflowNextActionView` enums.
+  - The banner does not parse user keywords, model prose, summaries, rationales, issue text, logs, eval oracle text, or `<think>`.
+  - Read/log/trace/data/operation/computer modes are unchanged.
+- Handoff and evidence contract:
+  - No new P0-P3 facts are produced. Existing context packs remain the detailed evidence source behind `/workflow show`.
+  - The banner preserves run/batch/plan refs for high-risk approval without requiring users to remember plan ids before seeing the state.
+- Implementation tasks:
+  - [x] Add `activeWriteWorkflowBannerLine` that loads the active durable run and derives the typed next-action view.
+  - [x] Add localized `writeWorkflowBannerLine` for running, needs approval, plan ready, complete, blocked, and fallback states.
+  - [x] Render the active workflow banner before legacy unsettled-plan banner.
+  - [x] Add regression coverage that in-progress planned Auto Pilot banner says it is running automatically and does not suggest `/workflow resume`.
+  - [x] Add regression coverage that startup banner prefers active workflow state over legacy unsettled-plan text when both exist.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestActiveWriteWorkflowBannerLineUsesTypedNextAction|TestStartupBannerPrefersActiveWorkflowOverUnsettledPlan|TestWorkflowListDisplaysSavedWriteWorkflowSnapshots|TestBannerIncludesLocalizedModelAndStatusLines'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: PENDING.
