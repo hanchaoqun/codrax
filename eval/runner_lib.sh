@@ -220,6 +220,123 @@ eval_collect_apply_source_text() {
   done
 }
 
+eval_post_apply_source_file() {
+  local plan_path="$1"
+  local outdir="$2"
+  local scratch="$3"
+  local run_id="$4"
+  local post_apply_file="$5"
+  local source=""
+  if [[ -z "$post_apply_file" ]]; then
+    return 1
+  fi
+  if [[ -f "$plan_path" ]]; then
+    source="$(eval_materialize_write_apply_source "$plan_path" "$outdir" "$scratch" "$run_id" || true)"
+    if [[ -n "$source" && -f "$source/$post_apply_file" ]]; then
+      printf '%s\n' "$source/$post_apply_file"
+      return 0
+    fi
+  fi
+  if [[ -f "$scratch/$post_apply_file" ]]; then
+    printf '%s\n' "$scratch/$post_apply_file"
+    return 0
+  fi
+  return 1
+}
+
+eval_print_regex_matching_lines() {
+  local file="$1"
+  local regex_text="$2"
+  local limit="${3:-12}"
+  local old_ifs="$IFS"
+  local rx line count=0
+  if [[ -z "$file" || ! -f "$file" || -z "$regex_text" ]]; then
+    return 1
+  fi
+  IFS='
+'
+  for rx in $regex_text; do
+    [[ -n "$rx" ]] || continue
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+      count=$((count + 1))
+      if [[ "$count" -ge "$limit" ]]; then
+        IFS="$old_ifs"
+        return 0
+      fi
+    done < <(LC_ALL=C grep -nE "$rx" "$file" 2>/dev/null | head -20)
+  done
+  IFS="$old_ifs"
+  [[ "$count" -gt 0 ]]
+}
+
+eval_print_applied_diff_hunk() {
+  local plan_path="$1"
+  local scratch="$2"
+  local post_apply_file="$3"
+  local limit="${4:-80}"
+  local plan_id="" applied_sha="" commit=""
+  if [[ -z "$plan_path" || ! -f "$plan_path" || -z "$scratch" || ! -d "$scratch/.git" ]]; then
+    return 1
+  fi
+  plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
+  applied_sha="$(eval_json_top_string_field "$plan_path" applied_commit_sha || true)"
+  if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
+    commit="$applied_sha"
+  elif [[ -n "$plan_id" ]] && git -C "$scratch" cat-file -e "refs/codrax/applied/${plan_id}^{commit}" >/dev/null 2>&1; then
+    commit="refs/codrax/applied/${plan_id}"
+  else
+    return 1
+  fi
+  if [[ -n "$post_apply_file" ]]; then
+    git -C "$scratch" show --format= --unified=3 "$commit" -- "$post_apply_file" 2>/dev/null | head -"$limit"
+  else
+    git -C "$scratch" show --format= --unified=3 "$commit" 2>/dev/null | head -"$limit"
+  fi
+}
+
+eval_print_write_report_commands() {
+  local plan_path="$1"
+  local outdir="$2"
+  local scratch="$3"
+  local plan_id="" worktree="" report_path=""
+  if [[ -z "$plan_path" || ! -f "$plan_path" ]]; then
+    return 1
+  fi
+  plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
+  worktree="$(eval_json_top_string_field "$plan_path" worktree_path || true)"
+  report_path="$(eval_find_write_report_path "$plan_path" "$outdir" "$scratch" "$worktree" "$plan_id" || true)"
+  if [[ -z "$report_path" || ! -f "$report_path" ]]; then
+    return 1
+  fi
+  python3 - "$report_path" <<'PY' 2>/dev/null
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        report = json.load(f)
+except Exception:
+    raise SystemExit(1)
+
+commands = report.get("executed_commands") or []
+if not commands:
+    raise SystemExit(1)
+for idx, cmd in enumerate(commands[:8], 1):
+    if not isinstance(cmd, dict):
+        continue
+    runner = str(cmd.get("runner") or "?")
+    cwd = str(cmd.get("working_dir") or ".")
+    command = str(cmd.get("command") or "").replace("\n", " ")
+    outcome = str(cmd.get("outcome") or "?")
+    source = str(cmd.get("source") or "?")
+    exit_code = cmd.get("exit_code")
+    if exit_code is None:
+        exit_code = "?"
+    print(f"{idx}. runner={runner} cwd={cwd} exit={exit_code} outcome={outcome} source={source} cmd={command}")
+PY
+}
+
 eval_write_apply_result_record() {
   local result_file="$1"
   local plan_path="$2"

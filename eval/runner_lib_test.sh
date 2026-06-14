@@ -446,7 +446,17 @@ JSON
 {
   "plan_id": "plan-fake-write-apply",
   "channel": "post_apply_verify",
-  "passed": true
+  "passed": true,
+  "executed_commands": [
+    {
+      "runner": "make",
+      "working_dir": ".",
+      "command": "make check",
+      "exit_code": 0,
+      "source": "test_surface",
+      "outcome": "executed"
+    }
+  ]
 }
 JSON
   fi
@@ -494,6 +504,21 @@ fi
 assert_eq "$(cat "$write_ref_dir/run-1.verdict")" "PASS" "write apply report pass should use recovery ref when worktree is gone"
 assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" worktree_exists)" "false" "write apply result records discarded worktree"
 assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply recovery-ref result authoritative"
+if ! grep -q "Matched oracle lines" "$write_ref_dir/summary.md"; then
+  fail "write apply summary should include matched oracle lines"
+fi
+if ! grep -q "return f" "$write_ref_dir/summary.md"; then
+  fail "write apply summary should include matched post-apply source line"
+fi
+if ! grep -q "Applied diff hunk" "$write_ref_dir/summary.md"; then
+  fail "write apply summary should include applied diff hunk from recovery ref"
+fi
+if ! grep -q "Post-apply verify commands" "$write_ref_dir/summary.md"; then
+  fail "write apply summary should include post-apply verify command provenance"
+fi
+if ! grep -q "runner=make cwd=. exit=0 outcome=executed source=test_surface cmd=make check" "$write_ref_dir/summary.md"; then
+  fail "write apply summary should include normalized executed command row"
+fi
 
 write_ref_tree_case="$tmp/runner_write_apply_report_ref_tree.case"
 cat >"$write_ref_tree_case" <<'CASE'

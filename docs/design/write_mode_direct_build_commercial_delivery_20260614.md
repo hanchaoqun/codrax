@@ -170,6 +170,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 41 | Auto Pilot recovery copy and eval regression | 主提示/文档不再把 `/mode write -> /approve -> /merge` 命令链当主路径；低风险和 JS 现象型 issue eval 回归 PASS |
 | 42 | Write tool JSON repair coverage guard | `run_tests` 纳入统一 structured payload repair / strict decode 结构测试，防止验证工具绕开修复层 |
 | 43 | Advisory vs deterministic risk observability | REPL 风险展示拆成 planned-change risk/approval preview 与 analysis risk advisory，避免 advisory high 被误解为审批硬门 |
+| 44 | Eval summary provenance snippets | apply eval summary 追加 oracle matched lines、applied diff hunk、post-apply verify command provenance，减少人工翻 artifact |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1496,7 +1497,7 @@ Consumers:
   - [x] Add regression test proving coder transport error plus all applied changes proceeds to verify.
   - [x] Preserve regression test proving ordinary apply error does not become pending approval or verified success.
   - [x] Relax libgit2 oracle to accept semantic direct-parentheses fixes without binding to variable names.
-  - [ ] Follow-up: improve eval summary post-apply snippets so when the relevant changed lines are beyond the first 20 lines, the summary also includes matched oracle lines or a short diff hunk.
+  - [x] Follow-up delivered in Batch 44: improve eval summary post-apply snippets so when the relevant changed lines are beyond the first 20 lines, the summary also includes matched oracle lines or a short diff hunk.
 - Verification:
   - `bash -n eval/cases/github_issue_fmt_tm_year_overflow_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case`
   - `make -C eval/fixtures/github_issues/fmt_tm_year_overflow_symptom check` failed on seed fixture as expected: large `tm_year` rendered a wrapped negative value.
@@ -1509,7 +1510,7 @@ Consumers:
 - Progress:
   - Implementation commit: `757e5fa5` (`write-mode: recover completed apply after transport errors`).
   - Push status: pushed to `origin/main` (`61f54a22..757e5fa5`).
-  - Residual follow-up: eval summary snippets should include changed/matched lines when first-20-line previews omit the relevant hunk; this is observability-only and did not affect typed product verdicts.
+  - Delivered in Batch 44: eval summary snippets include matched oracle lines and applied diff hunks when first-20-line previews omit the relevant hunk.
 
 #### Batch 30: Multi-Repo SDK Symptom Eval And Syntax-Fallback Surface Escalation
 
@@ -1573,7 +1574,7 @@ Consumers:
 - Progress:
   - Implementation commit: `write-mode: escalate syntax fallback to test surface`.
   - Push status: pushed to `origin/main` after verification.
-  - Residual follow-up: eval summary snippets should eventually include command provenance from the authoritative report, not only source previews; this is observability-only and does not affect typed product verdicts.
+  - Delivered in Batch 44: eval summary snippets include command provenance from the authoritative report in addition to source previews.
 
 #### Batch 31: REPL Write UX, Auto Plan Routing, And Symptom-Localization Eval Expansion
 
@@ -1994,3 +1995,33 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
 - Progress:
   - Implementation commit: `e148eea2` (`write-mode: separate advisory and approval risk`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 44: Eval Summary Provenance Snippets
+
+- Evidence source:
+  - Earlier eval addenda left observability follow-ups: post-apply summaries only showed the first 20 lines of `POST_APPLY_FILE`, so relevant changed lines beyond that preview required opening run artifacts manually.
+  - Another residual follow-up asked for command provenance from authoritative reports, not only source previews.
+- Generalized gap:
+  - The eval harness is used to discover system gaps. When summary artifacts omit the matched source lines, applied diff, or verify commands, engineers spend time manually walking `run-N.plan.json`, materialized trees, report JSON, and recovery refs.
+  - This is not a product correctness issue, but it slows the commercial hardening loop and can hide why a symptom-driven case passed or failed.
+- Target design:
+  - Keep the existing first-20-lines source preview for continuity.
+  - Add matched oracle lines from `EXPECT_MATCHES_REGEX` against the resolved post-apply source file.
+  - Add an applied diff hunk from `applied_commit_sha` or `refs/codrax/applied/<plan-id>` so cleanup-safe runs still show the real change.
+  - Add post-apply verify command provenance from authoritative report `executed_commands[]`: runner, cwd, exit code, outcome, source, command.
+- Safety and prompt hygiene:
+  - Eval summary is advisory only. It does not decide product success, approval, routing, or verification.
+  - Inputs are fixture env vars, durable plan/report artifacts, recovery refs, and typed report fields. Product runtime hard gates still consume `ChangePlan`, `ChangeReport`, risk/approval records, and workflow state.
+  - No scheduler/risk/approval logic reads summary snippets, regex text, model prose, user keywords, rationale, logs, or `<think>`.
+- Implementation tasks:
+  - [x] Add `eval_post_apply_source_file` to reuse worktree/recovery-ref source resolution.
+  - [x] Add `eval_print_regex_matching_lines` for bounded line-numbered oracle matches.
+  - [x] Add `eval_print_applied_diff_hunk` for cleanup-safe applied commit hunks.
+  - [x] Add `eval_print_write_report_commands` for typed report command provenance.
+  - [x] Extend `eval/run.sh` summary output with matched lines, diff hunk, and verify commands.
+  - [x] Extend `eval/runner_lib_test.sh` fake write apply report and assertions.
+- Verification:
+  - `bash -n eval/run.sh && bash -n eval/runner_lib.sh && bash -n eval/runner_lib_test.sh` PASS.
+  - `bash eval/runner_lib_test.sh` PASS.
+- Progress:
+  - Implementation commit: pending.

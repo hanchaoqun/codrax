@@ -1145,10 +1145,12 @@ PYEOF
     echo
     if [[ "$MODE" == "apply" ]]; then
       # Post-apply file snapshot for the primary file (when
-      # POST_APPLY_FILE is set). Reads from the worktree (via
-      # plan.json worktree_path) because apply is sandboxed there;
-      # scratch-repo bytes are unchanged by construction (L5 red line).
-      # Truncated to 20 lines per run so the summary stays scannable.
+      # POST_APPLY_FILE is set). Reads from the worktree or durable
+      # recovery ref because apply is sandboxed there; scratch-repo
+      # bytes are unchanged by construction (L5 red line).
+      # The first-20-line preview stays for continuity, then matched
+      # oracle lines / applied diff / command provenance make late-file
+      # changes diagnosable without opening every run artifact.
       if [[ -n "$POST_APPLY_FILE" ]]; then
         echo "## Post-apply file — \`$POST_APPLY_FILE\` (first 20 lines, from worktree)"
         echo
@@ -1156,22 +1158,42 @@ PYEOF
           echo "### run $i"
           echo
           plan_path="$OUTDIR/run-$i.plan.json"
-          src=""
-          if [[ -f "$plan_path" ]]; then
-            wt="$(eval_materialize_write_apply_source "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" "$i" || true)"
-            if [[ -n "$wt" && -f "$wt/$POST_APPLY_FILE" ]]; then
-              src="$wt/$POST_APPLY_FILE"
-            fi
-          fi
-          if [[ -z "$src" && -f "$OUTDIR/run-$i.repo/$POST_APPLY_FILE" ]]; then
-            src="$OUTDIR/run-$i.repo/$POST_APPLY_FILE"
-          fi
+          src="$(eval_post_apply_source_file "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" "$i" "$POST_APPLY_FILE" || true)"
           if [[ -n "$src" ]]; then
             echo '```'
             head -20 "$src"
             echo '```'
+            if [[ -n "$EXPECT_MATCHES_REGEX" ]]; then
+              matches="$(eval_print_regex_matching_lines "$src" "$EXPECT_MATCHES_REGEX" 12 || true)"
+              if [[ -n "$matches" ]]; then
+                echo
+                echo "**Matched oracle lines**"
+                echo
+                echo '```'
+                printf '%s\n' "$matches"
+                echo '```'
+              fi
+            fi
           else
             echo "_(file missing — apply likely did not land or worktree was discarded)_"
+          fi
+          diff_hunk="$(eval_print_applied_diff_hunk "$plan_path" "$OUTDIR/run-$i.repo" "$POST_APPLY_FILE" 80 || true)"
+          if [[ -n "$diff_hunk" ]]; then
+            echo
+            echo "**Applied diff hunk**"
+            echo
+            echo '```diff'
+            printf '%s\n' "$diff_hunk"
+            echo '```'
+          fi
+          commands="$(eval_print_write_report_commands "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" || true)"
+          if [[ -n "$commands" ]]; then
+            echo
+            echo "**Post-apply verify commands**"
+            echo
+            echo '```text'
+            printf '%s\n' "$commands"
+            echo '```'
           fi
           echo
         done
