@@ -2694,4 +2694,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestHelpLines|TestWorkflowHelp|TestSlashCommand|TestHandleSlashHelpAll'` PASS.
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `7a6ae07b` (`docs: document concise help surface`), pushed to `origin/main` with this ledger follow-up.
