@@ -108,6 +108,47 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowReadyToPlanDoesNotAskForApproval(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-ready",
+		Goal:          "continue automatically",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show")
+
+	got := out.String()
+	if !strings.Contains(got, "Status: workflow is running; no user action is needed yet.") {
+		t.Fatalf("ready_to_plan should render as running, got:\n%s", got)
+	}
+	for _, unexpected := range []string{"approval required", "/approve", "approve this plan"} {
+		if strings.Contains(got, unexpected) {
+			t.Fatalf("ready_to_plan must not ask for approval (%q):\n%s", unexpected, got)
+		}
+	}
+}
+
 func TestApproveUsesActiveWorkflowBatchPlan(t *testing.T) {
 	runner := &capturingRunner{}
 	planStore := NewPlanStore(t.TempDir())

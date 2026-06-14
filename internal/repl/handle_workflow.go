@@ -330,7 +330,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProgressLines(&b, lang, run)
-		for _, line := range writeWorkflowNextActionLines(lang, batch, hasBatch) {
+		for _, line := range writeWorkflowNextActionLines(lang, run) {
 			b.WriteString("\n" + line)
 		}
 		return strings.TrimSpace(b.String())
@@ -344,37 +344,36 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProgressLines(&b, lang, run)
-	for _, line := range writeWorkflowNextActionLines(lang, batch, hasBatch) {
+	for _, line := range writeWorkflowNextActionLines(lang, run) {
 		b.WriteString("\n" + line)
 	}
 	return strings.TrimSpace(b.String())
 }
 
-func writeWorkflowNextActionLines(lang string, batch types.WriteWorkflowBatch, hasBatch bool) []string {
+func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []string {
 	advanced := "/workflow list"
-	if hasBatch {
-		switch batch.Status {
-		case types.WriteWorkflowBatchPendingApproval:
-			return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
-		case types.WriteWorkflowBatchComplete:
-			return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /workflow list")
-		case types.WriteWorkflowBatchBlocked:
-			return writeNextActionCardLines(lang, writeActionVerifyFailed, "/workflow show · /reject <reason> · /workflow list")
-		case types.WriteWorkflowBatchPlanned, types.WriteWorkflowBatchReadyToPlan:
-			return writeNextActionCardLines(lang, writeActionPlanReady, "/approve · /reject <reason> · /workflow list")
-		case types.WriteWorkflowBatchApplying, types.WriteWorkflowBatchVerifying, types.WriteWorkflowBatchNeedsExploration:
-			if isZh(lang) {
-				return []string{
-					"  状态：workflow 正在推进；暂不需要用户操作。",
-					"  下一步：等待当前 batch 完成、暂停审批或写入失败证据。",
-					"  高级入口：" + advanced,
-				}
-			}
+	view := types.DeriveWriteWorkflowNextActionView(run)
+	switch view.State {
+	case types.WriteWorkflowNextNeedsApproval:
+		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
+	case types.WriteWorkflowNextComplete:
+		return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /workflow list")
+	case types.WriteWorkflowNextBlocked:
+		return writeNextActionCardLines(lang, writeActionVerifyFailed, "/workflow show · /reject <reason> · /workflow list")
+	case types.WriteWorkflowNextPlanReady:
+		return writeNextActionCardLines(lang, writeActionPlanReady, "/approve · /reject <reason> · /workflow list")
+	case types.WriteWorkflowNextRunning:
+		if isZh(lang) {
 			return []string{
-				"  Status: workflow is running; no user action is needed yet.",
-				"  Next: wait for the current batch to finish, pause for approval, or record failure evidence.",
-				"  Advanced: " + advanced,
+				"  状态：workflow 正在推进；暂不需要用户操作。",
+				"  下一步：等待当前 batch 完成、暂停审批或写入失败证据。",
+				"  高级入口：" + advanced,
 			}
+		}
+		return []string{
+			"  Status: workflow is running; no user action is needed yet.",
+			"  Next: wait for the current batch to finish, pause for approval, or record failure evidence.",
+			"  Advanced: " + advanced,
 		}
 	}
 	if isZh(lang) {

@@ -189,6 +189,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 44 | Eval summary provenance snippets | apply eval summary 追加 oracle matched lines、applied diff hunk、post-apply verify command provenance，减少人工翻 artifact |
 | 45 | Zero-command Auto Pilot CLI/REPL contract | `--mode=write` 默认 Auto Pilot apply；`--auto-apply` 降级兼容；prompt/status/docs 不再把 plan-first 或模式切换当主路径 |
 | 46 | Mode-projected controller decision repair | controller decision 的 model schema、JSON repair schema、runtime mode guard 共享同一 typed action 投影，避免宽 schema repair/hint 增加模型和用户心智 |
+| 47 | Typed workflow next-action view | `/workflow show` 先从 durable workflow 派生 typed next-action view，再渲染状态卡；`ready_to_plan` 显示 Auto Pilot 正在推进，不再误提示审批 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2129,3 +2130,46 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `ecf80aaa` (`write-mode: align controller decision repair schema`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 47: Typed Workflow Next-Action View
+
+- Evidence source:
+  - User feedback: write mode should reduce command burden and avoid interrupting users unless high-risk approval, critical deny, real typed unknowns, budget exhaustion, or explicit publish/merge boundaries require it.
+  - Code evidence before this batch:
+    - `internal/repl/handle_workflow.go` rendered `/workflow show` next-action text directly from `WriteWorkflowBatch.Status`.
+    - `WriteWorkflowBatchReadyToPlan` was grouped with `planned` and rendered as a plan-ready approval card: `/approve · /reject <reason> · /workflow list`.
+    - `ready_to_plan` means the controller has enough information to plan the next batch; it does not mean a plan exists or needs user approval.
+- Generalized gap:
+  - When UI rendering maps durable workflow states directly to command hints, state names can drift into wrong user actions. This increases cognitive load and can incorrectly turn an internal Auto Pilot continuation into a manual approval step.
+  - The fix should not be another text special case. The system needs a typed, UI-agnostic next-action view derived from workflow state, so REPL/CLI/UI renderers can share one contract.
+- Target architecture:
+  - Add `types.WriteWorkflowNextActionView` with typed state, `requires_user`, run/batch/plan refs, primary action, secondary actions, and advanced actions.
+  - Add `types.DeriveWriteWorkflowNextActionView(run)` as the single source for UI next-action classification.
+  - Keep scheduler/safety hard logic unchanged: the view is guidance only and must not replace approval policy, plan fingerprints, risk assessment, verifier reports, or controller actions.
+  - Map `needs_exploration`, `ready_to_plan`, `applying`, and `verifying` to `running` with `requires_user=false`.
+  - Map `pending_approval` to `needs_approval` with an approve/reject batch decision.
+  - Map `complete` to optional merge/verify actions without marking workflow completion as requiring a user action.
+- Safety and prompt hygiene:
+  - Hard gates still consume typed workflow, `ChangePlan`, `WriteApprovalRecord`, `ChangeReport`, and risk policy artifacts.
+  - The new view reads only `WriteWorkflowRun`, active batch status, IDs, and plan ID.
+  - No code path parses user keywords, model prose, summaries, rationales, eval text, logs, or `<think>`.
+  - No changes to read/log/trace/data/operation/computer modes, worktree cleanup, risk policy, or apply/verify scheduling.
+- Handoff and evidence contract:
+  - No new P0-P3 facts are added. The view preserves existing handoff rendering and simply prevents unsupported user commands from being suggested for internal continuation states.
+  - For future UI surfaces, action IDs such as `wait`, `approve_batch`, `reject_batch`, `review_plan`, `merge`, and `inspect_workflow` can render as buttons or commands without changing backend hard logic.
+- Implementation tasks:
+  - [x] Add typed next-action enums and `WriteWorkflowNextActionView`.
+  - [x] Add `DeriveWriteWorkflowNextActionView(run)` in `internal/types`.
+  - [x] Update `/workflow show` rendering to consume the typed view.
+  - [x] Fix `ready_to_plan` rendering to show “workflow is running; no user action is needed yet” instead of approval commands.
+  - [x] Add tests for `ready_to_plan`, `pending_approval`, and `complete` typed views.
+  - [x] Add REPL regression test that `/workflow show` for `ready_to_plan` does not mention approval or `/approve`.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestDeriveWriteWorkflowNextActionView|TestNormalizeWriteWorkflowRun'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestWorkflowShow|TestPlanShowFooter_StatusAware|TestPlanReadyMultiPhaseNudge_NamesPhaseCount'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: pending.
