@@ -1493,7 +1493,7 @@ Consumers:
   - [x] Run bash syntax checks for new eval cases.
   - [x] Rebuild `codrax`.
   - [x] Confirm new symptom fixtures fail in seed state.
-  - [ ] Commit and push to `origin/main`.
+  - [x] Commit and push to `origin/main`.
 - Acceptance:
   - Low-friction REPL: a clear code-change request in auto mode produces a plan without manual `/mode write`, but never writes files until `/approve`.
   - Safety: `write_enabled=false`, low confidence, and unsettled plan state block auto write planning.
@@ -1511,5 +1511,5 @@ Consumers:
     - `make -C eval/fixtures/github_issues/nlohmann_long_double check` exit 2
     - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m unittest -v eval/fixtures/github_issues/dateutil_relativedelta_float/test_relativedelta.py` exit 1
 - Progress:
-  - Implementation commit: pending.
-  - Push status: pending.
+  - Implementation commit: `91085866` (`write-mode: smooth repl planning route`).
+  - Push status: pushed to `origin/main` (`8c0cb29c..91085866`).
