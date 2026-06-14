@@ -57,7 +57,7 @@ func isZh(lang string) bool {
 // slash-command alias like "/approve") or the analyzer's
 // emit_analysis tool will reject it on every iteration and burn
 // the analyzer's iter budget before the orchestrator gets to swap
-// in BuildWriteTaskGraph. Using plan.Summary gives the analyzer
+// in the write controller lane. Using plan.Summary gives the analyzer
 // real code-question content; the leading "Apply approved plan"
 // phrasing carries the user's intent into memory transcripts.
 func approveDispatchRequest(plan *types.ChangePlan) string {
@@ -861,13 +861,13 @@ func modeWorkflowHint(lang, mode string) []string {
 	case "write":
 		if zh {
 			return []string{
-				"  后续请求会生成改动方案，不会直接改主仓。",
-				"  随后可用：/plan show 查看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回到自动模式",
+				"  后续写代码请求会自动探索、拆批、应用到隔离 worktree、验证并按失败证据继续收敛。",
+				"  只有高风险审批、critical 拒绝、预算耗尽或需要澄清时才会停下来；/plan 和 /workflow 只是审计/恢复入口。",
 			}
 		}
 		return []string{
-			"  Future requests produce a change proposal; the main repo is not changed directly.",
-			"  Then: /plan show · /approve · /reject · /mode auto",
+			"  Future code-change requests auto-explore, split, apply in an isolated worktree, verify, and converge from failure evidence.",
+			"  It only pauses for high-risk approval, critical denial, budget exhaustion, or real clarification; /plan and /workflow are audit/recovery tools.",
 		}
 	}
 	return nil

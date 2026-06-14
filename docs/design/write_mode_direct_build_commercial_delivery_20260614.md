@@ -1647,11 +1647,18 @@ Consumers:
   - `ask_user` is reserved for typed missing facts and cannot become a generic model hesitation loop.
 - Implementation tasks:
   - [x] Record Auto Pilot cognitive-load design and task ledger in this document.
-  - [ ] Update `AGENTS.md`, `docs/architecture.md`, and `docs/user_guide.md` to describe Auto Pilot as the default write path.
-  - [ ] Change REPL auto `route=write`, `/write`, and sticky `/mode write` to dispatch `ModeApply`.
-  - [ ] Keep `ModePlan` as explicit CLI/advanced planning lane only.
-  - [ ] Replace plan-ready command menu with status/next-action guidance that does not require command memorization.
-  - [ ] Add/adjust tests for auto write dispatch, write disabled gate, unsettled plan/workflow gate, and read/log/trace/data/operation isolation.
-  - [ ] Run focused REPL tests, writeflow/orchestrator tests, and full regression before push.
+  - [x] Update `AGENTS.md`, `docs/architecture.md`, `docs/user_guide.md`, and `codrax.yaml.example` to describe Auto Pilot as the default write path.
+  - [x] Change REPL auto `route=write`, `/write`, and sticky `/mode write` to dispatch `ModeApply`.
+  - [x] Keep `ModePlan` as explicit CLI/advanced planning lane only.
+  - [ ] Replace all plan/approval/blocked/complete command menus with a typed status/next-action card; initial write-mode hint is updated, full card renderer remains Batch 34.
+  - [x] Add/adjust tests for auto write dispatch, write disabled gate, unsettled plan gate, explicit `ModePlan` audit path, and read/log/trace/data/operation isolation through full REPL regression.
+  - [x] Run focused REPL tests, writeflow/orchestrator-adjacent tests, full regression, and build before push.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'Test(HandleMode_SetWrite|HandleMode_PrintsWorkflowHint|HandleMode_RejectedWithoutWriteEnabled|OneShotWriteRejectedWithoutWriteEnabled|OneShotWriteRejectedWithUnsettledPlan|PlanReadyNudgeRendersBelowAnswerPanel|HandleMode_AllValidModes|TurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode|ApplyTurnPolicyGuards_WriteRoute|ClassifyPolicy_TeachesWriteRoute)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/skill`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
-  - Design update: in progress.
+  - Design commit: `0fa28cdd` (`docs: record write autopilot redesign`), pushed to `origin/main`.
+  - Implementation commit: pending.

@@ -91,9 +91,11 @@ const (
 	RouteData TurnRoute = "data"
 
 	// RouteWrite — the turn asks to change repository files. The
-	// dispatcher enters write planning only; it does not apply bytes
-	// to the main repo. apply/merge still require the write-mode plan,
-	// approval, risk, and worktree gates.
+	// dispatcher enters write Auto Pilot: controller may explore,
+	// plan, apply inside an isolated worktree, verify, and replan.
+	// Main-repo merge still requires an explicit write action; apply
+	// remains guarded by write_enabled, risk, approval, and worktree
+	// gates.
 	RouteWrite TurnRoute = "write"
 )
 
@@ -187,7 +189,7 @@ var turnPolicyTool = llm.ToolSchema{
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
-	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. write = produce a reviewable repository change proposal for source/config/test/doc edits; dispatch enters write planning only and never applies directly. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. write = start write Auto Pilot for source/config/test/doc edits: explore, plan, apply in a bounded worktree when deterministic policy allows it, verify, and replan. Main-repo merge and high-risk approval remain separate typed write actions. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
@@ -204,7 +206,7 @@ var turnPolicyTool = llm.ToolSchema{
     "operation": {
       "type": "string",
       "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "code_change", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
-      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. code_change = route=write candidate for producing a reviewable repository change proposal. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
+      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. code_change = route=write candidate for write Auto Pilot over repository files. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
     },
     "data_task_kind": {
       "type": "string",
@@ -360,15 +362,18 @@ The seven routes:
 
   write   — the user is asking Codrax to change repository files:
             source code, tests, build/config files, docs, examples, or other
-            repo-owned artifacts. The dispatcher enters write PLANNING only:
-            it may explore the repo and emit a reviewable ChangePlan, but it
-            does not apply bytes to the main repository. Applying, skipping
-            verification, and merging remain separate typed write-mode steps
-            guarded by write_enabled, plan lifecycle state, deterministic
-            risk policy, approval records, and git worktree isolation. If the
-            user asks to diagnose/explain without changing files, use repo,
-            not write. If the user asks for a non-code computer/artifact
-            workflow, use operation.
+            repo-owned artifacts. The dispatcher enters write Auto Pilot:
+            the controller may explore the repo, emit a bounded ChangePlan,
+            apply allowed changes in an isolated git worktree, verify them,
+            and replan when typed verification evidence says to continue.
+            Low/medium deterministic risk can proceed automatically; high
+            risk pauses for an approval record; critical risk is denied.
+            Merging into the main branch remains a separate typed write action.
+            All write steps remain guarded by write_enabled, workflow/plan
+            lifecycle state, deterministic risk policy, approval fingerprints,
+            and git worktree isolation. If the user asks to diagnose/explain
+            without changing files, use repo, not write. If the user asks for
+            a non-code computer/artifact workflow, use operation.
 
 needs_repo_access is true iff route ∈ {repo, hybrid, write}, or
 route=operation needs fresh repository facts before producing an artifact.
@@ -391,7 +396,7 @@ operation:
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
   investigate — fresh code investigation that needs repo reads
-  code_change — produce a reviewable repository change proposal (route=write)
+  code_change — change repository files through write Auto Pilot (route=write)
   computer_operation — operate desktop/browser/UI or external tools,
                 or run local commands to inspect the current machine,
                 environment, installed software, filesystem, versions,
@@ -1104,9 +1109,9 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	}
 
 	// Write lane self-contradiction: route=write or the typed
-	// operation=code_change means the user wants a reviewable repo
-	// change proposal. This only enters planning; apply/merge remain
-	// behind write-mode approval gates.
+	// operation=code_change means the user wants repository bytes
+	// changed by write Auto Pilot. Apply remains behind deterministic
+	// write-mode risk/approval gates and merge remains explicit.
 	if p.Route != RouteWrite && hasWriteSignal(p) && !p.NeedsOperationAccess && !p.NeedsDataAccess {
 		p.Route = RouteWrite
 		p.NeedsRepoAccess = true

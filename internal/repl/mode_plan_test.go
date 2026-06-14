@@ -73,16 +73,16 @@ func TestHandleMode_ShowDefault(t *testing.T) {
 	}
 }
 
-// TestHandleMode_SetWrite verifies /mode write sets currentMode
-// correctly AND the next dispatch would propagate it via SetMode.
+// TestHandleMode_SetWrite verifies /mode write sets the Auto Pilot
+// apply lane and the next dispatch would propagate it via SetMode.
 func TestHandleMode_SetWrite(t *testing.T) {
 	r, out := newScriptedREPL(t, nil)
 	r.handleModeCmd("/mode write")
 	if r.userMode != UserModeWrite {
 		t.Errorf("userMode = %q, want %q", r.userMode, UserModeWrite)
 	}
-	if r.currentMode != types.ModePlan {
-		t.Errorf("currentMode = %q, want %q", r.currentMode, types.ModePlan)
+	if r.currentMode != types.ModeApply {
+		t.Errorf("currentMode = %q, want %q", r.currentMode, types.ModeApply)
 	}
 	if !strings.Contains(out.String(), "Switched to write mode") {
 		t.Errorf("expected success message, got: %q", out.String())
@@ -102,7 +102,7 @@ func TestHandleMode_PrintsWorkflowHint(t *testing.T) {
 		{"code", []string{"code/source analysis"}},
 		{"operation", []string{"computer-operation pipeline"}},
 		{"data", []string{"data-processing pipeline"}},
-		{"write", []string{"/approve", "/reject", "/mode auto"}},
+		{"write", []string{"auto-explore", "high-risk approval", "audit/recovery"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestHandleMode_RejectedWithoutWriteEnabled(t *testing.T) {
 		// WriteEnabled left false (default).
 	})
 	r.handleModeCmd("/mode write")
-	if r.userMode == UserModeWrite || r.currentMode == types.ModePlan {
+	if r.userMode == UserModeWrite || r.currentMode != types.ModeRead {
 		t.Errorf("/mode write must NOT take effect when write_enabled=false; got userMode=%q currentMode=%q", r.userMode, r.currentMode)
 	}
 	if !strings.Contains(out.String(), "write_enabled") {
@@ -191,8 +191,8 @@ func TestOneShotWriteRejectedWithoutWriteEnabled(t *testing.T) {
 		// WriteEnabled left false (default).
 	})
 	r.handleOneShotUserModeCmd("/write change files", "/write", UserModeWrite)
-	if r.userMode == UserModeWrite || r.currentMode == types.ModePlan {
-		t.Fatalf("/write must not enter write planning when write_enabled=false; userMode=%q currentMode=%q",
+	if r.userMode == UserModeWrite || r.currentMode != types.ModeRead {
+		t.Fatalf("/write must not enter write Auto Pilot when write_enabled=false; userMode=%q currentMode=%q",
 			r.userMode, r.currentMode)
 	}
 	if !strings.Contains(out.String(), "write_enabled") {
@@ -227,13 +227,45 @@ func TestOneShotWriteRejectedWithUnsettledPlan(t *testing.T) {
 		PlanStore:    store,
 	})
 	r.handleOneShotUserModeCmd("/write change files", "/write", UserModeWrite)
-	if r.userMode == UserModeWrite || r.currentMode == types.ModePlan {
-		t.Fatalf("/write must not enter write planning with unsettled plan; userMode=%q currentMode=%q",
+	if r.userMode == UserModeWrite || r.currentMode != types.ModeRead {
+		t.Fatalf("/write must not enter write Auto Pilot with unsettled plan; userMode=%q currentMode=%q",
 			r.userMode, r.currentMode)
 	}
 	printed := out.String()
 	if !strings.Contains(printed, "unsettled plan") || !strings.Contains(printed, "/merge") {
 		t.Fatalf("/write unsettled rejection missing recovery menu:\n%s", printed)
+	}
+}
+
+func TestOneShotWriteEntersAutoPilotApplyMode(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	runner := &planPanelRunner{}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:       runner,
+		Store:        store,
+		Render:       func(*types.BusContext) string { return "WRITE AUTOPILOT" },
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		In:           strings.NewReader(""),
+		Out:          out,
+		Language:     "en",
+		WriteEnabled: true,
+		PlanStore:    NewPlanStore(t.TempDir()),
+	})
+	r.dispatchWithUserMode("change a.go", "change a.go", UserModeWrite)
+	if runner.mode != types.ModeApply {
+		t.Fatalf("/write should dispatch Auto Pilot ModeApply, got %q", runner.mode)
+	}
+	if r.userMode != UserModeAuto || r.currentMode != types.ModeRead {
+		t.Fatalf("/write must be one-shot and restore auto/read; userMode=%q currentMode=%q", r.userMode, r.currentMode)
+	}
+	if !strings.Contains(out.String(), "WRITE AUTOPILOT") {
+		t.Fatalf("write dispatch output missing: %q", out.String())
 	}
 }
 
@@ -257,7 +289,8 @@ func TestPlanReadyNudgeRendersBelowAnswerPanel(t *testing.T) {
 		WriteEnabled: true,
 		PlanStore:    NewPlanStore(t.TempDir()),
 	})
-	r.dispatchWithUserMode("change a.go", "change a.go", UserModeWrite)
+	r.currentMode = types.ModePlan
+	r.dispatch("change a.go", "change a.go")
 
 	printed := out.String()
 	panelIdx := strings.Index(printed, "PLAN PANEL")
@@ -284,7 +317,7 @@ func TestHandleMode_AllValidModes(t *testing.T) {
 		{"code", UserModeCode, types.ModeRead},
 		{"operation", UserModeOperation, types.ModeRead},
 		{"data", UserModeData, types.ModeRead},
-		{"write", UserModeWrite, types.ModePlan},
+		{"write", UserModeWrite, types.ModeApply},
 	}
 	for _, tc := range cases {
 		r, _ := newScriptedREPL(t, nil)

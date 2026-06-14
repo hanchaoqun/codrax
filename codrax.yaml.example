@@ -758,22 +758,24 @@
 # EN  Write mode is the plan → apply → verify pipeline that proposes and
 #     executes code changes inside a sandboxed git worktree. The master
 #     switch is yaml-only by design — a deploy-time decision, not per-run.
-# 中文 写模式是在沙箱 git worktree 内提出并执行代码改动的 plan → apply →
-#     verify 流水线。总开关刻意只放在 yaml —— 这是部署期决定,不是逐次运行。
+# 中文 写模式是在沙箱 git worktree 内由 controller 自动探索、规划、应用、
+#     验证并按失败证据收敛的 Auto Pilot。总开关刻意只放在 yaml ——
+#     这是部署期决定,不是逐次运行。
 
 # write_enabled — master switch. MUST be true for --mode=write or /mode write
-#   to dispatch. Default false.
-#   总开关。--mode=write 或 /mode write 要生效必须为 true。默认 false。
+#   to dispatch. Absent means enabled; explicit false disables every write path.
+#   总开关。--mode=write 或 /mode write 要生效必须未显式关闭。缺省开启,
+#   显式 false 会拒绝所有写路径。
 # write_enabled: false
 
-# write_approval_policy — /approve policy once write_enabled is true.
+# write_approval_policy — write Auto Pilot approval policy once write_enabled is true.
 #   Values:
 #     manual        every ChangePlan needs confirmation
 #     auto_safe     low/medium deterministic risk auto-runs; high confirms;
 #                   critical is denied
 #     auto_low_only only low risk auto-runs; medium/high confirm; critical denied
 #   Default auto_safe. This does not bypass write_enabled.
-#   写模式开启后的 /approve 审批策略。默认 auto_safe:低/中风险自动推进,
+#   写模式开启后的 Auto Pilot 审批策略。默认 auto_safe:低/中风险自动推进,
 #   高风险人工确认,critical 直接拒绝。它不会绕过 write_enabled 总闸。
 # write_approval_policy: auto_safe
 

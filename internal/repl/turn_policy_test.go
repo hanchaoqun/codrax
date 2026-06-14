@@ -1071,14 +1071,15 @@ func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
 		t.Fatalf("ClassifyPolicy: %v", err)
 	}
 	if policy.Route != RouteWrite || !policy.NeedsRepoAccess || policy.NeedsOperationAccess || policy.Operation != "code_change" {
-		t.Fatalf("policy=%+v, want write planning route", policy)
+		t.Fatalf("policy=%+v, want write Auto Pilot route", policy)
 	}
 	system := adapter.calls[0].messages[0].Content
 	for _, want := range []string{
 		"The seven routes",
 		"write   —",
-		"write PLANNING only",
-		"does not apply bytes",
+		"write Auto Pilot",
+		"apply allowed changes in an isolated git worktree",
+		"approval record",
 		"operation=code_change",
 	} {
 		if !strings.Contains(system, want) {
@@ -1384,7 +1385,7 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	}
 }
 
-func TestTurnPolicyDispatch_WriteRouteEntersPlanMode(t *testing.T) {
+func TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{
 		policy: TurnPolicy{
@@ -1406,8 +1407,8 @@ func TestTurnPolicyDispatch_WriteRouteEntersPlanMode(t *testing.T) {
 	if len(runner.requests) != 1 {
 		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
 	}
-	if got := runner.seenModes[0]; got != types.ModePlan {
-		t.Fatalf("auto route=write should dispatch ModePlan, got %q", got)
+	if got := runner.seenModes[0]; got != types.ModeApply {
+		t.Fatalf("auto route=write should dispatch Auto Pilot ModeApply, got %q", got)
 	}
 	if r.userMode != UserModeAuto || r.currentMode != types.ModeRead {
 		t.Fatalf("auto write route must be one-shot; userMode=%q currentMode=%q", r.userMode, r.currentMode)

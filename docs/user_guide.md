@@ -1732,7 +1732,7 @@ codrax 也会保护用户面板和上下文:
 
 ## 4.1 启用
 
-写模式开箱即用,无需配置:进入写模式本身就是显式动作(`/mode write`、`/write` 或 CLI `--mode=write`),系统不会因为你的提问"听起来像改代码"就自动开写。
+写模式开箱即用,无需配置。REPL auto 会先用结构化 TurnPolicy 判定当前 turn；当 typed `route=write` 成立且 gate 通过时,会自动进入写模式 Auto Pilot。你也可以用 `/write <需求>` 单次强制写模式,或 `/mode write` 让后续写代码请求保持 Auto Pilot。
 
 需要全局禁写(如团队统一部署只读分析)时,在 `codrax.yaml` 里显式设置 kill switch:
 
@@ -1744,31 +1744,38 @@ write_enabled: false
 
 ## 4.2 完整流程
 
-写模式用户入口仍是三类动作:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。内部统一走 controller-first 动态 DAG:先跑 `analyze`(读模式 analyzer 复用作请求分类)+ `write_analyze`(产 `WriteAnalysisIR`:任务 kind/scope/risk/期望结果),再由 `write_controller` 每次选择一个 typed action 推进。
+写模式主入口是 **Auto Pilot**:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。`plan/apply/verify` 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。
 
 controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。`/workflow show` 展示 active batch、queued batches、审批记录、handoff 摘要和剩余预算;`/workflow resume` 把保存的非终态 run 置为下一次写模式续跑目标;`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
 
 REPL 实际流程:
 
-### 第 1 步:进入写模式并描述要做的事
+### 第 1 步:描述要做的事
 
 ```
-[git:main]❯❯ /mode write
-  ✓ 已切换到 write 模式
-  •   下一条请求会产生改动方案,不直接回答。
-  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回自动模式
-
-[git:main][task:write]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
-[planner 生成改动方案,~1-3 分钟]
-✓ 改动方案已就绪: plan-abc123 (3 处改动)。
-  /plan show · /approve · /approve --skip-verify · /reject · /mode auto
+[git:main]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+[route=write 后进入 Auto Pilot]
+[controller 探索 → 规划 → 低/中风险 apply 到 worktree → verify → 必要时 replan]
+✓ 写模式完成: plan-abc123 已应用并验证通过。
 ```
 
-也可以只对这一句话强制走写模式,不改变粘滞模式:
+如果 auto 路由没有命中,或你想明确进入写模式,用单次入口:
 
 ```text
 [git:main]❯❯ /write 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 ```
+
+需要连续做一组写代码任务时,用 `/mode write`;后续写目标会继续走 Auto Pilot,直到 `/mode auto`。
+
+系统只在必要时打断:
+
+| 场景 | 用户看到什么 |
+|---|---|
+| 低/中风险 | 自动 apply + verify + replan,无需输入命令 |
+| 高风险 | 当前 batch 暂停,显示 plan/risk/fingerprint,等待批准或拒绝 |
+| critical 风险 | 自动拒绝,显示 typed reason 和证据 |
+| 验证失败可修 | 失败证据进入 P2 handoff,controller 小批量 replan |
+| 预算耗尽/真歧义 | fail-loud 或 ask_user,保留 workflow/report/diff |
 
 更多虚构的 plan 请求示例(任何项目都能套用):
 
@@ -1780,38 +1787,38 @@ REPL 实际流程:
 | 加一个新文件 + 接入注册表 | `创建 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上` |
 | 改 yaml 默认值 | `把 codrax.yaml.example 里 pipeline_max_steps 默认值从 50 改成 80,加注释` |
 
-### 第 2 步:`/plan show` 审 diff
+### 审计/恢复:查看 plan 和 workflow
 
 ```
-[git:main][task:write][plan]❯❯ /plan show
+[git:main]❯❯ /plan show
 [per-file unified diff,带颜色;每个文件独立段落]
 - Summary: 拆分 ParseConfig...
 - 文件 1/3: internal/foo/bar.go (modify, +24/-12)
 [diff body...]
 ```
 
-不满意:
+Auto Pilot 已经会自动执行低/中风险任务。`/plan show` 是审计入口,不是正常必需步骤。当前工作流状态用:
 
 ```
-[git:main][task:write][plan]❯❯ /reject 拆得不够小
-  ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
+[git:main]❯❯ /workflow show
+[active batch、审批记录、handoff 摘要、验证报告、剩余预算]
 ```
 
-`/reject` 把 plan 状态改成 `rejected` 但**保留文件**供事后 `/plan show <id>` 查看。如果不想留记录,用 `/plan clear` 直接删掉。两种命令都会自动 discard 对应的 worktree。
+如果高风险 batch 暂停,再用 `/approve` 或 `/reject <原因>` 处理当前 batch。`/reject` 会保留审计记录;`/plan clear` 只是删除本地副本。
 
-### 第 3 步:`/approve` 落地
+### 高风险时才审批
 
 ```
-[git:main][task:write][plan]❯❯ /approve
-  是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
+[git:main][task:write]❯❯ /approve
+  是否批准 plan plan-abc123 (3 处改动, fingerprint=...)?将在 git worktree 中 apply + 跑 verify。
   > y
 [在 .codrax/worktrees/<plan-id>/ 里 git apply + 跑测试]
-✓ apply 完成,已自动切回 auto 模式。继续改代码用 /mode write 或 /write。
+✓ apply + verify 完成,workflow 继续推进或结束。
 ```
 
-注意:批准成功后会**自动切回 auto 模式**,你的下一句话默认会重新由结构化路由判定。要继续改代码:**先把这个 applied 的 plan 收尾**(`/merge` 合到主仓 / `/reject` 丢弃 / `/plan clear` 删除),再 `/mode write` 或 `/write <需求>` 才能生成下一个 plan(写模式工作区单一不变量,见上文)。
+注意:低/中风险不会要求你先 `/approve`。`/approve` 只处理 pending approval 或你主动选择的高级恢复场景。
 
-`/approve` 自动:
+Auto Pilot 内部自动:
 
 1. 创建临时 worktree(基于当前 branch)
 2. 在 worktree 里 `apply_patch` 每个文件改动(支持 create / modify / delete / patch / rename)
@@ -2162,7 +2169,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写 planning/apply/verify/merge 都拒绝。REPL auto 可通过结构化 `route=write` 进入 plan-only,但不会自动 apply |
+| `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写 workflow/plan/apply/verify/merge 都拒绝。REPL auto 可通过结构化 `route=write` 进入 Auto Pilot;低/中风险可自动 apply+verify,高风险暂停审批,critical 拒绝 |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
 | `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
@@ -2553,14 +2560,14 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/op <任务>` | 单次强制走电脑操作 |
 | `/data <任务>` | 单次强制走数据处理 |
 | `/write <改动需求>` | 单次强制走写模式;`write_enabled: false` 时被拒绝 |
-| auto `route=write` | REPL auto 下明确的代码变更请求可自动进入 plan-only;生成方案后仍需 `/approve` 才会写入 worktree |
+| auto `route=write` | REPL auto 下明确的代码变更请求可自动进入 Auto Pilot;低/中风险自动写入 worktree 并验证,高风险才等待审批 |
 | `/plan show` | 渲染当前 pending plan(per-file diff,16 KB 上限) |
 | `/plan show <id>` | 按 ID 渲染任意 plan |
 | `/plan list` | 列出 PlanStore 里所有 plan |
 | `/plan clear` | 丢弃当前 pending plan(不入 memory) |
 | `/plan clear <id>` | 删除指定 plan |
 | `/plan clear --all` / `--status=<state>` | 批量清(交互 y/N) |
-| `/approve` | 批准当前 pending plan,在 worktree 内 apply + verify |
+| `/approve` | 批准当前 high-risk pending plan/batch,在 worktree 内 apply + verify |
 | `/approve <id>` 或 `/approve --plan-id=<id>` | 指定 plan ID |
 | `/approve --skip-verify` | 仅 apply,跳过 verify |
 | `/approve --merge-to=<branch>` | apply 通过后立即 merge |

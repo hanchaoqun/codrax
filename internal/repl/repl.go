@@ -868,7 +868,7 @@ func New(cfg Config) *REPL {
 		r.userMode = UserModeAuto
 	}
 	if r.userMode == UserModeWrite {
-		r.currentMode = types.ModePlan
+		r.currentMode = types.ModeApply
 	}
 	if r.buildTime == "" {
 		r.buildTime = "unknown"
@@ -2717,7 +2717,7 @@ func turnPolicyRouteDisplay(route TurnRoute, lang string) string {
 	case RouteRepo:
 		return "源码"
 	case RouteWrite:
-		return "写方案"
+		return "写代码"
 	case RouteHybrid:
 		return "混合"
 	case RouteLocal:
@@ -6227,8 +6227,8 @@ func (r *REPL) setRendererTotalStagesForCurrentMode() {
 		return
 	}
 	// Mode-aware K/N denominator. Write modes always run the analyzer
-	// first as a classifier, then BuildWriteTaskGraph slices to the
-	// per-mode subset:
+	// first as a classifier, then the write controller drives the
+	// per-mode lane:
 	//
 	//   ModePlan:   analyze + plan                  = 2
 	//   ModeApply:  analyze + plan + apply + verify = 4
@@ -7261,8 +7261,9 @@ func (r *REPL) handleSlash(line string) bool {
 //
 // The user mode is sticky for the REPL session. Auto preserves classifier-
 // driven routing. code/operation/data/write are explicit escape hatches and do
-// not parse user prose. Write mode maps to the internal plan stage; apply and
-// verify continue to be driven by /approve and /verify.
+// not parse user prose. Write mode maps to the controller Auto Pilot apply
+// lane: the controller can explore, plan, apply in a worktree, verify, and
+// replan while risk/approval/worktree gates keep the boundary typed.
 func (r *REPL) handleModeCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/mode"))
 	if rest == "" {
@@ -7275,12 +7276,12 @@ func (r *REPL) handleModeCmd(line string) {
 		return
 	}
 	target = target.Normalize()
-	if target == UserModeWrite && !r.canEnterWritePlanning("/mode write") {
+	if target == UserModeWrite && !r.canEnterWriteWorkflow("/mode write") {
 		return
 	}
 	r.userMode = target
 	if target == UserModeWrite {
-		r.currentMode = types.ModePlan
+		r.currentMode = types.ModeApply
 	} else {
 		r.currentMode = types.ModeRead
 	}
@@ -7288,17 +7289,17 @@ func (r *REPL) handleModeCmd(line string) {
 	// Workflow hint: explain in 1-3 lines what the new mode actually
 	// does. Empty for ModeRead (no special workflow). Surfaced once per
 	// /mode transition so a user new to write mode does not have to
-	// read the docs to find /approve / /reject / /mode auto.
+	// read the docs to understand what the automatic lane will do.
 	for _, line := range modeWorkflowHint(r.language, string(target)) {
 		r.info(line)
 	}
 }
 
-// canEnterWritePlanning centralizes the write planning entry gate used by
+// canEnterWriteWorkflow centralizes the write Auto Pilot entry gate used by
 // /mode write, /write <request>, and structured auto-route=write. It only
-// authorizes planning, not applying. apply/merge still go through their own
+// authorizes entering the controller; apply/merge still go through typed
 // approval, risk, and worktree gates.
-func (r *REPL) canEnterWritePlanning(command string) bool {
+func (r *REPL) canEnterWriteWorkflow(command string) bool {
 	if !r.writeEnabled {
 		for _, line := range writeModeDisabled(r.language, command, r.settingsPath) {
 			r.warn("%s\n", line)
@@ -7327,14 +7328,14 @@ func (r *REPL) handleOneShotUserModeCmd(line, cmd string, mode UserMode) {
 
 func (r *REPL) dispatchWithUserMode(line, display string, mode UserMode) {
 	mode = mode.Normalize()
-	if mode == UserModeWrite && !r.canEnterWritePlanning("/write") {
+	if mode == UserModeWrite && !r.canEnterWriteWorkflow("/write") {
 		return
 	}
 	oldUserMode := r.userMode
 	oldPipelineMode := r.currentMode
 	r.userMode = mode
 	if mode == UserModeWrite {
-		r.currentMode = types.ModePlan
+		r.currentMode = types.ModeApply
 	} else {
 		r.currentMode = types.ModeRead
 	}
@@ -8388,9 +8389,8 @@ func (r *REPL) handleApproveCmd(line string) {
 	// analyzer's emit_analysis tool rejects it (see
 	// internal/tool/emit_analysis.go::IsREPLControlInput) and the
 	// classifier loop spins to its iter cap before yielding. Even
-	// though the orchestrator discards the AnalysisIR in write mode
-	// (BuildWriteTaskGraph supersedes the analyzer's TaskGraph), the
-	// classifier still has to terminate cleanly. Use plan.Summary so
+	// though the orchestrator discards the read AnalysisIR in write mode,
+	// the classifier still has to terminate cleanly. Use plan.Summary so
 	// the analyzer sees code-question content; fall back to a generic
 	// phrasing when the planner left the summary blank.
 	request := approveDispatchRequest(plan)
