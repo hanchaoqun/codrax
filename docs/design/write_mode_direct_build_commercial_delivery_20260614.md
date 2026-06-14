@@ -2456,3 +2456,41 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `03dd39e3` (`write-mode: include workflow payload in approval prompt`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 54: Ask-User Interruption Budget
+
+- Evidence source:
+  - User feedback: Auto Pilot should not repeatedly interrupt; only high-risk approval, critical deny, real typed unknowns, budget exhaustion, or explicit publish boundaries should stop the flow.
+  - Code evidence before this batch:
+    - Batch 36 required `ask_user` to carry typed `missing_facts`.
+    - Batch 39 deduped repeated fact keys so the same missing fact with different prose becomes `repeated_user_fact_request`.
+    - Distinct typed missing facts could still be emitted on successive controller turns, causing multiple user interruptions within one batch.
+- Generalized gap:
+  - "Typed missing facts" are necessary but not sufficient for low-friction UX. The controller also needs an interruption budget so it cannot serially ask the user for one fact at a time.
+  - The generalized solution is a typed budget over durable progress events, not question text, model rationale, or user keywords.
+- Target architecture:
+  - Default `max ask_user per batch = 1`.
+  - Count prior interruptions from durable `WriteWorkflowProgress` rows where `status=ask_user` and `batch_id` matches the active batch.
+  - If the budget is exhausted, normalize the next `ask_user` decision to `block` with `reason_code=ask_user_budget_exhausted` and record `ask_user_budget_exhausted` progress.
+  - Repeated fact suppression remains more specific and fires before the budget gate.
+- Safety and prompt hygiene:
+  - Inputs are only typed progress rows, active batch id, and decoded `WriteWorkflowDecision.Action`.
+  - The budget does not inspect `questions_for_user`, user prose, model prose, summaries, rationales, issue text, logs, eval oracle text, or `<think>`.
+  - No read/log/trace/data/operation/computer modes are changed.
+- Handoff and evidence contract:
+  - The first valid `ask_user` still stores typed `fact_keys`; later budget blocks preserve the durable reason code so `/workflow show` and recovery guidance can explain the stop.
+  - This does not remove existing P0-P3 context. It prevents context collection from devolving into repeated user prompts.
+- Implementation tasks:
+  - [x] Add `defaultWriteWorkflowMaxAskUserPerBatch`.
+  - [x] Add `askUserInterruptionsForBatch` over durable typed progress rows.
+  - [x] Normalize over-budget `ask_user` into typed `block`.
+  - [x] Preserve repeated fact suppression as the higher-priority reason.
+  - [x] Add regression coverage for a second distinct `ask_user` fact exhausting the batch budget.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecision.*AskUser|TestRunWriteControllerWorkflow_AskUserQuestionsAndMissingFactsSurface|TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: PENDING.

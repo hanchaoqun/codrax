@@ -1426,6 +1426,45 @@ func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *t
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionAskUserBudgetBlocksDistinctFacts(t *testing.T) {
+	mu := types.NewMutableState("ask budget")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-ask-budget",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			Stage:      "controller",
+			Status:     string(writeflow.ActionAskUser),
+			ReasonCode: "first_missing_fact",
+			FactKeys:   []string{"scope_boundary|planner|docs/a.md:1"},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action:           writeflow.ActionAskUser,
+		ReasonCode:       "second_missing_fact",
+		QuestionsForUser: []string{"Which external service owns this callback?"},
+		MissingFacts: []writeflow.MissingUserFact{{
+			Kind:        "external_fact",
+			Description: "service owner for callback",
+			EvidenceRef: "docs/b.md:2",
+			Consumer:    "planner",
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionBlock || got.ReasonCode != "ask_user_budget_exhausted" {
+		t.Fatalf("second distinct ask_user should exhaust budget, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "ask_user_budget_exhausted") {
+		t.Fatalf("budget progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",

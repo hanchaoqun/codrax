@@ -22,6 +22,7 @@ import (
 const (
 	defaultWriteWorkflowMaxBatches           = 5
 	defaultWriteWorkflowMaxExplorationRounds = 2
+	defaultWriteWorkflowMaxAskUserPerBatch   = 1
 )
 
 var errPlannerProbePassedExistingWorktree = errors.New("planner probe passed existing applied worktree")
@@ -1523,8 +1524,35 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 				Reason:     "controller repeated an already surfaced typed missing fact; stopping to avoid repeated user interruptions",
 			})
 		}
+		if askUserInterruptionsForBatch(run, batchID) >= defaultWriteWorkflowMaxAskUserPerBatch {
+			appendControllerProgress(run, batchID, "ask_user_budget_exhausted",
+				"controller exceeded ask_user interruption budget for this batch")
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionBlock,
+				ReasonCode: "ask_user_budget_exhausted",
+				Reason:     "controller exceeded ask_user interruption budget for this batch",
+			})
+		}
 	}
 	return decision
+}
+
+func askUserInterruptionsForBatch(run *types.WriteWorkflowRun, batchID string) int {
+	if run == nil {
+		return 0
+	}
+	batchID = strings.TrimSpace(batchID)
+	count := 0
+	for _, item := range run.ProgressLedger {
+		if item.Status != string(writeflow.ActionAskUser) {
+			continue
+		}
+		if batchID != "" && strings.TrimSpace(item.BatchID) != batchID {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func repeatedAskUserFactKeys(run *types.WriteWorkflowRun, decision writeflow.WriteWorkflowDecision) []string {
