@@ -93,12 +93,15 @@ fi
 # verdict reads the concatenation of all tracked fixture files.
 # MODE=apply also writes run-N.write-apply.json and, by default,
 # requires an authoritative current-plan post_apply_verify ChangeReport
-# with passed=true. Set ALLOW_UNVERIFIED_APPLY=1 only for explicit
-# harness smoke cases that are not expected to reach verification.
+# with passed=true. Set COMMANDLESS_APPLY=1 to exercise the user-facing
+# single-shot Auto Pilot path (`--mode=write --request ...`) instead of
+# the historical plan-file import path. Set ALLOW_UNVERIFIED_APPLY=1 only
+# for explicit harness smoke cases that are not expected to reach verification.
 MODE="${MODE:-}"
 FIXTURE="${FIXTURE:-}"
 PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
+COMMANDLESS_APPLY="${COMMANDLESS_APPLY:-}"
 ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
 # Multi-repo eval (2026-05-08): when MULTIREPO=<seed-name> is set, the
 # runner copies eval/fixtures/<seed-name>/ to a scratch parent dir and
@@ -458,6 +461,37 @@ run_apply_step() {
   fi
 }
 
+run_commandless_apply_step() {
+  local i="$1" out="$2" logdir="$3" scratch="$4"
+  local out_abs="$out" logdir_abs scratch_abs
+  if [[ "$out_abs" != /* ]]; then
+    out_abs="$ROOT/$out_abs"
+  fi
+  logdir_abs="$(cd "$logdir" && pwd)"
+  scratch_abs="$(cd "$scratch" && pwd)"
+  echo "=== commandless apply step (run $i) ===" >"$out_abs"
+  if [[ -n "$FOCUS" ]]; then
+    (
+      cd "$scratch_abs" &&
+        "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --focus "$FOCUS" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
+  else
+    (
+      cd "$scratch_abs" &&
+        "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
+  fi
+}
+
 # write_metrics <run-i> <exit-code> <log-file> — writes the mechanism
 # trace counter file. Read-mode focused; write-mode cases see zeroes
 # for analyzer/explorer counters (expected — write stages don't emit
@@ -778,15 +812,25 @@ run_one() {
       # yaml only for the write steps; unset on exit so a subsequent
       # read-mode run in the same process would not inherit the gate.
       export CODRAX_SETTINGS="$ROOT/eval/fixtures/write_enabled.yaml"
-      run_plan_step "$i" "$out" "$logdir" "$scratch" "$plan"
-      rc=$?
-      if [[ -f "$plan" ]]; then
-        plan_written=1
-      fi
-      if [[ "$MODE" == "apply" && $rc -eq 0 && $plan_written -eq 1 ]]; then
+      if [[ "$MODE" == "apply" && "$COMMANDLESS_APPLY" == "1" ]]; then
         apply_attempted=1
-        run_apply_step "$i" "$out" "$logdir" "$scratch" "$plan"
+        run_commandless_apply_step "$i" "$out" "$logdir" "$scratch"
         rc=$?
+        plan="$(eval_find_latest_change_plan "$scratch/.codrax" "$OUTDIR" || true)"
+        if [[ -n "$plan" && -f "$plan" ]]; then
+          plan_written=1
+        fi
+      else
+        run_plan_step "$i" "$out" "$logdir" "$scratch" "$plan"
+        rc=$?
+        if [[ -f "$plan" ]]; then
+          plan_written=1
+        fi
+        if [[ "$MODE" == "apply" && $rc -eq 0 && $plan_written -eq 1 ]]; then
+          apply_attempted=1
+          run_apply_step "$i" "$out" "$logdir" "$scratch" "$plan"
+          rc=$?
+        fi
       fi
       unset CODRAX_SETTINGS
       ;;

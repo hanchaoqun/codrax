@@ -199,6 +199,26 @@ eval_materialize_write_apply_source() {
   return 1
 }
 
+eval_find_latest_change_plan() {
+  # Finds the newest persisted ChangePlan JSON under one or more roots.
+  # Used by commandless write-mode evals where the product persists the plan
+  # internally instead of receiving --plan-out from the harness.
+  local roots=("$@")
+  local root file ts
+  for root in "${roots[@]}"; do
+    [[ -n "$root" && -d "$root" ]] || continue
+    find "$root" -type f -name '*.json' ! -name '*.report.json' ! -path '*/workflows/*' -print 2>/dev/null
+  done | while IFS= read -r file; do
+    [[ -f "$file" ]] || continue
+    if LC_ALL=C grep -aq '"changes"[[:space:]]*:' "$file" &&
+      LC_ALL=C grep -aq '"id"[[:space:]]*:' "$file" &&
+      LC_ALL=C grep -aq '"summary"[[:space:]]*:' "$file"; then
+      ts="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)"
+      printf '%s\t%s\n' "$ts" "$file"
+    fi
+  done | LC_ALL=C sort -n | tail -1 | cut -f2-
+}
+
 eval_collect_apply_source_text() {
   local source="$1"
   local source_real="" git_top="" git_top_real=""

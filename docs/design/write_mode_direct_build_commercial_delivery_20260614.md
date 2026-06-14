@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion and typed test-surface verification delivered; Auto Pilot low-cognitive-load redesign in progress
+Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion and typed test-surface verification delivered; Auto Pilot low-cognitive-load redesign delivered through commandless eval coverage
 
 ## 1. Summary
 
@@ -2531,3 +2531,56 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
 - Progress:
   - Implementation commit: `8b8a9bd2` (`docs: demote write workflow commands from main path`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 56: End-to-End Commandless Eval Coverage
+
+- Evidence source:
+  - User feedback: write mode should minimize user commands; evaluation must test the same user path, not only advanced plan-file import.
+  - Eval evidence before this batch:
+    - `eval/convergence_audit.sh` with five non-Go write cases reported plan-file PASS 5/5, flagged 0/5:
+      - `patch_c_typo`
+      - `github_issue_dayjs_duration_nan_symptom`
+      - `github_issue_zod_prefault_symptom`
+      - `github_issue_napi_force_wasi_env_symptom`
+      - `github_issue_libgit2_foreach_worktree_symptom`
+    - Summary: `eval/results/write_mode_commandless_e2e_batch56_20260614_summary.md`.
+    - Gap found while auditing the result: existing `MODE=apply` runner still executed `--write-phase=plan --plan-out` followed by `--write-phase=apply --plan-file --auto-apply`. That validates imported-plan gates, but does not validate the user-facing single-request Auto Pilot apply path.
+  - First commandless smoke exposed an eval harness path bug, not a product failure: after `cd scratch`, the runner passed a relative `--repo eval/results/.../run-1.repo`, producing a duplicated repo path. The failed summary was `eval/results/write_mode_commandless_smoke_patch_c_20260614_summary.md`.
+- Generalized gap:
+  - Eval harnesses can accidentally preserve old command-heavy product assumptions. A green plan-file suite is insufficient evidence for a low-cognitive-load Auto Pilot unless the suite can also run one-shot `--mode=write --request`.
+  - The generalized solution is a reusable eval mode switch, not duplicating case files or hard-coding one case.
+- Target architecture:
+  - Keep existing `MODE=apply` behavior as the plan-file/import-gate regression path.
+  - Add `COMMANDLESS_APPLY=1` as an opt-in harness variable that runs a single command:
+    - `codrax --mode=write --repo <scratch> --request <QUESTION>`
+  - Run commandless from the scratch repo as CWD so runtime `.codrax` artifacts stay isolated from the Codrax development checkout.
+  - Pass an absolute `--repo` path after changing directories.
+  - Discover the internally persisted ChangePlan by scanning scratch `.codrax` / outdir for the newest JSON with `id`, `summary`, and `changes`, excluding report/workflow JSON.
+  - Reuse existing post-apply source materialization, applied-ref, and authoritative `post_apply_verify` report checks.
+- Safety and prompt hygiene:
+  - This batch changes eval harness only. It does not change production controller, planner, coder, verifier, approval, risk, prompt, merge, or worktree code.
+  - The new oracle reads persisted JSON fields, git refs, report JSON, and source files. It does not parse model prose, summaries, rationales, user keywords, issue text, log text, or `<think>` for product decisions.
+  - `<think>` remains visible in logs as expected transparency and is not treated as a failure signal.
+  - The commandless eval path still uses normal write-mode deterministic gates; it does not bypass approval/risk/worktree boundaries.
+- Handoff and evidence contract:
+  - The commandless suite exercises controller-driven exploration/planning and verifies that persisted plans, reports, refs, and post-apply source remain discoverable without an explicit `--plan-out`.
+  - Phenomenon-driven cases validate that the system can locate relevant code paths from observed symptoms, not just apply user-provided line edits.
+- Implementation tasks:
+  - [x] Add `COMMANDLESS_APPLY=1` to `eval/run.sh`.
+  - [x] Add `run_commandless_apply_step` using absolute repo/log paths and scratch CWD.
+  - [x] Add `eval_find_latest_change_plan` to locate internally persisted ChangePlans.
+  - [x] Keep default `MODE=apply` plan-file behavior unchanged.
+  - [x] Run plan-file and commandless suites across simple and phenomenon-driven non-Go cases.
+  - [x] Run approval/critical structural regression tests that cover auto-safe allow, manual pending approval, critical deny, apply-pre plan-file gate, and stale fingerprint block.
+- Verification:
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval/cases/github_issue_dayjs_duration_nan_symptom.case eval/cases/github_issue_zod_prefault_symptom.case eval/cases/github_issue_napi_force_wasi_env_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_commandless_e2e_batch56_20260614_summary.md bash eval/convergence_audit.sh` PASS 5/5, flagged 0/5.
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax COMMANDLESS_APPLY=1 CASES='eval/cases/patch_c_typo.case' PARALLEL=1 RUNS=1 TIMEOUT=900 SUMMARY=eval/results/write_mode_commandless_smoke_patch_c_20260614_summary.md bash eval/convergence_audit.sh` FAIL because the eval runner passed a relative repo path after `cd scratch`; recorded as harness gap.
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax COMMANDLESS_APPLY=1 CASES='eval/cases/patch_c_typo.case' PARALLEL=1 RUNS=1 TIMEOUT=900 SUMMARY=eval/results/write_mode_commandless_smoke_patch_c_after_runner_fix_20260614_summary.md bash eval/convergence_audit.sh` PASS 1/1, flagged 0/1.
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax COMMANDLESS_APPLY=1 CASES='eval/cases/patch_c_typo.case eval/cases/github_issue_dayjs_duration_nan_symptom.case eval/cases/github_issue_zod_prefault_symptom.case eval/cases/github_issue_napi_force_wasi_env_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_commandless_e2e_batch56_after_runner_fix_20260614_summary.md bash eval/convergence_audit.sh` PASS 5/5, flagged 0/5.
+  - `bash -n eval/run.sh && bash -n eval/runner_lib.sh` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'Test(PlanPostHook_WriteApproval|ApplyPreHook_PlanFile|RunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController|RunWriteControllerWorkflow_ResumesActiveRun)'` PASS.
+  - `git diff --check` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+- Progress:
+  - Implementation commit pending.
