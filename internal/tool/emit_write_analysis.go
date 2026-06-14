@@ -316,7 +316,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					"type":     "object",
 					"required": []string{"kind"},
 					"properties": map[string]any{
-						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style — pick the closest fit, free string is fine."},
+						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test/input must be kept. Pick the closest fit; free string is fine."},
 						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global."},
 						"note":   map[string]any{"type": "string", "description": "Short quote of the user's wording, when applicable."},
 					},

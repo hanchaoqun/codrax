@@ -82,7 +82,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		if err != nil {
 			return err
 		}
-		decision = o.normalizeControllerApprovalPause(decision, &run)
+		decision = o.normalizeControllerTypedStateDecision(decision, &run)
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
 		// (ApplyWorkflowDecisionToRun marks the active batch complete on
 		// finish): a batch whose latest post-apply verify attempt failed
@@ -570,6 +570,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	transientUsed := 0
 	noPlanRetried := false
 	offScopeRiskReplanRetried := false
+	testContractReplanRetried := false
 	lastStallSignature := ""
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
@@ -590,6 +591,19 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			continue
 		}
 		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
+			if !testContractReplanRetried {
+				if hint, paths := o.testContractReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+					testContractReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] controller plan weakened protected regression test contract; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			}
 			if !offScopeRiskReplanRetried {
 				if hint, paths := o.offScopeHighRiskReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
 					offScopeRiskReplanRetried = true
@@ -1277,29 +1291,104 @@ func writeWorkflowApplyRef(plan *types.ChangePlan, status string) string {
 	return worktree.AppliedRef(plan.ID)
 }
 
-func (o *Orchestrator) normalizeControllerApprovalPause(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
+func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
 	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
-	if decision.Action != writeflow.ActionAskUser {
-		return decision
-	}
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.Mode != types.ModeApply {
 		return decision
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
-	if !o.writePlanCanProceedWithoutApprovalPause(plan) {
-		return decision
-	}
 	batchID := ""
 	if run != nil {
 		batchID = run.ActiveBatchID
 	}
-	appendControllerProgress(run, batchID, "ask_user_auto_executable_overridden",
-		"controller ask_user suppressed because deterministic write approval policy allows this pending plan to apply")
-	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
-		Action:     writeflow.ActionApplyPlan,
-		ReasonCode: "auto_executable_plan",
-		Reason:     "deterministic write approval policy allows this pending plan to apply",
-	})
+	if activeBatchAppliedPlanPendingVerify(run, plan) {
+		if controllerActionDelaysPostApplyVerify(decision.Action) {
+			appendControllerProgress(run, batchID, "post_apply_verify_action_overridden",
+				fmt.Sprintf("controller action %s suppressed because the active applied plan has no post-apply verification verdict", decision.Action))
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionVerifyBatch,
+				ReasonCode: "post_apply_verify_required",
+				Reason:     "active applied plan requires a post-apply verification verdict before more planning",
+			})
+		}
+		return decision
+	}
+	if o.writePlanCanProceedWithoutApprovalPause(plan) && controllerActionDelaysReadyPlan(decision.Action) {
+		reasonCode := "ready_plan_action_overridden"
+		message := fmt.Sprintf("controller action %s suppressed because deterministic write approval policy allows the current plan to apply", decision.Action)
+		if decision.Action == writeflow.ActionAskUser {
+			reasonCode = "ask_user_auto_executable_overridden"
+			message = "controller ask_user suppressed because deterministic write approval policy allows this pending plan to apply"
+		}
+		appendControllerProgress(run, batchID, reasonCode, message)
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionApplyPlan,
+			ReasonCode: "auto_executable_plan",
+			Reason:     "deterministic write approval policy allows this pending plan to apply",
+		})
+	}
+	return decision
+}
+
+func controllerActionDelaysReadyPlan(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionApplyPlan, writeflow.ActionBlock:
+		return false
+	case "":
+		return false
+	default:
+		return true
+	}
+}
+
+func controllerActionDelaysPostApplyVerify(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionVerifyBatch, writeflow.ActionBlock:
+		return false
+	case "":
+		return false
+	default:
+		return true
+	}
+}
+
+func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *types.ChangePlan) bool {
+	if run == nil || plan == nil {
+		return false
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != strings.TrimSpace(run.ActiveBatchID) {
+			continue
+		}
+		lastApply := -1
+		for i, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			if strings.TrimSpace(attempt.PlanID) != "" && strings.TrimSpace(attempt.PlanID) != planID {
+				continue
+			}
+			lastApply = i
+		}
+		if lastApply < 0 {
+			return false
+		}
+		for i := lastApply + 1; i < len(batch.Attempts); i++ {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			if strings.TrimSpace(attempt.PlanID) == "" || strings.TrimSpace(attempt.PlanID) == planID {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (o *Orchestrator) writePlanCanProceedWithoutApprovalPause(plan *types.ChangePlan) bool {

@@ -143,6 +143,106 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	}
 }
 
+func TestRunWriteControllerWorkflow_AppliesReadyPlanBeforeRepeatedPlanningDecision(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("apply ready plan before repeating plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "apply ready plan"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"}},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "mistaken_repeat", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repeat planning"}},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "after_apply"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls > 1 {
+				t.Fatalf("ready plan should apply before repeated planning, planCalls=%d", planCalls)
+			}
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-ready-1", Status: types.PlanStatusPending, Summary: "ready", TargetPaths: []string{"fix.py"}})
+		case types.StageApply:
+			applyCalls++
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-ready-1", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 1 || applyCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/apply/verify = %d/%d/%d, want 1/1/1", planCalls, applyCalls, verifyCalls)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "ready_plan_action_overridden") {
+		t.Fatalf("ready plan override progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_VerifiesAppliedPlanBeforeRepeatedPlanningDecision(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("verify applied plan before repeating plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "verify applied plan"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "mistaken_repeat", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repeat planning"}},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls > 1 {
+				t.Fatalf("applied plan should verify before repeated planning, planCalls=%d", planCalls)
+			}
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-applied-1", Status: types.PlanStatusPending, Summary: "ready", TargetPaths: []string{"fix.py"}})
+		case types.StageApply:
+			applyCalls++
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-applied-1", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 1 || applyCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/apply/verify = %d/%d/%d, want 1/1/1", planCalls, applyCalls, verifyCalls)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "post_apply_verify_action_overridden") {
+		t.Fatalf("post-apply verify override progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("two batch change")
@@ -369,6 +469,117 @@ func TestRunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval(t *testin
 	}
 	if plan := mu.ChangePlan(); plan == nil || plan.ID != "plan-build-system" {
 		t.Fatalf("expected original build-system plan, got %+v", plan)
+	}
+}
+
+func TestRunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/test_tokenizer.py", "def test_newline():\n    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n")
+	mu := types.NewMutableState("preserve odd newline regression")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix tokenizer fallback"},
+			Risk: types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: []string{
+				"fastlex/tokenizer.py",
+				"tests/test_tokenizer.py",
+			},
+			Constraints: []types.WriteConstraint{{
+				Kind:   "preserve_regression_test",
+				Target: "tests/test_tokenizer.py",
+				Note:   "five-newline odd-run regression input is intentional",
+			}},
+		},
+	})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix tokenizer fallback"}},
+			{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+			{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+			{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		}, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:      "plan-weakens-test",
+					Status:  types.PlanStatusPending,
+					Summary: "fix source but narrows regression input",
+					Changes: []types.FileChange{
+						{Path: "fastlex/tokenizer.py", Kind: "patch", Patch: "--- a/fastlex/tokenizer.py\n+++ b/fastlex/tokenizer.py\n@@ -1 +1 @@\n-old\n+new\n"},
+						{Path: "tests/test_tokenizer.py", Kind: "patch", Patch: "--- a/tests/test_tokenizer.py\n+++ b/tests/test_tokenizer.py\n@@ -1,2 +1,2 @@\n def test_newline():\n-    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n+    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\") == [300]\n"},
+					},
+					TargetPaths: []string{"fastlex/tokenizer.py", "tests/test_tokenizer.py"},
+				})
+			} else {
+				hint := mu.PlanningHint()
+				if !strings.Contains(hint, "Typed test-contract critique") || !strings.Contains(hint, "tests/test_tokenizer.py") || !strings.Contains(hint, "#include <set>") {
+					t.Fatalf("replan hint should carry protected test deletion evidence, got:\n%s", hint)
+				}
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:          "plan-preserves-test",
+					Status:      types.PlanStatusPending,
+					Summary:     "source-only fix preserving regression test",
+					Changes:     []types.FileChange{{Path: "fastlex/tokenizer.py", Kind: "patch", Patch: "--- a/fastlex/tokenizer.py\n+++ b/fastlex/tokenizer.py\n@@ -1 +1 @@\n-old\n+new\n"}},
+					TargetPaths: []string{"fastlex/tokenizer.py"},
+				})
+			}
+		case types.StageVerify:
+			if plan := mu.ChangePlan(); plan != nil {
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+			}
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.ID != "plan-preserves-test" || containsString(plan.TargetPaths, "tests/test_tokenizer.py") {
+		t.Fatalf("workflow should finish with source-only replan, got %+v", plan)
+	}
+}
+
+func TestTestContractReplanHintDoesNotParseConstraintNote(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/test_tokenizer.py", "def test_newline():\n    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n")
+	mu := types.NewMutableState("note only")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Constraints: []types.WriteConstraint{{
+				Kind:   "preserve_user_request",
+				Target: "tests/test_tokenizer.py",
+				Note:   "the five-newline odd-run regression input is intentional; do not reduce it",
+			}},
+		},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root}
+	plan := &types.ChangePlan{
+		ID: "plan-note-only",
+		Changes: []types.FileChange{{
+			Path:  "tests/test_tokenizer.py",
+			Kind:  "patch",
+			Patch: "--- a/tests/test_tokenizer.py\n+++ b/tests/test_tokenizer.py\n@@ -1,2 +1,2 @@\n def test_newline():\n-    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n+    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\") == [300]\n",
+		}},
+		TargetPaths: []string{"tests/test_tokenizer.py"},
+	}
+	if hint, paths := o.testContractReplanHint(plan); hint != "" || len(paths) != 0 {
+		t.Fatalf("note-only natural-language constraint must not drive hard critic, hint=%q paths=%v", hint, paths)
 	}
 }
 

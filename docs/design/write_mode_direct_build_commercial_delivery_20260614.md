@@ -1137,4 +1137,37 @@ Consumers:
 - [x] Strengthen the tokenizers eval oracle to aggregate the applied source tree and require the existing five-newline odd-run regression input to remain present.
 - [x] Verification: `bash -n eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/orchestrator ./internal/context`; `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_tokenizers_newline_multirepo_py_after_zero_test_fix_20260614_summary.md bash eval/convergence_audit.sh` PASS.
 - [x] Tests: multi-hop pytest missing -> unittest zero-tests -> make check, zero-tests no fallback fail-loud, scoped write path-prefix rejection, stale ActiveSubRepo walkRoot.
-- [ ] Product follow-up: add a typed test-contract critic that detects removal or weakening of pre-existing regression assertions when the user/task marks them as preserved coverage. Inputs must be structured diff hunks, path roles, and typed expected outcomes; it must not route on natural-language rationale or keyword matching.
+- [x] Product follow-up: add a typed test-contract critic that detects removal or weakening of pre-existing regression assertions when the user/task marks them as preserved coverage. Inputs must be structured diff hunks, path roles, and typed expected outcomes; it must not route on natural-language rationale or keyword matching.
+
+#### Batch 23: Typed Test-Contract Critic
+
+- Evidence source: the hardened tokenizers eval showed the product could pass typed post-apply verification while a prior plan attempted to reduce an existing five-newline regression input to four newlines. Eval oracle now catches this case, but production needs a typed pre-apply replan lane when the write analyzer marks an existing regression test as protected.
+- Generalized target:
+  - hard trigger reads only `WriteAnalysisIR.constraints[].kind == preserve_regression_test`, `constraints[].target`, and structured `ChangePlan` deltas;
+  - it does not parse user request text, constraint note prose, plan summary, plan rationale, verifier narrative, `<think>`, or log prose;
+  - unified-diff deletions, structured-edit replace/delete ranges, full-file modify deletions, and file deletes are all projected to exact removed snippets;
+  - controller grants one bounded internal replan with a typed test-contract critique before apply; it does not permanently block legitimate test refactors.
+- [x] Add `testContractReplanHint` to the controller planning loop before approval/apply.
+- [x] Add write-analyzer schema soft guidance for canonical `preserve_regression_test` constraint kind.
+- [x] Add regression tests proving protected regression test weakening triggers replan and note-only natural-language constraints do not trigger hard critic.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(ReplansProtectedRegressionTestWeakening|ReplansOffScopeHighRiskBuildManifest)|Test(TestContractReplanHintDoesNotParseConstraintNote|RunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval)'`.
+
+#### Batch 24: Controller Typed-State Progress Barrier
+
+- Evidence source: `eval/results/github_issue_tokenizers_newline_run_multirepo_py-20260614-161735` failed with `worktree_discarded_or_missing` and `write_report_missing`. The log shows the controller repeatedly chose `replan_batch` after a current ChangePlan was already auto-approved and again after apply had produced work but before post-apply verify produced a verdict.
+- Generalized gap:
+  - controller action schema is typed, but the outer scheduler still allowed semantically stale actions for the current typed batch state;
+  - `ChangePlan.Status` remains `pending_approval` until post-apply verify syncs final status, so a ready-plan guard must read ordered workflow attempt records, not plan status alone;
+  - repeated planning after a current auto-executable plan or an applied-but-unverified plan wastes budget and can discard useful worktree state before an authoritative report exists.
+- Generalized target:
+  - the scheduler normalizes only from typed artifacts: current `ChangePlan`, approval/risk decision, active batch id, ordered apply/verify attempts, and mode;
+  - no user-request keywords, model rationale, `<think>`, verifier prose, or log text drive the hard route;
+  - if a pending plan can proceed without manual approval, controller actions that would delay it are converted to `apply_plan` unless the controller emits `block`;
+  - if the active plan has an `apply` attempt with status `applied` and no later verify attempt for that plan, controller actions that would delay verification are converted to `verify_batch` unless the controller emits `block`;
+  - progress ledger records `ready_plan_action_overridden` / `post_apply_verify_action_overridden` so `/workflow` and eval artifacts can explain the state-machine correction.
+- [x] Add `normalizeControllerTypedStateDecision` to enforce ready-plan and post-apply-verify barriers.
+- [x] Preserve the existing `ask_user_auto_executable_overridden` progress reason for low/medium risk auto-executable ask-user suppression.
+- [x] Add controller tests for repeated planning before apply and repeated planning after apply-before-verify.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(AppliesReadyPlanBeforeRepeatedPlanningDecision|VerifiesAppliedPlanBeforeRepeatedPlanningDecision|ExplorePlanFinish|ReplansProtectedRegressionTestWeakening)'`.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/tool ./internal/agent ./internal/types ./internal/writeflow`.
+- [x] Eval: `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_tokenizers_newline_multirepo_py_after_state_barrier_20260614_summary.md bash eval/convergence_audit.sh` PASS. Authoritative report: `report_channel=post_apply_verify`, `report_passed=true`, `verify_authoritative=true`; executed command chain `python/pytest runner_missing -> python/unittest zero_tests -> make check executed`; live worktree retained the five-newline `#include <set>` regression input.
