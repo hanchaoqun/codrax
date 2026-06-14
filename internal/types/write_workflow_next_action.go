@@ -75,6 +75,12 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 			view.AdvancedActions = []WriteWorkflowNextActionID{WriteWorkflowNextActionInspectWorkflow}
 			return view
 		}
+		if run.Status == WriteWorkflowRunInProgress && !writeWorkflowRunHasProgressReason(run, "plan_mode_complete") {
+			view.State = WriteWorkflowNextRunning
+			view.PrimaryAction = WriteWorkflowNextActionWait
+			view.AdvancedActions = []WriteWorkflowNextActionID{WriteWorkflowNextActionInspectWorkflow}
+			return view
+		}
 		view.State = WriteWorkflowNextPlanReady
 		view.RequiresUser = true
 		view.PrimaryAction = WriteWorkflowNextActionReviewPlan
@@ -105,6 +111,19 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 		view.AdvancedActions = []WriteWorkflowNextActionID{WriteWorkflowNextActionInspectWorkflow}
 	}
 	return view
+}
+
+func writeWorkflowRunHasProgressReason(run WriteWorkflowRun, reasonCode string) bool {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		return false
+	}
+	for _, item := range run.ProgressLedger {
+		if strings.TrimSpace(item.ReasonCode) == reasonCode {
+			return true
+		}
+	}
+	return false
 }
 
 func writeWorkflowActiveBatch(run WriteWorkflowRun) (WriteWorkflowBatch, bool) {

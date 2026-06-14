@@ -149,6 +149,48 @@ CLI `--mode=write` 默认等价 Auto Pilot apply；`--write-phase=plan|verify`�
 
 Renderer 可以把这些 action 渲染成命令、按钮或自然语言提示，但 backend 只消费 typed action id + run/batch/plan/fingerprint。不能通过匹配“批准/approve/同意”等用户文本直接越过 approval record。
 
+#### Commandless Auto Pilot V2
+
+用户反馈进一步明确：大量 slash commands 不能成为写模式主体验。`/workflow`、`/plan`、`/verify`、`/approve`、`/reject`、`/merge` 对工程师调试和审计有价值，但普通用户只会记得“我说了目标，系统应该继续推进”。因此新设计把命令面从 primary UX 降级为 **advanced escape hatch**：
+
+- 默认用户动作只有两类：描述目标；在系统展示 high-risk approval card 时做一次明确批准/拒绝。
+- 系统动作默认自动化：恢复 active run、探索定位、规划当前小批、apply、verify、把失败证据转 P2、replan/split、继续下一批、最终 finish。
+- `/workflow resume` 只用于排障。调度器发现安全可继续的 active run 时应自动 resume；只有 `needs_approval`、`blocked`、预算耗尽、critical deny、或缺少 typed facts 时才提示用户。
+- `/workflow show/list` 不再是“下一步必须敲的命令”,而是可选审计入口。常规状态要主动渲染 typed next-action card，让用户知道是否需要动作。
+- `planned` 等中间状态不能直接映射为用户动作。UI 必须结合 run status、batch status、plan id、typed progress reason、approval/risk/report refs 派生 `requires_user`。
+- 高风险 approval 必须保持明确：不能把用户自然语言“同意/继续/approve/yes”作为硬批准。文本 REPL 仍以 `/approve` 或等价 typed UI action 写入 `WriteApprovalRecord`；未来按钮式 UI 也必须传 run/batch/plan/fingerprint，而不是传一句 prose。
+- 低命令心智不能削弱安全：merge/publish、critical deny、外部路径、secret-like path、危险命令、fingerprint drift 仍由 typed policy 决定。
+
+新的产品原则：
+
+| Principle | Design Rule | Hard Input |
+| --- | --- | --- |
+| User describes outcomes, not stages | Auto Pilot owns explore/plan/apply/verify/replan loop | controller action enum, run/batch status |
+| Interrupt only for decisions | `ask_user` and approval require typed missing facts/risk reasons | reason code, fact keys, risk record |
+| Resume automatically when safe | active non-terminal run is continuation seed | durable run status, batch status, budget |
+| Render state, hide mechanics | status cards use `WriteWorkflowNextActionView` | typed next-action view |
+| Commands are audit/debug escape hatches | docs and prompts do not teach command chains as primary flow | static help/docs only |
+| Never approve by prose | approval writes durable record only from explicit typed action | plan fingerprint, user decision enum |
+
+#### Automatic Continuation State Model
+
+`WriteWorkflowNextActionView` becomes the user-facing projection contract. It is render-only and cannot drive scheduler hard logic, but it prevents internal DAG state from leaking into command burden:
+
+| Derived state | Requires user | Meaning | Default behavior |
+| --- | --- | --- | --- |
+| `running` | false | controller can still make progress | keep executing or show quiet progress |
+| `plan_ready` | true | explicit plan-only request completed | user can review/apply/reject as an advanced lane |
+| `needs_approval` | true | high-risk batch paused | ask once with fingerprint/risk evidence |
+| `complete` | false | verified workflow completed | show optional merge/publish action |
+| `blocked` | true | critical deny, budget, repeated unknowns, irrecoverable failure | show reason/evidence and recovery |
+| `no_active_batch` | false | no live workflow | accept next goal |
+
+Important disambiguation:
+
+- `batch.status=planned` + `run.status=in_progress` + no `plan_mode_complete` progress reason means Auto Pilot is between planner and apply. It must render as `running/wait`, not as `plan_ready/review_plan`.
+- `batch.status=planned` + `plan_mode_complete` progress reason means explicit plan-only terminal output. It can render as `plan_ready/review_plan`.
+- This uses typed run status and progress reason codes. It must not inspect user prose, model rationale, summary, issue text, logs, or `<think>`.
+
 #### Handoff And Evidence Preservation
 
 Auto Pilot 更依赖前序证据，context pack 必须成为跨阶段事实总线：
@@ -192,6 +234,13 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 47 | Typed workflow next-action view | `/workflow show` 先从 durable workflow 派生 typed next-action view，再渲染状态卡；`ready_to_plan` 显示 Auto Pilot 正在推进，不再误提示审批 |
 | 48 | CLI recovery guidance consumes next-action view | single-shot CLI / recovery result 使用 typed next-action view 区分 pending approval paused 与 true stopped，避免把可恢复审批误读成终止 |
 | 49 | Workflow list next-action index | `/workflow list` 的 durable run snapshot 也投影 typed next state/action/user 字段，列表页即可判断是否需要用户动作 |
+| 50 | Planned batch next-action disambiguation | in-progress Auto Pilot planned batch 渲染为 `running/wait/user=false`；只有 plan-mode complete 渲染为 `plan_ready/review_plan/user=true` |
+| 51 | Commandless continuation banner | REPL/CLI 主提示主动展示 state card；`/workflow resume/show/list` 退为高级入口，不作为普通下一步 |
+| 52 | Safe auto-resume UX hardening | active non-terminal run 默认由 controller 自动继续；仅 approval/block/budget/typed unknown 显示用户决策卡 |
+| 53 | Approval card typed action payload | approval UI/REPL 输出 run/batch/plan/fingerprint；禁止 prose approval 进入 hard gate |
+| 54 | Ask-user interruption budget | `ask_user` 必须携带 typed missing facts，重复 fact 或低价值问题转 controller block/replan，不反复打断 |
+| 55 | Docs command demotion pass | user guide/architecture/AGENTS 把命令列为 advanced recovery，主路径只教“描述目标 + 必要审批” |
+| 56 | End-to-end commandless eval | 现象型 issue eval 覆盖自动探索、自动 resume、verify fail P2 replan、高风险单次审批、critical deny |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2254,3 +2303,41 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `429b608b` (`write-mode: show next actions in workflow list`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 50: Planned Batch Next-Action Disambiguation
+
+- Evidence source:
+  - User feedback: write mode must reduce command burden; routine internal stages should not be shown as actions the user must drive.
+  - Code evidence before this batch:
+    - `types.DeriveWriteWorkflowNextActionView` mapped any `WriteWorkflowBatchPlanned` batch with a non-empty plan id to `plan_ready`, `requires_user=true`, primary action `review_plan`.
+    - `WriteWorkflowBatchPlanned` is overloaded by two typed states: explicit plan-only terminal output and Auto Pilot's internal state after planner emits a plan before apply.
+    - `/workflow show`, `/workflow list`, and CLI recovery surfaces now consume `WriteWorkflowNextActionView`, so a wrong projection can turn an automatic continuation into a visible command burden.
+- Generalized gap:
+  - Durable state labels can be shared by multiple product semantics. Renderers must derive user action from the typed workflow envelope, not from a single batch status.
+  - This is not a text special case: any future UI should consume a typed next-action projection that combines run status, batch status, plan id, progress reason, and safety refs.
+- Target architecture:
+  - `batch.status=planned` + plan id + `run.status=in_progress` + no `plan_mode_complete` progress reason means the controller can continue. Render as `running`, primary action `wait`, `requires_user=false`.
+  - `batch.status=planned` + plan id + `plan_mode_complete` progress reason means explicit plan-only terminal semantics. Render as `plan_ready`, primary action `review_plan`, `requires_user=true`.
+  - Keep approval, apply, verify, finish, and risk policy unchanged; this batch changes only typed UI guidance.
+- Safety and prompt hygiene:
+  - Inputs are typed `WriteWorkflowRun.Status`, active batch status/plan id, and durable `WriteWorkflowProgress.ReasonCode`.
+  - The new rule does not inspect user keywords, model prose, summaries, rationales, issue text, logs, eval oracle text, or `<think>`.
+  - Scheduler/safety hard gates still consume plan/risk/approval/report/worktree artifacts directly, not the render-only next-action view.
+- Handoff and evidence contract:
+  - No new P0-P3 facts are produced. The change prevents normal Auto Pilot planned batches from being misrepresented as user review tasks.
+  - Plan-only review remains visible and auditable because the explicit `plan_mode_complete` progress reason is persisted on the run.
+- Implementation tasks:
+  - [x] Extend `DeriveWriteWorkflowNextActionView` to distinguish Auto Pilot in-progress planned batches from plan-only terminal batches.
+  - [x] Add helper for exact typed progress reason lookup.
+  - [x] Add unit coverage for in-progress planned Auto Pilot rendering as `running/wait/user=false`.
+  - [x] Add unit coverage for plan-mode complete planned batch rendering as `plan_ready/review_plan/user=true`.
+  - [x] Extend `/workflow list` regression coverage so saved in-progress planned runs do not require user action.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestDeriveWriteWorkflowNextActionView'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestWorkflowListDisplaysSavedWriteWorkflowSnapshots|TestWorkflowShowReadyToPlanDoesNotAskForApproval'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: PENDING.
