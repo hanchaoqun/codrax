@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: chronotope/chrono#1385.
+ID="github_issue_chrono_duration_min"
+NAME="chrono Rust Duration milliseconds uses fallible minimum-bound constructor"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/chrono_duration_min"
+QUESTION="真实上游记录：chronotope/chrono PR #1385 修复 Duration 最小毫秒值边界不一致：Duration::milliseconds(i64::MIN) 曾可构造，但 checked_sub(Duration::milliseconds(0)) 会因 MIN 边界失败；最终上游保留 -i64::MAX 作为最小毫秒边界，引入 Duration::try_milliseconds(milliseconds: i64) -> Option<Duration>，并让 Duration::milliseconds() 复用它、在越界时 panic。请在这个最小 Rust 复现仓里修复 src/duration.rs 的同类问题，不要把 MIN/MAX 改成递归调用 constructor，并补充 i64::MIN 被拒绝、-i64::MAX 和 i64::MAX 边界仍可用的回归测试。上游 PR: https://github.com/chronotope/chrono/pull/1385"
+POST_APPLY_FILE="src/duration.rs"
+EXPECT_MATCHES_REGEX='try_milliseconds'

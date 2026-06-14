@@ -1519,7 +1519,8 @@ func renderExplorerWriteExplorationRequest(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Write-mode targeted source exploration\n\n")
-	b.WriteString("This is a read-only source exploration subflow for a code-change task. Do not edit files. Keep the investigation bounded to this request, discover existing patterns/invariants/test surfaces, and preserve the useful findings through `emit_evidence` and `emit_investigation_complete` so the later write planner can use them.\n")
+	b.WriteString("This is a read-only source exploration subflow for a code-change task. Do not edit files, do not call shell commands, and do not try to implement the fix in this stage. Keep the investigation bounded to this request, discover existing patterns/invariants/test surfaces, and preserve the useful findings through `emit_evidence` and `emit_investigation_complete` so the later write planner can use them.\n")
+	b.WriteString("If you know the repair shape, record it as evidence or in the completion reason; the controller will hand it to the planner. Your available tools are for repository reading and structured handoff only.\n")
 	if req.BatchID != "" {
 		fmt.Fprintf(&b, "- batch_id: %s\n", req.BatchID)
 	}
