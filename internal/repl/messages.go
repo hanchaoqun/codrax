@@ -602,8 +602,8 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 
 // unsettledBanner is the dim FgDarkGray one-liner printed in the
 // REPL startup banner when PlanStore has an unsettled plan from a
-// prior session. Wording is status-specific so the user immediately
-// knows which command moves it forward.
+// prior session. Wording is status-first; command names are kept as
+// compact recovery entry points, not a full menu.
 //
 // worktreeMissing (commit 42 P1): when the plan's persisted
 // WorktreePath was deleted out-of-band (e.g., rm -rf), the
@@ -622,29 +622,29 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 	switch status {
 	case "pending_approval":
 		if zh {
-			return formatN(lang, "%s 待批准 — /plan show · /approve · /reject · /plan clear%s", planID, suffix)
+			return formatN(lang, "%s 需要审批 — 查看 /workflow show 或 /plan show%s", planID, suffix)
 		}
-		return formatN(lang, "%s pending approval — /plan show · /approve · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s needs approval — inspect with /workflow show or /plan show%s", planID, suffix)
 	case "applied":
 		if zh {
-			return formatN(lang, "%s 已 apply 但未合并 — /merge · /reject · /plan clear%s", planID, suffix)
+			return formatN(lang, "%s 已验证 apply,主仓未合并 — 准备好后 /merge%s", planID, suffix)
 		}
-		return formatN(lang, "%s applied, not merged — /merge · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s applied and verified, not merged — /merge when ready%s", planID, suffix)
 	case "verify_failed":
 		if zh {
-			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+			return formatN(lang, "%s 验证失败 — /workflow show 查看失败证据%s", planID, suffix)
 		}
-		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s verify failed — /workflow show for failure evidence%s", planID, suffix)
 	case "unverified":
 		if zh {
-			return formatN(lang, "%s 未本地验证 — /verify <id> · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+			return formatN(lang, "%s 已 apply 但未本地验证 — 优先 /verify <id>%s", planID, suffix)
 		}
-		return formatN(lang, "%s unverified — /verify <id> · /merge --skip-verify · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s applied but unverified — prefer /verify <id>%s", planID, suffix)
 	}
 	if zh {
-		return formatN(lang, "%s 状态未结算 — /plan list 查看 · /reject · /plan clear%s", planID, suffix)
+		return formatN(lang, "%s 状态未结算 — /workflow show 或 /plan list 查看%s", planID, suffix)
 	}
-	return formatN(lang, "%s unsettled — /plan list · /reject · /plan clear%s", planID, suffix)
+	return formatN(lang, "%s unsettled — inspect with /workflow show or /plan list%s", planID, suffix)
 }
 
 // autoModeReadAfterMergeNudge is the one-line confirmation printed
@@ -904,22 +904,129 @@ func oneShotUserModeUsage(lang, cmd string, mode UserMode) string {
 	}
 }
 
-// planReadyNudge prints next-step actions after the orchestrator
-// emitted a ChangePlan during write-mode dispatch and the REPL
-// auto-saved it. Without this nudge the user sees "plan saved: <path>"
-// and has to remember the slash-command vocabulary; with it the path
-// to /approve / /reject / /mode auto is one line away.
-func planReadyNudge(lang string, planID string, changeCount int) []string {
-	if isZh(lang) {
+type writeNextActionState string
+
+const (
+	writeActionPlanReady        writeNextActionState = "plan_ready"
+	writeActionNeedsApproval    writeNextActionState = "needs_approval"
+	writeActionVerifyFailed     writeNextActionState = "verify_failed"
+	writeActionPartiallyApplied writeNextActionState = "partially_applied"
+	writeActionUnverified       writeNextActionState = "unverified"
+	writeActionApplied          writeNextActionState = "applied"
+)
+
+// writeNextActionCardLines renders status-first guidance for write-mode
+// states. It is deliberately a typed render helper, not a dispatcher:
+// callers choose a writeNextActionState from persisted plan/workflow
+// status and the returned text is user guidance only.
+func writeNextActionCardLines(lang string, state writeNextActionState, advanced string) []string {
+	zh := isZh(lang)
+	if zh {
+		switch state {
+		case writeActionPlanReady:
+			return []string{
+				"  状态：显式计划模式已暂停在 apply 前；Auto Pilot 没有继续写入。",
+				"  下一步：需要审阅时先看 diff；确认后批准当前计划,或拒绝并说明原因。",
+				"  高级入口：" + advanced,
+			}
+		case writeActionNeedsApproval:
+			return []string{
+				"  状态：需要审批；当前 batch 已暂停,计划 fingerprint 变化会要求重新批准。",
+				"  下一步：审阅风险和 diff 后批准当前 batch,或拒绝并说明原因。",
+				"  高级入口：" + advanced,
+			}
+		case writeActionVerifyFailed:
+			return []string{
+				"  状态：验证失败；失败证据会进入 P2 handoff 供 replan 消费。",
+				"  下一步：优先重试/继续自动修复；只有人工确认后才选择强行合入或跳过验证。",
+				"  高级入口：" + advanced,
+			}
+		case writeActionPartiallyApplied:
+			return []string{
+				"  状态：部分文件已 apply；主仓未改变,不能直接 merge。",
+				"  下一步：继续 apply 剩余路径,或拒绝并清理当前计划。",
+				"  高级入口：" + advanced,
+			}
+		case writeActionUnverified:
+			return []string{
+				"  状态：已 apply 但缺少本地验证；主仓未改变。",
+				"  下一步：优先补跑验证；跳过验证合入必须人工确认。",
+				"  高级入口：" + advanced,
+			}
+		case writeActionApplied:
+			return []string{
+				"  状态：已 apply 且验证通过；主仓仍未自动合并。",
+				"  下一步：准备发布时显式合并,或保留 worktree 继续审查。",
+				"  高级入口：" + advanced,
+			}
+		}
 		return []string{
-			formatN(lang, "改动方案已就绪：%s（%d 处改动）。", planID, changeCount),
-			"  /plan show · /approve · /approve --skip-verify · /reject · /mode auto",
+			"  状态：计划尚未结算；主仓未改变。",
+			"  下一步：审阅后批准、拒绝或清理本地副本。",
+			"  高级入口：" + advanced,
+		}
+	}
+	switch state {
+	case writeActionPlanReady:
+		return []string{
+			"  Status: explicit plan mode paused before apply; Auto Pilot is not continuing this plan.",
+			"  Next: review the diff if needed, then approve this plan or reject it with a reason.",
+			"  Advanced: " + advanced,
+		}
+	case writeActionNeedsApproval:
+		return []string{
+			"  Status: approval required; the current batch is paused and fingerprint changes require re-approval.",
+			"  Next: review risk and diff, then approve the current batch or reject it with a reason.",
+			"  Advanced: " + advanced,
+		}
+	case writeActionVerifyFailed:
+		return []string{
+			"  Status: verification failed; failure evidence is preserved in P2 handoff for replan.",
+			"  Next: prefer retrying/continuing repair; force-merge or skip verification only after review.",
+			"  Advanced: " + advanced,
+		}
+	case writeActionPartiallyApplied:
+		return []string{
+			"  Status: partially applied; the main branch is unchanged and merge is not available yet.",
+			"  Next: continue applying remaining paths, or reject and clean up this plan.",
+			"  Advanced: " + advanced,
+		}
+	case writeActionUnverified:
+		return []string{
+			"  Status: applied without local verification; the main branch is unchanged.",
+			"  Next: re-run verification first; skipping verification before merge is an explicit override.",
+			"  Advanced: " + advanced,
+		}
+	case writeActionApplied:
+		return []string{
+			"  Status: applied and verified; the main branch has not been merged automatically.",
+			"  Next: merge explicitly when ready, or keep the worktree for review.",
+			"  Advanced: " + advanced,
 		}
 	}
 	return []string{
-		formatN(lang, "Change proposal ready: %s (%d change(s)).", planID, changeCount),
-		"  /plan show · /approve · /approve --skip-verify · /reject · /mode auto",
+		"  Status: unsettled plan; the main branch is unchanged.",
+		"  Next: review, approve, reject, or clear the local copy.",
+		"  Advanced: " + advanced,
 	}
+}
+
+// planReadyNudge prints next-step actions after the orchestrator
+// emitted a ChangePlan during explicit ModePlan dispatch and the REPL
+// auto-saved it. The primary guidance is state-oriented; slash commands
+// remain visible only as advanced recovery/audit entry points.
+func planReadyNudge(lang string, planID string, changeCount int) []string {
+	advanced := "/plan show · /approve · /reject · /mode auto"
+	if isZh(lang) {
+		lines := []string{
+			formatN(lang, "改动方案已就绪：%s（%d 处改动）。", planID, changeCount),
+		}
+		return append(lines, writeNextActionCardLines(lang, writeActionPlanReady, advanced)...)
+	}
+	lines := []string{
+		formatN(lang, "Change proposal ready: %s (%d change(s)).", planID, changeCount),
+	}
+	return append(lines, writeNextActionCardLines(lang, writeActionPlanReady, advanced)...)
 }
 
 // planReadyMultiPhaseNudge is the multi-phase variant printed
@@ -932,11 +1039,11 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "  · 多阶段方案 (%d 个 phase): /approve 后按 workflow batch 推进,用 `/workflow show` 追踪进度;失败的 batch 用 `/reject` 让 controller 重新规划。", phaseCount),
+			formatN(lang, "  · 多阶段方案 (%d 个 phase): 批准后按 workflow batch 推进;`/workflow show` 可审计进度和 handoff。", phaseCount),
 		}
 	}
 	return []string{
-		formatN(lang, "  · Multi-phase proposal (%d phases): after /approve the phases run as workflow batches — use `/workflow show` to track progress; `/reject` a failed plan to let the controller replan the batch.", phaseCount),
+		formatN(lang, "  · Multi-phase proposal (%d phases): after approval, phases run as workflow batches; `/workflow show` audits progress and handoff.", phaseCount),
 	}
 }
 
@@ -956,9 +1063,9 @@ func applyDoneNudge(lang string) []string {
 	}
 }
 
-// planShowFooter prints the next-step actions at the bottom of /plan
-// show output so the user does not have to remember the slash command
-// vocabulary after reviewing the diff.
+// planShowFooter prints status-first next-step guidance at the bottom
+// of /plan show output. Commands are listed as advanced entry points,
+// not the primary mental model.
 //
 // Status-aware (UX#5, commit 41): pre-commit-41 the footer always
 // printed the same generic line — but a plan in verify_failed /
@@ -966,54 +1073,17 @@ func applyDoneNudge(lang string) []string {
 // commands, and surfacing them only at /approve-time meant operators
 // who paused to inspect lost the cue. Now the footer adapts.
 func planShowFooter(lang string, planStatus string) []string {
-	zh := isZh(lang)
 	switch planStatus {
 	case "verify_failed":
-		if zh {
-			return []string{
-				"  下一步：/approve --retry 重试 · /merge --include-failed 强行合入 · /merge --skip-verify 跳过本地验证合入 · /reject 丢弃",
-			}
-		}
-		return []string{
-			"  Next: /approve --retry to retry · /merge --include-failed to merge anyway · /merge --skip-verify to merge without local verification · /reject to discard",
-		}
+		return writeNextActionCardLines(lang, writeActionVerifyFailed, "/approve --retry · /merge --include-failed · /merge --skip-verify · /reject")
 	case "partially_applied":
-		if zh {
-			return []string{
-				"  下一步：/approve --retry 续 apply 剩余路径 · /reject 丢弃（注意：/merge 拒收 partially_applied 状态）",
-			}
-		}
-		return []string{
-			"  Next: /approve --retry to apply remaining paths · /reject to discard (note: /merge refuses partially_applied)",
-		}
+		return writeNextActionCardLines(lang, writeActionPartiallyApplied, "/approve --retry · /reject")
 	case "unverified":
-		if zh {
-			return []string{
-				"  下一步：/verify <id> 重跑验证 · /merge --skip-verify 跳过本地验证合入 · /reject 丢弃",
-			}
-		}
-		return []string{
-			"  Next: /verify <id> to verify · /merge --skip-verify to merge without local verification · /reject to discard",
-		}
+		return writeNextActionCardLines(lang, writeActionUnverified, "/verify <id> · /merge --skip-verify · /reject")
 	case "applied":
-		if zh {
-			return []string{
-				"  下一步：/merge 合并到主仓 · /verify 重跑测试 · /worktree list 查看保留的 worktree",
-			}
-		}
-		return []string{
-			"  Next: /merge to merge into main · /verify to re-run tests · /worktree list to see preserved worktrees",
-		}
+		return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /worktree list")
 	}
-	// Default (pending_approval / unknown): the original footer.
-	if zh {
-		return []string{
-			"  下一步：/approve 落地 · /reject 丢弃 · /plan clear 仅删本地副本",
-		}
-	}
-	return []string{
-		"  Next: /approve to apply · /reject to discard · /plan clear to delete the local copy",
-	}
+	return writeNextActionCardLines(lang, writeActionNeedsApproval, "/plan show · /approve · /reject · /plan clear")
 }
 
 // friendlyRunError translates a few well-known Run errors into a more

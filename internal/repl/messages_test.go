@@ -550,12 +550,12 @@ func TestWriteModeDisabled_NamesActualPath(t *testing.T) {
 	}
 }
 
-// TestPlanReadyNudge_NamesAllActions locks that every plan-mode
-// dispatch gets a nudge listing every legal next action so a user
-// fresh to write mode does not have to read the docs to find /approve.
-func TestPlanReadyNudge_NamesAllActions(t *testing.T) {
+// TestPlanReadyNudge_RendersStatusCard locks that explicit plan-mode
+// dispatch gets state-first guidance; slash commands are advanced
+// recovery/audit entry points, not the primary instruction.
+func TestPlanReadyNudge_RendersStatusCard(t *testing.T) {
 	got := strings.Join(planReadyNudge("en", "plan-1", 3), "\n")
-	for _, want := range []string{"plan-1", "/plan show", "/approve", "/reject", "/mode auto"} {
+	for _, want := range []string{"plan-1", "Status:", "Next:", "Advanced:", "/plan show", "/approve", "/reject"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("planReadyNudge missing %q; got:\n%s", want, got)
 		}
@@ -911,19 +911,18 @@ func TestUnsettledBanner_WorktreeMissingTag(t *testing.T) {
 	}
 }
 
-// TestPlanShowFooter_StatusAware pins commit 41 UX#5: the
-// footer surfaces status-specific recovery commands rather
-// than always showing the same generic line.
+// TestPlanShowFooter_StatusAware pins that the footer surfaces
+// status-specific next-action cards rather than a flat command menu.
 func TestPlanShowFooter_StatusAware(t *testing.T) {
 	for _, c := range []struct {
 		status   string
 		mustHave string
 	}{
-		{"pending_approval", "/approve to apply"},
+		{"pending_approval", "approval required"},
 		{"verify_failed", "--retry"},
-		{"partially_applied", "--retry"},
+		{"partially_applied", "partially applied"},
 		{"unverified", "--skip-verify"},
-		{"applied", "/merge to merge"},
+		{"applied", "applied and verified"},
 	} {
 		lines := planShowFooter("en", c.status)
 		joined := strings.Join(lines, " ")

@@ -1663,3 +1663,34 @@ Consumers:
   - Design commit: `0fa28cdd` (`docs: record write autopilot redesign`), pushed to `origin/main`.
   - Implementation commit: `b15d2b6c` (`write-mode: enter autopilot from repl write route`), pushed to `origin/main`.
   - Residual follow-up: Batch 34 should replace the remaining plan/approval/blocked/complete command menus with typed next-action cards; this batch intentionally kept recovery commands available as advanced escape hatches.
+
+#### Batch 34: Low-Command Next-Action Card Rendering
+
+- Evidence source:
+  - After Batch 32/33, write-mode entry flows through Auto Pilot, but several high-visibility render surfaces still presented flat slash-command menus: `planReadyNudge`, `planShowFooter`, and startup `unsettledBanner`.
+  - These surfaces train users to remember commands even when the system can explain the state and the next semantic action.
+- Generalized gap:
+  - Recovery commands are still necessary, but they should be advanced entry points below a typed state summary.
+  - The render layer should communicate `Status / Next / Advanced` without changing hard workflow logic or parsing natural language.
+- Target architecture:
+  - Add a typed render enum for write next-action states: `plan_ready`, `needs_approval`, `verify_failed`, `partially_applied`, `unverified`, `applied`.
+  - Map plan/workflow statuses to state-first cards in one helper.
+  - Keep slash commands visible only under `Advanced`, so future UI buttons can consume the same semantic state without teaching command memorization.
+- Safety and prompt hygiene:
+  - The helper is render-only and is driven by persisted plan status chosen by callers.
+  - It does not route, approve, apply, verify, merge, or read user/model prose.
+  - No keyword matching, no `<think>` parsing, no prompt-controlled hard gate.
+- Implementation tasks:
+  - [x] Add typed write next-action render states and `writeNextActionCardLines`.
+  - [x] Convert `planReadyNudge` to state-first guidance for explicit `ModePlan`.
+  - [x] Convert `planShowFooter` to `Status / Next / Advanced` cards.
+  - [x] Convert startup `unsettledBanner` from full command menus to compact state summaries.
+  - [x] Update tests to lock cards, not command menus.
+  - [ ] Extend approval/blocked/complete workflow result panels beyond plan surfaces if later evidence shows command-heavy text remains in the primary answer body.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'Test(PlanReadyNudge_RendersStatusCard|PlanShowFooter_StatusAware|UnsettledBanner_WorktreeMissingTag|PlanReadyNudgeRendersBelowAnswerPanel|MergeSkipVerifyMessagesNameExplicitAction)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+- Progress:
+  - Implementation commit: pending.
