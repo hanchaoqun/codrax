@@ -1387,6 +1387,45 @@ func TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan(t *testing.
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
+	mu := types.NewMutableState("repeat ask")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-repeat",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			Stage:      "controller",
+			Status:     string(writeflow.ActionAskUser),
+			ReasonCode: "missing_owner",
+			FactKeys:   []string{"user_choice|planner|batch-1"},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action:           writeflow.ActionAskUser,
+		ReasonCode:       "missing_owner_again",
+		QuestionsForUser: []string{"Different wording should not matter?"},
+		MissingFacts: []writeflow.MissingUserFact{{
+			Kind:        "user_choice",
+			Description: "different prose for the same user-owned fact",
+			EvidenceRef: "batch-1",
+			Consumer:    "planner",
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionBlock || got.ReasonCode != "repeated_user_fact_request" {
+		t.Fatalf("repeated ask_user fact should become typed block, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "ask_user_repeated_suppressed") {
+		t.Fatalf("suppression progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",

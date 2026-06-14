@@ -106,6 +106,7 @@ type WriteWorkflowProgress struct {
 	Status     string    `json:"status,omitempty"`
 	ReasonCode string    `json:"reason_code,omitempty"`
 	Message    string    `json:"message,omitempty"`
+	FactKeys   []string  `json:"fact_keys,omitempty"`
 	At         time.Time `json:"at,omitempty"`
 }
 
@@ -245,7 +246,8 @@ func normalizeWriteWorkflowProgress(in []WriteWorkflowProgress) []WriteWorkflowP
 		item.Status = trimWriteWorkflowRunText(item.Status)
 		item.ReasonCode = trimWriteWorkflowRunText(item.ReasonCode)
 		item.Message = trimWriteWorkflowRunText(item.Message)
-		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" && item.At.IsZero() {
+		item.FactKeys = dedupTrimWriteWorkflowRunStrings(item.FactKeys)
+		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" && len(item.FactKeys) == 0 && item.At.IsZero() {
 			continue
 		}
 		out = append(out, item)

@@ -115,6 +115,9 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		run.Status = types.WriteWorkflowRunBlocked
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeBlocked, "", batchID, decision.ReasonCode)
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, strings.Join(decision.QuestionsForUser, " | "))
+		if len(run.ProgressLedger) > 0 {
+			run.ProgressLedger[len(run.ProgressLedger)-1].FactKeys = MissingUserFactKeys(decision.MissingFacts)
+		}
 	}
 	return types.NormalizeWriteWorkflowRun(run), nil
 }

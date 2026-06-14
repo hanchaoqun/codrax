@@ -165,6 +165,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 36 | Ask-user throttle and typed unknowns | `ask_user` 只允许 typed missing facts；预算和重复提问 guard 防止频繁打断 |
 | 37 | Handoff consumer Top-N hardening | P0-P3 去重、consumer view、verify failure P2 replan 消费增加回归测试 |
 | 38 | Canonical action surface | Controller schema、validator、scheduler 只接受真实可执行 action；旧迁移别名 fail-loud，不静默归一到可执行动作 |
+| 39 | Ask-user repeat suppression | `ask_user` missing facts 写入 durable typed fact keys；重复事实转 typed block，避免同一问题反复打断用户 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1820,3 +1821,34 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `b4770dd8` (`write-mode: reject deprecated workflow actions`), pushed to `origin/main`.
+
+#### Batch 39: Durable Ask-User Repeat Suppression
+
+- Evidence source:
+  - Batch 36 required `missing_facts[]` for `ask_user`, and Batch 38 made controller actions canonical.
+  - A resumed or repeated controller dispatch could still ask the same user-owned fact again with different question wording because the durable progress ledger did not store a typed key for already surfaced missing facts.
+- Generalized gap:
+  - Low-cognitive-load Auto Pilot must prevent repeat interruptions at the state-machine layer, not rely on prompt instructions that ask the model to avoid repeating itself.
+  - The de-dupe key must be typed and durable so process restart/resume preserves the interruption history.
+- Target architecture:
+  - Add `fact_keys[]` to `WriteWorkflowProgress`.
+  - Project `MissingUserFact` into durable keys using only `kind`, `consumer`, and `evidence_ref`.
+  - Store fact keys when `ApplyWorkflowDecisionToRun` records an `ask_user` progress event.
+  - During controller typed-state normalization, convert repeated `ask_user` facts into `block` with `reason_code=repeated_user_fact_request` and record `ask_user_repeated_suppressed`.
+- Safety and prompt hygiene:
+  - Hard repeat suppression ignores question text and missing-fact `description`.
+  - It does not parse user keywords, model prose, summaries, rationale, logs, or `<think>`.
+  - Auto-executable plan override still wins before repeat suppression, so low/medium safe plans keep flowing without user approval.
+  - Scope is write workflow progress/controller only; read/log/trace/data/operation/computer modes are untouched.
+- Implementation tasks:
+  - [x] Add durable `fact_keys` to workflow progress normalization.
+  - [x] Add `MissingUserFactKeys` typed projection.
+  - [x] Persist ask-user fact keys in workflow progress.
+  - [x] Suppress repeated ask-user facts in controller typed-state normalization.
+  - [x] Add tests for progress normalization, prose-insensitive keys, and repeated ask-user suppression.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/orchestrator -run 'Test(NormalizeWriteWorkflowRunPersistsContextPacks|ValidateWriteWorkflowDecision|MissingUserFactKeysIgnoreQuestionProse|ApplyWorkflowDecisionToRun|NormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact|RunWriteControllerWorkflow_(AutoExecutableAskUserAppliesPlan|AskUserSurfacesQuestions))'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types ./internal/writeflow ./internal/orchestrator ./internal/repl ./internal/agent ./internal/tool`
+  - Full regression is run before push for the implementation commit.
+- Progress:
+  - Implementation commit: pending.

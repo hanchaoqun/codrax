@@ -58,7 +58,11 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 			BatchID: " batch-1 ",
 			Stage:   " explore ",
 			Status:  " complete ",
-			At:      time.Date(2026, 6, 10, 1, 3, 0, 0, time.UTC),
+			FactKeys: []string{
+				" runtime_constraint|planner|report-1 ",
+				"runtime_constraint|planner|report-1",
+			},
+			At: time.Date(2026, 6, 10, 1, 3, 0, 0, time.UTC),
 		}},
 	}
 	got := NormalizeWriteWorkflowRun(run)
@@ -88,6 +92,9 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	}
 	if len(got.ProgressLedger) != 1 || got.ProgressLedger[0].At.IsZero() {
 		t.Fatalf("progress timestamp not preserved: %+v", got.ProgressLedger)
+	}
+	if len(got.ProgressLedger[0].FactKeys) != 1 || got.ProgressLedger[0].FactKeys[0] != "runtime_constraint|planner|report-1" {
+		t.Fatalf("progress fact keys not normalized: %+v", got.ProgressLedger[0].FactKeys)
 	}
 	if got.Budget.BatchesUsed != 0 || got.Budget.ExplorationRoundsUsed != 0 {
 		t.Fatalf("negative budget usage not clamped: %+v", got.Budget)

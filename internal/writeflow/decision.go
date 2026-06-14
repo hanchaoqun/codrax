@@ -112,6 +112,28 @@ func normalizeMissingUserFacts(in []MissingUserFact) []MissingUserFact {
 	return out
 }
 
+// MissingUserFactKeys returns durable de-dupe keys for ask_user facts.
+// The key intentionally uses only typed lanes and evidence refs; question
+// prose and fact descriptions remain user-visible context, not hard logic.
+func MissingUserFactKeys(facts []MissingUserFact) []string {
+	facts = normalizeMissingUserFacts(facts)
+	out := make([]string, 0, len(facts))
+	seen := map[string]bool{}
+	for _, fact := range facts {
+		key := strings.Join([]string{
+			fact.Kind,
+			fact.Consumer,
+			fact.EvidenceRef,
+		}, "|")
+		if key == "||" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
 // ValidateWriteWorkflowDecision returns structural repair hints. It does not
 // parse prose or infer user intent from keywords.
 func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {

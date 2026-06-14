@@ -1442,7 +1442,47 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			Reason:     "deterministic write approval policy allows this pending plan to apply",
 		})
 	}
+	if decision.Action == writeflow.ActionAskUser {
+		if repeated := repeatedAskUserFactKeys(run, decision); len(repeated) > 0 {
+			appendControllerProgress(run, batchID, "ask_user_repeated_suppressed",
+				"controller repeated already surfaced typed missing fact keys: "+strings.Join(repeated, ", "))
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionBlock,
+				ReasonCode: "repeated_user_fact_request",
+				Reason:     "controller repeated an already surfaced typed missing fact; stopping to avoid repeated user interruptions",
+			})
+		}
+	}
 	return decision
+}
+
+func repeatedAskUserFactKeys(run *types.WriteWorkflowRun, decision writeflow.WriteWorkflowDecision) []string {
+	if run == nil {
+		return nil
+	}
+	keys := writeflow.MissingUserFactKeys(decision.MissingFacts)
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, item := range run.ProgressLedger {
+		if item.Status != string(writeflow.ActionAskUser) {
+			continue
+		}
+		for _, key := range item.FactKeys {
+			key = strings.TrimSpace(key)
+			if key != "" {
+				seen[key] = true
+			}
+		}
+	}
+	repeated := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if seen[key] {
+			repeated = append(repeated, key)
+		}
+	}
+	return repeated
 }
 
 func controllerActionDelaysReadyPlan(action writeflow.WorkflowAction) bool {

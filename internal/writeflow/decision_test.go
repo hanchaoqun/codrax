@@ -115,6 +115,24 @@ func TestValidateWriteWorkflowDecisionAllowsTypedAskUser(t *testing.T) {
 	}
 }
 
+func TestMissingUserFactKeysIgnoreQuestionProse(t *testing.T) {
+	first := MissingUserFactKeys([]MissingUserFact{{
+		Kind:        "runtime_constraint",
+		Description: "first wording",
+		EvidenceRef: "report-1",
+		Consumer:    "planner",
+	}})
+	second := MissingUserFactKeys([]MissingUserFact{{
+		Kind:        "runtime_constraint",
+		Description: "completely different wording",
+		EvidenceRef: "report-1",
+		Consumer:    "planner",
+	}})
+	if len(first) != 1 || len(second) != 1 || first[0] != second[0] {
+		t.Fatalf("fact keys should use typed lanes/evidence refs, got %v and %v", first, second)
+	}
+}
+
 func TestWriteWorkflowDecisionSchemaToolParamCompat(t *testing.T) {
 	raw := json.RawMessage(`{
 		"action": "explore_code",
