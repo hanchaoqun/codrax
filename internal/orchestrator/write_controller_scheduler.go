@@ -408,6 +408,20 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					msg += "\n- " + q
 				}
 			}
+			if len(decision.MissingFacts) > 0 {
+				msg += "\nMissing facts:"
+				for i, fact := range decision.MissingFacts {
+					if i >= 5 {
+						msg += fmt.Sprintf("\n- … (+%d more)", len(decision.MissingFacts)-i)
+						break
+					}
+					detail := fact.Kind + " for " + fact.Consumer + ": " + fact.Description
+					if fact.EvidenceRef != "" {
+						detail += " [" + fact.EvidenceRef + "]"
+					}
+					msg += "\n- " + detail
+				}
+			}
 			o.busCtx.Mutable.SetResultPlain(msg)
 			return fmt.Errorf("%s", msg)
 		}

@@ -61,6 +61,14 @@ func TestValidateWriteWorkflowDecisionRequiresTypedPayloads(t *testing.T) {
 			want:     "questions_for_user",
 		},
 		{
+			name: "ask user requires typed missing facts",
+			decision: WriteWorkflowDecision{
+				Action:           ActionAskUser,
+				QuestionsForUser: []string{"Which runtime owns this deploy?"},
+			},
+			want: "missing_facts",
+		},
+		{
 			name:     "block requires reason",
 			decision: WriteWorkflowDecision{Action: ActionBlock},
 			want:     "reason",
@@ -73,6 +81,23 @@ func TestValidateWriteWorkflowDecisionRequiresTypedPayloads(t *testing.T) {
 				t.Fatalf("expected error mentioning %q, got %v", tt.want, errs)
 			}
 		})
+	}
+}
+
+func TestValidateWriteWorkflowDecisionAllowsTypedAskUser(t *testing.T) {
+	errs := ValidateWriteWorkflowDecision(WriteWorkflowDecision{
+		Action:           ActionAskUser,
+		ReasonCode:       "missing_runtime_owner",
+		QuestionsForUser: []string{"Which runtime owns this deploy?"},
+		MissingFacts: []MissingUserFact{{
+			Kind:        "runtime_constraint",
+			Description: "deployment runtime owner is not present in repo evidence",
+			EvidenceRef: "context-pack:p2-runtime",
+			Consumer:    "controller",
+		}},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("typed ask_user should validate, got %v", errs)
 	}
 }
 

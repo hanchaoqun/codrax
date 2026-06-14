@@ -45,6 +45,7 @@ type WriteWorkflowDecision struct {
 	Batch              *WriteBatchPlan                `json:"batch,omitempty"`
 	ExplorationRequest *types.WriteExplorationRequest `json:"exploration_request,omitempty"`
 	QuestionsForUser   []string                       `json:"questions_for_user,omitempty"`
+	MissingFacts       []MissingUserFact              `json:"missing_facts,omitempty"`
 	SafetyNotes        []string                       `json:"safety_notes,omitempty"`
 
 	// FinishDisposition is the typed escape lane for the finish hard
@@ -52,6 +53,16 @@ type WriteWorkflowDecision struct {
 	// post-apply verify attempt failed UNLESS the model declares
 	// accept_unverified here. Only meaningful with action=finish.
 	FinishDisposition string `json:"finish_disposition,omitempty"`
+}
+
+// MissingUserFact is the typed reason an ask_user decision is allowed
+// to interrupt Auto Pilot. The controller may ask prose questions, but
+// the hard permission to pause comes from this structured fact.
+type MissingUserFact struct {
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
+	EvidenceRef string `json:"evidence_ref,omitempty"`
+	Consumer    string `json:"consumer"`
 }
 
 // NormalizeWriteWorkflowDecision trims and bounds a workflow decision. It
@@ -78,9 +89,34 @@ func NormalizeWriteWorkflowDecision(decision WriteWorkflowDecision) WriteWorkflo
 		}
 	}
 	decision.QuestionsForUser = dedupTrimWorkflowStrings(decision.QuestionsForUser)
+	decision.MissingFacts = normalizeMissingUserFacts(decision.MissingFacts)
 	decision.SafetyNotes = dedupTrimWorkflowStrings(decision.SafetyNotes)
 	decision.FinishDisposition = strings.TrimSpace(decision.FinishDisposition)
 	return decision
+}
+
+func normalizeMissingUserFacts(in []MissingUserFact) []MissingUserFact {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]MissingUserFact, 0, len(in))
+	seen := map[string]bool{}
+	for _, fact := range in {
+		fact.Kind = strings.ToLower(strings.TrimSpace(fact.Kind))
+		fact.Description = strings.TrimSpace(fact.Description)
+		fact.EvidenceRef = strings.TrimSpace(fact.EvidenceRef)
+		fact.Consumer = strings.ToLower(strings.TrimSpace(fact.Consumer))
+		if fact.Kind == "" && fact.Description == "" && fact.Consumer == "" && fact.EvidenceRef == "" {
+			continue
+		}
+		key := fact.Kind + "\x00" + fact.Description + "\x00" + fact.EvidenceRef + "\x00" + fact.Consumer
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, fact)
+	}
+	return out
 }
 
 // ValidateWriteWorkflowDecision returns structural repair hints. It does not
@@ -104,6 +140,20 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 		if len(decision.QuestionsForUser) == 0 {
 			errs = append(errs, "ask_user requires questions_for_user")
 		}
+		if len(decision.MissingFacts) == 0 {
+			errs = append(errs, "ask_user requires missing_facts")
+		}
+		for i, fact := range decision.MissingFacts {
+			if !validMissingFactKind(fact.Kind) {
+				errs = append(errs, fmt.Sprintf("missing_facts[%d].kind %q is invalid", i, fact.Kind))
+			}
+			if fact.Description == "" {
+				errs = append(errs, fmt.Sprintf("missing_facts[%d].description is required", i))
+			}
+			if !validMissingFactConsumer(fact.Consumer) {
+				errs = append(errs, fmt.Sprintf("missing_facts[%d].consumer %q is invalid", i, fact.Consumer))
+			}
+		}
 	case ActionBlock:
 		if decision.ReasonCode == "" && decision.Reason == "" {
 			errs = append(errs, "block requires reason_code or reason")
@@ -119,6 +169,24 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 		errs = append(errs, "finish_disposition is only valid with action=finish")
 	}
 	return errs
+}
+
+func validMissingFactKind(kind string) bool {
+	switch kind {
+	case "scope_boundary", "user_choice", "external_fact", "approval_boundary", "runtime_constraint", "credential", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func validMissingFactConsumer(consumer string) bool {
+	switch consumer {
+	case "controller", "planner", "verifier", "coder":
+		return true
+	default:
+		return false
+	}
 }
 
 // AllWorkflowActions is the full canonical action set in schema order.
@@ -202,6 +270,7 @@ func WriteWorkflowDecisionSchemaForActions(actions []WorkflowAction) json.RawMes
 			"batch":               batchPlanSchema(),
 			"exploration_request": explorationRequestSchema(),
 			"questions_for_user":  stringArrayProp("Questions to ask only when required user-owned information is missing."),
+			"missing_facts":       missingFactsSchema(),
 			"safety_notes":        stringArrayProp("Typed safety notes that should affect approval or verification."),
 			"finish_disposition": map[string]any{
 				"type": "string",
@@ -261,6 +330,37 @@ func explorationRequestSchema() map[string]any {
 			"constraints":           stringArrayProp("Constraints source exploration must preserve as context."),
 			"max_rounds":            map[string]any{"type": "integer", "minimum": 0},
 			"evidence_requirements": stringArrayProp("Evidence expectations for the handoff, such as file:line anchors or tests to identify."),
+		},
+	}
+}
+
+func missingFactsSchema() map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": "Typed missing facts that justify ask_user. Required with action=ask_user; questions alone are not enough to pause Auto Pilot.",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"kind": enumStringProp([]string{
+					"scope_boundary",
+					"user_choice",
+					"external_fact",
+					"approval_boundary",
+					"runtime_constraint",
+					"credential",
+					"unknown",
+				}),
+				"description":  stringProp("Concrete missing fact owned by the user or external environment."),
+				"evidence_ref": stringProp("Optional artifact, path, report, batch, or context-pack reference showing why this is missing."),
+				"consumer": enumStringProp([]string{
+					"controller",
+					"planner",
+					"verifier",
+					"coder",
+				}),
+			},
+			"required": []string{"kind", "description", "consumer"},
 		},
 	}
 }

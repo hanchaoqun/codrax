@@ -1724,3 +1724,35 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `52612326` (`write-mode: show approval action cards`), pushed to `origin/main`.
+
+#### Batch 36: Typed Ask-User Missing Facts
+
+- Evidence source:
+  - Controller `ask_user` previously required `questions_for_user`, but the hard permission to pause did not require a typed missing-fact payload.
+  - This allowed a model to pause Auto Pilot with question prose alone, increasing user interruptions and weakening the "typed artifacts drive hard gates" rule.
+- Generalized gap:
+  - User clarification is a real workflow node, but it must be justified by structured missing facts owned by the user or external environment.
+  - Questions alone are natural language and should be trace output, not the authorization to stop.
+- Target architecture:
+  - Add `missing_facts[]` to `WriteWorkflowDecision`.
+  - Each fact has `kind`, `description`, optional `evidence_ref`, and `consumer`.
+  - `ask_user` requires both `questions_for_user` and `missing_facts`.
+  - Render missing facts in blocked results so the user sees why a question was necessary.
+- Safety and prompt hygiene:
+  - Hard gate reads only typed `missing_facts` fields and enum validation.
+  - No keyword matching in the question text, reason prose, progress message, `<think>`, or model rationale.
+  - This is a generic interruption policy for all write tasks, not a case-specific prompt patch.
+- Implementation tasks:
+  - [x] Add `MissingUserFact` typed schema to write workflow decisions.
+  - [x] Normalize/dedupe missing facts.
+  - [x] Require `missing_facts` for `ask_user` validation.
+  - [x] Add JSON schema for fact kind/consumer enums.
+  - [x] Surface missing facts in blocked ask-user results.
+  - [x] Update writeflow/orchestrator tests.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/orchestrator -run 'TestValidateWriteWorkflowDecision|TestRunWriteControllerWorkflow_(AutoExecutableAskUserAppliesPlan|AskUserSurfacesQuestions)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/orchestrator ./internal/tool ./internal/agent ./internal/repl ./internal/types`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+- Progress:
+  - Implementation commit: pending.

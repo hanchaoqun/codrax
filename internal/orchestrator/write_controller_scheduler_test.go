@@ -1325,7 +1325,12 @@ func TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan(t *testing.
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "safe doc change"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
 		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "safe doc change"}},
-		{Action: writeflow.ActionAskUser, ReasonCode: "model_pause", QuestionsForUser: []string{"Do you approve applying this plan?"}},
+		{Action: writeflow.ActionAskUser, ReasonCode: "model_pause", QuestionsForUser: []string{"Do you approve applying this plan?"}, MissingFacts: []writeflow.MissingUserFact{{
+			Kind:        "approval_boundary",
+			Description: "controller requested operator approval despite auto-executable plan",
+			EvidenceRef: "batch-1",
+			Consumer:    "controller",
+		}}},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
@@ -2563,7 +2568,13 @@ func TestRunWriteControllerWorkflow_AskUserSurfacesQuestions(t *testing.T) {
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "needs input"}}})
 	decisions := []writeflow.WriteWorkflowDecision{
 		{Action: writeflow.ActionAskUser, ReasonCode: "missing_owner_decision",
-			QuestionsForUser: []string{"Which database engine should the migration target?", "Is downtime acceptable?"}},
+			QuestionsForUser: []string{"Which database engine should the migration target?", "Is downtime acceptable?"},
+			MissingFacts: []writeflow.MissingUserFact{{
+				Kind:        "user_choice",
+				Description: "database engine and downtime policy are user-owned deployment choices",
+				EvidenceRef: "batch-1",
+				Consumer:    "planner",
+			}}},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -2582,6 +2593,10 @@ func TestRunWriteControllerWorkflow_AskUserSurfacesQuestions(t *testing.T) {
 	if !strings.Contains(result, "Which database engine should the migration target?") ||
 		!strings.Contains(result, "Is downtime acceptable?") {
 		t.Fatalf("typed questions must surface verbatim in the result, got %q", result)
+	}
+	if !strings.Contains(result, "Missing facts:") ||
+		!strings.Contains(result, "user_choice for planner") {
+		t.Fatalf("typed missing facts must surface with ask_user result, got %q", result)
 	}
 }
 
