@@ -58,6 +58,8 @@ type runnerPlan struct {
 	Suite     string
 }
 
+const maxTestSurfaceEscalations = 3
+
 type runnerManifest struct {
 	File     string
 	Runner   string
@@ -264,14 +266,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	//       backstop so old eval cases / direct CLI calls keep
 	//       working.
 	// Multi-repo: confine manifest discovery to ActiveSubRepo's
-	// root when set (write-mode plan/apply/verify converged the
-	// target). Read-mode + single-repo: ActiveSubRepo == nil →
-	// walkRoot empty → walk repoRoot (byte-identical to pre-multi-
-	// repo behaviour).
-	walkRoot := ""
-	if ctx.ActiveSubRepo != nil && ctx.ActiveSubRepo.RootAbs != "" {
-		walkRoot = ctx.ActiveSubRepo.RootAbs
-	}
+	// root only when that root is inside the active verification
+	// tree. Repo-scoped write mode rewrites RepoRoot to the selected
+	// sub-repo, and apply/verify later rewrites RepoRoot again to the
+	// worktree. In those phases ActiveSubRepo.RootAbs can still point
+	// at the original scratch directory; using it would verify stale
+	// files. The containment check keeps discovery anchored to the
+	// current worktree while preserving the multi-repo parent case.
+	walkRoot := activeSubRepoWalkRoot(ctx)
 
 	// Typed test surface: the runnable-candidate inventory for this
 	// verification root. Computed once per Execute from filesystem
@@ -283,11 +285,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	// planSources tags each queued plan with its typed provenance for
 	// the ExecutedCommands audit rows; executedKeys feeds the
-	// escalation picker; surfaceEscalated bounds escalation to one
-	// extra candidate per Execute.
+	// escalation picker; surfaceEscalations bounds dead-end recovery
+	// without assuming only one runner can be unavailable or empty.
 	planSources := map[string]string{}
 	executedKeys := map[string]bool{}
-	surfaceEscalated := false
+	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
 
 	var plans []runnerPlan
@@ -336,21 +338,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return report
 	}
 	// escalateToSurfaceCandidate appends the highest-ranked unexecuted
-	// candidate with typed test work to the plan queue, at most once
-	// per Execute. Both trigger sites are typed dead ends: a runner
-	// with zero test work, or a missing runner binary while test work
-	// exists elsewhere. The model's explicit runner choice always runs
-	// first; this only adds a candidate after that choice produced no
-	// real verification.
+	// candidate with typed test work to the plan queue, bounded by
+	// maxTestSurfaceEscalations. Trigger sites are typed dead ends:
+	// zero test work, parser-confirmed zero tests despite a typed test
+	// signal, or a missing runner binary while test work exists
+	// elsewhere. The model's explicit runner choice always runs first;
+	// this only adds candidates after prior choices produced no real
+	// verification.
 	escalateToSurfaceCandidate := func(source string) *runnerPlan {
-		if surfaceEscalated {
+		if surfaceEscalations >= maxTestSurfaceEscalations {
 			return nil
 		}
 		cand := nextTestSurfaceEscalation(surface, executedKeys)
 		if cand == nil {
 			return nil
 		}
-		surfaceEscalated = true
+		surfaceEscalations++
 		next := runnerPlanFromSurfaceCandidate(ctx.RepoRoot, *cand)
 		planSources[testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(ctx.RepoRoot, next))] = source
 		logging.Info("[run_tests] test-surface escalation (%s): queueing %s after current candidate produced no real verification",
@@ -745,6 +748,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		}
+		if reportHasNoExecutedTests(report) && runnerPlanHasTypedTestSignal(surface, plan, ctx.RepoRoot) {
+			setLastExecOutcome("zero_tests")
+			label := runnerPlanLabel(ctx.RepoRoot, plan)
+			logging.Info("[run_tests] %s parser reported zero executed tests despite typed test signal", label)
+			if next := escalateToSurfaceCandidate("zero_tests_escalation"); next != nil {
+				projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+					fmt.Sprintf("[run_tests: %s] runner reported zero tests despite typed test signal — continuing with %s",
+						label, runnerPlanLabel(ctx.RepoRoot, *next))))
+				plans = append(plans, *next)
+				continue
+			}
+			zeroReport := makeZeroTestsFailureReport(plan, output)
+			projectReports = append(projectReports, qualifyChangeReport(zeroReport, plan, ctx.RepoRoot))
+			continue
+		}
 		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 	}
 
@@ -1025,6 +1044,45 @@ func samePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
+func activeSubRepoWalkRoot(ctx *types.BusContext) string {
+	if ctx == nil || ctx.ActiveSubRepo == nil || strings.TrimSpace(ctx.ActiveSubRepo.RootAbs) == "" {
+		return ""
+	}
+	repoRoot, err := filepath.Abs(ctx.RepoRoot)
+	if err != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	activeRoot, err := filepath.Abs(ctx.ActiveSubRepo.RootAbs)
+	if err != nil {
+		activeRoot = ctx.ActiveSubRepo.RootAbs
+	}
+	if !pathWithinRoot(repoRoot, activeRoot) {
+		return ""
+	}
+	return activeRoot
+}
+
+func pathWithinRoot(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if samePath(root, target) {
+		return true
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == "" {
+		return err == nil
+	}
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 func runnerPlanRel(repoRoot string, plan runnerPlan) string {
 	rootAbs, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -1054,6 +1112,47 @@ func renderRunnerOutputSection(plan runnerPlan, output string) string {
 	fmt.Fprintf(&b, "### %s (%s)\n", runner, filepath.ToSlash(plan.Root))
 	b.WriteString(output)
 	return b.String()
+}
+
+func reportHasNoExecutedTests(report *types.ChangeReport) bool {
+	return report != nil && len(report.NoTestsRunners) > 0 && len(report.TestResults) == 0
+}
+
+func runnerPlanHasTypedTestSignal(surface types.TestSurface, plan runnerPlan, repoRoot string) bool {
+	key := testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(repoRoot, plan))
+	for _, cand := range surface.Candidates {
+		if !cand.HasTestSignal {
+			continue
+		}
+		if testSurfaceCandidateKey(cand.Runner, cand.Framework, cand.WorkingDir) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func makeZeroTestsFailureReport(plan runnerPlan, output string) *types.ChangeReport {
+	label := strings.TrimSpace(plan.Runner)
+	if label == "" {
+		label = "test runner"
+	}
+	detail := fmt.Sprintf("%s reported zero executed tests even though the typed test surface showed runnable test work.", label)
+	if strings.TrimSpace(output) != "" {
+		detail += "\n\n" + stdoutHead(output, 4000)
+	}
+	return &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   "zero_tests",
+			Suite:         label,
+			Passed:        false,
+			FailureDetail: detail,
+		}},
+		Passed:         false,
+		FailureSummary: detail,
+		FailureKind:    types.FailureKindTestsFailed,
+		NoTestsRunners: []string{label},
+	}
 }
 
 // isMoreSevereFailureKind orders FailureKind values for the merge

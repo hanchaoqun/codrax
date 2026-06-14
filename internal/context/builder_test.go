@@ -3914,3 +3914,17 @@ func TestFormatMultiRepoActiveSetAdvisory_ZeroCountFallsBackToConfigDefault(t *t
 		t.Errorf("expected truncation marker for remaining 1: %q", got)
 	}
 }
+
+func TestFormatMultiRepoActiveSetAdvisory_SkipsRepoScopedWrite(t *testing.T) {
+	ac := &types.AgentContext{
+		Mode: types.ModeApply,
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "bindings-py", PrimaryLangs: []string{"Python"}},
+			{RootRel: "client-ts", PrimaryLangs: []string{"TypeScript"}},
+		},
+		ActiveSubRepo: &types.SubRepoSnapshot{RootRel: "bindings-py"},
+	}
+	if got := formatMultiRepoActiveSetAdvisory(ac); got != "" {
+		t.Fatalf("repo-scoped write should not render parent multi-repo path guidance: %q", got)
+	}
+}

@@ -4850,6 +4850,9 @@ func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
 	if ac == nil || len(ac.SubRepos) < 2 {
 		return ""
 	}
+	if ac.Mode.IsWrite() && ac.ActiveSubRepo != nil {
+		return ""
+	}
 	pendingSet := make(map[string]bool, len(ac.PendingSubRepos))
 	for _, p := range ac.PendingSubRepos {
 		pendingSet[p] = true

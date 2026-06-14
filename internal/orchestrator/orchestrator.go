@@ -1844,6 +1844,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 		o.busCtx.PendingSubRepos = pendingNames
 	}
+	if err := o.configureWriteScopedMultiRepo(repoRoot); err != nil {
+		return o.busCtx, err
+	}
 	// Phase 6 multi-repo telemetry. One log line at Run exit so
 	// operators see resident sub-repo count, eviction pressure, and
 	// thrashing state without having to enable a special debug mode.

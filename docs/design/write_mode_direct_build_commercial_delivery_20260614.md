@@ -1049,3 +1049,92 @@ Target design:
 - [x] Harden the fixture oracle to encode upstream structural contract without relying on exact patch text.
 - [x] Add write exploration read-only handoff prompt hygiene test.
 - [x] Verification: `bash -n eval/cases/github_issue_chrono_duration_min.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py`; seed fixture `make check` fails as expected before a fix; `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_chrono_duration_min.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_chrono_duration_min_after_oracle_20260614_summary.md bash eval/convergence_audit.sh`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/agent`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`.
+
+## 20. Direct-Build Commercial Design Supplements
+
+Date: 2026-06-14
+
+This section records the complete design supplement required by the latest audit pass. It is intentionally system-level: hard routes consume typed artifacts only, prompts remain soft guidance, and no user-intent keyword, model rationale, summary prose, or `<think>` content may drive scheduler or safety decisions.
+
+### 20.1 P0 Contracts
+
+- Unified verify result: the controller consumes only typed package/build/test verdicts from `ChangeReport`, `ExecutedCommand`, and `TestSurface`. A verifier narrative that says a subtest passed cannot mark a batch successful unless the typed post-apply report is authoritative, current-plan, and passed.
+- ModePlan terminal semantics: write planning ends after the bounded plan is persisted. It must not continue into apply decisions, approval routing, or verifier scheduling. Apply remains a distinct user-selected phase or controller action.
+- Durable workflow and approval store: any `pending_approval` state must be visible through `/workflow show`, `/workflow list`, and `/workflow resume`. `/approve` must continue the same run/batch using the same plan fingerprint; fingerprint drift requires a fresh approval decision.
+- Failure evidence handoff: build errors, test failures, file paths, line numbers, command metadata, parser outcomes, and artifact refs enter P2 context. Replan consumes that focused evidence and targets the failing point in a small batch instead of rediscovering the whole repository.
+- No false verify authority: `runner_missing`, `zero_tests`, parser errors, missing reports, stale worktree roots, non-current plan reports, and planner dry-run probe passes are typed dead ends unless a later authoritative post-apply report passes.
+
+### 20.2 P1 Contracts
+
+- Single state machine: plan lifecycle, approval lifecycle, apply state, verify state, and workflow batch state must not contradict each other. The scheduler is the only writer of cross-stage state transitions; agents emit typed proposals, not final state mutations.
+- Planner/replan permission layering: planning agents can read and emit bounded plans. They should not run generic `exec_command`; dry-run needs must go through typed dry-run test/build tools with read-only policy and scoped artifacts.
+- Context pack dedupe and Top-N consumption: P0-P3 context is stored once with stable evidence refs. Controller, planner, verifier, and approval policy each receive a role-specific Top-N projection while the full pack remains durable for resume and audit.
+- Worktree/report persistence: user-visible prompts, eval harnesses, and resume paths must refer to durable plan/report/apply refs, not live worktree paths that L5 cleanup may remove.
+- Approval minimization: low/medium typed risk auto-executes; high risk pauses for approval; critical risk denies. The system may internally replan high-risk off-scope drift once, but must not auto-approve real high-risk changes.
+
+### 20.3 Test Authority Design
+
+Verification has three layers, in descending authority:
+
+1. Current-plan post-apply `ChangeReport` with typed `Passed=true`, non-stale plan id, and executed command evidence.
+2. Typed dead-end recovery: missing runner, parser zero-tests, synthetic no-tests, or unavailable test infrastructure may queue a bounded next `TestSurface` candidate.
+3. Fail-loud terminal report: if typed test work exists but all candidates end in dead ends, produce a failed `ChangeReport` with durable command/output refs.
+
+Rules:
+
+- A parser-produced `NoTestsRunners` report with zero `TestResults` is not authoritative when the selected `TestSurfaceCandidate.HasTestSignal=true`.
+- Dead-end recovery is bounded, loop-safe, and keyed by `(runner, framework, working_dir)`; it never retries the same candidate.
+- A synthetic no-test pass remains allowed only when the executor's typed pre-flight says there is no test work and no unexecuted runnable candidate exists.
+- Test discovery for repo-scoped multi-repo write must be anchored to the active verification tree. If `ActiveSubRepo.RootAbs` is outside the current `RepoRoot` worktree, it is stale and must not be used as `walkRoot`.
+
+### 20.4 Durable Handoff Design
+
+P2 verify-failure context must include:
+
+- command, runner, framework, working directory, exit code, duration, and source (`llm_choice`, `runner_missing_escalation`, `zero_tests_escalation`, `auto_detect`, etc.);
+- structured test/build failures with assertion id, suite, file, line, and detail when available;
+- parser outcomes including `zero_tests`, parser errors, missing report, and runner missing;
+- plan id, applied commit/ref, worktree path, report path, and whether the live worktree was cleaned up;
+- deduplicated evidence refs ranked before raw log excerpts.
+
+Consumers:
+
+- controller consumes batch status, typed verify outcome, approval/risk records, and compact P0/P2 summaries;
+- planner consumes P0 constraints, P1 target scope, and P2 failure evidence for small replan;
+- verifier consumes plan/apply refs, test surface, and latest failure evidence;
+- user-facing `/workflow` commands render concise state plus artifact refs without hiding `<think>` transparency logs.
+
+### 20.5 Remaining Delivery Tasks
+
+- [ ] P0 verify authority audit: assert every controller finish path requires current-plan authoritative post-apply success or a typed terminal block.
+- [ ] P0 ModePlan audit: ensure plan phase persists a plan and exits without scheduling apply/approval/verify.
+- [ ] P0 workflow approval resume: make pending approval durable across process restart and let `/approve` continue the same run/batch.
+- [ ] P0 failure evidence projection: move build/test failure path/line/command metadata into P2 context packs and consume them in replan prompts/tools.
+- [ ] P1 single-state-machine audit: add invariant tests that plan status, approval record, apply refs, verify refs, and batch status cannot disagree.
+- [ ] P1 planner/replan permissions: route dry-run needs through typed dry-run tools, not generic planning-phase exec.
+- [ ] P1 context pack dedupe: add stable hash/evidence-ref dedupe and role-specific Top-N projections.
+- [ ] P1 worktree/report UX: update CLI/REPL/eval prompts to prefer durable refs over disposable live paths.
+
+#### Batch 22: Repo-Scoped Multi-Repo Verify Surface And Zero-Test Authority
+
+- Evidence source: Hugging Face tokenizers issue #1534 (`https://github.com/huggingface/tokenizers/issues/1534`), reconstructed as a repo-scoped Python binding case inside `eval/fixtures/multirepo-polyglot`.
+- First passing eval still exposed a typed authority gap: post-apply verify selected `python/pytest@.`, escalated to `python/unittest@.`, and accepted `Ran 0 tests ... OK` as authoritative success while a typed Makefile `check` candidate existed.
+- The same report showed a scoped worktree gap: `ActiveSubRepo.RootAbs` could remain pointed at the original scratch sub-repo after apply, so `BuildTestSurface` could discover candidates outside the current worktree.
+- Follow-up run `eval/results/github_issue_tokenizers_newline_run_multirepo_py-20260614-155436` passed with `report_channel=post_apply_verify`, `report_passed=true`, and the expected typed command chain `python/pytest runner_missing -> python/unittest zero_tests -> make check executed`. It also exposed an eval/product contract gap: the generated plan reduced the existing five-newline regression input to four newlines. The implementation still handled five newlines correctly, but the test delta weakened the fixture's explicit odd-run contract.
+- Final hardened run `eval/results/github_issue_tokenizers_newline_run_multirepo_py-20260614-160324` passed after the case encoded the five-newline input as an explicit current-task constraint and source-tree oracle. `run-1.write-apply.json` records `report_channel=post_apply_verify`, `report_passed=true`, and `verify_authoritative=true`; the report records `python/pytest runner_missing -> python/unittest zero_tests -> make check executed`; the applied `tests/test_tokenizer.py` still contains the five-newline literal.
+- Generalized target:
+  - parser-level zero-tests with `HasTestSignal=true` is a typed dead end, not success;
+  - surface escalation is bounded multi-hop, not a single fallback;
+  - if no runnable candidate remains, zero-tests becomes a failed `ChangeReport`;
+  - repo-scoped verify ignores stale `ActiveSubRepo.RootAbs` outside current `RepoRoot`.
+  - external issue fixtures distinguish product verification from regression-contract preservation; a passing test suite is not enough when the plan weakens an existing regression input.
+- [x] Add repo-scoped multi-repo write setup in eval and a Python tokenizers newline-run issue case.
+- [x] Scope write-mode multi-repo execution to exactly one active sub-repo and reject parent-prefixed target paths in scoped plans.
+- [x] Suppress parent multi-repo path guidance once write mode has been scoped to a single active sub-repo.
+- [x] Change `run_tests` from single fallback to bounded typed `TestSurface` multi-hop escalation.
+- [x] Treat parser zero-tests as a typed dead end when the candidate has test signal; fail loud when no candidate remains.
+- [x] Ignore stale `ActiveSubRepo.RootAbs` during verify when it is outside the current worktree `RepoRoot`.
+- [x] Strengthen the tokenizers eval oracle to aggregate the applied source tree and require the existing five-newline odd-run regression input to remain present.
+- [x] Verification: `bash -n eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/orchestrator ./internal/context`; `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_tokenizers_newline_multirepo_py_after_zero_test_fix_20260614_summary.md bash eval/convergence_audit.sh` PASS.
+- [x] Tests: multi-hop pytest missing -> unittest zero-tests -> make check, zero-tests no fallback fail-loud, scoped write path-prefix rejection, stale ActiveSubRepo walkRoot.
+- [ ] Product follow-up: add a typed test-contract critic that detects removal or weakening of pre-existing regression assertions when the user/task marks them as preserved coverage. Inputs must be structured diff hunks, path roles, and typed expected outcomes; it must not route on natural-language rationale or keyword matching.

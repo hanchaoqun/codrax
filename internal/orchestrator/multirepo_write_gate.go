@@ -33,6 +33,24 @@ func ValidateChangePlanScope(busCtx *types.BusContext, plan *types.ChangePlan) *
 	if len(plan.TargetPaths) == 0 {
 		return nil
 	}
+	if busCtx.ActiveSubRepo != nil {
+		if prefixed := workspacePrefixedTargetPaths(busCtx.SubRepos, plan.TargetPaths); len(prefixed) > 0 {
+			sort.Strings(prefixed)
+			detail := fmt.Sprintf("ChangePlan target paths use multi-repo workspace prefixes while write mode is scoped to sub-repo %q: %s", busCtx.ActiveSubRepo.RootRel, strings.Join(prefixed, ", "))
+			return &types.Violation{
+				Kind:       types.ViolWriteCrossSubRepoForbidden,
+				Detail:     detail,
+				Repair:     "re-emit the ChangePlan with paths relative to the active sub-repo root; do not include the multi-repo workspace prefix in target paths",
+				Stage:      "plan",
+				ClusterKey: "write_scoped_sub_repo_prefixed_target",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "change_plan.target_paths",
+					Reason:     "workspace-prefixed target paths in repo-scoped write batch",
+					Confidence: 1.0,
+				},
+			}
+		}
+	}
 	hits := make(map[string][]string) // sub-repo RootRel → TargetPaths owned
 	for _, p := range plan.TargetPaths {
 		sr := types.SubRepoSnapshotByRelPath(busCtx.SubRepos, p)
@@ -65,4 +83,28 @@ func ValidateChangePlanScope(busCtx *types.BusContext, plan *types.ChangePlan) *
 			Confidence: 1.0,
 		},
 	}
+}
+
+func workspacePrefixedTargetPaths(subs []types.SubRepoSnapshot, paths []string) []string {
+	if len(subs) == 0 || len(paths) == 0 {
+		return nil
+	}
+	var out []string
+	for _, p := range paths {
+		clean := strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
+		for strings.HasPrefix(clean, "./") {
+			clean = strings.TrimPrefix(clean, "./")
+		}
+		for _, sr := range subs {
+			rr := strings.Trim(strings.ReplaceAll(strings.TrimSpace(sr.RootRel), "\\", "/"), "/")
+			if rr == "" || rr == "." {
+				continue
+			}
+			if clean == rr || strings.HasPrefix(clean, rr+"/") {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	return out
 }

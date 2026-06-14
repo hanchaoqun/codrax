@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,27 @@ func surfaceCandidate(t *testing.T, surface types.TestSurface, runner string) ty
 	}
 	t.Fatalf("no %s candidate in surface: %+v", runner, surface.Candidates)
 	return types.TestSurfaceCandidate{}
+}
+
+func fakePython3WithoutPytest(t *testing.T) {
+	t.Helper()
+	realPython, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available on PATH")
+	}
+	fakeBin := t.TempDir()
+	fakePython := filepath.Join(fakeBin, "python3")
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "-m" ] && [ "$2" = "pytest" ]; then
+  echo "No module named pytest" >&2
+  exit 1
+fi
+exec %q "$@"
+`, realPython)
+	if err := os.WriteFile(fakePython, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake python3: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // The generalized selection rule: a Makefile with a declared check target
@@ -241,6 +263,86 @@ func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *t
 	}
 }
 
+func TestRunTests_ParserZeroTestsEscalatesAgainToMake(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	fakePython3WithoutPytest(t)
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "pyproject.toml", "[tool.pytest.ini_options]\n")
+	writeSurfaceFile(t, root, "Makefile", "check:\n\tPYTHONPATH=. python3 -m unittest discover -s tests -v\n")
+	writeSurfaceFile(t, root, "fastlex/tokenizer.py", "class FastTokenizer:\n    pass\n")
+	writeSurfaceFile(t, root, "tests/test_tokenizer.py", "import unittest\n\nclass TokenizerTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
+
+	mu := types.NewMutableState("zero-tests-multi-hop")
+	ctx := &types.BusContext{Mutable: mu, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("make check passes, so multi-hop zero-test escalation must pass: %+v report=%+v", result, mu.ChangeReport())
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("verify run must install ChangeReport")
+	}
+	var sawPytestMissing, sawUnittestZero, sawMakeCheck bool
+	for _, cmd := range report.ExecutedCommands {
+		switch {
+		case cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "runner_missing" && cmd.Source == "llm_choice":
+			sawPytestMissing = true
+		case cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "zero_tests" && cmd.Source == "runner_missing_escalation":
+			sawUnittestZero = true
+		case cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.Source == "zero_tests_escalation" && cmd.Command == "make check":
+			sawMakeCheck = true
+		}
+	}
+	if !sawPytestMissing || !sawUnittestZero || !sawMakeCheck {
+		t.Fatalf("expected pytest missing -> unittest zero tests -> make check, got %+v", report.ExecutedCommands)
+	}
+	if len(report.NoTestsRunners) == 0 {
+		t.Fatalf("zero-test runner must stay visible in aggregate report: %+v", report)
+	}
+}
+
+func TestRunTests_ParserZeroTestsWithoutEscalationFails(t *testing.T) {
+	fakePython3WithoutPytest(t)
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "pyproject.toml", "[tool.pytest.ini_options]\n")
+	writeSurfaceFile(t, root, "tests/test_tokenizer.py", "import unittest\n\nclass TokenizerTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
+
+	mu := types.NewMutableState("zero-tests-no-escalation")
+	ctx := &types.BusContext{Mutable: mu, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("zero-test parser result with no runnable fallback must fail: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.Passed {
+		t.Fatalf("report must record fail-loud zero-test verdict: %+v", report)
+	}
+	var sawUnittestZero bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "zero_tests" {
+			sawUnittestZero = true
+		}
+	}
+	if !sawUnittestZero {
+		t.Fatalf("executed commands must record parser zero-tests outcome: %+v", report.ExecutedCommands)
+	}
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("failure kind = %q, want %q", report.FailureKind, types.FailureKindTestsFailed)
+	}
+}
+
 // A failing escalated candidate must fail the merged verdict — escalation is
 // real verification, not a pass-rescue.
 func TestRunTests_EscalatedCandidateFailureFailsVerdict(t *testing.T) {
@@ -268,8 +370,8 @@ func TestRunTests_EscalatedCandidateFailureFailsVerdict(t *testing.T) {
 	}
 }
 
-// The escalation is bounded: at most one extra candidate per Execute, and
-// auto-detect (which already runs every candidate) never escalates.
+// Escalation is bounded and auto-detect, which already runs every candidate,
+// never escalates.
 func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")
@@ -294,6 +396,27 @@ func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
 		if cmd.Source != "auto_detect" {
 			t.Fatalf("auto-detect run must not contain escalation rows: %+v", report.ExecutedCommands)
 		}
+	}
+}
+
+func TestActiveSubRepoWalkRootIgnoresStaleRootOutsideCurrentRepo(t *testing.T) {
+	parent := t.TempDir()
+	active := filepath.Join(parent, "bindings-py")
+	if err := os.MkdirAll(active, 0o755); err != nil {
+		t.Fatalf("mkdir active: %v", err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot:      parent,
+		ActiveSubRepo: &types.SubRepoSnapshot{RootAbs: active, RootRel: "bindings-py"},
+	}
+	if got := activeSubRepoWalkRoot(ctx); got == "" || !samePath(got, active) {
+		t.Fatalf("active sub-repo inside repo must be used as walk root, got %q", got)
+	}
+
+	worktree := t.TempDir()
+	ctx.RepoRoot = worktree
+	if got := activeSubRepoWalkRoot(ctx); got != "" {
+		t.Fatalf("stale active sub-repo outside current worktree must be ignored, got %q", got)
 	}
 }
 

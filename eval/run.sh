@@ -105,9 +105,11 @@ ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
 # `git init`-s each immediate child sub-repo (no .git/ checked into the
 # codrax repo itself). codrax is then dispatched with --repo <scratch>
 # so the topology layer (LoadOrDiscover BFS depth=4) auto-detects the
-# sub-repos. Read-mode only — write-mode + multi-repo is a future
-# combination once write fan-out lands.
+# sub-repos. Write-mode multi-repo cases must additionally set
+# MULTIREPO_WRITE_ROOT=<child-root-rel>; the product then scopes the write run
+# to exactly that active sub-repo while still receiving the parent topology.
 MULTIREPO="${MULTIREPO:-}"
+MULTIREPO_WRITE_ROOT="${MULTIREPO_WRITE_ROOT:-}"
 # FOCUS is the comma-separated --focus value forwarded to the binary
 # when MULTIREPO is set. Each token is a slug-or-RootRel resolved by
 # topology.Resolve. Empty (default) = no pin, the routing fold's A
@@ -138,22 +140,26 @@ case "$MODE" in
     exit 2
     ;;
 esac
-if [[ -n "$MODE" && "$MODE" != "read" && -z "$FIXTURE" ]]; then
-  echo "case MODE=$MODE requires FIXTURE=<path under eval/fixtures>" >&2
+if [[ -n "$MODE" && "$MODE" != "read" && -z "$FIXTURE" && -z "$MULTIREPO" ]]; then
+  echo "case MODE=$MODE requires FIXTURE=<path under eval/fixtures> or MULTIREPO=<seed-name> with MULTIREPO_WRITE_ROOT" >&2
   exit 2
 fi
 if [[ -n "$FIXTURE" && ! -d "$FIXTURE" ]]; then
   # Resolve after we cd into $ROOT below; defer the dir-exists check.
   :
 fi
-# MULTIREPO and MODE/FIXTURE are mutually exclusive — write-mode +
-# multi-repo is a future combination, not a current eval scenario.
 if [[ -n "$MULTIREPO" && -n "$MODE" && "$MODE" != "read" ]]; then
-  echo "case MULTIREPO=$MULTIREPO is incompatible with MODE=$MODE (multi-repo write-mode not yet supported)" >&2
-  exit 2
+  if [[ -z "$MULTIREPO_WRITE_ROOT" ]]; then
+    echo "case MULTIREPO=$MULTIREPO MODE=$MODE requires MULTIREPO_WRITE_ROOT=<child-root-rel>" >&2
+    exit 2
+  fi
 fi
 if [[ -n "$MULTIREPO" && -n "$FIXTURE" ]]; then
   echo "case MULTIREPO=$MULTIREPO and FIXTURE=$FIXTURE are mutually exclusive" >&2
+  exit 2
+fi
+if [[ -n "$MULTIREPO_WRITE_ROOT" && ( -z "$MULTIREPO" || -z "$MODE" || "$MODE" == "read" ) ]]; then
+  echo "case MULTIREPO_WRITE_ROOT=$MULTIREPO_WRITE_ROOT requires MULTIREPO and MODE=plan|apply" >&2
   exit 2
 fi
 if [[ -n "$SETTINGS" && -n "$MODE" && "$MODE" != "read" ]]; then
@@ -171,6 +177,9 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+if [[ -n "$MULTIREPO_WRITE_ROOT" && -z "$FOCUS" ]]; then
+  FOCUS="$MULTIREPO_WRITE_ROOT"
+fi
 CODRAX_PROVIDER_ARGS=()
 if [[ -f "$ROOT/providers.yaml" ]]; then
   CODRAX_PROVIDER_ARGS=(--providers "$ROOT/providers.yaml")
@@ -408,23 +417,33 @@ run_read_step() {
 
 run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
+  local focus_args=()
+  if [[ -n "$FOCUS" ]]; then
+    focus_args=(--focus "$FOCUS")
+  fi
   echo "=== plan step (run $i) ===" >"$out"
   "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=write --write-phase=plan --plan-out "$plan" \
     --log-level debug \
     --log-dir "$logdir" \
+    "${focus_args[@]}" \
     --request "$QUESTION" \
     >>"$out" 2>&1
 }
 
 run_apply_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
+  local focus_args=()
+  if [[ -n "$FOCUS" ]]; then
+    focus_args=(--focus "$FOCUS")
+  fi
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
   "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
     --log-level debug \
     --log-dir "$logdir" \
+    "${focus_args[@]}" \
     --request "$QUESTION" \
     >>"$out" 2>&1
 }
@@ -711,6 +730,7 @@ run_one() {
 
   local rc=0
   local scratch=""
+  local apply_scratch=""
   local plan=""
   local plan_written=0
   local apply_attempted=0
@@ -718,12 +738,31 @@ run_one() {
 
   case "$MODE" in
     plan|apply)
-      scratch="$OUTDIR/run-$i.repo"
+      if [[ -n "$MULTIREPO" ]]; then
+        scratch="$OUTDIR/run-$i.parent"
+      else
+        scratch="$OUTDIR/run-$i.repo"
+      fi
       plan="$OUTDIR/run-$i.plan.json"
-      if ! setup_scratch "$scratch"; then
-        echo "FAIL setup_fail" >"$verdict"
-        echo "run $i: FAIL setup_fail" >&2
-        return
+      if [[ -n "$MULTIREPO" ]]; then
+        if ! setup_multirepo_scratch "$scratch"; then
+          echo "FAIL multirepo_setup_fail" >"$verdict"
+          echo "run $i: FAIL multirepo_setup_fail" >&2
+          return
+        fi
+        apply_scratch="$scratch/$MULTIREPO_WRITE_ROOT"
+        if [[ ! -d "$apply_scratch/.git" ]]; then
+          echo "FAIL multirepo_write_root_missing:$MULTIREPO_WRITE_ROOT" >"$verdict"
+          echo "run $i: FAIL multirepo_write_root_missing:$MULTIREPO_WRITE_ROOT" >&2
+          return
+        fi
+      else
+        if ! setup_scratch "$scratch"; then
+          echo "FAIL setup_fail" >"$verdict"
+          echo "run $i: FAIL setup_fail" >&2
+          return
+        fi
+        apply_scratch="$scratch"
       fi
       # write_enabled is yaml-only (no CLI flag). Export the fixture
       # yaml only for the write steps; unset on exit so a subsequent
@@ -870,9 +909,9 @@ run_one() {
       #   3. Only fall back to scratch as a last resort, and record the
       #      missing durable apply source as a verdict reason so pre-apply
       #      fixture bytes cannot silently satisfy post-apply assertions.
-      apply_source="$(eval_materialize_write_apply_source "$plan" "$OUTDIR" "$scratch" "$i" || true)"
+      apply_source="$(eval_materialize_write_apply_source "$plan" "$OUTDIR" "$apply_scratch" "$i" || true)"
       if [[ -z "$apply_source" ]]; then
-        apply_source="$scratch"
+        apply_source="$apply_scratch"
         if [[ -f "$plan" ]]; then
           extra_reasons+=("worktree_discarded_or_missing")
         fi
@@ -886,7 +925,7 @@ run_one() {
       else
         cleaned="$(eval_collect_apply_source_text "$apply_source" || true)"
       fi
-      eval_write_apply_result_record "$write_apply_result" "$plan" "$OUTDIR" "$scratch" "$plan_written" "$apply_attempted" "$ALLOW_UNVERIFIED_APPLY"
+      eval_write_apply_result_record "$write_apply_result" "$plan" "$OUTDIR" "$apply_scratch" "$plan_written" "$apply_attempted" "$ALLOW_UNVERIFIED_APPLY"
       if [[ "$ALLOW_UNVERIFIED_APPLY" != "1" && $plan_written -eq 1 && $apply_attempted -eq 1 ]]; then
         local write_plan_id write_report_exists write_report_plan_id write_report_channel write_report_passed
         write_plan_id="$(eval_json_top_string_field "$write_apply_result" plan_id || true)"

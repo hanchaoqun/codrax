@@ -1,0 +1,15 @@
+ID="github_issue_tokenizers_newline_run_multirepo_py"
+NAME="GitHub issue: HuggingFace tokenizers consecutive newline merge, repo-scoped multi-repo Python binding"
+
+# Source: https://github.com/huggingface/tokenizers/issues/1534
+# Shape: byte-level BPE users expect consecutive newline runs to be representable
+# as one learned merge token. This fixture projects the scenario into the
+# Python binding sub-repo of a Rust/Python polyglot workspace.
+QUESTION="In the multirepo-polyglot workspace, focus bindings-py. Implement the Python fallback side of HuggingFace tokenizers issue #1534: when FastTokenizer has a merge rule for the newline pair (10, 10, rank), a consecutive run of newline bytes should collapse to one rank token before ordinary byte-pair merging continues. Preserve the existing normal merge behavior. The existing five-newline odd-run regression input in tests/test_tokenizer.py is intentional; do not reduce or remove it. Add tests only if extra coverage is needed."
+
+MODE="apply"
+MULTIREPO="multirepo-polyglot"
+MULTIREPO_WRITE_ROOT="bindings-py"
+EXPECT_CONTAINS="FastTokenizer"
+EXPECT_MATCHES_REGEX='tok\.tokenize\("#include <set>\\n\\n\\n\\n\\n"\)'
+EXPECT_LOG_MATCHES_REGEX="write mode scoped multi-repo parent"
