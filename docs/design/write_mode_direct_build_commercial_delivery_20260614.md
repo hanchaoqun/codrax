@@ -1664,7 +1664,7 @@ Consumers:
   - [x] Update `AGENTS.md`, `docs/architecture.md`, `docs/user_guide.md`, and `codrax.yaml.example` to describe Auto Pilot as the default write path.
   - [x] Change REPL auto `route=write`, `/write`, and sticky `/mode write` to dispatch `ModeApply`.
   - [x] Keep `ModePlan` as explicit CLI/advanced planning lane only.
-  - [ ] Replace all plan/approval/blocked/complete command menus with a typed status/next-action card; initial write-mode hint is updated, full card renderer remains Batch 34.
+  - [x] Replace all plan/approval/blocked/complete command menus with a typed status/next-action card; delivered across Batches 34, 35, and 41 while keeping slash commands as advanced/audit fallbacks.
   - [x] Add/adjust tests for auto write dispatch, write disabled gate, unsettled plan gate, explicit `ModePlan` audit path, and read/log/trace/data/operation isolation through full REPL regression.
   - [x] Run focused REPL tests, writeflow/orchestrator-adjacent tests, full regression, and build before push.
 - Verification:
@@ -1676,7 +1676,7 @@ Consumers:
 - Progress:
   - Design commit: `0fa28cdd` (`docs: record write autopilot redesign`), pushed to `origin/main`.
   - Implementation commit: `b15d2b6c` (`write-mode: enter autopilot from repl write route`), pushed to `origin/main`.
-  - Residual follow-up: Batch 34 should replace the remaining plan/approval/blocked/complete command menus with typed next-action cards; this batch intentionally kept recovery commands available as advanced escape hatches.
+  - Follow-up delivered in Batches 34, 35, and 41: remaining plan/approval/blocked/complete command menus now render typed next-action cards or low-command Auto Pilot recovery copy; recovery commands remain available as advanced escape hatches.
 
 #### Batch 34: Low-Command Next-Action Card Rendering
 
@@ -1700,7 +1700,7 @@ Consumers:
   - [x] Convert `planShowFooter` to `Status / Next / Advanced` cards.
   - [x] Convert startup `unsettledBanner` from full command menus to compact state summaries.
   - [x] Update tests to lock cards, not command menus.
-  - [ ] Extend approval/blocked/complete workflow result panels beyond plan surfaces if later evidence shows command-heavy text remains in the primary answer body.
+  - [x] Extend approval/blocked/complete workflow result panels beyond plan surfaces if later evidence shows command-heavy text remains in the primary answer body. Delivered in Batch 35 for workflow approval cards and Batch 41 for remaining recovery copy.
 - Verification:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'Test(PlanReadyNudge_RendersStatusCard|PlanShowFooter_StatusAware|UnsettledBanner_WorktreeMissingTag|PlanReadyNudgeRendersBelowAnswerPanel|MergeSkipVerifyMessagesNameExplicitAction)'`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl`
