@@ -1693,4 +1693,4 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `494f8748` (`write-mode: render next action cards`), pushed to `origin/main`.
