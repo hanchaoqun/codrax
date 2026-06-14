@@ -2583,4 +2583,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
 - Progress:
-  - Implementation commit pending.
+  - Implementation commit: `4637b059` (`eval: add commandless write apply coverage`), pushed to `origin/main` with this ledger follow-up.
