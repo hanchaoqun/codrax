@@ -2756,4 +2756,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `go test ./...` PASS.
   - `make` PASS.
 - Progress:
-  - Implementation commit: `17b1ab59` (`write-mode: harden no-tests workflow convergence`), push pending with this ledger follow-up.
+  - Implementation commit: `17b1ab59` (`write-mode: harden no-tests workflow convergence`), pushed to `origin/main` with ledger follow-up `2a7b60fd`.
