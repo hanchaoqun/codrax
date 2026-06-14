@@ -37,6 +37,26 @@ direct-build** 的商用路径：
 - prompt hygiene 红线：prompt 只做软指导，硬逻辑不读取用户关键词、模型 prose、summary、rationale 或 `<think>`。
 - eval / e2e / regression 结果与每批交付进展。
 
+### 1.1 Required Whole-Document Supplement
+
+任何后续写模式设计或实现补充，都必须把“完整设计文档要补的内容”写回本文档，而不是只在代码、commit message、聊天上下文或 eval 摘要中保留。必填内容如下：
+
+| Block | Required Content | Acceptance Rule |
+| --- | --- | --- |
+| Problem and evidence | 用户可见症状、系统症状、local file/report/artifact refs、eval case id、upstream issue/PR 链接、typed fields | 不能用模型散文或 `<think>` 作为硬证据 |
+| Systemic gap | 失败类别、影响面、为什么代表一类系统问题 | 不能只描述单个 case 的表面修补 |
+| Target architecture | controller DAG、batch/attempt/edge 状态、action enum、artifact refs、store/resume 语义 | 架构必须泛化到同类任务 |
+| Safety and permissions | allow/ask/deny、critical deny、high approval、low/medium auto、fingerprint/stale approval | 硬门只读 typed artifacts、parser output、path/risk policy |
+| Agent/tool boundary | controller/planner/replan/coder/verifier/explorer 的工具权限和 stage policy | 不允许 planner/replan 使用普通 shell 作为硬逻辑入口 |
+| Verify authority | authoritative `post_apply_verify` report、current plan id、typed package/build/test verdict | 不能靠 verifier narrative 或子测试 passing prose 判成功 |
+| Handoff | P0/P1/P2/P3 事实、dedupe key、Top-N consumer view、evidence refs、restart/worktree cleanup 后保真 | verify failure 必须以 P2 进入 replan 消费 |
+| Durable state | run/batch/attempt/event ledger、approval refs、report/diff/surface refs、derived state | 当前状态只有一个来源，progress ledger 只做历史 |
+| Implementation plan | batch-sized tasks、owner surface/package、dependency order、rollback/compat note、commit/push expectation | 每批都要可执行、可验证、可回滚 |
+| Test matrix | unit/controller/CLI/REPL/eval/regression commands、expected artifacts、failure caveats | PASS 必须能追溯到 typed artifacts |
+| Progress ledger | commit hash、push status、commands run、失败与剩余风险 | 每批结束更新，不等最终统一补 |
+
+这张表是本文档其余章节的索引合同：Sections 4-16 给出基础设计，Section 17 记录交付证据，Section 18 固化未来补充模板，Section 19 追加外部实战 eval 发现的新 gap 和对应系统设计。
+
 ## 2. Goals
 
 - **流畅直写**：简单、低风险、目标明确的任务应少打断用户，自动走完 plan/apply/verify。
