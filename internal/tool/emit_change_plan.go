@@ -154,13 +154,13 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after"]},
-                "start_line": {"type": "integer", "minimum": 1, "description": "1-based. First line of the inclusive range for replace/delete; the anchor line for insert_before/insert_after."},
+                "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after", "insert_at_eof", "insert_before_final_brace"]},
+                "start_line": {"type": "integer", "minimum": 1, "description": "1-based. Required for replace/delete and for line-addressed insert_before/insert_after. Ignored for insert_at_eof and insert_before_final_brace."},
                 "end_line": {"type": "integer", "minimum": 1, "description": "1-based inclusive last line for replace/delete. Omit for a single-line edit — it defaults to start_line. Ignored for insert kinds."},
-                "content": {"type": "string", "description": "Replacement or insertion bytes. Required for replace/insert; omit for delete."},
+                "content": {"type": "string", "description": "Replacement or insertion bytes. Required for replace/insert; omit for delete. For appending methods or declarations without line-count arithmetic, prefer insert_before_final_brace or insert_at_eof."},
                 "old_text": {"type": "string", "description": "Optional exact CURRENT bytes of the target range or insertion anchor line. Must match the file as it is now (re-read after any earlier edit); a missing or extra final newline is tolerated. On mismatch the error echoes the current bytes so you can correct without guessing."}
               },
-              "required": ["kind", "start_line"]
+              "required": ["kind"]
             }
           },
           "rationale": {

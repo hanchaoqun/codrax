@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,38 @@ type compiledStructuredEdit struct {
 	end       int
 	insert    []string
 	sourceIdx int
+}
+
+type structuredEditDiagnostic struct {
+	ReasonCode    string   `json:"reason_code"`
+	Path          string   `json:"path,omitempty"`
+	EditIndex     int      `json:"edit_index,omitempty"`
+	FileLineCount int      `json:"file_line_count,omitempty"`
+	StartLine     int      `json:"start_line,omitempty"`
+	EndLine       int      `json:"end_line,omitempty"`
+	AnchorLine    int      `json:"anchor_line,omitempty"`
+	CurrentBytes  string   `json:"current_bytes,omitempty"`
+	SafeEditKinds []string `json:"safe_edit_kinds,omitempty"`
+}
+
+type structuredEditDiagnosticError struct {
+	message    string
+	diagnostic structuredEditDiagnostic
+}
+
+func (e *structuredEditDiagnosticError) Error() string {
+	if e == nil {
+		return ""
+	}
+	b, err := json.Marshal(e.diagnostic)
+	if err != nil {
+		return e.message
+	}
+	return e.message + "; diagnostic=" + string(b)
+}
+
+func newStructuredEditDiagnosticError(message string, diagnostic structuredEditDiagnostic) error {
+	return &structuredEditDiagnosticError{message: message, diagnostic: diagnostic}
 }
 
 func compileStructuredEditsToPatch(repoRoot string, change *types.FileChange) (string, error) {
@@ -117,16 +150,35 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 				endLine = edit.StartLine
 			}
 			if edit.StartLine < 1 || endLine < edit.StartLine || endLine > lineCount {
-				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, endLine, lineCount)
+				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, endLine, lineCount)
+				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+					ReasonCode:    "invalid_line_range",
+					Path:          path,
+					EditIndex:     i,
+					FileLineCount: lineCount,
+					StartLine:     edit.StartLine,
+					EndLine:       endLine,
+					SafeEditKinds: structuredEditSafeInsertKinds(lines),
+				})
 			}
 			start := edit.StartLine - 1
 			end := endLine
 			if edit.OldText != "" {
 				got := strings.Join(lines[start:end], "")
 				if !structuredEditOldTextMatches(got, edit.OldText) {
-					return nil, fmt.Errorf(
+					msg := fmt.Sprintf(
 						"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — re-read the file and resend old_text matching the current content",
 						path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
+					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+						ReasonCode:    "old_text_mismatch",
+						Path:          path,
+						EditIndex:     i,
+						FileLineCount: lineCount,
+						StartLine:     edit.StartLine,
+						EndLine:       endLine,
+						CurrentBytes:  got,
+						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+					})
 				}
 			}
 			insert := []string(nil)
@@ -143,9 +195,27 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if edit.Content == "" {
 				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %s requires non-empty content", path, i, kind)
 			}
+			if edit.StartLine < 1 {
+				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] %s requires start_line for line-addressed insertion", path, i, kind)
+				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+					ReasonCode:    "missing_start_line",
+					Path:          path,
+					EditIndex:     i,
+					FileLineCount: lineCount,
+					SafeEditKinds: structuredEditSafeInsertKinds(lines),
+				})
+			}
 			start, err := insertionIndex(kind, edit.StartLine, lineCount)
 			if err != nil {
-				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %v", path, i, err)
+				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] %v", path, i, err)
+				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+					ReasonCode:    "invalid_insert_anchor",
+					Path:          path,
+					EditIndex:     i,
+					FileLineCount: lineCount,
+					StartLine:     edit.StartLine,
+					SafeEditKinds: structuredEditSafeInsertKinds(lines),
+				})
 			}
 			if edit.OldText != "" {
 				anchor := ""
@@ -153,9 +223,44 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					anchor = lines[edit.StartLine-1]
 				}
 				if !structuredEditOldTextMatches(anchor, edit.OldText) {
-					return nil, fmt.Errorf(
+					msg := fmt.Sprintf(
 						"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — re-read the file and resend old_text matching the current content",
 						path, i, edit.StartLine, boundedByteQuote(anchor, 160))
+					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+						ReasonCode:    "old_text_mismatch",
+						Path:          path,
+						EditIndex:     i,
+						FileLineCount: lineCount,
+						StartLine:     edit.StartLine,
+						AnchorLine:    edit.StartLine,
+						CurrentBytes:  anchor,
+						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+					})
+				}
+			}
+			key := fmt.Sprintf("%s:%d", kind, start)
+			if prev, dup := insertPoints[key]; dup {
+				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] duplicates insertion point from edits[%d]", path, i, prev)
+			}
+			insertPoints[key] = i
+			out = append(out, compiledStructuredEdit{kind: kind, start: start, end: start, insert: splitContentLines(edit.Content), sourceIdx: i})
+		case "insert_at_eof", "insert_before_final_brace":
+			if edit.Content == "" {
+				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %s requires non-empty content", path, i, kind)
+			}
+			start := lineCount
+			if kind == "insert_before_final_brace" {
+				var ok bool
+				start, ok = finalBraceInsertionIndex(lines)
+				if !ok {
+					msg := fmt.Sprintf("structured edit builder: change %q edits[%d] could not find a final standalone closing brace for insert_before_final_brace", path, i)
+					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+						ReasonCode:    "final_brace_not_found",
+						Path:          path,
+						EditIndex:     i,
+						FileLineCount: lineCount,
+						SafeEditKinds: []string{"insert_at_eof"},
+					})
 				}
 			}
 			key := fmt.Sprintf("%s:%d", kind, start)
@@ -165,7 +270,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			insertPoints[key] = i
 			out = append(out, compiledStructuredEdit{kind: kind, start: start, end: start, insert: splitContentLines(edit.Content), sourceIdx: i})
 		default:
-			return nil, fmt.Errorf("structured edit builder: change %q edits[%d] has illegal kind %q (must be replace|delete|insert_before|insert_after)", path, i, edit.Kind)
+			return nil, fmt.Errorf("structured edit builder: change %q edits[%d] has illegal kind %q (must be replace|delete|insert_before|insert_after|insert_at_eof|insert_before_final_brace)", path, i, edit.Kind)
 		}
 	}
 	sort.SliceStable(rangeEdits, func(i, j int) bool {
@@ -182,7 +287,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 	}
 	for _, edit := range out {
-		if edit.kind != "insert_before" && edit.kind != "insert_after" {
+		if !isStructuredInsertKind(edit.kind) {
 			continue
 		}
 		for _, rng := range rangeEdits {
@@ -192,6 +297,36 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 	}
 	return out, nil
+}
+
+func isStructuredInsertKind(kind string) bool {
+	switch kind {
+	case "insert_before", "insert_after", "insert_at_eof", "insert_before_final_brace":
+		return true
+	default:
+		return false
+	}
+}
+
+func finalBraceInsertionIndex(lines []string) (int, bool) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		if strings.TrimSpace(lines[i]) == "}" {
+			return i, true
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
+func structuredEditSafeInsertKinds(lines []string) []string {
+	out := []string{"insert_at_eof"}
+	if _, ok := finalBraceInsertionIndex(lines); ok {
+		out = append(out, "insert_before_final_brace")
+	}
+	return out
 }
 
 func insertionIndex(kind string, line, lineCount int) (int, error) {

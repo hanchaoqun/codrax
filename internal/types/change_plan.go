@@ -593,17 +593,19 @@ type FileChangeApplyRecord struct {
 	AppliedAt time.Time `json:"applied_at,omitempty"`
 }
 
-// StructuredEdit is a line-addressed edit inside a single existing file.
+// StructuredEdit is a structured edit inside a single existing file.
 // Line numbers are 1-based and refer to the file bytes read by the validator
 // before any edit in this list is applied. Multiple edits in one FileChange are
 // composed deterministically after overlap checks.
 type StructuredEdit struct {
-	// Kind is one of replace, delete, insert_before, insert_after.
+	// Kind is one of replace, delete, insert_before, insert_after,
+	// insert_at_eof, insert_before_final_brace.
 	Kind string `json:"kind"`
 
-	// StartLine is required for every kind. For replace/delete it is the
-	// first line in the inclusive range. For insert_before/insert_after it
-	// is the anchor line.
+	// StartLine is required for line-addressed kinds. For replace/delete it
+	// is the first line in the inclusive range. For insert_before/insert_after
+	// it is the anchor line. It is ignored for insert_at_eof and
+	// insert_before_final_brace.
 	StartLine int `json:"start_line"`
 
 	// EndLine is the inclusive 1-based last line for replace/delete;

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,63 @@ func TestCompileStructuredEditsToPatch_RejectsOverlap(t *testing.T) {
 	}
 	if _, err := compileStructuredEditsToPatch(repo, change); err == nil || !strings.Contains(err.Error(), "overlaps") {
 		t.Fatalf("overlap should be rejected; got %v", err)
+	}
+}
+
+func TestCompileStructuredEdits_DiagnosticForInvalidLineRange(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("class A {\n}\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "file.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 3, EndLine: 5, Content: "x\n"},
+		},
+	}
+	_, err := compileStructuredEditsToPatch(repo, change)
+	if err == nil {
+		t.Fatal("invalid range should fail")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "invalid_line_range" ||
+		diag.diagnostic.FileLineCount != 2 ||
+		!containsStructuredEditString(diag.diagnostic.SafeEditKinds, "insert_before_final_brace") {
+		t.Fatalf("unexpected diagnostic: %+v", diag.diagnostic)
+	}
+	if !strings.Contains(err.Error(), `"reason_code":"invalid_line_range"`) {
+		t.Fatalf("error string should expose diagnostic JSON: %v", err)
+	}
+}
+
+func TestCompileStructuredEdits_DiagnosticForOldTextMismatch(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "file.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 2, OldText: "not-two\n", Content: "TWO\n"},
+		},
+	}
+	_, err := compileStructuredEditsToPatch(repo, change)
+	if err == nil {
+		t.Fatal("old_text mismatch should fail")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "old_text_mismatch" ||
+		diag.diagnostic.CurrentBytes != "two\n" ||
+		diag.diagnostic.StartLine != 2 {
+		t.Fatalf("unexpected diagnostic: %+v", diag.diagnostic)
 	}
 }
 
@@ -373,4 +431,50 @@ func TestCompileStructuredEdits_InsertAfterUnterminatedLastLine(t *testing.T) {
 	if strings.Contains(patch, "twothree") {
 		t.Fatalf("insert_after fused with the unterminated last line:\n%s", patch)
 	}
+}
+
+func TestCompileStructuredEdits_InsertAtEOFWithoutLineCount(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\n")
+	change := &types.FileChange{
+		Path:  "src/a.txt",
+		Kind:  "patch",
+		Edits: []types.StructuredEdit{{Kind: "insert_at_eof", Content: "two\n"}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("insert_at_eof should compile without start_line: %v", err)
+	}
+	if !strings.Contains(patch, "+two") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+}
+
+func TestCompileStructuredEdits_InsertBeforeFinalBrace(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/A.java", "class A {\n    String value;\n}\n")
+	change := &types.FileChange{
+		Path: "src/A.java",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:    "insert_before_final_brace",
+			Content: "\n    @Override\n    public int hashCode() {\n        return value.hashCode();\n    }\n",
+		}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("insert_before_final_brace should compile without line-count arithmetic: %v", err)
+	}
+	if !strings.Contains(patch, "+    public int hashCode()") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+}
+
+func containsStructuredEditString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

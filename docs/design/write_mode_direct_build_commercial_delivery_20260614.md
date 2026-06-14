@@ -736,9 +736,12 @@ Target design:
 
 #### Batch 10: Structured Edit Diagnostics
 
-- Extend structured edit rejection records with typed diagnostics.
-- Add EOF/final-brace anchored insert operation compiled by the builder.
-- Test Java/C++/TypeScript append-before-final-brace edits without manual line-count dependence.
+- [x] Extend structured edit rejection records with diagnostic JSON for invalid line ranges and old_text/anchor mismatches.
+- [x] Add `insert_at_eof` and `insert_before_final_brace` structured edit kinds compiled by the builder without manual line-count dependence.
+- [x] Keep old_text/range validators strict; diagnostics provide safe edit alternatives rather than weakening validation.
+- [x] Update `emit_change_plan` / `emit_plan_change` schemas and planner soft guidance.
+- [x] Tests: structured diagnostic cases, EOF append, final-brace append, existing structured edit compile/apply/finalize cases.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestCompileStructuredEdits|TestEmit(ChangePlan|PlanChange)_StructuredEdits|TestApplyPatch_StructuredEditsOnlyPlan'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/skill -run TestChangePlanSkill_BatchLocalPlanningWorkflow`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/types ./internal/skill ./internal/agent ./internal/orchestrator`.
 
 #### Batch 11: Multi-Repo Write Fan-Out Design And Eval
 
