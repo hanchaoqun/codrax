@@ -119,6 +119,96 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackFromChangeReportDedupesVerifyFailureIdentity(t *testing.T) {
+	first := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID:         "plan-1",
+		Passed:         false,
+		FailureKind:    FailureKindTestsFailed,
+		FailureSummary: "first run failed",
+		TestResults: []TestResult{{
+			AssertionID:   "TestA",
+			Suite:         "pkg",
+			Passed:        false,
+			FailureDetail: "want 1 got 2",
+			BuildErrors: []BuildError{{
+				File:    "src/x.go",
+				Line:    7,
+				Symbol:  "Foo",
+				Message: "undefined: Foo",
+			}},
+		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:     "go",
+			WorkingDir: ".",
+			Command:    "go test ./...",
+			ExitCode:   1,
+			Outcome:    "executed",
+		}},
+	})
+	second := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID:         "plan-1",
+		Passed:         false,
+		FailureKind:    FailureKindTestsFailed,
+		FailureSummary: "second run failed with the same shape",
+		TestResults: []TestResult{{
+			AssertionID:   "TestA",
+			Suite:         "pkg",
+			Passed:        false,
+			FailureDetail: "want 1 got 3",
+			BuildErrors: []BuildError{{
+				File:    "src/x.go",
+				Line:    7,
+				Symbol:  "Foo",
+				Message: "still undefined: Foo",
+			}},
+		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:     "go",
+			WorkingDir: ".",
+			Command:    "go test ./...",
+			ExitCode:   1,
+			Outcome:    "executed",
+		}},
+	})
+	merged := MergeWriteContextPacks("batch-1", "repair", first, second)
+	view := merged.View(WriteConsumerPlanner, 20)
+	for _, kind := range []string{"failed_test", "build_error", "executed_command"} {
+		if got := writeContextViewKindCount(view, kind); got != 1 {
+			t.Fatalf("%s should dedupe by typed identity, got %d: %+v", kind, got, view.Items)
+		}
+	}
+}
+
+func TestWriteContextPackPlannerViewPrioritizesVerifyFailureBeforeStaleP1Facts(t *testing.T) {
+	oldFacts := WriteContextPack{
+		PackID:      "old-exploration",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "internal/old.go",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}
+	failure := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID:         "plan-1",
+		Passed:         false,
+		FailureKind:    FailureKindTestsFailed,
+		FailureSummary: "red test",
+		TestResults: []TestResult{{
+			AssertionID: "TestA",
+			Suite:       "pkg",
+			Passed:      false,
+		}},
+	})
+	view := MergeWriteContextPacks("batch-1", "repair", oldFacts, failure).View(WriteConsumerPlanner, 2)
+	if len(view.Items) == 0 || view.Items[0].Kind != "verify_failure" {
+		t.Fatalf("planner replan view should lead with verify failure before stale P1 facts: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackViewBoundsAndDefensiveCopy(t *testing.T) {
 	pack := WriteContextPack{PackID: "x"}
 	for i := 0; i < 20; i++ {
@@ -152,6 +242,16 @@ func TestWriteContextPackViewBoundsAndDefensiveCopy(t *testing.T) {
 	if again.Items[0].Text == "mutated" {
 		t.Fatalf("view mutation leaked back into pack")
 	}
+}
+
+func writeContextViewKindCount(view WriteContextView, kind string) int {
+	count := 0
+	for _, item := range view.Items {
+		if item.Kind == kind {
+			count++
+		}
+	}
+	return count
 }
 
 func writeContextViewContains(view WriteContextView, kind, substring string) bool {

@@ -119,6 +119,11 @@ func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteCo
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
+		ri := writeContextViewRank(items[i], consumer)
+		rj := writeContextViewRank(items[j], consumer)
+		if ri != rj {
+			return ri < rj
+		}
 		return writeContextPriorityRank(items[i].Priority) < writeContextPriorityRank(items[j].Priority)
 	})
 	if limit > 0 && len(items) > limit {
@@ -307,9 +312,11 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		}
 		pack.Items = append(pack.Items, writeContextItem(kind, WriteContextP2, report.FailureSummary, "verify",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeVerifyFailureContextID(report, kind)
 		if report.FailureSummaryBlobRef != "" {
 			pack.Items = append(pack.Items, writeContextItem("failure_summary_blob_ref", WriteContextP2, report.FailureSummaryBlobRef, "verify",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			pack.Items[len(pack.Items)-1].ID = writeContextStableID("failure_summary_blob_ref", report.PlanID, report.FailureSummaryBlobRef)
 		}
 	}
 	for _, result := range report.TestResults {
@@ -325,18 +332,31 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		}
 		pack.Items = append(pack.Items, writeContextItem("failed_test", WriteContextP2, text, "verify",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeFailedTestContextID(result)
 		for _, buildErr := range result.BuildErrors {
 			pack.Items = append(pack.Items, writeContextItem("build_error", WriteContextP2, renderBuildErrorContext(buildErr), "verify",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			pack.Items[len(pack.Items)-1].ID = writeBuildErrorContextID(buildErr)
 		}
+	}
+	for _, cmd := range report.ExecutedCommands {
+		text := renderExecutedCommandContext(cmd)
+		if text == "" {
+			continue
+		}
+		pack.Items = append(pack.Items, writeContextItem("executed_command", WriteContextP2, text, "verify",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeExecutedCommandContextID(cmd)
 	}
 	for _, assertion := range report.RegressionAssertions {
 		pack.Items = append(pack.Items, writeContextItem("regression_assertion", WriteContextP2, assertion, "verify",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeContextStableID("regression_assertion", assertion)
 	}
 	for _, runner := range report.NoTestsRunners {
 		pack.Items = append(pack.Items, writeContextItem("no_tests_runner", WriteContextP2, runner, "verify",
 			WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeContextStableID("no_tests_runner", runner)
 	}
 	return NormalizeWriteContextPack(pack)
 }
@@ -452,18 +472,39 @@ func writeContextItemKey(item WriteContextItem) string {
 	// slightly different text, and re-worded duplicates of one fact must
 	// not crowd consumer Top-N views.
 	text := strings.ToLower(item.Text)
-	if item.EvidenceRef != nil && strings.TrimSpace(item.EvidenceRef.Source) != "" && item.EvidenceRef.LineStart > 0 {
+	if item.ID != "" || (item.EvidenceRef != nil && strings.TrimSpace(item.EvidenceRef.Source) != "" && item.EvidenceRef.LineStart > 0) {
 		text = ""
 	}
 	return strings.Join([]string{
 		string(item.Priority),
 		item.Kind,
+		item.ID,
 		text,
 		item.SourceStage,
 		item.SourceID,
 		ref,
 		strings.Join(consumerParts, ","),
 	}, "\x00")
+}
+
+func writeContextViewRank(item WriteContextItem, consumer WriteContextConsumer) int {
+	if consumer == WriteConsumerPlanner && item.SourceStage == "verify" && item.Priority == WriteContextP2 && writeContextVerifyFailureKind(item.Kind) {
+		return 1
+	}
+	rank := writeContextPriorityRank(item.Priority)
+	if consumer == WriteConsumerPlanner && rank >= 1 {
+		return rank + 1
+	}
+	return rank
+}
+
+func writeContextVerifyFailureKind(kind string) bool {
+	switch kind {
+	case "verify_failure", "build_failure", "failed_test", "build_error", "regression_assertion", "no_tests_runner", "executed_command", "failure_summary_blob_ref":
+		return true
+	default:
+		return false
+	}
 }
 
 func trimWriteContextText(raw string) string {
@@ -547,4 +588,69 @@ func renderBuildErrorContext(err BuildError) string {
 		return trimWriteContextText(loc + " " + err.Symbol + " " + err.Message)
 	}
 	return trimWriteContextText(loc + " " + err.Message)
+}
+
+func renderExecutedCommandContext(cmd ExecutedCommand) string {
+	parts := []string{}
+	if cmd.Command != "" {
+		parts = append(parts, "command="+cmd.Command)
+	}
+	if cmd.WorkingDir != "" {
+		parts = append(parts, "cwd="+cmd.WorkingDir)
+	}
+	if cmd.Runner != "" {
+		parts = append(parts, "runner="+cmd.Runner)
+	}
+	if cmd.Framework != "" {
+		parts = append(parts, "framework="+cmd.Framework)
+	}
+	parts = append(parts, fmt.Sprintf("exit=%d", cmd.ExitCode))
+	if cmd.Outcome != "" {
+		parts = append(parts, "outcome="+cmd.Outcome)
+	}
+	if len(parts) == 1 && parts[0] == "exit=0" {
+		return ""
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
+func writeVerifyFailureContextID(report *ChangeReport, kind string) string {
+	if report == nil {
+		return writeContextStableID(kind)
+	}
+	return writeContextStableID(kind, report.PlanID, string(report.FailureKind))
+}
+
+func writeFailedTestContextID(result TestResult) string {
+	if strings.TrimSpace(result.Suite) == "" && strings.TrimSpace(result.AssertionID) == "" {
+		return ""
+	}
+	return writeContextStableID("failed_test", result.Suite, result.AssertionID)
+}
+
+func writeBuildErrorContextID(err BuildError) string {
+	if strings.TrimSpace(err.File) == "" && err.Line == 0 && err.Column == 0 && strings.TrimSpace(err.Symbol) == "" {
+		return ""
+	}
+	return writeContextStableID("build_error", err.File, fmt.Sprintf("%d", err.Line), fmt.Sprintf("%d", err.Column), err.Symbol)
+}
+
+func writeExecutedCommandContextID(cmd ExecutedCommand) string {
+	if strings.TrimSpace(cmd.Runner) == "" && strings.TrimSpace(cmd.Framework) == "" &&
+		strings.TrimSpace(cmd.WorkingDir) == "" && strings.TrimSpace(cmd.Command) == "" {
+		return ""
+	}
+	return writeContextStableID("executed_command", cmd.Runner, cmd.Framework, cmd.WorkingDir, cmd.Command, cmd.Outcome)
+}
+
+func writeContextStableID(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if part == "" || part == "0" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return strings.Join(out, "|")
 }
