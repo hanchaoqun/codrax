@@ -164,7 +164,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 35 | Approval resume card | high-risk pending approval 的 `/workflow show/list/resume`、fingerprint、approval record、继续同 run/batch 覆盖测试 |
 | 36 | Ask-user throttle and typed unknowns | `ask_user` 只允许 typed missing facts；预算和重复提问 guard 防止频繁打断 |
 | 37 | Handoff consumer Top-N hardening | P0-P3 去重、consumer view、verify failure P2 replan 消费增加回归测试 |
-| 38 | Eval and UX regression | 症状型非 Go cases、low-risk autopilot、high-risk approval、critical deny、verify fail replan、read/log/trace/data/operation isolation |
+| 38 | Canonical action surface | Controller schema、validator、scheduler 只接受真实可执行 action；旧迁移别名 fail-loud，不静默归一到可执行动作 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1788,3 +1788,33 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `80535a00` (`write-mode: retain prioritized context lanes`), pushed to `origin/main`.
+
+#### Batch 38: Canonical Controller Action Surface
+
+- Evidence source:
+  - Controller schema and skill prompt already expose only canonical actions (`explore_code`, `plan_batch`, `apply_plan`, `verify_batch`, `append_batch`, `split_batch`, `replan_batch`, `ask_user`, `finish`, `block`).
+  - `NormalizeWriteWorkflowDecision` still accepted migration aliases (`plan_change_batch`, `apply_ready_plan`, `verify`) and silently mapped them to executable actions.
+- Generalized gap:
+  - A model-facing typed action set must be one source of truth from prompt/schema through validator and scheduler.
+  - Silent alias repair widens the actual control surface beyond what the prompt/schema says, making unsupported actions harder to audit and increasing model choice ambiguity.
+- Target architecture:
+  - Keep aliases out of the public constants, schema enum, prompts, and scheduler switches.
+  - Normalize only lexical whitespace around the action value; do not translate unsupported actions into executable ones.
+  - Validate unknown/deprecated actions with a typed enum error listing the canonical action set.
+  - Build schema enums through the same canonical filter so future accidental non-canonical actions are not exposed.
+- Safety and prompt hygiene:
+  - Hard routing remains `decision.Action` enum only; no user keyword, model prose, summary, rationale, log text, or `<think>` parsing.
+  - Deprecated aliases fail loudly instead of being interpreted as intent.
+  - Scope is isolated to writeflow controller decision contracts; read/log/trace/data/operation/computer modes are untouched.
+- Implementation tasks:
+  - [x] Remove deprecated action alias constants from `internal/writeflow`.
+  - [x] Stop normalizing aliases to executable actions.
+  - [x] Add canonical action filtering for schema enum generation.
+  - [x] Add validation tests proving aliases are rejected, not repaired.
+  - [x] Update controller tests to use canonical `plan_batch`.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow -run 'Test(ValidateWriteWorkflowDecision|WriteWorkflowDecisionSchema|ApplyWorkflowDecisionToRun|WorkflowActionsForMode)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/tool ./internal/agent ./internal/skill ./internal/orchestrator ./internal/repl`
+  - Full regression is run before push for the implementation commit.
+- Progress:
+  - Implementation commit: pending.

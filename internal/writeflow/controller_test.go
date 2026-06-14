@@ -33,7 +33,7 @@ func TestApplyWorkflowDecisionToRunExploreThenPlan(t *testing.T) {
 	}
 
 	run, err = ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
-		Action:     ActionPlanChangeBatch,
+		Action:     ActionPlanBatch,
 		ReasonCode: "enough_context",
 		Batch: &WriteBatchPlan{
 			ID:   "batch-1",

@@ -24,13 +24,6 @@ const (
 	ActionAskUser     WorkflowAction = "ask_user"
 	ActionFinish      WorkflowAction = "finish"
 	ActionBlock       WorkflowAction = "block"
-
-	// Deprecated controller action names accepted as schema aliases during the
-	// controller-first migration. NormalizeWriteWorkflowDecision maps these to
-	// the canonical action names before orchestration switches on them.
-	ActionPlanChangeBatch WorkflowAction = "plan_change_batch"
-	ActionApplyReadyPlan  WorkflowAction = "apply_ready_plan"
-	ActionVerify          WorkflowAction = "verify"
 )
 
 // WriteWorkflowDecision is the typed output shape for a future workflow
@@ -136,6 +129,7 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 		if decision.Batch == nil {
 			errs = append(errs, fmt.Sprintf("%s requires batch", decision.Action))
 		}
+	case ActionApplyPlan, ActionVerifyBatch, ActionFinish:
 	case ActionAskUser:
 		if len(decision.QuestionsForUser) == 0 {
 			errs = append(errs, "ask_user requires questions_for_user")
@@ -158,6 +152,10 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 		if decision.ReasonCode == "" && decision.Reason == "" {
 			errs = append(errs, "block requires reason_code or reason")
 		}
+	case "":
+		// Already reported above.
+	default:
+		errs = append(errs, fmt.Sprintf("action %q is not one of: %s", decision.Action, strings.Join(workflowActionStrings(AllWorkflowActions()), ", ")))
 	}
 	switch decision.FinishDisposition {
 	case "", FinishDispositionAllVerified, FinishDispositionAcceptUnverified:
@@ -255,10 +253,7 @@ func WriteWorkflowDecisionSchema() json.RawMessage {
 // action enum restricted to the given set. Mode-scoped tool views project
 // the schema per dispatch so masked actions are structurally unavailable.
 func WriteWorkflowDecisionSchemaForActions(actions []WorkflowAction) json.RawMessage {
-	enum := make([]string, 0, len(actions))
-	for _, a := range actions {
-		enum = append(enum, string(a))
-	}
+	enum := workflowActionStrings(actions)
 	raw, err := json.Marshal(map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -287,6 +282,20 @@ func WriteWorkflowDecisionSchemaForActions(actions []WorkflowAction) json.RawMes
 		return json.RawMessage(fmt.Sprintf(`{"type":"object","description":"write workflow decision schema build failed: %s"}`, err))
 	}
 	return raw
+}
+
+func workflowActionStrings(actions []WorkflowAction) []string {
+	out := make([]string, 0, len(actions))
+	seen := map[WorkflowAction]bool{}
+	for _, action := range actions {
+		action = normalizeWorkflowAction(action)
+		if !isCanonicalWorkflowAction(action) || seen[action] {
+			continue
+		}
+		seen[action] = true
+		out = append(out, string(action))
+	}
+	return out
 }
 
 func workflowPlanSchema() map[string]any {
@@ -366,18 +375,20 @@ func missingFactsSchema() map[string]any {
 }
 
 func normalizeWorkflowAction(action WorkflowAction) WorkflowAction {
+	action = WorkflowAction(strings.TrimSpace(string(action)))
+	if action == "" {
+		return ""
+	}
+	return action
+}
+
+func isCanonicalWorkflowAction(action WorkflowAction) bool {
 	switch action {
-	case ActionPlanChangeBatch:
-		return ActionPlanBatch
-	case ActionApplyReadyPlan:
-		return ActionApplyPlan
-	case ActionVerify:
-		return ActionVerifyBatch
 	case ActionExploreCode, ActionPlanBatch, ActionApplyPlan, ActionVerifyBatch,
 		ActionAppendBatch, ActionSplitBatch, ActionReplanBatch, ActionAskUser,
 		ActionFinish, ActionBlock:
-		return action
+		return true
 	default:
-		return ""
+		return false
 	}
 }

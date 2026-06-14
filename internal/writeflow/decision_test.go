@@ -52,7 +52,7 @@ func TestValidateWriteWorkflowDecisionRequiresTypedPayloads(t *testing.T) {
 		},
 		{
 			name:     "plan requires batch",
-			decision: WriteWorkflowDecision{Action: ActionPlanChangeBatch},
+			decision: WriteWorkflowDecision{Action: ActionPlanBatch},
 			want:     "batch",
 		},
 		{
@@ -81,6 +81,20 @@ func TestValidateWriteWorkflowDecisionRequiresTypedPayloads(t *testing.T) {
 				t.Fatalf("expected error mentioning %q, got %v", tt.want, errs)
 			}
 		})
+	}
+}
+
+func TestValidateWriteWorkflowDecisionRejectsDeprecatedActionAliases(t *testing.T) {
+	for _, alias := range []WorkflowAction{"plan_change_batch", "apply_ready_plan", "verify"} {
+		decision := NormalizeWriteWorkflowDecision(WriteWorkflowDecision{Action: alias})
+		if decision.Action != alias {
+			t.Fatalf("deprecated alias %q must not normalize to canonical action, got %q", alias, decision.Action)
+		}
+		errs := ValidateWriteWorkflowDecision(decision)
+		joined := strings.Join(errs, "\n")
+		if !strings.Contains(joined, "not one of") {
+			t.Fatalf("deprecated alias %q should be rejected with enum error, got %v", alias, errs)
+		}
 	}
 }
 
