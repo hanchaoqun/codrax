@@ -700,6 +700,7 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 29 | pushed | Added C/C++ symptom-only localization cases for fmtlib/fmt and libgit2, then fixed a controller typed-state recovery gap where coder transport EOF after all typed changes landed blocked verify. Re-run `eval/results/write_mode_c_cpp_symptom_fmt_libgit2_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Implementation commit `757e5fa5`; evidence doc follow-up commit `81f27745`. |
 | 2026-06-14 | 30 | pushed | Added multi-repo SDK contract drift cases from `anajuliabit/memoclaw-sdk#168` for TypeScript and Python SDKs. Initial PASS exposed a verifier gap: Python `run_tests` accepted `syntax_check_fallback` while a typed `Makefile check` surface was still runnable. Implemented generalized escalation from successful syntax fallback to the next unexecuted `TestSurfaceCandidate` with `HasTestSignal`, updated verifier prompt guidance, then re-ran `eval/results/write_mode_memoclaw_multirepo_sdk_after_surface_20260614_summary.md`: PASS 2/2, flagged 0/2. |
 | 2026-06-14 | 37 | pushed | Hardened priority context-pack consumer projection. Duplicate typed facts now merge consumer sets instead of consuming repeated Top-N rows, and planner limited views retain typed verify-failure lanes even when many older P0/P1 facts are present while preserving a minimum P0 budget. Hard logic reads structured `SourceStage`/`Priority`/`Kind` signals only, not user keywords, model prose, summaries, rationale, logs, or `<think>`. Verification passed: focused `internal/types` context-pack tests, affected write-mode packages, full `go test ./...`, and `make`. Implementation commit `80535a00`; this ledger update records the pushed Batch 37 evidence. |
+| 2026-06-14 | 38 | pushed | Collapsed the controller action surface to canonical executable actions only. Deprecated migration aliases (`plan_change_batch`, `apply_ready_plan`, `verify`) were removed from public constants and are now rejected by typed validation instead of silently normalizing into runnable actions. Schema enum generation filters to canonical actions, so prompt/schema/validator/scheduler share one action set. Verification passed: focused writeflow action tests, affected tool/agent/skill/orchestrator/repl packages, full `go test ./...`, and `make`. Implementation commit `b4770dd8`; this ledger update records the pushed Batch 38 evidence. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1815,6 +1816,7 @@ Consumers:
 - Verification:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow -run 'Test(ValidateWriteWorkflowDecision|WriteWorkflowDecisionSchema|ApplyWorkflowDecisionToRun|WorkflowActionsForMode)'`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/tool ./internal/agent ./internal/skill ./internal/orchestrator ./internal/repl`
-  - Full regression is run before push for the implementation commit.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `b4770dd8` (`write-mode: reject deprecated workflow actions`), pushed to `origin/main`.
