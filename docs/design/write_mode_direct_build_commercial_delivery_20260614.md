@@ -2340,4 +2340,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
   - `git diff --check` PASS.
 - Progress:
-  - Implementation commit: PENDING.
+  - Implementation commit: `f311dea1` (`write-mode: disambiguate planned workflow next actions`), pushed to `origin/main` with this ledger follow-up.
