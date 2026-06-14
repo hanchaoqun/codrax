@@ -85,25 +85,78 @@ func verifyDispatchRequest(plan *types.ChangePlan) string {
 // to land bytes WITHOUT running tests (matching what
 // --skip-verify will actually do). A pre-fix bug always said
 // "apply + run verify" even when the flag was on.
+type writeApprovalPromptContext struct {
+	PlanID      string
+	ChangeCount int
+	SkipVerify  bool
+	RunID       string
+	BatchID     string
+	Fingerprint string
+}
+
 func approveTitlePrompt(lang, planID string, changeCount int, skipVerify bool) string {
+	return approveTitlePromptWithContext(lang, writeApprovalPromptContext{
+		PlanID:      planID,
+		ChangeCount: changeCount,
+		SkipVerify:  skipVerify,
+	})
+}
+
+func approveTitlePromptWithContext(lang string, ctx writeApprovalPromptContext) string {
+	planID := strings.TrimSpace(ctx.PlanID)
+	if planID == "" {
+		planID = "unknown"
+	}
+	var base string
 	if isZh(lang) {
-		if skipVerify {
-			return formatN(lang,
+		if ctx.SkipVerify {
+			base = formatN(lang,
 				"是否批准 plan %s (%d 处改动)?将在 git worktree 中只 apply,跳过 verify(--skip-verify 已生效)。",
-				planID, changeCount)
+				planID, ctx.ChangeCount)
+		} else {
+			base = formatN(lang,
+				"是否批准 plan %s (%d 处改动)?将在 git worktree 中 apply + 跑 verify。",
+				planID, ctx.ChangeCount)
 		}
-		return formatN(lang,
-			"是否批准 plan %s (%d 处改动)?将在 git worktree 中 apply + 跑 verify。",
-			planID, changeCount)
+		if detail := approvalPromptWorkflowDetail(lang, ctx); detail != "" {
+			return base + "\n" + detail
+		}
+		return base
 	}
-	if skipVerify {
-		return formatN(lang,
+	if ctx.SkipVerify {
+		base = formatN(lang,
 			"Approve plan %s (%d change(s))? Apply inside a git worktree (skip verify — --skip-verify is set).",
-			planID, changeCount)
+			planID, ctx.ChangeCount)
+	} else {
+		base = formatN(lang,
+			"Approve plan %s (%d change(s))? Apply inside a git worktree + run verify.",
+			planID, ctx.ChangeCount)
 	}
-	return formatN(lang,
-		"Approve plan %s (%d change(s))? Apply inside a git worktree + run verify.",
-		planID, changeCount)
+	if detail := approvalPromptWorkflowDetail(lang, ctx); detail != "" {
+		return base + "\n" + detail
+	}
+	return base
+}
+
+func approvalPromptWorkflowDetail(lang string, ctx writeApprovalPromptContext) string {
+	runID := strings.TrimSpace(ctx.RunID)
+	batchID := strings.TrimSpace(ctx.BatchID)
+	fingerprint := strings.TrimSpace(ctx.Fingerprint)
+	if runID == "" && batchID == "" && fingerprint == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return formatN(lang, "Workflow: run=`%s` batch=`%s` fingerprint=`%s`", nonEmptyPromptField(runID), nonEmptyPromptField(batchID), nonEmptyPromptField(fingerprint))
+	}
+	return formatN(lang, "Workflow: run=`%s` batch=`%s` fingerprint=`%s`", nonEmptyPromptField(runID), nonEmptyPromptField(batchID), nonEmptyPromptField(fingerprint))
+}
+
+func nonEmptyPromptField(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "none"
+	}
+	return value
 }
 
 // approveCancelled — user said "no" at the confirmation prompt.

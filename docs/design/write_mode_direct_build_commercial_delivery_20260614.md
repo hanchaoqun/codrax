@@ -2418,3 +2418,41 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` PASS.
 - Progress:
   - Implementation commit: `9937658e` (`write-mode: pause pending approval on resume`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 53: Approval Card Typed Action Payload
+
+- Evidence source:
+  - User feedback: reduce command burden, but high-risk approval must stay explicit and auditable.
+  - Code evidence before this batch:
+    - `/approve` already writes a durable `WriteApprovalRecord` and does not treat natural-language "yes/approve/同意" as a backend approval signal.
+    - The confirmation prompt only named plan id and change count. Active workflow run id, batch id, and current plan fingerprint were visible through `/workflow show`, but not in the approval prompt itself.
+    - This forced users to remember/inspect another command to confirm which workflow batch they were approving.
+- Generalized gap:
+  - A low-command approval UX must carry the exact typed approval payload at the decision point. Otherwise the user-facing decision and backend record are separated across different surfaces.
+  - The generalized solution is a context-aware approval prompt that renders run/batch/plan/fingerprint when the approval is tied to an active workflow.
+- Target architecture:
+  - Keep `/approve` as the explicit text REPL action for high-risk approval; do not approve via prose.
+  - Build a typed `writeApprovalPromptContext` from `ChangePlan`, active `WriteWorkflowRun`, active batch, and `PlanFingerprint`.
+  - Render the prompt with plan id, change count, run id, batch id, and fingerprint.
+  - Continue writing `WriteApprovalRecord` only after explicit confirmation, preserving fingerprint integrity and apply-pre recheck.
+- Safety and prompt hygiene:
+  - The prompt reads only typed local artifacts: `ChangePlan`, active workflow run/batch, and deterministic plan fingerprint.
+  - No hard gate reads user keywords, model prose, summary, rationale, issue text, logs, eval oracle text, or `<think>`.
+  - Natural-language "yes/approve/同意" is not routed as a command. Existing non-interactive confirmation still accepts the literal `y` response to the explicit approval prompt.
+- Handoff and evidence contract:
+  - No P0-P3 facts are changed. The approval card surfaces the same plan fingerprint that the apply-pre gate later validates.
+  - Active workflow binding remains run/batch/plan precise, avoiding plan-id memorization.
+- Implementation tasks:
+  - [x] Add `writeApprovalPromptContext` and context-aware approve title rendering.
+  - [x] Populate the context from active workflow run/batch when its batch plan id matches the approved plan.
+  - [x] Keep the old `approveTitlePrompt` wrapper for existing tests and callers.
+  - [x] Add helper coverage for context prompt rendering.
+  - [x] Add `/approve` regression coverage that the prompt includes run/batch/fingerprint and canceling does not dispatch apply.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestApprovePromptIncludesActiveWorkflowPayload|TestApproveTitlePrompt_BothLangs|TestApprove_CancelledAtConfirm|TestWorkflowShowDisplaysActiveWriteWorkflow'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit: PENDING.

@@ -664,6 +664,19 @@ func TestApproveTitlePrompt_BothLangs(t *testing.T) {
 	if strings.Contains(enSkip, "run verify") {
 		t.Errorf("en skip-verify prompt must NOT promise run-verify; got %q", enSkip)
 	}
+
+	withContext := approveTitlePromptWithContext("en", writeApprovalPromptContext{
+		PlanID:      "plan-ctx",
+		ChangeCount: 2,
+		RunID:       "wf-ctx",
+		BatchID:     "batch-ctx",
+		Fingerprint: "fp-ctx",
+	})
+	for _, want := range []string{"Approve plan plan-ctx", "Workflow:", "run=`wf-ctx`", "batch=`batch-ctx`", "fingerprint=`fp-ctx`"} {
+		if !strings.Contains(withContext, want) {
+			t.Errorf("context prompt missing %q; got %q", want, withContext)
+		}
+	}
 }
 
 func TestApproveCancelled_BothLangs(t *testing.T) {

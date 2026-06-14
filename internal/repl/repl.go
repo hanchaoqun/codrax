@@ -8248,7 +8248,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
-	title := approveTitlePrompt(r.language, plan.ID, len(plan.Changes), skipVerify)
+	title := approveTitlePromptWithContext(r.language, r.writeApprovalPromptContext(plan, skipVerify))
 	confirmed := decision.Action == writeflow.ApprovalActionAutoExecute
 	if confirmed {
 		r.info(writeApprovalAutoProceeding(r.language, plan.ID, assessment, decision))

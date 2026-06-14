@@ -173,6 +173,45 @@ func TestApprove_CancelledAtConfirm(t *testing.T) {
 	}
 }
 
+func TestApprovePromptIncludesActiveWorkflowPayload(t *testing.T) {
+	runner := &writeCapableRunner{}
+	r, store, out := newApprovalREPL(t, "n\n", runner)
+	plan, err := store.Load("plan-approve-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	workflowStore := NewWriteWorkflowRunStore(store.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-approve-card",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-approve-card",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-approve-card",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: plan.ID,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	r.writeWorkflowRunStore = workflowStore
+
+	r.handleApproveCmd("/approve")
+
+	if runner.runCalled {
+		t.Fatal("Run should not fire when user cancels workflow approval")
+	}
+	got := out.String()
+	for _, want := range []string{
+		"Workflow: run=`wf-approve-card`",
+		"batch=`batch-approve-card`",
+		"fingerprint=`" + types.PlanFingerprint(plan) + "`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("approval prompt missing typed payload %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestApprove_HappyPath verifies that a "y" confirm triggers Run
 // with Mode=ModeApply + PlanPath seeded, then clears pendingPlanPath
 // and restores the original sticky mode.

@@ -95,6 +95,33 @@ func (r *REPL) activeWriteWorkflowBannerLine() string {
 	return writeWorkflowBannerLine(r.language, *run, view)
 }
 
+func (r *REPL) writeApprovalPromptContext(plan *types.ChangePlan, skipVerify bool) writeApprovalPromptContext {
+	ctx := writeApprovalPromptContext{SkipVerify: skipVerify}
+	if plan != nil {
+		ctx.PlanID = strings.TrimSpace(plan.ID)
+		ctx.ChangeCount = len(plan.Changes)
+		ctx.Fingerprint = types.PlanFingerprint(plan)
+	}
+	if r.writeWorkflowRunStore == nil || plan == nil {
+		return ctx
+	}
+	run, err := r.writeWorkflowRunStore.FindActiveRun()
+	if err != nil {
+		logging.Warning("[repl/workflow] approval prompt workflow lookup failed: %v", err)
+		return ctx
+	}
+	if run == nil {
+		return ctx
+	}
+	batch, ok := activeWriteWorkflowBatch(*run)
+	if !ok || strings.TrimSpace(batch.PlanID) != strings.TrimSpace(plan.ID) {
+		return ctx
+	}
+	ctx.RunID = strings.TrimSpace(run.RunID)
+	ctx.BatchID = strings.TrimSpace(batch.ID)
+	return ctx
+}
+
 func (r *REPL) handleWriteWorkflowResume(rest string) bool {
 	if r.writeWorkflowRunStore == nil {
 		return false
