@@ -124,7 +124,6 @@ func threePhaseTestGroup(id string) *types.PlanGroup {
 	}
 }
 
-
 // TestHandlePhaseCmd_WriteDisabled pins the write-gated path:
 // when codrax.yaml has write_enabled=false, /phase refuses
 // before touching state. Mirrors the gate /approve and /merge
@@ -182,10 +181,10 @@ func TestHandlePhaseCmd_ShowRendersAllPhases(t *testing.T) {
 		"migration applied",
 		"next-hint:",
 		"ORM needs to know",
-		"→ [2]",                 // active phase marker
-		"(accepted)",            // phase 1 status rendered
-		"(in_progress)",         // phase 2 status
-		"(pending)",             // phase 3 status
+		"→ [2]",         // active phase marker
+		"(accepted)",    // phase 1 status rendered
+		"(in_progress)", // phase 2 status
+		"(pending)",     // phase 3 status
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered output missing %q\n--- full output ---\n%s", want, got)
@@ -213,7 +212,6 @@ func TestHandlePhaseCmd_ShowExplicitID(t *testing.T) {
 	}
 }
 
-
 // TestHandlePhaseCmd_UnknownSubcommand pins the catch-all warn.
 func TestHandlePhaseCmd_UnknownSubcommand(t *testing.T) {
 	r, _, _, out := newPhaseTestREPL(t)
@@ -222,7 +220,6 @@ func TestHandlePhaseCmd_UnknownSubcommand(t *testing.T) {
 		t.Errorf("expected 'unknown' warn; got %q", out.String())
 	}
 }
-
 
 // TestHandlePhaseCmd_ShowRendersWorktreePath pins P2 #3 — the
 // worktree path appears in /phase show output when any phase
@@ -270,7 +267,6 @@ func TestHandlePhaseCmd_ShowWithPlanIDHints(t *testing.T) {
 	}
 }
 
-
 // TestHandlePhaseCmd_ShowFlagsOrphanedPhase pins commit 29:
 // when a phase is in_progress with an OwnerPID that the
 // liveness probe says is dead, /phase show tags it as
@@ -306,7 +302,7 @@ func TestHandlePhaseCmd_ShowFlagsOrphanedPhase(t *testing.T) {
 // TestHandlePhaseCmd_ShowOrphanRecoveryHint pins commit 41
 // UX#2: when /phase show flags an ORPHANED phase, it ALSO
 // surfaces an explicit recovery-action hint pointing at
-// /phase rollback + /mode apply. Pre-commit-41 the tag
+// /phase rollback + the low-command Auto Pilot path. Pre-commit-41 the tag
 // rendered without next steps, leaving the operator to
 // guess.
 func TestHandlePhaseCmd_ShowOrphanRecoveryHint(t *testing.T) {
@@ -331,8 +327,8 @@ func TestHandlePhaseCmd_ShowOrphanRecoveryHint(t *testing.T) {
 	if !strings.Contains(got, "/phase rollback") {
 		t.Errorf("expected /phase rollback recovery hint; got %q", got)
 	}
-	if !strings.Contains(got, "/mode apply") {
-		t.Errorf("expected /mode apply recovery hint; got %q", got)
+	if !strings.Contains(got, "describe the goal again") || !strings.Contains(got, "/write <goal>") {
+		t.Errorf("expected Auto Pilot recovery hint; got %q", got)
 	}
 }
 
@@ -433,7 +429,6 @@ func TestShortSHA(t *testing.T) {
 		}
 	}
 }
-
 
 // The PlanGroup execution-queue verbs were retired with the scheduler lane.
 // Every former mutation verb now explains the retirement, points at the live

@@ -14,7 +14,7 @@
 - 想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。
 - 想做本地数据清洗、汇总、过滤或严格格式输出 → 看 **3.7 数据处理任务**。
 - 想接外部工具、知识库或电脑操作 Skills → 看 **3.8 外部工具与外部 Skills**。
-- 想让 codrax 真改代码 → 第 4 章 写模式 `plan → apply → verify`。
+- 想让 codrax 真改代码 → 第 4 章 写模式 Auto Pilot。
 - 想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。
 
 新手只需读到 4.2 就够了;5 章往后是参考文档,需要时查阅即可。
@@ -41,7 +41,7 @@
     - [先选入口](#先选入口)
     - [外部 Skills / Operation Skills](#外部-skills--operation-skills)
     - [MCP 外部工具](#mcp-外部工具)
-- [4. 写模式 — plan → apply → verify](#4-写模式--plan--apply--verify)
+- [4. 写模式 — Auto Pilot](#4-写模式--auto-pilot)
   - [4.1 启用](#41-启用)
   - [4.2 完整流程](#42-完整流程)
   - [4.3 把改动合回主仓](#43-把改动合回主仓)
@@ -1690,9 +1690,9 @@ codrax 也会保护用户面板和上下文:
 | `mcp_read_resource` 拒绝 URI | URI 没有出现在 `resources/list` | 让 server 先枚举资源;不要让模型凭空拼 URI |
 | 行号没有进入答案 | 返回的是普通文本/普通 JSON | 使用 `codrax.mcp.observation.v1` 或 `application/vnd.codrax.observation+json` |
 
-# 4. 写模式 — plan → apply → verify
+# 4. 写模式 — Auto Pilot
 
-写模式让 codrax **生成代码改动**(增删改文件),在沙箱 git worktree 里跑测试,只有你显式批准后才合回主仓。**默认关闭**。
+写模式让 codrax **生成代码改动**(增删改文件),在沙箱 git worktree 里跑测试。日常主路径是 Auto Pilot:你描述目标,系统自动探索、拆批、应用、验证和必要的 replan；低/中风险不打断,高风险才暂停审批,critical 自动拒绝。主仓合并仍需要显式动作；组织可用 `write_enabled: false` 禁用写模式。
 
 ### 工作区单一不变量(写模式的核心规则)
 
@@ -1702,19 +1702,19 @@ codrax 也会保护用户面板和上下文:
 
 **为什么这条规则重要**:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。
 
-实际行为:`/mode write` 或 `/write <需求>` 进入写模式时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。
+实际行为:新的写目标进入 Auto Pilot 时如果存在未结算的 plan,系统会暂停并显示状态卡/高级收尾入口;REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。收尾后直接描述下一个目标即可,不用再记一串模式切换命令。
 
 ```
-[git:master]❯❯ /mode write
-  ✗ 切换被拒:已存在未结算的改动方案 plan-XXXX(状态:applied)。
-    新方案要基于当前仓状态生成,先把上一个收尾再来:
+[git:master]❯❯ 修复新的边界问题
+  ✗ Auto Pilot 已暂停:还有未结算改动 plan-XXXX(状态:applied)。
+    为避免两个写入批次基于不同仓库状态互相覆盖,先处理上一版:
       /merge         合并到主仓
       /reject        丢弃改动(保留事后审查记录)
       /plan clear    彻底删除(无审查记录)
-    收尾后再敲 /mode write。
+    收尾后直接描述下一个目标即可。
 ```
 
-三个结算命令:
+三个高级收尾入口:
 
 | 命令 | 适用状态 | 文件 | 工作区 |
 |---|---|---|---|
@@ -1728,7 +1728,7 @@ codrax 也会保护用户面板和上下文:
    plan-XXXX 已 apply 但未合并 — /merge · /reject · /plan clear
 ```
 
-按当前 plan 的 status 不同,提示文案也不同 — `pending_approval` 显示 `/plan show · /approve · /reject · /plan clear`,`verify_failed` 显示 `/approve <id> · /merge --include-failed · /reject · /plan clear`。
+按当前 plan 的 status 不同,状态卡也不同 — `pending_approval` 展示风险、fingerprint、diff 和批准/拒绝动作;`verify_failed` 优先展示失败证据、report/diff refs 和自动 replan/人工覆盖入口。
 
 ## 4.1 启用
 
@@ -2631,8 +2631,8 @@ codrax [flags] [request...]
 | `--chitchat-classifier[=true|false]` | — | 本次 Run 覆盖 yaml `chitchat_classifier_enabled` |
 | `--mode <auto\|code\|operation\|data\|write>` | `auto` | 任务入口;显式 code/operation/data/write 可绕过自动分类 |
 | `--data-resume <checkpoint.json>` | — | 仅 data 单次模式:显式从 `.codrax/data-audit/*-checkpoint-*.json` 恢复 workflow checkpoint,不会自动续跑旧任务 |
-| `--write-phase <plan\|apply\|verify>` | `plan` | 仅 `--mode=write` 生效;选择写模式内部阶段 |
-| `--auto-apply` | `false` | 单次 `--mode=write --write-phase=apply` 必须搭配,跳过交互确认 |
+| `--write-phase <apply\|plan\|verify>` | `apply` | 仅 `--mode=write` 生效;默认 Auto Pilot apply;`plan` / `verify` 是高级 lane |
+| `--auto-apply` | `false` | 兼容旧脚本的保留 flag;当前安全边界由 typed allow/ask/deny approval policy 控制 |
 | `--plan-out <path>` | `.codrax/plans/<id>.json` | plan-mode 落盘路径 |
 | `--plan-file <path>` | — | apply / verify 模式必填:已有 ChangePlan JSON 路径 |
 | `--auto-init-repo` | `false` | 授权把目标目录初始化为 git 仓库(`git init` + 空 commit) |
@@ -2665,11 +2665,14 @@ codrax --mode=data -r "汇总当前目录 CSV 的数值字段总和,只输出数
 # 显式从数据处理 checkpoint 恢复
 codrax --mode=data --data-resume .codrax/data-audit/20260607-123456-1234-checkpoint-r4.json -r "继续完成这个数据任务"
 
-# 写模式:产 plan + 落盘
+# 写模式:Auto Pilot 自动探索、apply、verify
+codrax --mode=write -r "把 foo 拆成两个函数"
+
+# 写模式:高级 plan-only 产物 + 落盘
 codrax --mode=write --write-phase=plan -r "把 foo 拆成两个函数" --plan-out /tmp/plan.json
 
-# 写模式:批准并执行已有 plan(单次,不开 REPL)
-codrax --mode=write --write-phase=apply --plan-file=/tmp/plan.json --auto-apply
+# 写模式:高级 saved-plan apply(单次,不开 REPL;仍经过同一 risk/approval gate)
+codrax --mode=write --write-phase=apply --plan-file=/tmp/plan.json
 
 # 写模式:重跑 verify
 codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json

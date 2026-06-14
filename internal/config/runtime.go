@@ -1296,15 +1296,18 @@ type RuntimeSettings struct {
 	// selects plan / apply / verify when needed. All optional; nil
 	// values coerce to safe-by-default behavior.
 	//
-	//   WriteEnabled       — master switch. When false (default),
+	//   WriteEnabled       — master switch. When explicitly false,
 	//                        --mode=write, REPL /mode write, /write,
 	//                        and /approve are rejected before any
 	//                        write workflow starts. YAML-only by
 	//                        design (no --write-enabled CLI flag);
 	//                        deploy-time configuration, not per-run.
-	//   WriteAutoApproval  — yaml-level default for --auto-apply.
-	//                        Today unused in B0 scope (single-shot
-	//                        L4 gate uses the CLI flag directly).
+	//                        Nil defaults to enabled; explicit false
+	//                        is the organizational kill switch.
+	//   WriteAutoApproval  — legacy yaml-level auto-approval slot.
+	//                        The current write path uses typed
+	//                        allow/ask/deny policy instead of a
+	//                        separate --auto-apply gate.
 	//                        Reserved for REPL /approve interactive
 	//                        default and batch-mode workflows post B0.
 	//   WriteApprovalPolicy — write-mode approval policy. Supported

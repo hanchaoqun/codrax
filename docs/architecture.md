@@ -3,7 +3,7 @@
 codrax 是一个**代码分析 + 变更提议**工具：
 
 - **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
-- **写模式**（CLI 仍需 `--mode=write`;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 Auto Pilot；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，再由 controller-first durable DAG 自动探索、拆批、规划、应用到沙箱 git worktree、验证、失败后 replan。低/中风险自动推进，高风险暂停审批，critical 自动拒绝；主仓库 HEAD/merge 字节永不自动变更。
+- **写模式**（CLI 仍需 `--mode=write`,默认进入 Auto Pilot apply；`--write-phase=plan|verify` 是高级 lane;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 Auto Pilot；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，再由 controller-first durable DAG 自动探索、拆批、规划、应用到沙箱 git worktree、验证、失败后 replan。低/中风险自动推进，高风险暂停审批，critical 自动拒绝；主仓库 HEAD/merge 字节永不自动变更。
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
@@ -1336,7 +1336,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 写模式的入口由两个独立 gate 控制，缺一不可：
 
 1. `codrax.yaml :: write_enabled` 未显式设为 false（默认 true;显式 false 是组织级 kill switch）
-2. 写 workflow 入口成立：CLI `--mode=write`（再用 `--write-phase=plan|apply|verify` 选择内部阶段）、REPL `/mode write` / `/write <request>`，或 REPL auto mode 中结构化 TurnPolicy 输出 `route=write` 且通过置信度/未结算 plan/workflow gate
+2. 写 workflow 入口成立：CLI `--mode=write`（默认 Auto Pilot apply；必要时用 `--write-phase=plan|verify` 选择高级内部阶段）、REPL `/mode write` / `/write <request>`，或 REPL auto mode 中结构化 TurnPolicy 输出 `route=write` 且通过置信度/未结算 plan/workflow gate
 
 `Run()` 入口检查；任一不满足 → fail-loud。REPL auto `route=write` 进入 `ModeApply` Auto Pilot：controller 可自行探索、规划、低/中风险 apply、verify、失败后 replan；低置信 `route=write` 会降级为 repo 分析。分类器输出只能选择写 workflow 入口，不能跳过 risk、approval、fingerprint、worktree 边界或 merge consent。kill switch 留给需要全局禁写的部署。
 
@@ -2091,7 +2091,7 @@ sequenceDiagram
     Orch-->>User: BusContext（每个 task 自带 Result）
 ```
 
-**写模式（Mode == ModeApply，单次完整 plan → apply → verify 生命周期）**：
+**写模式（Mode == ModeApply，单次 Auto Pilot 生命周期）**：
 
 ```mermaid
 sequenceDiagram
@@ -2106,7 +2106,7 @@ sequenceDiagram
     participant Tool
     participant LLM
 
-    User->>Orch: REPL typed route=write / /write / /mode write（或 CLI --mode=write --write-phase=apply）
+    User->>Orch: REPL typed route=write / /write / /mode write（或 CLI --mode=write）
     Note over Orch: writeGate：write_enabled 显式 false？是则 fail-loud
 
     rect rgb(245,245,245)
@@ -2492,7 +2492,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
 
-**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/resume/clear` 读取 `.codrax/plans/workflows/` 展示、恢复或清理 active write workflow，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 显示活跃 workflow run 的 batch 阶段视图（无活跃 run 时只读回落遗留方案组）；`/pitfalls` 列出 active pitfall。
+**写模式命令**：详见 §8。日常入口是自然语言目标、`/write <目标>`、或 sticky `/mode write` 后继续描述目标；这些都会进入 Auto Pilot。`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限），属于审计入口；`/approve` 只处理 high-risk `Status == pending_approval` 的 plan/batch，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/resume/clear` 读取 `.codrax/plans/workflows/` 展示、恢复或清理 active write workflow，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 显示活跃 workflow run 的 batch 阶段视图（无活跃 run 时只读回落遗留方案组）；`/pitfalls` 列出 active pitfall。
 
 ### 13.4 internal/tool/blob — Tool 输出落盘
 
@@ -2604,7 +2604,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `write_enabled` | 仅 yaml（部署时决策）。`--mode` CLI flag 在 `write_enabled: false` 时拒绝；REPL `/mode` 同 gate |
 | 其他所有组 | code default → codrax.yaml。**无 CLI override** |
 
-带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--data-resume` / `--write-phase` / `--auto-apply` / `--auto-init-repo` / `--allow-scaffold`。
+带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--data-resume` / `--write-phase` / `--auto-apply`(兼容旧脚本,非安全门) / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold`。
 
 ### 14.5 codrax.yaml 查找顺序
 
@@ -3014,10 +3014,10 @@ modality `"log"` / `"trace"` 各自调整术语(frames vs spans / exception type
 
 **架构概览速记**：
 
-- **Pipeline**: `[log_triage?] [perf_triage?] → analyze → explore → extract → finalize`（read）；写模式加 `write_analyze → plan → apply → verify`
+- **Pipeline**: `[log_triage?] [perf_triage?] → analyze → explore → extract → finalize`（read）；写模式加 `write_analyze → controller Auto Pilot（explore/plan/apply/verify/replan）`
 - **Agents**: read = log_triager / perf_triager / analyzer / explorer / extractor / finalizer；write = write_analyzer / planner / coder / verifier
 - **12 test runners**: Go / Node / Python / Rust / Swift / Java / Ruby / CMake / Meson / Make / hvigor / cjpm
 - **Carrier**: V2 block-only AnswerDocumentV2，9 种 block kind + 8 种 QuestionFamily 对应的 RequiredBlocks 合同
 - **CGEC**: EvidenceClosure 4 不变量 I1-I4 + 5 种 RepairKind + 9 个 enforcer 入口
-- **Write 模式**: 4 modes（read 默认 / plan / apply / verify）；write_enabled yaml gate；REPL `/approve` `/reject` `/plan` `/merge`；baseline cache + Failure Taxonomy 跨 Run 学习
+- **Write 模式**: CLI `--mode=write` 与 REPL route/write 默认进入 Auto Pilot apply；`plan` / `verify` 是高级 lane；write_enabled yaml gate；REPL `/approve` `/reject` `/plan` `/merge` 是审批/审计/发布入口；baseline cache + Failure Taxonomy 跨 Run 学习
 - **Fail-loud**: analyzer 0-emit → StageOutput.Error → 重试 → 终止；citation 全 fail → 在原答案前 prepend warning 不丢答案

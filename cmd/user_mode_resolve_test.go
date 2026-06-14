@@ -38,13 +38,27 @@ func TestResolveUserMode_ExplicitReadOnlyLanesDoNotNeedWriteEnabled(t *testing.T
 	}
 }
 
-func TestResolveUserMode_WriteDefaultsToPlan(t *testing.T) {
+func TestResolveUserMode_WriteDefaultsToAutoPilotApply(t *testing.T) {
 	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled: boolPtr(true),
 		CLIFlagMode: "write",
 	})
 	if err != nil {
 		t.Fatalf("write default should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeApply {
+		t.Fatalf("resolved mode=%q phase=%q, want write/apply", mode, phase)
+	}
+}
+
+func TestResolveUserMode_WritePlanOutDefaultsToPlan(t *testing.T) {
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled: boolPtr(true),
+		CLIFlagMode: "write",
+		PlanOut:     "/tmp/plan.json",
+	})
+	if err != nil {
+		t.Fatalf("write plan-out default should not error: %v", err)
 	}
 	if mode != repl.UserModeWrite || phase != types.ModePlan {
 		t.Fatalf("resolved mode=%q phase=%q, want write/plan", mode, phase)
@@ -64,8 +78,8 @@ func TestResolveUserMode_WriteDisabledRejected(t *testing.T) {
 	}
 }
 
-func TestResolveUserMode_WritePhaseApplyRequiresAutoApplyForSingleShot(t *testing.T) {
-	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+func TestResolveUserMode_WritePhaseApplyDoesNotRequireAutoApplyForSingleShot(t *testing.T) {
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
 		CLIWritePhase: "apply",
@@ -73,11 +87,14 @@ func TestResolveUserMode_WritePhaseApplyRequiresAutoApplyForSingleShot(t *testin
 		AutoApply:     false,
 		PlanFile:      "/tmp/plan.json",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--auto-apply") {
-		t.Fatalf("apply without auto-apply should mention --auto-apply, got: %v", err)
+	if err != nil {
+		t.Fatalf("apply without auto-apply should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeApply {
+		t.Fatalf("resolved mode=%q phase=%q, want write/apply", mode, phase)
 	}
 
-	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+	mode, phase, err = resolveUserModeAndWritePhase(modeResolutionInputs{
 		YamlEnabled:   boolPtr(true),
 		CLIFlagMode:   "write",
 		CLIWritePhase: "apply",
@@ -142,6 +159,31 @@ func TestResolveUserMode_PlanFileOnlyValidWithWriteMode(t *testing.T) {
 	}
 }
 
+func TestResolveUserMode_PlanFileRejectedInPlanMode(t *testing.T) {
+	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled:   boolPtr(true),
+		CLIFlagMode:   "write",
+		CLIWritePhase: "plan",
+		PlanFile:      "/tmp/plan.json",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--plan-file") {
+		t.Fatalf("plan-file in plan mode should error, got: %v", err)
+	}
+}
+
+func TestResolveUserMode_PlanOutRejectedOutsidePlanMode(t *testing.T) {
+	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled:         boolPtr(true),
+		CLIFlagMode:         "write",
+		CLIWritePhase:       "apply",
+		CLIWritePhasePassed: true,
+		PlanOut:             "/tmp/plan.json",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--plan-out") {
+		t.Fatalf("plan-out outside plan mode should error, got: %v", err)
+	}
+}
+
 func TestResolveUserMode_DataResumeOnlyValidWithDataMode(t *testing.T) {
 	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		CLIFlagMode: "auto",
@@ -181,8 +223,8 @@ func TestResolveUserMode_WriteEnabledDefaultsOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("absent write_enabled must default to enabled: %v", err)
 	}
-	if mode != repl.UserModeWrite || phase != types.ModePlan {
-		t.Fatalf("mode=%q phase=%q, want write/plan", mode, phase)
+	if mode != repl.UserModeWrite || phase != types.ModeApply {
+		t.Fatalf("mode=%q phase=%q, want write/apply", mode, phase)
 	}
 }
 

@@ -212,8 +212,6 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 // pipeline modes + the codrax.yaml backing them. Surfaced under the
 // version badge so the user sees write_enabled state at startup
 // rather than discovering it via a /mode write reject 30 turns in.
-// Empty string when there's nothing useful to display (no yaml AND
-// write_enabled defaulted to false).
 // clampToTermWidth caps a banner line to fit comfortably on
 // the operator's terminal. Pre-commit-42 long settings paths
 // or long pitfall counts could push a banner row past 80
@@ -586,19 +584,19 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 	}
 	if zh {
 		header := []string{
-			formatN(lang, "✗ 切换被拒:已存在未结算的改动方案 %s(状态:%s)。", planID, status),
-			"  新方案要基于当前仓状态生成,先把上一个收尾再来:",
+			formatN(lang, "✗ Auto Pilot 已暂停:还有未结算改动 %s(状态:%s)。", planID, status),
+			"  为避免两个写入批次基于不同仓库状态互相覆盖,先处理上一版:",
 		}
 		out := append(header, menu...)
-		out = append(out, "  收尾后再敲 /mode write。")
+		out = append(out, "  收尾后直接描述下一个目标即可。")
 		return out
 	}
 	header := []string{
-		formatN(lang, "✗ /mode write refused: an unsettled plan exists (%s, status=%s).", planID, status),
-		"  Settle it first so the next plan can be drafted against the current repo state:",
+		formatN(lang, "✗ Auto Pilot paused: an unsettled change exists (%s, status=%s).", planID, status),
+		"  Settle the previous change first so the next batch is based on one repo state:",
 	}
 	out := append(header, menu...)
-	out = append(out, "  Then run /mode write again.")
+	out = append(out, "  Then describe the next goal directly.")
 	return out
 }
 
@@ -895,9 +893,9 @@ func oneShotUserModeUsage(lang, cmd string, mode UserMode) string {
 		return cmd + " <task> — run one request through data processing"
 	case UserModeWrite:
 		if zh {
-			return cmd + " <改动需求> — 单次强制走写模式"
+			return cmd + " <改动需求> — 单次强制走写模式 Auto Pilot"
 		}
-		return cmd + " <change request> — run one request through write mode"
+		return cmd + " <change request> — run one request through write Auto Pilot"
 	default:
 		if zh {
 			return cmd + " <请求>"
@@ -2704,9 +2702,10 @@ func composePhaseTag(taskMode, pipelineMode string) string {
 		return ""
 	}
 	task := strings.ToLower(strings.TrimSpace(taskMode))
-	// Sticky write mode maps to the internal plan phase, but the user-facing
-	// task marker is clearer and shorter than showing both task+phase.
-	if task == "write" && phase == "plan" {
+	// Sticky write mode maps to an internal write phase, but the
+	// user-facing task marker is clearer and shorter than showing
+	// Auto Pilot internals on the normal path.
+	if task == "write" && (phase == "plan" || phase == "apply") {
 		return ""
 	}
 	return "[phase:" + phase + "]"

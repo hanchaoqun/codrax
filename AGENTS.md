@@ -4,7 +4,7 @@ Guidance for Codex working in this repository. Detail lives in `docs/architectur
 
 ## Project Overview
 
-Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (CLI opt-in via `--mode=write --write-phase=plan|apply|verify`; REPL opt-in via `/mode write` / `/write`, or auto mode structured `route=write`): runs controller-first Auto Pilot inside an isolated git worktree. The controller may explore, split, plan, apply, verify, and replan; low/medium deterministic risk proceeds automatically, high risk pauses for approval, critical risk denies, and main repo HEAD/merge never changes automatically. `codrax.yaml :: write_enabled: false` is the organization-level kill switch, absent defaults to enabled.
+Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (CLI opt-in via `--mode=write`, defaulting to Auto Pilot apply; `--write-phase=plan|verify` are advanced lanes; REPL opt-in via `/mode write` / `/write`, or auto mode structured `route=write`): runs controller-first Auto Pilot inside an isolated git worktree. The controller may explore, split, plan, apply, verify, and replan; low/medium deterministic risk proceeds automatically, high risk pauses for approval, critical risk denies, and main repo HEAD/merge never changes automatically. `codrax.yaml :: write_enabled: false` is the organization-level kill switch, absent defaults to enabled.
 
 The analyzer makes one LLM call to classify the request; TaskGraph / EvidencePlan / hypotheses / quality gate are built deterministically by 14 sub-packages under `internal/analysis/`. Fail-loud: missing `emit_analysis` → stage errors and retries.
 
@@ -29,8 +29,9 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 # Same shape: --htrace / --atrace and /htrace / /atrace.
 
 # Write mode (CLI explicit opt-in; REPL auto route enters Auto Pilot; refused when write_enabled: false):
-./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json
-./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json --auto-apply
+./codrax --mode=write --request "add X"
+./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json  # advanced plan-only
+./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json                  # advanced saved-plan apply
 ./codrax --mode=write --write-phase=verify --plan-file=/tmp/p.json
 # REPL: type a clear code-change request, or use /write <request> / /mode write.
 # Advanced recovery/audit: /workflow show|list|resume|clear  /plan show|list  /approve  /reject  /verify  /merge

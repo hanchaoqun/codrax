@@ -232,8 +232,8 @@ func TestOneShotWriteRejectedWithUnsettledPlan(t *testing.T) {
 			r.userMode, r.currentMode)
 	}
 	printed := out.String()
-	if !strings.Contains(printed, "unsettled plan") || !strings.Contains(printed, "/merge") {
-		t.Fatalf("/write unsettled rejection missing recovery menu:\n%s", printed)
+	if !strings.Contains(printed, "Auto Pilot paused") || !strings.Contains(printed, "/merge") || !strings.Contains(printed, "describe the next goal directly") {
+		t.Fatalf("/write unsettled rejection missing Auto Pilot recovery card:\n%s", printed)
 	}
 }
 

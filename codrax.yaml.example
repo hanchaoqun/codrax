@@ -755,16 +755,16 @@
 # ---------------------------------------------------------------------------
 # Write mode  ·  写模式
 # ---------------------------------------------------------------------------
-# EN  Write mode is the plan → apply → verify pipeline that proposes and
-#     executes code changes inside a sandboxed git worktree. The master
-#     switch is yaml-only by design — a deploy-time decision, not per-run.
+# EN  Write mode is the controller-first Auto Pilot that can explore, plan,
+#     apply, verify, and replan code changes inside a sandboxed git worktree.
+#     The kill switch is yaml-only by design — a deploy-time decision, not per-run.
 # 中文 写模式是在沙箱 git worktree 内由 controller 自动探索、规划、应用、
 #     验证并按失败证据收敛的 Auto Pilot。总开关刻意只放在 yaml ——
 #     这是部署期决定,不是逐次运行。
 
-# write_enabled — master switch. MUST be true for --mode=write or /mode write
-#   to dispatch. Absent means enabled; explicit false disables every write path.
-#   总开关。--mode=write 或 /mode write 要生效必须未显式关闭。缺省开启,
+# write_enabled — yaml-only kill switch. Absent means enabled; explicit false
+#   disables every write path, including CLI --mode=write and REPL /mode write.
+#   yaml-only 禁写总闸。--mode=write 或 /mode write 要生效必须未显式关闭。缺省开启,
 #   显式 false 会拒绝所有写路径。
 # write_enabled: false
 

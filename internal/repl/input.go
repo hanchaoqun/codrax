@@ -332,8 +332,8 @@ var slashCommands = []slashCommand{
 	// isWriteModeCommand — that triggers on /write here.
 	{
 		Name:   "/write",
-		HelpEn: "run one request through write mode (plan first; requires write_enabled: true)",
-		HelpZh: "单次强制走写模式(先生成方案;需要 write_enabled: true)",
+		HelpEn: "run one request through write Auto Pilot (requires write_enabled: true)",
+		HelpZh: "单次强制走写模式 Auto Pilot(需要 write_enabled: true)",
 	},
 	{
 		Name:   "/plan",

@@ -18,7 +18,9 @@ import (
 // scan .codrax/plans/ for auditing) can filter deterministically.
 const (
 	// PlanStatusPending is the plan's initial state emitted by the
-	// planner. Awaiting /approve (REPL) or --auto-apply (single-shot).
+	// planner. Auto Pilot may apply it automatically when deterministic
+	// risk policy returns allow; high-risk plans remain pending until an
+	// approval record is written.
 	PlanStatusPending = "pending_approval"
 	// PlanStatusApplied means apply + verify both succeeded.
 	PlanStatusApplied = "applied"

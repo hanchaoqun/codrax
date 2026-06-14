@@ -28,8 +28,8 @@ func TestPipelineMode_IsValid(t *testing.T) {
 }
 
 // TestPipelineMode_IsWrite locks the classification used by the CLI
-// layer to require --auto-apply and by the orchestrator to stand up
-// a worktree. ModeRead + empty are both non-write; every other valid
+// layer to route explicit write invocations and by the orchestrator
+// to stand up a worktree. ModeRead + empty are both non-write; every other valid
 // mode is a write mode including ModePlan (which produces a
 // ChangePlan artifact on disk — a write-phase deliverable even
 // though repo bytes stay clean).

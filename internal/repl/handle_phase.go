@@ -194,10 +194,11 @@ func (r *REPL) phaseShow(groupID string) {
 		// (commit 41 UX#2): pre-commit-41 the ORPHANED tag
 		// rendered without a next-step hint, leaving the
 		// operator to figure out the recovery path. Now we
-		// explicitly point at /phase rollback + /mode apply.
+		// explicitly point at reset + the low-command Auto Pilot
+		// re-entry path.
 		phaseCopy2 := p
 		if types.IsOrphanedActivePhase(&phaseCopy2, phaseLivenessProbe) {
-			fmt.Fprintln(r.out, "         → owner orchestrator process is dead. Run /phase rollback to reset this phase to pending, then /mode apply to replay.")
+			fmt.Fprintln(r.out, "         → owner orchestrator process is dead. Run /phase rollback to reset this phase, then describe the goal again or use /write <goal> to replay.")
 		}
 	}
 }

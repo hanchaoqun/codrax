@@ -388,7 +388,7 @@ func writeApprovalGateMessage(lang, planID string, assessment writeflow.RiskAsse
 			}
 		}
 		if decision.Action == writeflow.ApprovalActionManual {
-			b.WriteString("\n请先审阅该计划，再通过 `/approve <plan-id>` 明确批准。")
+			b.WriteString("\n请审阅风险和 diff；准备好后批准或拒绝当前 batch。")
 		}
 		return b.String()
 	}
@@ -406,7 +406,7 @@ func writeApprovalGateMessage(lang, planID string, assessment writeflow.RiskAsse
 		}
 	}
 	if decision.Action == writeflow.ApprovalActionManual {
-		b.WriteString("\nReview the plan first, then explicitly approve it with `/approve <plan-id>`.")
+		b.WriteString("\nReview risk and diff; then approve or reject the current batch when ready.")
 	}
 	return b.String()
 }

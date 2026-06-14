@@ -63,7 +63,7 @@ direct-build** 的商用路径：
 
 当前写模式已经具备 controller-first DAG、typed risk gate、priority handoff、durable workflow、统一 JSON repair/strict decode、症状型 eval 等商用基础，但用户交互层仍暴露了过多命令心智：
 
-- REPL auto `route=write` 只进入 `ModePlan`，清晰的代码变更请求仍要求用户继续记忆 `/plan show`、`/approve`、`/verify`、`/merge` 等步骤。
+- 历史 REPL auto `route=write` 只进入 `ModePlan`，清晰的代码变更请求要求用户继续记忆 `/plan show`、`/approve`、`/verify`、`/merge` 等步骤；Batches 33/41 已把 REPL 主路径改为 Auto Pilot，但 CLI 和部分恢复提示仍需收敛。
 - 文档和状态提示把命令当主路径，导致用户读完计划后还要理解内部阶段，而不是让系统按风险策略自动推进。
 - 复杂问题本应由 controller 在探索、拆批、apply、verify、replan 之间动态收敛，但 plan-only 主入口让用户成为外层调度器。
 - 高风险审批是必要打断；低/中风险审批、重复状态查看、手工 resume 不应成为日常路径。
@@ -92,7 +92,23 @@ Auto Pilot 是写模式默认主路径：
 7. Verify failure 的 build/test/path/line/command typed evidence 写入 P2 context pack，controller 优先做小批量 replan，而不是让用户重新发命令。
 8. Finish 只由 typed post-apply verify verdict、finish disposition、batch state、budget 决定。
 
-CLI `--mode=write --write-phase=plan|apply|verify` 和 REPL `/plan`、`/workflow`、`/approve`、`/reject`、`/verify`、`/merge` 保留为高级逃生口/审计工具，不再是主流程。文档、REPL hint、AGENTS 都要把自然语言目标 + 自动推进作为默认模型。
+CLI `--mode=write` 默认等价 Auto Pilot apply；`--write-phase=plan|verify`、`--plan-file` 和 REPL `/plan`、`/workflow`、`/approve`、`/reject`、`/verify`、`/merge` 保留为高级逃生口/审计工具，不再是主流程。文档、REPL hint、AGENTS 都要把自然语言目标 + 自动推进作为默认模型。
+
+#### Zero-Command Refinement
+
+用户心智目标从“知道该敲哪个命令”改为“说清目标,必要时做一个明确决策”：
+
+- Single-shot CLI：`codrax --mode=write -r "<目标>"` 是主路径,默认进入 `ModeApply` Auto Pilot。`--write-phase=plan` 是显式计划产物 lane；`--plan-out` 在未显式指定 phase 时自动选择 plan-only,避免用户同时记两个 flag。
+- `--auto-apply` 不再是安全门。`--mode=write` 是写模式 opt-in,真正的执行边界由 deterministic allow/ask/deny policy、approval fingerprint、apply-pre gate、worktree boundary 和 critical deny 组成。保留 `--auto-apply` 只是为了旧脚本不报 unknown flag。
+- REPL prompt 只显示 `[task:write]`，不再在正常 Auto Pilot 路径暴露 `[phase:apply]`。显式 plan/verify/debug lane 才需要 internal phase 概念。
+- 未结算 workflow/plan 不再提示“收尾后再切模式”。系统解释为什么暂停、列出少量收尾入口，结束后用户直接描述下一个目标即可。
+- 高风险暂停文案描述“当前 batch 的风险、fingerprint、diff 和批准/拒绝动作”,而不是要求用户管理 plan id。plan id 仍在 typed artifact/ref 中保留供审计和精确恢复。
+
+安全边界不因低命令心智而放松：
+
+- 不解析“同意/批准/approve”等自然语言来越过 approval record。
+- 不读取用户关键词、模型 prose、summary、rationale 或 `<think>` 来决定 apply/verify/finish。
+- Bare repo init、空目录 scaffold、merge to main 仍是显式人工动作,因为它们改变仓库形态或发布边界,不属于 ordinary low/medium source edit。
 
 #### Interrupt Policy
 
@@ -171,6 +187,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 42 | Write tool JSON repair coverage guard | `run_tests` 纳入统一 structured payload repair / strict decode 结构测试，防止验证工具绕开修复层 |
 | 43 | Advisory vs deterministic risk observability | REPL 风险展示拆成 planned-change risk/approval preview 与 analysis risk advisory，避免 advisory high 被误解为审批硬门 |
 | 44 | Eval summary provenance snippets | apply eval summary 追加 oracle matched lines、applied diff hunk、post-apply verify command provenance，减少人工翻 artifact |
+| 45 | Zero-command Auto Pilot CLI/REPL contract | `--mode=write` 默认 Auto Pilot apply；`--auto-apply` 降级兼容；prompt/status/docs 不再把 plan-first 或模式切换当主路径 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -2026,3 +2043,49 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `bash eval/runner_lib_test.sh` PASS.
 - Progress:
   - Implementation commit: `085d03c0` (`eval: surface write apply provenance in summaries`), pushed to `origin/main` with this ledger follow-up.
+
+#### Batch 45: Zero-Command Auto Pilot CLI/REPL Contract
+
+- Evidence source:
+  - User feedback: too many commands make write mode feel manual; routine work should be "describe the goal and let the system flow", with interruptions only for high-risk approval, critical deny, real typed unknowns, budget exhaustion, or explicit merge/publish.
+  - Code evidence before this batch:
+    - `cmd/root.go` defaulted `--write-phase` to `plan` and rejected single-shot `ModeApply` without `--auto-apply`.
+    - `internal/repl/messages.go` hid only `[phase:plan]`, so normal sticky write Auto Pilot could still show `[phase:apply]`.
+    - `internal/repl/handle_phase.go` still told users to run legacy `/mode apply`.
+    - `docs/user_guide.md` still headed write mode as `plan -> apply -> verify`, showed "default closed", and taught `/mode write` / `--auto-apply` as routine flow.
+- Generalized gap:
+  - A controller-first DAG can still impose high cognitive load if CLI defaults, prompts, and docs expose internal stages as the product model.
+  - Safety must not depend on a coarse "auto apply" flag. It must depend on typed plan/risk/approval/worktree artifacts so low/medium work can flow and high/critical work still stops correctly.
+- Target architecture:
+  - `--mode=write` is the single-shot Auto Pilot entry and defaults to `ModeApply`.
+  - `--write-phase=plan` is an advanced plan-only lane; `--plan-out` without an explicit phase selects plan-only because the user asked for a plan artifact.
+  - `--auto-apply` is compatibility-only and must not be treated as the approval gate.
+  - Prompt/status surfaces hide normal Auto Pilot phase internals and render state-first recovery cards.
+  - Legacy phase recovery points users back to Auto Pilot re-entry instead of invalid `/mode apply`.
+- Safety and prompt hygiene:
+  - The changed hard behavior consumes only explicit CLI flags/yaml fields, typed plan-file/plan-out presence, and existing `write_enabled` policy. It does not infer write intent from user prose.
+  - Apply safety remains in deterministic allow/ask/deny, approval record fingerprint, worktree boundaries, and critical deny.
+  - No code path parses user keywords, model prose, summaries, rationales, logs, eval oracle text, or `<think>`.
+  - Read/log/trace/data/operation/computer modes are not changed.
+- Handoff and evidence contract:
+  - This batch does not alter P0-P3 context pack content. It removes unnecessary user orchestration around already-typed workflow state.
+  - High-risk pending approval remains durable and visible through workflow/plan artifacts; the UI wording now treats approval as a batch decision, not a plan-id memorization task.
+- Implementation tasks:
+  - [x] Change CLI write default to `ModeApply` Auto Pilot.
+  - [x] Make `--plan-out` select `ModePlan` when no explicit `--write-phase` is passed.
+  - [x] Remove the single-shot `--auto-apply` requirement while keeping the flag as compatibility.
+  - [x] Reject `--plan-file` in plan-only mode and `--plan-out` in non-plan modes.
+  - [x] Hide `[phase:apply]` on sticky write Auto Pilot prompts.
+  - [x] Update unsettled-plan and high-risk approval copy to state-first wording.
+  - [x] Replace legacy `/mode apply` phase recovery guidance with Auto Pilot re-entry guidance.
+  - [x] Update AGENTS, architecture, user guide, `codrax.yaml.example`, and this design ledger.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./cmd -run 'TestResolveUserMode'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/repl -run 'TestPromptStickyTag_StateCombinations|TestHandlePhaseCmd_ShowOrphanRecoveryHint|TestModeWrite_RefusesWhenUnsettledExists|TestHelpLines_CoversEveryCommand|TestSlashCommand_HelpBothVariantsNonEmpty'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/types -run 'TestPipelineMode|TestWriteApproval|TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan|TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive'` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./cmd ./internal/repl ./internal/orchestrator ./internal/types` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...` PASS.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
+  - `git diff --check` PASS.
+- Progress:
+  - Implementation commit pending.

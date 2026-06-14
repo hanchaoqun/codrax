@@ -760,6 +760,7 @@ func TestPromptStickyTag_StateCombinations(t *testing.T) {
 		{"operation task", "operation", "read", "", false, false, false, false, nil, "[task:op]"},
 		{"data task", "data", "read", "", false, false, false, false, nil, "[task:data]"},
 		{"write task hides internal plan phase", "write", "plan", "", false, false, false, false, nil, "[task:write]"},
+		{"write task hides internal apply phase", "write", "apply", "", false, false, false, false, nil, "[task:write]"},
 		{"legacy plan phase only", "auto", "plan", "", false, false, false, false, nil, "[phase:plan]"},
 		{"log only", "auto", "read", "", true, false, false, false, nil, "[log]"},
 		{"trace only", "auto", "read", "", false, true, false, false, nil, "[trace]"},
@@ -770,7 +771,7 @@ func TestPromptStickyTag_StateCombinations(t *testing.T) {
 		{"case-insensitive auto read", "AUTO", "READ", "", false, false, false, false, nil, ""},
 		{"git branch alone", "auto", "read", "main", false, false, false, false, nil, "[git:main]"},
 		{"git branch + write task", "write", "plan", "feature-x", false, false, false, false, nil, "[git:feature-x][task:write]"},
-		{"git detached + everything", "write", "apply", "detached@abc1234", true, true, true, true, nil, "[git:detached@abc1234][task:write][phase:apply][log][trace][plan][mem!]"},
+		{"git detached + everything", "write", "apply", "detached@abc1234", true, true, true, true, nil, "[git:detached@abc1234][task:write][log][trace][plan][mem!]"},
 		// Phase 3 multi-repo focus tag (2026-05-08).
 		{"single focus only", "auto", "read", "", false, false, false, false, []string{"repo-go"}, "[focus:repo-go]"},
 		{"single focus + git + write", "write", "plan", "main", false, false, false, false, []string{"repo-go"}, "[git:main][focus:repo-go][task:write]"},

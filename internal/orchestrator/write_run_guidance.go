@@ -44,16 +44,16 @@ func blockedReasonKnobHint(reasonCode string, zh bool) string {
 			en: "Policy denied this plan (critical risk). Adjust the request to avoid the denied paths, or regenerate the plan.",
 		},
 		"pending_approval": {
-			zh: "等待人工批准:REPL 中 /plan show 审阅后 /approve 执行,或 /reject [原因] 退回。",
-			en: "Awaiting manual approval: review with /plan show, then /approve to execute or /reject [reason].",
+			zh: "等待人工批准:当前 batch 已暂停,状态卡会展示风险、fingerprint 和 diff；批准或拒绝当前 batch 后继续。",
+			en: "Awaiting manual approval: the current batch is paused; the status card shows risk, fingerprint, and diff. Approve or reject this batch to continue.",
 		},
 		"apply_not_allowed_in_plan_mode": {
-			zh: "当前为 plan 模式:用 --write-phase=apply(或 REPL /mode apply 后 /approve)执行已生成的 plan。",
-			en: "Plan mode only plans: run with --write-phase=apply (or /mode apply then /approve) to execute the generated plan.",
+			zh: "当前为显式 plan 模式:本次只落盘计划。要自动执行新目标,直接使用写模式 Auto Pilot；已保存 plan 可用 --write-phase=apply 作为高级入口。",
+			en: "Explicit plan mode only writes the plan artifact. For a new goal, use write Auto Pilot directly; saved plans can still use --write-phase=apply as an advanced entry.",
 		},
 		"verify_not_allowed_in_plan_mode": {
-			zh: "当前为 plan 模式:用 --write-phase=verify 验证既有 plan。",
-			en: "Plan mode only plans: use --write-phase=verify to verify an existing plan.",
+			zh: "当前为显式 plan 模式:本次只落盘计划。验证既有 plan 时使用 --write-phase=verify 高级入口。",
+			en: "Explicit plan mode only writes the plan artifact. Use the --write-phase=verify advanced entry to verify an existing plan.",
 		},
 	}
 	h, ok := table[reasonCode]

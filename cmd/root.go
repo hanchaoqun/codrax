@@ -197,11 +197,10 @@ var (
 	//   --mode         — auto | code | operation | data | write.
 	//                    Empty/default = auto classifier.
 	//   --write-phase  — plan | apply | verify. Only valid with
-	//                    --mode=write; default plan.
-	//   --auto-apply  — required when --mode=write --write-phase=apply
-	//                   is used in single-shot (i.e. with --request). Acts as explicit
-	//                   approval of the resulting ChangePlan without
-	//                   an interactive prompt.
+	//                    --mode=write; default apply (Auto Pilot).
+	//   --auto-apply  — compatibility no-op for older scripts. Safety
+	//                   is now owned by the typed allow/ask/deny
+	//                   approval policy, not by this flag.
 	//   --plan-out    — plan-mode output file path. When set, the
 	//                   ChangePlan JSON writes here instead of the
 	//                   default .codrax/plans/<id>.json.
@@ -216,9 +215,9 @@ var (
 	flagDataResume string
 	// flagAutoInitRepo authorizes the orchestrator to run `git init`
 	// + an empty initial commit when the target repo is bare or has
-	// no HEAD. Symmetric with --auto-apply: the user must explicitly
-	// opt in for single-shot Runs that need scaffolding. yaml
-	// equivalent: write_auto_init_repo. REPL falls back to an
+	// no HEAD. This remains an explicit opt-in because it mutates repo
+	// scaffolding before ordinary write policy can reason about files.
+	// yaml equivalent: write_auto_init_repo. REPL falls back to an
 	// interactive y/N prompt when neither flag nor yaml is set.
 	flagAutoInitRepo bool
 
@@ -569,8 +568,8 @@ func init() {
 	// `/mode data` / `--mode operation` can bypass the classifier
 	// without colliding with internal plan/apply/verify phases.
 	f.StringVar(&flagMode, "mode", "auto", "task mode: auto|code|operation|data|write")
-	f.StringVar(&flagWritePhase, "write-phase", "plan", "write mode phase: plan|apply|verify (only valid with --mode=write)")
-	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=write --write-phase=apply in single-shot)")
+	f.StringVar(&flagWritePhase, "write-phase", "apply", "write mode phase: apply|plan|verify (only valid with --mode=write; default Auto Pilot apply)")
+	f.BoolVar(&flagAutoApply, "auto-apply", false, "compatibility flag for older scripts; typed allow/ask/deny policy controls write approval")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: optional path to an existing ChangePlan JSON seed")
 	f.StringVar(&flagDataResume, "data-resume", "", "data mode: opt-in resume from a prior .codrax/data-audit/*-checkpoint-*.json workflow checkpoint")
@@ -979,15 +978,20 @@ type modeResolutionInputs struct {
 	CLIWritePhasePassed bool
 	// HasRequest indicates single-shot invocation (flagRequest or
 	// positional arg is non-empty). REPL mode passes false, and
-	// the L4 single-shot-apply-needs-auto-apply validation is
-	// skipped because REPL's /approve command handles interactive
-	// approval.
+	// CLI no longer requires --auto-apply for ModeApply: --mode=write
+	// is the explicit write opt-in, and the typed allow/ask/deny
+	// policy decides whether the current plan may proceed.
 	HasRequest bool
-	// AutoApply is --auto-apply.
+	// AutoApply is --auto-apply. Kept for compatibility tests and
+	// telemetry; approval enforcement no longer reads it.
 	AutoApply bool
 	// PlanFile is --plan-file (pre-absolutization — validation
 	// only cares whether it is empty).
 	PlanFile string
+	// PlanOut is --plan-out. When supplied without an explicit
+	// --write-phase, it selects ModePlan because the user asked for a
+	// plan artifact instead of Auto Pilot execution.
+	PlanOut string
 	// DataResume is --data-resume. It is only meaningful for explicit
 	// --mode=data single-shot recovery.
 	DataResume string
@@ -1002,7 +1006,8 @@ type modeResolutionInputs struct {
 //	code      — force the normal code-analysis pipeline
 //	operation — force the command/operation pipeline
 //	data      — force the data-processing pipeline
-//	write     — force write workflow; --write-phase selects plan/apply/verify
+//	write     — force write workflow; defaults to Auto Pilot apply,
+//	            --write-phase selects plan/apply/verify when needed
 //
 // This function deliberately does not infer intent from user prose. It consumes
 // only explicit CLI flags and yaml write_enabled.
@@ -1037,18 +1042,25 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 		return userMode, types.ModeRead, nil
 	}
 
-	phase := types.PipelineMode(strings.ToLower(strings.TrimSpace(in.CLIWritePhase)))
+	phaseText := strings.ToLower(strings.TrimSpace(in.CLIWritePhase))
+	if !in.CLIWritePhasePassed && strings.TrimSpace(in.PlanOut) != "" {
+		phaseText = string(types.ModePlan)
+	}
+	phase := types.PipelineMode(phaseText)
 	if phase == "" || phase == types.ModeRead {
-		phase = types.ModePlan
+		phase = types.ModeApply
 	}
 	if phase != types.ModePlan && phase != types.ModeApply && phase != types.ModeVerify {
 		return "", "", fmt.Errorf("unknown write phase %q (must be one of: plan, apply, verify)", string(phase))
 	}
+	if strings.TrimSpace(in.PlanOut) != "" && phase != types.ModePlan {
+		return "", "", fmt.Errorf("--plan-out is only valid with --mode=write --write-phase=plan")
+	}
+	if strings.TrimSpace(in.PlanFile) != "" && phase == types.ModePlan {
+		return "", "", fmt.Errorf("--plan-file is only valid with --mode=write --write-phase=apply|verify")
+	}
 	if !yamlEnabled {
 		return "", "", fmt.Errorf("write mode disabled by configuration: codrax.yaml sets write_enabled: false (the kill switch); remove it or set true to use --mode=write")
-	}
-	if in.HasRequest && phase == types.ModeApply && !in.AutoApply {
-		return "", "", fmt.Errorf("--mode=write --write-phase=apply in single-shot (--request) requires --auto-apply for approval")
 	}
 	return userMode, phase, nil
 }
@@ -3655,6 +3667,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		HasRequest:          hasRequest,
 		AutoApply:           flagAutoApply,
 		PlanFile:            flagPlanFile,
+		PlanOut:             flagPlanOut,
 		DataResume:          flagDataResume,
 	}
 	if rs != nil {

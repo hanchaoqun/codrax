@@ -72,8 +72,8 @@ func (m PipelineMode) IsValid() bool {
 
 // IsWrite reports whether m activates any write-phase stage. Used
 // by the orchestrator to gate worktree creation, by the CLI layer
-// to require --auto-apply in single-shot mode, and by the skill
-// registry to pick the write-mode skill set when wiring agents.
+// to route explicit write invocations, and by the skill registry to
+// pick the write-mode skill set when wiring agents.
 //
 // ModeRead and the empty zero value both return false — only ModePlan
 // is borderline: it produces a ChangePlan artifact but does not
