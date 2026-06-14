@@ -2936,10 +2936,45 @@ Executable task list:
   query is already accepted.
 - [x] B39-T4: Add prompt-builder regression coverage proving typed trace facts
   remain visible while stale perf residue is not rendered.
-- [ ] B39-T5: Run focused/full validation, rebuild, commit/push, then rerun
+- [x] B39-T5: Run focused/full validation, rebuild, commit/push, then rerun
   the representative eval pair two at a time.
 
 Batch 39 verification before full run:
 
 - `go test ./internal/types -run 'TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists|TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRuntimeRecords'`
 - `go test ./internal/context -run 'TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery|TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative|TestBuildPromptContext_FinalizerTypedSupportSuppressesCompetingSemanticSections'`
+- `go test ./...`
+- `make`
+
+Post-Batch-39 eval audit:
+
+- Results root:
+  `eval/results/eval-gap-20260613-post-1f9d64ae-b1`
+- Parallel cases: `data_json_strict_ids` +
+  `trace_query_state_churn_window_stats`.
+- `data_json_strict_ids`: PASS in 39s. Terminal artifact:
+  `.codrax/data-audit/20260613-191319-005164-3137-terminal.json`,
+  `status=complete`, `data_rounds=2`, `data_repair_rounds=1`,
+  `data_answer_len=19`, answer `{"ids":["u1","u3"]}`.
+- `trace_query_state_churn_window_stats`: PASS in 165s.
+  `tool_trace_query=2`, `tool_read_file=0`, `tool_repo_map=0`,
+  `tool_list_files=0`, `unavailable_tool_attempts=0`,
+  `answer_contract_violations=0`, `max_context_window_pct=18`.
+- Manual trace audit: the final answer no longer repeats the stale
+  `trace_query::window_stats` availability caveat. It keeps the requested
+  state_churn dimensions, the rival-30 comparison, next-step guidance, and
+  trace timestamp/priority semantics. The finalizer authored three blocks and
+  contract validation reported zero violations.
+- Runtime/performance audit: startup performed an incremental repo index
+  refresh (`1761` files, `5` changed) in roughly 515ms, but the model did not
+  call source navigation tools for the trace answer. `trace_query` itself built
+  the trace index in sub-millisecond time for the 23-line fixture and stored a
+  payload reference. The process soft heap limit was 102.40GiB
+  (host-fraction from 128.00GiB); trace_query debug logs reported
+  heap_alloc around 300MiB and heap_sys around 590MiB during the view.
+- Residual non-blocking observations: the trace run hit three transient
+  upstream stream EOFs; checkpoint continuation preserved durable progress and
+  avoided broad source fallback. The data run still needed one repair because
+  the first generated script attempted to import a built-in helper as a module,
+  but the unified repair layer corrected it and the final strict JSON was
+  clean.
