@@ -166,5 +166,13 @@ func runnerPlanFromSurfaceCandidate(repoRoot string, cand types.TestSurfaceCandi
 		Manifest:  cand.Source,
 		Priority:  cand.Priority,
 		Framework: cand.Framework,
+		Suite:     surfaceCandidateSuite(cand),
 	}
+}
+
+func surfaceCandidateSuite(cand types.TestSurfaceCandidate) string {
+	if cand.Runner == "make" {
+		return strings.TrimSpace(cand.MakeTarget)
+	}
+	return ""
 }

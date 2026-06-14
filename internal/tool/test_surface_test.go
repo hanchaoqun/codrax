@@ -193,6 +193,54 @@ func TestRunTests_ZeroTestChoiceEscalatesToSurfaceCandidate(t *testing.T) {
 	}
 }
 
+func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "pom.xml", "<project/>\n")
+	writeSurfaceFile(t, root, "Makefile", "check:\n\t@echo surface ok\n")
+	writeSurfaceFile(t, root, "src/test/java/org/example/ExampleTest.java", "class ExampleTest {}\n")
+	fakeBin := t.TempDir()
+	fakeMvn := filepath.Join(fakeBin, "mvn")
+	if err := os.WriteFile(fakeMvn, []byte("#!/bin/sh\necho mvn missing >&2\nexit 127\n"), 0o755); err != nil {
+		t.Fatalf("write fake mvn: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	mu := types.NewMutableState("escalate-suite")
+	ctx := &types.BusContext{Mutable: mu, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "java",
+		"suite":  "org.example.ExampleTest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("make check passes, so runner-missing escalation must pass: %+v report=%+v", result, mu.ChangeReport())
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("verify run must install ChangeReport")
+	}
+	var sawJavaMissing, sawMakeCheck bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "java" && cmd.Outcome == "runner_missing" && cmd.Source == "llm_choice" {
+			sawJavaMissing = true
+		}
+		if cmd.Runner == "make" && cmd.Source == "runner_missing_escalation" {
+			if cmd.Command != "make check" {
+				t.Fatalf("surface make candidate must not inherit LLM suite; command=%q", cmd.Command)
+			}
+			sawMakeCheck = true
+		}
+	}
+	if !sawJavaMissing || !sawMakeCheck {
+		t.Fatalf("executed commands should show java missing then make check escalation: %+v", report.ExecutedCommands)
+	}
+}
+
 // A failing escalated candidate must fail the merged verdict — escalation is
 // real verification, not a pass-rescue.
 func TestRunTests_EscalatedCandidateFailureFailsVerdict(t *testing.T) {
@@ -254,7 +302,6 @@ func TestExtractExitCode_SuccessIsZero(t *testing.T) {
 		t.Fatalf("nil error must report exit 0, got %d", got)
 	}
 }
-
 
 // A bare Python directory (no manifest at all) must still produce a
 // runnable surface candidate from test-file conventions, and a pytest

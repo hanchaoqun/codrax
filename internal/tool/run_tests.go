@@ -55,6 +55,7 @@ type runnerPlan struct {
 	Manifest  string
 	Priority  int
 	Framework string
+	Suite     string
 }
 
 type runnerManifest struct {
@@ -295,6 +296,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if rej != "" {
 			return errResult(t.Name(), rej), nil
 		}
+		choice.Suite = strings.TrimSpace(p.Suite)
 		plans = []runnerPlan{choice}
 		planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = "llm_choice"
 		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
@@ -463,7 +465,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// excludes gitignored paths (`.venv/` typically is), so the
 		// venv lives at the user's main repo root, not under the
 		// worktree. pythonInterpreter probes both roots in order.
-		cmdStr, extraFile := buildRunCommandForPlan(plan, p.Suite, ctx.MainRepoRoot)
+		cmdStr, extraFile := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
 
 		// Same root cause as the python venv lookup — but for runners
 		// where the dep is consumed by name from cwd (Node's

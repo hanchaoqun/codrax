@@ -975,3 +975,12 @@ Target design:
 - [x] Add recovery-ref runner test where `POST_APPLY_FILE` is unset.
 - [x] Verification: `bash -n eval/run.sh`; `bash -n eval/runner_lib.sh`; `bash -n eval/runner_lib_test.sh`; `bash eval/runner_lib_test.sh`.
 - Re-run `github_issue_commons_lang_random_ascii` after this harness fix.
+
+#### Batch 17: Verify Surface Suite Isolation
+
+- Evidence: `commons-lang` run `eval/results/github_issue_commons_lang_random_ascii-20260614-114008` produced a failed post-apply report where `test_surface.selected_id=make@.` and `command=make check`, but executed commands were `mvn -B -q test` followed by `make org.apache.commons.lang3.RandomStringUtilsTest`.
+- Generalized gap: `run_tests` queued TestSurface escalation plans, but command construction reused the original LLM-supplied suite for every queued runner. A Java class-name suite leaked into the make candidate and bypassed the typed `MakeTarget=check`.
+- [x] Move suite ownership into each `runnerPlan`: LLM-selected plans carry `p.Suite`; TestSurface escalation plans carry their own typed target, or empty suite when no target applies.
+- [x] Execute commands from `plan.Suite`, not the global request suite.
+- [x] Add regression test where fake `mvn` is missing, make `check` exists, and suite must not leak into the make candidate.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestRunTests_(RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate|ZeroTestChoiceEscalatesToSurfaceCandidate|EscalatedCandidateFailureFailsVerdict|AutoDetectDoesNotEscalate)|TestBuildTestSurface|TestNextTestSurfaceEscalation'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/repl`.
