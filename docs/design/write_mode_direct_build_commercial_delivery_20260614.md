@@ -807,7 +807,85 @@ Target design:
 - Worktree/report persistence should be reported from durable typed refs, not grep over `worktree_path` in a plan snapshot.
 - Planner no-plan after "already applied" state should become a typed no-op/verify decision when the active worktree satisfies the plan, not a generic planner failure.
 
-### 19.3 Addendum Delivery Tasks
+### 19.3 Follow-Up Sweep After Batches 8-10
+
+Date: 2026-06-14
+
+Command:
+
+```text
+CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_libgit2_foreach_worktree.case eval/cases/github_issue_gson_lazy_number.case eval/cases/github_issue_dateutil_relativedelta_float.case eval/cases/github_issue_dayjs_duration_nan.case eval/cases/github_issue_zod_prefault.case eval/cases/github_issue_nlohmann_long_double.case eval/cases/github_issue_fmt_tm_year_overflow.case eval/cases/github_issue_commons_lang_random_ascii.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_github_issue_apply_20260614_after_b8_b10_summary.md bash eval/convergence_audit.sh
+```
+
+Aggregate result:
+
+- 7 PASS, 1 FAIL.
+- Recovered former failures:
+  - `libgit2`: PASS after typed verify/oracle separation.
+  - `gson`: PASS after structured edit diagnostics and safer insertion kinds.
+  - `zod`: PASS after verify infra retry keeps the applied worktree state.
+- Remaining fail:
+  - `commons-lang`: FAIL after 559s with `worktree_discarded_or_missing write_report_missing no_regex_match:0x(4e00|370|400)`.
+
+Typed evidence for the remaining fail:
+
+- First plan `plan-1781405976909328000-66803` applied production guards but used `0x80` in the letter regression; authoritative `post_apply_verify` report failed with `missing non-ASCII letter regression test`.
+- Later replan produced and applied `plan-1781406268118757000-67879`, then planner dry-run `run_tests(dry_run=true)` passed against the current worktree.
+- The planner correctly concluded the current worktree satisfied the verification script, but could not emit a typed "no new code plan, reverify existing applied worktree" signal. The stage ended with `no change plan was produced this round`, so the final plan/report refs became inconsistent.
+
+Generalized gap:
+
+- Replan is currently overloaded: it means either "produce a new ChangePlan" or "inspect the current applied worktree and discover the failure is already resolved." The second case needs a typed scheduler lane, not a planner prose conclusion.
+
+Target design:
+
+- Add a scheduler-only `planner_probe_passed_existing_worktree` transition:
+  - Input: latest `PlanStageProbeReports` item with `channel=planner_probe` and `passed=true`.
+  - Guard: active batch has typed verify-failure handoff and a prior applied plan with applied commit/worktree/change apply evidence.
+  - Action: restore the prior applied plan into `Mutable.ChangePlan`, set batch state to `verifying`, and require a post-apply verify report before finish.
+  - Non-action: do not mark the planner probe itself as authoritative success.
+
+### 19.4 Recovery Ref Eval Source Gap
+
+Evidence:
+
+- After adding the replan/no-op scheduler lane, `commons-lang` run `eval/results/github_issue_commons_lang_random_ascii-20260614-111054` produced an authoritative current-plan report:
+  - `run-1.write-apply.json`: `verify_authoritative=true`, `report_channel=post_apply_verify`, `report_passed=true`, `report_plan_id=plan-1781406980706382000-79709`.
+  - `run-1.plan.json`: `applied_commit_sha=66704d51552af6cc8b11d6f6f3b310be93ee0147`, `worktree_path=/Users/han/opt/codrax/.codrax/worktrees/trace-1781406816621107000-79709`.
+  - `run-1.repo` preserved `refs/codrax/applied/plan-1781406980706382000-79709`.
+- The eval still failed with `worktree_discarded_or_missing no_regex_match:0x(4e00|370|400)` because the harness read content from a missing live worktree or scratch repo instead of materializing the durable applied commit.
+
+Generalized gap:
+
+- Eval oracle assertions must use durable write artifacts after L5 cleanup. A successful write-mode apply may discard the live worktree by design; content assertions should read the recovery ref or applied commit, not require a live directory.
+
+Target design:
+
+- `eval/run.sh` uses `worktree_path` when available.
+- If worktree is gone, `eval/runner_lib.sh` materializes `applied_commit_sha` or `refs/codrax/applied/<plan-id>` into `run-N.applied-tree`.
+- POST_APPLY_FILE and content regex assertions run against that materialized source.
+- Missing worktree is a failure only when neither live worktree nor durable applied commit is available.
+
+### 19.5 Pending Approval / Auto-Apply Eval Gap
+
+Evidence:
+
+- `commons-lang` run `eval/results/github_issue_commons_lang_random_ascii-20260614-111952` failed with `worktree_discarded_or_missing write_report_missing no_regex_match:0x(4e00|370|400)`.
+- Logs show the workflow blocked before apply with: `write workflow blocked: pending_approval: change_plan 状态为 pending_approval，需要先获得批准才能发出 apply_plan`.
+- The plan changed production and test files and remained pending approval in a non-interactive eval apply run, so no worktree/report was produced.
+
+Generalized gap:
+
+- Non-interactive `MODE=apply --auto-apply` needs a typed distinction between real high-risk `ask` and low/medium plans whose status label still says `pending_approval` before the apply-pre hook writes the auto approval record. Otherwise eval/CLI users see a blocked write for a plan the risk policy should auto-execute.
+
+Target design:
+
+- Normalize batch/plan render state through approval record action, not raw `ChangePlan.Status`.
+- The controller should see `approved_auto` or `auto_executable` for low/medium plans after apply-pre risk assessment.
+- Non-interactive ask should fail-loud only for typed `action=ask`, not for a stale pending label.
+- This must be solved through typed approval artifacts and plan fingerprint checks, not user intent keywords or model prose.
+
+### 19.6 Addendum Delivery Tasks
 
 #### Batch 7: External Eval Evidence Ledger
 
@@ -853,3 +931,26 @@ Target design:
 - Add at least one Rust-shaped external issue fixture using an upstream PR with a small localized fix, with a Makefile/Python oracle so local Rust toolchain absence does not block eval.
 - Keep all fixtures minimal reproductions; do not vendor external repos or rely on network during eval.
 - Run the external issue sweep after Batches 8-10 and update this ledger with pass/fail deltas.
+
+#### Batch 13: Replan Probe Pass Restores Existing Applied Plan
+
+- [x] Add scheduler typed transition for `planner_probe_passed_existing_worktree`.
+- [x] Trigger only from typed planner probe reports, verify-failure handoff, and applied-plan evidence.
+- [x] Restore the prior applied plan and move the batch back to `verifying`; do not treat planner probe as authoritative success.
+- [x] Tests: `TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify`.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify|TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry|TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`.
+
+#### Batch 14: Eval Recovery Ref Materialization
+
+- [x] Add `eval_materialize_write_apply_source` to materialize `applied_commit_sha` or `refs/codrax/applied/<plan-id>` when the live worktree was cleaned up.
+- [x] Route POST_APPLY_FILE and content regex checks through the materialized source.
+- [x] Keep authoritative typed report checks unchanged.
+- [x] Tests: fake write-mode eval where worktree is gone but recovery ref exists.
+- [x] Verification: `bash -n eval/run.sh`; `bash -n eval/runner_lib.sh`; `bash -n eval/runner_lib_test.sh`; `bash eval/runner_lib_test.sh`.
+
+#### Batch 15: Pending Approval State Normalization
+
+- Normalize controller-facing plan state through typed approval records instead of raw `pending_approval` status.
+- Add tests where low/medium auto-safe plans do not block non-interactive `--auto-apply`.
+- Add tests where true high-risk `ask` still blocks and remains resumable via `/workflow show/list/resume` + `/approve`.
+- Re-run `github_issue_commons_lang_random_ascii` and then the 8-case external issue sweep.

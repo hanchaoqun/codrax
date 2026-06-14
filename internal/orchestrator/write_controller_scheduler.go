@@ -22,6 +22,8 @@ const (
 	defaultWriteWorkflowMaxExplorationRounds = 2
 )
 
+var errPlannerProbePassedExistingWorktree = errors.New("planner probe passed existing applied worktree")
+
 // runWriteControllerWorkflow is the canonical outer DAG for write mode. The
 // scheduler switches only on schema-validated controller actions; model prose is
 // never interpreted as routing logic.
@@ -158,6 +160,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if plan != nil {
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
+			}
+			if errors.Is(innerErr, errPlannerProbePassedExistingWorktree) {
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
+				appendControllerProgress(&run, run.ActiveBatchID, "planner_probe_passed_existing_worktree", "planner dry-run probe passed after replan without a new ChangePlan; run post-apply verify on the current worktree")
+				o.mirrorActivePlanToImportFile(importedPlanMirror)
+				o.syncCurrentWriteContextPackToRun(&run)
+				o.persistWriteWorkflowRun(&run)
+				o.busCtx.TaskState.LastError = ""
+				continue
 			}
 			if innerErr != nil {
 				lastInnerErr = innerErr
@@ -558,6 +569,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	noPlanRetried := false
 	lastStallSignature := ""
 	for {
+		priorPlan := o.busCtx.Mutable.ChangePlan()
 		o.prepareControllerPlanningState()
 		_, err := o.runControllerWriteStage(types.StagePlan, stepsUsed)
 		if err != nil && llm.IsStreamLevelRetryable(err) && transientUsed < o.transientRetryBudget {
@@ -576,6 +588,12 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		}
 		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
 			return nil
+		}
+		if plannerProbePassedExistingAppliedWorktree(o.busCtx.Mutable, priorPlan) {
+			o.busCtx.Mutable.SetChangePlan(priorPlan)
+			o.busCtx.TaskState.LastError = ""
+			logging.Info("[orchestrator] controller replan produced no plan but planner dry-run probe passed; restoring plan %s for post-apply verify", priorPlan.ID)
+			return errPlannerProbePassedExistingWorktree
 		}
 		// A planning round that ends with no ChangePlan installed is not
 		// terminal on its first occurrence while typed verify-failure
@@ -602,6 +620,42 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		}
 		return errors.New("write controller plan_batch produced no ChangePlan")
 	}
+}
+
+func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan *types.ChangePlan) bool {
+	if mu == nil || priorPlan == nil {
+		return false
+	}
+	if mu.VerifyFailureHandoff() == nil {
+		return false
+	}
+	if !changePlanHasAppliedWork(priorPlan) {
+		return false
+	}
+	probes := mu.PlanStageProbeReports()
+	for i := len(probes) - 1; i >= 0; i-- {
+		report := probes[i]
+		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
+			continue
+		}
+		return report.Passed
+	}
+	return false
+}
+
+func changePlanHasAppliedWork(plan *types.ChangePlan) bool {
+	if plan == nil {
+		return false
+	}
+	if strings.TrimSpace(plan.AppliedCommitSHA) != "" || strings.TrimSpace(plan.WorktreePath) != "" {
+		return true
+	}
+	for _, change := range plan.Changes {
+		if change.Apply != nil && strings.TrimSpace(change.Apply.Status) == "applied" {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *Orchestrator) runControllerApplyPlan(stepsUsed *int) error {

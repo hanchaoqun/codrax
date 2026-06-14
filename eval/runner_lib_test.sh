@@ -380,13 +380,26 @@ JSON
 fi
 if [[ -n "$plan_file" ]]; then
   plan_dir="$(dirname "$plan_file")"
-  worktree="$plan_dir/fake-worktree"
-  mkdir -p "$worktree"
-  sed 's/retrun/return/' "$repo/main.py" >"$worktree/main.py"
+  if [[ "${FAKE_WRITE_CLEANUP:-0}" == "1" ]]; then
+    worktree="$plan_dir/fake-worktree-discarded"
+    sed 's/retrun/return/' "$repo/main.py" >"$repo/main.py.tmp"
+    mv "$repo/main.py.tmp" "$repo/main.py"
+    git -C "$repo" -c user.email=eval@codrax -c user.name=eval add main.py
+    git -C "$repo" -c user.email=eval@codrax -c user.name=eval commit -q -m "fake applied"
+    applied_sha="$(git -C "$repo" rev-parse HEAD)"
+    git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-apply "$applied_sha"
+    git -C "$repo" reset --hard -q HEAD~1
+  else
+    worktree="$plan_dir/fake-worktree"
+    mkdir -p "$worktree"
+    sed 's/retrun/return/' "$repo/main.py" >"$worktree/main.py"
+    applied_sha=""
+  fi
   cat >"$plan_file" <<JSON
 {
   "id": "plan-fake-write-apply",
   "status": "applied",
+  "applied_commit_sha": "$applied_sha",
   "worktree_path": "$worktree",
   "changes": [
     {
@@ -430,6 +443,25 @@ if [[ -z "$write_pass_dir" ]]; then
 fi
 assert_eq "$(cat "$write_pass_dir/run-1.verdict")" "PASS" "write apply report pass verdict"
 assert_eq "$(eval_json_top_bool_field "$write_pass_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply result authoritative in run.sh"
+
+write_ref_case="$tmp/runner_write_apply_report_ref.case"
+cat >"$write_ref_case" <<'CASE'
+ID=runner_write_apply_report_ref
+NAME="runner write apply report recovery ref"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_CLEANUP=1 CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_ref_case" 1 >/dev/null 2>"$tmp/runner-write-ref.err"
+write_ref_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_report_ref-*' | sort | tail -1)"
+if [[ -z "$write_ref_dir" ]]; then
+  fail "eval/run.sh did not write write-mode recovery-ref result dir"
+fi
+assert_eq "$(cat "$write_ref_dir/run-1.verdict")" "PASS" "write apply report pass should use recovery ref when worktree is gone"
+assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" worktree_exists)" "false" "write apply result records discarded worktree"
+assert_eq "$(eval_json_top_bool_field "$write_ref_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply recovery-ref result authoritative"
 
 write_missing_case="$tmp/runner_write_apply_report_missing.case"
 cat >"$write_missing_case" <<'CASE'

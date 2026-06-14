@@ -863,17 +863,17 @@ run_one() {
       # eval/fixtures/write_enabled.yaml sets).
       #
       # Strategy:
-      #   1. Read worktree_path from plan.json.
-      #   2. If present + dir exists, that's the apply source of truth.
-      #   3. Fall back to scratch if worktree missing (surfaces the
-      #      keep-on-success misconfiguration as post_apply_file_missing,
-      #      not a silent false-pass against pre-apply fixture bytes).
-      apply_source="$scratch"
-      if [[ -f "$plan" ]]; then
-        wt=$(grep -oE '"worktree_path":[[:space:]]*"[^"]+"' "$plan" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/')
-        if [[ -n "$wt" && -d "$wt" ]]; then
-          apply_source="$wt"
-        else
+      #   1. Use the live worktree_path when it still exists.
+      #   2. If L5 cleanup discarded it, materialize the durable
+      #      refs/codrax/applied/<plan-id> commit (or applied_commit_sha)
+      #      into an eval-local tree and run oracle checks there.
+      #   3. Only fall back to scratch as a last resort, and record the
+      #      missing durable apply source as a verdict reason so pre-apply
+      #      fixture bytes cannot silently satisfy post-apply assertions.
+      apply_source="$(eval_materialize_write_apply_source "$plan" "$OUTDIR" "$scratch" "$i" || true)"
+      if [[ -z "$apply_source" ]]; then
+        apply_source="$scratch"
+        if [[ -f "$plan" ]]; then
           extra_reasons+=("worktree_discarded_or_missing")
         fi
       fi
@@ -1113,7 +1113,7 @@ PYEOF
           plan_path="$OUTDIR/run-$i.plan.json"
           src=""
           if [[ -f "$plan_path" ]]; then
-            wt=$(grep -oE '"worktree_path":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/')
+            wt="$(eval_materialize_write_apply_source "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" "$i" || true)"
             if [[ -n "$wt" && -f "$wt/$POST_APPLY_FILE" ]]; then
               src="$wt/$POST_APPLY_FILE"
             fi

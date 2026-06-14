@@ -1210,6 +1210,125 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	}
 }
 
+func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("probe pass no-op replan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair already applied"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, ReasonCode: "initial", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "initial"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify_existing"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+
+	planCalls := 0
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		*stepsUsed++
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:          "plan-1",
+					Status:      types.PlanStatusPending,
+					Summary:     "first repair",
+					TargetPaths: []string{"src/Fix.java"},
+					Changes: []types.FileChange{{
+						Path:      "src/Fix.java",
+						Kind:      "modify",
+						Rationale: "repair",
+					}},
+				})
+				return &agent.StageOutput{}, nil
+			}
+			mu.AppendPlanStageProbeReport(&types.ChangeReport{
+				PlanID:  "plan-1",
+				Channel: types.ChangeReportChannelPlannerProbe,
+				Passed:  true,
+			})
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		case types.StageApply:
+			applyCalls++
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("apply stage needs active plan")
+			}
+			plan.AppliedCommitSHA = "sha-applied"
+			plan.WorktreePath = t.TempDir()
+			for i := range plan.Changes {
+				plan.Changes[i].Apply = &types.FileChangeApplyRecord{Status: "applied"}
+			}
+			mu.SetChangePlan(plan)
+			return &agent.StageOutput{}, nil
+		case types.StageVerify:
+			verifyCalls++
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("verify stage needs restored active plan")
+			}
+			if plan.ID != "plan-1" {
+				t.Fatalf("verify should run against restored applied plan, got %q", plan.ID)
+			}
+			if verifyCalls == 1 {
+				mu.SetChangeReport(&types.ChangeReport{
+					PlanID:         plan.ID,
+					Channel:        types.ChangeReportChannelPostApplyVerify,
+					Passed:         false,
+					FailureKind:    types.FailureKindTestsFailed,
+					FailureSummary: "missing regression assertion",
+					TestResults:    []types.TestResult{{AssertionID: "make-test", Passed: false, FailureDetail: "missing regression assertion"}},
+				})
+				return &agent.StageOutput{}, nil
+			}
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:  plan.ID,
+				Channel: types.ChangeReportChannelPostApplyVerify,
+				Passed:  true,
+			})
+			return &agent.StageOutput{}, nil
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	if applyCalls != 1 {
+		t.Fatalf("apply calls = %d, want 1; replan probe pass must not re-apply", applyCalls)
+	}
+	if verifyCalls != 2 {
+		t.Fatalf("verify calls = %d, want 2", verifyCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after restored-plan verify, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "planner_probe_passed_existing_worktree") {
+		t.Fatalf("workflow progress should record typed probe-pass recovery: %+v", store.last.ProgressLedger)
+	}
+	if got := mu.VerifyFailureHandoff(); got != nil {
+		t.Fatalf("green verify should clear failure handoff, got %+v", got)
+	}
+}
+
 func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("no plan terminal")

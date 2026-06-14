@@ -163,6 +163,42 @@ eval_find_write_report_path() {
   return 1
 }
 
+eval_materialize_write_apply_source() {
+  local plan_path="$1"
+  local outdir="$2"
+  local scratch="$3"
+  local run_id="$4"
+  local worktree="" plan_id="" applied_sha="" commit="" dest=""
+  if [[ -f "$plan_path" ]]; then
+    worktree="$(eval_json_top_string_field "$plan_path" worktree_path || true)"
+    plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
+    applied_sha="$(eval_json_top_string_field "$plan_path" applied_commit_sha || true)"
+  fi
+  if [[ -n "$worktree" && -d "$worktree" ]]; then
+    printf '%s\n' "$worktree"
+    return 0
+  fi
+  if [[ -z "$scratch" || ! -d "$scratch/.git" || -z "$plan_id" ]]; then
+    return 1
+  fi
+  if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
+    commit="$applied_sha"
+  elif git -C "$scratch" cat-file -e "refs/codrax/applied/${plan_id}^{commit}" >/dev/null 2>&1; then
+    commit="refs/codrax/applied/${plan_id}"
+  else
+    return 1
+  fi
+  dest="$outdir/run-${run_id}.applied-tree"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  if git -C "$scratch" archive "$commit" | tar -x -C "$dest"; then
+    printf '%s\n' "$dest"
+    return 0
+  fi
+  rm -rf "$dest"
+  return 1
+}
+
 eval_write_apply_result_record() {
   local result_file="$1"
   local plan_path="$2"
