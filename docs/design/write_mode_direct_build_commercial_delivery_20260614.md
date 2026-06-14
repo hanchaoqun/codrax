@@ -1329,3 +1329,55 @@ Consumers:
 - Verification:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestCompileStructuredEdits_(DiagnosticForOldTextMismatch|OldTextMismatchEchoesCurrentBytes|InsertAnchorMismatchEchoesCurrentBytes)|TestEmitInvestigationComplete_PreCompleteCheck_(DowngradesIncompleteMultiTopicAnchorSkeleton|WriteExplorationSkipsAnswerAnchorSkeleton|ArchitectureSkipsAnalyzerExtraTopicAnchors)'`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool`
+
+#### Batch 29: C/C++ Symptom-Only Localization Eval And Typed Apply Recovery
+
+- Evidence sources:
+  - fmtlib/fmt PR #2564 (`https://github.com/fmtlib/fmt/pull/2564`), reconstructed as `eval/cases/github_issue_fmt_tm_year_overflow_symptom.case`.
+  - libgit2 issue #7216 (`https://github.com/libgit2/libgit2/issues/7216`) and PR #7231 (`https://github.com/libgit2/libgit2/pull/7231`), reconstructed as `eval/cases/github_issue_libgit2_foreach_worktree_symptom.case`.
+- Case design:
+  - Both prompts are symptom-only: they describe observable runtime behavior and upstream references, but do not give the target file, target line, or patch expression.
+  - The fixtures are non-Go C/C++ repos with Makefile test surfaces, extending coverage beyond Python/Java/Rust/TypeScript-shaped cases.
+  - The expected workflow is full end-to-end localization: controller may explore first, planner emits a bounded ChangePlan, apply mutates only scoped files, verifier runs typed `make` checks, and the eval oracle checks post-apply source semantics.
+- Initial evidence:
+  - `eval/results/write_mode_c_cpp_symptom_fmt_libgit2_20260614_summary.md` reported fmt PASS and libgit2 FAIL.
+  - fmt PASS exercised the Batch 28 structured-edit diagnostic: the tool returned `expected_old_text` and `retry_instruction` for an `old_text_mismatch`, after which the planner produced an acceptable patch and verify passed.
+  - libgit2's first failed run had typed evidence that all declared changes were applied, but controller recorded the batch as `apply_failed` after a coder transport EOF and never reached verify. The plan artifact showed top-level `status=applied_failed` while `changes[].apply.status=applied` for `repository.c`.
+- Generalized gap:
+  - A transport error from the coder stage can arrive after all typed ChangePlan units have already landed.
+  - Treating that transport error as authoritative over per-change typed apply records blocks post-apply verification and loses a recoverable successful state.
+  - The system needs a controller-level typed-state recovery rule: completed typed apply records proceed to verify; partial or missing records remain failed.
+- Target architecture:
+  - Add `changePlanAllDeclaredChangesApplied` as a typed predicate over `ChangePlan.Changes[].Apply.Status`, `TargetPaths`, `AppliedPaths`, `Path`, and `NewPath`.
+  - In the controller `apply_plan` branch, normalize `innerErr` to success only when that predicate proves every declared change and target path is applied.
+  - Persist the apply attempt as `status=applied` with reason `apply_transport_recovered_all_changes`, then continue to `verify_batch`.
+  - Preserve ordinary apply failures: no per-change applied proof, partial coverage, manual approval, denied plans, and blocked risk decisions all keep existing fail-loud behavior.
+- Safety and prompt hygiene:
+  - The recovery gate reads only typed ChangePlan fields and normalized paths.
+  - It does not parse transport error text, logs, user request keywords, model summary, plan rationale, verifier narrative, oracle regexes, or `<think>`.
+  - It does not change read mode, log/trace/data, operation/computer, approval policy, worktree cleanup, or verifier authority.
+- Handoff and state-machine effect:
+  - A recovered apply records an explicit progress reason before verify, so `/workflow show` and persisted run attempts explain why a stage error did not stop the batch.
+  - The subsequent verifier still decides success or failure through the authoritative `post_apply_verify` `ChangeReport`.
+  - If verify fails, the existing P2 verify-failure handoff/replan path remains responsible for small-batch repair.
+- Eval oracle correction:
+  - The libgit2 oracle originally required implementation-specific temporary variable names (`cb_result` / `lookup_result`).
+  - It now accepts semantically equivalent direct fix forms where the assignment wraps the function call and the comparison happens outside the assignment expression, including `< 0` and `!= 0` variants that preserve negative error codes in this fixture.
+  - This correction belongs to eval semantics only; product logic never reads fixture regexes.
+- Implementation tasks:
+  - [x] Add fmt C++ symptom-only fixture and case.
+  - [x] Add libgit2 C symptom-only fixture and case.
+  - [x] Add typed completed-apply recovery in controller `apply_plan`.
+  - [x] Add regression test proving coder transport error plus all applied changes proceeds to verify.
+  - [x] Preserve regression test proving ordinary apply error does not become pending approval or verified success.
+  - [x] Relax libgit2 oracle to accept semantic direct-parentheses fixes without binding to variable names.
+  - [ ] Follow-up: improve eval summary post-apply snippets so when the relevant changed lines are beyond the first 20 lines, the summary also includes matched oracle lines or a short diff hunk.
+- Verification:
+  - `bash -n eval/cases/github_issue_fmt_tm_year_overflow_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case`
+  - `make -C eval/fixtures/github_issues/fmt_tm_year_overflow_symptom check` failed on seed fixture as expected: large `tm_year` rendered a wrapped negative value.
+  - `make -C eval/fixtures/github_issues/libgit2_foreach_worktree_symptom check` failed on seed fixture as expected: negative callback/lookup errors returned `1`.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(ApplyTransportErrorWithAllChangesAppliedContinuesToVerify|ApplyErrorDoesNotBecomePendingApprovalWithoutRecord|VerifiesAppliedPlanBeforeRepeatedPlanningDecision|SynthesizesVerifyAfterControllerDispatchError)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_libgit2_symptom_after_apply_transport_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 1/1, flagged 0/1.
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_fmt_tm_year_overflow_symptom.case eval/cases/github_issue_libgit2_foreach_worktree_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_c_cpp_symptom_fmt_libgit2_after_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 2/2, flagged 0/2.

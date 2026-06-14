@@ -225,9 +225,25 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			innerErr := o.runControllerApplyPlan(stepsUsed)
 			plan := o.busCtx.Mutable.ChangePlan()
+			recoveredApplyError := false
+			if innerErr != nil && changePlanAllDeclaredChangesApplied(plan) {
+				recoveredApplyError = true
+				appendControllerProgress(&run, run.ActiveBatchID, "apply_transport_recovered_all_changes",
+					"typed ChangePlan records every declared change as applied; continuing to post-apply verification")
+				if plan.Status == types.PlanStatusApplyFailed || plan.Status == types.PlanStatusPartiallyApplied {
+					plan.Status = types.PlanStatusPending
+					o.busCtx.Mutable.SetChangePlan(plan)
+				}
+				innerErr = nil
+			}
 			if plan != nil {
+				applyStatus := writeWorkflowApplyAttemptStatus(plan, innerErr)
+				applyReason := writeWorkflowApplyAttemptReason(plan, innerErr)
+				if recoveredApplyError {
+					applyReason = "apply_transport_recovered_all_changes"
+				}
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
-				updateWorkflowRunBatchApply(&run, run.ActiveBatchID, plan, writeWorkflowApplyAttemptStatus(plan, innerErr), writeWorkflowApplyAttemptReason(plan, innerErr))
+				updateWorkflowRunBatchApply(&run, run.ActiveBatchID, plan, applyStatus, applyReason)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
 			if innerErr != nil {
@@ -810,6 +826,47 @@ func changePlanHasAppliedWork(plan *types.ChangePlan) bool {
 		}
 	}
 	return false
+}
+
+func changePlanAllDeclaredChangesApplied(plan *types.ChangePlan) bool {
+	if plan == nil || len(plan.Changes) == 0 {
+		return false
+	}
+	appliedPaths := map[string]bool{}
+	for _, raw := range plan.AppliedPaths {
+		if p := normalizeAppliedPlanPath(raw); p != "" {
+			appliedPaths[p] = true
+		}
+	}
+	for _, change := range plan.Changes {
+		if change.Apply == nil || strings.TrimSpace(change.Apply.Status) != "applied" {
+			return false
+		}
+		if p := normalizeAppliedPlanPath(change.Path); p != "" {
+			appliedPaths[p] = true
+		}
+		if p := normalizeAppliedPlanPath(change.NewPath); p != "" {
+			appliedPaths[p] = true
+		}
+	}
+	for _, raw := range plan.TargetPaths {
+		p := normalizeAppliedPlanPath(raw)
+		if p == "" {
+			return false
+		}
+		if !appliedPaths[p] {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeAppliedPlanPath(raw string) string {
+	p := strings.TrimSpace(filepath.ToSlash(raw))
+	if p == "" || p == "." {
+		return ""
+	}
+	return strings.TrimPrefix(p, "./")
 }
 
 func (o *Orchestrator) runControllerApplyPlan(stepsUsed *int) error {

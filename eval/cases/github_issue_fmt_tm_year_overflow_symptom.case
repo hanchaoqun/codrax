@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: fmtlib/fmt#2564, symptom-driven variant.
+ID="github_issue_fmt_tm_year_overflow_symptom"
+NAME="fmt C++ tm formatter symptom-only overflow localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/fmt_tm_year_overflow_symptom"
+QUESTION="真实上游记录：fmtlib/fmt PR #2564。这个最小 C++ formatter 复现仓里，用户报告普通年份格式化正常，但当 tm_year 接近 int 上界时渲染出来的年份发生 wrap/负数/乱码，期望仍然是日历年份。请先根据这个现象探索定位年份格式化路径，再修复实现并保留回归测试；不要通过改测试期望绕过问题。上游 PR: https://github.com/fmtlib/fmt/pull/2564"
+EXPECT_MATCHES_REGEX='(long long|int64_t|std::int64_t|static_cast[[:space:]]*<[[:space:]]*long long[[:space:]]*>)
+2147485547'

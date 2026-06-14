@@ -1070,6 +1070,93 @@ func TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithou
 	}
 }
 
+func TestRunWriteControllerWorkflow_ApplyTransportErrorWithAllChangesAppliedContinuesToVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("recover completed apply after transport error")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "recover completed apply"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "make change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	applyCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-apply-transport",
+				Status:      types.PlanStatusPending,
+				Summary:     "transport recovery",
+				TargetPaths: []string{"repository.c"},
+				Changes: []types.FileChange{{
+					Path:      "repository.c",
+					Kind:      "patch",
+					Rationale: "preserve error code",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("apply stage requires active plan")
+			}
+			plan.Status = types.PlanStatusApplyFailed
+			plan.Changes[0].Apply = &types.FileChangeApplyRecord{Status: "applied"}
+			mu.SetChangePlan(plan)
+			*stepsUsed++
+			return &agent.StageOutput{}, fmt.Errorf("coder stream ended after applying all changes")
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:  "plan-apply-transport",
+				Channel: types.ChangeReportChannelPostApplyVerify,
+				Passed:  true,
+			})
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if applyCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls apply/verify = %d/%d, want 1/1", applyCalls, verifyCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after typed apply recovery, got %+v", store.last)
+	}
+	batch := store.last.Batches[0]
+	if !workflowBatchHasAttemptArtifact(batch, "apply", "applied", "apply_transport_recovered_all_changes", "refs/codrax/applied/plan-apply-transport") {
+		t.Fatalf("recovered apply attempt missing: %+v", batch.Attempts)
+	}
+	if !workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-apply-transport.report.json") {
+		t.Fatalf("verify attempt missing after recovered apply: %+v", batch.Attempts)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "apply_transport_recovered_all_changes") ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "batch_applied") {
+		t.Fatalf("recovery progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "apply_failed") {
+		t.Fatalf("completed typed apply must not be recorded as apply_failed: %+v", store.last.ProgressLedger)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusApplied {
+		t.Fatalf("verified recovered plan status = %+v, want applied", plan)
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("repair with fresh exploration")

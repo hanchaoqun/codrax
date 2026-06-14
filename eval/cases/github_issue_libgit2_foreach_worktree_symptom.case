@@ -1,0 +1,10 @@
+# Real GitHub issue write-mode eval: libgit2/libgit2#7216 fixed by PR #7231, symptom-driven variant.
+ID="github_issue_libgit2_foreach_worktree_symptom"
+NAME="libgit2 C foreach_worktree symptom-only error-code preservation fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/libgit2_foreach_worktree_symptom"
+QUESTION="真实上游记录：libgit2 issue #7216 / PR #7231。这个最小 C 复现仓里，用户报告遍历 worktree 时回调或查找路径返回负数错误码，但外层 API 有时只返回 1，导致调用方把真实失败误判成布尔状态。请先根据这个现象探索定位错误码传播路径，再修复实现并保留回归测试；不要通过改测试期望绕过问题。上游 issue: https://github.com/libgit2/libgit2/issues/7216，上游 PR: https://github.com/libgit2/libgit2/pull/7231"
+POST_APPLY_FILE="repository.c"
+EXPECT_MATCHES_REGEX='(return[[:space:]]+error|return[[:space:]]+lookup_result|return[[:space:]]+cb_result)
+(error[[:space:]]*=[[:space:]]*visit_worktree[(]callback_status[)][)][[:space:]]*!=[[:space:]]*0|error[[:space:]]*=[[:space:]]*cb_result|[(]error[[:space:]]*=[[:space:]]*cb_result[)])
+(error[[:space:]]*=[[:space:]]*lookup_worktree[(]lookup_status[)][)][[:space:]]*(<|!=)[[:space:]]*0|error[[:space:]]*=[[:space:]]*lookup_result|[(]error[[:space:]]*=[[:space:]]*lookup_result[)])'
