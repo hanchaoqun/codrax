@@ -3,6 +3,14 @@ const assert = require("assert");
 const { parseIso, formatDuration } = require("../src/duration.js");
 
 const partial = parseIso("PT1H");
+assert.deepStrictEqual(partial, {
+  years: 0,
+  months: 0,
+  days: 0,
+  hours: 1,
+  minutes: 0,
+  seconds: 0
+});
 const rendered = formatDuration(partial);
 assert.ok(!rendered.includes("NaN"), "missing components must not render NaN, got " + rendered);
 assert.strictEqual(rendered, "0000-00-00T01:00:00");

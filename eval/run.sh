@@ -417,35 +417,45 @@ run_read_step() {
 
 run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
-  local focus_args=()
-  if [[ -n "$FOCUS" ]]; then
-    focus_args=(--focus "$FOCUS")
-  fi
   echo "=== plan step (run $i) ===" >"$out"
-  "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
-    --mode=write --write-phase=plan --plan-out "$plan" \
-    --log-level debug \
-    --log-dir "$logdir" \
-    "${focus_args[@]}" \
-    --request "$QUESTION" \
-    >>"$out" 2>&1
+  if [[ -n "$FOCUS" ]]; then
+    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+      --mode=write --write-phase=plan --plan-out "$plan" \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --focus "$FOCUS" \
+      --request "$QUESTION" \
+      >>"$out" 2>&1
+  else
+    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+      --mode=write --write-phase=plan --plan-out "$plan" \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --request "$QUESTION" \
+      >>"$out" 2>&1
+  fi
 }
 
 run_apply_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
-  local focus_args=()
-  if [[ -n "$FOCUS" ]]; then
-    focus_args=(--focus "$FOCUS")
-  fi
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
-  "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
-    --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
-    --log-level debug \
-    --log-dir "$logdir" \
-    "${focus_args[@]}" \
-    --request "$QUESTION" \
-    >>"$out" 2>&1
+  if [[ -n "$FOCUS" ]]; then
+    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+      --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --focus "$FOCUS" \
+      --request "$QUESTION" \
+      >>"$out" 2>&1
+  else
+    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+      --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --request "$QUESTION" \
+      >>"$out" 2>&1
+  fi
 }
 
 # write_metrics <run-i> <exit-code> <log-file> — writes the mechanism

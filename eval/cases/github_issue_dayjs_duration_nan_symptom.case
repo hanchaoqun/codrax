@@ -1,0 +1,8 @@
+# Real GitHub issue write-mode eval: iamkun/dayjs#1611, symptom-driven variant.
+ID="github_issue_dayjs_duration_nan_symptom"
+NAME="dayjs JS duration ISO symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/dayjs_duration_nan"
+QUESTION="真实上游记录：iamkun/dayjs PR #1611。这个最小 JS 复现仓里，用户报告 ISO duration 输入 PT1H 在格式化后出现 NaN/invalid component 类异常表现，而完整 duration 输入仍然正常。请先根据这个现象探索定位原因，再修复实现并保留或补充回归测试；不要通过改测试期望绕过问题。上游 PR: https://github.com/iamkun/dayjs/pull/1611"
+EXPECT_MATCHES_REGEX='PT1H
+0000-00-00T01:00:00'

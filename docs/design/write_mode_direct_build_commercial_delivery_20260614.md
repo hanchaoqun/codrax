@@ -1171,3 +1171,22 @@ Consumers:
 - [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(AppliesReadyPlanBeforeRepeatedPlanningDecision|VerifiesAppliedPlanBeforeRepeatedPlanningDecision|ExplorePlanFinish|ReplansProtectedRegressionTestWeakening)'`.
 - [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/tool ./internal/agent ./internal/types ./internal/writeflow`.
 - [x] Eval: `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_tokenizers_newline_multirepo_py_after_state_barrier_20260614_summary.md bash eval/convergence_audit.sh` PASS. Authoritative report: `report_channel=post_apply_verify`, `report_passed=true`, `verify_authoritative=true`; executed command chain `python/pytest runner_missing -> python/unittest zero_tests -> make check executed`; live worktree retained the five-newline `#include <set>` regression input.
+
+#### Batch 25: Symptom-Driven External Issue Eval Case
+
+- Evidence source: `iamkun/dayjs` PR #1611 (`https://github.com/iamkun/dayjs/pull/1611`) reconstructed as a JavaScript fixture. The new case is intentionally symptom-driven: it reports `PT1H` formatting as `NaN`/invalid while a full duration still works, but it does not name `src/duration.js`, `Number(undefined)`, or the exact implementation line in the prompt.
+- Generalized goal:
+  - cover issues where the user gives observed behavior, not a patch recipe;
+  - require the write controller to trigger exploration/localization before bounded implementation;
+  - verify failure evidence must be available for small replan if the first patch is semantically weak;
+  - the eval oracle must assert the real product contract, not just formatted output.
+- Findings:
+  - the first symptom-only run passed but exposed an oracle gap: `value ?? 0` avoided formatted `NaN` while leaving present components as strings;
+  - the fixture oracle was strengthened to assert `parseIso("PT1H")` numeric fields via JS `deepStrictEqual` and require guarded numeric conversion in `tests/check_duration.py`;
+  - the harness also exposed an eval-only bash 3 `set -u` bug: empty `focus_args[@]` expansion failed write cases without `FOCUS`. `eval/run.sh` now branches explicitly for focus/no-focus plan/apply steps.
+- [x] Add `eval/cases/github_issue_dayjs_duration_nan_symptom.case`.
+- [x] Strengthen `eval/fixtures/github_issues/dayjs_duration_nan/tests/duration.test.js` to assert numeric `parseIso("PT1H")` fields.
+- [x] Strengthen `eval/fixtures/github_issues/dayjs_duration_nan/tests/check_duration.py` to require guarded numeric conversion, not a string-preserving fallback.
+- [x] Fix `eval/run.sh` no-focus write-mode plan/apply execution under `set -u`.
+- [x] Verification: `bash -n eval/run.sh`; `bash -n eval/cases/github_issue_dayjs_duration_nan_symptom.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/dayjs_duration_nan/tests/check_duration.py`.
+- [x] Eval: `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_dayjs_duration_nan_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_dayjs_duration_nan_symptom_after_numeric_oracle_20260614_summary.md bash eval/convergence_audit.sh` PASS. Metrics showed localization work (`read_file=6`, `repo_map=3`, `source_lens=1`, `explorer_iters=5`, `midloop=2`); authoritative report: `report_channel=post_apply_verify`, `report_passed=true`, `verify_authoritative=true`; command chain `node/npm runner_missing -> make check executed`; final worktree used `Number(value) || 0` and preserved the numeric PT1H regression assertion.
