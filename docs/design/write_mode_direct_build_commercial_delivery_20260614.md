@@ -2379,4 +2379,4 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` PASS.
   - `git diff --check` PASS.
 - Progress:
-  - Implementation commit: PENDING.
+  - Implementation commit: `3375c13a` (`write-mode: surface active workflow banner state`), pushed to `origin/main` with this ledger follow-up.
