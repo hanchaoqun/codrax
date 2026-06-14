@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: napi-rs/napi-rs#3236, symptom-driven variant.
+ID="github_issue_napi_force_wasi_env_symptom"
+NAME="napi-rs TypeScript generated loader force-wasi env symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/napi_force_wasi_env"
+QUESTION="真实上游记录：napi-rs PR #3236。这个最小 TypeScript 模板复现仓里，下游用户设置 NAPI_RS_FORCE_WASI=false 是为了禁用 WASI fallback，但生成的 native loader 仍然尝试加载 .wasi.cjs 并出现 ENOENT；同时 true 和 error 仍应保留强制 WASI 语义。请先根据这个现象探索定位模板中的环境变量处理逻辑，再修复实现并保留或补充回归测试；不要通过改测试期望绕过问题。上游 PR: https://github.com/napi-rs/napi-rs/pull/3236"
+EXPECT_MATCHES_REGEX='NAPI_RS_FORCE_WASI[[:space:]]*===[[:space:]]*['"'"'"]true['"'"'"]
+NAPI_RS_FORCE_WASI[[:space:]]*===[[:space:]]*['"'"'"]error['"'"'"]
+forceWasi'

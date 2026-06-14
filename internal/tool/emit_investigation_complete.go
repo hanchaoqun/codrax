@@ -6209,7 +6209,13 @@ func dedupStringsPreserveOrder(values []string) []string {
 }
 
 func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil || !types.IRRequiresAnchorSkeleton(ctx.AnalysisIR) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if ctx.Mutable != nil && ctx.Mutable.WriteExplorationRequest() != nil {
+		return ""
+	}
+	if !types.IRRequiresAnchorSkeleton(ctx.AnalysisIR) {
 		return ""
 	}
 	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)

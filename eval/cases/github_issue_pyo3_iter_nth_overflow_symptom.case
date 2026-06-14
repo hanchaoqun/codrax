@@ -1,0 +1,9 @@
+# Real GitHub issue write-mode eval: PyO3/pyo3#6086, symptom-driven variant.
+ID="github_issue_pyo3_iter_nth_overflow_symptom"
+NAME="pyo3 Rust iterator nth overflow symptom-only localization and fix"
+MODE="apply"
+FIXTURE="eval/fixtures/github_issues/pyo3_iter_nth_overflow"
+QUESTION="真实上游记录：PyO3 PR #6086。这个最小 Rust/Python binding 复现仓里，用户报告 list/tuple iterator 在 nth 或 nth_back 跳过超过剩余元素时返回 None，但随后 next 仍可能产出元素；传入极大的 n 时还可能触发索引 wrap 或越界风险。请先根据这个现象探索定位迭代器边界推进逻辑，再修复实现并保留或补充回归测试；不要通过改测试期望绕过问题。上游 PR: https://github.com/PyO3/pyo3/pull/6086"
+EXPECT_MATCHES_REGEX='checked_add
+checked_sub
+usize::MAX'

@@ -3460,6 +3460,62 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ArchitectureSkipsAnalyzerExt
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_WriteExplorationSkipsAnswerAnchorSkeleton(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID: "batch-1",
+		Goal:    "locate the implementation before planning a write batch",
+	})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/enums.go": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:          "internal/types/enums.go",
+			LineStart:       26,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Criterion",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+					{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "write exploration has enough implementation context for a planner handoff",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "multi-topic explanation still lacks") {
+		t.Fatalf("write exploration must not hard-block on final-answer anchor skeletons: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade for write exploration handoff: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set for write exploration handoff")
+	}
+}
+
 func TestNarrativePrincipalMemberSetCompletesBoundary(t *testing.T) {
 	mut := types.NewMutableState("test")
 	evidence := []types.EvidenceItem{

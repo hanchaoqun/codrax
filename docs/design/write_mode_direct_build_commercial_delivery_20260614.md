@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Branch: main
-Status: Direct-build hardening complete; external GitHub issue eval ledger current; Rust/multi-repo/symptom-driven recovery expansion delivered
+Status: Direct-build hardening complete; external GitHub issue eval ledger current; symptom-driven localization/replan expansion delivered
 
 ## 1. Summary
 
@@ -584,6 +584,7 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 18-20 | pushed | External GitHub issue hardening continued from the 8-case sweep. Batch 18 fixed eval source aggregation so non-git materialized applied trees nested under the Codrax repo use file traversal instead of Codrax `git ls-files`; `zod` recheck passed. Batch 19 added one-shot typed replan for off-scope high-risk paths before surfacing manual approval, preserving true build/config approval; `commons-lang` recheck passed. Batch 20 broadened two fixture content oracles to accept semantic-equivalent source shapes and case-insensitive hex literals. Verification: `bash -n eval/run.sh`; `bash -n eval/runner_lib.sh`; `bash -n eval/runner_lib_test.sh`; `bash eval/runner_lib_test.sh`; `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ReplansOffScopeHighRiskBuildManifest|TestRunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval'`; `go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`; targeted eval summaries `write_mode_zod_prefault_after_b18_20260614_summary.md`, `write_mode_commons_lang_offscope_replan_20260614_summary.md`, and `write_mode_github_issue_oracle_recheck_20260614_summary.md` all passed their targeted cases. Code implementation committed on `main` in `506d68cd`; this document records the design/evidence follow-up. |
 | 2026-06-14 | 21 | pushed | Added Rust-shaped external issue fixture `github_issue_chrono_duration_min` from chronotope/chrono PR #1385. First run `eval/results/write_mode_chrono_duration_min_20260614_summary.md` failed with authoritative `post_apply_verify passed=false`, exposing an over-narrow fixture oracle plus a real explore-stage soft-guidance gap (`unavailable_tool_attempts=1` from write exploration attempting shell/write work). The fixture oracle was corrected to encode the upstream `Option<Duration>` / `-i64::MAX` / non-recursive MIN/MAX contract and test-file structure checks. Re-run `eval/results/write_mode_chrono_duration_min_after_oracle_20260614_summary.md` passed 1/1 with `verify_authoritative=true`, `report_channel=post_apply_verify`, and `report_passed=true`. Product follow-up added read-only handoff guidance to write exploration and a prompt hygiene test. Verification: `bash -n eval/cases/github_issue_chrono_duration_min.case`; `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py`; expected initial `make check` failure on the seed fixture; targeted eval PASS; `go test ./internal/agent`; rebuilt `codrax` with `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make` (exit 0; Go stat-cache warning only). |
 | 2026-06-14 | 26 | pushed | Added two symptom-driven external issue cases: `github_issue_chrono_duration_min_symptom` (Rust, chronotope/chrono PR #1385) and `github_issue_commons_lang_random_ascii_symptom` (Java, apache/commons-lang PR #1273). Baseline summary `eval/results/write_mode_symptom_chrono_commons_20260614_summary.md` failed 2/2: chrono had `plan_written=false`, `apply_attempted=false` after exploration completed but no `ChangePlan` was installed; commons-lang had `plan_written=true`, `apply_attempted=true`, but no durable worktree/report after apply incomplete and controller dispatch transport failure. Implemented typed recovery only from durable state: no-plan retry after typed exploration/verify handoff; dispatch-error recovery to `apply_plan` for auto-executable plans and `verify_batch` for applied-but-unverified plans. Re-run `eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Verification includes targeted orchestrator tests, affected package tests, rebuild, and symptom eval. |
+| 2026-06-14 | 27 | pending push | Added two more symptom-driven external issue cases: `github_issue_pyo3_iter_nth_overflow_symptom` (Rust-shaped, PyO3 PR #6086) and `github_issue_napi_force_wasi_env_symptom` (TypeScript, napi-rs PR #3236). The prompts describe observed behavior and upstream refs, not target files or patch recipes. Initial mixed run `eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md` passed napi-rs and failed PyO3 after authoritative verify failure/replan drift. After strengthening the PyO3 oracle and fixing write exploration handoff isolation, `eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md` passed 1/1; it exercised exploration, first apply failure, P2 verify evidence, small replan, second apply, and authoritative verify success. Product fix: write exploration no longer hard-blocks on read-mode final-answer anchor skeleton gates because it consumes typed `WriteExplorationRequest`/handoff artifacts, not final answer surface requirements. Verification: case bash syntax, oracle Python compile, targeted `internal/tool` test, affected write-mode package regression, rebuild, napi/PyO3 symptom eval evidence. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1248,3 +1249,56 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/tool ./internal/agent ./internal/types ./internal/writeflow`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
   - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_chrono_duration_min_symptom.case eval/cases/github_issue_commons_lang_random_ascii_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_symptom_chrono_commons_after_recovery_20260614_summary.md bash eval/convergence_audit.sh` PASS 2/2, flagged 0/2.
+
+#### Batch 27: Symptom-Driven Localization And Replan Issue Cases
+
+- Evidence sources:
+  - PyO3 PR #6086 (`https://github.com/PyO3/pyo3/pull/6086`), reconstructed as `eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case`.
+  - napi-rs PR #3236 (`https://github.com/napi-rs/napi-rs/pull/3236`), reconstructed as `eval/cases/github_issue_napi_force_wasi_env_symptom.case`.
+- Case design:
+  - The prompts describe only observable symptoms plus upstream references.
+  - They deliberately avoid naming the exact target file, target line, or patch expression.
+  - They test the end-to-end write-mode loop: controller must trigger exploration, exploration must localize implementation evidence, planner must emit bounded code changes, apply must mutate only scoped files, verifier must run typed checks, and failed verify evidence must drive small replan.
+  - The eval oracles are fixture-local validation code. They may use structural source assertions because no Rust or TypeScript toolchain is guaranteed in the sandbox; product routing still cannot read user prose, model prose, `<think>`, summary, rationale, or fixture oracle regexes.
+- Initial evidence:
+  - `eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md` reported napi-rs PASS and PyO3 FAIL.
+  - napi-rs PASS proved a symptom-only TypeScript issue can localize `NAPI_RS_FORCE_WASI` handling and preserve `true`/`error` semantics while treating `false`/`0` as non-forcing.
+  - PyO3 FAIL reached exploration, planning, apply, verify, and replan, but the first oracle accepted too-narrow behavior and the later run showed write exploration could be blocked by read-mode final-answer anchor skeleton requirements.
+- Generalized gaps:
+  - P0-A stage-specific completion authority was not fully separated. `emit_investigation_complete` used final-answer anchor-skeleton hard gates in a write exploration subflow. Write exploration produces a planner handoff, not a final user answer; applying read finalization completeness to it can loop even after enough implementation evidence exists.
+  - P0-B fixture oracles for symptom-driven issues must assert the real behavioral contract and reject invalid test weakening. The PyO3 oracle now rejects `checked_sub(n + 1)` before `checked_sub`, raw reverse subtraction, `checked_add(n)?` early return in `nth`, and tests that claim `nth(0)` or `nth_back(0)` exhausts the opposite direction.
+  - P1-A structured edit mismatch recovery is too expensive. The PyO3 replan eventually succeeded, but the planner spent several iterations recovering from `old_text_mismatch`; the structured edit builder should provide a typed exact-current-snippet hint or a safer single-line edit mode to reduce model burden.
+  - P1-B write analyzer risk remains advisory-heavy for ordinary source/test bugfixes. In this run the task summary carried `risk=high`, while deterministic approval correctly auto-executed the scoped source-file plan as medium. The approval gate already uses typed planned paths/content; observability should make this distinction clearer so high advisory risk does not look like a blocked manual gate.
+- Product target implemented in this batch:
+  - `explanationAnchorBackboneDowngrade` returns no downgrade when the mutable state carries a typed `WriteExplorationRequest`.
+  - This is a stage/state structural guard, not a user-intent or model-output keyword rule.
+  - Read mode still keeps the original final-answer anchor skeleton behavior; only write exploration handoff skips that answer-surface gate.
+  - The existing write exploration handoff continues to carry evidence through `WriteExplorationHandoff` and `WriteContextPack`, preserving P0/P1/P2 priority consumption by controller/planner/verifier.
+- Safety and prompt hygiene:
+  - Hard logic reads only `BusContext.Mutable.WriteExplorationRequest()`.
+  - It does not parse request text, issue title, upstream URL, logs, summary, rationale, or `<think>`.
+  - The change does not modify read scheduler topology, log/trace/data handling, operation mode, computer tooling, or worktree cleanup.
+  - `<think>` remains visible in user-side logs by design for transparency and is not treated as a defect.
+- Handoff and replan evidence:
+  - The final PyO3 run first produced `plan-1781433822694339000-3722` and failed authoritative `post_apply_verify` with `make check` reporting `nth_back must not compute n + 1 before checked_sub`.
+  - The failure report persisted typed command evidence: `cargo test` runner missing, then `make check` executed and failed.
+  - Replan consumed the failure evidence and produced `plan-1781434306282015000-4387`, scoped to `src/types/list.rs` and `src/types/tuple.rs`.
+  - Final apply/verify passed; summary `eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md` reports PASS 1/1 with `explorer_long`, which is expected for this localization-heavy case and remains a performance optimization item.
+- Implementation tasks:
+  - [x] Add PyO3 symptom-driven Rust-shaped fixture and case.
+  - [x] Add napi-rs symptom-driven TypeScript fixture and case.
+  - [x] Strengthen PyO3 fixture oracle to encode overflow-safe iterator exhaustion and valid regression-test directionality.
+  - [x] Add write-exploration completion test proving final-answer anchor skeleton gates do not block planner handoff.
+  - [x] Keep read-mode final-answer skeleton tests unchanged.
+  - [x] Rebuild `codrax` before eval.
+  - [ ] Follow-up: add typed structured-edit mismatch repair hints or single-line replacement mode so replan does not spend multiple model turns recovering exact text.
+  - [ ] Follow-up: improve risk observability by separating advisory write-analysis risk from deterministic planned-change approval risk in workflow output.
+- Verification:
+  - `bash -n eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case`
+  - `bash -n eval/cases/github_issue_napi_force_wasi_env_symptom.case`
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/pyo3_iter_nth_overflow/tests/check_iterators.py`
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache python3 -m py_compile eval/fixtures/github_issues/napi_force_wasi_env/tests/check_force_wasi.py`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/tool -run 'TestEmitInvestigationComplete_PreCompleteCheck_(DowngradesIncompleteMultiTopicAnchorSkeleton|WriteExplorationSkipsAnswerAnchorSkeleton|ArchitectureSkipsAnalyzerExtraTopicAnchors)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case eval/cases/github_issue_napi_force_wasi_env_symptom.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_pyo3_napi_symptom_20260614_summary.md bash eval/convergence_audit.sh` initial mixed run: napi-rs PASS, PyO3 FAIL.
+  - `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/github_issue_pyo3_iter_nth_overflow_symptom.case' PARALLEL=1 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/write_mode_pyo3_iter_symptom_after_oracle_guard_20260614_summary.md bash eval/convergence_audit.sh` PASS 1/1.
