@@ -1755,4 +1755,4 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `b71fd632` (`write-mode: require typed ask-user facts`), pushed to `origin/main`.
