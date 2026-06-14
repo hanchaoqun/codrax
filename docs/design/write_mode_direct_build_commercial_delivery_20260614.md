@@ -719,10 +719,11 @@ Target design:
 
 #### Batch 8: Typed Write Eval Verdict
 
-- Add a structured apply-result collector in `eval/run.sh` or a small helper that reads typed report JSON and emits a machine-readable verdict record.
-- Require authoritative post-apply verify pass by default for `MODE=apply`.
-- Preserve content regex checks as oracle assertions with distinct failure reasons.
-- Add harness tests for: report passed + oracle fail, report missing, report failed, unverified opt-out.
+- [x] Add a structured apply-result collector in `eval/run.sh` / `eval/runner_lib.sh` that reads typed report JSON and emits `run-N.write-apply.json`.
+- [x] Require authoritative current-plan `post_apply_verify` `ChangeReport.passed=true` by default for `MODE=apply`.
+- [x] Preserve content regex checks as oracle assertions with distinct failure reasons.
+- [x] Add harness tests for report passed, report missing, report failed, plan mismatch, and run.sh pass/missing-report smoke cases.
+- [x] Verification: `bash -n eval/run.sh`, `bash -n eval/runner_lib.sh`, `bash -n eval/runner_lib_test.sh`, `bash eval/runner_lib_test.sh`.
 
 #### Batch 9: Verify Infra Retry
 

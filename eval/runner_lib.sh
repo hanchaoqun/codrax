@@ -106,6 +106,114 @@ eval_count_pattern() {
   echo "${n:-0}"
 }
 
+eval_json_escape() {
+  printf '%s' "$1" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+eval_json_top_string_field() {
+  local file="$1"
+  local field="$2"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)",?$/\1/p' "$file" | head -1
+}
+
+eval_json_top_bool_field() {
+  local file="$1"
+  local field="$2"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*(true|false),?$/\1/p' "$file" | head -1
+}
+
+eval_bool_literal() {
+  case "$1" in
+    1|true|TRUE|yes|YES)
+      echo true
+      ;;
+    *)
+      echo false
+      ;;
+  esac
+}
+
+eval_find_write_report_path() {
+  local plan_path="$1"
+  local outdir="$2"
+  local scratch="$3"
+  local worktree="$4"
+  local plan_id="$5"
+  local plan_dir candidate
+  [[ -n "$plan_id" ]] || return 1
+  plan_dir="$(dirname "$plan_path")"
+  for candidate in \
+    "$outdir/${plan_id}.report.json" \
+    "$plan_dir/${plan_id}.report.json" \
+    "$scratch/.codrax/plans/${plan_id}.report.json" \
+    "$worktree/.codrax/plans/${plan_id}.report.json"
+  do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  candidate="$(find "$outdir" -maxdepth 1 -type f -name "${plan_id}.report.json" 2>/dev/null | sort | tail -1)"
+  if [[ -n "$candidate" && -f "$candidate" ]]; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
+eval_write_apply_result_record() {
+  local result_file="$1"
+  local plan_path="$2"
+  local outdir="$3"
+  local scratch="$4"
+  local plan_written="$5"
+  local apply_attempted="$6"
+  local allow_unverified="$7"
+  local plan_id="" worktree="" worktree_exists=false report_path="" report_exists=false
+  local report_plan_id="" report_channel="" report_passed="" authoritative=false
+
+  if [[ -f "$plan_path" ]]; then
+    plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
+    worktree="$(eval_json_top_string_field "$plan_path" worktree_path || true)"
+  fi
+  if [[ -n "$worktree" && -d "$worktree" ]]; then
+    worktree_exists=true
+  fi
+  report_path="$(eval_find_write_report_path "$plan_path" "$outdir" "$scratch" "$worktree" "$plan_id" || true)"
+  if [[ -n "$report_path" && -f "$report_path" ]]; then
+    report_exists=true
+    report_plan_id="$(eval_json_top_string_field "$report_path" plan_id || true)"
+    report_channel="$(eval_json_top_string_field "$report_path" channel || true)"
+    report_passed="$(eval_json_top_bool_field "$report_path" passed || true)"
+  fi
+  if [[ "$report_exists" == true && "$report_plan_id" == "$plan_id" && "$report_channel" == "post_apply_verify" && "$report_passed" == "true" ]]; then
+    authoritative=true
+  fi
+
+  {
+    echo "{"
+    printf '  "plan_id": "%s",\n' "$(eval_json_escape "$plan_id")"
+    printf '  "plan_written": %s,\n' "$(eval_bool_literal "$plan_written")"
+    printf '  "apply_attempted": %s,\n' "$(eval_bool_literal "$apply_attempted")"
+    printf '  "worktree_path": "%s",\n' "$(eval_json_escape "$worktree")"
+    printf '  "worktree_exists": %s,\n' "$worktree_exists"
+    printf '  "report_path": "%s",\n' "$(eval_json_escape "$report_path")"
+    printf '  "report_exists": %s,\n' "$report_exists"
+    printf '  "report_plan_id": "%s",\n' "$(eval_json_escape "$report_plan_id")"
+    printf '  "report_channel": "%s",\n' "$(eval_json_escape "$report_channel")"
+    if [[ "$report_passed" == "true" || "$report_passed" == "false" ]]; then
+      printf '  "report_passed": %s,\n' "$report_passed"
+    else
+      echo '  "report_passed": false,'
+    fi
+    printf '  "verify_authoritative": %s,\n' "$authoritative"
+    printf '  "allow_unverified": %s\n' "$(eval_bool_literal "$allow_unverified")"
+    echo "}"
+  } >"$result_file"
+}
+
 eval_max_context_tokens_estimate() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

@@ -91,10 +91,15 @@ fi
 # non-empty). POST_APPLY_FILE scopes the EXPECT_* verdict checks to
 # a single file's post-apply content for MODE=apply; when unset, the
 # verdict reads the concatenation of all tracked fixture files.
+# MODE=apply also writes run-N.write-apply.json and, by default,
+# requires an authoritative current-plan post_apply_verify ChangeReport
+# with passed=true. Set ALLOW_UNVERIFIED_APPLY=1 only for explicit
+# harness smoke cases that are not expected to reach verification.
 MODE="${MODE:-}"
 FIXTURE="${FIXTURE:-}"
 PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
+ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
 # Multi-repo eval (2026-05-08): when MULTIREPO=<seed-name> is set, the
 # runner copies eval/fixtures/<seed-name>/ to a scratch parent dir and
 # `git init`-s each immediate child sub-repo (no .git/ checked into the
@@ -709,6 +714,7 @@ run_one() {
   local plan=""
   local plan_written=0
   local apply_attempted=0
+  local write_apply_result="$OUTDIR/run-$i.write-apply.json"
 
   case "$MODE" in
     plan|apply)
@@ -882,6 +888,30 @@ run_one() {
           # cat must resolve the repo-relative paths inside apply_source;
           # plain `xargs cat` would resolve them against run.sh's CWD.
           cleaned="$(git -C "$apply_source" ls-files -z 2>/dev/null | (cd "$apply_source" && xargs -0 cat 2>/dev/null))"
+        fi
+      fi
+      eval_write_apply_result_record "$write_apply_result" "$plan" "$OUTDIR" "$scratch" "$plan_written" "$apply_attempted" "$ALLOW_UNVERIFIED_APPLY"
+      if [[ "$ALLOW_UNVERIFIED_APPLY" != "1" && $plan_written -eq 1 && $apply_attempted -eq 1 ]]; then
+        local write_plan_id write_report_exists write_report_plan_id write_report_channel write_report_passed
+        write_plan_id="$(eval_json_top_string_field "$write_apply_result" plan_id || true)"
+        write_report_exists="$(eval_json_top_bool_field "$write_apply_result" report_exists || true)"
+        write_report_plan_id="$(eval_json_top_string_field "$write_apply_result" report_plan_id || true)"
+        write_report_channel="$(eval_json_top_string_field "$write_apply_result" report_channel || true)"
+        write_report_passed="$(eval_json_top_bool_field "$write_apply_result" report_passed || true)"
+        if [[ "$write_report_exists" != "true" ]]; then
+          extra_reasons+=("write_report_missing")
+        else
+          if [[ -z "$write_report_plan_id" ]]; then
+            extra_reasons+=("write_report_plan_missing")
+          elif [[ -n "$write_plan_id" && "$write_report_plan_id" != "$write_plan_id" ]]; then
+            extra_reasons+=("write_report_plan_mismatch")
+          fi
+          if [[ "$write_report_channel" != "post_apply_verify" ]]; then
+            extra_reasons+=("write_report_channel:${write_report_channel:-missing}")
+          fi
+          if [[ "$write_report_passed" != "true" ]]; then
+            extra_reasons+=("write_report_failed")
+          fi
         fi
       fi
       ;;

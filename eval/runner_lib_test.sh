@@ -41,6 +41,80 @@ assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/missing.log")" "0" "missing log pattern count"
 
+mkdir -p "$tmp/write-eval" "$tmp/write-scratch" "$tmp/write-worktree/.codrax/plans"
+cat >"$tmp/write-eval/run-1.plan.json" <<JSON
+{
+  "id": "plan-write-eval-pass",
+  "status": "applied",
+  "worktree_path": "$tmp/write-worktree"
+}
+JSON
+cat >"$tmp/write-eval/plan-write-eval-pass.report.json" <<'JSON'
+{
+  "plan_id": "plan-write-eval-pass",
+  "channel": "post_apply_verify",
+  "test_results": [
+    {
+      "passed": true
+    }
+  ],
+  "passed": true
+}
+JSON
+eval_write_apply_result_record "$tmp/write-eval/pass.json" "$tmp/write-eval/run-1.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
+assert_eq "$(eval_json_top_string_field "$tmp/write-eval/pass.json" plan_id)" "plan-write-eval-pass" "write apply result plan id"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" report_exists)" "true" "write apply result report exists"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" report_passed)" "true" "write apply result report passed"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" verify_authoritative)" "true" "write apply result authoritative"
+
+cat >"$tmp/write-eval/run-2.plan.json" <<JSON
+{
+  "id": "plan-write-eval-missing",
+  "status": "applied",
+  "worktree_path": "$tmp/write-worktree"
+}
+JSON
+eval_write_apply_result_record "$tmp/write-eval/missing.json" "$tmp/write-eval/run-2.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/missing.json" report_exists)" "false" "write apply result missing report"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/missing.json" verify_authoritative)" "false" "write apply missing report not authoritative"
+
+cat >"$tmp/write-eval/run-3.plan.json" <<JSON
+{
+  "id": "plan-write-eval-fail",
+  "status": "applied",
+  "worktree_path": "$tmp/write-worktree"
+}
+JSON
+cat >"$tmp/write-eval/plan-write-eval-fail.report.json" <<'JSON'
+{
+  "plan_id": "plan-write-eval-fail",
+  "channel": "post_apply_verify",
+  "passed": false
+}
+JSON
+eval_write_apply_result_record "$tmp/write-eval/fail.json" "$tmp/write-eval/run-3.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/fail.json" report_exists)" "true" "write apply failed report exists"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/fail.json" report_passed)" "false" "write apply failed report parsed"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/fail.json" verify_authoritative)" "false" "write apply failed report not authoritative"
+
+cat >"$tmp/write-eval/run-4.plan.json" <<JSON
+{
+  "id": "plan-write-eval-mismatch",
+  "status": "applied",
+  "worktree_path": "$tmp/write-worktree"
+}
+JSON
+cat >"$tmp/write-eval/plan-write-eval-mismatch.report.json" <<'JSON'
+{
+  "plan_id": "other-plan",
+  "channel": "post_apply_verify",
+  "passed": true
+}
+JSON
+eval_write_apply_result_record "$tmp/write-eval/mismatch.json" "$tmp/write-eval/run-4.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
+assert_eq "$(eval_json_top_string_field "$tmp/write-eval/mismatch.json" report_plan_id)" "other-plan" "write apply mismatched report plan"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/mismatch.json" verify_authoritative)" "false" "write apply mismatched report not authoritative"
+
 cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source mentions finalizer_rejects=7 and 成文校验未通过 but this is answer text
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: ⟳ 4/4 答案待完善，正在重写 is quoted customer text
@@ -261,6 +335,126 @@ if ! grep -q '^log_file=.*run-1.logs.all.log$' "$multilog_dir/run-1.metrics.txt"
   fail "metrics did not point at aggregate log"
 fi
 assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log answer contract metric"
+
+fake_write_apply="$tmp/fake-codrax-write-apply"
+cat >"$fake_write_apply" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+repo=""
+plan_out=""
+plan_file=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)
+      repo="$2"
+      shift 2
+      ;;
+    --plan-out)
+      plan_out="$2"
+      shift 2
+      ;;
+    --plan-file)
+      plan_file="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [[ -n "$plan_out" ]]; then
+  cat >"$plan_out" <<'JSON'
+{
+  "id": "plan-fake-write-apply",
+  "status": "ready",
+  "changes": [
+    {
+      "path": "main.py",
+      "kind": "patch"
+    }
+  ]
+}
+JSON
+  printf 'planned\n'
+  exit 0
+fi
+if [[ -n "$plan_file" ]]; then
+  plan_dir="$(dirname "$plan_file")"
+  worktree="$plan_dir/fake-worktree"
+  mkdir -p "$worktree"
+  sed 's/retrun/return/' "$repo/main.py" >"$worktree/main.py"
+  cat >"$plan_file" <<JSON
+{
+  "id": "plan-fake-write-apply",
+  "status": "applied",
+  "worktree_path": "$worktree",
+  "changes": [
+    {
+      "path": "main.py",
+      "kind": "patch"
+    }
+  ]
+}
+JSON
+  if [[ "${FAKE_WRITE_REPORT:-1}" == "1" ]]; then
+    cat >"$plan_dir/plan-fake-write-apply.report.json" <<'JSON'
+{
+  "plan_id": "plan-fake-write-apply",
+  "channel": "post_apply_verify",
+  "passed": true
+}
+JSON
+  fi
+  printf 'applied\n'
+  exit 0
+fi
+printf 'unsupported fake invocation\n' >&2
+exit 2
+FAKE
+chmod +x "$fake_write_apply"
+
+write_pass_case="$tmp/runner_write_apply_report_pass.case"
+cat >"$write_pass_case" <<'CASE'
+ID=runner_write_apply_report_pass
+NAME="runner write apply report pass"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_pass_case" 1 >/dev/null 2>"$tmp/runner-write-pass.err"
+write_pass_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_report_pass-*' | sort | tail -1)"
+if [[ -z "$write_pass_dir" ]]; then
+  fail "eval/run.sh did not write write-mode pass result dir"
+fi
+assert_eq "$(cat "$write_pass_dir/run-1.verdict")" "PASS" "write apply report pass verdict"
+assert_eq "$(eval_json_top_bool_field "$write_pass_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply result authoritative in run.sh"
+
+write_missing_case="$tmp/runner_write_apply_report_missing.case"
+cat >"$write_missing_case" <<'CASE'
+ID=runner_write_apply_report_missing
+NAME="runner write apply report missing"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=0 CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_missing_case" 1 >/dev/null 2>"$tmp/runner-write-missing.err"
+write_missing_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_report_missing-*' | sort | tail -1)"
+if [[ -z "$write_missing_dir" ]]; then
+  fail "eval/run.sh did not write write-mode missing-report result dir"
+fi
+write_missing_verdict="$(cat "$write_missing_dir/run-1.verdict")"
+case "$write_missing_verdict" in
+  FAIL*write_report_missing*)
+    ;;
+  *)
+    fail "write apply missing report should fail: $write_missing_verdict"
+    ;;
+esac
+assert_eq "$(eval_json_top_bool_field "$write_missing_dir/run-1.write-apply.json" report_exists)" "false" "write apply missing report recorded"
 
 fake_blocked_data="$tmp/fake-codrax-blocked-data"
 cat >"$fake_blocked_data" <<'FAKE'
