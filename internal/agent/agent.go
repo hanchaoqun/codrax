@@ -2839,6 +2839,135 @@ func validateWriteExplorationReadOnlyToolCall(ctx *types.AgentContext, tc llm.To
 	}
 }
 
+func writePlannerDryRunOnly(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.Stage == types.StagePlan && ctx.Mode.IsWrite()
+}
+
+func writePlannerBlocksTool(ctx *types.AgentContext, name string) bool {
+	if !writePlannerDryRunOnly(ctx) {
+		return false
+	}
+	switch types.CanonicalToolName(name) {
+	case "exec_command", "apply_patch", "emit_test_results":
+		return true
+	default:
+		return false
+	}
+}
+
+func writePlannerRunTestsParameters(raw json.RawMessage) json.RawMessage {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return raw
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if props == nil {
+		props = map[string]any{}
+		schema["properties"] = props
+	}
+	props["dry_run"] = map[string]any{
+		"type":        "boolean",
+		"enum":        []bool{true},
+		"description": "Required while preparing a write plan. Planning probes are dry-run only and are stored as PlanStageProbeReports, never as the authoritative post-apply ChangeReport.",
+	}
+	schema["required"] = appendJSONSchemaRequired(schema["required"], "dry_run")
+	patched, err := json.Marshal(schema)
+	if err != nil || !json.Valid(patched) {
+		return raw
+	}
+	return patched
+}
+
+func appendJSONSchemaRequired(raw any, field string) []string {
+	seen := map[string]bool{}
+	var out []string
+	switch vals := raw.(type) {
+	case []any:
+		for _, v := range vals {
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+			s = strings.TrimSpace(s)
+			if s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+	case []string:
+		for _, s := range vals {
+			s = strings.TrimSpace(s)
+			if s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	field = strings.TrimSpace(field)
+	if field != "" && !seen[field] {
+		out = append(out, field)
+	}
+	return out
+}
+
+func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if !writePlannerDryRunOnly(ctx) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if writePlannerBlocksTool(ctx, tc.Name) {
+		msg := fmt.Sprintf(
+			"%s rejected: write planning is a bounded planning lane. Use typed read tools and run_tests(dry_run=true); shell commands, apply tools, and verifier result tools belong to later write stages.",
+			tc.Name)
+		return &types.ToolResult{
+			ToolName:  tc.Name,
+			Summary:   msg,
+			Success:   false,
+			Timestamp: time.Now(),
+			Repair: &types.ToolRepair{
+				Code: "write_planner_tool_not_allowed",
+				Hint: "Continue planning with repo_map, grep, list_files, read_file, run_tests(dry_run=true), then emit a bounded ChangePlan.",
+				Metadata: map[string]string{
+					"tool":   canonical,
+					"stage":  string(types.StagePlan),
+					"policy": "write_planner_typed_probe_only",
+				},
+			},
+		}
+	}
+	if canonical != "run_tests" {
+		return nil
+	}
+	var params struct {
+		DryRun bool `json:"dry_run"`
+	}
+	if len(tc.Params) > 0 {
+		if err := json.Unmarshal(tc.Params, &params); err != nil {
+			return nil
+		}
+	}
+	if params.DryRun {
+		return nil
+	}
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Summary:   "run_tests rejected: write planner probes must set dry_run=true so results are stored as PlanStageProbeReports instead of the authoritative post-apply ChangeReport",
+		Success:   false,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: "write_planner_run_tests_requires_dry_run",
+			Hint: "Re-run run_tests with dry_run=true, or emit the ChangePlan if no probe is needed.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"stage":  string(types.StagePlan),
+				"policy": "write_planner_typed_probe_only",
+			},
+		},
+	}
+}
+
 func validateExternalObservationOnlyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
 	if !observationOnlyRuntimeBlocksTool(ctx, tc.Name) {
 		return nil
@@ -2969,6 +3098,10 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if ewd, ok := t.(*tool.EmitWriteWorkflowDecision); ok {
 				params = ewd.ParametersFor(ctx)
 			}
+			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
+				params = writePlannerRunTestsParameters(params)
+				desc += " While preparing a write plan this tool is available only with dry_run=true."
+			}
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        t.Name(),
 				Description: desc,
@@ -3066,6 +3199,9 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 		return true
 	}
 	if writeExplorationReadOnlyBlocksTool(ctx, toolName) {
+		return true
+	}
+	if writePlannerBlocksTool(ctx, toolName) {
 		return true
 	}
 	if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
@@ -3634,6 +3770,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 	if violation := validateWriteExplorationReadOnlyToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
+	if violation := validateWritePlannerToolPolicy(ctx, tc); violation != nil {
+		return violation, nil
+	}
 
 	// Explorer sourcemix budget gate. When an ExploreBudget is
 	// installed on MutableState (runTaskGraph does this before
@@ -3919,6 +4058,11 @@ func stageAllowedToolSummary(ctx *types.AgentContext) string {
 		return "emit_analysis, grep(files_only=true), repo_map"
 	case types.StageExplore:
 		return "read/search tools, git tools, emit_evidence, emit_investigation_complete"
+	case types.StagePlan:
+		if ctx.Mode.IsWrite() {
+			return "repo_map, grep, list_files, read_file, run_tests(dry_run=true), emit_change_plan, emit_plan_skeleton, emit_plan_change"
+		}
+		return "planner-stage tools"
 	case types.StageExtract:
 		return "emit_evidence, emit_answer_symbol, emit_hypothesis_verdict"
 	case types.StageFinalize:

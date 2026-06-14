@@ -673,14 +673,13 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 	// registry cannot perturb read-mode skill resolution (no shared
 	// name; explicit lookup by stage → skill name in topology.go).
 	//
-	// L6 red line: each write skill intentionally keeps exec_command
-	// in its ToolSuggestions. Safety comes from the git worktree
-	// sandbox (Day 2 landed): plan / apply / verify stages run inside
-	// a detached worktree so a runaway rm -rf hits the worktree copy,
-	// never the user's main checkout. Stripping exec_command would
-	// break the flexibility promise (Q2) without adding security
-	// — worktree isolation is the safety surface, not skill
-	// allowlisting.
+	// Tool-surface split: write analysis/controller/planner avoid
+	// generic exec_command. The planner gets typed repository read tools
+	// plus run_tests(dry_run=true) probes; apply/verify run inside the
+	// detached worktree and keep their narrower execution tools. Safety
+	// is defense in depth: stage-local tool schemas, runtime tool policy,
+	// typed dry-run channels, and the git worktree sandbox all have to
+	// agree before anything executes.
 	//
 	// L3 red line: the three write-mode emit tools (emit_change_plan,
 	// apply_patch, emit_test_results) are listed in these skills but

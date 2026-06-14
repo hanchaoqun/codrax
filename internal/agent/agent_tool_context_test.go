@@ -324,6 +324,73 @@ func TestExecuteTool_WriteExplorationSubflowRejectsShellCommand(t *testing.T) {
 	}
 }
 
+func TestBuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	base := NewBaseAgent(types.AgentPlanner, &Dependencies{Tools: reg}, nil)
+	ctx := &types.AgentContext{
+		Stage: types.StagePlan,
+		Mode:  types.ModeApply,
+	}
+	sk := &skill.Config{ToolSuggestions: []string{
+		"read_file",
+		"exec_command",
+		"run_tests",
+		"apply_patch",
+		"emit_change_plan",
+	}}
+	schemas := base.buildToolSchemas(sk, ctx)
+	if schemaNamesContain(schemas, "exec_command") {
+		t.Fatalf("write planner must not expose generic exec_command: %+v", schemaNames(schemas))
+	}
+	if schemaNamesContain(schemas, "apply_patch") {
+		t.Fatalf("write planner must not expose apply_patch: %+v", schemaNames(schemas))
+	}
+	var runTests *llm.ToolSchema
+	for i := range schemas {
+		if schemas[i].Name == "run_tests" {
+			runTests = &schemas[i]
+			break
+		}
+	}
+	if runTests == nil {
+		t.Fatalf("write planner should keep typed run_tests dry-run probe available: %+v", schemaNames(schemas))
+	}
+	raw := string(runTests.Parameters)
+	for _, want := range []string{`"dry_run"`, `"enum":[true]`, `"required":["dry_run"]`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("planner run_tests schema should require dry_run=true, missing %q in %s", want, raw)
+		}
+	}
+}
+
+func TestValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StagePlan,
+		Mode:  types.ModeApply,
+	}
+	shell := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "exec_command",
+		Params: json.RawMessage(`{"command":"pytest"}`),
+	})
+	if shell == nil || shell.Success || shell.Repair == nil || shell.Repair.Code != "write_planner_tool_not_allowed" {
+		t.Fatalf("exec_command should be rejected with typed policy repair, got %+v", shell)
+	}
+	nonDryRun := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "run_tests",
+		Params: json.RawMessage(`{"runner":"python"}`),
+	})
+	if nonDryRun == nil || nonDryRun.Success || nonDryRun.Repair == nil || nonDryRun.Repair.Code != "write_planner_run_tests_requires_dry_run" {
+		t.Fatalf("run_tests without dry_run should be rejected with typed policy repair, got %+v", nonDryRun)
+	}
+	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "run_tests",
+		Params: json.RawMessage(`{"runner":"python","dry_run":true}`),
+	}); got != nil {
+		t.Fatalf("run_tests dry_run=true should pass write planner policy, got %+v", got)
+	}
+}
+
 func TestValidateExternalObservationOnlyToolCall_DoesNotBlockMCPResourceSourceTools(t *testing.T) {
 	ctx := &types.AgentContext{
 		Stage: types.StageExplore,
