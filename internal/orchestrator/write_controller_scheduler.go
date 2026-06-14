@@ -1117,6 +1117,9 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 	}
 	run.UpdatedAt = time.Now()
 	normalized := types.NormalizeWriteWorkflowRun(*run)
+	if violations := writeflow.ValidateWorkflowRunState(normalized, o.busCtx.Mutable.ChangePlan()); len(violations) > 0 {
+		logging.Warning("[orchestrator] write workflow state invariant warning: %s", strings.Join(violations, "; "))
+	}
 	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 	if o.writeWorkflowRunStore == nil {
 		return

@@ -94,6 +94,70 @@ func DeriveBatchAttemptState(batch types.WriteWorkflowBatch) BatchAttemptState {
 	return st
 }
 
+// ValidateWorkflowRunState checks cross-field invariants that should stay true
+// across controller decisions, persisted runs, and resume. It reads only typed
+// workflow records and the current ChangePlan approval record; no prose fields
+// are used for hard interpretation.
+func ValidateWorkflowRunState(run types.WriteWorkflowRun, plan *types.ChangePlan) []string {
+	run = types.NormalizeWriteWorkflowRun(run)
+	var errs []string
+	batches := map[string]types.WriteWorkflowBatch{}
+	for _, batch := range run.Batches {
+		batches[batch.ID] = batch
+		errs = append(errs, validateWorkflowBatchAttemptPlanIDs(batch)...)
+	}
+	if run.ActiveBatchID != "" {
+		if _, ok := batches[run.ActiveBatchID]; !ok {
+			errs = append(errs, "active_batch_id "+run.ActiveBatchID+" does not match any batch")
+		}
+	}
+	if plan != nil {
+		errs = append(errs, validateWorkflowPlanBatchState(run, plan)...)
+	}
+	return errs
+}
+
+func validateWorkflowBatchAttemptPlanIDs(batch types.WriteWorkflowBatch) []string {
+	if strings.TrimSpace(batch.PlanID) == "" {
+		return nil
+	}
+	var errs []string
+	for _, attempt := range batch.Attempts {
+		if attempt.PlanID == "" || attempt.PlanID == batch.PlanID {
+			continue
+		}
+		switch attempt.Kind {
+		case "plan", "apply", "verify":
+			errs = append(errs, "batch "+batch.ID+" "+attempt.Kind+" attempt plan_id "+attempt.PlanID+" conflicts with batch plan_id "+batch.PlanID)
+		}
+	}
+	return errs
+}
+
+func validateWorkflowPlanBatchState(run types.WriteWorkflowRun, plan *types.ChangePlan) []string {
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" || plan.Approval == nil {
+		return nil
+	}
+	var errs []string
+	for _, batch := range run.Batches {
+		if batch.PlanID != planID {
+			continue
+		}
+		switch strings.TrimSpace(plan.Approval.Action) {
+		case string(ApprovalActionAutoExecute):
+			if batch.Status == types.WriteWorkflowBatchPendingApproval {
+				errs = append(errs, "batch "+batch.ID+" is pending_approval but plan approval action is auto_execute")
+			}
+		case string(ApprovalActionDeny):
+			if batch.Status != types.WriteWorkflowBatchBlocked {
+				errs = append(errs, "batch "+batch.ID+" is "+string(batch.Status)+" but plan approval action is deny")
+			}
+		}
+	}
+	return errs
+}
+
 // Finish disposition values: the typed escape lane for the finish hard gate.
 // The system rule is "finish is rejected while a batch's latest post-apply
 // verify attempt failed"; a model that judges the residual failure acceptable

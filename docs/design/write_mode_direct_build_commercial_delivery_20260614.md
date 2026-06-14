@@ -166,6 +166,7 @@ Controller/planner/replan/verifier 只读取各自 consumer Top-N 视图；完�
 | 37 | Handoff consumer Top-N hardening | P0-P3 去重、consumer view、verify failure P2 replan 消费增加回归测试 |
 | 38 | Canonical action surface | Controller schema、validator、scheduler 只接受真实可执行 action；旧迁移别名 fail-loud，不静默归一到可执行动作 |
 | 39 | Ask-user repeat suppression | `ask_user` missing facts 写入 durable typed fact keys；重复事实转 typed block，避免同一问题反复打断用户 |
+| 40 | Single state-machine invariants | 新增 typed workflow invariant validator；active batch、attempt plan_id、approval action 与 batch 状态冲突可观测 |
 
 每批结束必须更新本文档 progress ledger、提交并推送到 `main`。
 
@@ -1230,7 +1231,7 @@ Consumers:
 - [ ] P0 ModePlan audit: ensure plan phase persists a plan and exits without scheduling apply/approval/verify.
 - [ ] P0 workflow approval resume: make pending approval durable across process restart and let `/approve` continue the same run/batch.
 - [ ] P0 failure evidence projection: move build/test failure path/line/command metadata into P2 context packs and consume them in replan prompts/tools.
-- [ ] P1 single-state-machine audit: add invariant tests that plan status, approval record, apply refs, verify refs, and batch status cannot disagree.
+- [x] P1 single-state-machine audit: add invariant tests that plan status, approval record, apply refs, verify refs, and batch status cannot disagree. Delivered in Batch 40 with typed workflow invariant validation and runtime warnings.
 - [ ] P1 planner/replan permissions: route dry-run needs through typed dry-run tools, not generic planning-phase exec.
 - [ ] P1 context pack dedupe: add stable hash/evidence-ref dedupe and role-specific Top-N projections.
 - [ ] P1 worktree/report UX: update CLI/REPL/eval prompts to prefer durable refs over disposable live paths.
@@ -1854,3 +1855,33 @@ Consumers:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
   - Implementation commit: `af54921f` (`write-mode: suppress repeated ask-user facts`), pushed to `origin/main`.
+
+#### Batch 40: Single State-Machine Invariant Validator
+
+- Evidence source:
+  - `DeriveBatchAttemptState` already gives controller-facing consumers one derived phase, and prior tests cover common `needs_replan`, approval, retry, and finish cases.
+  - There was no reusable typed invariant validator for durable workflow records, so contradictions such as active batch missing, attempt plan-id drift, or `pending_approval` with an auto-executable approval record could persist unnoticed.
+- Generalized gap:
+  - Auto Pilot needs one observable state machine across plan, approval, apply, verify, and workflow batch records.
+  - Invariant detection must be typed and non-invasive before it becomes a hard gate, so stable write/read paths are not disrupted by over-eager enforcement.
+- Target architecture:
+  - Add `ValidateWorkflowRunState(run, plan)` in `internal/writeflow`.
+  - Validate active batch identity, attempt `plan_id` alignment with batch `plan_id`, and approval action versus batch state.
+  - Call the validator from workflow persistence and log warnings for invariant violations.
+  - Keep enforcement as observation-only for this batch; future batches can promote specific mature violations to fail-loud after enough runtime evidence.
+- Safety and prompt hygiene:
+  - The validator reads only typed workflow run fields and `WriteApprovalRecord.Action`.
+  - It does not parse user intent, model prose, summaries, rationale, progress message text, logs, or `<think>`.
+  - Scope is write workflow state validation; read/log/trace/data/operation/computer modes are untouched.
+- Implementation tasks:
+  - [x] Add workflow-state invariant validator.
+  - [x] Add tests for contradictory active batch, attempt plan-id drift, and auto-approval/pending-approval mismatch.
+  - [x] Add a consistent-state regression test.
+  - [x] Wire runtime warning from `persistWriteWorkflowRun`.
+- Verification:
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow -run 'Test(DeriveBatchAttemptState|ValidateWorkflowRunState|FinishBlockedReason)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(AutoExecutableAskUserAppliesPlan|VerifyFailureSetsHandoffAndGreenClears|FinishAfterPassedVerifyNeedsNoDisposition|PlannerProbePassCannotFinishFailedPostApplyVerify)'`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/orchestrator ./internal/types ./internal/repl ./internal/agent ./internal/tool`
+  - Full regression is run before push for the implementation commit.
+- Progress:
+  - Implementation commit: pending.

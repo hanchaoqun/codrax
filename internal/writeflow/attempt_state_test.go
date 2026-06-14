@@ -61,6 +61,67 @@ func TestDeriveBatchAttemptState_PassedVerifyDoesNotReplan(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowRunStateDetectsContradictions(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "missing-batch",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-1",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "verify",
+				Status: "failed",
+				PlanID: "other-plan",
+			}},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-1",
+		Approval: &types.WriteApprovalRecord{
+			Action: string(ApprovalActionAutoExecute),
+		},
+	}
+	errs := ValidateWorkflowRunState(run, plan)
+	joined := strings.Join(errs, "\n")
+	for _, want := range []string{
+		"active_batch_id missing-batch does not match any batch",
+		"verify attempt plan_id other-plan conflicts with batch plan_id plan-1",
+		"pending_approval but plan approval action is auto_execute",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing invariant %q from %v", want, errs)
+		}
+	}
+}
+
+func TestValidateWorkflowRunStateAllowsConsistentApprovalAndAttempts(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			PlanID: "plan-1",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-1"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+			},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-1",
+		Approval: &types.WriteApprovalRecord{
+			Action: string(ApprovalActionAutoExecute),
+		},
+	}
+	if errs := ValidateWorkflowRunState(run, plan); len(errs) != 0 {
+		t.Fatalf("consistent state rejected: %v", errs)
+	}
+}
+
 func TestFinishBlockedReason_BlocksOnLatestFailedVerify(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		Batches: []types.WriteWorkflowBatch{{
