@@ -699,6 +699,7 @@ ask for approval on low/medium cases.
 | 2026-06-14 | 28 | pushed | Closed the Batch 27 structured-edit recovery gap by adding typed `expected_old_text` and `retry_instruction` fields to `old_text_mismatch` diagnostics for range edits and insert anchors. This gives the planner an exact reusable snippet instead of forcing repeated line-range guessing after a stale `old_text` rejection. The hard gate still only validates structured edits against current file bytes; it does not parse user intent, model prose, summaries, rationale, logs, or `<think>`. Verification: targeted structured-edit diagnostics tests plus full `go test ./internal/tool`. Implementation commit `81ee3734`; this ledger update records the pushed Batch 28 evidence. |
 | 2026-06-14 | 29 | pushed | Added C/C++ symptom-only localization cases for fmtlib/fmt and libgit2, then fixed a controller typed-state recovery gap where coder transport EOF after all typed changes landed blocked verify. Re-run `eval/results/write_mode_c_cpp_symptom_fmt_libgit2_after_recovery_20260614_summary.md` passed 2/2, flagged 0/2. Implementation commit `757e5fa5`; evidence doc follow-up commit `81f27745`. |
 | 2026-06-14 | 30 | pushed | Added multi-repo SDK contract drift cases from `anajuliabit/memoclaw-sdk#168` for TypeScript and Python SDKs. Initial PASS exposed a verifier gap: Python `run_tests` accepted `syntax_check_fallback` while a typed `Makefile check` surface was still runnable. Implemented generalized escalation from successful syntax fallback to the next unexecuted `TestSurfaceCandidate` with `HasTestSignal`, updated verifier prompt guidance, then re-ran `eval/results/write_mode_memoclaw_multirepo_sdk_after_surface_20260614_summary.md`: PASS 2/2, flagged 0/2. |
+| 2026-06-14 | 37 | pushed | Hardened priority context-pack consumer projection. Duplicate typed facts now merge consumer sets instead of consuming repeated Top-N rows, and planner limited views retain typed verify-failure lanes even when many older P0/P1 facts are present while preserving a minimum P0 budget. Hard logic reads structured `SourceStage`/`Priority`/`Kind` signals only, not user keywords, model prose, summaries, rationale, logs, or `<think>`. Verification passed: focused `internal/types` context-pack tests, affected write-mode packages, full `go test ./...`, and `make`. Implementation commit `80535a00`; this ledger update records the pushed Batch 37 evidence. |
 
 ## 18. Design Document Coverage Checklist
 
@@ -1783,6 +1784,7 @@ Consumers:
 - Verification:
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/types -run 'TestWriteContextPack|TestNormalizeWriteContextPack|TestWriteWorkflowRun'`
   - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/writeflow ./internal/agent ./internal/orchestrator ./internal/repl`
-  - Full regression is run before push for the implementation commit.
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./...`
+  - `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`
 - Progress:
-  - Implementation commit: pending.
+  - Implementation commit: `80535a00` (`write-mode: retain prioritized context lanes`), pushed to `origin/main`.
