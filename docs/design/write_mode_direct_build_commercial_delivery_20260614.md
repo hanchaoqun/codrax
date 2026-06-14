@@ -880,10 +880,10 @@ Generalized gap:
 
 Target design:
 
-- Normalize batch/plan render state through approval record action, not raw `ChangePlan.Status`.
-- The controller should see `approved_auto` or `auto_executable` for low/medium plans after apply-pre risk assessment.
-- Non-interactive ask should fail-loud only for typed `action=ask`, not for a stale pending label.
-- This must be solved through typed approval artifacts and plan fingerprint checks, not user intent keywords or model prose.
+- Keep apply-pre as the final authority, but add a scheduler preview that uses the same typed `AssessWriteRisk + DecideWriteApproval` policy before honoring a controller `ask_user`.
+- If the controller emits typed `action=ask_user` while the current plan is still ready-to-apply and the deterministic approval decision is `auto_execute`, normalize the action to `apply_plan` and record an audit progress event.
+- Preserve real pauses: high-risk/manual approval records, stale fingerprints, denied/blocked plans, missing plans, and already-applied or verify-failed plans must not be auto-converted.
+- The hard route must not parse `reason`, `reason_code`, user intent keywords, model rationale, or `<think>` text. It only reads typed action, plan lifecycle status, approval record/fingerprint, and typed risk policy.
 
 ### 19.6 Addendum Delivery Tasks
 
@@ -950,7 +950,8 @@ Target design:
 
 #### Batch 15: Pending Approval State Normalization
 
-- Normalize controller-facing plan state through typed approval records instead of raw `pending_approval` status.
-- Add tests where low/medium auto-safe plans do not block non-interactive `--auto-apply`.
-- Add tests where true high-risk `ask` still blocks and remains resumable via `/workflow show/list/resume` + `/approve`.
+- [x] Normalize controller `ask_user` pauses through typed approval preview instead of raw `pending_approval` status.
+- [x] Add tests where low/medium auto-safe plans do not block non-interactive apply.
+- [x] Keep existing true high-risk/manual approval test green.
+- [x] Verification: `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(AutoExecutableAskUserAppliesPlan|PendingApprovalKeepsRunActive)'`; `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/agent ./internal/tool ./internal/repl`.
 - Re-run `github_issue_commons_lang_random_ascii` and then the 8-case external issue sweep.

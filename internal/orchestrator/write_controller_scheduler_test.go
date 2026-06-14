@@ -711,6 +711,69 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	}
 }
 
+func TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("safe doc change")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "safe doc change"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "safe doc change"}},
+		{Action: writeflow.ActionAskUser, ReasonCode: "model_pause", QuestionsForUser: []string{"Do you approve applying this plan?"}},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	applyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-auto-doc",
+				Status:      types.PlanStatusPending,
+				Summary:     "safe doc change",
+				TargetPaths: []string{"docs/guide.md"},
+				Changes: []types.FileChange{{
+					Path:       "docs/guide.md",
+					Kind:       "modify",
+					NewContent: "updated docs\n",
+					Rationale:  "document the safe behavior",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-auto-doc", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if controllerCalls != 4 {
+		t.Fatalf("controller calls = %d, want 4", controllerCalls)
+	}
+	if applyCalls != 1 {
+		t.Fatalf("auto-executable ask_user should dispatch exactly one apply, got %d", applyCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete after normalized ask_user, got %+v", store.last)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, string(types.WriteWorkflowBatchPendingApproval)) {
+		t.Fatalf("auto-executable plan should not enter pending approval: %+v", store.last.ProgressLedger)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "ask_user_auto_executable_overridden") {
+		t.Fatalf("normalization progress should be recorded: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",

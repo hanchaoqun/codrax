@@ -81,6 +81,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		if err != nil {
 			return err
 		}
+		decision = o.normalizeControllerApprovalPause(decision, &run)
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
 		// (ApplyWorkflowDecisionToRun marks the active batch complete on
 		// finish): a batch whose latest post-apply verify attempt failed
@@ -1149,6 +1150,63 @@ func writeWorkflowApplyRef(plan *types.ChangePlan, status string) string {
 		return ""
 	}
 	return worktree.AppliedRef(plan.ID)
+}
+
+func (o *Orchestrator) normalizeControllerApprovalPause(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
+	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	if decision.Action != writeflow.ActionAskUser {
+		return decision
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.Mode != types.ModeApply {
+		return decision
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if !o.writePlanCanProceedWithoutApprovalPause(plan) {
+		return decision
+	}
+	batchID := ""
+	if run != nil {
+		batchID = run.ActiveBatchID
+	}
+	appendControllerProgress(run, batchID, "ask_user_auto_executable_overridden",
+		"controller ask_user suppressed because deterministic write approval policy allows this pending plan to apply")
+	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionApplyPlan,
+		ReasonCode: "auto_executable_plan",
+		Reason:     "deterministic write approval policy allows this pending plan to apply",
+	})
+}
+
+func (o *Orchestrator) writePlanCanProceedWithoutApprovalPause(plan *types.ChangePlan) bool {
+	if plan == nil || !changePlanReadyForApply(plan) || writePlanDeniedByApproval(plan) {
+		return false
+	}
+	fingerprint := types.PlanFingerprint(plan)
+	if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
+		return true
+	}
+	if writePlanNeedsManualApproval(plan) {
+		return false
+	}
+	policy := o.writeApprovalPolicy
+	if policy == "" {
+		policy = writeflow.ApprovalPolicyAutoSafe
+	}
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
+	decision := writeflow.DecideWriteApproval(policy, assessment)
+	return decision.Action == writeflow.ApprovalActionAutoExecute
+}
+
+func changePlanReadyForApply(plan *types.ChangePlan) bool {
+	if plan == nil {
+		return false
+	}
+	switch strings.TrimSpace(plan.Status) {
+	case "", types.PlanStatusPending, types.PlanStatusApplyFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) string {
