@@ -2226,11 +2226,11 @@ mcp_servers:
 <li>创建临时 worktree(基于当前 branch)</li>
 <li>在 worktree 里 <code>apply_patch</code> 每个文件改动(支持 create / modify / delete / patch / rename)</li>
 <li>自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)</li>
-<li>测试通过 → 标记 <code>applied</code>;失败 → 标记 <code>verify_failed</code>(可重试)</li>
+<li>测试通过 → 标记 <code>applied</code>;测试/构建真实失败 → 标记 <code>verify_failed</code>(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 <code>unverified</code></li>
 </ol>
 <blockquote>
 <p>verifier agent 也可以<strong>绕过自动探测</strong>,显式声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code>(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。</p>
-<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。两条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)直接 fall-through 给安装提示;fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
+<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。两条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 <code>unverified</code> 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
 </blockquote>
 <p>特殊场景:</p>
 <div class="table-wrap"><table>
@@ -3877,7 +3877,7 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <p><strong>plan 模式在空目录卡住或报 "scaffold 授权"</strong>
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 <code>write_auto_init_repo: true</code> + <code>write_scaffold_enabled: true</code>,或启动时同时加 <code>--auto-init-repo --allow-scaffold</code>。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。</p>
 <p><strong>runner 检测错了 / runner 不存在</strong>
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),自动跳过 verify→plan 重试,显示推荐安装命令(<code>env_recommend</code> 启动一条诊断 → 推荐 → 双语渲染管线;命令以 <code>!</code> 前缀给出方便复制)。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),自动跳过 verify→plan 重试,将 plan 标记为 <code>unverified</code> 而不是 <code>verify_failed</code>,并显示推荐安装命令(<code>env_recommend</code> 启动一条诊断 → 推荐 → 双语渲染管线;命令以 <code>!</code> 前缀给出方便复制)。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
 <p><strong><code>/merge</code> 说 "no worktree to merge from"</strong>
 → apply 完 worktree 被清了。<code>codrax.yaml</code> 加 <code>pipeline_keep_worktree_on_success: true</code>,下次 apply 后 worktree 会保留。</p>
 <hr />
