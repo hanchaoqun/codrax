@@ -78,6 +78,8 @@ func TestGrepToolPromptDocumentsRuntimeArtifactControls(t *testing.T) {
 		"fixed_string=true",
 		"line_start/line_end",
 		"large log/trace/systrace",
+		"do not grep for E|pid|name",
+		`trace_query(view="span_window"`,
 		"Do NOT use the result to count matches by eye",
 	} {
 		if !strings.Contains(description, want) {

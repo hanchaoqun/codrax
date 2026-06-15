@@ -1273,6 +1273,73 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("runtime artifact trace marker begin points to span_window", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
+		trace := strings.Join([]string{
+			`my.carlist.www-49209 (11029) [005] .... 1858.767865: tracing_mark_write: B|11029|bindApplication`,
+			`my.carlist.www-49209 (11029) [010] .... 1858.770335: tracing_mark_write: E|11029`,
+		}, "\n")
+		if err := os.WriteFile(tmpFile, []byte(trace), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:     "bindApplication",
+			Path:        tmpFile,
+			FixedString: true,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, want := range []string{
+			"trace_marker_span_begin_hint=",
+			`span_name="bindApplication"`,
+			`trace_query(view="span_window"`,
+			`path="` + tmpFile + `"`,
+			"line_start=1",
+			"do not infer the end by grepping for E|<pid>|<span_name>",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("trace marker begin hint missing %q:\n%s", want, result.Summary)
+			}
+		}
+	})
+
+	t.Run("runtime artifact named end no match is not missing span proof", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
+		trace := strings.Join([]string{
+			`my.carlist.www-49209 (11029) [005] .... 1858.767865: tracing_mark_write: B|11029|bindApplication`,
+			`my.carlist.www-49209 (11029) [010] .... 1858.770335: tracing_mark_write: E|11029`,
+		}, "\n")
+		if err := os.WriteFile(tmpFile, []byte(trace), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:     "E|11029|bindApplication",
+			Path:        tmpFile,
+			FixedString: true,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, want := range []string{
+			"no matches found",
+			"trace_marker_span_end_shape=",
+			`span_name="bindApplication"`,
+			"not evidence that the span never ended",
+			`trace_query(view="span_window"`,
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("named-end no-match hint missing %q:\n%s", want, result.Summary)
+			}
+		}
+	})
+
 	t.Run("skipped large file hint names capped candidates", func(t *testing.T) {
 		got := grepSkippedLargeFilePathHint([]string{"record_trace.systrace", "large.log"}, 3)
 		for _, want := range []string{`"record_trace.systrace"`, `"large.log"`, "+1 more"} {

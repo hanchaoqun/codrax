@@ -1032,7 +1032,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. For trace marker spans, a B|pid|name begin is normally closed by unnamed E|pid or bare E on the same ftrace thread stack, so do not grep for E|pid|name; use trace_query(view=\"span_window\", span_name=\"...\") to resolve the end. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -1615,7 +1615,12 @@ func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanne
 	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, params, countBanner, paramsBanner, rawOutput, annotated); ok {
 		return compacted, rawRef
 	}
-	return StoreBlob(ctx, "grep", countBanner+paramsBanner+annotated)
+	payload := countBanner + paramsBanner
+	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		payload += grepRuntimeArtifactTraceSpanAdvisory(params, rawOutput)
+	}
+	payload += annotated
+	return StoreBlob(ctx, "grep", payload)
 }
 
 func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
@@ -1659,6 +1664,9 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 			b.WriteString(advisory)
 		}
 		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(production, "\n")); advisory != "" {
+			b.WriteString(advisory)
+		}
 		if hint := grepLineWindowHint(production, params.FilesOnly); hint != "" {
 			b.WriteString(hint)
 		}
@@ -1794,6 +1802,9 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 		b.WriteString(advisory)
 	}
 	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+	if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(capture.PreviewLines, "\n")); advisory != "" {
+		b.WriteString(advisory)
+	}
 	windows := capture.LineWindows
 	if len(windows) == 0 {
 		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepLineWindowHintMax)
@@ -1819,6 +1830,9 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		b.WriteString("no matches found\n")
 		b.WriteString(lineWindowNote)
 		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+			b.WriteString(advisory)
+		}
+		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, ""); advisory != "" {
 			b.WriteString(advisory)
 		}
 		if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
@@ -1884,6 +1898,153 @@ func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {
 		return ""
 	}
 	return "artifact_search_advisory=" + strings.Join(notes, "; ") + ".\n"
+}
+
+type grepTraceMarkerBegin struct {
+	Path     string
+	Line     int
+	Action   string
+	SpanPID  string
+	SpanName string
+	Cookie   string
+}
+
+func grepRuntimeArtifactTraceSpanAdvisory(params grepToolParams, output string) string {
+	var b strings.Builder
+	if spanName, ok := grepNamedTraceEndPattern(params.Pattern); ok {
+		b.WriteString("trace_marker_span_end_shape=pattern appears to search a named B/E end marker")
+		if spanName != "" {
+			fmt.Fprintf(&b, " for span_name=%q", spanName)
+		}
+		b.WriteString("; ftrace/atrace synchronous span ends normally appear as unnamed E|<pid> or bare E on the same ftrace thread stack. A zero match or broad regex result for E|<pid>|<span_name> is not evidence that the span never ended. Use trace_query(view=\"span_window\"")
+		if path := grepTraceQueryPathHint(params, ""); path != "" {
+			fmt.Fprintf(&b, ", path=%q", path)
+		}
+		if spanName != "" {
+			fmt.Fprintf(&b, ", span_name=%q", spanName)
+		} else {
+			b.WriteString(", span_name=\"<begin span label>\"")
+		}
+		b.WriteString(") to resolve the end by stack pairing.\n")
+	}
+	begin, ok := firstGrepTraceMarkerBegin(output)
+	if !ok {
+		return b.String()
+	}
+	b.WriteString("trace_marker_span_begin_hint=matched a trace marker begin row")
+	if begin.Action == "S" {
+		b.WriteString(" (async S/F)")
+	} else {
+		b.WriteString(" (sync B/E)")
+	}
+	if begin.SpanName != "" {
+		fmt.Fprintf(&b, " span_name=%q", begin.SpanName)
+	}
+	if begin.SpanPID != "" {
+		fmt.Fprintf(&b, " marker_pid=%s", begin.SpanPID)
+	}
+	if begin.Cookie != "" {
+		fmt.Fprintf(&b, " cookie=%s", begin.Cookie)
+	}
+	b.WriteString("; do not infer the end by grepping for E|<pid>|<span_name>. Next call: trace_query(view=\"span_window\"")
+	if path := grepTraceQueryPathHint(params, begin.Path); path != "" {
+		fmt.Fprintf(&b, ", path=%q", path)
+	}
+	if begin.SpanName != "" {
+		fmt.Fprintf(&b, ", span_name=%q", begin.SpanName)
+	}
+	if begin.Line > 0 {
+		fmt.Fprintf(&b, ", line_start=%d", begin.Line)
+	}
+	b.WriteString("); omit line_end unless you intentionally want to stop the stack search before a later E row.\n")
+	return b.String()
+}
+
+func grepNamedTraceEndPattern(pattern string) (spanName string, ok bool) {
+	normalized := strings.TrimSpace(pattern)
+	normalized = strings.ReplaceAll(normalized, `\|`, "|")
+	normalized = strings.Trim(normalized, `"'`)
+	idx := strings.Index(normalized, "E|")
+	if idx < 0 {
+		return "", false
+	}
+	parts := strings.Split(normalized[idx:], "|")
+	if len(parts) < 3 || strings.TrimSpace(parts[0]) != "E" {
+		return "", false
+	}
+	pid := strings.Trim(strings.TrimSpace(parts[1]), `^$"'`)
+	if pid == "" {
+		return "", false
+	}
+	span := cleanGrepTraceSpanHintLabel(parts[2])
+	if span == "" {
+		return "", false
+	}
+	return span, true
+}
+
+func firstGrepTraceMarkerBegin(output string) (grepTraceMarkerBegin, bool) {
+	for _, line := range strings.Split(output, "\n") {
+		fields, ok := grepTraceMarkerFields(line)
+		if !ok {
+			continue
+		}
+		parts := strings.Split(fields, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		action := strings.TrimSpace(parts[0])
+		if action != "B" && action != "S" {
+			continue
+		}
+		path, lineNo, _, _ := parseGrepOutputLineLocation(line)
+		begin := grepTraceMarkerBegin{
+			Path:     path,
+			Line:     lineNo,
+			Action:   action,
+			SpanPID:  strings.TrimSpace(parts[1]),
+			SpanName: cleanGrepTraceSpanHintLabel(parts[2]),
+		}
+		if action == "S" && len(parts) >= 4 {
+			begin.Cookie = cleanGrepTraceSpanHintLabel(parts[3])
+		}
+		if begin.SpanName == "" {
+			continue
+		}
+		return begin, true
+	}
+	return grepTraceMarkerBegin{}, false
+}
+
+func grepTraceMarkerFields(line string) (string, bool) {
+	for _, marker := range []string{"tracing_mark_write:", "print:"} {
+		idx := strings.Index(line, marker)
+		if idx < 0 {
+			continue
+		}
+		fields := strings.TrimSpace(line[idx+len(marker):])
+		if strings.HasPrefix(fields, "B|") || strings.HasPrefix(fields, "S|") {
+			return fields, true
+		}
+	}
+	return "", false
+}
+
+func grepTraceQueryPathHint(params grepToolParams, observed string) string {
+	if path := strings.TrimSpace(params.Path); path != "" {
+		return path
+	}
+	return strings.TrimSpace(observed)
+}
+
+func cleanGrepTraceSpanHintLabel(raw string) string {
+	label := strings.TrimSpace(raw)
+	label = strings.Trim(label, `"'`)
+	label = strings.TrimPrefix(label, "^")
+	label = strings.TrimSuffix(label, "$")
+	label = strings.TrimSuffix(label, ".*")
+	label = strings.TrimSuffix(label, ".+")
+	return strings.TrimSpace(label)
 }
 
 func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToolParams, production []string) string {
