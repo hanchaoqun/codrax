@@ -2098,18 +2098,18 @@ mcp_servers:
 </tbody>
 </table></div>
 <hr />
-<h1 id="4-写模式-plan-apply-verify">4. 写模式 — plan → apply → verify</h1>
-<p>写模式让 codrax <strong>生成代码改动</strong>(增删改文件),在沙箱 git worktree 里跑测试,只有你显式批准后才合回主仓。<strong>默认关闭</strong>。</p>
+<h1 id="4-写模式-auto-pilot">4. 写模式 — Auto Pilot</h1>
+<p>写模式让 codrax <strong>生成代码改动</strong>(增删改文件),在沙箱 git worktree 里跑测试。日常主路径是 Auto Pilot:你描述目标,系统自动探索、拆批、应用、验证和必要的 replan;低/中风险不打断,高风险才暂停审批,critical 自动拒绝。主仓合并仍需要显式动作;组织可用 <code>write_enabled: false</code> 禁用写模式。</p>
 <h3 id="工作区单一不变量写模式的核心规则">工作区单一不变量(写模式的核心规则)</h3>
 <blockquote>
 <p><strong>同一个项目同时只能有一个未结算的改动方案。</strong></p>
 </blockquote>
 <p>未结算 = <code>pending_approval</code>(待批)/ <code>applied</code>(已批未合)/ <code>verify_failed</code>(验证失败)。结算 = <code>merged</code>(已合并)/ <code>rejected</code>(显式丢弃)/ <code>applied_failed</code>(apply 阶段崩了,自动终止)。</p>
 <p><strong>为什么这条规则重要</strong>:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。</p>
-<p>实际行为:<code>/mode write</code> 切换时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。</p>
-<pre><code>[git:master]❯❯ /mode write
-  ✗ 切换被拒:已存在未结算的改动方案 plan-XXXX(状态:applied)。
-    新方案要基于当前仓状态生成,先把上一个收尾再来:
+<p>实际行为:新的写目标进入 Auto Pilot 时如果存在未结算的 plan,系统会暂停并显示状态卡/高级收尾入口;REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。收尾后直接描述下一个目标即可,不用再记一串模式切换命令。</p>
+<pre><code>[git:master]❯❯ 修复新的边界问题
+  ✗ Auto Pilot 已暂停:还有未结算改动 plan-XXXX(状态:applied)。
+    为避免两个写入批次基于不同仓库状态互相覆盖,先处理上一版:
       /merge         合并到主仓
       /reject        丢弃改动(保留事后审查记录)
       /plan clear    彻底删除(无审查记录)
@@ -2151,25 +2151,57 @@ mcp_servers:
 </code></pre>
 <p>按当前 plan 的 status 不同,提示文案也不同 — <code>pending_approval</code> 显示 <code>/plan show · /approve · /reject · /plan clear</code>,<code>verify_failed</code> 显示 <code>/approve &lt;id&gt; · /merge --include-failed · /reject · /plan clear</code>。</p>
 <h2 id="41-启用">4.1 启用</h2>
-<p>写模式开箱即用,无需配置:进入写模式本身就是显式动作(<code>/mode write</code>、<code>/write</code> 或 CLI <code>--mode=write</code>),系统不会因为你的提问"听起来像改代码"就自动开写。</p>
+<p>写模式开箱即用,无需配置。REPL auto 会先用结构化 TurnPolicy 判定当前 turn;当 typed <code>route=write</code> 成立且 gate 通过时,会自动进入写模式 Auto Pilot。你也可以用 <code>/write &lt;需求&gt;</code> 单次强制写模式,或 <code>/mode write</code> 让后续写代码请求保持 Auto Pilot。</p>
 <p>需要全局禁写(如团队统一部署只读分析)时,在 <code>codrax.yaml</code> 里显式设置 kill switch:</p>
 <pre><code class="language-yaml">write_enabled: false
 </code></pre>
 <p>设为 false 后,任何 <code>/mode write</code> / <code>/write</code> / <code>/approve</code> / <code>--mode=write</code> 都会被拒绝并说明该配置。</p>
 <h2 id="42-完整流程">4.2 完整流程</h2>
-<p>写模式分三步:<strong>plan(产出改动方案)</strong>、<strong>apply(在 worktree 里执行)</strong>、<strong>verify(跑测试)</strong>。在 plan 之前还有两个隐式分类阶段——<code>analyze</code>(读模式 analyzer 复用作请求分类)+ <code>write_analyze</code>(写模式专属,产 <code>WriteAnalysisIR</code>:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。</p>
+<p>写模式主入口是 <strong>Auto Pilot</strong>:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。<code>plan/apply/verify</code> 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。</p>
+<p>controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 <code>.codrax/plans/workflows/</code>。<code>ModePlan</code> 可探索并生成当前批次计划但不写入;<code>ModeApply</code> 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;<code>ModeVerify</code> 验证已有 workflow run、active batch 或导入的 plan seed。<code>--plan-file</code> 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。<code>/workflow show/list</code> 是审计入口,<code>/workflow resume</code> 仅用于手动选择某个保存 run 作为恢复对象,<code>/workflow clear</code> 清理 run 元数据和 context artifacts。没有显式 plan id 时,<code>/approve</code> / <code>/reject</code> 会优先绑定 active batch 的 <code>PlanID</code>。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。</p>
 <p>REPL 实际流程:</p>
-<h3 id="第-1-步mode-plan描述要做的事">第 1 步:<code>/mode write</code>,描述要做的事</h3>
-<pre><code>[git:main]❯❯ /mode write
-  ✓ 已切换到 plan 模式
-  •   下一条请求会产生改动方案,不直接回答。
-  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回读模式
-
-[git:main][task:write]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
-[planner 生成改动方案,~1-3 分钟]
-✓ 改动方案已就绪: plan-abc123 (3 处改动)。
-  /plan show · /approve · /approve --skip-verify · /reject · /mode auto
+<h3 id="第-1-步描述要做的事">第 1 步:描述要做的事</h3>
+<pre><code>[git:main]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+[route=write 后进入 Auto Pilot]
+[controller 探索 → 规划 → 低/中风险 apply 到 worktree → verify → 必要时 replan]
+✓ 写模式完成: plan-abc123 已应用并验证通过。
 </code></pre>
+<p>如果 auto 路由没有命中,或你想明确进入写模式,用单次入口:</p>
+<pre><code>[git:main]❯❯ /write 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+</code></pre>
+<p>需要连续做一组写代码任务时,用 <code>/mode write</code>;后续写目标会继续走 Auto Pilot,直到 <code>/mode auto</code>。</p>
+<p>系统只在必要时打断:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>用户看到什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>低/中风险</td>
+<td>自动 apply + verify + replan,无需输入命令</td>
+</tr>
+<tr>
+<td>高风险</td>
+<td>当前 batch 暂停,显示 plan/risk/fingerprint,等待批准或拒绝</td>
+</tr>
+<tr>
+<td>critical 风险</td>
+<td>自动拒绝,显示 typed reason 和证据</td>
+</tr>
+<tr>
+<td>验证失败可修</td>
+<td>失败证据进入 P2 handoff,controller 小批量 replan</td>
+</tr>
+<tr>
+<td>预算耗尽/真歧义</td>
+<td>fail-loud 或 ask_user,保留 workflow/report/diff</td>
+</tr>
+</tbody>
+</table></div>
+<p>审批风险只来自结构化 <code>ChangePlan</code>、repo-relative 路径解析、typed diff/内容策略和 fingerprint。导出声明行/API 面变更本身按中风险处理,在 <code>auto_safe</code> 下可自动推进;只有叠加依赖/build manifest、CI/workflow、hook、持久化 schema、secret-like 路径/内容、越界路径、大范围变更等精确结构信号时才升为高风险或 critical。</p>
 <p>更多虚构的 plan 请求示例(任何项目都能套用):</p>
 <div class="table-wrap"><table>
 <thead>
@@ -2201,38 +2233,37 @@ mcp_servers:
 </tr>
 </tbody>
 </table></div>
-<h3 id="第-2-步plan-show-审-diff">第 2 步:<code>/plan show</code> 审 diff</h3>
-<pre><code>[git:main][task:write][plan]❯❯ /plan show
+<h3 id="审计恢复查看-plan-和-workflow">审计/恢复:查看 plan 和 workflow</h3>
+<pre><code>[git:main]❯❯ /plan show
 [per-file unified diff,带颜色;每个文件独立段落]
 - Summary: 拆分 ParseConfig...
 - 文件 1/3: internal/foo/bar.go (modify, +24/-12)
 [diff body...]
 </code></pre>
-<p>不满意:</p>
-<pre><code>[git:main][task:write][plan]❯❯ /reject 拆得不够小
-  ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
+<p>Auto Pilot 已经会自动执行低/中风险任务。<code>/plan show</code> 是审计入口,不是正常必需步骤。状态卡和启动 banner 会主动告诉你是否需要动作;需要看详细审计时再用:</p>
+<pre><code>[git:main]❯❯ /workflow show
+[active batch、审批记录、handoff 摘要、验证报告、剩余预算]
 </code></pre>
-<p><code>/reject</code> 把 plan 状态改成 <code>rejected</code> 但<strong>保留文件</strong>供事后 <code>/plan show &lt;id&gt;</code> 查看。如果不想留记录,用 <code>/plan clear</code> 直接删掉。两种命令都会自动 discard 对应的 worktree。</p>
-<h3 id="第-3-步approve-落地">第 3 步:<code>/approve</code> 落地</h3>
-<pre><code>[git:main][task:write][plan]❯❯ /approve
-  是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
+<p>如果高风险 batch 暂停,再用 <code>/approve</code> 或 <code>/reject &lt;原因&gt;</code> 处理当前 batch。审批提示会带上 run、batch、plan 和 fingerprint,避免先手动查 ID。<code>/reject</code> 会保留审计记录;<code>/plan clear</code> 只是删除本地副本。</p>
+<h3 id="高风险时才审批">高风险时才审批</h3>
+<pre><code>[git:main][task:write]❯❯ /approve
+  是否批准 plan plan-abc123 (3 处改动, fingerprint=...)?将在 git worktree 中 apply + 跑 verify。
   &gt; y
 [在 .codrax/worktrees/&lt;plan-id&gt;/ 里 git apply + 跑测试]
-✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode write。
+✓ apply + verify 完成,workflow 继续推进或结束。
 </code></pre>
-<p>注意:批准成功后会<strong>自动切回 read 模式</strong>,你的下一句话默认是问代码,不是再开 plan。要继续改代码:<strong>先把这个 applied 的 plan 收尾</strong>(<code>/merge</code> 合到主仓 / <code>/reject</code> 丢弃 / <code>/plan clear</code> 删除),再 <code>/mode write</code> 才能生成下一个 plan(写模式工作区单一不变量,见上文)。</p>
-<p><code>/approve</code> 自动:</p>
+<p>注意:低/中风险不会要求你先 <code>/approve</code>。<code>/approve</code> 只处理 pending approval 或你主动选择的高级恢复场景。</p>
+<p>Auto Pilot 内部自动:</p>
 <ol>
 <li>创建临时 worktree(基于当前 branch)</li>
 <li>在 worktree 里 <code>apply_patch</code> 每个文件改动(支持 create / modify / delete / patch / rename)</li>
-<li>自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)</li>
+<li>自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest/unittest/Django runtests.py)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)</li>
 <li>测试通过 → 标记 <code>applied</code>;测试/构建真实失败 → 标记 <code>verify_failed</code>(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 <code>unverified</code></li>
 </ol>
 <blockquote>
-<p>verifier agent 也可以<strong>绕过自动探测</strong>,显式声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code>(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。</p>
-<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。两条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)和 <code>parser_error</code> 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 <code>unverified</code> 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
+<p>verifier agent 也可以<strong>绕过自动探测</strong>,显式声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code>(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。Python verify 会把 active worktree 置于 import root 优先级最高处,避免误测主仓源码;Django <code>tests/runtests.py</code> runner 在未指定 suite 时会从 typed ChangePlan 路径和 <code>tests/</code> 结构推导保守 scoped suite。</p>
+<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。三条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)、<code>parser_error</code> 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、<code>no_tests</code> 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 <code>unverified</code> 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
 </blockquote>
-<p>审批风险只来自结构化 <code>ChangePlan</code>、repo-relative 路径解析、typed diff/内容策略和 fingerprint。导出声明行/API 面变更本身按中风险处理,在 <code>auto_safe</code> 下可自动推进;只有叠加依赖/build manifest、CI/workflow、hook、持久化 schema、secret-like 路径/内容、越界路径、大范围变更等精确结构信号时才升为高风险或 critical。</p>
 <p>特殊场景:</p>
 <div class="table-wrap"><table>
 <thead>
@@ -2272,7 +2303,7 @@ mcp_servers:
   &gt; y
   ✓ 已在主仓创建分支 feature/refactor-bar,cherry-pick 3 个 commit。
   下一步:cd &lt;主仓&gt; &amp;&amp; git push -u origin feature/refactor-bar,然后开 PR。
-  已自动切回 read 模式 — 直接提问就行。再 /mode write 进入 plan 模式即可继续改代码。
+  已自动切回 auto 模式 — 继续改代码时直接描述目标即可;需要强制写模式时用 /write &lt;目标&gt;。
 </code></pre>
 <div class="table-wrap"><table>
 <thead>
@@ -2299,7 +2330,7 @@ mcp_servers:
 <p><code>/merge</code> 成功后:
 - plan 状态从 <code>applied</code> 改成 <code>merged</code>(终态,可以下一个 plan 了)
 - worktree 自动 discard
-- REPL 自动切回 read 模式</p>
+- REPL 自动切回 auto 模式</p>
 <blockquote>
 <p><code>/merge</code> 需要 yaml 里 <code>pipeline_keep_worktree_on_success: true</code>,否则 worktree 在 apply 完就清掉了。worktree 被清不影响通道 A:<code>refs/codrax/applied/&lt;plan-id&gt;</code> 始终在主仓,<code>git cherry-pick</code> 随时可落地。</p>
 </blockquote>
@@ -3858,7 +3889,7 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <p><strong>记忆里有错误回合污染下轮</strong>
 → codrax 自动把错误回合用占位文替代,但若已经污染,<code>/clear</code> 一次。</p>
 <p><strong>写模式 verify 老失败</strong>
-→ 看 <code>/history</code> 的 verify 失败摘要;调高 <code>pipeline_write_retry_budget</code>(让 codrax 多重 plan 几次);或者 <code>/approve --skip-verify</code> 跳过测试,本地手动验证。</p>
+→ Auto Pilot 会把最新 typed verify failure 放进 P2 handoff 并自动小批量 replan;仍耗尽预算时,先看 <code>/workflow show</code> 的 report/diff/surface refs。需要更大预算再调高 <code>pipeline_write_retry_budget</code>;跳过验证或强行合入只作为显式人工覆盖。</p>
 <h2 id="83-性能">8.3 性能</h2>
 <p><strong>REPL 启动慢</strong>
 → 第一次启动会扫整个仓建 repomap 索引。后续走 cache(<code>cache_dir</code>),快得多。</p>
@@ -3878,7 +3909,7 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <p><strong>plan 模式在空目录卡住或报 "scaffold 授权"</strong>
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 <code>write_auto_init_repo: true</code> + <code>write_scaffold_enabled: true</code>,或启动时同时加 <code>--auto-init-repo --allow-scaffold</code>。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。</p>
 <p><strong>runner 检测错了 / runner 不存在</strong>
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),<code>parser_error</code> 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),二者都会自动跳过 verify→plan 重试,将 plan 标记为 <code>unverified</code> 而不是 <code>verify_failed</code>,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest/unittest/Django runtests.py / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),<code>parser_error</code> 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),<code>no_tests</code> 信号识别"runner 没有执行到任何测试"(例如 selector / project harness 不匹配),三者都会自动跳过 verify→plan 重试,将 plan 标记为 <code>unverified</code> 而不是 <code>verify_failed</code>,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
 <p><strong><code>/merge</code> 说 "no worktree to merge from"</strong>
 → apply 完 worktree 被清了。<code>codrax.yaml</code> 加 <code>pipeline_keep_worktree_on_success: true</code>,下次 apply 后 worktree 会保留。</p>
 <hr />
@@ -3887,7 +3918,7 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <li>先用读模式,问几个仓里熟悉的问题,体会 citation 验证流程</li>
 <li>加 <code>--log</code> 跑一次 panic 排查,体会 log_triage 的精确度</li>
 <li>多轮转换("换成表格""画 mermaid"),体会 turn-policy 路由</li>
-<li>开写模式,做一个 1-3 文件的小重构 plan → approve → merge</li>
+<li>用 <code>/write</code> 或 auto 路由做一个 1-3 文件的小重构,低/中风险让 Auto Pilot 自动 apply + verify,最后按需 <code>/merge</code></li>
 <li>按需调 <code>providers.yaml</code> 把贵 agent 路由到大模型、便宜 agent 路由到小模型,把成本压下来</li>
 </ol>
 <hr />

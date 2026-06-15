@@ -303,6 +303,21 @@ func TestRunTestsDryRunFlagIgnoredOutsideStagePlan(t *testing.T) {
 }
 
 func TestDetectPythonTestFramework(t *testing.T) {
+	t.Run("django runtests wins", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+			t.Fatalf("mkdir tests: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "tests", "runtests.py"), []byte("print('django tests')\n"), 0o644); err != nil {
+			t.Fatalf("write runtests.py: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "pytest.ini"), []byte("[pytest]\n"), 0o644); err != nil {
+			t.Fatalf("write pytest.ini: %v", err)
+		}
+		if got := detectPythonTestFramework(root); got != pythonFrameworkDjango {
+			t.Fatalf("framework = %q, want django", got)
+		}
+	})
 	t.Run("pytest config wins", func(t *testing.T) {
 		root := t.TempDir()
 		if err := os.WriteFile(filepath.Join(root, "pytest.ini"), []byte("[pytest]\n"), 0o644); err != nil {

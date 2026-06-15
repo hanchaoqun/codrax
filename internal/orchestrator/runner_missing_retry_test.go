@@ -62,6 +62,11 @@ func TestShouldSuppressVerifyRetry(t *testing.T) {
 			suppress: true,
 		},
 		{
+			name:     "no_tests — local verifier selected no executable tests, retry burns budget",
+			report:   &types.ChangeReport{Passed: true, NoTestsRunners: []string{"python"}},
+			suppress: true,
+		},
+		{
 			name:     "passed — successful verify, never retries",
 			report:   &types.ChangeReport{Passed: true},
 			suppress: false,

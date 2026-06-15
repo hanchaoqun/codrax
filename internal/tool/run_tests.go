@@ -150,6 +150,7 @@ var allowedRunners = map[string]struct{}{
 const (
 	pythonFrameworkPytest   = "pytest"
 	pythonFrameworkUnittest = "unittest"
+	pythonFrameworkDjango   = "django"
 )
 
 // allowedRunnerList returns the sorted runner whitelist for prompt /
@@ -195,8 +196,8 @@ func (t *RunTests) Parameters() json.RawMessage {
     },
     "framework": {
       "type": "string",
-      "enum": ["pytest", "unittest"],
-      "description": "Optional framework refinement for runner=python. Empty lets codrax select from typed repository signals. Use unittest for Python standard-library unittest suites; use pytest for pytest suites."
+      "enum": ["pytest", "unittest", "django"],
+      "description": "Optional framework refinement for runner=python. Empty lets codrax select from typed repository signals. Use unittest for Python standard-library unittest suites; use pytest for pytest suites; use django for Django source trees with tests/runtests.py."
     },
     "working_dir": {
       "type": "string",
@@ -349,7 +350,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if surfaceEscalations >= maxTestSurfaceEscalations {
 			return nil
 		}
-		cand := nextTestSurfaceEscalation(surface, executedKeys)
+		preferredRunner := ""
+		if source == "zero_tests_escalation" {
+			preferredRunner = preferredRunnerFromChangePlan(ctx)
+		}
+		cand := nextTestSurfaceEscalationForRunner(surface, executedKeys, preferredRunner)
 		if cand == nil {
 			return nil
 		}
@@ -482,6 +487,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// excludes gitignored paths (`.venv/` typically is), so the
 		// venv lives at the user's main repo root, not under the
 		// worktree. pythonInterpreter probes both roots in order.
+		if plan.Runner == "python" && plan.Framework == pythonFrameworkDjango && strings.TrimSpace(plan.Suite) == "" {
+			if inferred := inferDjangoSuiteFromChangePlan(ctx, ctx.RepoRoot); inferred != "" {
+				plan.Suite = inferred
+				logging.Info("[run_tests] python/django@%s inferred scoped suite %q from typed change paths",
+					runnerPlanRel(ctx.RepoRoot, plan), inferred)
+			}
+		}
 		cmdStr, extraFile := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
 
 		// Same root cause as the python venv lookup — but for runners
@@ -521,6 +533,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 		cmd := NewShellCommandContext(execCtx, wrappedCmd)
 		cmd.Dir = runnerRoot
+		cmd.Env = runnerExecutionEnv(runner, ctx.RepoRoot, runnerRoot, ctx.MainRepoRoot)
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
@@ -774,8 +787,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				plans = append(plans, *next)
 				continue
 			}
-			zeroReport := makeZeroTestsFailureReport(plan, output)
-			projectReports = append(projectReports, qualifyChangeReport(zeroReport, plan, ctx.RepoRoot))
+			logging.Info("[run_tests] %s zero-test outcome has no remaining typed escalation candidate — preserving as NoTestsRunners", label)
+			projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 			continue
 		}
 		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
@@ -849,10 +862,10 @@ func resolveLLMRunnerChoice(repoRoot, runner, framework, workingDir string) (run
 				"run_tests rejected: framework=%q is only supported with runner=python", framework)
 		}
 		switch framework {
-		case pythonFrameworkPytest, pythonFrameworkUnittest:
+		case pythonFrameworkPytest, pythonFrameworkUnittest, pythonFrameworkDjango:
 		default:
 			return runnerPlan{}, fmt.Sprintf(
-				"run_tests rejected: framework=%q is not one of the supported python frameworks (pytest, unittest)", framework)
+				"run_tests rejected: framework=%q is not one of the supported python frameworks (pytest, unittest, django)", framework)
 		}
 	}
 
@@ -888,8 +901,8 @@ func resolveLLMRunnerChoice(repoRoot, runner, framework, workingDir string) (run
 			"run_tests rejected: working_dir=%q does not exist or is not a directory", workingDir)
 	}
 
-	if runner == "python" && framework == "" {
-		framework = detectPythonTestFramework(target)
+	if runner == "python" {
+		framework = normalizePythonFrameworkChoice(target, framework)
 	}
 
 	return runnerPlan{
@@ -1608,7 +1621,7 @@ func runnerPrimaryBinary(runner string) string {
 }
 
 func runnerPrimaryBinaryForPlan(plan runnerPlan) string {
-	if plan.Runner == "python" && plan.Framework == pythonFrameworkUnittest {
+	if plan.Runner == "python" && (plan.Framework == pythonFrameworkUnittest || plan.Framework == pythonFrameworkDjango) {
 		return "python"
 	}
 	return runnerPrimaryBinary(plan.Runner)
@@ -1639,7 +1652,7 @@ func hasPythonTestInfrastructure(root string) bool {
 	// to walk. Walk is the fallback for nested test sources.
 	configFiles := []string{
 		"pytest.ini", "pyproject.toml", "setup.cfg",
-		"tox.ini", "noxfile.py", "conftest.py",
+		"tox.ini", "noxfile.py", "conftest.py", "runtests.py",
 	}
 	for _, name := range configFiles {
 		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
@@ -1675,6 +1688,8 @@ func hasPythonTestInfrastructure(root string) bool {
 			return stop
 		case strings.HasSuffix(name, "_test.py"):
 			return stop
+		case name == "runtests.py":
+			return stop
 		case name == "pytest.ini" || name == "pyproject.toml" ||
 			name == "setup.cfg" || name == "tox.ini" || name == "noxfile.py":
 			return stop
@@ -1685,6 +1700,9 @@ func hasPythonTestInfrastructure(root string) bool {
 }
 
 func detectPythonTestFramework(root string) string {
+	if hasDjangoTestRunner(root) {
+		return pythonFrameworkDjango
+	}
 	if hasPythonPytestConfig(root) {
 		return pythonFrameworkPytest
 	}
@@ -1692,6 +1710,32 @@ func detectPythonTestFramework(root string) string {
 		return pythonFrameworkUnittest
 	}
 	return pythonFrameworkPytest
+}
+
+func normalizePythonFrameworkChoice(root, framework string) string {
+	framework = strings.ToLower(strings.TrimSpace(framework))
+	if hasDjangoTestRunner(root) {
+		return pythonFrameworkDjango
+	}
+	if framework != "" {
+		return framework
+	}
+	return detectPythonTestFramework(root)
+}
+
+func hasDjangoTestRunner(root string) bool {
+	if root == "" {
+		return false
+	}
+	for _, candidate := range []string{
+		filepath.Join(root, "runtests.py"),
+		filepath.Join(root, "tests", "runtests.py"),
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func hasPythonPytestConfig(root string) bool {
@@ -1788,6 +1832,333 @@ func runnerHasNoTestWork(runner, root string) bool {
 		return !hasPythonTestInfrastructure(root)
 	}
 	return hasNoTestSources(runner, root)
+}
+
+func preferredRunnerFromChangePlan(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return ""
+	}
+	seen := map[string]bool{}
+	for _, p := range append(append([]string{}, plan.TargetPaths...), plan.AppliedPaths...) {
+		runner := runnerForPath(p)
+		if runner != "" {
+			seen[runner] = true
+		}
+	}
+	if len(seen) != 1 {
+		return ""
+	}
+	for runner := range seen {
+		return runner
+	}
+	return ""
+}
+
+func runnerForPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(path)))
+	switch ext {
+	case ".py":
+		return "python"
+	case ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs":
+		return "node"
+	case ".go":
+		return "go"
+	case ".rs":
+		return "rust"
+	case ".java", ".kt", ".kts":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".swift":
+		return "swift"
+	case ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp":
+		return "cmake"
+	}
+	return ""
+}
+
+func runnerExecutionEnv(runner, repoRoot, runnerRoot, mainRoot string) []string {
+	return runnerExecutionEnvForBase(os.Environ(), runner, repoRoot, runnerRoot, mainRoot)
+}
+
+func runnerExecutionEnvForBase(base []string, runner, repoRoot, runnerRoot, mainRoot string) []string {
+	env := append([]string(nil), base...)
+	if runnerRoot != "" {
+		env = withEnvValue(env, "PWD", runnerRoot)
+	}
+	if runner != "python" {
+		return env
+	}
+	pythonPath := pythonWorktreePythonPath(envValue(env, "PYTHONPATH"), repoRoot, runnerRoot, mainRoot)
+	env = withEnvValue(env, "PYTHONPATH", pythonPath)
+	return env
+}
+
+func pythonWorktreePythonPath(existing, repoRoot, runnerRoot, mainRoot string) string {
+	var out []string
+	seen := make(map[string]bool)
+	mainKey := cleanAbsPathKey(mainRoot)
+	add := func(path string, dropMain bool) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		key := cleanAbsPathKey(path)
+		if key == "" {
+			key = path
+		}
+		if dropMain && mainKey != "" && key == mainKey {
+			return
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, path)
+	}
+
+	add(repoRoot, false)
+	if cleanAbsPathKey(runnerRoot) != cleanAbsPathKey(repoRoot) {
+		add(runnerRoot, false)
+	}
+	for _, entry := range filepath.SplitList(existing) {
+		add(entry, true)
+	}
+	return strings.Join(out, string(os.PathListSeparator))
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
+}
+
+func withEnvValue(env []string, key, value string) []string {
+	prefix := key + "="
+	next := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			if !replaced {
+				next = append(next, prefix+value)
+				replaced = true
+			}
+			continue
+		}
+		next = append(next, item)
+	}
+	if !replaced {
+		next = append(next, prefix+value)
+	}
+	return next
+}
+
+func cleanAbsPathKey(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(abs)
+}
+
+func inferDjangoSuiteFromChangePlan(ctx *types.BusContext, repoRoot string) string {
+	if ctx == nil || ctx.Mutable == nil || strings.TrimSpace(repoRoot) == "" {
+		return ""
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return ""
+	}
+	paths := append(append([]string{}, plan.TargetPaths...), plan.AppliedPaths...)
+	for _, raw := range dedupeStringsPreserveOrder(paths) {
+		rel := cleanRepoRelPath(raw)
+		if rel == "" || !strings.HasSuffix(strings.ToLower(rel), ".py") {
+			continue
+		}
+		if strings.HasPrefix(rel, "tests/") {
+			return djangoSuiteSelector(rel)
+		}
+	}
+	for _, raw := range dedupeStringsPreserveOrder(paths) {
+		rel := cleanRepoRelPath(raw)
+		if rel == "" || !strings.HasSuffix(strings.ToLower(rel), ".py") || strings.HasPrefix(rel, "tests/") {
+			continue
+		}
+		base := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+		if suite := findUniqueDjangoTestFileSuite(repoRoot, rel, base); suite != "" {
+			return suite
+		}
+		if suite := findUniqueDjangoTestLabelSuite(repoRoot, rel, base); suite != "" {
+			return suite
+		}
+	}
+	return ""
+}
+
+func findUniqueDjangoTestFileSuite(repoRoot, rel, sourceBase string) string {
+	sourceBase = strings.TrimSpace(sourceBase)
+	if sourceBase == "" {
+		return ""
+	}
+	testsRoot := filepath.Join(repoRoot, "tests")
+	names := map[string]bool{
+		"test_" + sourceBase + ".py": true,
+		sourceBase + "_tests.py":     true,
+	}
+	var matches []string
+	_ = filepath.WalkDir(testsRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".codrax", "__pycache__":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !names[d.Name()] {
+			return nil
+		}
+		testRelNative, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return nil
+		}
+		testRel := filepath.ToSlash(testRelNative)
+		if !djangoTestFileLabelMatchesSource(testRel, rel, sourceBase) {
+			return nil
+		}
+		matches = append(matches, testRel)
+		return nil
+	})
+	if len(matches) != 1 {
+		return ""
+	}
+	return djangoSuiteSelector(matches[0])
+}
+
+func djangoTestFileLabelMatchesSource(testRel, sourceRel, sourceBase string) bool {
+	label := djangoImmediateTestLabel(testRel)
+	if label == "" {
+		return true
+	}
+	return djangoSuiteTargetTokens(sourceRel, sourceBase)[djangoSuiteToken(label)]
+}
+
+func djangoImmediateTestLabel(testRel string) string {
+	rel := cleanRepoRelPath(testRel)
+	if !strings.HasPrefix(rel, "tests/") {
+		return ""
+	}
+	rest := strings.TrimPrefix(rel, "tests/")
+	parts := strings.Split(rest, "/")
+	if len(parts) <= 1 {
+		return ""
+	}
+	return parts[0]
+}
+
+func findUniqueDjangoTestLabelSuite(repoRoot, rel, sourceBase string) string {
+	testsRoot := filepath.Join(repoRoot, "tests")
+	entries, err := os.ReadDir(testsRoot)
+	if err != nil {
+		return ""
+	}
+	targets := djangoSuiteTargetTokens(rel, sourceBase)
+	var matches []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || name == "__pycache__" {
+			continue
+		}
+		if targets[djangoSuiteToken(name)] {
+			matches = append(matches, name)
+		}
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	return matches[0]
+}
+
+func djangoSuiteTargetTokens(rel, sourceBase string) map[string]bool {
+	targets := make(map[string]bool)
+	add := func(s string) {
+		token := djangoSuiteToken(s)
+		if token != "" {
+			targets[token] = true
+		}
+	}
+	add(sourceBase)
+	for _, part := range strings.Split(cleanRepoRelPath(rel), "/") {
+		part = strings.TrimSuffix(part, filepath.Ext(part))
+		switch part {
+		case "", "django", "contrib":
+			continue
+		default:
+			add(part)
+		}
+	}
+	return targets
+}
+
+func djangoSuiteToken(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimPrefix(s, "test_")
+	s = strings.TrimSuffix(s, "_tests")
+	s = strings.TrimSuffix(s, "_test")
+	s = strings.TrimSuffix(s, "tests")
+	s = strings.TrimSuffix(s, "test")
+	if len(s) > 3 && strings.HasSuffix(s, "s") {
+		s = strings.TrimSuffix(s, "s")
+	}
+	return strings.Trim(s, "_-. ")
+}
+
+func cleanRepoRelPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = filepath.ToSlash(path)
+	path = strings.TrimPrefix(path, "./")
+	path = strings.TrimPrefix(path, "/")
+	for strings.Contains(path, "//") {
+		path = strings.ReplaceAll(path, "//", "/")
+	}
+	return path
+}
+
+func dedupeStringsPreserveOrder(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, value := range values {
+		key := strings.TrimSpace(value)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // planFilesByExt returns the absolute paths of every plan TargetPath
@@ -2938,6 +3309,18 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		}
 		return fmt.Sprintf("npm test -- --json --silent -t %q", filter), ""
 	case "python":
+		if framework == pythonFrameworkDjango {
+			interp := pythonRuntimeInterpreter(repoRoot, mainRoot)
+			script := "runtests.py"
+			if _, err := os.Stat(filepath.Join(repoRoot, script)); err != nil {
+				script = filepath.Join("tests", "runtests.py")
+			}
+			filter := djangoSuiteSelector(suite)
+			if filter == "" {
+				return fmt.Sprintf("%s %s -v 1", interp, shellQuoteWord(script)), ""
+			}
+			return fmt.Sprintf("%s %s %s -v 1", interp, shellQuoteWord(script), shellQuoteWord(filter)), ""
+		}
 		if framework == pythonFrameworkUnittest {
 			interp := pythonRuntimeInterpreter(repoRoot, mainRoot)
 			filter := strings.TrimSpace(suite)
@@ -3120,6 +3503,30 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		return fmt.Sprintf("cjpm test --filter %q", filter), ""
 	}
 	return "", ""
+}
+
+func djangoSuiteSelector(suite string) string {
+	s := strings.TrimSpace(suite)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "./")
+	s = strings.TrimPrefix(s, ".\\")
+	s = strings.ReplaceAll(s, "\\", "/")
+	s = strings.ReplaceAll(s, "::", ".")
+	if strings.HasSuffix(s, ".py") {
+		s = strings.TrimSuffix(s, ".py")
+	}
+	if idx := strings.Index(s, ".py."); idx >= 0 {
+		s = s[:idx] + s[idx+3:]
+	}
+	s = strings.TrimPrefix(s, "tests/")
+	s = strings.TrimPrefix(s, "tests.")
+	s = strings.ReplaceAll(s, "/", ".")
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", ".")
+	}
+	return strings.Trim(s, ".")
 }
 
 // detectMakeTestTarget reads the Makefile head and returns the test

@@ -2979,6 +2979,57 @@ func TestRunWriteControllerWorkflow_NoTestsCompletionCarriesCaveat(t *testing.T)
 	}
 }
 
+func TestRunWriteControllerWorkflow_NoTestsDoesNotReplan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no tests should not replan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "script only"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "script"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "mistaken_no_tests_replan", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repeat script"}},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls > 1 {
+				t.Fatalf("NoTestsRunners should complete unverified instead of replanning, planCalls=%d", planCalls)
+			}
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-no-tests", Status: types.PlanStatusPending, Summary: "script", TargetPaths: []string{"tool.py"}})
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-no-tests", Passed: true, NoTestsRunners: []string{"python"}})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/verify = %d/%d, want 1/1", planCalls, verifyCalls)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
+		t.Fatalf("no-tests completion must be recorded as unverified, got %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "mistaken_no_tests_replan") {
+		t.Fatalf("workflow should not consume the mistaken replan decision after no-tests: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_PendingApprovalPersistsWorkflowPlan(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	saver := &capturePlanSaver{dir: t.TempDir()}

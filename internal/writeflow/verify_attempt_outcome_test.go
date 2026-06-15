@@ -54,6 +54,13 @@ func TestClassifyVerifyAttemptOutcome(t *testing.T) {
 			wantReason: "no_tests",
 		},
 		{
+			name:       "legacy no tests false report still finishes",
+			report:     &types.ChangeReport{Passed: false, NoTestsRunners: []string{"python"}},
+			wantKind:   VerifyOutcomeNoTests,
+			wantAction: ActionFinish,
+			wantReason: "no_tests",
+		},
+		{
 			name:       "passed report finishes",
 			report:     &types.ChangeReport{Passed: true},
 			wantKind:   VerifyOutcomeReportPassed,

@@ -35,7 +35,7 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 	case "node":
 		return parseJestJSON(stdout)
 	case "python":
-		if plan.Framework == pythonFrameworkUnittest {
+		if plan.Framework == pythonFrameworkUnittest || plan.Framework == pythonFrameworkDjango {
 			return parseUnittestOutput(stdout, runErr)
 		}
 		return parsePytestJSONReport(extraFile, stdout, cmdStr)
@@ -793,7 +793,7 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 	// NoTestsRunners channel so the verifier evaluator + LLM see the
 	// signal explicitly without invented test fixtures.
 	noTests := p.Summary.Total == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0 &&
-		(p.Exitcode == 0 || p.Exitcode == 5)
+		(p.Exitcode == 0 || p.Exitcode == 2 || p.Exitcode == 4 || p.Exitcode == 5)
 	passed := p.Exitcode == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0
 	if noTests {
 		passed = true

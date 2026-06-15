@@ -131,6 +131,34 @@ func TestResolveLLMRunnerChoice_PythonFramework(t *testing.T) {
 	}
 }
 
+func TestResolveLLMRunnerChoice_DjangoRuntestsOverridesPytest(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "tests", "runtests.py"), []byte("print('django tests')\n"), 0o644); err != nil {
+		t.Fatalf("write runtests.py: %v", err)
+	}
+	plan, rej := resolveLLMRunnerChoice(repo, "python", "pytest", "tests")
+	if rej != "" {
+		t.Fatalf("unexpected rejection: %s", rej)
+	}
+	if plan.Framework != pythonFrameworkDjango {
+		t.Fatalf("Framework = %q, want django", plan.Framework)
+	}
+	if rel := runnerPlanRel(repo, plan); rel != "tests" {
+		t.Fatalf("runner root = %q, want tests", rel)
+	}
+	cmd, extra := buildRunCommandForPlan(plan, "tests/auth_tests/test_validators.py::UsernameValidatorsTests", "")
+	if extra != "" {
+		t.Fatalf("django runner should parse stdout, extra=%q", extra)
+	}
+	if !strings.Contains(cmd, "runtests.py") || !strings.Contains(cmd, "auth_tests.test_validators.UsernameValidatorsTests") ||
+		strings.Contains(cmd, "::") || strings.Contains(cmd, "tests/auth_tests") {
+		t.Fatalf("django command should call runtests.py with suite: %s", cmd)
+	}
+}
+
 // TestAllowedRunnerList_SortedAndComplete locks the runner whitelist
 // against drift: every case in buildRunCommand should appear here,
 // and the exposed list should be sorted (deterministic for prompt

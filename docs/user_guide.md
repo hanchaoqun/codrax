@@ -1824,12 +1824,12 @@ Auto Pilot 内部自动:
 
 1. 创建临时 worktree(基于当前 branch)
 2. 在 worktree 里 `apply_patch` 每个文件改动(支持 create / modify / delete / patch / rename)
-3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
+3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest/unittest/Django runtests.py)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
 4. 测试通过 → 标记 `applied`;测试/构建真实失败 → 标记 `verify_failed`(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 `unverified`
 
-> verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。
+> verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。Python verify 会把 active worktree 置于 import root 优先级最高处,避免误测主仓源码;Django `tests/runtests.py` runner 在未指定 suite 时会从 typed ChangePlan 路径和 `tests/` 结构推导保守 scoped suite。
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)和 `parser_error` 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。三条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)、`parser_error` 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、`no_tests` 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 
@@ -1872,7 +1872,7 @@ apply 成功的输出会原样给出这条命令(提交主题即 plan 摘要)。
 `/merge` 成功后:
 - plan 状态从 `applied` 改成 `merged`(终态,可以下一个 plan 了)
 - worktree 自动 discard
-- REPL 自动切回 read 模式
+- REPL 自动切回 auto 模式
 
 > `/merge` 需要 yaml 里 `pipeline_keep_worktree_on_success: true`,否则 worktree 在 apply 完就清掉了。worktree 被清不影响通道 A:`refs/codrax/applied/<plan-id>` 始终在主仓,`git cherry-pick` 随时可落地。
 
@@ -2758,7 +2758,7 @@ CLI 单次模式输出:
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),`parser_error` 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),二者都会自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest/unittest/Django runtests.py / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),`parser_error` 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),`no_tests` 信号识别"runner 没有执行到任何测试"(例如 selector / project harness 不匹配),三者都会自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
 
 **`/merge` 说 "no worktree to merge from"**
 → apply 完 worktree 被清了。`codrax.yaml` 加 `pipeline_keep_worktree_on_success: true`,下次 apply 后 worktree 会保留。
@@ -2770,7 +2770,7 @@ CLI 单次模式输出:
 1. 先用读模式,问几个仓里熟悉的问题,体会 citation 验证流程
 2. 加 `--log` 跑一次 panic 排查,体会 log_triage 的精确度
 3. 多轮转换("换成表格""画 mermaid"),体会 turn-policy 路由
-4. 开写模式,做一个 1-3 文件的小重构 plan → approve → merge
+4. 用 `/write` 或 auto 路由做一个 1-3 文件的小重构,低/中风险让 Auto Pilot 自动 apply + verify,最后按需 `/merge`
 5. 按需调 `providers.yaml` 把贵 agent 路由到大模型、便宜 agent 路由到小模型,把成本压下来
 
 ---

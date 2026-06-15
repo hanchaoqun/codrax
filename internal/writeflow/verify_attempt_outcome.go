@@ -57,20 +57,20 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 			ReasonCode:        string(types.FailureKindParserError),
 		}
 	}
-	if err != nil || !report.Passed {
-		return VerifyAttemptOutcome{
-			Kind:              VerifyOutcomeReportFailed,
-			Retryable:         false,
-			RecommendedAction: ActionReplanBatch,
-			ReasonCode:        verifyFailureReasonCode(report),
-		}
-	}
 	if len(report.NoTestsRunners) > 0 {
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeNoTests,
 			Retryable:         false,
 			RecommendedAction: ActionFinish,
 			ReasonCode:        "no_tests",
+		}
+	}
+	if err != nil || !report.Passed {
+		return VerifyAttemptOutcome{
+			Kind:              VerifyOutcomeReportFailed,
+			Retryable:         false,
+			RecommendedAction: ActionReplanBatch,
+			ReasonCode:        verifyFailureReasonCode(report),
 		}
 	}
 	return VerifyAttemptOutcome{

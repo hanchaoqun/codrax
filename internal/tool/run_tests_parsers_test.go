@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -616,6 +617,32 @@ func TestParsePytestJSONReport_ExitCode5(t *testing.T) {
 	}
 	if report.FailureSummary != "" {
 		t.Errorf("FailureSummary should be empty on Passed=true; got %q", report.FailureSummary)
+	}
+}
+
+func TestParsePytestJSONReport_ZeroTestsExitCode2And4AreUnverified(t *testing.T) {
+	for _, exitCode := range []int{2, 4} {
+		t.Run(fmt.Sprintf("exit_%d", exitCode), func(t *testing.T) {
+			tmp := t.TempDir()
+			reportFile := filepath.Join(tmp, "pytest.json")
+			body := fmt.Sprintf(`{"exitcode": %d, "summary": {"passed": 0, "failed": 0, "error": 0, "skipped": 0, "total": 0}, "tests": []}`, exitCode)
+			if err := os.WriteFile(reportFile, []byte(body), 0o644); err != nil {
+				t.Fatalf("write report: %v", err)
+			}
+			report, err := parsePytestJSONReport(reportFile, "no tests ran", "pytest bad-selector")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if !report.Passed {
+				t.Fatalf("zero-test exit %d should not be a code failure: %+v", exitCode, report)
+			}
+			if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "python" {
+				t.Fatalf("NoTestsRunners = %v; want [python]", report.NoTestsRunners)
+			}
+			if report.FailureSummary != "" {
+				t.Fatalf("FailureSummary should be empty for no-tests exit %d, got %q", exitCode, report.FailureSummary)
+			}
+		})
 	}
 }
 

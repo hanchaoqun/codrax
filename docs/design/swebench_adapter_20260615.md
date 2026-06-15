@@ -82,6 +82,8 @@ records adapter results.
   Lite smoke and batch adapter runs.
 - [x] Route verifier parser/report failures as typed `parser_error` unverified
   outcomes instead of code-failure replan triggers.
+- [x] Run additional Lite smoke on Astropy and Django issue shapes, manually
+  audit patch satisfaction, and fix the zero-test / Django harness verify loop.
 - [x] Commit and push to `main`.
 
 ## Test Matrix
@@ -100,6 +102,23 @@ records adapter results.
 - Verifier parser gap: pytest/report parser failures produce
   `FailureKindParserError`, complete applied batches as unverified, and do not
   trigger code replanning.
+- Python harness fit: Django source trees with `tests/runtests.py` use the typed
+  Django runner rather than plain pytest. Pytest reports with zero executed
+  tests, including exit 2/4 selector or CLI mismatches, are preserved as
+  `NoTestsRunners` and complete unverified instead of triggering replan.
+- Worktree verifier isolation: Python verification prepends the active worktree
+  to `PYTHONPATH`, sets subprocess `PWD` to the runner cwd, and drops inherited
+  original-repo import roots so editable installs do not make tests import
+  pre-patch source.
+- Scoped Django verification: when the verifier omits a Django suite, `run_tests`
+  derives a conservative suite from typed ChangePlan paths plus the `tests/`
+  tree. Explicit test paths win; source-file inference avoids unrelated
+  `test_<name>.py` matches whose test directory label does not match the source
+  path tokens.
+- Controller terminal behavior: once a batch is complete with typed unverified
+  verify (`no_tests`, `runner_missing`, or `parser_error`), repeated plan/replan
+  decisions targeting the same batch are overridden to finish, while append/split
+  remains available for real follow-up batches.
 
 ## Progress Ledger
 
@@ -178,3 +197,37 @@ records adapter results.
   `eval/results/swebench/lite-smoke-20260615-123031`. The Flask smoke exported
   a non-empty prediction, completed Codrax with `plan_status=unverified` due to
   typed `parser_error`, and the official harness dry-run consumed the output.
+- 2026-06-15: Additional Lite smoke
+  `eval/results/swebench/lite-smoke-20260615-141507` ran
+  `astropy__astropy-14365`, `django__django-11099`, and
+  `django__django-11133`. All three exported non-empty predictions and the
+  official harness dry-run consumed the file. Manual audit found the patches
+  matched issue intent: QDP command matching became case-insensitive, Django
+  username validators switched to `\A...\Z`, and `HttpResponse.make_bytes`
+  treats `memoryview` like bytes. The run exposed a controller-level verify
+  loop: plain pytest on Django either executed zero tests (`exitcode=2/4`) or
+  failed because Django settings were not configured, causing unnecessary
+  replan and no-op `emit_change_plan` attempts after the code patch had landed.
+- 2026-06-15: Fixed that gap generically in typed verification. The Python
+  runner now detects Django `runtests.py` by file structure and dispatches that
+  harness. Pytest zero-test reports with exit 2/4/5 flow through
+  `NoTestsRunners`, not `tests_failed`. The controller treats `NoTestsRunners`
+  as terminal unverified, suppresses retry, and overrides later same-batch
+  plan/replan/apply/verify decisions to finish instead of re-entering planning.
+  Targeted tests cover parser classification, Django framework normalization,
+  legacy suppress behavior, and controller no-tests terminal behavior.
+- 2026-06-15: Follow-up SWE-bench Django verification hardening landed after
+  re-running `django__django-11099` and `django__django-11133`. The first rerun
+  proved the Django runner path but exposed that editable installs could still
+  import the original checkout instead of the worktree; Python runner env now
+  pins worktree import precedence and records `PWD` precisely. The next run
+  `eval/results/swebench/lite-smoke-20260615-152027` exported two non-empty
+  predictions and official harness dry-run consumed them; `django__django-11099`
+  verified with `auth_tests.test_validators` from the worktree. It also exposed
+  a scoped-suite false positive for `django__django-11133`
+  (`template_tests.test_response`). The final rerun
+  `eval/results/swebench/lite-smoke-20260615-152909` confirmed the generic
+  fix: source-only `django/http/response.py` changes infer suite `responses`,
+  execute `python3 tests/runtests.py responses -v 1`, run 32 tests, import
+  Django from the active worktree, finish `all_verified`, and export a non-empty
+  prediction consumed by the official harness dry-run.

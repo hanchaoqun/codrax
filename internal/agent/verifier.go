@@ -408,7 +408,14 @@ func renderVerifierTestSurfaceSection(repoRoot string) string {
 		if c.HasTestSignal {
 			signal = "yes"
 		}
-		line := fmt.Sprintf("- %s — test_work=%s", c.ID, signal)
+		workingDir := c.WorkingDir
+		if strings.TrimSpace(workingDir) == "" {
+			workingDir = "."
+		}
+		line := fmt.Sprintf("- id=%s runner=%s working_dir=%s test_work=%s", c.ID, c.Runner, workingDir, signal)
+		if c.Framework != "" {
+			line += " framework=" + c.Framework
+		}
 		if c.Source != "" {
 			line += " source=" + c.Source
 		}

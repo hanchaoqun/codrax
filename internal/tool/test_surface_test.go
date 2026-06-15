@@ -360,7 +360,23 @@ func TestRunTests_ParserZeroTestsEscalatesAgainToMake(t *testing.T) {
 	}
 }
 
-func TestRunTests_ParserZeroTestsWithoutEscalationFails(t *testing.T) {
+func TestNextTestSurfaceEscalationForRunnerDoesNotCrossLanguage(t *testing.T) {
+	surface := types.TestSurface{Candidates: []types.TestSurfaceCandidate{
+		{Runner: "python", Framework: "django", WorkingDir: ".", HasTestSignal: true},
+		{Runner: "node", WorkingDir: ".", HasTestSignal: true},
+	}}
+	executed := map[string]bool{
+		testSurfaceCandidateKey("python", "django", "."): true,
+	}
+	if got := nextTestSurfaceEscalationForRunner(surface, executed, "python"); got != nil {
+		t.Fatalf("python-only change should not escalate to unrelated runner: %+v", got)
+	}
+	if got := nextTestSurfaceEscalationForRunner(surface, executed, ""); got == nil || got.Runner != "node" {
+		t.Fatalf("unrestricted escalation should still find node fallback, got %+v", got)
+	}
+}
+
+func TestRunTests_ParserZeroTestsWithoutEscalationFinishesUnverified(t *testing.T) {
 	fakePython3WithoutPytest(t)
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "pyproject.toml", "[tool.pytest.ini_options]\n")
@@ -374,12 +390,12 @@ func TestRunTests_ParserZeroTestsWithoutEscalationFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if result.Success {
-		t.Fatalf("zero-test parser result with no runnable fallback must fail: %+v", result)
+	if !result.Success {
+		t.Fatalf("zero-test parser result with no runnable fallback should finish unverified, got %+v report=%+v", result, mu.ChangeReport())
 	}
 	report := mu.ChangeReport()
-	if report == nil || report.Passed {
-		t.Fatalf("report must record fail-loud zero-test verdict: %+v", report)
+	if report == nil || !report.Passed {
+		t.Fatalf("report must record no-tests as a non-code-failure verdict: %+v", report)
 	}
 	var sawUnittestZero bool
 	for _, cmd := range report.ExecutedCommands {
@@ -390,8 +406,11 @@ func TestRunTests_ParserZeroTestsWithoutEscalationFails(t *testing.T) {
 	if !sawUnittestZero {
 		t.Fatalf("executed commands must record parser zero-tests outcome: %+v", report.ExecutedCommands)
 	}
-	if report.FailureKind != types.FailureKindTestsFailed {
-		t.Fatalf("failure kind = %q, want %q", report.FailureKind, types.FailureKindTestsFailed)
+	if report.FailureKind != "" {
+		t.Fatalf("zero-tests should not be classified as tests_failed, got %q", report.FailureKind)
+	}
+	if len(report.NoTestsRunners) == 0 {
+		t.Fatalf("NoTestsRunners must preserve the unverified reason: %+v", report)
 	}
 }
 

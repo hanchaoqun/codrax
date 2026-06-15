@@ -49,7 +49,15 @@ verify stage can run `pytest` when the checkout supports it. The adapter install
 `pytest<9` with `pytest-json-report`, records `env_prepare.json` and
 `env_prepare.log` for each instance, and then runs Codrax with that venv on
 `PATH`. Environment setup failures never block prediction export; they leave the
-run unverified and the official harness remains the scoring authority.
+run unverified and the official harness remains the scoring authority. Codrax's
+Python verifier also recognizes Django source trees with `tests/runtests.py` and
+uses that typed harness instead of plain pytest when the repository advertises
+it through file structure. During worktree verification, Codrax prepends the
+active worktree to `PYTHONPATH` so editable installs or inherited environments
+cannot accidentally import the original checkout. When a Django suite is not
+explicitly supplied, the verifier derives a conservative scoped suite from typed
+ChangePlan paths and the repository `tests/` tree before falling back to a wider
+run.
 
 ```bash
 SWEBENCH_PREPARE_PYTHON_ENV=0 eval/swebench/smoke_lite.sh

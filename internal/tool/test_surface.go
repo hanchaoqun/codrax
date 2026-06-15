@@ -138,8 +138,26 @@ func testSurfaceCandidateKey(runner, framework, workingDir string) string {
 // a typed test signal and has not been executed yet, or nil. Both inputs are
 // typed (surface ordering + executed-key set); no prose is consulted.
 func nextTestSurfaceEscalation(surface types.TestSurface, executed map[string]bool) *types.TestSurfaceCandidate {
+	return nextTestSurfaceEscalationForRunner(surface, executed, "")
+}
+
+func nextTestSurfaceEscalationForRunner(surface types.TestSurface, executed map[string]bool, preferredRunner string) *types.TestSurfaceCandidate {
+	preferredRunner = strings.TrimSpace(preferredRunner)
+	if preferredRunner != "" {
+		if cand := nextTestSurfaceEscalationMatchingRunner(surface, executed, preferredRunner); cand != nil {
+			return cand
+		}
+		return nil
+	}
+	return nextTestSurfaceEscalationMatchingRunner(surface, executed, "")
+}
+
+func nextTestSurfaceEscalationMatchingRunner(surface types.TestSurface, executed map[string]bool, runner string) *types.TestSurfaceCandidate {
 	for i := range surface.Candidates {
 		c := surface.Candidates[i]
+		if runner != "" && c.Runner != runner {
+			continue
+		}
 		if !c.HasTestSignal {
 			continue
 		}

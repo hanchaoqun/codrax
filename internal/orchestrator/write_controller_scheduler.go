@@ -98,6 +98,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 		}
 		decision = o.normalizeControllerTypedStateDecision(decision, &run)
+		if activeBatchCompletedWithUnverifiedVerdict(&run) && decisionTargetsActiveBatch(decision, run.ActiveBatchID) {
+			appendControllerProgress(&run, run.ActiveBatchID, "unverified_terminal_action_overridden",
+				"active batch already completed with a typed unverified verifier outcome; finishing instead of replanning the same bytes")
+			decision = writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionFinish,
+				ReasonCode: "active_batch_unverified_terminal",
+			}
+		}
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
 		// (ApplyWorkflowDecisionToRun marks the active batch complete on
 		// finish): a batch whose latest post-apply verify attempt failed
@@ -341,7 +349,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.persistWriteWorkflowRun(&run)
 				o.busCtx.TaskState.LastError = ""
 			}
-			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing || outcome.Kind == writeflow.VerifyOutcomeParserError {
+			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing ||
+				outcome.Kind == writeflow.VerifyOutcomeParserError ||
+				outcome.Kind == writeflow.VerifyOutcomeNoTests {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 				o.busCtx.TaskState.LastError = ""
@@ -1755,6 +1765,22 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 	return false
 }
 
+func decisionTargetsActiveBatch(decision writeflow.WriteWorkflowDecision, activeID string) bool {
+	activeID = strings.TrimSpace(activeID)
+	if activeID == "" {
+		return false
+	}
+	switch decision.Action {
+	case writeflow.ActionPlanBatch, writeflow.ActionReplanBatch, writeflow.ActionApplyPlan, writeflow.ActionVerifyBatch:
+		if decision.Batch == nil || strings.TrimSpace(decision.Batch.ID) == "" {
+			return true
+		}
+		return strings.TrimSpace(decision.Batch.ID) == activeID
+	default:
+		return false
+	}
+}
+
 func activeBatchHasVerifyFailureHandoff(mu *types.MutableState, batchID string) bool {
 	if mu == nil {
 		return false
@@ -2106,10 +2132,11 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	outcome := writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
 	if report != nil && (outcome.Kind == writeflow.VerifyOutcomeReportPassed ||
 		outcome.Kind == writeflow.VerifyOutcomeNoTests ||
-		outcome.Kind == writeflow.VerifyOutcomeRunnerMissing) {
+		outcome.Kind == writeflow.VerifyOutcomeRunnerMissing ||
+		outcome.Kind == writeflow.VerifyOutcomeParserError) {
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 		switch outcome.Kind {
-		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing:
+		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing, writeflow.VerifyOutcomeParserError:
 			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 		default:
 			appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
