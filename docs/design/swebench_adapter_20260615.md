@@ -625,3 +625,12 @@ records adapter results.
   and "final live plan matches exported source patch" should become typed
   telemetry/retry input, without forbidding legitimate customer requests to add
   tests.
+- 2026-06-16: Added the eval telemetry side of that follow-up. Prediction export
+  now records `exported_patch_paths`, `exported_patch_source_paths`,
+  `exported_patch_test_paths`, `final_plan_source_paths`, `final_plan_test_only`,
+  and `final_plan_covers_exported_source_patch` in `results.jsonl`. These fields
+  are derived from `git diff --name-only` selected paths plus the final
+  `ChangePlan`, not from model prose, and remain audit telemetry rather than a
+  hard product gate. They let batch dashboards flag cases where the official
+  prediction contains source changes but the final live plan drifted to test-only
+  or otherwise failed to cover the exported source patch.

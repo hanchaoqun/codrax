@@ -913,25 +913,25 @@ def is_test_patch_path(path: str) -> bool:
     )
 
 
-def export_patch_between(repo_dir: Path, base: str, head: str, include_test_patches: bool) -> tuple[str, list[str]]:
+def export_patch_between(repo_dir: Path, base: str, head: str, include_test_patches: bool) -> tuple[str, list[str], list[str]]:
     names = run_cmd(["git", "diff", "--name-only", base, head], cwd=repo_dir, timeout=120)
     if names.code != 0:
         result = run_cmd(["git", "diff", "--binary", base, head], cwd=repo_dir, timeout=120)
-        return (result.output if result.code == 0 else ""), []
+        return (result.output if result.code == 0 else ""), [], []
     changed = [line.strip() for line in names.output.splitlines() if line.strip()]
     test_paths = [path for path in changed if is_test_patch_path(path)]
     dropped = [] if include_test_patches else test_paths
     selected = changed if include_test_patches else [path for path in changed if not is_test_patch_path(path)]
     if not selected:
-        return "", dropped
+        return "", dropped, []
     result = run_cmd(["git", "diff", "--binary", base, head, "--", *selected], cwd=repo_dir, timeout=120)
     if result.code == 0:
-        return result.output, dropped
+        return result.output, dropped, selected
     result = run_cmd(["git", "diff", "--binary", base, head], cwd=repo_dir, timeout=120)
-    return (result.output if result.code == 0 else ""), []
+    return (result.output if result.code == 0 else ""), [], changed if result.code == 0 else []
 
 
-def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any], include_test_patches: bool) -> tuple[str, str, list[str]]:
+def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any], include_test_patches: bool) -> tuple[str, str, list[str], list[str]]:
     plan_id = str(plan.get("id") or "").strip()
     applied_sha = str(plan.get("applied_commit_sha") or "").strip()
     worktree = str(plan.get("worktree_path") or "").strip()
@@ -941,12 +941,12 @@ def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any], include
     elif plan_id and commit_exists(repo_dir, f"refs/codrax/applied/{plan_id}"):
         commit = f"refs/codrax/applied/{plan_id}"
     if commit:
-        patch, dropped = export_patch_between(repo_dir, base_commit, commit, include_test_patches)
-        return patch, commit, dropped
+        patch, dropped, exported_paths = export_patch_between(repo_dir, base_commit, commit, include_test_patches)
+        return patch, commit, dropped, exported_paths
     if worktree and Path(worktree).is_dir():
-        patch, dropped = export_patch_between(Path(worktree), base_commit, "HEAD", include_test_patches)
-        return patch, "worktree:HEAD", dropped
-    return "", "", []
+        patch, dropped, exported_paths = export_patch_between(Path(worktree), base_commit, "HEAD", include_test_patches)
+        return patch, "worktree:HEAD", dropped, exported_paths
+    return "", "", [], []
 
 
 def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -1062,10 +1062,26 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             result["verify_summary"] = str(report.get("failure_summary") or "")
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])
-        patch, source, dropped_test_paths = export_patch(repo_dir, base, plan, bool(args.include_test_patches))
+        patch, source, dropped_test_paths, exported_paths = export_patch(repo_dir, base, plan, bool(args.include_test_patches))
+        exported_test_paths = [path for path in exported_paths if is_test_patch_path(path)]
+        exported_source_paths = [path for path in exported_paths if not is_test_patch_path(path)]
+        plan_source_paths = [
+            path
+            for path in (result.get("plan_change_paths") if isinstance(result.get("plan_change_paths"), list) else [])
+            if isinstance(path, str) and not is_test_patch_path(path)
+        ]
+        plan_source_path_set = set(plan_source_paths)
         prediction["model_patch"] = patch
         result["patch_source"] = source
         result["dropped_test_patch_paths"] = dropped_test_paths
+        result["exported_patch_paths"] = exported_paths
+        result["exported_patch_source_paths"] = exported_source_paths
+        result["exported_patch_test_paths"] = exported_test_paths
+        result["final_plan_source_paths"] = plan_source_paths
+        result["final_plan_test_only"] = bool(result.get("plan_change_paths")) and not plan_source_paths
+        result["final_plan_covers_exported_source_patch"] = (
+            None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
+        )
         result["patch_bytes"] = len(patch.encode("utf-8"))
         result["status"] = "predicted" if patch.strip() else "empty_patch"
     except Exception as exc:  # keep batch runs moving; official harness can score empty patches.

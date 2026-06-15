@@ -223,6 +223,21 @@ if row.get("plan_context_uncovered_paths") != ["helper.py"]:
     raise SystemExit(f"unexpected uncovered context paths: {row.get('plan_context_uncovered_paths')!r}")
 if row.get("plan_context_coverage_ratio") != 0.5:
     raise SystemExit(f"unexpected context coverage ratio: {row.get('plan_context_coverage_ratio')!r}")
+if row.get("exported_patch_paths") != ["bug.py"]:
+    raise SystemExit(f"unexpected exported patch paths: {row.get('exported_patch_paths')!r}")
+if row.get("exported_patch_source_paths") != ["bug.py"]:
+    raise SystemExit(f"unexpected exported source paths: {row.get('exported_patch_source_paths')!r}")
+if row.get("exported_patch_test_paths") != []:
+    raise SystemExit(f"unexpected exported test paths: {row.get('exported_patch_test_paths')!r}")
+if row.get("final_plan_source_paths") != ["bug.py"]:
+    raise SystemExit(f"unexpected final plan source paths: {row.get('final_plan_source_paths')!r}")
+if row.get("final_plan_test_only") is not False:
+    raise SystemExit(f"unexpected final_plan_test_only: {row.get('final_plan_test_only')!r}")
+if row.get("final_plan_covers_exported_source_patch") is not True:
+    raise SystemExit(
+        "final plan should structurally cover the exported source patch: "
+        f"{row.get('final_plan_covers_exported_source_patch')!r}"
+    )
 PY
 
 DRY_RUN=1 PREDICTIONS_PATH="$PREDICTIONS" "$ROOT/eval/swebench/run_official_harness.sh" >/dev/null
