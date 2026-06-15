@@ -389,3 +389,21 @@ records adapter results.
   local validator reported 1 prediction and 0 empty patches, and
   `DRY_RUN=1 eval/swebench/run_official_harness.sh` accepted the official
   harness command.
+- 2026-06-15: Ran another non-Go Lite smoke under
+  `eval/results/swebench/lite-smoke-20260615-astropy-django-pytest-212327`
+  for `astropy__astropy-12907`, `django__django-11039`, and
+  `pytest-dev__pytest-11143`. Astropy exported a plausible unverified patch;
+  Django paused at `pending_approval` because a root `tests/migrations/...`
+  fixture was over-classified as production schema risk; Pytest produced an
+  empty patch because degraded `write_analyze` fallback left the stage in an
+  error state. The predictions JSONL still passed local validation and official
+  harness dry-run consumption, proving the adapter remained structurally valid
+  while surfacing write-mode gaps.
+- 2026-06-15: Fixed those gaps generically and reran the affected Django/Pytest
+  instances under
+  `eval/results/swebench/lite-smoke-20260615-django-pytest-after-fix-213847`.
+  Both exported non-empty predictions (`empty_patch=0`), local validation
+  passed, and official harness dry-run accepted the file. A follow-up verifier
+  gap was found and fixed: structured Python `framework=django|pytest|unittest`
+  now implies `runner=python` when no runner is supplied, so scoped Django
+  suites bypass unrelated manifest auto-detect lanes without parsing prose.

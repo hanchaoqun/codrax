@@ -111,6 +111,10 @@ type runTestsParams struct {
 	// test frameworks behind the same language command. Currently
 	// only meaningful for runner=python, where empty means the system
 	// selects pytest vs unittest from typed repo/test-surface signals.
+	// A non-empty framework with an empty runner is treated as an
+	// explicit python runner choice, because the framework enum is
+	// already a typed verifier decision and must bypass manifest
+	// auto-detect just like runner=python does.
 	Framework string `json:"framework,omitempty"`
 
 	// WorkingDir is the LLM-decided test root, repo-relative. Empty
@@ -206,7 +210,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     "framework": {
       "type": "string",
       "enum": ["pytest", "unittest", "django"],
-      "description": "Optional framework refinement for runner=python. Empty lets codrax select from typed repository signals. Use unittest for Python standard-library unittest suites; use pytest for pytest suites; use django for Django source trees with tests/runtests.py."
+      "description": "Optional Python framework refinement. If set without runner, codrax treats it as runner=python and skips manifest auto-detect. Empty lets codrax select from typed repository signals. Use unittest for Python standard-library unittest suites; use pytest for pytest suites; use django for Django source trees with tests/runtests.py."
     },
     "working_dir": {
       "type": "string",
@@ -268,13 +272,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 
 	// Two paths to a runner plan list:
-	//   (1) LLM supplied `runner` (preferred) — short-circuit
-	//       manifest detection. The verifier agent has already
-	//       inspected the repo (list_files / read_file / repo_map)
-	//       and committed to a runner; the system validates the
-	//       choice against the whitelist + working_dir against the
-	//       worktree boundary, then dispatches.
-	//   (2) Empty `runner` — fall back to legacy manifest keyword
+	//   (1) Typed verifier choice (`runner`, or Python `framework`
+	//       without runner) — short-circuit manifest detection. The
+	//       verifier agent has already inspected the repo (list_files /
+	//       read_file / repo_map) and committed to a test lane; the
+	//       system validates the choice against the whitelist +
+	//       working_dir against the worktree boundary, then dispatches.
+	//   (2) Empty typed choice — fall back to legacy manifest keyword
 	//       detect. Brittle for bare-directory repos; kept as a
 	//       backstop so old eval cases / direct CLI calls keep
 	//       working.
@@ -306,16 +310,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	var executedCmds []types.ExecutedCommand
 
 	var plans []runnerPlan
-	if strings.TrimSpace(p.Runner) != "" {
-		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, p.Runner, p.Framework, p.WorkingDir)
+	selectedRunner := strings.TrimSpace(p.Runner)
+	selectedSource := "llm_choice"
+	if selectedRunner == "" && strings.TrimSpace(p.Framework) != "" {
+		selectedRunner = "python"
+		selectedSource = "llm_framework_choice"
+	}
+	if selectedRunner != "" {
+		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, selectedRunner, p.Framework, p.WorkingDir)
 		if rej != "" {
 			return errResult(t.Name(), rej), nil
 		}
 		choice.Suite = strings.TrimSpace(p.Suite)
 		plans = []runnerPlan{choice}
-		planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = "llm_choice"
-		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
-			choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))
+		planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = selectedSource
+		logging.Info("[run_tests] typed-selected runner=%s framework=%s working_dir=%s source=%s (manifest auto-detect bypassed)",
+			choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource)
 	} else {
 		plans = detectRunnerPlans(ctx.RepoRoot, walkRoot)
 		if len(plans) == 0 {

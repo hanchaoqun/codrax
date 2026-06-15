@@ -358,6 +358,8 @@ func (a *RiskAssessment) assessPathPolicyDetails(path string) {
 		a.add(RiskHigh, "ci_or_workflow_change", "plan changes CI/workflow automation", path)
 	case isHookPolicyPath(clean, base):
 		a.add(RiskHigh, "hook_policy_change", "plan changes hook or local automation policy", path)
+	case isTestPath(clean):
+		return
 	case isPersistenceSchemaPath(clean, base):
 		a.add(RiskHigh, "persistence_schema_change", "plan changes a persistence schema/migration surface", path)
 	case isExecutableScriptPath(clean, base):
@@ -434,14 +436,14 @@ func riskForCleanPath(clean string) RiskLevel {
 	if isWorkflowOrAutomationPath(clean, base) || isHookPolicyPath(clean, base) {
 		return RiskHigh
 	}
+	if isDocsPath(clean) || isTestPath(clean) {
+		return RiskLow
+	}
 	if isPersistenceSchemaPath(clean, base) {
 		return RiskHigh
 	}
 	if isExecutableScriptPath(clean, base) {
 		return RiskMedium
-	}
-	if isDocsPath(clean) || isTestPath(clean) {
-		return RiskLow
 	}
 	return RiskMedium
 }
@@ -457,14 +459,14 @@ func pathClass(clean string) string {
 		return "ci_or_workflow_path"
 	case isHookPolicyPath(clean, base):
 		return "hook_policy_path"
-	case isPersistenceSchemaPath(clean, base):
-		return "persistence_schema_path"
-	case isExecutableScriptPath(clean, base):
-		return "executable_script_path"
 	case isDocsPath(clean):
 		return "documentation_path"
 	case isTestPath(clean):
 		return "test_path"
+	case isPersistenceSchemaPath(clean, base):
+		return "persistence_schema_path"
+	case isExecutableScriptPath(clean, base):
+		return "executable_script_path"
 	default:
 		return "source_or_config_path"
 	}
@@ -507,7 +509,10 @@ func isDocsPath(clean string) bool {
 func isTestPath(clean string) bool {
 	lower := strings.ToLower(clean)
 	base := filepath.Base(lower)
-	return strings.Contains(lower, "/test/") ||
+	return strings.HasPrefix(lower, "test/") ||
+		strings.HasPrefix(lower, "tests/") ||
+		strings.HasPrefix(lower, "__tests__/") ||
+		strings.Contains(lower, "/test/") ||
 		strings.Contains(lower, "/tests/") ||
 		strings.Contains(lower, "/__tests__/") ||
 		strings.HasSuffix(base, "_test.go") ||

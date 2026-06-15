@@ -199,3 +199,48 @@ func TestFallbackWriteAnalysisIR_ProjectsTypedReadIRScope(t *testing.T) {
 		}
 	}
 }
+
+func TestRunWriteAnalyzePhase_FallbackReturnsNilAndClearsStageError(t *testing.T) {
+	readIR := dagIR(types.AnswerContract{Language: "en"})
+	readIR.RequestModel.Intent = types.IntentRootCause
+	readIR.EvidencePlan.RequiredFiles = []string{"src/_pytest/assertion/rewrite.py"}
+	dispatchCount := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			dispatchCount++
+			return &agent.StageOutput{Error: "write_analyzer did not call emit_write_analysis within the ReAct loop"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	mu := types.NewMutableState("fix assertion rewrite")
+	o.busCtx = &types.BusContext{
+		Mode:       types.ModeApply,
+		Mutable:    mu,
+		AnalysisIR: readIR,
+	}
+
+	used, err := o.runWriteAnalyzePhase()
+	if err != nil {
+		t.Fatalf("fallback write analysis should recover nil error, got %v", err)
+	}
+	if used != 2 {
+		t.Fatalf("used steps = %d, want 2 bounded attempts", used)
+	}
+	if dispatchCount != 2 {
+		t.Fatalf("dispatch count = %d, want 2", dispatchCount)
+	}
+	if got := o.busCtx.TaskState.LastError; got != "" {
+		t.Fatalf("fallback should clear stage LastError, got %q", got)
+	}
+	got := mu.WriteAnalysisIR()
+	if got == nil {
+		t.Fatal("fallback WriteAnalysisIR should be installed")
+	}
+	if got.Request.Task.Kind != types.WriteTaskBugfix {
+		t.Fatalf("fallback kind = %q, want bugfix", got.Request.Task.Kind)
+	}
+	if len(got.Request.ScopeAnchors) != 1 || got.Request.ScopeAnchors[0] != "src/_pytest/assertion/rewrite.py" {
+		t.Fatalf("fallback anchors = %+v", got.Request.ScopeAnchors)
+	}
+}

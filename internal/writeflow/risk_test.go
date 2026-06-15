@@ -56,6 +56,36 @@ func TestAssessWriteRiskBuildManifestHigh(t *testing.T) {
 	}
 }
 
+func TestAssessWriteRiskTestMigrationPathDoesNotRequireManualApproval(t *testing.T) {
+	plan := planWithChanges(
+		types.FileChange{Path: "django/core/management/commands/sqlmigrate.py", Kind: "modify"},
+		types.FileChange{Path: "tests/migrations/test_commands.py", Kind: "modify"},
+	)
+
+	got := AssessWriteRisk(AssessmentInput{Plan: plan})
+	if got.Level != RiskMedium {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskMedium, got.Reasons)
+	}
+	if hasRiskReason(got, "persistence_schema_change") {
+		t.Fatalf("test migration path must not be treated as production schema change: %+v", got.Reasons)
+	}
+	if decision := DecideWriteApproval(ApprovalPolicyAutoSafe, got); decision.Action != ApprovalActionAutoExecute {
+		t.Fatalf("auto_safe approval = %s; want %s; reasons=%+v", decision.Action, ApprovalActionAutoExecute, got.Reasons)
+	}
+}
+
+func TestAssessWriteRiskProductionMigrationPathStillHigh(t *testing.T) {
+	plan := planWithChanges(types.FileChange{Path: "app/migrations/0002_add_email.py", Kind: "modify"})
+
+	got := AssessWriteRisk(AssessmentInput{Plan: plan})
+	if got.Level != RiskHigh {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	}
+	if !hasRiskReason(got, "persistence_schema_change") {
+		t.Fatalf("production migration path should carry schema risk: %+v", got.Reasons)
+	}
+}
+
 func TestAssessWriteRiskWorkflowAutomationHigh(t *testing.T) {
 	for _, p := range []string{
 		".github/workflows/build.yml",

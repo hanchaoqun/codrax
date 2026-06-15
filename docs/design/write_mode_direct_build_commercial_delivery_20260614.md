@@ -2897,3 +2897,37 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Official SWE-bench harness dry-run accepted `eval/results/swebench/lite-smoke-20260615-requests-normalized-log-211442/predictions.jsonl`.
   - The final run log records the transparent model toolcall followed by typed normalization: `write controller decision normalized: action=explore_code reason=explore_verify_env disposition= -> action=finish reason=accept_unverified_without_failure_evidence disposition=accept_unverified`; no read-only exploration was executed after the unverified terminal verdict.
   - Full regression and final push are tracked by the implementation commit following this section.
+
+## 2026-06-15 SWE-bench Lite typed verifier smoothing follow-up
+
+- Evidence source:
+  - Non-Go Lite smoke under `eval/results/swebench/lite-smoke-20260615-astropy-django-pytest-212327`:
+    - `astropy__astropy-12907`: `status=predicted`, `plan_status=unverified`, `patch_bytes=506`; manual audit found the patch direction correct for nested compound-model separability (`cright[...] = right` instead of `1`). Local editable install failed on missing legacy `setuptools.dep_util`, so unverified is environment/dependency.
+    - `django__django-11039`: `status=empty_patch`, `plan_status=pending_approval`; the generated plan was directionally correct but approval paused because `tests/migrations/test_commands.py` was classified as production persistence schema risk.
+    - `pytest-dev__pytest-11143`: `status=empty_patch`; read/write exploration found the docstring integer edge, but `write_analyzer` failed to call `emit_write_analysis`. The degraded fallback installed typed IR but the stage still returned an error, preventing controller apply.
+  - Local prediction validator accepted all three rows and official SWE-bench harness dry-run accepted the generated command, but two empty patches exposed system gaps.
+  - Post-fix rerun under `eval/results/swebench/lite-smoke-20260615-django-pytest-after-fix-213847`:
+    - `django__django-11039`: `status=predicted`, `patch_bytes=2201`, `plan_status=verify_failed`; patch gates `self.output_transaction` on `connection.features.can_rollback_ddl` and adds a regression test.
+    - `pytest-dev__pytest-11143`: `status=predicted`, `patch_bytes=586`, `plan_status=applied`; patch guards `is_rewrite_disabled(doc)` with `isinstance(doc, str)`, matching the non-string AST constant issue.
+  - The rerun predictions file validated with `empty_patch=0`, and the official SWE-bench harness dry-run accepted it.
+- Generalized gaps fixed:
+  - Approval risk must distinguish production schema/migration surfaces from test fixtures. Root-level `test/`, `tests/`, and `__tests__/` paths now enter the test/documentation policy lane before persistence-schema escalation, while build manifests, workflow files, hooks, secret-like paths, external paths, and production migrations remain protected.
+  - Degraded write-analysis fallback with typed anchors is a successful degraded outcome, not a failed stage. After installing fallback `WriteAnalysisIR`, `runWriteAnalyzePhase` clears the stage error and returns nil so the controller can continue with bounded exploration/planning.
+  - Verifier runner selection should consume precise structured parameters with minimal user/model ceremony. A Python `framework=pytest|unittest|django` enum now implies `runner=python` when `runner` is empty and bypasses manifest auto-detect, avoiding unrelated `package.json` / `Makefile` lanes in multi-surface repos. This is typed payload routing, not prose or keyword parsing.
+- Safety and prompt hygiene:
+  - Hard behavior reads only repo-relative path classes, typed risk reason codes, `WriteAnalysisIR` fallback artifacts, and `run_tests` JSON parameters (`runner`, `framework`, `suite`, `working_dir`).
+  - No user intent keywords, model prose, rationale, issue text, `<think>`, natural-language summaries, or failure-summary text drive routing.
+  - `<think>` and raw toolcall logs remain visible for user transparency; the scheduler separately records typed normalization and execution decisions.
+- Implementation tasks:
+  - [x] Treat root test directories as test surface before persistence-schema risk escalation.
+  - [x] Preserve high-risk classification for production migration/schema paths.
+  - [x] Make degraded write-analysis fallback return success and clear stale stage error after installing typed IR.
+  - [x] Add `run_tests` framework-only Python runner selection and preserve scoped Django suites.
+  - [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+  - [x] Run full regression and push the implementation batch to `origin/main`.
+- Verification:
+  - `go test ./internal/writeflow -run 'TestAssessWriteRisk(TestMigrationPathDoesNotRequireManualApproval|ProductionMigrationPathStillHigh|BuildManifestHigh)'` PASS.
+  - `go test ./internal/orchestrator -run 'TestRunWriteAnalyzePhase_FallbackReturnsNilAndClearsStageError|TestWriteAnalyze_DegradesOnEmitFailure|TestFallbackWriteAnalysisIR_ProjectsTypedReadIRScope'` PASS.
+  - `go test ./internal/tool -run 'TestRunTestsFrameworkOnlyDjangoBypassesManifestAutoDetect|TestResolveLLMRunnerChoice_DjangoRuntestsOverridesPytest|TestRunTestsRejectsSuiteWithEmbeddedCLIFlags'` PASS.
+  - Full regression passed: `go test ./...`, `make test`, `make`, and `git diff --check`.
+  - Final push is recorded by the implementation commit following this section.

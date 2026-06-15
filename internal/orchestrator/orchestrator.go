@@ -2875,11 +2875,11 @@ func retryStormUserCaveat(busCtx *types.BusContext) string {
 // runWriteAnalyzePhase dispatches the write_analyze stage in
 // write-mode Runs. Produces a WriteAnalysisIR on Mutable for the
 // downstream write agents (planner / verifier / reflector) to read
-// directly. Failure is non-fatal — a missing IR means downstream
-// agents fall back to their existing AnalysisIR-only context, which
-// is the historical behaviour. Returns the steps consumed and any
-// dispatch error (the caller logs and continues, since this is a
-// degradable enrichment stage rather than a hard pre-requisite).
+// directly. Failure is non-fatal: when the model cannot emit the typed
+// IR after bounded retries, Codrax installs a conservative fallback IR
+// projected from typed read-analysis artifacts and continues into the
+// controller. Returns the steps consumed and only unrecovered dispatch
+// errors; a fallback install is a successful degraded outcome.
 //
 // Approved-plan fast path: when --plan-file / /approve has supplied
 // a vetted plan, the planner is going to be skipped on its first
@@ -2961,6 +2961,8 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		o.busCtx.Mutable.SetWriteAnalysisIR(ir)
 		logging.Warning("[orchestrator] write_analyze degraded; installed fallback WriteAnalysisIR (kind=%s scope=%s anchors=%d): %v",
 			ir.Request.Task.Kind, ir.Request.Task.Scope, len(ir.Request.ScopeAnchors), lastErr)
+		o.busCtx.TaskState.LastError = ""
+		return used, nil
 	}
 	return used, lastErr
 }

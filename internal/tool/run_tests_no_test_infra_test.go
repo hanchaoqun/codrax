@@ -558,6 +558,73 @@ class SampleTests(unittest.TestCase):
 	}
 }
 
+func TestRunTestsFrameworkOnlyDjangoBypassesManifestAutoDetect(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	runtests := `import sys
+
+print("test_scoped (migrations.test_commands.SqlMigrateTests) ... ok")
+print("")
+print("----------------------------------------------------------------------")
+print("Ran 1 test in 0.001s")
+print("")
+print("OK")
+print("ARGV:" + " ".join(sys.argv[1:]))
+`
+	if err := os.WriteFile(filepath.Join(root, "tests", "runtests.py"), []byte(runtests), 0o644); err != nil {
+		t.Fatalf("write runtests.py: %v", err)
+	}
+	// These manifests would make legacy auto-detect try unrelated
+	// lanes first. A typed framework enum is already a precise runner
+	// decision, so it must execute only the Django runner.
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"test":"echo node should not run"}}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	writeMakefile(t, root, "check:\n\t@echo make should not run\n")
+
+	mu := types.NewMutableState("django framework-only verify")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"framework": "django",
+		"suite":     "migrations.test_commands.SqlMigrateTests.test_sqlmigrate_for_atomic_migration_without_ddl_rollback",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("django framework-only run should pass, got %+v report=%+v", result, mu.ChangeReport())
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if len(report.ExecutedCommands) != 1 {
+		t.Fatalf("framework-only selection must bypass manifest auto-detect; executed=%+v", report.ExecutedCommands)
+	}
+	cmd := report.ExecutedCommands[0]
+	if cmd.Runner != "python" || cmd.Framework != pythonFrameworkDjango || cmd.Source != "llm_framework_choice" {
+		t.Fatalf("unexpected command provenance: %+v", cmd)
+	}
+	if strings.Contains(cmd.Command, "npm") || strings.Contains(cmd.Command, "make ") {
+		t.Fatalf("command should be Django runner only, got %q", cmd.Command)
+	}
+	if !strings.Contains(cmd.Command, "tests/runtests.py") ||
+		!strings.Contains(cmd.Command, "migrations.test_commands.SqlMigrateTests.test_sqlmigrate_for_atomic_migration_without_ddl_rollback") {
+		t.Fatalf("django command should preserve scoped suite, got %q", cmd.Command)
+	}
+}
+
 // TestPythonInterpreter_InterleavedVenvOrdering locks fix A: when
 // both worktree and main_repo carry venvs, the probe interleaves
 // per dir-name (.venv across all roots before falling to venv across
