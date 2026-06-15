@@ -634,7 +634,10 @@ def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
         f"SWE-bench instance: {instance_id}\n\n"
         f"{problem}\n\n"
         "Fix the repository behavior described above. Do not read or infer the gold patch; "
-        "do not change tests merely to hide the failure."
+        "do not change tests merely to hide the failure. For SWE-bench prediction export, "
+        "keep repository test/spec files out of the ChangePlan unless the issue explicitly "
+        "asks to change product test infrastructure; encode local behavioral checks as "
+        "verification_probes[] instead."
     )
 
 
@@ -715,6 +718,17 @@ def load_report_for_plan(plan_path: Path | None) -> dict[str, Any]:
     except Exception:
         return {}
     return row if isinstance(row, dict) else {}
+
+
+def plan_change_paths(plan: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for change in plan.get("changes") or []:
+        if not isinstance(change, dict):
+            continue
+        path = str(change.get("path") or "").strip()
+        if path:
+            out.append(path)
+    return out
 
 
 def report_verification_status(report: dict[str, Any]) -> str:
@@ -876,6 +890,13 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         if plan:
             result["plan_id"] = str(plan.get("id") or "")
             result["plan_status"] = str(plan.get("status") or "")
+            target_paths = [str(path).strip() for path in plan.get("target_paths") or [] if str(path).strip()]
+            change_paths = plan_change_paths(plan)
+            test_change_paths = [path for path in change_paths if is_test_patch_path(path)]
+            result["plan_target_paths"] = target_paths
+            result["plan_change_paths"] = change_paths
+            result["plan_test_change_paths"] = test_change_paths
+            result["plan_verification_probe_count"] = len(plan.get("verification_probes") or [])
         report = load_report_for_plan(plan_path)
         if report:
             result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""

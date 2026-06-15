@@ -3538,3 +3538,80 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `unavailable`; the normalizer correctly finishes with
     `accept_unverified`, but the prompt/typed state rendering should make that
     terminal clearer.
+
+## 2026-06-16 SWE-bench smoke 3: plan-test drift and public API surface audit
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-astropy-flask-xarray-pylint-022827`.
+  - Instances:
+    - `astropy__astropy-14182`: `status=predicted`, `patch_bytes=805`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Manual gold audit shows the generated
+      patch captured the write-side `header_rows` behavior but missed the gold
+      patch's read-side `start_line` adjustment and documentation update.
+      Verification probes were well scoped but unavailable because local Astropy
+      imports still lacked `erfa`.
+    - `pallets__flask-4992`: `status=predicted`, `patch_bytes=1842`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. The generated product patch adds a
+      `mode="r"` parameter; the gold patch adds a `text=True` boolean and uses
+      `text=False` for binary loaders. This is a public API-shape inference gap,
+      not a safe hard-gate candidate.
+    - `pydata__xarray-5131`: `status=predicted`, `patch_bytes=573`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`, and
+      `dropped_test_patch_paths=["xarray/tests/test_groupby.py"]`. Manual gold
+      audit shows the product patch exactly matched the expected one-line
+      `__repr__` fix; adapter stripping correctly removed generated test edits
+      from the official prediction.
+    - `pylint-dev__pylint-6506`: `status=predicted`, `patch_bytes=1151`,
+      `plan_status=applied`, `verify_status=passed`, and
+      `dropped_test_patch_paths=["tests/config/test_config.py"]`. The bounded
+      verification probe passed and project suite was skipped as a hard gate.
+      Manual gold audit shows a different implementation locus
+      (`config_initialization.py` parser error path), so this remains a
+      product-design surface gap even when the visible behavior probe passes.
+  - Prediction validation accepted all four rows (`empty_patch=0`) and official
+    SWE-bench harness dry-run accepted the predictions file.
+  - New redaction check passed on all four `instances/<id>/instance.json`
+    artifacts: no `patch`, `test_patch`, `FAIL_TO_PASS`, or `PASS_TO_PASS`
+    fields remained; `_codrax_redacted_fields` recorded the removed fields.
+- Generalized gaps fixed:
+  - SWE-bench request text now explicitly tells Codrax to keep repository
+    test/spec file edits out of the ChangePlan and to use
+    `verification_probes[]` for local behavioral checks. This is soft guidance;
+    the exporter still strips test diffs as the typed backstop.
+  - Adapter result rows now expose `plan_target_paths`, `plan_change_paths`,
+    `plan_test_change_paths`, and `plan_verification_probe_count`. This makes
+    test-edit drift and probe coverage auditable from `results.jsonl` without
+    reparsing plan blobs.
+- Safety and prompt hygiene:
+  - The added telemetry consumes typed ChangePlan fields and repo-relative path
+    classification only. It does not parse model rationale, `<think>`, summary
+    prose, or issue keywords.
+  - The no-test-edit SWE-bench instruction is prompt-level guidance only; hard
+    behavior remains the typed exporter strip via `is_test_patch_path` and
+    `dropped_test_patch_paths`.
+- Implementation tasks:
+  - [x] Add plan path/probe telemetry fields to `results.jsonl`.
+  - [x] Tighten SWE-bench adapter request guidance to prefer
+    `verification_probes[]` over repository test/spec edits.
+  - [x] Update `eval/swebench/README.md`, `docs/user_guide.md`,
+    `docs/user_guide.html`, and this delivery ledger.
+- Verification:
+  - Fresh four-instance smoke produced non-empty predictions and official
+    harness dry-run consumption.
+  - Redaction audit passed for every new sanitized instance artifact.
+  - Adapter compile and focused self-check are tracked by the implementation
+    commit following this section.
+- Remaining system gaps to track:
+  - Public API-shape inference remains weak on Flask/Matplotlib-style tasks
+    where several plausible parameter names or exported symbols satisfy the
+    prose but hidden tests expect the project's chosen API.
+  - Symmetric surface discovery remains weak on Astropy read/write and Scikit
+    transform/inverse-transform pairs. This belongs in context-pack/test-surface
+    consumption and planner exploration strategy, not in keyword hard gates.
+  - Planner still sometimes edits repository tests in SWE-bench runs even when
+    product-code prediction export will strip them. The new result fields make
+    this measurable before considering stronger typed policy.
