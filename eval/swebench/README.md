@@ -95,17 +95,16 @@ instead of a hard gate. Failing probes remain real `tests_failed` evidence, and
 unavailable probes fall back to the normal runner/unverified path. By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
-when debugging Codrax's own generated test edits. The adapter also tells Codrax
-to keep repository test/spec edits out of the plan and use
-`verification_probes[]` for local checks, but the exporter still strips and
-audits test diffs as a typed backstop. Codrax's Python verifier also recognizes
-Django source trees with `tests/runtests.py` and uses that typed harness instead
-of plain pytest when the repository advertises it through file structure. During
-worktree verification, Codrax prepends the active worktree to `PYTHONPATH` so
-editable installs or inherited environments cannot accidentally import the
-original checkout. When a Django suite is not explicitly supplied, the verifier
-derives a conservative scoped suite from typed ChangePlan paths and the
-repository `tests/` tree before falling back to a wider run.
+when debugging Codrax's own generated test edits. The adapter keeps SWE-bench
+operational guardrails out of the user issue text; test-diff stripping and audit
+fields are typed exporter behavior instead of prompt instructions. Codrax's
+Python verifier also recognizes Django source trees with `tests/runtests.py` and
+uses that typed harness instead of plain pytest when the repository advertises it
+through file structure. During worktree verification, Codrax prepends the active
+worktree to `PYTHONPATH` so editable installs or inherited environments cannot
+accidentally import the original checkout. When a Django suite is not explicitly
+supplied, the verifier derives a conservative scoped suite from typed ChangePlan
+paths plus the repository `tests/` tree before falling back to a wider run.
 
 Per-instance run artifacts intentionally redact SWE-bench gold fields such as
 `patch`, `test_patch`, `FAIL_TO_PASS`, and `PASS_TO_PASS` from

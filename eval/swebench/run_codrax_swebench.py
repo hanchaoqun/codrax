@@ -678,11 +678,7 @@ def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
     return (
         f"SWE-bench instance: {instance_id}\n\n"
         f"{problem}\n\n"
-        "Fix the repository behavior described above. Do not read or infer the gold patch; "
-        "do not change tests merely to hide the failure. For SWE-bench prediction export, "
-        "keep repository test/spec files out of the ChangePlan unless the issue explicitly "
-        "asks to change product test infrastructure; encode local behavioral checks as "
-        "verification_probes[] instead."
+        "Fix the repository behavior described above."
     )
 
 

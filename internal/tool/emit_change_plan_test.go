@@ -284,6 +284,33 @@ func TestEmitChangePlan_AcceptsPythonProbeImportingPublicPackageForChangedSubmod
 	}
 }
 
+func TestEmitChangePlan_AcceptsPythonProbeImportingSiblingPublicAPIForChangedSubmodule(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix seaborn objects boolean color handling",
+		"summary": "Modify the core scale code and verify it through the public objects API.",
+		"changes": [
+			{"path": "seaborn/_core/scales.py", "kind": "modify", "new_content": "class ContinuousBase:\n    pass\n", "rationale": "update scale handling"}
+		],
+		"verification_probes": [
+			{"id": "objects_boolean_color", "language": "python", "code": "import seaborn.objects as so\nassert so is not None\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected sibling public API import to cover changed submodule, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one public-API probe, got: %+v", plan)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

@@ -298,6 +298,62 @@ func (e *verifierEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 
 const emitTestResultsToolName = "emit_test_results"
 
+func (e *verifierEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseMidLoop || !loopObservationHasTool(obs, "run_tests") {
+		return LoopSignal{}
+	}
+	report := verifierChangeReport(ctx, e)
+	if report == nil {
+		return LoopSignal{Progress: true}
+	}
+	status := report.NormalizeVerificationStatus()
+	if status == types.VerificationStatusPassed || status == types.VerificationStatusUnavailable {
+		return LoopSignal{
+			Progress:      true,
+			StopRequested: true,
+			StopReason:    "run_tests installed terminal verification report",
+		}
+	}
+	return LoopSignal{Progress: true}
+}
+
+func (e *verifierEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if verifierChangeReport(ctx, e) == nil {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	for _, schema := range schemas {
+		if strings.TrimSpace(schema.Name) == "run_tests" {
+			continue
+		}
+		out = append(out, schema)
+	}
+	return out
+}
+
+func verifierChangeReport(ctx *types.AgentContext, e *verifierEvaluator) *types.ChangeReport {
+	if ctx != nil && ctx.Mutable != nil {
+		return ctx.Mutable.ChangeReport()
+	}
+	if e != nil && e.mu != nil {
+		return e.mu.ChangeReport()
+	}
+	return nil
+}
+
+func loopObservationHasTool(obs LoopObservation, name string) bool {
+	name = strings.TrimSpace(name)
+	for _, result := range obs.CurrentToolResults {
+		if strings.TrimSpace(result.ToolName) == name {
+			return true
+		}
+	}
+	if obs.LastToolResult != nil && strings.TrimSpace(obs.LastToolResult.ToolName) == name {
+		return true
+	}
+	return false
+}
+
 // ParseOutput reads Mutable.ChangeReport and surfaces the verdict.
 // When the report is missing (run_tests never ran or failed
 // catastrophically), returns a fail-loud error so the orchestrator

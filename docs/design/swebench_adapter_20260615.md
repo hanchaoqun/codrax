@@ -97,6 +97,13 @@ records adapter results.
   useful evidence was already emitted.
 - [x] Include Python `kind=patch` changes in dry-build syntax validation by
   applying patches into the scratch overlay before `py_compile`.
+- [x] Keep SWE-bench operational guardrails out of the user issue text; rely on
+  typed redaction/export behavior instead.
+- [x] Broaden Python verification-probe coupling to same-package public API
+  imports while still rejecting isolated copied-implementation probes.
+- [x] Stop verifier immediately after `run_tests` produces a typed passed or
+  unavailable `ChangeReport`, preventing duplicate test runs on parser/env
+  unavailable outcomes.
 - [x] Commit and push to `main`.
 
 ## Test Matrix
@@ -151,6 +158,21 @@ records adapter results.
 - Python patch dry-build: `kind=patch` changes are applied into the scratch
   overlay before Python syntax validation, so `py_compile` catches syntax
   failures introduced by patch hunks without requiring pytest or ruff.
+- SWE request framing: the default adapter request contains only the public
+  instance id, public issue text, and "Fix the repository behavior described
+  above."; gold-patch avoidance, test-diff stripping, and prediction export
+  rules live in typed adapter behavior and sanitized artifacts, not in the user
+  request body.
+- Python probe coupling: a probe for a changed production submodule may import
+  the exact module, a package prefix, or a sibling public API under the same
+  top-level package. The check compares deterministic imports to typed
+  `changes[].path` module candidates and still rejects unrelated imports such as
+  standard-library-only copied logic.
+- Verifier one-shot behavior: once `run_tests` installs a typed passed or
+  unavailable `ChangeReport`, the verifier loop stops before another model turn;
+  after any report exists, the verifier schema filter removes `run_tests` from
+  later turns while preserving `emit_test_results` for structured failed-test
+  classification.
 
 ## Progress Ledger
 
@@ -719,3 +741,33 @@ records adapter results.
   untouched; the next hardening batch should split planner dry-run into a typed
   runner/test-surface feasibility probe that cannot execute broad suites unless
   the caller supplies a bounded selector or explicit verification probe.
+- 2026-06-16: Ran a three-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-mpl-seaborn-pylint-current` for
+  `matplotlib__matplotlib-22835`, `mwaskom__seaborn-3190`, and
+  `pylint-dev__pylint-7114`. All three produced non-empty predictions and the
+  adapter results classified them without treating local environment/parser
+  unavailability as a hard code failure. `mwaskom__seaborn-3190` verified
+  locally as `passed`; Matplotlib and Pylint exported patches with
+  `prediction_verdict=predicted_unverified` because old-project import/parser
+  setup failed under the local environment. Manual audit found the Matplotlib
+  `BoundaryNorm.inverse` fallback and Pylint module-file selection patches
+  plausible, while Seaborn exposed a handoff-priority risk: the accepted patch
+  fixed the boolean subtraction failure in `ContinuousBase._setup`, but the
+  earlier read-only exploration had identified the more semantic public-property
+  route. This keeps "handoff P1 conclusion should dominate backup plans" as a
+  controller/planner quality follow-up rather than an adapter hard gate.
+- 2026-06-16: The same run exposed three generalized smoothness gaps and their
+  fixes. First, the adapter's default request appended SWE-bench operational
+  guardrails to the public issue text; read analysis could misclassify those as
+  current-request source quotes or exclusions. The default request now contains
+  only the public instance id, public problem statement, and a short fix
+  directive; gold redaction and test-diff stripping remain typed adapter/export
+  behavior. Second, the Python probe-coupling gate accepted `import xarray` for
+  a changed submodule but still rejected sibling public APIs such as
+  `import seaborn.objects` exercising `seaborn._core.scales`; coupling now
+  accepts exact-module, package-prefix, or same-top-level-package imports while
+  still rejecting unrelated imports such as copied `re` probes. Third, Pylint
+  showed the verifier could call `run_tests` again after an unavailable
+  parser/error report. The verifier now stops immediately after `run_tests`
+  installs a typed passed or unavailable `ChangeReport`, and filters `run_tests`
+  out of subsequent turns once any report exists.

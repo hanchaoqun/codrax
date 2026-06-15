@@ -452,7 +452,24 @@ func pythonImportCoversTarget(imported, target string) bool {
 	if imported == "" || target == "" {
 		return false
 	}
-	return imported == target || strings.HasPrefix(target, imported+".")
+	if imported == target || strings.HasPrefix(target, imported+".") {
+		return true
+	}
+	return pythonTopLevelModule(imported) == pythonTopLevelModule(target)
+}
+
+func pythonTopLevelModule(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.HasPrefix(name, ".") {
+		return ""
+	}
+	if idx := strings.Index(name, "."); idx >= 0 {
+		name = name[:idx]
+	}
+	if !isPythonIdentifier(name) {
+		return ""
+	}
+	return name
 }
 
 func formatStringSet(values map[string]struct{}) string {

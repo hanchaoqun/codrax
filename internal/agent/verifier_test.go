@@ -86,6 +86,51 @@ func TestVerifier_ShouldStop_ReportMissingCap(t *testing.T) {
 	}
 }
 
+func TestVerifier_ObserveStopsAfterRunTestsUnavailableReport(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:             false,
+		FailureKind:        types.FailureKindParserError,
+		VerificationStatus: types.VerificationStatusUnavailable,
+	}
+	ctx := verifierFixtureCtx(report, &types.ChangePlan{
+		ID:      "plan",
+		Changes: []types.FileChange{{Path: "pkg/widget.py", Kind: "modify"}},
+	})
+	ev := &verifierEvaluator{}
+	ev.BuildInitialInstruction(ctx, &skill.Config{})
+
+	sig := ev.Observe(ctx, LoopObservation{
+		Phase: PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{
+			{ToolName: "run_tests", Success: true},
+		},
+	})
+	if !sig.StopRequested {
+		t.Fatalf("expected verifier to stop once run_tests installed unavailable report, got %+v", sig)
+	}
+	if !sig.Progress {
+		t.Fatalf("run_tests report should count as progress, got %+v", sig)
+	}
+}
+
+func TestVerifier_FilterToolSchemasDropsRunTestsAfterReport(t *testing.T) {
+	report := &types.ChangeReport{Passed: false, FailureKind: types.FailureKindTestsFailed}
+	ctx := verifierFixtureCtx(report, &types.ChangePlan{
+		ID:      "plan",
+		Changes: []types.FileChange{{Path: "pkg/widget.py", Kind: "modify"}},
+	})
+	ev := &verifierEvaluator{}
+	ev.BuildInitialInstruction(ctx, &skill.Config{})
+
+	got := ev.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "run_tests"},
+		{Name: emitTestResultsToolName},
+	})
+	if len(got) != 1 || got[0].Name != emitTestResultsToolName {
+		t.Fatalf("expected run_tests removed after report while keeping emit_test_results, got %+v", got)
+	}
+}
+
 // TestVerifier_ParseOutput_Passed verifies the happy path.
 func TestVerifier_ParseOutput_Passed(t *testing.T) {
 	report := &types.ChangeReport{
