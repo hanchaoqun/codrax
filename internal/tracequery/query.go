@@ -3420,6 +3420,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		return nil, nil
 	}
 	stacks := map[int][]Event{}
+	asyncStarts := map[string][]Event{}
 	var spans []TraceSpanSummary
 	counters := map[string]TraceCounterSummary{}
 	for _, ev := range idx.Events {
@@ -3439,19 +3440,27 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			if ev.Ts < start.Ts {
 				continue
 			}
-			spans = append(spans, TraceSpanSummary{
-				Thread:      threadRefFromEvent(start),
-				Name:        start.SpanName,
-				Category:    traceSpanCategory(start.SpanName),
-				Subcategory: traceSpanSubcategory(start.SpanName),
-				StartTs:     start.Ts,
-				EndTs:       ev.Ts,
-				DurationMs:  (ev.Ts - start.Ts) * 1000,
-				StartLine:   start.Line,
-				EndLine:     ev.Line,
-			})
+			spans = append(spans, traceSpanFromEvents(start, ev, "sync"))
+		case "S":
+			key := traceAsyncSpanKey(ev)
+			if key == "" {
+				continue
+			}
+			asyncStarts[key] = append(asyncStarts[key], ev)
+		case "F":
+			key := traceAsyncSpanKey(ev)
+			stack := asyncStarts[key]
+			if key == "" || len(stack) == 0 {
+				continue
+			}
+			start := stack[len(stack)-1]
+			asyncStarts[key] = stack[:len(stack)-1]
+			if ev.Ts < start.Ts {
+				continue
+			}
+			spans = append(spans, traceSpanFromEvents(start, ev, "async"))
 		case "C":
-			key := fmt.Sprintf("%d/%s/%s", ev.PID, ev.SpanName, ev.SpanValue)
+			key := fmt.Sprintf("%d/%d/%s/%s", ev.PID, ev.SpanPID, ev.SpanName, ev.SpanValue)
 			counter := counters[key]
 			counter.Thread = threadRefFromEvent(ev)
 			counter.Name = ev.SpanName
@@ -3489,19 +3498,48 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	return spans, counterList
 }
 
+func traceSpanFromEvents(start, end Event, kind string) TraceSpanSummary {
+	return TraceSpanSummary{
+		Thread:      threadRefFromEvent(start),
+		Kind:        kind,
+		Name:        start.SpanName,
+		Category:    traceSpanCategory(start.SpanName),
+		Subcategory: traceSpanSubcategory(start.SpanName),
+		StartTs:     start.Ts,
+		EndTs:       end.Ts,
+		DurationMs:  (end.Ts - start.Ts) * 1000,
+		StartLine:   start.Line,
+		EndLine:     end.Line,
+	}
+}
+
+func traceAsyncSpanKey(ev Event) string {
+	if ev.SpanName == "" || ev.SpanValue == "" {
+		return ""
+	}
+	spanPID := ev.SpanPID
+	if spanPID == 0 {
+		spanPID = ev.TGID
+	}
+	if spanPID == 0 {
+		spanPID = ev.PID
+	}
+	return fmt.Sprintf("%d/%s/%s", spanPID, ev.SpanName, ev.SpanValue)
+}
+
 func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd bool) ([]TraceSpanSummary, []string) {
 	if idx == nil || q == nil || strings.TrimSpace(q.SpanName) == "" {
 		return nil, nil
 	}
 	spans, caveats := FindSpanWindows(idx, *q, q.Limit)
 	if len(spans) == 0 {
-		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete B/E trace span in the selected filters", q.SpanName))
+		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete trace span in the selected filters; synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by name+cookie, so do not search for E|<pid>|<span_name> as proof of an end marker", q.SpanName))
 	}
 	if explicitStart && explicitEnd {
 		return spans, caveats
 	}
 	if len(spans) != 1 {
-		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window", q.SpanName, len(spans)))
+		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window; do not narrow by searching E|<pid>|<span_name> because B/E end rows are unnamed", q.SpanName, len(spans)))
 	}
 	span := spans[0]
 	if !explicitStart {
@@ -3525,6 +3563,7 @@ func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string
 		target = resolveThread(idx, q)
 	}
 	stacks := map[int][]Event{}
+	asyncStarts := map[string][]Event{}
 	var spans []TraceSpanSummary
 	for _, ev := range idx.Events {
 		if ev.Type != EventTraceMark {
@@ -3546,17 +3585,29 @@ func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string
 			if ev.Ts < start.Ts {
 				continue
 			}
-			span := TraceSpanSummary{
-				Thread:      threadRefFromEvent(start),
-				Name:        start.SpanName,
-				Category:    traceSpanCategory(start.SpanName),
-				Subcategory: traceSpanSubcategory(start.SpanName),
-				StartTs:     start.Ts,
-				EndTs:       ev.Ts,
-				DurationMs:  (ev.Ts - start.Ts) * 1000,
-				StartLine:   start.Line,
-				EndLine:     ev.Line,
+			span := traceSpanFromEvents(start, ev, "sync")
+			if !traceSpanMatchesQuery(span, target, q) {
+				continue
 			}
+			spans = append(spans, span)
+		case "S":
+			key := traceAsyncSpanKey(ev)
+			if key == "" {
+				continue
+			}
+			asyncStarts[key] = append(asyncStarts[key], ev)
+		case "F":
+			key := traceAsyncSpanKey(ev)
+			stack := asyncStarts[key]
+			if key == "" || len(stack) == 0 {
+				continue
+			}
+			start := stack[len(stack)-1]
+			asyncStarts[key] = stack[:len(stack)-1]
+			if ev.Ts < start.Ts {
+				continue
+			}
+			span := traceSpanFromEvents(start, ev, "async")
 			if !traceSpanMatchesQuery(span, target, q) {
 				continue
 			}
@@ -3575,7 +3626,7 @@ func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string
 		spans = spans[:max]
 	}
 	if len(spans) == 0 {
-		caveats = append(caveats, "no complete trace spans matched the selected filters")
+		caveats = append(caveats, "no complete trace spans matched the selected filters; B/E ends are unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans pair by name+cookie")
 	}
 	return spans, caveats
 }
@@ -8328,7 +8379,7 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
 		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
-			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token, add event_types=[\"trace_mark\"] for B/E/C span rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file", pattern))
+			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
 			if len(q.EventTypes) == 0 {
 				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40) or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd))
 			}

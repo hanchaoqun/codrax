@@ -612,7 +612,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
-		ev.SpanAction, ev.SpanName, ev.SpanValue = parseTraceMark(fields)
+		ev.SpanAction, ev.SpanPID, ev.SpanName, ev.SpanValue = parseTraceMark(fields)
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
@@ -949,7 +949,7 @@ func classifyEventType(raw, fields string) EventType {
 	case strings.HasPrefix(raw, "irq_"):
 		return EventIRQ
 	case raw == "print" || raw == "tracing_mark_write":
-		if strings.HasPrefix(fields, "B|") || strings.HasPrefix(fields, "E|") || strings.HasPrefix(fields, "C|") {
+		if isTraceMarkPayload(fields) {
 			return EventTraceMark
 		}
 		return EventUnknown
@@ -1189,18 +1189,68 @@ func isCPUFrequencyClock(fields string) bool {
 	}
 }
 
-func parseTraceMark(fields string) (action, name, value string) {
+func isTraceMarkPayload(fields string) bool {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return false
+	}
+	if fields == "E" {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(fields, "B|"):
+		return true
+	case strings.HasPrefix(fields, "E|"):
+		return true
+	case strings.HasPrefix(fields, "C|"):
+		return true
+	case strings.HasPrefix(fields, "S|"):
+		return true
+	case strings.HasPrefix(fields, "F|"):
+		return true
+	default:
+		return false
+	}
+}
+
+func parseTraceMark(fields string) (action string, spanPID int, name, value string) {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return "", 0, "", ""
+	}
 	parts := strings.Split(fields, "|")
-	if len(parts) >= 4 && parts[0] == "C" {
-		return parts[0], parts[2], parts[3]
+	action = strings.TrimSpace(parts[0])
+	if len(parts) >= 2 {
+		spanPID = atoi(parts[1])
 	}
 	if len(parts) >= 3 {
-		return parts[0], parts[2], ""
+		name = strings.TrimSpace(parts[2])
 	}
-	if len(parts) >= 1 {
-		return parts[0], fields, ""
+	if len(parts) >= 4 {
+		value = strings.TrimSpace(parts[3])
 	}
-	return "", "", ""
+	switch action {
+	case "B":
+		if value == "" && len(parts) > 3 {
+			value = strings.TrimSpace(parts[3])
+		}
+	case "E":
+		// Synchronous atrace/ftrace spans close with E|pid or bare E; the
+		// closing row intentionally does not repeat the begin span name.
+		if name == "" {
+			name = fields
+		}
+	case "C":
+		// Counter value is the first payload after the counter name.
+	case "S", "F":
+		// Async spans use name+cookie; extra payload after the cookie remains
+		// in FieldText/Raw for literal event_search matching.
+	default:
+		if name == "" {
+			name = fields
+		}
+	}
+	return action, spanPID, name, value
 }
 
 func atoi(raw string) int {

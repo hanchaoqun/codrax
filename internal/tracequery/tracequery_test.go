@@ -958,6 +958,61 @@ func TestSpanWindowFindsUniqueTraceSpan(t *testing.T) {
 	}
 }
 
+func TestSpanWindowPairsNestedBESpanWithUnnamedEnd(t *testing.T) {
+	idx := buildTraceIndex(t, "bind_application.systrace", `
+my.carlist.www-49209 (11029) [005] .... 1858.767865: tracing_mark_write: B|11029|bindApplication
+my.carlist.www-49209 (11029) [005] .... 1858.768910: tracing_mark_write: B|11029|setSystemFontMap
+my.carlist.www-49209 (11029) [009] .... 1858.769903: tracing_mark_write: E|11029
+my.carlist.www-49209 (11029) [010] .... 1858.770132: tracing_mark_write: B|11029|transact[com.android.internal.graphics.fonts.IFontManager]
+my.carlist.www-49209 (11029) [010] .... 1858.770221: tracing_mark_write: E|11029
+my.carlist.www-49209 (11029) [010] .... 1858.770335: tracing_mark_write: E|11029
+`)
+	res := Run(idx, Query{View: "span_window", SpanName: "bindApplication", Thread: "my.carlist.www-49209", Limit: 4})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected outer bindApplication window, got %+v caveats=%+v", res.SpanWindows, res.Caveats)
+	}
+	span := res.SpanWindows[0]
+	if span.Kind != "sync" || span.StartLine != 2 || span.EndLine != 7 || !near(span.DurationMs, 2.47, 0.001) {
+		t.Fatalf("bindApplication should close at the unnamed outer E row: %+v", span)
+	}
+}
+
+func TestSpanWindowPairsBareEndOnSameThreadStack(t *testing.T) {
+	idx := buildTraceIndex(t, "bare_end.systrace", `
+app-20 (20) [001] .... 1.000000: print: B|20|bindApplication
+app-20 (20) [001] .... 1.002500: print: E
+`)
+	res := Run(idx, Query{View: "span_window", SpanName: "bindApplication", Limit: 4})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected bare E to close bindApplication, got %+v caveats=%+v", res.SpanWindows, res.Caveats)
+	}
+	span := res.SpanWindows[0]
+	if span.Kind != "sync" || span.EndLine != 3 || !near(span.DurationMs, 2.5, 0.001) {
+		t.Fatalf("unexpected bare-E span: %+v", span)
+	}
+}
+
+func TestSpanWindowPairsAsyncSFByCookie(t *testing.T) {
+	idx := buildTraceIndex(t, "async_touch.systrace", `
+OS_mmi_EventHdr-5013 (3558) [006] .... 12.000000: tracing_mark_write: S|3558|H:touchEventDispatch|8373|I42
+OS_mmi_EventHdr-5013 (3558) [006] .... 12.004200: tracing_mark_write: F|3558|H:touchEventDispatch|8373|I42
+OS_mmi_EventHdr-5013 (3558) [006] .... 12.006000: tracing_mark_write: S|3558|H:touchEventDispatch|8374|I43
+OS_mmi_EventHdr-5013 (3558) [006] .... 12.006600: tracing_mark_write: F|3558|H:touchEventDispatch|8374|I43
+`)
+	res := Run(idx, Query{View: "span_window", SpanName: "H:touchEventDispatch", Limit: 4})
+	if len(res.SpanWindows) != 2 {
+		t.Fatalf("expected two async touch spans, got %+v caveats=%+v", res.SpanWindows, res.Caveats)
+	}
+	first := res.SpanWindows[0]
+	if first.Kind != "async" || first.StartLine != 2 || first.EndLine != 3 || !near(first.DurationMs, 4.2, 0.001) {
+		t.Fatalf("unexpected async S/F span: %+v", first)
+	}
+	events := Run(idx, Query{View: "event_search", Pattern: "H:touchEventDispatch", EventTypes: []EventType{EventTraceMark}, Limit: 8})
+	if len(events.Events) != 4 {
+		t.Fatalf("event_search should expose S/F trace_mark rows, got %+v", events.Events)
+	}
+}
+
 func TestSpanWindowMultipleMatchesSuggestsPatternNarrowing(t *testing.T) {
 	idx := buildTraceIndex(t, "span_multi.systrace", `
 app-20 (20) [001] .... 1.000000: print: B|20|Choreographer#doFrame 111

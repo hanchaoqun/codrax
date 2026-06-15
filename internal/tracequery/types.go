@@ -111,6 +111,7 @@ type Event struct {
 	Reason           string `json:"reason,omitempty"`
 	IOWait           int    `json:"io_wait,omitempty"`
 	SpanAction       string `json:"span_action,omitempty"`
+	SpanPID          int    `json:"span_pid,omitempty"`
 	SpanName         string `json:"span_name,omitempty"`
 	SpanValue        string `json:"span_value,omitempty"`
 
@@ -866,6 +867,7 @@ type BinderWaitSummary struct {
 
 type TraceSpanSummary struct {
 	Thread      ThreadRef `json:"thread"`
+	Kind        string    `json:"kind,omitempty"`
 	Name        string    `json:"name,omitempty"`
 	Category    string    `json:"category,omitempty"`
 	Subcategory string    `json:"subcategory,omitempty"`

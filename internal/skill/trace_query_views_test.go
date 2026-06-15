@@ -71,6 +71,8 @@ func TestRenderTraceQueryViewMatrix_PreservesPinnedPromptPhrases(t *testing.T) {
 		"handoff-safe frame/jank root-cause bundles",
 		"oneway/sync_like/blocking_candidate",
 		"structured row lookup",
+		"B/E/C/S/F trace_mark rows",
+		"same ftrace thread stack",
 		"`view=\"event_search\"`",
 		"`view=\"evidence_pack\"`",
 		", and ",

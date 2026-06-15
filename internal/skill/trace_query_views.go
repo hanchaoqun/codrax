@@ -26,12 +26,12 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		{
 			View:   "event_search",
 			Params: "`pattern` as a literal substring (not a regex)",
-			When:   "structured row lookup of exact frame/jank ids, span or marker labels, inode tokens, entry_name values, timestamps, or event labels",
+			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, timestamps, or event labels",
 		},
 		{
 			View:   "span_window",
 			Params: "`span_name`",
-			When:   "turning a named B/E trace span into a selected time window when the user names a span instead of exact timestamps",
+			When:   "turning a named trace span into a selected time window when the user names a span instead of exact timestamps; B/E ends are unnamed E|pid or E on the same ftrace thread stack, and S/F async spans pair by marker pid+name+cookie",
 		},
 		{
 			View: "frame_window",
