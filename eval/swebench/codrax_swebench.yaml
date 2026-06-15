@@ -1,0 +1,8 @@
+# SWE-bench adapter settings.
+#
+# The adapter exports patches for the official SWE-bench harness. Keep the
+# write-mode kill switch on and preserve successful worktrees so the adapter can
+# recover applied bytes even when the main checkout stays unchanged.
+
+write_enabled: true
+pipeline_keep_worktree_on_success: true
