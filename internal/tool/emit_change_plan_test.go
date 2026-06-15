@@ -667,6 +667,73 @@ func TestEmitChangePlan_PatchPreflight_AcceptsValidDiff(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_RejectsAdjacentDuplicateInsertedBlock(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("duplicate insert")}
+	tool := &EmitChangePlan{}
+	duplicateDiff := `--- a/a.py
++++ b/a.py
+@@ -1,3 +1,11 @@
+ x = data["x"]
+ y = data["y"]
++mask = ~(x.isna() | y.isna())
++x = x[mask]
++y = y[mask]
++mask = ~(x.isna() | y.isna())
++x = x[mask]
++y = y[mask]
+ if x.nunique() <= order:
+     pass
+`
+	params := json.RawMessage(`{
+		"request": "drop missing rows",
+		"summary": "Filter missing rows before fitting. The duplicate-insertion gate should reject planner stutter.",
+		"changes": [
+			{"path": "a.py", "kind": "patch", "patch": ` + jsonString(duplicateDiff) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("adjacent duplicate insertion block should be rejected; got Success=true")
+	}
+	if !strings.Contains(res.Summary, "repeats the same added block twice") {
+		t.Fatalf("rejection should name adjacent duplicate block, got %q", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() != nil {
+		t.Fatal("rejected duplicate insertion must not install a ChangePlan")
+	}
+}
+
+func TestValidatePlanPatchDuplicateInsertions_Carveouts(t *testing.T) {
+	docPatch := `--- a/notes.md
++++ b/notes.md
+@@ -0,0 +1,6 @@
++same
++same
++same
++same
++same
++same
+`
+	if rej := validatePlanPatchDuplicateInsertions([]types.FileChange{{Path: "notes.md", Kind: "patch", Patch: docPatch}}); rej != "" {
+		t.Fatalf("non-source documentation patch should bypass duplicate block gate, got %q", rej)
+	}
+	shortSourcePatch := `--- a/a.py
++++ b/a.py
+@@ -0,0 +1,4 @@
++call()
++call()
++call()
++call()
+`
+	if rej := validatePlanPatchDuplicateInsertions([]types.FileChange{{Path: "a.py", Kind: "patch", Patch: shortSourcePatch}}); rej != "" {
+		t.Fatalf("short repeated single-line insertions should not trip the block-stutter gate, got %q", rej)
+	}
+}
+
 func TestEmitChangePlan_PatchPreflight_TolerantToMissingContextMarkers(t *testing.T) {
 	if !GitAvailable() {
 		t.Skip("git not available; pre-flight check skipped")

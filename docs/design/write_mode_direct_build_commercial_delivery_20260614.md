@@ -2931,3 +2931,65 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `go test ./internal/tool -run 'TestRunTestsFrameworkOnlyDjangoBypassesManifestAutoDetect|TestResolveLLMRunnerChoice_DjangoRuntestsOverridesPytest|TestRunTestsRejectsSuiteWithEmbeddedCLIFlags'` PASS.
   - Full regression passed: `go test ./...`, `make test`, `make`, and `git diff --check`.
   - Final push is recorded by the implementation commit following this section.
+
+## 2026-06-15 SWE-bench Lite duplicate-patch and environment follow-up
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260615-seaborn-xarray-pytest-sympy-220257`.
+  - Instances: `mwaskom__seaborn-3010`, `pydata__xarray-5131`,
+    `pytest-dev__pytest-7168`, `sympy__sympy-12454`.
+  - Local validator accepted all four predictions and official harness dry-run
+    accepted the combined file.
+- Manual audit:
+  - Seaborn exported a plausible NaN-filtering fix but duplicated the same
+    four added source lines back-to-back. This is a structural patch-quality
+    failure independent of the issue content.
+  - Xarray exported the implementation fix but local verification stayed
+    `unverified/parser_error` because the prepared environment used a modern
+    setuptools that no longer provided `pkg_resources` for this old checkout.
+  - SymPy local verification stayed `unverified/parser_error` under Python 3.11
+    because the old checkout imports `collections.Mapping`. This remains an
+    environment compatibility dead-end; the official SWE-bench harness owns the
+    authoritative score.
+  - Controller terminal behavior was correct: after typed `batch_unverified`
+    outcomes it logged model follow-up toolcalls for transparency, then
+    normalized them to `finish(accept_unverified)` without actually reopening
+    exploration/replan.
+- Generalized gaps fixed:
+  - Added a shared `emit_change_plan` / skeleton-change structural source-patch
+    validator for adjacent exact duplicate inserted blocks. It rejects only
+    code-like paths and only repeated adjacent inserted blocks of 3+ lines with
+    at least two source-like lines, which catches planner stutter without
+    reading issue prose or model rationale.
+  - Added SWE-bench adapter venv compatibility probing for legacy
+    `pkg_resources`: check import, install `setuptools<81` only when missing,
+    recheck, and record all steps in `env_prepare.json/log`.
+  - Preserved the commercial verification boundary: missing pytest, missing
+    legacy runtime compatibility, parser errors, and Python-version import
+    failures remain `unverified` local outcomes, never hard code-failure gates.
+- Prompt and red-line notes:
+  - The duplicate-block hard gate consumes only typed `FileChange.Kind`, repo
+    path extension, unified-diff line prefixes, and exact string equality.
+  - The adapter compatibility path consumes only process exit codes from a
+    fixed `python -c "import pkg_resources"` probe and pip command results.
+  - No user keywords, model prose, failure-summary text, `<think>`, or issue
+    narrative are parsed for routing.
+- Implementation tasks:
+  - [x] Reject adjacent exact duplicate source insertion blocks at plan emit.
+  - [x] Keep documentation/test text patches outside that hard gate.
+  - [x] Add focused validator tests for duplicate-block rejection and carve-outs.
+  - [x] Add SWE-bench adapter legacy `pkg_resources` compatibility check.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, `eval/swebench/README.md`, and this ledger.
+- Verification:
+  - Focused tool tests passed for duplicate insertion rejection and carve-outs.
+  - SWE-bench adapter Python file compiles after the venv compatibility change.
+  - After-fix SWE-bench rerun
+    `eval/results/swebench/lite-smoke-20260615-dup-env-after-fix-223715`
+    exported non-empty predictions for Seaborn and Xarray; local validator
+    reported 2 predictions and 0 empty patches, and official harness dry-run
+    accepted the file. Seaborn local scoped pytest passed; Xarray moved past
+    missing `pkg_resources` and correctly remained `unverified/parser_error`
+    on a separate old-Xarray/NumPy-2 import incompatibility without replanning.
+  - Full regression and push are tracked by the implementation commit following
+    this section.

@@ -257,6 +257,16 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         )
         return result
 
+    def ensure_legacy_pkg_resources(label: str) -> bool:
+        check = step(label + "_check", [str(python), "-c", "import pkg_resources"])
+        if check.code == 0 and not check.timed_out:
+            return True
+        compat = step(label + "_install_setuptools_compat", [str(python), "-m", "pip", "install", "setuptools<81"])
+        if compat.code != 0 or compat.timed_out:
+            return False
+        recheck = step(label + "_recheck", [str(python), "-c", "import pkg_resources"])
+        return recheck.code == 0 and not recheck.timed_out
+
     created = step("create_venv", [sys.executable, "-m", "venv", str(venv_dir)])
     if created.code != 0 or created.timed_out:
         record["status"] = "failed_create_venv"
@@ -283,6 +293,7 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         record["status"] = "failed_pytest"
         record["env_path"] = str(venv_dir)
         return env_updates, record
+    record["pkg_resources_available"] = ensure_legacy_pkg_resources("legacy_pkg_resources")
 
     project_failed = False
     requirements = repo_dir / "requirements.txt"
@@ -292,6 +303,11 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
     if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
         editable = step("install_editable", [str(python), "-m", "pip", "install", "-e", "."], cwd=repo_dir)
         project_failed = project_failed or editable.code != 0 or editable.timed_out
+    if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_project"):
+        record["pkg_resources_available"] = False
+        project_failed = True
+    else:
+        record["pkg_resources_available"] = True
 
     record["status"] = "partial" if project_failed else "ready"
     record["env_path"] = str(venv_dir)

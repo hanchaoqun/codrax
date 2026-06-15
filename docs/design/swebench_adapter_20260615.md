@@ -407,3 +407,37 @@ records adapter results.
   gap was found and fixed: structured Python `framework=django|pytest|unittest`
   now implies `runner=python` when no runner is supplied, so scoped Django
   suites bypass unrelated manifest auto-detect lanes without parsing prose.
+- 2026-06-15: Ran a fresh issue-shaped non-Go Lite batch under
+  `eval/results/swebench/lite-smoke-20260615-seaborn-xarray-pytest-sympy-220257`
+  for `mwaskom__seaborn-3010`, `pydata__xarray-5131`,
+  `pytest-dev__pytest-7168`, and `sympy__sympy-12454`. All four predictions
+  were structurally valid and official harness dry-run consumed the combined
+  file, but manual audit exposed two generalized quality/infra gaps:
+  Seaborn contained an adjacent duplicated four-line insertion block, and
+  Xarray/SymPy local verification was unavailable due to checkout environment
+  compatibility (`pkg_resources` missing after newest setuptools, and old SymPy
+  importing `collections.Mapping` under Python 3.11). The controller correctly
+  normalized parser-error follow-up actions to `finish(accept_unverified)`.
+- 2026-06-15: Landed the generalized follow-up. `emit_change_plan` now shares a
+  structural source-patch quality gate with the skeleton/change path: adjacent
+  exact duplicate inserted source blocks of 3+ lines are rejected before a plan
+  is installed, with the rejection returned as a typed tool result for bounded
+  correction. This consumes only unified-diff structure, path extension, and
+  exact line equality; it does not parse issue text, model rationale, or
+  `<think>` output. The SWE-bench adapter now probes each prepared Python venv
+  for `pkg_resources` and installs `setuptools<81` only when that legacy runtime
+  import is missing, recording check/install/recheck steps in `env_prepare`.
+  If compatibility setup still fails, the prediction export remains allowed and
+  the run stays `unverified`; the official harness remains the scoring authority.
+- 2026-06-15: After-fix two-case rerun under
+  `eval/results/swebench/lite-smoke-20260615-dup-env-after-fix-223715`.
+  Seaborn exported a smaller non-duplicated patch (`patch_bytes=536`), local
+  scoped pytest passed (`projects=1 passed=true total=2 failed=0`), and the run
+  ended `plan_status=applied`. Xarray exported the correct no-double-newline
+  patch (`patch_bytes=1576`); `env_prepare` records `pkg_resources_available=true`
+  after installing `setuptools<81`. Local verify still ended
+  `parser_error/unverified`, now because old Xarray imports `np.unicode_` under
+  NumPy 2, and the controller normalized the model's attempted `replan_batch`
+  to `finish(accept_unverified)`. Local prediction validation reported
+  `validated 2 prediction(s); empty_patch=0`, and official harness dry-run
+  accepted the file.

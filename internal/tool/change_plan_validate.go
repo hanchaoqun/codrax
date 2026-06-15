@@ -209,6 +209,9 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
+		return rej
+	}
 	if GitAvailable() && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		for _, c := range changes {
 			if strings.TrimSpace(c.Kind) != "patch" {
@@ -241,6 +244,112 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 		return rej
 	}
 	return ""
+}
+
+func validatePlanPatchDuplicateInsertions(changes []types.FileChange) string {
+	for _, c := range changes {
+		if strings.TrimSpace(c.Kind) != "patch" || strings.TrimSpace(c.Patch) == "" {
+			continue
+		}
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !duplicateInsertionPathEligible(path) {
+			continue
+		}
+		if block, ok := firstAdjacentDuplicateAddedBlock(c.Patch); ok {
+			return fmt.Sprintf(
+				"change %q repeats the same added block twice in a row (%d lines, first line %q). "+
+					"Adjacent exact duplicate insertion blocks are treated as a planner stutter; remove the duplicate block and re-emit the plan.",
+				path, len(block), strings.TrimSpace(block[0]))
+		}
+	}
+	return ""
+}
+
+func duplicateInsertionPathEligible(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".kts",
+		".rs", ".rb", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp",
+		".cs", ".swift", ".php", ".scala", ".m", ".mm", ".sh", ".bash",
+		".zsh", ".fish":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstAdjacentDuplicateAddedBlock(patch string) ([]string, bool) {
+	var run []string
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			run = append(run, line[1:])
+			continue
+		}
+		if block, ok := duplicateBlockInAddedRun(run); ok {
+			return block, true
+		}
+		run = run[:0]
+	}
+	return duplicateBlockInAddedRun(run)
+}
+
+func duplicateBlockInAddedRun(run []string) ([]string, bool) {
+	if len(run) < 6 {
+		return nil, false
+	}
+	for start := 0; start < len(run); start++ {
+		max := (len(run) - start) / 2
+		for size := max; size >= 3; size-- {
+			left := run[start : start+size]
+			right := run[start+size : start+2*size]
+			if !sameDuplicateAddedBlockLines(left, right) || !duplicateAddedBlockIsSourceLike(left) {
+				continue
+			}
+			return append([]string(nil), left...), true
+		}
+	}
+	return nil, false
+}
+
+func sameDuplicateAddedBlockLines(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func duplicateAddedBlockIsSourceLike(lines []string) bool {
+	nonEmpty := 0
+	sourceLines := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		nonEmpty++
+		if duplicateInsertedLineIsSourceLike(trimmed) {
+			sourceLines++
+		}
+	}
+	return nonEmpty >= 3 && sourceLines >= 2
+}
+
+func duplicateInsertedLineIsSourceLike(line string) bool {
+	if line == "{" || line == "}" || line == "};" || line == ");" || line == ")," || line == "]" || line == "];" {
+		return false
+	}
+	commentPrefixes := []string{"#", "//", "/*", "*", "--", "<!--"}
+	for _, prefix := range commentPrefixes {
+		if strings.HasPrefix(line, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 func compileStructuredEditPatches(ctx *types.BusContext, changes []types.FileChange) string {
