@@ -275,6 +275,10 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				}
 				innerErr = nil
 			}
+			if innerErr == nil {
+				o.markActivePlanAppliedPendingVerify()
+				plan = o.busCtx.Mutable.ChangePlan()
+			}
 			if plan != nil {
 				applyStatus := writeWorkflowApplyAttemptStatus(plan, innerErr)
 				applyReason := writeWorkflowApplyAttemptReason(plan, innerErr)
@@ -735,6 +739,15 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				transientUsed, o.transientRetryBudget, err)
 			continue
 		}
+		if err == nil && changePlanIsNoChangeRequired(o.busCtx.Mutable.ChangePlan()) {
+			if plannerProbePassedExistingAppliedWorktree(o.busCtx.Mutable, priorPlan) {
+				o.busCtx.Mutable.SetChangePlan(priorPlan)
+				o.busCtx.TaskState.LastError = ""
+				logging.Info("[orchestrator] controller replan emitted no-change sentinel and planner dry-run probe passed; restoring plan %s for post-apply verify", priorPlan.ID)
+				return errPlannerProbePassedExistingWorktree
+			}
+			return errors.New("write controller replan emitted no-change sentinel without a typed passing planner probe on an applied prior plan")
+		}
 		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
 			if !testContractReplanRetried {
 				if hint, paths := o.testContractReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
@@ -812,6 +825,12 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	}
 }
 
+func changePlanIsNoChangeRequired(plan *types.ChangePlan) bool {
+	return plan != nil &&
+		strings.TrimSpace(plan.Status) == types.PlanStatusNoChangeRequired &&
+		len(plan.Changes) == 0
+}
+
 func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan *types.ChangePlan) bool {
 	if mu == nil || priorPlan == nil {
 		return false
@@ -828,7 +847,11 @@ func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan
 		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
 			continue
 		}
-		return report.Passed
+		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			return false
+		}
+		passed, total := report.Score()
+		return total > 0 && passed == total
 	}
 	return false
 }

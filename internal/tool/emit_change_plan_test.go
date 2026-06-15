@@ -194,6 +194,53 @@ func TestEmitChangePlan_EmptyChangesRejected(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_EmptyChangesAllowedOnlyForTypedNoChangeReplan(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-applied",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:  "plan-applied",
+		Channel: types.ChangeReportChannelPlannerProbe,
+		Passed:  true,
+		TestResults: []types.TestResult{{
+			AssertionID: "tests/test_cli.py::TestRoutes::test_route_registration",
+			Kind:        types.TestResultKindUnit,
+			Passed:      true,
+		}},
+	})
+	params := json.RawMessage(`{
+		"request": "replan after verify failure",
+		"summary": "The scoped typed probe now passes against the already-applied worktree, so no additional code change should be applied.",
+		"changes": []
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected typed no-change replan sentinel to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected no-change sentinel plan installed on Mutable")
+	}
+	if plan.Status != types.PlanStatusNoChangeRequired {
+		t.Fatalf("status = %q, want %q", plan.Status, types.PlanStatusNoChangeRequired)
+	}
+	if len(plan.Changes) != 0 || len(plan.TargetPaths) != 0 {
+		t.Fatalf("no-change sentinel must not enqueue file changes, got changes=%d target_paths=%d", len(plan.Changes), len(plan.TargetPaths))
+	}
+	if pending := ctx.Mutable.WriteClosure().PendingApplies(); len(pending) != 0 {
+		t.Fatalf("no-change sentinel must not enqueue pending applies: %+v", pending)
+	}
+}
+
 // TestEmitChangePlan_InvalidKindRejected locks the per-change
 // kind validation: kind must be one of create|modify|delete|patch.
 func TestEmitChangePlan_InvalidKindRejected(t *testing.T) {

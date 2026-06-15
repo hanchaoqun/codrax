@@ -1370,6 +1370,7 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 
 - **Action enum 按 mode 投影**：`EmitWriteWorkflowDecision.ParametersFor(ctx)` 经 `WorkflowActionsForMode` 投影 schema——ModePlan 下 `apply_plan` / `verify_batch` 在模型看到 schema 之前就被移除；emit 时 typed 拒绝（`workflow_action_not_in_mode` repair）与调度器 guard 是第二、三层,三层读同一动作集来源。
 - **Canonical attempt state**：controller prompt 的 batch 行经 `DeriveBatchAttemptState` 渲染单一 phase——`ready_to_plan` + 最近 post-apply verify attempt failed 推导为 `needs_replan` + typed cause,状态与事件（`last_event`）不再同时呈现两种解读。
+- **Active plan lineage invariant**：`ValidateWorkflowRunState` 把 `batch.PlanID` 解释为当前 active/latest plan。最新 active plan attempt 之前的 apply/verify attempts 是历史审计事件,可以引用旧 plan id；最新 active plan attempt 之后的 plan/apply/verify attempts 仍必须匹配当前 plan id。这样 replan 历史不会污染当前状态,但错谱系的当前执行仍会报警。
 - **Finish 硬门 + typed escape（§1.6）**：任一未完成 batch 的最近 post-apply verify attempt 为 failed 时 `finish` 被拒（在 `ApplyWorkflowDecisionToRun` 之前评估）；模型可声明 schema 枚举字段 `finish_disposition=accept_unverified` 接受残余失败,run 以 typed caveat 完成。
 - **VerifyFailureHandoff**：verify 失败将 typed 载体（失败 assertion / build error / ExecutedCommands / blob+diff 工件引用 / 下一个未执行 surface 候选）写入 Mutable,**有意在 `prepareControllerPlanningState` 重置中存活**；planner 的 replan prompt 以 "Latest verification failure (authoritative)" 开篇。replan 轮未产出 ChangePlan 且 handoff 在场时,授予恰一次带 typed 引用的 re-dispatch（条件只读 typed 状态,不匹配错误文本）。
 - **失败证据持久化**：verify 失败分支在任何清理之前落盘 report JSON（`GeneratedAt` 落盘时回填）+ apply checkpoint commit 的补丁 `<stem>.attempt-N.diff`,diff 引用挂到 batch verify attempt 的 `ArtifactRef`；worktree 无条件清理语义（L5）不变。
@@ -1420,9 +1421,10 @@ emit_change_plan 跑多步 pre-flight gate（任一失败 reject 全部并 re-pr
 12. **单文件静态检查**（kind=create 限定，注册表覆盖 10 语言：Go gofmt / C gcc -Werror / C++ g++ -Werror / Python ruff / JS node --check / TS tsc --noEmit / Ruby ruby -wc / Rust rustc --emit=metadata / Java javac -Xlint / Swift swift -frontend）
 13. **项目级静态检查**（kind=create + 项目根 manifest 命中：ArkTS hvigor lint when oh-package.json5 / Cangjie cjpm check when cjpm.toml）
 14. **Unified-diff 预检**（kind=patch，跑 `git apply --check --recount`，失败回退 `patch -p1 --dry-run`）
-15. **AcceptanceTests** 列举（自然语言准则，verifier prompt 可见）
-16. **流式截断检测**（PartialChangePlan 在 loop boundary 还有 missing body → 反馈再 emit）
-17. **Fingerprint 稳定**（plan ID 格式 `plan-<unix-nano>-<pid>`）
+15. **Structured edit old_text 重定位**（kind=patch + edits[]：声明行号不匹配时,仅当 `old_text` 在当前文件按行精确且唯一匹配才自动重定位；找不到或多处匹配继续 reject）
+16. **AcceptanceTests** 列举（自然语言准则，verifier prompt 可见）
+17. **流式截断检测**（PartialChangePlan 在 loop boundary 还有 missing body → 反馈再 emit）
+18. **Fingerprint 稳定**（plan ID 格式 `plan-<unix-nano>-<pid>`）
 
 dry-build / 静态检查在工具链缺失时优雅降级（log + skip），其他验证硬性。静态检查总开关 `pipeline_lint_enabled`（默认 true）。启动期一行 banner 打印单文件 + 项目级覆盖。
 
@@ -1457,6 +1459,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 `emit_test_results` 携带可选的三组 assertion 分类——`regression_assertions` / `preexisting_assertions` / `fixed_assertions`——区分"本 plan 引入的回归"vs"plan 之前就有的失败"，让 `CritNoRegression` 的判定能区分新旧问题。
 
 **LLM-driven runner 选择**（首选）：verifier agent 看 worktree 后调 `run_tests` 时带 `runner=<choice>` + 可选 `working_dir`，系统验证 runner ∈ allowedRunners 白名单 + working_dir 在 worktree 内（`resolveLLMRunnerChoice`）。不传 runner 时回退 manifest 自动探测（`detectRunnerPlans`）；裸目录会失败。
+
+**Scoped reverify inheritance**：StageVerify 下若存在同 batch `VerifyFailureHandoff`,且本次 `run_tests` 调用未显式传 `suite`,executor 会从 typed `ExecutedCommands` 继承 runner/framework/cwd,并且只在 `ExecutedCommands` 的 runner/framework/cwd 谱系唯一、`FailingTests[].Suite` 唯一且非 build-error 时继承 scoped suite。多个失败 suite、多个不同执行谱系、显式 suite、非 verify 阶段、planner dry-run probe 都不会触发继承；显式 `runner` / `framework` / `working_dir` 结构化参数可以消歧。该规则不解析命令字符串、runner stdout、模型 prose、issue 文本或 `<think>`。
 
 **Typed TestSurface**：`BuildTestSurface` 复用既有探测器（`detectRunnerPlanCandidates`——同 root 的全清单,不做执行路径的 one-runner-per-root 折叠——加 `runnerHasNoTestWork` / `detectMakeTestTargetFound` / `detectNativeBuildDir`）产出 typed 候选清单,排序规则为"**可运行测试工作支配 manifest 优先级**"：带 check/test 目标的 Makefile 排在零测试工作的 `pom.xml` 之前。verifier prompt 渲染该清单（typed 事实,soft 引导）。`run_tests` 内置 typed 死端逃逸：模型选择执行后落得零测试结果（NoTestsRunners）或 runner 二进制缺失,且 surface 还有未执行的 HasTestSignal 候选时,确定性追加执行最高位候选（每次 Execute 至多一次）。每条 ChangeReport 携带 `ExecutedCommands`（命令/cwd/exit/来源/结局 typed 行）与内嵌 `TestSurface`,dry-run probe 通道同样受益。
 
@@ -1503,7 +1507,7 @@ type ChangePlan struct {
     Changes           []FileChange   // 顺序敏感的文件级变更
     AcceptanceTests   []string       // verifier prompt 可见
     TargetPaths       []string       // W1 门
-    Status            string         // pending_approval | applied | applied_failed | verify_failed | unverified | partially_applied | rejected | merged
+    Status            string         // pending_approval | applied_pending_verify | applied | applied_failed | verify_failed | unverified | partially_applied | blocked | no_change_required | rejected | merged
     AppliedPaths      []string       // 实际成功 apply 的子集（partial 状态用）
     AppliedCommitSHA  string         // worktree commit SHA
     WorktreePath      string         // 保留的 worktree 路径
@@ -1768,12 +1772,15 @@ const (
 // internal/types/change_plan.go — ChangePlan 生命周期
 const (
     PlanStatusPending          = "pending_approval"
+    PlanStatusAppliedPendingVerify = "applied_pending_verify"
     PlanStatusApplied          = "applied"
     PlanStatusApplyFailed      = "applied_failed"
+    PlanStatusBlocked          = "blocked"
     PlanStatusVerifyFailed     = "verify_failed"
     PlanStatusUnverified       = "unverified"
     PlanStatusPartiallyApplied = "partially_applied"
     PlanStatusRejected         = "rejected"
+    PlanStatusNoChangeRequired = "no_change_required"
     PlanStatusMerged           = "merged"
 )
 
@@ -2494,7 +2501,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
 
-**写模式命令**：详见 §8。日常入口是自然语言目标、`/write <目标>`、或 sticky `/mode write` 后继续描述目标；这些都会进入 Auto Pilot。安全可继续的 active workflow 自动续跑,状态卡/启动 banner 用 `WriteWorkflowNextActionView` 回答“是否需要用户动作”。`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限），属于高级审计入口；`/approve` 只处理 high-risk `Status == pending_approval` 的 plan/batch，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath,审批提示携带 run/batch/plan/fingerprint；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/clear` 读取 `.codrax/plans/workflows/` 展示或清理 active write workflow，`/workflow resume` 仅用于手动选择保存 run 作为恢复对象，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 显示活跃 workflow run 的 batch 阶段视图（无活跃 run 时只读回落遗留方案组）；`/pitfalls` 列出 active pitfall。
+**写模式命令**：详见 §8。日常入口是自然语言目标、`/write <目标>`、或 sticky `/mode write` 后继续描述目标；这些都会进入 Auto Pilot。安全可继续的 active workflow 自动续跑,状态卡/启动 banner 用 `WriteWorkflowNextActionView` 回答“是否需要用户动作”。`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限），属于高级审计入口；`/approve` 只处理 high-risk `Status == pending_approval` 的 plan/batch，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath,审批提示携带 run/batch/plan/fingerprint；没有显式 plan id 时会先绑定 active batch 的 typed `PlanID`；`/reject [reason]` 把 plan 标记为 rejected 并记入 memory（`memory.KindPlan`），若命中 active workflow batch 只把该 batch 标为 blocked、run 仍保持 in_progress；`/workflow show/list/clear` 读取 `.codrax/plans/workflows/` 展示或清理 active write workflow，`/workflow resume` 仅用于手动选择保存 run 作为恢复对象，`show` 没有 active write workflow 时回落到 operation workflow；`/verify [plan-id]` 对 `Status ∈ {applied_pending_verify, applied, unverified, verify_failed}` 且有保留 worktree 或 recovery ref 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 显示活跃 workflow run 的 batch 阶段视图（无活跃 run 时只读回落遗留方案组）；`/pitfalls` 列出 active pitfall。
 
 ### 13.4 internal/tool/blob — Tool 输出落盘
 

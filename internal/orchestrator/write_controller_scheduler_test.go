@@ -470,6 +470,10 @@ func TestRunWriteControllerWorkflow_VerifiesAppliedPlanBeforeRepeatedPlanningDec
 			applyCalls++
 		case types.StageVerify:
 			verifyCalls++
+			plan := mu.ChangePlan()
+			if plan == nil || plan.Status != types.PlanStatusAppliedPendingVerify {
+				t.Fatalf("post-apply verify should see applied_pending_verify plan status, got %+v", plan)
+			}
 			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-applied-1", Passed: true})
 		}
 		*stepsUsed++
@@ -2562,6 +2566,65 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	}
 }
 
+func TestRunControllerPlanBatch_NoChangeSentinelRestoresAppliedPlanForVerify(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no-change replan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair already applied"}}})
+	prior := &types.ChangePlan{
+		ID:               "plan-prior",
+		Status:           types.PlanStatusAppliedPendingVerify,
+		Summary:          "prior applied repair",
+		TargetPaths:      []string{"src/flask/cli.py"},
+		AppliedCommitSHA: "abc123",
+		Changes: []types.FileChange{{
+			Path: "src/flask/cli.py",
+			Kind: "patch",
+			Apply: &types.FileChangeApplyRecord{
+				Status: "applied",
+			},
+		}},
+	}
+	mu.SetChangePlan(prior)
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prior", BatchID: "batch-1", Attempt: 1})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		mu.AppendPlanStageProbeReport(&types.ChangeReport{
+			PlanID:  "plan-prior",
+			Channel: types.ChangeReportChannelPlannerProbe,
+			Passed:  true,
+			TestResults: []types.TestResult{{
+				AssertionID: "tests/test_cli.py::TestRoutes::test_route_registration",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		})
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:        "noop-plan-prior",
+			Status:    types.PlanStatusNoChangeRequired,
+			Summary:   "scoped probe passed against existing worktree",
+			CreatedAt: prior.CreatedAt,
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}, &steps)
+	if !errors.Is(err, errPlannerProbePassedExistingWorktree) {
+		t.Fatalf("runControllerPlanBatch error = %v, want errPlannerProbePassedExistingWorktree", err)
+	}
+	got := mu.ChangePlan()
+	if got == nil || got.ID != "plan-prior" {
+		t.Fatalf("controller should restore prior applied plan, got %+v", got)
+	}
+}
+
 func TestRunControllerPlanBatch_NoPlanWithTypedAnchorsGetsOneRetry(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("no plan retry with typed anchors")
@@ -2899,6 +2962,11 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 				PlanID:  "plan-1",
 				Channel: types.ChangeReportChannelPlannerProbe,
 				Passed:  true,
+				TestResults: []types.TestResult{{
+					AssertionID: "make-test",
+					Kind:        types.TestResultKindUnit,
+					Passed:      true,
+				}},
 			})
 			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
 		case types.StageApply:

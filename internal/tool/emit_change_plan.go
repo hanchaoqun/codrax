@@ -268,6 +268,20 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 	if len(p.Changes) == 0 {
+		if plan := noChangeRequiredReplanSentinel(ctx, p); plan != nil {
+			ctx.Mutable.SetChangePlan(plan)
+			summary := fmt.Sprintf(
+				"[emit_change_plan: id=%s changes=0 status=%s]\n"+
+					"emit_change_plan recorded a no-change replan sentinel from a typed passing planner probe",
+				plan.ID, plan.Status)
+			logging.Info("[emit_change_plan] plan=%s changes=0 status=%s", plan.ID, plan.Status)
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   summary,
+				Timestamp: time.Now(),
+			}, nil
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -415,6 +429,84 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		Summary:   summary,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func noChangeRequiredReplanSentinel(ctx *types.BusContext, p emitChangePlanParams) *types.ChangePlan {
+	if ctx == nil || ctx.Mutable == nil || !ctx.Mode.IsWrite() || ctx.PipelineStage != types.StagePlan {
+		return nil
+	}
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	if handoff == nil || strings.TrimSpace(handoff.PlanID) == "" {
+		return nil
+	}
+	if !latestPlannerProbeIsTypedPass(ctx.Mutable) {
+		return nil
+	}
+	request := strings.TrimSpace(p.Request)
+	if request == "" {
+		request = strings.TrimSpace(ctx.Mutable.Objective())
+	}
+	if request == "" {
+		request = "replan after verification failure"
+	}
+	summary := strings.TrimSpace(p.Summary)
+	if summary == "" {
+		summary = "No additional file changes are required because the latest typed planner probe passed against the already-applied worktree."
+	}
+	return &types.ChangePlan{
+		ID:              fmt.Sprintf("noop-%s-%d-%d", sanitizeNoChangePlanIDComponent(handoff.PlanID), time.Now().UnixNano(), os.Getpid()),
+		Request:         request,
+		Summary:         summary,
+		AcceptanceTests: append([]string(nil), p.AcceptanceTests...),
+		Status:          types.PlanStatusNoChangeRequired,
+		CreatedAt:       time.Now(),
+	}
+}
+
+func latestPlannerProbeIsTypedPass(mu *types.MutableState) bool {
+	if mu == nil {
+		return false
+	}
+	probes := mu.PlanStageProbeReports()
+	for i := len(probes) - 1; i >= 0; i-- {
+		report := probes[i]
+		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
+			continue
+		}
+		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			return false
+		}
+		passed, total := report.Score()
+		return total > 0 && passed == total
+	}
+	return false
+}
+
+func sanitizeNoChangePlanIDComponent(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "prior"
+	}
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	if b.Len() == 0 {
+		return "prior"
+	}
+	return b.String()
 }
 
 // isLegalChangeKind mirrors types.FileChange.Kind legal enum.

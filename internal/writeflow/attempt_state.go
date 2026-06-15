@@ -121,13 +121,22 @@ func validateWorkflowBatchAttemptPlanIDs(batch types.WriteWorkflowBatch) []strin
 	if strings.TrimSpace(batch.PlanID) == "" {
 		return nil
 	}
+	activePlanStart := -1
+	for i, attempt := range batch.Attempts {
+		if attempt.Kind == "plan" && strings.TrimSpace(attempt.PlanID) == batch.PlanID {
+			activePlanStart = i
+		}
+	}
 	var errs []string
-	for _, attempt := range batch.Attempts {
+	for i, attempt := range batch.Attempts {
 		if attempt.PlanID == "" || attempt.PlanID == batch.PlanID {
 			continue
 		}
 		switch attempt.Kind {
 		case "plan", "apply", "verify":
+			if activePlanStart >= 0 && i < activePlanStart {
+				continue
+			}
 			errs = append(errs, "batch "+batch.ID+" "+attempt.Kind+" attempt plan_id "+attempt.PlanID+" conflicts with batch plan_id "+batch.PlanID)
 		}
 	}

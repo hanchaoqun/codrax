@@ -2994,6 +2994,152 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Full regression and push are tracked by the implementation commit following
     this section.
 
+## 2026-06-16 Apply-pending-verify state and no-change replan convergence
+
+- Evidence source:
+  - SWE-bench Lite spot run
+    `eval/results/swebench/lite-smoke-20260616-flask-requests-sphinx-pylint-001522`
+    for `pallets__flask-5063`.
+  - The applied patch landed in `src/flask/cli.py`, but controller context then
+    showed batch state `verifying` / event `batch_applied` while the mutable
+    `ChangePlan.Status` still read `pending_approval`.
+  - The first post-apply Flask verify produced broad environment/project-suite
+    failures unrelated to the scoped route change; replan then ran a scoped
+    typed dry-run probe for `tests/test_cli.py::TestRoutes` and all 4 tests
+    passed. Planner attempted `emit_change_plan` with `changes=[]`, which the
+    schema correctly rejected repeatedly.
+- Generalized gaps fixed:
+  - Apply success now records `PlanStatusAppliedPendingVerify` before the
+    post-apply verifier runs. This separates approval state from execution
+    state and prevents controller/planner prompts from seeing contradictory
+    typed state.
+  - `emit_change_plan` still rejects ordinary empty `changes[]`, but during a
+    verify-failure replan it may emit an internal `no_change_required` sentinel
+    only when typed state proves all of these conditions: write plan stage,
+    active `VerifyFailureHandoff`, latest `planner_probe`, normalized verdict
+    `passed`, and at least one real unit-test row.
+  - The controller consumes that sentinel as a typed control artifact, restores
+    the prior applied plan, and returns to post-apply verify. It does not parse
+    model prose, `<think>`, rationale text, or user keywords.
+  - Planner probe pass no longer trusts a bare legacy `Passed=true` flag; it
+    requires `ChangeReport.NormalizeVerificationStatus()==passed` plus
+    `Score().total > 0`.
+- Safety and prompt hygiene:
+  - The no-change lane is not a user-visible plan lifecycle status and cannot
+    enqueue `PendingApply` units.
+  - Post-apply failures remain authoritative; a planner dry-run probe cannot
+    override a failed post-apply verifier as success.
+  - `<think>` remains visible in logs by design for transparency and is not a
+    routing signal.
+- Implementation tasks:
+  - [x] Add `applied_pending_verify` and `no_change_required` status constants.
+  - [x] Mark plans `applied_pending_verify` after successful apply in both real
+    hooks and controller/fake-stage paths.
+  - [x] Add strict typed no-change replan sentinel support to `emit_change_plan`.
+  - [x] Restore the prior applied plan when controller consumes the sentinel.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, and
+    `docs/architecture.md`.
+- Verification:
+  - Focused tests passed for `emit_change_plan`, plan status constants, and
+    controller apply/replan paths.
+  - Full regression passed with `go test ./...`, `make`, `make test`, and
+    `git diff --check`.
+
+## 2026-06-16 Structured edit relocation hardening
+
+- Evidence source:
+  - After-fix Flask spot rerun
+    `eval/results/swebench/lite-smoke-20260616-flask-nochange-replan-after-fix-003924`.
+  - The run no longer reached the previous `changes[] cannot be empty` loop,
+    but it exposed an earlier bounded-planning failure: repeated
+    `emit_change_plan` attempts for `src/flask/cli.py` used correct
+    `old_text` bytes with drifted `start_line` / `end_line`, then exhausted the
+    planner loop before apply.
+- Generalized gap fixed:
+  - `internal/tool/structured_edit.go` now relocates a structured line edit when
+    the supplied `old_text` does not match the declared line range but matches
+    exactly one line range in the current file.
+  - Ambiguous or absent `old_text` still fails loudly with the existing typed
+    diagnostic. This is a byte-level parser rule, not a prompt workaround, not
+    a model-prose route, and not a repository-specific special case.
+- Implementation tasks:
+  - [x] Add unique `old_text` range relocation for replace/delete edits.
+  - [x] Add unique `old_text` anchor relocation for insert_before/insert_after.
+  - [x] Keep duplicate `old_text` occurrences rejected.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, and
+    `docs/architecture.md`.
+- Verification:
+  - Focused structured edit tests passed, including unique relocation and
+    ambiguous-match rejection.
+  - Full regression passed with `go test ./...`, `make`, `make test`, and
+    `git diff --check`.
+  - Follow-up SWE-bench Flask spot run
+    `eval/results/swebench/lite-smoke-20260616-flask-structured-relocate-after-fix-004800`
+    exported a non-empty prediction (`patch_bytes=3127`).
+
+## 2026-06-16 Workflow lineage and scoped reverify hardening
+
+- Evidence source:
+  - After-fix Flask spot rerun
+    `eval/results/swebench/lite-smoke-20260616-flask-structured-relocate-after-fix-004800`
+    for `pallets__flask-5063`.
+  - The prior empty-patch failure was gone. `emit_change_plan` succeeded after
+    structured edit relocation, controller applied the plan, marked
+    `applied_pending_verify`, ran a scoped `pytest tests/test_cli.py`, captured
+    typed failing rows, replanned, and exported a SWE-bench prediction:
+    `status=predicted`, `patch_bytes=3127`, `empty_patch=0`.
+  - Local prediction validation passed and official SWE-bench harness dry-run
+    accepted the generated command.
+  - The same run exposed two generalized scheduler gaps:
+    - historical plan/apply/verify attempts from prior replans were warned as
+      conflicting with the latest `batch.PlanID`;
+    - later reverify rounds could lose the previous scoped suite and fall back
+      to a broader project pytest run.
+- Generalized gaps fixed:
+  - `ValidateWorkflowRunState` now treats `batch.PlanID` as the active/latest
+    plan lineage. Attempts before the latest plan attempt for that id are
+    durable history and may reference older plan ids; attempts after the active
+    plan attempt must still match the active plan id.
+  - `run_tests` now inherits a scoped verify target from typed
+    `VerifyFailureHandoff` during StageVerify when the current call omits a
+    suite. It reads only a unique `ExecutedCommands` runner/framework/cwd
+    lineage and a unique non-build `FailingTests[].Suite`; ambiguous
+    multi-suite or multi-execution-lineage failures remain unscoped unless the
+    verifier supplies structured parameters that disambiguate them.
+  - The inheritance is executor-level typed defaulting, not prompt routing. It
+    does not parse command strings, runner output, model prose, issue text, or
+    `<think>`.
+- Safety and prompt hygiene:
+  - A historical failed attempt remains visible for audit, P2 handoff, and
+    finish caveats, but cannot make the active plan's state look contradictory.
+  - A scoped suite is inherited only from a same-run typed failure carrier and
+    only when the next verifier call has not explicitly supplied another
+    suite. User/model explicit structured parameters still win after schema
+    validation.
+  - Missing pytest, parser errors, zero tests, and dependency gaps continue to
+    normalize to `unavailable/unverified`; they do not hard-block patch export
+    or force code replan without typed test/build failure evidence.
+- Implementation tasks:
+  - [x] Relax workflow state invariants for historical plan lineage while
+    preserving active-plan mismatch detection.
+  - [x] Add `run_tests` scoped-suite inheritance from
+    `VerifyFailureHandoff`.
+  - [x] Add focused unit tests for historical lineage, post-active-plan
+    mismatch rejection, scoped suite inheritance, ambiguous-suite refusal, and
+    ambiguous executed-command refusal.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, and
+    `docs/architecture.md`.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/writeflow -run 'TestValidateWorkflowRunState|TestFinishBlockedReason|TestDeriveBatchAttemptState'`;
+    `go test ./internal/tool -run 'TestRunTests(InheritsScopedSuiteFromVerifyFailureHandoff|DoesNotInventSuiteForAmbiguousFailureHandoff|NoTestWorkUsesVerificationProbeVerdict|VerificationProbeImportErrorIsParserError)'`.
+  - SWE-bench adapter validation passed for
+    `eval/results/swebench/lite-smoke-20260616-flask-structured-relocate-after-fix-004800/predictions.jsonl`:
+    local validator reported `validated 1 prediction(s); empty_patch=0`;
+    official harness dry-run accepted the command.
+  - Full regression passed with `go test ./...`, `make`, `make test`, and
+    `git diff --check`.
+
 ## 2026-06-15 SWE-bench Lite verifier verdict and env-isolation follow-up
 
 - Evidence source:

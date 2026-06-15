@@ -385,6 +385,101 @@ func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
 	}
 }
 
+func TestRunTestsInheritsScopedSuiteFromVerifyFailureHandoff(t *testing.T) {
+	mu := types.NewMutableState("verify scope inheritance")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-old",
+		BatchID: "batch-1",
+		Attempt: 1,
+		Executed: []types.ExecutedCommand{{
+			Runner:     "python",
+			Framework:  "pytest",
+			WorkingDir: "pkg",
+			Outcome:    "executed",
+		}},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_a", Suite: "tests/test_cli.py", Passed: false},
+			{Kind: types.TestResultKindUnit, AssertionID: "test_b", Suite: "tests/test_cli.py", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+	}
+	params := runTestsParams{Runner: "python"}
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+		t.Fatal("expected verify scope to be inherited from typed handoff")
+	}
+	if params.Suite != "tests/test_cli.py" {
+		t.Fatalf("suite = %q, want scoped failing suite", params.Suite)
+	}
+	if params.WorkingDir != "pkg" {
+		t.Fatalf("working_dir = %q, want inherited command cwd", params.WorkingDir)
+	}
+	if params.Framework != "pytest" {
+		t.Fatalf("framework = %q, want inherited framework", params.Framework)
+	}
+}
+
+func TestRunTestsDoesNotInventSuiteForAmbiguousFailureHandoff(t *testing.T) {
+	mu := types.NewMutableState("ambiguous verify scope")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		Executed: []types.ExecutedCommand{{
+			Runner:  "python",
+			Outcome: "executed",
+		}},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_a", Suite: "tests/test_cli.py", Passed: false},
+			{Kind: types.TestResultKindUnit, AssertionID: "test_b", Suite: "tests/test_json.py", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+	}
+	params := runTestsParams{}
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+		t.Fatal("expected runner provenance to be inherited")
+	}
+	if params.Runner != "python" {
+		t.Fatalf("runner = %q, want inherited python", params.Runner)
+	}
+	if params.Suite != "" {
+		t.Fatalf("ambiguous suites must not be collapsed into one selector, got %q", params.Suite)
+	}
+}
+
+func TestRunTestsDoesNotInheritScopeAcrossAmbiguousExecutedCommands(t *testing.T) {
+	mu := types.NewMutableState("ambiguous executed commands")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		Executed: []types.ExecutedCommand{
+			{Runner: "python", Framework: "pytest", WorkingDir: ".", Outcome: "executed"},
+			{Runner: "make", WorkingDir: ".", Outcome: "executed"},
+		},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_a", Suite: "tests/test_cli.py", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+	}
+	params := runTestsParams{}
+	if inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+		t.Fatalf("ambiguous command lineage must not be inherited: %+v", params)
+	}
+	params = runTestsParams{Runner: "python"}
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+		t.Fatal("explicit runner should disambiguate command lineage")
+	}
+	if params.Suite != "tests/test_cli.py" || params.Framework != "pytest" {
+		t.Fatalf("disambiguated scope not inherited: %+v", params)
+	}
+}
+
 func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

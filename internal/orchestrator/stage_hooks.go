@@ -772,9 +772,9 @@ func classifyApplyFailureStatus(busCtx *types.BusContext) string {
 // persists PlanStatusApplyFailed (or PlanStatusPartiallyApplied
 // when some units succeeded) and surfaces the error so the
 // scheduler stops the cycle. On success, renders an apply-summary
-// Result. Status persistence on success is deferred to verify's
-// post-hook (verify_failed vs applied) so the disk file isn't
-// double-written on every Run.
+// Result and records applied_pending_verify; verify's post-hook then
+// replaces that intermediate status with applied, verify_failed, or
+// unverified from the typed ChangeReport verdict.
 func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if o == nil || o.busCtx == nil {
 		return nil
@@ -797,12 +797,13 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if plan == nil {
 		return nil
 	}
+	o.markActivePlanAppliedPendingVerify()
+	plan = o.busCtx.Mutable.ChangePlan()
 	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
 	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath,
 		worktree.AppliedRef(plan.ID), o.keepWorktreeOnSuccess || o.skipVerify, o.busCtx.Language))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
-	o.persistCurrentChangePlanSnapshot()
 	// Warm-worktree retry checkpoint: commit the applied content as a
 	// git commit inside the worktree, capture the HEAD SHA, and stash
 	// it on the orchestrator. If this iteration turns out to be the

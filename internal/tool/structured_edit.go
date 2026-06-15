@@ -155,40 +155,52 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 				endLine = edit.StartLine
 			}
 			if edit.StartLine < 1 || endLine < edit.StartLine || endLine > lineCount {
-				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, endLine, lineCount)
-				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-					ReasonCode:    "invalid_line_range",
-					Path:          path,
-					EditIndex:     i,
-					FileLineCount: lineCount,
-					StartLine:     edit.StartLine,
-					EndLine:       endLine,
-					SafeEditKinds: structuredEditSafeInsertKinds(lines),
-				})
+				if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+					edit.StartLine = relocatedStart + 1
+					endLine = relocatedEnd
+				} else {
+					msg := fmt.Sprintf("structured edit builder: change %q edits[%d] has invalid line range %d-%d for %d-line file", path, i, edit.StartLine, endLine, lineCount)
+					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+						ReasonCode:    "invalid_line_range",
+						Path:          path,
+						EditIndex:     i,
+						FileLineCount: lineCount,
+						StartLine:     edit.StartLine,
+						EndLine:       endLine,
+						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+					})
+				}
 			}
 			start := edit.StartLine - 1
 			end := endLine
 			if edit.OldText != "" {
 				got := strings.Join(lines[start:end], "")
 				if !structuredEditOldTextMatches(got, edit.OldText) {
-					msg := fmt.Sprintf(
-						"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
-						path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
-					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-						ReasonCode:       "old_text_mismatch",
-						Path:             path,
-						EditIndex:        i,
-						FileLineCount:    lineCount,
-						StartLine:        edit.StartLine,
-						EndLine:          endLine,
-						CurrentBytes:     got,
-						SuppliedOldText:  edit.OldText,
-						ExpectedOldText:  got,
-						CurrentByteLen:   len(got),
-						SuppliedByteLen:  len(edit.OldText),
-						RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, omit end_line for a single-line edit, or omit old_text when the line numbers came from the latest read_file view",
-						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
-					})
+					if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+						start = relocatedStart
+						end = relocatedEnd
+						edit.StartLine = relocatedStart + 1
+						endLine = relocatedEnd
+					} else {
+						msg := fmt.Sprintf(
+							"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
+							path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
+						return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+							ReasonCode:       "old_text_mismatch",
+							Path:             path,
+							EditIndex:        i,
+							FileLineCount:    lineCount,
+							StartLine:        edit.StartLine,
+							EndLine:          endLine,
+							CurrentBytes:     got,
+							SuppliedOldText:  edit.OldText,
+							ExpectedOldText:  got,
+							CurrentByteLen:   len(got),
+							SuppliedByteLen:  len(edit.OldText),
+							RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, omit end_line for a single-line edit, or omit old_text when the line numbers came from the latest read_file view",
+							SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+						})
+					}
 				}
 			}
 			insert := []string(nil)
@@ -233,24 +245,40 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					anchor = lines[edit.StartLine-1]
 				}
 				if !structuredEditOldTextMatches(anchor, edit.OldText) {
-					msg := fmt.Sprintf(
-						"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
-						path, i, edit.StartLine, boundedByteQuote(anchor, 160))
-					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-						ReasonCode:       "old_text_mismatch",
-						Path:             path,
-						EditIndex:        i,
-						FileLineCount:    lineCount,
-						StartLine:        edit.StartLine,
-						AnchorLine:       edit.StartLine,
-						CurrentBytes:     anchor,
-						SuppliedOldText:  edit.OldText,
-						ExpectedOldText:  anchor,
-						CurrentByteLen:   len(anchor),
-						SuppliedByteLen:  len(edit.OldText),
-						RetryInstruction: "resend this insertion with old_text exactly equal to expected_old_text for the anchor line, or omit old_text when line anchoring alone is acceptable",
-						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
-					})
+					if relocatedStart, _, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+						edit.StartLine = relocatedStart + 1
+						start, err = insertionIndex(kind, edit.StartLine, lineCount)
+						if err != nil {
+							msg := fmt.Sprintf("structured edit builder: change %q edits[%d] %v", path, i, err)
+							return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+								ReasonCode:    "invalid_insert_anchor",
+								Path:          path,
+								EditIndex:     i,
+								FileLineCount: lineCount,
+								StartLine:     edit.StartLine,
+								SafeEditKinds: structuredEditSafeInsertKinds(lines),
+							})
+						}
+					} else {
+						msg := fmt.Sprintf(
+							"structured edit builder: change %q edits[%d] old_text mismatch at anchor line %d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
+							path, i, edit.StartLine, boundedByteQuote(anchor, 160))
+						return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+							ReasonCode:       "old_text_mismatch",
+							Path:             path,
+							EditIndex:        i,
+							FileLineCount:    lineCount,
+							StartLine:        edit.StartLine,
+							AnchorLine:       edit.StartLine,
+							CurrentBytes:     anchor,
+							SuppliedOldText:  edit.OldText,
+							ExpectedOldText:  anchor,
+							CurrentByteLen:   len(anchor),
+							SuppliedByteLen:  len(edit.OldText),
+							RetryInstruction: "resend this insertion with old_text exactly equal to expected_old_text for the anchor line, or omit old_text when line anchoring alone is acceptable",
+							SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+						})
+					}
 				}
 			}
 			key := fmt.Sprintf("%s:%d", kind, start)
@@ -312,6 +340,33 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 	}
 	return out, nil
+}
+
+func uniqueStructuredOldTextRange(lines []string, oldText string) (start, end int, ok bool) {
+	if oldText == "" || len(lines) == 0 {
+		return 0, 0, false
+	}
+	needleLines := splitContentLines(oldText)
+	if len(needleLines) == 0 || len(needleLines) > len(lines) {
+		return 0, 0, false
+	}
+	matchStart := -1
+	matchEnd := -1
+	for i := 0; i+len(needleLines) <= len(lines); i++ {
+		j := i + len(needleLines)
+		if !structuredEditOldTextMatches(strings.Join(lines[i:j], ""), oldText) {
+			continue
+		}
+		if matchStart >= 0 {
+			return 0, 0, false
+		}
+		matchStart = i
+		matchEnd = j
+	}
+	if matchStart < 0 {
+		return 0, 0, false
+	}
+	return matchStart, matchEnd, true
 }
 
 func isStructuredInsertKind(kind string) bool {

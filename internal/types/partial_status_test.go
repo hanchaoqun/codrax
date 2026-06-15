@@ -12,6 +12,12 @@ func TestPlanStatus_PartiallyApplied(t *testing.T) {
 	}
 }
 
+func TestPlanStatus_AppliedPendingVerifyIsUnsettled(t *testing.T) {
+	if !IsUnsettledStatus(PlanStatusAppliedPendingVerify) {
+		t.Errorf("PlanStatusAppliedPendingVerify (%q) must be unsettled — verify still has to settle the plan", PlanStatusAppliedPendingVerify)
+	}
+}
+
 // TestPlanStatus_TerminalsStaySettled pins the failure-vs-partial
 // distinction: applied_failed (apply produced zero successful units;
 // worktree clean) is settled / terminal, while partially_applied
@@ -29,5 +35,8 @@ func TestPlanStatus_TerminalsStaySettled(t *testing.T) {
 	}
 	if IsUnsettledStatus(PlanStatusBlocked) {
 		t.Error("PlanStatusBlocked must remain settled (terminal)")
+	}
+	if IsUnsettledStatus(PlanStatusNoChangeRequired) {
+		t.Error("PlanStatusNoChangeRequired must remain an internal settled sentinel, not a user-visible active plan")
 	}
 }

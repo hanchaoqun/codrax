@@ -122,6 +122,59 @@ func TestValidateWorkflowRunStateAllowsConsistentApprovalAndAttempts(t *testing.
 	}
 }
 
+func TestValidateWorkflowRunStateAllowsHistoricalPlanLineageAfterReplan(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			PlanID: "plan-2",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-1"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-1"},
+				{Kind: "plan", Status: "complete", PlanID: "plan-2"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-2"},
+			},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-2",
+		Approval: &types.WriteApprovalRecord{
+			Action: string(ApprovalActionAutoExecute),
+		},
+	}
+	if errs := ValidateWorkflowRunState(run, plan); len(errs) != 0 {
+		t.Fatalf("historical lineage should be allowed after replan: %v", errs)
+	}
+}
+
+func TestValidateWorkflowRunStateRejectsMismatchedAttemptAfterActivePlan(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			PlanID: "plan-2",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-1"},
+				{Kind: "verify", Status: "failed", PlanID: "plan-1"},
+				{Kind: "plan", Status: "complete", PlanID: "plan-2"},
+				{Kind: "verify", Status: "failed", PlanID: "plan-1"},
+			},
+		}},
+	}
+	errs := ValidateWorkflowRunState(run, nil)
+	joined := strings.Join(errs, "\n")
+	if !strings.Contains(joined, "verify attempt plan_id plan-1 conflicts with batch plan_id plan-2") {
+		t.Fatalf("expected post-active-plan mismatch warning, got %v", errs)
+	}
+}
+
 func TestFinishBlockedReason_BlocksOnLatestFailedVerify(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		Batches: []types.WriteWorkflowBatch{{

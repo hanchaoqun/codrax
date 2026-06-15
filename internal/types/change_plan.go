@@ -22,6 +22,11 @@ const (
 	// risk policy returns allow; high-risk plans remain pending until an
 	// approval record is written.
 	PlanStatusPending = "pending_approval"
+	// PlanStatusAppliedPendingVerify means apply landed every declared
+	// change and the active workflow is waiting for the post-apply verifier
+	// verdict. This keeps approval state ("pending_approval") separate from
+	// execution state in controller prompts and durable workflow records.
+	PlanStatusAppliedPendingVerify = "applied_pending_verify"
 	// PlanStatusApplied means apply + verify both succeeded.
 	PlanStatusApplied = "applied"
 	// PlanStatusApplyFailed means apply_patch rejected a change
@@ -59,6 +64,11 @@ const (
 	// PlanStatusRejected is set by /reject — user reviewed the
 	// plan and decided not to approve it.
 	PlanStatusRejected = "rejected"
+	// PlanStatusNoChangeRequired is an internal controller sentinel emitted
+	// only during a replan round when the current applied worktree already
+	// satisfies a typed planner probe. It is never applied as an empty patch:
+	// the controller restores the prior applied plan and moves back to verify.
+	PlanStatusNoChangeRequired = "no_change_required"
 	// PlanStatusMerged is set by /merge — the applied plan's
 	// commit(s) have been folded back into the main repo. Together
 	// with PlanStatusRejected this completes the lifecycle: a plan
@@ -79,7 +89,7 @@ const (
 //   - REPL /mode write switch (UX layer rejection)
 //   - REPL banner (cold-start awareness)
 //
-// pending_approval / applied / verify_failed / unverified /
+// pending_approval / applied_pending_verify / applied / verify_failed / unverified /
 // partially_applied are unsettled. merged / rejected /
 // applied_failed / blocked are settled (terminal). applied_failed is
 // terminal because apply itself crashed — nothing landed, the
@@ -92,7 +102,7 @@ const (
 // or /approve --retry to finish the work.
 func IsUnsettledStatus(s string) bool {
 	switch s {
-	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed, PlanStatusUnverified, PlanStatusPartiallyApplied:
+	case PlanStatusPending, PlanStatusAppliedPendingVerify, PlanStatusApplied, PlanStatusVerifyFailed, PlanStatusUnverified, PlanStatusPartiallyApplied:
 		return true
 	}
 	return false
@@ -371,10 +381,10 @@ type ChangePlan struct {
 	AppliedPaths []string `json:"applied_paths,omitempty"`
 
 	// Status transitions — see the PlanStatus* constants above.
-	// Legal values: pending_approval, applied, applied_failed,
-	// verify_failed, unverified, partially_applied, blocked, rejected,
-	// merged. Approval itself is tracked by Approval, not by a separate
-	// status string.
+	// Legal values: pending_approval, applied_pending_verify, applied,
+	// applied_failed, verify_failed, unverified, partially_applied,
+	// blocked, no_change_required, rejected, merged. Approval itself is
+	// tracked by Approval, not by a separate status string.
 	Status string `json:"status"`
 
 	// AppliedCommitSHA is the git commit SHA produced inside the

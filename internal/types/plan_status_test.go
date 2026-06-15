@@ -167,10 +167,16 @@ func TestUpdatePlanStatusOnDisk_MissingFile(t *testing.T) {
 func TestPlanStatusConstants_Uniqueness(t *testing.T) {
 	all := []string{
 		PlanStatusPending,
+		PlanStatusAppliedPendingVerify,
 		PlanStatusApplied,
 		PlanStatusApplyFailed,
+		PlanStatusBlocked,
 		PlanStatusVerifyFailed,
+		PlanStatusUnverified,
+		PlanStatusPartiallyApplied,
 		PlanStatusRejected,
+		PlanStatusNoChangeRequired,
+		PlanStatusMerged,
 	}
 	seen := map[string]bool{}
 	for _, s := range all {

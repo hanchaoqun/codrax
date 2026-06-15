@@ -3235,6 +3235,30 @@ func isLangZh(lang string) bool {
 // partially_applied plans (P0 P0 #2 fix). Nil appliedPaths
 // leaves the on-disk slot untouched (back-compat with
 // callers that don't know).
+func (o *Orchestrator) markActivePlanAppliedPendingVerify() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil || changePlanIsNoChangeRequired(plan) {
+		return
+	}
+	switch strings.TrimSpace(plan.Status) {
+	case "", types.PlanStatusPending, types.PlanStatusApplyFailed, types.PlanStatusPartiallyApplied, types.PlanStatusAppliedPendingVerify:
+		plan.Status = types.PlanStatusAppliedPendingVerify
+	default:
+		return
+	}
+	if appliedPaths := o.collectAppliedTargetPaths(); appliedPaths != nil {
+		plan.AppliedPaths = appliedPaths
+	}
+	if o.busCtx.WorktreePath != "" {
+		plan.WorktreePath = o.busCtx.WorktreePath
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+	o.persistCurrentChangePlanSnapshot()
+}
+
 func (o *Orchestrator) persistPlanStatusWithApplied(status string, appliedAt *time.Time, appliedPaths []string) {
 	if o.busCtx == nil {
 		return

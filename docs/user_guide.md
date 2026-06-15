@@ -1698,7 +1698,7 @@ codrax 也会保护用户面板和上下文:
 
 > **同一个项目同时只能有一个未结算的改动方案。**
 
-未结算 = `pending_approval`(待批)/ `applied`(已批未合)/ `verify_failed`(验证失败)。结算 = `merged`(已合并)/ `rejected`(显式丢弃)/ `applied_failed`(apply 阶段崩了,自动终止)。
+未结算 = `pending_approval`(待批)/ `applied_pending_verify`(已写入待验证)/ `applied`(验证通过但未合)/ `verify_failed`(真实验证失败)/ `unverified`(环境或测试面不可用,代码已写入但未被本地证明)/ `partially_applied`(部分文件已写入)。结算 = `merged`(已合并)/ `rejected`(显式丢弃)/ `applied_failed`(apply 阶段崩了,自动终止)/ `blocked`(typed policy 阻断)。`no_change_required` 是 controller 内部 replan 哨兵,不会作为用户待处理 plan 留存。
 
 **为什么这条规则重要**:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。
 
@@ -1718,7 +1718,7 @@ codrax 也会保护用户面板和上下文:
 
 | 命令 | 适用状态 | 文件 | 工作区 |
 |---|---|---|---|
-| `/merge` | applied / verify_failed(后者需 `--include-failed`) | 状态改 `merged`,保留供审查 | 自动 discard |
+| `/merge` | applied / unverified / verify_failed(后者需 `--include-failed`) | 状态改 `merged`,保留供审查 | 自动 discard |
 | `/reject [reason]` | 任何未结算状态 | 状态改 `rejected`,reason 写进文件,保留供审查 | 自动 discard |
 | `/plan clear` | 任何未结算状态 | **直接删除** plan 文件 + report,无审查记录 | 自动 discard |
 
@@ -1728,7 +1728,7 @@ codrax 也会保护用户面板和上下文:
    plan-XXXX 已 apply 但未合并 — /merge · /reject · /plan clear
 ```
 
-按当前 plan 的 status 不同,状态卡也不同 — `pending_approval` 展示风险、fingerprint、diff 和批准/拒绝动作;`verify_failed` 优先展示失败证据、report/diff refs 和自动 replan/人工覆盖入口。
+按当前 plan 的 status 不同,状态卡也不同 — `pending_approval` 展示风险、fingerprint、diff 和批准/拒绝动作;`applied_pending_verify` 展示已写入 worktree、等待 typed verifier verdict;`verify_failed` 优先展示失败证据、report/diff refs 和自动 replan/人工覆盖入口;`unverified` 展示环境/测试面不可用原因和可恢复的 patch refs。
 
 ## 4.1 启用
 
@@ -1746,7 +1746,7 @@ write_enabled: false
 
 写模式主入口是 **Auto Pilot**:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。`plan/apply/verify` 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。
 
-controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`write_analyzer` 只是 bounded task classifier,不会继承重型探索的 20 轮预算;真正的问题定位由 controller 的 `explore_code` 节点按需触发。探索如果超时/取消但已经产生 typed `emit_evidence` 或 read-set 进展,controller 会把这些结构化证据投影为写模式 handoff,在 ledger 中保留 `degraded` 记录,并继续让当前 batch 进入 bounded planning;不会用模型散文或日志文本做硬路由。探索完成后的 planner 会保留按任务复杂度计算出的 soft budget,避免现象型 bug 在读完证据后被过早截断;如果一轮 planning 没有落 `ChangePlan` 但产生了成功的只读工具结果,controller 会给一次额外 bounded re-dispatch。结构化 `emit_change_plan` validation rejection 也会把最新工具拒绝原因带入下一轮,最多两次修正机会,但 schema、路径和 old-text byte-match 硬门不放松。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
+controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`write_analyzer` 只是 bounded task classifier,不会继承重型探索的 20 轮预算;真正的问题定位由 controller 的 `explore_code` 节点按需触发。探索如果超时/取消但已经产生 typed `emit_evidence` 或 read-set 进展,controller 会把这些结构化证据投影为写模式 handoff,在 ledger 中保留 `degraded` 记录,并继续让当前 batch 进入 bounded planning;不会用模型散文或日志文本做硬路由。探索完成后的 planner 会保留按任务复杂度计算出的 soft budget,避免现象型 bug 在读完证据后被过早截断;如果一轮 planning 没有落 `ChangePlan` 但产生了成功的只读工具结果,controller 会给一次额外 bounded re-dispatch。结构化 `emit_change_plan` validation rejection 也会把最新工具拒绝原因带入下一轮,最多两次修正机会,但 schema、路径和 old-text byte-match 硬门不放松。verify 失败后的 replan 如果用最新 typed `planner_probe` 证明当前已应用 worktree 已满足失败点,planner 可以发内部 `no_change_required` 哨兵;controller 会恢复前一个已应用 plan 并回到 post-apply verify,普通空 `changes[]` 仍然被拒绝。replan 后的 verify 会从 typed `VerifyFailureHandoff` 继承上一轮唯一失败 suite 和唯一 runner/cwd 谱系,避免一个小修复退化成全仓重跑;多个失败 suite 或多个不同执行谱系时不会擅自收窄。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
 
 REPL 实际流程:
 
@@ -1756,7 +1756,7 @@ REPL 实际流程:
 [git:main]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 [route=write 后进入 Auto Pilot]
 [controller 探索 → 规划 → 低/中风险 apply 到 worktree → verify → 必要时 replan]
-✓ 写模式完成: plan-abc123 已应用并验证通过。
+✓ apply + verify 完成,workflow 继续推进或结束。
 ```
 
 如果 auto 路由没有命中,或你想明确进入写模式,用单次入口:
@@ -1825,13 +1825,13 @@ Auto Pilot 内部自动:
 1. 创建临时 worktree(基于当前 branch)
 2. 在 worktree 里 `apply_patch` 每个文件改动(支持 create / modify / delete / patch / rename)
 3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest/unittest/Django runtests.py)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
-4. 测试通过 → 标记 `applied`;测试/构建真实失败 → 标记 `verify_failed`(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 `unverified`。底层 `ChangeReport.verification_status` 只会是 `passed` / `failed` / `unavailable`,controller 和 eval 读这个 typed verdict,不会再把 legacy `passed=true + NoTestsRunners` 误当成已验证通过。
+4. apply 成功先标记 `applied_pending_verify`;测试通过 → 标记 `applied`;测试/构建真实失败 → 标记 `verify_failed`(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 `unverified`。底层 `ChangeReport.verification_status` 只会是 `passed` / `failed` / `unavailable`,controller 和 eval 读这个 typed verdict,不会再把 legacy `passed=true + NoTestsRunners` 误当成已验证通过。
 
-> plan 阶段会先做轻量结构化校验:例如 Python `kind=patch` 会在 scratch overlay 中应用补丁后跑 `py_compile`,能在没有 pytest/ruff 的客户环境里提前拦住语法级坏补丁;缺少 pytest 仍不会被当作代码失败硬门。若 `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change` 被结构化 schema 或 patch builder 拒绝(如同文件重复 change、`old_text` 范围不匹配、源码 patch 里相邻精确重复插入同一个 3+ 行代码块),controller 会基于 typed tool result 给 planner 最多两次受控纠正机会,不会放松校验,也不会从模型散文猜测下一步。planner 还可以在 `ChangePlan.verification_probes[]` 里附带 typed 小探针(当前支持 Python inline code、repo-relative `working_dir`、短超时、可选 `expected_stdout`);当项目 runner 缺失、无测试基础设施或 runner 输出不可解析时,verify 会先执行这些探针,用退出码/结构化命令记录给出明确 pass/fail,并把探针语言/cwd/timeout/源码片段写入 raw output,而不是从 `acceptance_tests` 散文里猜测硬逻辑。
+> plan 阶段会先做轻量结构化校验:例如 Python `kind=patch` 会在 scratch overlay 中应用补丁后跑 `py_compile`,能在没有 pytest/ruff 的客户环境里提前拦住语法级坏补丁;缺少 pytest 仍不会被当作代码失败硬门。若 `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change` 被结构化 schema 或 patch builder 拒绝(如同文件重复 change、`old_text` 范围不匹配、源码 patch 里相邻精确重复插入同一个 3+ 行代码块),controller 会基于 typed tool result 给 planner 最多两次受控纠正机会,不会放松校验,也不会从模型散文猜测下一步。结构化 line edit 的 `old_text` 若与声明行号不匹配,但在当前文件里按行精确且唯一匹配,patch builder 会自动重定位到该唯一范围;找不到或出现多处仍 fail-loud。planner 还可以在 `ChangePlan.verification_probes[]` 里附带 typed 小探针(当前支持 Python inline code、repo-relative `working_dir`、短超时、可选 `expected_stdout`);当项目 runner 缺失、无测试基础设施或 runner 输出不可解析时,verify 会先执行这些探针,用退出码/结构化命令记录给出明确 pass/fail,并把探针语言/cwd/timeout/源码片段写入 raw output,而不是从 `acceptance_tests` 散文里猜测硬逻辑。
 
 > verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。Python 的 `framework=pytest|unittest|django` 是结构化 enum,即使没有同时填 `runner`,也会被视为 `runner=python` 并跳过 manifest 自动探测,避免 Django 这类仓被无关 `package.json` / `Makefile` 打断。`run_tests.suite` 只接受测试 selector;`-v` / `--maxfail` 等 CLI flags 如果混在 suite 字段里会在执行前被 typed 参数校验拒绝,不会误拼进 pytest node-id 或 unittest selector。Python verify 会把 active worktree 置于 import root 优先级最高处,避免误测主仓源码;Django `tests/runtests.py` runner 在未指定 suite 时会从 typed ChangePlan 路径和 `tests/` 结构推导保守 scoped suite。
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。三条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)、`parser_error` 结构化信号(测试 runner 启动但没有执行到真实用例或没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、`no_tests` 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。pytest 零用例后升级到标准库 unittest 时,如果 unittest 只产出 `unittest.loader._FailedTest` loader 行而没有真实测试用例行,也会归入 `parser_error/unverified`,避免把 Python 版本或依赖兼容问题误当成补丁错误。`ChangeReport.verification_status=unavailable` 是这类本地环境/测试面不可用的单一 typed verdict;`passed` 只表示确实有权威执行信号通过,`failed` 才会驱动小批量 replan。日志仍会透明展示模型的 `<think>` 和原始 toolcall;如果 controller 试图在 typed `unverified` terminal 后继续 `explore_code` / `verify_batch` / `replan_batch`,调度器会记录 `write controller decision normalized ... -> action=finish ... disposition=accept_unverified`,并且不会实际执行后续探索或重规划。若计划携带 `verification_probes[]`,这些 infra dead-end 会先尝试探针:探针失败按 typed `tests_failed` 进入小批量 replan,探针通过则可作为本地行为验证通过,探针本身缺运行时才继续保持 `unverified`。失败 handoff 会带上可直接 `read_file` 的上一轮 patch/test-surface artifact 路径,让 replan 针对失败点收敛而不是重新调查。pytest JSON/report 生成失败时会自动尝试禁用第三方插件的 verbose 文本 fallback;只有拿到用例级执行行才把结果当作真实 pass/fail,collection/import 启动失败仍保持 `parser_error`。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。三条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)、`parser_error` 结构化信号(测试 runner 启动但没有执行到真实用例或没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、`no_tests` 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。pytest 零用例后升级到标准库 unittest 时,如果 unittest 只产出 `unittest.loader._FailedTest` loader 行而没有真实测试用例行,也会归入 `parser_error/unverified`,避免把 Python 版本或依赖兼容问题误当成补丁错误。`ChangeReport.verification_status=unavailable` 是这类本地环境/测试面不可用的单一 typed verdict;`passed` 只表示确实有权威执行信号通过,`failed` 才会驱动小批量 replan。日志仍会透明展示模型的 `<think>` 和原始 toolcall;如果 controller 试图在 typed `unverified` terminal 后继续 `explore_code` / `verify_batch` / `replan_batch`,调度器会记录 `write controller decision normalized ... -> action=finish ... disposition=accept_unverified`,并且不会实际执行后续探索或重规划。若计划携带 `verification_probes[]`,这些 infra dead-end 会先尝试探针:探针失败按 typed `tests_failed` 进入小批量 replan,探针通过则可作为本地行为验证通过,探针本身缺运行时才继续保持 `unverified`。失败 handoff 会带上可直接 `read_file` 的上一轮 patch/test-surface artifact 路径、上一轮执行的唯一 runner/cwd 谱系、以及唯一失败 suite,让 replan 和下一次 verify 针对失败点收敛而不是重新调查或全仓重跑;如果失败分散在多个 suite 或多个不同执行谱系,系统不会自动合并成一个 selector。若 replan 阶段的 typed `planner_probe` 已经证明当前 worktree 修好了失败点,controller 会记录 `no_change_required` 哨兵并复用原 plan 继续 post-apply verify,不会要求模型编造空改动或重新调查。pytest JSON/report 生成失败时会自动尝试禁用第三方插件的 verbose 文本 fallback;只有拿到用例级执行行才把结果当作真实 pass/fail,collection/import 启动失败仍保持 `parser_error`。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 

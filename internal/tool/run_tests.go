@@ -251,6 +251,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// channel boundary must read the typed pipeline stage, not the
 	// user-facing write mode.
 	dryRunProbe := isRunTestsDryRunProbe(ctx, p)
+	if !dryRunProbe && inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &p) {
+		logging.Info("[run_tests] inherited scoped verify target from typed verify-failure handoff: runner=%s framework=%s working_dir=%s suite=%q",
+			strings.TrimSpace(p.Runner), strings.TrimSpace(p.Framework), strings.TrimSpace(p.WorkingDir), strings.TrimSpace(p.Suite))
+		if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
+			return errResult(t.Name(), rej), nil
+		}
+	}
 
 	if ctx.RepoRoot == "" {
 		// In dry-run probe mode the planner has no worktree to swap
@@ -901,6 +908,116 @@ func validateRunTestsSuiteSelector(suite string) string {
 		}
 	}
 	return ""
+}
+
+func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runTestsParams) bool {
+	if ctx == nil || ctx.Mutable == nil || p == nil || ctx.PipelineStage != types.StageVerify {
+		return false
+	}
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	if handoff == nil {
+		return false
+	}
+	cmd, ok := latestExecutedCommandForVerifyScope(handoff.Executed, p)
+	if !ok {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(p.Runner) == "" {
+		p.Runner = strings.TrimSpace(cmd.Runner)
+		changed = true
+	}
+	if strings.TrimSpace(p.Framework) == "" && strings.TrimSpace(cmd.Framework) != "" {
+		p.Framework = strings.TrimSpace(cmd.Framework)
+		changed = true
+	}
+	if strings.TrimSpace(p.WorkingDir) == "" && strings.TrimSpace(cmd.WorkingDir) != "" {
+		p.WorkingDir = strings.TrimSpace(cmd.WorkingDir)
+		changed = true
+	}
+	if strings.TrimSpace(p.Suite) == "" {
+		if suite := uniqueVerifyFailureSuite(handoff.FailingTests); suite != "" {
+			p.Suite = suite
+			changed = true
+		}
+	}
+	return changed
+}
+
+func latestExecutedCommandForVerifyScope(commands []types.ExecutedCommand, p *runTestsParams) (types.ExecutedCommand, bool) {
+	wantRunner := ""
+	wantFramework := ""
+	wantWorkingDir := ""
+	if p != nil {
+		wantRunner = strings.TrimSpace(p.Runner)
+		wantFramework = strings.TrimSpace(p.Framework)
+		if strings.TrimSpace(p.WorkingDir) != "" {
+			wantWorkingDir = normalizeRunTestsWorkingDir(p.WorkingDir)
+		}
+	}
+	selectedKey := ""
+	var selected types.ExecutedCommand
+	for i := len(commands) - 1; i >= 0; i-- {
+		cmd := commands[i]
+		runner := strings.TrimSpace(cmd.Runner)
+		if _, ok := allowedRunners[runner]; !ok {
+			continue
+		}
+		if strings.TrimSpace(cmd.Outcome) != "" && strings.TrimSpace(cmd.Outcome) != "executed" {
+			continue
+		}
+		if wantRunner != "" && wantRunner != runner {
+			continue
+		}
+		if wantFramework != "" && strings.TrimSpace(cmd.Framework) != "" && wantFramework != strings.TrimSpace(cmd.Framework) {
+			continue
+		}
+		if wantWorkingDir != "" && normalizeRunTestsWorkingDir(cmd.WorkingDir) != wantWorkingDir {
+			continue
+		}
+		key := runner + "\x00" + strings.TrimSpace(cmd.Framework) + "\x00" + normalizeRunTestsWorkingDir(cmd.WorkingDir)
+		if selectedKey == "" {
+			selectedKey = key
+			selected = cmd
+			continue
+		}
+		if selectedKey != key {
+			return types.ExecutedCommand{}, false
+		}
+	}
+	if selectedKey == "" {
+		return types.ExecutedCommand{}, false
+	}
+	return selected, true
+}
+
+func uniqueVerifyFailureSuite(results []types.TestResult) string {
+	unique := ""
+	for _, result := range results {
+		if result.Passed || result.Kind == types.TestResultKindBuildError {
+			continue
+		}
+		suite := strings.TrimSpace(result.Suite)
+		if suite == "" {
+			continue
+		}
+		if unique == "" {
+			unique = suite
+			continue
+		}
+		if unique != suite {
+			return ""
+		}
+	}
+	return unique
+}
+
+func normalizeRunTestsWorkingDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || dir == "." {
+		return "."
+	}
+	return filepath.ToSlash(filepath.Clean(dir))
 }
 
 func shouldAttemptPytestTextFallback(plan runnerPlan) bool {
