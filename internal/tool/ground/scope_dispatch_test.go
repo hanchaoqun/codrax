@@ -16,8 +16,8 @@ func TestGroundItemScoped_DispatchesByScope(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("")}
 	gc := BuildContext(ctx)
 	cases := []struct {
-		name     string
-		scope    types.EvidenceScope
+		name      string
+		scope     types.EvidenceScope
 		minimumOK func(t *testing.T, it *types.EvidenceItem) // soft check
 	}{
 		{
@@ -207,6 +207,49 @@ func TestGroundScopeNegative_AbsenceCheckIsReal(t *testing.T) {
 		}
 		if !strings.Contains(rep.Note, "FAILED") {
 			t.Errorf("expected FAILED in note; got %q", rep.Note)
+		}
+	})
+
+	t.Run("range absence ignores matches outside range", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(tmp, "ridge.py"),
+			[]byte("store_cv_values = True\n\nclass RidgeClassifierCV:\n    pass\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		it := &types.EvidenceItem{
+			Scope:     types.ScopeNegative,
+			Kind:      types.EvidenceAbsent,
+			LineStart: 3,
+			LineEnd:   4,
+			NegativeQuery: &types.NegativeQuery{
+				File:    "ridge.py",
+				Pattern: "store_cv_values",
+			},
+			NegativeScope: types.NegativeScopeRange,
+		}
+		rep := GroundItemScoped(it, gc)
+		if rep.Status != types.GroundingGrounded {
+			t.Errorf("status=%s, want grounded; note=%s", rep.Status, rep.Note)
+		}
+		if !strings.Contains(rep.Note, "range 3-4") {
+			t.Errorf("expected range note; got %q", rep.Note)
+		}
+	})
+
+	t.Run("range absence fails on match inside range", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Scope:     types.ScopeNegative,
+			Kind:      types.EvidenceAbsent,
+			LineStart: 1,
+			LineEnd:   1,
+			NegativeQuery: &types.NegativeQuery{
+				File:    "ridge.py",
+				Pattern: "store_cv_values",
+			},
+			NegativeScope: types.NegativeScopeRange,
+		}
+		rep := GroundItemScoped(it, gc)
+		if rep.Status != types.GroundingUngrounded {
+			t.Errorf("status=%s, want ungrounded; note=%s", rep.Status, rep.Note)
 		}
 	})
 }

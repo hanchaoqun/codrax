@@ -1,6 +1,7 @@
 package ground
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -400,24 +401,53 @@ func groundScopeNegative(it *types.EvidenceItem, gc *Context) Report {
 		rep.Note = it.GroundingNote
 		return rep
 	}
-	// Stage 2: NegativeScope=file/range/section/struct_fields all
-	// resolve to "scan the whole file body". Stage 4's section
-	// parser narrows section to the parsed range. The struct_fields
-	// case (Q6 in design — Go AST) ships in stage 4 via Go-AST integration;
-	// stage 2 still uses whole-file scan as conservative fallback.
-	matches := patternRE.FindAllIndex(body, -1)
+	scanBody := body
+	scopeLabel := string(it.NegativeScope)
+	if it.NegativeScope == types.NegativeScopeRange {
+		if it.LineStart <= 0 {
+			it.GroundingStatus = types.GroundingUngrounded
+			it.GroundingNote = "scope=negative range requires line_start>0"
+			rep.Status = it.GroundingStatus
+			rep.Note = it.GroundingNote
+			return rep
+		}
+		end := it.LineEnd
+		if end < it.LineStart {
+			end = it.LineStart
+		}
+		scanBody = bodyLineRange(body, it.LineStart, end)
+		scopeLabel = fmt.Sprintf("range %d-%d", it.LineStart, end)
+	}
+	// Section and struct_fields still conservatively scan the whole file until
+	// their typed parsers are wired here. Range is precise because line bounds
+	// are already part of the EvidenceItem contract.
+	matches := patternRE.FindAllIndex(scanBody, -1)
 	if len(matches) == 0 {
 		it.GroundingStatus = types.GroundingGrounded
 		it.GroundingTier = types.TierNegativeConfirmed
-		it.GroundingNote = fmt.Sprintf("scope=negative pattern absent in %s [%s]", file, it.NegativeScope)
+		it.GroundingNote = fmt.Sprintf("scope=negative pattern absent in %s [%s]", file, scopeLabel)
 	} else {
 		it.GroundingStatus = types.GroundingUngrounded
-		it.GroundingNote = fmt.Sprintf("scope=negative absence claim FAILED: pattern matched %d time(s) in %s", len(matches), file)
+		it.GroundingNote = fmt.Sprintf("scope=negative absence claim FAILED: pattern matched %d time(s) in %s [%s]", len(matches), file, scopeLabel)
 	}
 	rep.Status = it.GroundingStatus
 	rep.Tier = it.GroundingTier
 	rep.Note = it.GroundingNote
 	return rep
+}
+
+func bodyLineRange(body []byte, start, end int) []byte {
+	if start <= 0 || end < start || len(body) == 0 {
+		return nil
+	}
+	lines := bytes.SplitAfter(body, []byte("\n"))
+	if start > len(lines) {
+		return nil
+	}
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return bytes.Join(lines[start-1:end], nil)
 }
 
 // repoRootOrEmpty extracts the repo root from gc, or returns "" when

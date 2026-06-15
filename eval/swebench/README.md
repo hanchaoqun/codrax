@@ -52,15 +52,20 @@ verify stage can run `pytest` when the checkout supports it. The adapter install
 inside the venv; if the import is missing, the adapter installs a compatible
 `setuptools<81` and records the check/recheck steps. When `pyproject.toml`
 declares `[build-system].requires`, the adapter installs those structured build
-requirements into the same venv before editable install. If editable
-installation still fails because pip's isolated build environment did not
-inherit that legacy compatibility, the adapter performs one bounded
-`--no-build-isolation` retry.
+requirements into the same venv before editable install. Legacy projects that
+only declare dependencies in `setup.py` are parsed with Python AST; any
+structured `install_requires` / `setup_requires` entries are installed
+best-effort before editable install. If editable installation still fails
+because pip's isolated build environment did not inherit that legacy
+compatibility, the adapter performs one bounded `--no-build-isolation` retry.
 Environment setup failures never block prediction export; they leave the run
 unverified and the official harness remains the scoring authority. `results.jsonl`
 also includes Codrax's typed local verifier verdict (`verify_status`,
 `verify_failure_kind`, `verify_summary`, `verify_test_count`) so environment
-dead-ends are auditable without being treated as code failures. Codrax's Python
+dead-ends are auditable without being treated as code failures. By default the
+exported SWE-bench prediction strips repository test/spec path changes and
+records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
+when debugging Codrax's own generated test edits. Codrax's Python
 verifier also recognizes Django source trees with `tests/runtests.py` and uses
 that typed harness instead of plain pytest when the repository advertises it
 through file structure. During worktree verification, Codrax prepends the active

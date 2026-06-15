@@ -477,3 +477,39 @@ records adapter results.
   `install_pyproject_build_requires`, while editable/native build remained
   partial. This keeps local sandbox confidence best-effort without blocking
   delivery.
+- 2026-06-15: Ran a new cross-repo Lite batch under
+  `eval/results/swebench/lite-smoke-20260615-crossrepo-gap-232726` for
+  `django__django-10914`, `pydata__xarray-3364`,
+  `scikit-learn__scikit-learn-10297`, and `sympy__sympy-11870`. Prediction
+  validation passed and official harness dry-run accepted the combined file
+  (`validated 4 prediction(s); empty_patch=1`). Manual audit found:
+  - Django and Xarray patches included repository test/spec path changes, which
+    are unnecessary for SWE-bench hidden-test scoring and make patch quality
+    harder to audit.
+  - Scikit-learn's legacy `setup.py` declared `install_requires` with
+    `numpy>=...` / `scipy>=...`, but the adapter only parsed `pyproject.toml`,
+    leaving local verification unable to import `numpy`.
+  - Scikit-learn and SymPy both triggered repeated read-mode repairs because
+    `scope=negative` with `negative_scope=range` still scanned the whole file,
+    so an absence claim bounded to a docstring/function range failed when the
+    pattern appeared elsewhere in the same file.
+- 2026-06-15: Landed generalized follow-up:
+  - `scope=negative` + `negative_scope=range` now scans only the typed
+    `line_start`/`line_end` bounds instead of the whole file. Hard gating still
+    reads only typed file/path/range/pattern fields.
+  - SWE-bench env prep parses `setup.py` with Python AST and installs
+    structured `install_requires` / `setup_requires` entries best-effort before
+    editable install.
+  - SWE-bench prediction export strips repository test/spec path diffs by
+    default and records them in `dropped_test_patch_paths`; `--include-test-patches`
+    keeps the old debug behavior when explicitly requested.
+- 2026-06-16: Re-ran `scikit-learn__scikit-learn-10297` after the range/env
+  follow-up at
+  `eval/results/swebench/lite-smoke-20260616-scikit-range-setup-after-fix-000555`.
+  Prediction validation passed, official harness dry-run accepted the patch,
+  and env prep recorded `setup_declared_requires=['numpy>=1.8.2',
+  'scipy>=0.13.3']` plus successful `install_setup_declared_requires`. The
+  exported patch stayed source-only (`dropped_test_patch_paths=[]`,
+  `patch_bytes=1555`). Local verify remained `unavailable` because the scoped
+  pytest surface returned `no_tests_runners=['python']`, now exported as
+  `verify_failure_kind=no_tests` for audit clarity.

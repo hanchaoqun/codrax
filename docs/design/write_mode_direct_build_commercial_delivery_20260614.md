@@ -3067,3 +3067,72 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     and `install_pyproject_build_requires code=0`; editable/native build still
     remained partial, but the patch exported. This proves local env gaps improve
     best-effort confidence without becoming hard delivery gates.
+
+## 2026-06-15 SWE-bench cross-repo audit and read/write smoothing follow-up
+
+- Evidence source:
+  - Fresh cross-repo SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260615-crossrepo-gap-232726`.
+  - Instances:
+    - `django__django-10914`: `status=predicted`, `patch_bytes=1248`,
+      final `plan_status=verify_failed`, local Django suite produced unrelated
+      Python-3.11-era failures after a scoped `test_utils.tests` run.
+    - `pydata__xarray-3364`: `status=predicted`, `patch_bytes=4701`,
+      `verify_status=unavailable`, local old-Xarray/NumPy-2 import
+      incompatibility before real pytest assertions.
+    - `scikit-learn__scikit-learn-10297`: `status=predicted`,
+      `patch_bytes=2148`, `verify_status=unavailable`; legacy `setup.py`
+      declared NumPy/SciPy but local env prep did not yet install setup.py
+      metadata dependencies.
+    - `sympy__sympy-11870`: `status=empty_patch`, no final ChangePlan; the run
+      spent planning budget in complex exp/trig reasoning after read-mode
+      absence evidence repairs.
+  - Local prediction validation passed (`validated 4 prediction(s);
+    empty_patch=1`) and official harness dry-run accepted the predictions file.
+- Generalized gaps fixed:
+  - Read-mode negative evidence now respects `negative_scope=range` by scanning
+    the typed `line_start`/`line_end` slice instead of the entire file. This
+    fixes the repeated Scikit/SymPy pattern where an absence claim bounded to a
+    docstring/function range failed because the same token appeared elsewhere
+    in the file.
+  - SWE-bench adapter env prep now parses `setup.py` with Python AST and
+    best-effort installs structured `install_requires` / `setup_requires`
+    entries before editable install. This covers old projects without
+    `pyproject.toml` while avoiding stderr/prose keyword routing.
+  - SWE-bench prediction export now strips repository test/spec path diffs by
+    default and records them in `dropped_test_patch_paths`; the explicit
+    `--include-test-patches` flag preserves debug access to generated test
+    edits. This keeps official hidden-test predictions focused on product code.
+- Safety and prompt hygiene:
+  - Hard decisions consume typed path/range/pattern fields, AST metadata,
+    command exit codes, and structured report fields. No user-intent keyword,
+    model rationale, `<think>`, or natural-language failure summary drives
+    routing.
+  - Env prep and test-patch stripping are adapter-level support behavior; they
+    do not alter Codrax write/read/operation mode entrypoints or worktree
+    cleanup.
+- Implementation tasks:
+  - [x] Add precise `negative_scope=range` grounder behavior and tests.
+  - [x] Add `setup.py` AST dependency extraction and install step to SWE-bench
+    env prep.
+  - [x] Add default test/spec diff stripping with audit field
+    `dropped_test_patch_paths` and `--include-test-patches` override.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`,
+    `eval/swebench/README.md`, and ledgers.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/tool/ground -run TestGroundScopeNegative_AbsenceCheckIsReal`.
+  - SWE-bench adapter compiles with `python3 -m py_compile`.
+  - Scikit checkout AST self-check extracted `['numpy>=1.8.2',
+    'scipy>=0.13.3']` from `setup.py` without executing setup code.
+  - After-fix SWE-bench Lite spot rerun:
+    `eval/results/swebench/lite-smoke-20260616-scikit-range-setup-after-fix-000555`
+    for `scikit-learn__scikit-learn-10297`; prediction validation passed,
+    official harness dry-run accepted the patch, `patch_bytes=1555`,
+    `dropped_test_patch_paths=[]`, env prep recorded
+    `setup_declared_requires=['numpy>=1.8.2','scipy>=0.13.3']` and
+    `install_setup_declared_requires code=0`. Local verify remained
+    `unavailable/no_tests`, which is an audit signal rather than a hard
+    delivery gate.
+  - Full regression and push are tracked by the implementation commit following
+    this section.

@@ -14,6 +14,7 @@ The official SWE-bench harness remains the authority for scoring.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -243,6 +244,93 @@ def pyproject_build_requires(repo_dir: Path) -> list[str]:
     return out[:64]
 
 
+def setup_py_declared_requires(repo_dir: Path) -> list[str]:
+    setup_py = repo_dir / "setup.py"
+    if not setup_py.exists() or setup_py.stat().st_size > 2_000_000:
+        return []
+    try:
+        tree = ast.parse(setup_py.read_text(encoding="utf-8"), filename=str(setup_py))
+    except Exception:
+        return []
+
+    names: dict[str, Any] = {}
+
+    def eval_expr(node: ast.AST) -> Any:
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            return names.get(node.id)
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            values = []
+            for item in node.elts:
+                value = eval_expr(item)
+                if value is None:
+                    return None
+                values.append(value)
+            return values
+        if isinstance(node, ast.Dict):
+            out: dict[Any, Any] = {}
+            for key_node, value_node in zip(node.keys, node.values):
+                if key_node is None:
+                    continue
+                key = eval_expr(key_node)
+                value = eval_expr(value_node)
+                if key is not None:
+                    out[key] = value
+            return out
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = eval_expr(node.left)
+            right = eval_expr(node.right)
+            if isinstance(left, str) and isinstance(right, str):
+                return left + right
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+            base = eval_expr(node.func.value)
+            args = [eval_expr(arg) for arg in node.args]
+            kwargs = {kw.arg: eval_expr(kw.value) for kw in node.keywords if kw.arg}
+            if isinstance(base, str) and all(arg is not None for arg in args) and all(value is not None for value in kwargs.values()):
+                try:
+                    return base.format(*args, **kwargs)
+                except Exception:
+                    return None
+        return None
+
+    def add_requires(value: Any, out: list[str]) -> None:
+        if isinstance(value, str):
+            item = value.strip()
+            if item:
+                out.append(item)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                add_requires(item, out)
+
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            value = eval_expr(stmt.value)
+            if isinstance(value, (str, int, float, list, tuple, set, dict)):
+                names[stmt.targets[0].id] = value
+
+    raw: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            values = eval_expr(node)
+            if isinstance(values, dict):
+                add_requires(values.get("setup_requires"), raw)
+                add_requires(values.get("install_requires"), raw)
+        elif isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg in {"setup_requires", "install_requires"}:
+                    add_requires(eval_expr(kw.value), raw)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if item not in seen:
+            out.append(item)
+            seen.add(item)
+    return out[:64]
+
+
 def venv_bin_dir(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts"
@@ -331,6 +419,16 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         build_req = step("install_pyproject_build_requires", [str(python), "-m", "pip", "install", *build_requires], cwd=repo_dir)
         project_failed = project_failed or build_req.code != 0 or build_req.timed_out
         if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_build_requires"):
+            record["pkg_resources_available"] = False
+            project_failed = True
+        else:
+            record["pkg_resources_available"] = True
+    setup_requires = setup_py_declared_requires(repo_dir)
+    if setup_requires:
+        record["setup_declared_requires"] = setup_requires
+        setup_req = step("install_setup_declared_requires", [str(python), "-m", "pip", "install", *setup_requires], cwd=repo_dir)
+        project_failed = project_failed or setup_req.code != 0 or setup_req.timed_out
+        if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_setup_requires"):
             record["pkg_resources_available"] = False
             project_failed = True
         else:
@@ -470,6 +568,15 @@ def report_verification_status(report: dict[str, Any]) -> str:
     return "passed"
 
 
+def report_failure_kind(report: dict[str, Any]) -> str:
+    failure_kind = str(report.get("failure_kind") or "").strip()
+    if failure_kind:
+        return failure_kind
+    if report_verification_status(report) == "unavailable" and report.get("no_tests_runners"):
+        return "no_tests"
+    return ""
+
+
 def commit_exists(repo_dir: Path, rev: str) -> bool:
     if not rev:
         return False
@@ -477,7 +584,46 @@ def commit_exists(repo_dir: Path, rev: str) -> bool:
     return result.code == 0
 
 
-def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any]) -> tuple[str, str]:
+def is_test_patch_path(path: str) -> bool:
+    norm = path.replace("\\", "/").strip("/")
+    if not norm:
+        return False
+    parts = norm.split("/")
+    if any(part in {"test", "tests", "spec", "specs", "__tests__"} for part in parts[:-1]):
+        return True
+    name = parts[-1]
+    lower = name.lower()
+    return (
+        lower.startswith("test_")
+        or lower.endswith("_test.py")
+        or lower.endswith("_test.go")
+        or lower.endswith(".test.js")
+        or lower.endswith(".spec.js")
+        or lower.endswith(".test.ts")
+        or lower.endswith(".spec.ts")
+        or lower.endswith("_spec.rb")
+    )
+
+
+def export_patch_between(repo_dir: Path, base: str, head: str, include_test_patches: bool) -> tuple[str, list[str]]:
+    names = run_cmd(["git", "diff", "--name-only", base, head], cwd=repo_dir, timeout=120)
+    if names.code != 0:
+        result = run_cmd(["git", "diff", "--binary", base, head], cwd=repo_dir, timeout=120)
+        return (result.output if result.code == 0 else ""), []
+    changed = [line.strip() for line in names.output.splitlines() if line.strip()]
+    test_paths = [path for path in changed if is_test_patch_path(path)]
+    dropped = [] if include_test_patches else test_paths
+    selected = changed if include_test_patches else [path for path in changed if not is_test_patch_path(path)]
+    if not selected:
+        return "", dropped
+    result = run_cmd(["git", "diff", "--binary", base, head, "--", *selected], cwd=repo_dir, timeout=120)
+    if result.code == 0:
+        return result.output, dropped
+    result = run_cmd(["git", "diff", "--binary", base, head], cwd=repo_dir, timeout=120)
+    return (result.output if result.code == 0 else ""), []
+
+
+def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any], include_test_patches: bool) -> tuple[str, str, list[str]]:
     plan_id = str(plan.get("id") or "").strip()
     applied_sha = str(plan.get("applied_commit_sha") or "").strip()
     worktree = str(plan.get("worktree_path") or "").strip()
@@ -487,14 +633,12 @@ def export_patch(repo_dir: Path, base_commit: str, plan: dict[str, Any]) -> tupl
     elif plan_id and commit_exists(repo_dir, f"refs/codrax/applied/{plan_id}"):
         commit = f"refs/codrax/applied/{plan_id}"
     if commit:
-        result = run_cmd(["git", "diff", "--binary", base_commit, commit], cwd=repo_dir, timeout=120)
-        if result.code == 0:
-            return result.output, commit
+        patch, dropped = export_patch_between(repo_dir, base_commit, commit, include_test_patches)
+        return patch, commit, dropped
     if worktree and Path(worktree).is_dir():
-        result = run_cmd(["git", "diff", "--binary", base_commit, "HEAD"], cwd=Path(worktree), timeout=120)
-        if result.code == 0:
-            return result.output, "worktree:HEAD"
-    return "", ""
+        patch, dropped = export_patch_between(Path(worktree), base_commit, "HEAD", include_test_patches)
+        return patch, "worktree:HEAD", dropped
+    return "", "", []
 
 
 def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -550,13 +694,14 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""
             result["verify_status"] = report_verification_status(report)
             result["verify_passed"] = bool(report.get("passed"))
-            result["verify_failure_kind"] = str(report.get("failure_kind") or "")
+            result["verify_failure_kind"] = report_failure_kind(report)
             result["verify_summary"] = str(report.get("failure_summary") or "")
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])
-        patch, source = export_patch(repo_dir, base, plan)
+        patch, source, dropped_test_paths = export_patch(repo_dir, base, plan, bool(args.include_test_patches))
         prediction["model_patch"] = patch
         result["patch_source"] = source
+        result["dropped_test_patch_paths"] = dropped_test_paths
         result["patch_bytes"] = len(patch.encode("utf-8"))
         result["status"] = "predicted" if patch.strip() else "empty_patch"
     except Exception as exc:  # keep batch runs moving; official harness can score empty patches.
@@ -594,6 +739,11 @@ def parse_args() -> argparse.Namespace:
         "--prepare-python-env",
         action="store_true",
         help="Best-effort per-instance Python venv for Codrax local verification; failures are recorded but do not block predictions",
+    )
+    parser.add_argument(
+        "--include-test-patches",
+        action="store_true",
+        help="Include repository test/spec file changes in exported predictions; default strips them for SWE-bench scoring",
     )
     parser.add_argument("--env-prepare-timeout", type=int, default=600, help="Timeout in seconds per Python environment setup command")
     parser.add_argument("--no-fetch", action="store_true", help="Do not fetch existing mirror caches")
