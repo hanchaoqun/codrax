@@ -634,3 +634,40 @@ records adapter results.
   hard product gate. They let batch dashboards flag cases where the official
   prediction contains source changes but the final live plan drifted to test-only
   or otherwise failed to cover the exported source patch.
+- 2026-06-16: Ran a three-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-django-sympy-sphinx-telemetry`
+  for `django__django-14752`, `sphinx-doc__sphinx-8506`, and
+  `sympy__sympy-13031`. The adapter produced three non-empty predictions and
+  the official harness dry-run accepted them. Manual audit found one good
+  verified Django patch, one Sphinx false positive where the verifier probe
+  copied the proposed regex instead of importing the changed module, and one
+  Sympy unverified case where the old checkout failed under the local Python
+  runtime before the patch could be proven. This keeps reinforcing the product
+  boundary: missing or incompatible project dependencies must remain
+  `unverified`, while a locally failed behavior probe must not look equivalent
+  to a verified prediction in eval telemetry.
+- 2026-06-16: Landed a generalized ChangePlan hard gate for Python verification
+  probes. When a plan changes Python production files and supplies Python
+  probes, the probe set must include at least one import declaration that
+  structurally covers a changed production module candidate derived from the
+  typed `changes[].path` list. The gate runs in both `emit_change_plan` and
+  final `emit_plan_change` promotion, after probe normalization and before plan
+  installation. It does not inspect user intent keywords, model rationale, or
+  natural-language summaries; it compares typed file paths with deterministic
+  Python import declarations. Extra probes remain allowed once one coupled probe
+  exercises the changed module, so CLI/smoke probes can still complement the
+  behavior check without becoming the only proof.
+- 2026-06-16: Re-ran `sphinx-doc__sphinx-8506` after the probe-coupling gate at
+  `eval/results/swebench/lite-smoke-20260616-sphinx-probe-coupling-after-fix`.
+  The first copied-regex probe was rejected, the planner retried with
+  `import sphinx.domains.std as std_module`, and verify then failed on typed
+  behavior evidence: `AssertionError: Wrong match for [enable=]PATTERN:
+  [enable`. The controller carried that failure into P2 handoff and attempted a
+  replan, but the exported patch still came from the failed local plan. The
+  adapter now adds `prediction_verdict`, `prediction_local_confidence`, and
+  `prediction_blocks_local_acceptance` to `results.jsonl` so a non-empty patch
+  with failed local verification is auditable as `predicted_failed_verify`
+  without changing the official SWE-bench predictions JSONL shape. Remaining
+  follow-up: workflow export/replan convergence should prefer a later verified
+  or applicable plan, or surface terminal failed workflow state more strongly in
+  controller UX and batch dashboards.

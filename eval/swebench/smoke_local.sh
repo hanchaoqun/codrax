@@ -238,6 +238,15 @@ if row.get("final_plan_covers_exported_source_patch") is not True:
         "final plan should structurally cover the exported source patch: "
         f"{row.get('final_plan_covers_exported_source_patch')!r}"
     )
+if row.get("prediction_verdict") != "predicted_unchecked":
+    raise SystemExit(f"unexpected prediction_verdict for fake run without report: {row.get('prediction_verdict')!r}")
+if row.get("prediction_local_confidence") != "unknown":
+    raise SystemExit(f"unexpected prediction_local_confidence: {row.get('prediction_local_confidence')!r}")
+if row.get("prediction_blocks_local_acceptance") is not False:
+    raise SystemExit(
+        "fake run has no failed verify report, so it should not block local acceptance: "
+        f"{row.get('prediction_blocks_local_acceptance')!r}"
+    )
 PY
 
 DRY_RUN=1 PREDICTIONS_PATH="$PREDICTIONS" "$ROOT/eval/swebench/run_official_harness.sh" >/dev/null

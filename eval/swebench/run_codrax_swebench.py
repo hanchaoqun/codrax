@@ -885,6 +885,20 @@ def report_failure_kind(report: dict[str, Any]) -> str:
     return ""
 
 
+def prediction_verdict(patch: str, verify_status: str, plan_status: str) -> tuple[str, str, bool]:
+    if not patch.strip():
+        return "empty_patch", "none", False
+    status = str(verify_status or "").strip()
+    plan = str(plan_status or "").strip()
+    if status == "passed":
+        return "predicted_passed", "high", False
+    if status == "failed" or plan == "verify_failed":
+        return "predicted_failed_verify", "failed", True
+    if status == "unavailable" or plan == "unverified":
+        return "predicted_unverified", "unknown", False
+    return "predicted_unchecked", "unknown", False
+
+
 def commit_exists(repo_dir: Path, rev: str) -> bool:
     if not rev:
         return False
@@ -1083,9 +1097,20 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
         )
         result["patch_bytes"] = len(patch.encode("utf-8"))
+        verdict, confidence, blocks_local_acceptance = prediction_verdict(
+            patch,
+            str(result.get("verify_status") or ""),
+            str(result.get("plan_status") or ""),
+        )
+        result["prediction_verdict"] = verdict
+        result["prediction_local_confidence"] = confidence
+        result["prediction_blocks_local_acceptance"] = blocks_local_acceptance
         result["status"] = "predicted" if patch.strip() else "empty_patch"
     except Exception as exc:  # keep batch runs moving; official harness can score empty patches.
         result["status"] = "error"
+        result["prediction_verdict"] = "adapter_error"
+        result["prediction_local_confidence"] = "failed"
+        result["prediction_blocks_local_acceptance"] = True
         result["error"] = str(exc)
     (inst_dir / "prediction.json").write_text(json.dumps(prediction, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     (inst_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

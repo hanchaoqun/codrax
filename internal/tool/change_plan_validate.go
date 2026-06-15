@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -205,7 +206,7 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 	return ""
 }
 
-func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange) string {
+func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange, verificationProbes []types.VerificationProbe) string {
 	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
 		return rej
 	}
@@ -243,7 +244,233 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := validatePythonVerificationProbeCoupling(changes, verificationProbes); rej != "" {
+		return rej
+	}
 	return ""
+}
+
+func validatePythonVerificationProbeCoupling(changes []types.FileChange, probes []types.VerificationProbe) string {
+	if len(probes) == 0 {
+		return ""
+	}
+	targets := pythonProductionModuleCandidates(changes)
+	if len(targets) == 0 {
+		return ""
+	}
+	pythonProbeCount := 0
+	importsSeen := map[string]struct{}{}
+	for _, probe := range probes {
+		if strings.ToLower(strings.TrimSpace(probe.Language)) != "python" {
+			continue
+		}
+		pythonProbeCount++
+		imports := pythonImportDeclarations(probe.Code)
+		if len(imports) == 0 {
+			continue
+		}
+		for imported := range imports {
+			importsSeen[imported] = struct{}{}
+		}
+		if pythonImportsCoverAnyTarget(imports, targets) {
+			return ""
+		}
+	}
+	if pythonProbeCount == 0 {
+		return ""
+	}
+	if len(importsSeen) == 0 {
+		return fmt.Sprintf("verification_probes do not include any Python import declarations for changed production modules %s; at least one Python probe must import the changed module under test instead of checking an isolated copy", formatStringSet(targets))
+	}
+	return fmt.Sprintf("verification_probes import %s but do not import any changed Python production module %s; at least one Python probe must exercise the changed code, not a copied implementation fragment", formatStringSet(importsSeen), formatStringSet(targets))
+}
+
+func pythonProductionModuleCandidates(changes []types.FileChange) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".py") || types.LooksLikeTestFilePath(path) {
+			continue
+		}
+		for _, mod := range pythonModuleCandidatesForPath(path) {
+			out[mod] = struct{}{}
+		}
+	}
+	return out
+}
+
+func pythonModuleCandidatesForPath(relPath string) []string {
+	relPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(relPath)), "./")
+	if !strings.HasSuffix(relPath, ".py") {
+		return nil
+	}
+	stem := strings.TrimSuffix(relPath, ".py")
+	if strings.HasSuffix(stem, "/__init__") {
+		stem = strings.TrimSuffix(stem, "/__init__")
+	}
+	stem = strings.Trim(stem, "/")
+	if stem == "" {
+		return nil
+	}
+	raw := strings.ReplaceAll(stem, "/", ".")
+	candidates := []string{raw}
+	for _, root := range []string{"src.", "lib."} {
+		if strings.HasPrefix(raw, root) && len(raw) > len(root) {
+			candidates = append(candidates, strings.TrimPrefix(raw, root))
+		}
+	}
+	return uniqueNonEmptyStrings(candidates)
+}
+
+func pythonImportDeclarations(code string) map[string]struct{} {
+	out := map[string]struct{}{}
+	lines := strings.Split(code, "\n")
+	for _, line := range lines {
+		parsePythonImportDeclaration(line, out)
+	}
+	return out
+}
+
+func parsePythonImportDeclaration(line string, out map[string]struct{}) {
+	line = strings.TrimSpace(stripPythonLineComment(line))
+	if line == "" || strings.HasPrefix(line, ".") {
+		return
+	}
+	if strings.HasPrefix(line, "import ") {
+		body := strings.TrimSpace(strings.TrimPrefix(line, "import "))
+		for _, part := range strings.Split(body, ",") {
+			mod := firstPythonImportToken(part)
+			if isPythonModuleName(mod) {
+				out[mod] = struct{}{}
+			}
+		}
+		return
+	}
+	if strings.HasPrefix(line, "from ") {
+		body := strings.TrimSpace(strings.TrimPrefix(line, "from "))
+		idx := strings.Index(body, " import ")
+		if idx <= 0 {
+			return
+		}
+		base := strings.TrimSpace(body[:idx])
+		if !isPythonModuleName(base) {
+			return
+		}
+		out[base] = struct{}{}
+		imports := strings.TrimSpace(body[idx+len(" import "):])
+		imports = strings.Trim(imports, "()")
+		for _, part := range strings.Split(imports, ",") {
+			name := firstPythonImportToken(part)
+			if isPythonIdentifier(name) {
+				out[base+"."+name] = struct{}{}
+			}
+		}
+	}
+}
+
+func stripPythonLineComment(line string) string {
+	var quote rune
+	escaped := false
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == '#' {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func firstPythonImportToken(part string) string {
+	fields := strings.Fields(strings.TrimSpace(part))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fields[0])
+}
+
+func isPythonModuleName(s string) bool {
+	if s == "" || strings.HasPrefix(s, ".") || strings.HasSuffix(s, ".") {
+		return false
+	}
+	for _, part := range strings.Split(s, ".") {
+		if !isPythonIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPythonIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+				return false
+			}
+			continue
+		}
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func pythonImportsCoverAnyTarget(imports, targets map[string]struct{}) bool {
+	for target := range targets {
+		if _, ok := imports[target]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func formatStringSet(values map[string]struct{}) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	items := make([]string, 0, len(values))
+	for value := range values {
+		items = append(items, value)
+	}
+	sort.Strings(items)
+	return "[" + strings.Join(items, ", ") + "]"
+}
+
+func uniqueNonEmptyStrings(in []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func validatePlanPatchDuplicateInsertions(changes []types.FileChange) string {

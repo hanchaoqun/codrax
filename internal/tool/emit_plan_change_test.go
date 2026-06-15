@@ -92,6 +92,41 @@ func TestEmitPlanChange_FinalFillFinalizesPlan(t *testing.T) {
 	}
 }
 
+func TestEmitPlanChange_FinalizeRejectsPythonProbeNotImportingChangedTarget(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.RepoRoot = t.TempDir()
+	installSkeletonForTest(t, bus, `{
+		"request": "fix option directive parsing",
+		"summary": "Single-file Python plan with a verification probe that must exercise the changed module.",
+		"changes": [
+			{"path": "sphinx/domains/std.py", "kind": "modify", "rationale": "update option parsing"}
+		],
+		"verification_probes": [
+			{"id": "copied_regex", "language": "python", "code": "import re\nfixed_re = re.compile(r'(\\[[^\\s=]+=\\])([^\\s=[]+)(=?\\s*.*)')\nassert fixed_re.match('[enable=]PATTERN')\n"}
+		]
+	}`)
+
+	res, err := (&EmitPlanChange{}).Execute(bus, json.RawMessage(`{
+		"path": "sphinx/domains/std.py",
+		"new_content": "option_desc_re = None\n"
+	}`))
+	if err != nil {
+		t.Fatalf("execute err: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected finalize to reject copied implementation probe")
+	}
+	if !strings.Contains(res.Summary, "do not import any changed Python production module") {
+		t.Fatalf("summary should explain changed-module probe coupling, got: %s", res.Summary)
+	}
+	if bus.Mutable.ChangePlan() != nil {
+		t.Fatalf("ChangePlan must not be promoted after probe coupling rejection")
+	}
+	if bus.Mutable.PartialChangePlan() == nil {
+		t.Fatalf("PartialChangePlan should be retained for retry")
+	}
+}
+
 // TestEmitPlanChange_NoSkeletonRejects: calling emit_plan_change
 // without a prior skeleton returns a clear protocol-error message.
 func TestEmitPlanChange_NoSkeletonRejects(t *testing.T) {

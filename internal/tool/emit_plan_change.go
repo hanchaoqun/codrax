@@ -243,7 +243,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// intact so the planner can re-emit the offending file (single
 	// emit_plan_change call to fix one path is much smaller than
 	// re-running the entire emission).
-	if rej := validatePlanFullContent(ctx, partial.Summary, partial.Changes); rej != "" {
+	if rej := validatePlanFullContent(ctx, partial.Summary, partial.Changes, partial.VerificationProbes); rej != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,

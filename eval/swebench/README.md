@@ -80,13 +80,16 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_context_uncovered_paths`, `plan_context_coverage_ratio`,
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
-`final_plan_test_only`, and `final_plan_covers_exported_source_patch`) so
-environment dead-ends, test-edit drift, planner handoff coverage, and
-final-plan-vs-exported-source drift are auditable without being treated as code
-failures. Context coverage is derived only from persisted workflow/context-pack
-typed fields when present; it is audit telemetry, not an apply/verify gate. When a
-`ChangePlan` carries `verification_probes[]`, Codrax runs those bounded typed
-probes before any project-level suite; passing probes become the local behavior
+`final_plan_test_only`, `final_plan_covers_exported_source_patch`,
+`prediction_verdict`, `prediction_local_confidence`, and
+`prediction_blocks_local_acceptance`) so environment dead-ends, test-edit drift,
+planner handoff coverage, failed local verification, and
+final-plan-vs-exported-source drift are auditable without changing the official
+predictions JSONL shape. Context coverage is derived only from persisted
+workflow/context-pack typed fields when present; it is audit telemetry, not an
+apply/verify gate. When a `ChangePlan` carries `verification_probes[]`, Codrax
+runs those bounded typed probes before any project-level suite; passing probes
+become the local behavior
 verdict while the project suite is retained as typed `TestSurface` diagnostics
 instead of a hard gate. Failing probes remain real `tests_failed` evidence, and
 unavailable probes fall back to the normal runner/unverified path. By default

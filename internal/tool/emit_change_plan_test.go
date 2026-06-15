@@ -173,6 +173,90 @@ func TestEmitChangePlan_RejectsEscapingVerificationProbeWorkingDir(t *testing.T)
 	}
 }
 
+func TestEmitChangePlan_RejectsPythonProbeThatCopiesImplementationInsteadOfImportingTarget(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix option directive parsing",
+		"summary": "Modify the Sphinx option parser and attach a probe. The probe must exercise the changed production module instead of copying the proposed regular expression into the probe.",
+		"changes": [
+			{"path": "sphinx/domains/std.py", "kind": "modify", "new_content": "option_desc_re = None\n", "rationale": "update option parsing"}
+		],
+		"verification_probes": [
+			{"id": "copied_regex", "language": "python", "code": "import re\nfixed_re = re.compile(r'(\\[[^\\s=]+=\\])([^\\s=[]+)(=?\\s*.*)')\nassert fixed_re.match('[enable=]PATTERN')\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected copied implementation probe to be rejected")
+	}
+	if !strings.Contains(res.Summary, "do not import any changed Python production module") {
+		t.Fatalf("summary should explain changed-module probe coupling, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected probe must not install a plan: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_AcceptsPythonProbeImportingChangedTargetModule(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix option directive parsing",
+		"summary": "Modify the Sphinx option parser and attach a probe that imports the changed production module before asserting behavior.",
+		"changes": [
+			{"path": "sphinx/domains/std.py", "kind": "modify", "new_content": "option_desc_re = None\n", "rationale": "update option parsing"}
+		],
+		"verification_probes": [
+			{"id": "module_behavior", "language": "python", "code": "from sphinx.domains import std\nassert std.option_desc_re.match('[enable=]PATTERN')\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected changed-module probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one probe, got: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_AcceptsExtraPythonProbeWhenAnotherProbeImportsChangedTarget(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix option directive parsing",
+		"summary": "Modify the Sphinx option parser with one coupled behavior probe plus an extra smoke probe.",
+		"changes": [
+			{"path": "sphinx/domains/std.py", "kind": "modify", "new_content": "option_desc_re = None\n", "rationale": "update option parsing"}
+		],
+		"verification_probes": [
+			{"id": "module_behavior", "language": "python", "code": "from sphinx.domains import std\nassert std.option_desc_re is not None\n"},
+			{"id": "local_regex_smoke", "language": "python", "code": "import re\nassert re.match(r'.+', 'x')\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected plan with at least one changed-module probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 2 {
+		t.Fatalf("expected accepted plan with two probes, got: %+v", plan)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

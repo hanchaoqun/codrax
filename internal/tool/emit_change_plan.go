@@ -345,6 +345,16 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
+	if rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// 4) Patch pre-flight. For every kind=patch change, dry-run
 	//    `git apply --check` against the current RepoRoot (pre-apply
 	//    main repo HEAD). A malformed unified diff (wrong hunk counts,
@@ -365,7 +375,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    container without git). Skipped when RepoRoot is empty
 	//    (unexpected in write mode, but belt-and-suspenders for
 	//    tool-layer unit tests that don't set it).
-	if rej := validatePlanFullContent(ctx, p.Summary, fcs); rej != "" {
+	if rej := validatePlanFullContent(ctx, p.Summary, fcs, probes); rej != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -378,16 +388,6 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    never reject a structurally valid plan. The advisory rides on the
 	//    success summary for planner self-correction and audit visibility;
 	//    hard acceptance stays governed by typed validators above.
-
-	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
-	if rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
-	}
 
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
