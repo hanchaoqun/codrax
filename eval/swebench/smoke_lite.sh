@@ -14,6 +14,8 @@ RESULTS_PATH="${RESULTS_PATH:-$WORKDIR/results.jsonl}"
 CODRAX_BIN="${CODRAX_BIN:-$ROOT/codrax}"
 MAX_STEPS="${MAX_STEPS:-50}"
 CODRAX_TIMEOUT="${CODRAX_TIMEOUT:-1800}"
+SWEBENCH_PREPARE_PYTHON_ENV="${SWEBENCH_PREPARE_PYTHON_ENV:-1}"
+SWEBENCH_ENV_PREPARE_TIMEOUT="${SWEBENCH_ENV_PREPARE_TIMEOUT:-600}"
 MAX_WORKERS="${MAX_WORKERS:-1}"
 SWEBENCH_RUN_OFFICIAL="${SWEBENCH_RUN_OFFICIAL:-0}"
 INSTANCE_ID="${INSTANCE_ID:-}"
@@ -37,12 +39,17 @@ fi
 if [[ -n "$INSTANCE_IDS_FILE" ]]; then
   instance_args+=(--instance-ids-file "$INSTANCE_IDS_FILE")
 fi
+env_prepare_args=(--env-prepare-timeout "$SWEBENCH_ENV_PREPARE_TIMEOUT")
+if [[ "$SWEBENCH_PREPARE_PYTHON_ENV" == "1" ]]; then
+  env_prepare_args+=(--prepare-python-env)
+fi
 
 "$PYTHON" "$ROOT/eval/swebench/run_codrax_swebench.py" \
   --dataset-name "$DATASET_NAME" \
   --split "$SPLIT" \
   --limit "$SWEBENCH_SMOKE_LIMIT" \
   "${instance_args[@]}" \
+  "${env_prepare_args[@]}" \
   --workdir "$WORKDIR" \
   --predictions-path "$PREDICTIONS_PATH" \
   --results-path "$RESULTS_PATH" \

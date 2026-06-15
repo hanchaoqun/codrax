@@ -7,14 +7,13 @@ import (
 )
 
 // TestShouldSuppressVerifyRetry covers the predicate that gates the
-// verify→plan retry cycle. Locks the contract: only
-// FailureKindRunnerMissing suppresses retry; every other failure
-// kind (tests_failed / build_failure / oom / cpu_limit / timeout /
-// crash) falls through to the budget check.
+// verify→plan retry cycle. Locks the contract: local verifier/environment
+// gaps suppress retry; authoritative code/test failures fall through to the
+// budget check.
 func TestShouldSuppressVerifyRetry(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		report  *types.ChangeReport
+		name     string
+		report   *types.ChangeReport
 		suppress bool
 	}{
 		{
@@ -55,6 +54,11 @@ func TestShouldSuppressVerifyRetry(t *testing.T) {
 		{
 			name:     "runner_missing — env issue, retry burns budget",
 			report:   &types.ChangeReport{Passed: false, FailureKind: types.FailureKindRunnerMissing},
+			suppress: true,
+		},
+		{
+			name:     "parser_error — verifier report missing, retry burns budget",
+			report:   &types.ChangeReport{Passed: false, FailureKind: types.FailureKindParserError},
 			suppress: true,
 		},
 		{

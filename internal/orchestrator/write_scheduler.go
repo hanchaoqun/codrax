@@ -700,13 +700,13 @@ func friendlyDispatchErr(err error) string {
 	return err.Error()
 }
 
-// shouldSuppressVerifyRetry reports whether a verify failure was
-// caused by a missing test runner binary (FailureKindRunnerMissing).
-// In that case the verify→plan retry loop must short-circuit: the
-// LLM cannot install software and the planner would just regenerate
-// equivalent test code that hits the same missing-tool wall. The
-// caller falls through to the terminal failure path so the user
-// sees the install hint without burning retry budget.
+// shouldSuppressVerifyRetry reports whether a verify failure came from the
+// local verifier/tooling environment rather than an authoritative code-test
+// verdict. In that case the verify→plan retry loop must short-circuit: the LLM
+// cannot install software or repair parser/report compatibility, and the
+// planner would just regenerate equivalent code that hits the same wall. The
+// caller falls through to the terminal failure path so the user sees the
+// environment hint without burning retry budget.
 //
 // Defensive against nil report (apply or worktree errors that never
 // reached the runner) — returns false so the existing budget check
@@ -715,7 +715,8 @@ func shouldSuppressVerifyRetry(report *types.ChangeReport) bool {
 	if report == nil {
 		return false
 	}
-	return report.FailureKind == types.FailureKindRunnerMissing
+	return report.FailureKind == types.FailureKindRunnerMissing ||
+		report.FailureKind == types.FailureKindParserError
 }
 
 // verifyStallReason inspects the last two verify-round fingerprints

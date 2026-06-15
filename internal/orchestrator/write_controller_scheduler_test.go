@@ -1046,6 +1046,65 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	}
 }
 
+func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("parser error")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "parser error"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(3)
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-parser-error", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         "plan-parser-error",
+				Channel:        types.ChangeReportChannelPostApplyVerify,
+				Passed:         false,
+				FailureKind:    types.FailureKindParserError,
+				FailureSummary: "pytest report missing after collection import error",
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("workflow should complete unverified when typed report says parser_error: %v", err)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
+		t.Fatalf("parser_error should complete as batch_unverified: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
+		t.Fatalf("parser_error should not enter replan verify_failed path: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "unverified", "parser_error", "plan-parser-error.report.json") {
+		t.Fatalf("parser_error verify attempt missing: %+v", store.last.Batches[0].Attempts)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusUnverified {
+		t.Fatalf("parser_error should leave plan unverified, got %+v", plan)
+	}
+	if result := mu.Result(); !strings.Contains(result, "local verification unavailable for: batch-1 (parser_error)") {
+		t.Fatalf("result should carry parser_error unverified caveat, got %q", result)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithoutRecord(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("apply fails structurally")

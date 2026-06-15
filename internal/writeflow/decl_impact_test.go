@@ -84,9 +84,11 @@ func TestAssessWriteRisk_BodyOnlyPublicHeaderPatchAutoExecutes(t *testing.T) {
 	}
 }
 
-// A patch that modifies the exported declaration line itself is precise
-// typed evidence of API impact and must require manual approval.
-func TestAssessWriteRisk_DeclLinePatchRequiresApproval(t *testing.T) {
+// A patch that modifies the exported declaration line itself is precise typed
+// evidence of API impact, but not automatically a dangerous operation. In the
+// write worktree it should remain visible at medium and auto-execute under
+// auto_safe unless another structural high/critical signal is present.
+func TestAssessWriteRisk_DeclLinePatchAutoExecutesUnderAutoSafe(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-signature-change",
 		Changes: []types.FileChange{
@@ -102,20 +104,51 @@ func TestAssessWriteRisk_DeclLinePatchRequiresApproval(t *testing.T) {
 		"include/lib/conversions.hpp": {39},
 	}}
 	assessment := AssessWriteRisk(AssessmentInput{Plan: plan, Decls: decls})
-	if assessment.Level != RiskHigh {
-		t.Fatalf("declaration-line patch should grade high, got %s (%+v)", assessment.Level, assessment.Reasons)
+	if assessment.Level != RiskMedium {
+		t.Fatalf("declaration-line patch should grade medium, got %s (%+v)", assessment.Level, assessment.Reasons)
 	}
 	found := false
 	for _, r := range assessment.Reasons {
-		if r.Code == "public_decl_line_changed" && r.Level == RiskHigh {
+		if r.Code == "public_decl_line_changed" && r.Level == RiskMedium {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected public_decl_line_changed high reason: %+v", assessment.Reasons)
+		t.Fatalf("expected public_decl_line_changed medium reason: %+v", assessment.Reasons)
+	}
+	if decision := DecideWriteApproval(ApprovalPolicyAutoSafe, assessment); decision.Action != ApprovalActionAutoExecute {
+		t.Fatalf("medium declaration-line patch should auto-execute under auto_safe, got %+v", decision)
+	}
+}
+
+// Declaration-line changes compose with the rest of the structural policy:
+// touching an exported declaration in a dependency/build manifest remains high
+// because the manifest path is the blast-radius signal.
+func TestAssessWriteRisk_DeclLinePatchPlusManifestStillRequiresApproval(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-signature-and-manifest",
+		Changes: []types.FileChange{
+			{Path: "include/lib/conversions.hpp", Kind: "patch", Patch: declLinePatch()},
+			{Path: "pyproject.toml", Kind: "patch", Patch: "@@ -1,1 +1,1 @@\n-name = \"a\"\n+name = \"b\"\n"},
+		},
+		WriteAnalysisIR: &types.WriteAnalysisIR{
+			Request: types.WriteRequestModel{
+				Risk: types.WriteRiskProfile{AffectsPublicAPI: true, ChangesBuildSystem: true, Overall: types.RiskBandLow},
+			},
+		},
+	}
+	decls := &fakeDeclSpans{lines: map[string][]int{
+		"include/lib/conversions.hpp": {39},
+	}}
+	assessment := AssessWriteRisk(AssessmentInput{Plan: plan, Decls: decls})
+	if assessment.Level != RiskHigh {
+		t.Fatalf("manifest path should keep combined plan high, got %s (%+v)", assessment.Level, assessment.Reasons)
+	}
+	if !hasRiskReason(assessment, "public_decl_line_changed") || !hasRiskReason(assessment, "path_class") {
+		t.Fatalf("combined plan should retain both declaration and path-class evidence: %+v", assessment.Reasons)
 	}
 	if decision := DecideWriteApproval(ApprovalPolicyAutoSafe, assessment); decision.Action != ApprovalActionManual {
-		t.Fatalf("high grade must require manual approval, got %+v", decision)
+		t.Fatalf("high manifest plan must require manual approval, got %+v", decision)
 	}
 }
 

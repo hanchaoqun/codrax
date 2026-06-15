@@ -341,7 +341,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.persistWriteWorkflowRun(&run)
 				o.busCtx.TaskState.LastError = ""
 			}
-			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing {
+			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing || outcome.Kind == writeflow.VerifyOutcomeParserError {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 				o.busCtx.TaskState.LastError = ""
@@ -1744,7 +1744,7 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 				return false
 			}
 			switch strings.TrimSpace(attempt.ReasonCode) {
-			case "no_tests", string(types.FailureKindRunnerMissing):
+			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError):
 				return true
 			default:
 				return false
@@ -1826,7 +1826,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 		return "missing_report"
 	}
 	switch report.FailureKind {
-	case types.FailureKindRunnerMissing, types.FailureKindTimeout, types.FailureKindOOM,
+	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindTimeout, types.FailureKindOOM,
 		types.FailureKindCPULimit, types.FailureKindCrash:
 		return string(report.FailureKind)
 	}

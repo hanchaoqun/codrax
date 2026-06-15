@@ -136,9 +136,12 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 	// The WriteAnalysisIR risk axes are LLM classification booleans —
 	// noisy signals per the architecture red line. They grade at medium
 	// (advisory, auto-executable under auto_safe) instead of hard-forcing
-	// manual approval; the hard high grades come only from precise typed
-	// signals: the declaration-line intersection above and the path-class
-	// policy (build manifests, persistence schemas, CI, hooks, secrets).
+	// manual approval. A precise declaration-line intersection is also a
+	// medium API-surface signal on its own: it is important context, but
+	// not automatically a dangerous operation inside the write worktree.
+	// The hard high grades come from structural blast-radius signals such
+	// as build manifests, persistence schemas, CI, hooks, secrets, and
+	// large change sets.
 	if ir := plan.WriteAnalysisIR; ir != nil {
 		if ir.Request.Risk.AffectsPublicAPI {
 			if declTouched {

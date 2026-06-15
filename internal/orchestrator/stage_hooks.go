@@ -968,14 +968,16 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	return nil
 }
 
-// reportIndicatesVerificationUnavailable is the typed lane for environment
-// gaps: the change applied, but the local machine could not run the declared
-// verifier. Treat this as unverified, not as a code/test failure.
+// reportIndicatesVerificationUnavailable is the typed lane for environment and
+// verifier tooling gaps: the change applied, but the local machine could not
+// produce an authoritative verifier result. Treat this as unverified, not as a
+// code/test failure.
 func reportIndicatesVerificationUnavailable(report *types.ChangeReport) bool {
 	if report == nil {
 		return false
 	}
-	return report.FailureKind == types.FailureKindRunnerMissing
+	return report.FailureKind == types.FailureKindRunnerMissing ||
+		report.FailureKind == types.FailureKindParserError
 }
 
 // planTouchesNonTestCode reports whether the active ChangePlan

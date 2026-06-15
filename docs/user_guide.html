@@ -2230,8 +2230,9 @@ mcp_servers:
 </ol>
 <blockquote>
 <p>verifier agent 也可以<strong>绕过自动探测</strong>,显式声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code>(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。</p>
-<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。两条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 <code>unverified</code> 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
+<p>测试失败时,<code>pipeline_write_retry_budget</code>(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。<strong>这一步不用你手动操作</strong>。两条早停守门避免烧 budget:<code>runner_missing</code> 一等信号(<code>pytest: command not found</code> 等)和 <code>parser_error</code> 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 <code>unverified</code> 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。</p>
 </blockquote>
+<p>审批风险只来自结构化 <code>ChangePlan</code>、repo-relative 路径解析、typed diff/内容策略和 fingerprint。导出声明行/API 面变更本身按中风险处理,在 <code>auto_safe</code> 下可自动推进;只有叠加依赖/build manifest、CI/workflow、hook、持久化 schema、secret-like 路径/内容、越界路径、大范围变更等精确结构信号时才升为高风险或 critical。</p>
 <p>特殊场景:</p>
 <div class="table-wrap"><table>
 <thead>
@@ -2703,7 +2704,7 @@ mcp_servers:
 <tr>
 <td><code>write_approval_policy</code></td>
 <td><code>auto_safe</code></td>
-<td>REPL <code>/approve</code> 审批策略: <code>manual</code> 全部人工确认;<code>auto_safe</code> 低/中风险自动推进、高风险人工确认、critical 拒绝;<code>auto_low_only</code> 仅低风险自动推进</td>
+<td>REPL <code>/approve</code> 审批策略: <code>manual</code> 全部人工确认;<code>auto_safe</code> 低/中风险自动推进、高风险人工确认、critical 拒绝;<code>auto_low_only</code> 仅低风险自动推进。导出声明行/API 面变更是中风险信号,危险路径/内容/大范围结构信号才升级为高风险或 critical</td>
 </tr>
 <tr>
 <td><code>write_auto_approval</code></td>
@@ -3877,7 +3878,7 @@ codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
 <p><strong>plan 模式在空目录卡住或报 "scaffold 授权"</strong>
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 <code>write_auto_init_repo: true</code> + <code>write_scaffold_enabled: true</code>,或启动时同时加 <code>--auto-init-repo --allow-scaffold</code>。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。</p>
 <p><strong>runner 检测错了 / runner 不存在</strong>
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),自动跳过 verify→plan 重试,将 plan 标记为 <code>unverified</code> 而不是 <code>verify_failed</code>,并显示推荐安装命令(<code>env_recommend</code> 启动一条诊断 → 推荐 → 双语渲染管线;命令以 <code>!</code> 前缀给出方便复制)。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。<code>runner_missing</code> 信号识别"二进制没装"(<code>pytest: command not found</code> 等),<code>parser_error</code> 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),二者都会自动跳过 verify→plan 重试,将 plan 标记为 <code>unverified</code> 而不是 <code>verify_failed</code>,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 <code>runner=&lt;choice&gt;</code> + <code>working_dir</code> 显式指定,绕过自动探测。</p>
 <p><strong><code>/merge</code> 说 "no worktree to merge from"</strong>
 → apply 完 worktree 被清了。<code>codrax.yaml</code> 加 <code>pipeline_keep_worktree_on_success: true</code>,下次 apply 后 worktree 会保留。</p>
 <hr />

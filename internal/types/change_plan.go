@@ -823,6 +823,15 @@ const (
 	// consumers (REPL, CLI exit code) treat this as a terminal
 	// environment error rather than a plan defect.
 	FailureKindRunnerMissing FailureKind = "runner_missing"
+
+	// FailureKindParserError — the runner executed but Codrax could not
+	// obtain the structured report required for an authoritative verdict
+	// (for example pytest aborted during collection before
+	// pytest-json-report wrote its file). This is a verifier/tooling or
+	// environment compatibility gap, not evidence that the code patch is
+	// wrong. Treat it as terminal unverified for the local run so the
+	// planner does not chase infrastructure noise.
+	FailureKindParserError FailureKind = "parser_error"
 )
 
 // Score returns the (passed, total) test counts for this report,

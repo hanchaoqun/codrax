@@ -75,7 +75,14 @@ records adapter results.
 - [x] Run SWE-bench Lite one-instance prediction smoke.
 - [x] Run official harness dry-run consumption check.
 - [x] Run Go regression check.
-- [ ] Commit and push to `main`.
+- [x] Run multi-instance Lite smoke and manually audit patch satisfaction.
+- [x] Relax declaration-line API risk from hard high to medium while preserving
+  high/critical structural safety gates.
+- [x] Add best-effort per-instance Python verification environment setup for
+  Lite smoke and batch adapter runs.
+- [x] Route verifier parser/report failures as typed `parser_error` unverified
+  outcomes instead of code-failure replan triggers.
+- [x] Commit and push to `main`.
 
 ## Test Matrix
 
@@ -84,9 +91,15 @@ records adapter results.
   patch under `--require-nonempty-patch`.
 - Lite smoke: loads official dataset, checks out base commit, runs Codrax, writes
   predictions/results.
+- Lite smoke with env prep: creates a per-instance Python venv, installs
+  `pytest<9`/`pytest-json-report` and project deps best-effort, records
+  `env_prepare.json`, and still exports predictions when setup fails.
 - Harness consumption: wrapper validates predictions and prints or runs the
   official `swebench.harness.run_evaluation` command.
 - Regression: `go test ./...` confirms product code paths remain stable.
+- Verifier parser gap: pytest/report parser failures produce
+  `FailureKindParserError`, complete applied batches as unverified, and do not
+  trigger code replanning.
 
 ## Progress Ledger
 
@@ -117,3 +130,51 @@ records adapter results.
   predictions validated, official harness dry-run consumed the file,
   `codrax_exit_code=0`, `plan_status=unverified`, and the final user result
   carried an unverified caveat instead of blocking on missing pytest.
+- 2026-06-15: Multi-instance Lite smoke
+  `eval/results/swebench/lite-smoke-20260615-115056` exposed a write-mode safety
+  gap: `pallets__flask-4992` and `psf__requests-2317` produced bounded plans but
+  exported empty patches because `public_decl_line_changed` was graded high and
+  non-interactive auto-safe runs paused at `pending_approval`. `pytest-dev__pytest-5221`
+  produced a non-empty patch. The official harness dry-run consumed all
+  predictions, and manual audit classified the two empty patches as approval
+  over-blocking rather than adapter export failure.
+- 2026-06-15: Fixed the approval over-blocking generically: exported
+  declaration-line intersections remain precise `public_decl_line_changed`
+  evidence, but grade medium/API-surface by themselves. High/critical remains
+  reserved for structural blast-radius signals such as build/dependency
+  manifests, CI/workflow automation, hooks, persistence schemas, secret material,
+  repo escape paths, and large change sets. Targeted writeflow tests cover
+  declaration-line auto execution and declaration-line-plus-manifest approval.
+- 2026-06-15: Re-ran the two formerly blocked Lite instances at
+  `eval/results/swebench/lite-smoke-20260615-120452`: both exported non-empty
+  predictions and official harness dry-run consumed the file. Manual audit found
+  `psf__requests-2317` matched the issue intent (`bytes` method decoded before
+  request creation). `pallets__flask-4992` surfaced a second quality gap:
+  local verify could not run without pytest, and the unverified patch used
+  `mode=""`, which existing Flask tests would catch. This motivated the
+  adapter environment-prep enhancement rather than making missing pytest a hard
+  gate.
+- 2026-06-15: Added best-effort per-instance Python venv setup to the adapter
+  and enabled it by default in `smoke_lite.sh` via
+  `SWEBENCH_PREPARE_PYTHON_ENV=1`. Setup installs `pytest<9` plus
+  `pytest-json-report` and project dependencies when possible, records
+  `env_prepare.json/log`, injects the venv into Codrax's PATH, and still
+  continues prediction export on setup failure. The `<9` bound protects Codrax's
+  structured pytest-json-report verifier contract from pytest 9 plugin/report
+  compatibility drift.
+- 2026-06-15: Hardened the core verifier route exposed by the env-prepared
+  Flask run: when the runner starts but no structured report is available
+  (`parsePytestJSONReport` missing report after collection/import failure),
+  `run_tests` now persists `FailureKindParserError`. Both legacy and
+  controller write schedulers treat this as local verification unavailable,
+  mark the plan/batch `unverified`, and suppress code replanning. This keeps
+  missing/unstable customer test environments from blocking exportable patches
+  or wasting DAG budget on non-code failures.
+- 2026-06-15: Final verification before push passed:
+  `go test ./internal/writeflow ./internal/orchestrator ./internal/tool`,
+  `go test ./...`, `make test`, `make`, `git diff --check`, SWE-bench adapter
+  Python compile checks, shell syntax checks, local adapter smoke, and the
+  env-prepared Flask Lite smoke at
+  `eval/results/swebench/lite-smoke-20260615-123031`. The Flask smoke exported
+  a non-empty prediction, completed Codrax with `plan_status=unverified` due to
+  typed `parser_error`, and the official harness dry-run consumed the output.

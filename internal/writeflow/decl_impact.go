@@ -92,13 +92,15 @@ func unifiedDiffRemovedOldLines(patch string) map[int]bool {
 	return removed
 }
 
-// assessExportedDeclImpact adds a RiskHigh reason for every plan change whose
+// assessExportedDeclImpact adds a RiskMedium reason for every plan change whose
 // modified/deleted old lines intersect an exported declaration line reported
 // by the typed graph. Returns true when any intersection was found. Files the
 // source cannot vouch for (ok=false) contribute nothing — the LLM risk axes
 // then stand at their medium grade. Only kind=patch changes are inspected:
 // create has no pre-image, full modify/delete are graded by change kind and
-// path class already.
+// path class already. The declaration-line signal is precise but not
+// automatically dangerous; high/critical approval remains reserved for typed
+// blast-radius and safety policy signals.
 func assessExportedDeclImpact(a *RiskAssessment, plan *types.ChangePlan, decls types.DeclSpanSource) bool {
 	if a == nil || plan == nil || decls == nil {
 		return false
@@ -121,7 +123,7 @@ func assessExportedDeclImpact(a *RiskAssessment, plan *types.ChangePlan, decls t
 				continue
 			}
 			found = true
-			a.add(RiskHigh, "public_decl_line_changed",
+			a.add(RiskMedium, "public_decl_line_changed",
 				fmt.Sprintf("patch modifies an exported declaration line (%s:%d)", change.Path, ln),
 				change.Path)
 			break

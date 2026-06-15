@@ -200,6 +200,104 @@ def checkout_instance(instance: dict[str, Any], mirror: Path, repo_dir: Path, ar
     return resolved.output.strip()
 
 
+def is_python_project(repo_dir: Path) -> bool:
+    markers = (
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "tox.ini",
+        "pytest.ini",
+    )
+    if any((repo_dir / marker).exists() for marker in markers):
+        return True
+    return any(repo_dir.glob("**/*.py"))
+
+
+def venv_bin_dir(venv_dir: Path) -> Path:
+    if os.name == "nt":
+        return venv_dir / "Scripts"
+    return venv_dir / "bin"
+
+
+def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace) -> tuple[dict[str, str], dict[str, Any]]:
+    """Best-effort Python verification environment for local Codrax runs.
+
+    The official SWE-bench harness remains the scoring authority. This helper
+    only makes Codrax's own verify stage more useful during smoke/eval runs.
+    Failures are recorded and the adapter continues with the host environment.
+    """
+
+    record: dict[str, Any] = {
+        "enabled": bool(args.prepare_python_env),
+        "status": "skipped",
+        "commands": [],
+    }
+    if not args.prepare_python_env:
+        return {}, record
+    if not is_python_project(repo_dir):
+        record["status"] = "skipped_non_python"
+        return {}, record
+
+    venv_dir = inst_dir / "python-env"
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir)
+    py_timeout = int(args.env_prepare_timeout)
+
+    def step(name: str, cmd: list[str], *, cwd: Path | None = None) -> CommandResult:
+        result = run_cmd(cmd, cwd=cwd, timeout=py_timeout)
+        record["commands"].append(
+            {
+                "name": name,
+                "cmd": cmd,
+                "code": result.code,
+                "timed_out": result.timed_out,
+                "output_tail": result.output[-4000:],
+            }
+        )
+        return result
+
+    created = step("create_venv", [sys.executable, "-m", "venv", str(venv_dir)])
+    if created.code != 0 or created.timed_out:
+        record["status"] = "failed_create_venv"
+        return {}, record
+
+    python = venv_bin_dir(venv_dir) / "python"
+    if not python.exists():
+        record["status"] = "failed_missing_python"
+        return {}, record
+
+    env_updates = {
+        "VIRTUAL_ENV": str(venv_dir),
+        "PATH": f"{venv_bin_dir(venv_dir)}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+
+    upgraded = step("upgrade_packaging", [str(python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+    if upgraded.code != 0 or upgraded.timed_out:
+        record["status"] = "failed_packaging"
+        record["env_path"] = str(venv_dir)
+        return env_updates, record
+
+    pytest = step("install_pytest", [str(python), "-m", "pip", "install", "pytest<9", "pytest-json-report"])
+    if pytest.code != 0 or pytest.timed_out:
+        record["status"] = "failed_pytest"
+        record["env_path"] = str(venv_dir)
+        return env_updates, record
+
+    project_failed = False
+    requirements = repo_dir / "requirements.txt"
+    if requirements.exists() and requirements.stat().st_size < 1_000_000:
+        req = step("install_requirements", [str(python), "-m", "pip", "install", "-r", str(requirements)], cwd=repo_dir)
+        project_failed = project_failed or req.code != 0 or req.timed_out
+    if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
+        editable = step("install_editable", [str(python), "-m", "pip", "install", "-e", "."], cwd=repo_dir)
+        project_failed = project_failed or editable.code != 0 or editable.timed_out
+
+    record["status"] = "partial" if project_failed else "ready"
+    record["env_path"] = str(venv_dir)
+    return env_updates, record
+
+
 def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
     instance_id = required_field(instance, "instance_id")
     problem = required_field(instance, "problem_statement")
@@ -214,10 +312,18 @@ def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
     )
 
 
-def run_codrax(instance: dict[str, Any], repo_dir: Path, inst_dir: Path, args: argparse.Namespace) -> CommandResult:
+def run_codrax(
+    instance: dict[str, Any],
+    repo_dir: Path,
+    inst_dir: Path,
+    args: argparse.Namespace,
+    env_updates: dict[str, str] | None = None,
+) -> CommandResult:
     log_dir = inst_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    if env_updates:
+        env.update(env_updates)
     if args.settings:
         env["CODRAX_SETTINGS"] = str(Path(args.settings).resolve())
     cmd = [
@@ -330,7 +436,15 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         mirror = ensure_repo_cache(instance, args)
         base = checkout_instance(instance, mirror, repo_dir, args)
         result["base_commit_resolved"] = base
-        codrax = run_codrax(instance, repo_dir, inst_dir, args)
+        env_updates, env_record = prepare_python_env(repo_dir, inst_dir, args)
+        result["env_prepare"] = env_record
+        (inst_dir / "env_prepare.json").write_text(json.dumps(env_record, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        env_log = "\n\n".join(
+            f"## {cmd.get('name')}\n$ {' '.join(cmd.get('cmd') or [])}\ncode={cmd.get('code')} timeout={cmd.get('timed_out')}\n{cmd.get('output_tail') or ''}"
+            for cmd in env_record.get("commands", [])
+        )
+        (inst_dir / "env_prepare.log").write_text(env_log, encoding="utf-8", errors="replace")
+        codrax = run_codrax(instance, repo_dir, inst_dir, args, env_updates)
         result["codrax_exit_code"] = codrax.code
         result["codrax_timed_out"] = codrax.timed_out
         plan_path = find_latest_change_plan(repo_dir / ".codrax", inst_dir)
@@ -375,6 +489,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-level", default="debug")
     parser.add_argument("--repo-url-template", default="https://github.com/{repo}.git")
     parser.add_argument("--request-prefix", default="")
+    parser.add_argument(
+        "--prepare-python-env",
+        action="store_true",
+        help="Best-effort per-instance Python venv for Codrax local verification; failures are recorded but do not block predictions",
+    )
+    parser.add_argument("--env-prepare-timeout", type=int, default=600, help="Timeout in seconds per Python environment setup command")
     parser.add_argument("--no-fetch", action="store_true", help="Do not fetch existing mirror caches")
     return parser.parse_args()
 

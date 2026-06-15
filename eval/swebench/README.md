@@ -44,6 +44,17 @@ make
 SWEBENCH_SMOKE_LIMIT=1 eval/swebench/smoke_lite.sh
 ```
 
+Lite smoke defaults to a best-effort per-instance Python venv so Codrax's local
+verify stage can run `pytest` when the checkout supports it. The adapter installs
+`pytest<9` with `pytest-json-report`, records `env_prepare.json` and
+`env_prepare.log` for each instance, and then runs Codrax with that venv on
+`PATH`. Environment setup failures never block prediction export; they leave the
+run unverified and the official harness remains the scoring authority.
+
+```bash
+SWEBENCH_PREPARE_PYTHON_ENV=0 eval/swebench/smoke_lite.sh
+```
+
 Pick specific instances when you want a smaller or more targeted smoke:
 
 ```bash
@@ -75,6 +86,7 @@ Run against Hugging Face SWE-bench Lite:
 eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
   --dataset-name SWE-bench/SWE-bench_Lite \
   --split test \
+  --prepare-python-env \
   --limit 10
 ```
 

@@ -202,8 +202,9 @@ func TestAssessWriteRiskDownloadExecutePayloadCritical(t *testing.T) {
 func TestAssessWriteRiskAnalysisAxesAdvisoryMedium(t *testing.T) {
 	// The analyzer's risk booleans are LLM classification — noisy signals.
 	// Uncorroborated they grade medium (advisory, visible) instead of
-	// hard-forcing manual approval; the hard high grades come from typed
-	// signals only (declaration-line intersection, path policy).
+	// hard-forcing manual approval; declaration-line intersections are precise
+	// medium API-surface signals, while hard high grades come from structural
+	// blast-radius policy such as dependency manifests, CI, hooks, and schemas.
 	plan := planWithChanges(types.FileChange{Path: "internal/foo/bar.go", Kind: "modify"})
 	plan.WriteAnalysisIR = &types.WriteAnalysisIR{}
 	plan.WriteAnalysisIR.Request.Risk.AffectsPublicAPI = true

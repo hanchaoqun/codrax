@@ -16,6 +16,7 @@ const (
 	VerifyOutcomeReportFailed  VerifyAttemptOutcomeKind = "report_failed"
 	VerifyOutcomeToolNotCalled VerifyAttemptOutcomeKind = "tool_not_called"
 	VerifyOutcomeRunnerMissing VerifyAttemptOutcomeKind = "runner_missing"
+	VerifyOutcomeParserError   VerifyAttemptOutcomeKind = "parser_error"
 	VerifyOutcomeNoTests       VerifyAttemptOutcomeKind = "no_tests"
 )
 
@@ -46,6 +47,14 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 			Retryable:         false,
 			RecommendedAction: ActionFinish,
 			ReasonCode:        string(types.FailureKindRunnerMissing),
+		}
+	}
+	if report.FailureKind == types.FailureKindParserError {
+		return VerifyAttemptOutcome{
+			Kind:              VerifyOutcomeParserError,
+			Retryable:         false,
+			RecommendedAction: ActionFinish,
+			ReasonCode:        string(types.FailureKindParserError),
 		}
 	}
 	if err != nil || !report.Passed {

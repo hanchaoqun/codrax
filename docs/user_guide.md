@@ -1777,6 +1777,8 @@ REPL 实际流程:
 | 验证失败可修 | 失败证据进入 P2 handoff,controller 小批量 replan |
 | 预算耗尽/真歧义 | fail-loud 或 ask_user,保留 workflow/report/diff |
 
+审批风险只来自结构化 `ChangePlan`、repo-relative 路径解析、typed diff/内容策略和 fingerprint。导出声明行/API 面变更本身按中风险处理,在 `auto_safe` 下可自动推进;只有叠加依赖/build manifest、CI/workflow、hook、持久化 schema、secret-like 路径/内容、越界路径、大范围变更等精确结构信号时才升为高风险或 critical。
+
 更多虚构的 plan 请求示例(任何项目都能套用):
 
 | 你想做的 | 一行写法 |
@@ -1827,7 +1829,7 @@ Auto Pilot 内部自动:
 
 > verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)和 `parser_error` 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 
@@ -2172,7 +2174,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 | `write_enabled` | `true` | **写模式 kill switch**;显式设 false 时任何写 workflow/plan/apply/verify/merge 都拒绝。REPL auto 可通过结构化 `route=write` 进入 Auto Pilot;低/中风险可自动 apply+verify,高风险暂停审批,critical 拒绝 |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
-| `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
+| `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进。导出声明行/API 面变更是中风险信号,危险路径/内容/大范围结构信号才升级为高风险或 critical |
 | `write_auto_approval` | `false` | 兼容旧布尔配置;仅未设置 `write_approval_policy` 时生效。`true` 映射 `auto_safe`,`false` 映射 `manual` |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
 | `write_workflow_engine` | compatibility-only | 兼容旧本地配置的已废弃键;写模式始终使用 controller-first 动态 DAG、持久 workflow run 和主动状态卡;`/workflow show/list/resume/clear` 仅作高级审计/恢复 |
@@ -2756,7 +2758,7 @@ CLI 单次模式输出:
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并显示推荐安装命令(`env_recommend` 启动一条诊断 → 推荐 → 双语渲染管线;命令以 `!` 前缀给出方便复制)。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),`parser_error` 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),二者都会自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
 
 **`/merge` 说 "no worktree to merge from"**
 → apply 完 worktree 被清了。`codrax.yaml` 加 `pipeline_keep_worktree_on_success: true`,下次 apply 后 worktree 会保留。

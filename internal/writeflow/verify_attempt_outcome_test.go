@@ -33,6 +33,13 @@ func TestClassifyVerifyAttemptOutcome(t *testing.T) {
 			wantReason: "runner_missing",
 		},
 		{
+			name:       "parser error finishes unverified",
+			report:     &types.ChangeReport{FailureKind: types.FailureKindParserError},
+			wantKind:   VerifyOutcomeParserError,
+			wantAction: ActionFinish,
+			wantReason: "parser_error",
+		},
+		{
 			name:       "failed report replans",
 			report:     &types.ChangeReport{Passed: false, BuildFailed: true},
 			wantKind:   VerifyOutcomeReportFailed,
