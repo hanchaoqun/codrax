@@ -277,10 +277,14 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		switch probeStatus.Outcome {
 		case "passed":
 			passed = passed && probeStatus.ExitCode == 0
-		case "assertion_failed", "system_exit", "exception":
+		case "assertion_failed", "system_exit":
 			passed = false
 			failureKind = types.FailureKindTestsFailed
-		case "import_error", "syntax_error":
+		// Unhandled probe exceptions are probe/runtime failures, not an
+		// authoritative product-code assertion. Keep them out of the
+		// verify->replan hard-failure lane; the project runner can still
+		// provide a stronger verdict after this pre-suite probe degrades.
+		case "import_error", "syntax_error", "exception":
 			passed = false
 			outcome = "parser_error"
 			failureKind = types.FailureKindParserError

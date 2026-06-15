@@ -467,6 +467,109 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbeSubprocessInheritsWorktreeSrcRoot(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "src", "probe_pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("mkdir package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "__init__.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write package: %v", err)
+	}
+	mu := types.NewMutableState("probe subprocess src layout")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-src-probe",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/probe_pkg/__init__.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "subprocess_src_import",
+			Language: "python",
+			Code: strings.Join([]string{
+				"import os, subprocess, sys",
+				"snippet = \"import os, probe_pkg; print(probe_pkg.VALUE); print(os.path.realpath(probe_pkg.__file__))\"",
+				"res = subprocess.run([sys.executable, '-c', snippet], capture_output=True, text=True)",
+				"assert res.returncode == 0, res.stdout + res.stderr",
+				"print(res.stdout)",
+				"expected = os.path.realpath(os.path.join(os.getcwd(), 'src', 'probe_pkg', '__init__.py'))",
+				"assert '42' in res.stdout, res.stdout",
+				"assert expected in res.stdout, res.stdout",
+			}, "\n"),
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("verification probe subprocess should inherit worktree src import root, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	if len(report.TestResults) != 1 || !report.TestResults[0].Passed {
+		t.Fatalf("verification probe result missing or failed: %+v", report.TestResults)
+	}
+}
+
+func TestRunTestsRejectsTestSurfaceCandidateIDAsSuiteSelector(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\ntestpaths = [\"testing\"]\n"), 0o644); err != nil {
+		t.Fatalf("write pyproject: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "testing"), 0o755); err != nil {
+		t.Fatalf("mkdir testing: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "testing", "test_widget.py"), []byte("def test_ok():\n    assert True\n"), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("surface id suite")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"runner":  "python",
+		"suite":   "python/pytest@.",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("TestSurface candidate id in suite should be rejected before execution, got %+v", result)
+	}
+	if !strings.Contains(result.Summary, "typed TestSurface candidate id") ||
+		!strings.Contains(result.Summary, `runner="python"`) ||
+		!strings.Contains(result.Summary, `working_dir="."`) {
+		t.Fatalf("rejection should explain how to select the candidate, got: %s", result.Summary)
+	}
+	if report := mu.ChangeReport(); report != nil {
+		t.Fatalf("suite candidate-id rejection must not install authoritative report: %+v", report)
+	}
+	if probes := mu.PlanStageProbeReports(); len(probes) != 0 {
+		t.Fatalf("suite candidate-id rejection must not install planner probe report: %+v", probes)
+	}
+}
+
 func TestRunTestsInheritsScopedSuiteFromVerifyFailureHandoff(t *testing.T) {
 	mu := types.NewMutableState("verify scope inheritance")
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
@@ -609,6 +712,68 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 	if !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: import_error") {
 		t.Fatalf("failure detail should include structured import_error outcome, got: %s", report.TestResults[0].FailureDetail)
+	}
+	foundParserErrorCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" {
+			foundParserErrorCommand = true
+		}
+	}
+	if !foundParserErrorCommand {
+		t.Fatalf("executed command evidence should include parser_error probe outcome, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe exception")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-exception",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "missing_xml_artifact",
+			Language: "python",
+			Code:     "raise FileNotFoundError('/tmp/missing.xml')\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("exception verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "missing_xml_artifact" || report.TestResults[0].Passed {
+		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
+	}
+	if !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: exception") {
+		t.Fatalf("failure detail should include structured exception outcome, got: %s", report.TestResults[0].FailureDetail)
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {

@@ -15,6 +15,12 @@ func TestRunnerExecutionEnv_PythonPrependsWorktreeImportRoots(t *testing.T) {
 	worktree := filepath.Join(root, "wt")
 	nested := filepath.Join(worktree, "pkg")
 	dep := filepath.Join(root, "deps")
+	if err := os.MkdirAll(filepath.Join(worktree, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir worktree/src: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(nested, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir nested/src: %v", err)
+	}
 	base := []string{
 		"PATH=/bin",
 		"PWD=" + mainRoot,
@@ -26,11 +32,14 @@ func TestRunnerExecutionEnv_PythonPrependsWorktreeImportRoots(t *testing.T) {
 		t.Fatalf("PWD = %q, want runner root %q", got, nested)
 	}
 	parts := filepath.SplitList(envValue(env, "PYTHONPATH"))
-	if len(parts) != 3 {
-		t.Fatalf("PYTHONPATH entries = %#v, want worktree, nested, dep", parts)
+	if len(parts) != 5 {
+		t.Fatalf("PYTHONPATH entries = %#v, want worktree/src, worktree, nested/src, nested, dep", parts)
 	}
-	if parts[0] != worktree || parts[1] != nested || parts[2] != dep {
-		t.Fatalf("PYTHONPATH = %#v, want [%q %q %q]", parts, worktree, nested, dep)
+	want := []string{filepath.Join(worktree, "src"), worktree, filepath.Join(nested, "src"), nested, dep}
+	for i := range want {
+		if parts[i] != want[i] {
+			t.Fatalf("PYTHONPATH = %#v, want %#v", parts, want)
+		}
 	}
 	for _, part := range parts {
 		if cleanAbsPathKey(part) == cleanAbsPathKey(mainRoot) {

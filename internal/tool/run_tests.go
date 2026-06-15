@@ -306,6 +306,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// or runner-missing outcome must not stand as verification while an
 	// unexecuted candidate with real test work exists).
 	surface := BuildTestSurface(ctx.RepoRoot, walkRoot)
+	if rej := validateRunTestsSuiteSelectorAgainstSurface(p.Suite, surface); rej != "" {
+		return errResult(t.Name(), rej), nil
+	}
 
 	// planSources tags each queued plan with its typed provenance for
 	// the ExecutedCommands audit rows; executedKeys feeds the
@@ -959,6 +962,29 @@ func validateRunTestsSuiteSelector(suite string) string {
 		if strings.HasPrefix(tok, "-") {
 			return fmt.Sprintf("run_tests rejected: suite=%q contains CLI option token %q. The `suite` field is a test selector only; remove runner flags from `suite` so the executor can build the command from typed parameters.", suite, tok)
 		}
+	}
+	return ""
+}
+
+func validateRunTestsSuiteSelectorAgainstSurface(suite string, surface types.TestSurface) string {
+	selector := strings.TrimSpace(suite)
+	if selector == "" {
+		return ""
+	}
+	for _, cand := range surface.Candidates {
+		id := strings.TrimSpace(cand.ID)
+		if id == "" || selector != id {
+			continue
+		}
+		framework := strings.TrimSpace(cand.Framework)
+		if framework == "" {
+			framework = "(empty)"
+		}
+		workingDir := strings.TrimSpace(cand.WorkingDir)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		return fmt.Sprintf("run_tests rejected: suite=%q is a typed TestSurface candidate id, not a language test selector. Select that candidate with runner=%q, framework=%q, working_dir=%q and leave suite empty, or set suite to a real test file/node-id/filter.", suite, strings.TrimSpace(cand.Runner), framework, workingDir)
 	}
 	return ""
 }
@@ -2274,14 +2300,52 @@ func pythonWorktreePythonPath(existing, repoRoot, runnerRoot, mainRoot string) s
 		out = append(out, path)
 	}
 
-	add(repoRoot, false)
-	if cleanAbsPathKey(runnerRoot) != cleanAbsPathKey(repoRoot) {
-		add(runnerRoot, false)
+	for _, root := range pythonWorktreeImportRoots(repoRoot, runnerRoot) {
+		add(root, false)
 	}
 	for _, entry := range filepath.SplitList(existing) {
 		add(entry, true)
 	}
 	return strings.Join(out, string(os.PathListSeparator))
+}
+
+func pythonWorktreeImportRoots(repoRoot, runnerRoot string) []string {
+	var roots []string
+	seen := make(map[string]bool)
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		key := cleanAbsPathKey(path)
+		if key == "" {
+			key = path
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		roots = append(roots, path)
+	}
+	addSourceLayoutRoot := func(root string) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return
+		}
+		for _, child := range []string{"src", "lib"} {
+			candidate := filepath.Join(root, child)
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				add(candidate)
+			}
+		}
+		add(root)
+	}
+
+	addSourceLayoutRoot(repoRoot)
+	if cleanAbsPathKey(runnerRoot) != cleanAbsPathKey(repoRoot) {
+		addSourceLayoutRoot(runnerRoot)
+	}
+	return roots
 }
 
 func envValue(env []string, key string) string {

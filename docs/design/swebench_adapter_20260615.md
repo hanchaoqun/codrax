@@ -581,3 +581,47 @@ records adapter results.
   durable workflow JSON; context coverage therefore remains opportunistic eval
   telemetry when persisted workflow/context-pack data exists, not an
   apply/verify hard gate.
+- 2026-06-16: Ran a three-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-requests-pytest-mpl-035729`
+  for `psf__requests-2674`, `pytest-dev__pytest-5692`, and
+  `matplotlib__matplotlib-23299`. The adapter produced three non-empty
+  predictions and the official harness dry-run accepted them. Manual audit
+  found three systemic verifier/planner gaps: Python verification probes that
+  spawn subprocesses need the active worktree source roots (`src/`, `lib/`) in
+  inherited `PYTHONPATH`; unhandled verification-probe exceptions such as
+  missing temporary XML files are probe/runtime failures and should be
+  `parser_error/unavailable`, not product `tests_failed`; and replan no-op
+  structured edits need a typed path to `run_tests(dry_run=true)` plus the
+  existing `no_change_required` sentinel instead of repeated no-op patch emits.
+- 2026-06-16: Landed generalized follow-up for those verifier/planner gaps:
+  Python runner environments now prepend the active worktree's conventional
+  source roots (`src/`, `lib/`) ahead of inherited import roots and drop the
+  original main-repo root, so verification probes and their Python subprocesses
+  import applied worktree code rather than installed or pre-patch code.
+  Verification probes now reserve `tests_failed` for explicit
+  `AssertionError`/non-zero `SystemExit`; import/syntax/unhandled exceptions
+  are `FailureKindParserError` and normalize to `verification_status=unavailable`,
+  allowing project runners or unverified delivery to continue. Structured
+  no-op edit rejections during verify-failure replan still reject the plan, but
+  now point at the typed dry-run-probe + `changes: []` sentinel path.
+- 2026-06-16: Re-ran `pytest-dev__pytest-5692` at
+  `eval/results/swebench/lite-smoke-20260616-pytest5692-probe-env-042524`.
+  Prediction validation passed, official harness dry-run accepted the patch,
+  and the exported source patch added `hostname`/`timestamp` in
+  `src/_pytest/junitxml.py` (`patch_bytes=835`). Local verify remained
+  `unavailable/parser_error` because the generated bounded probe could not
+  parse the temporary XML artifact, but this correctly did not hard-block
+  prediction export.
+- 2026-06-16: A second `pytest-dev__pytest-5692` run at
+  `eval/results/swebench/lite-smoke-20260616-pytest5692-probe-exception-unavailable-043223`
+  exposed two more typed-contract gaps. The planner copied a typed
+  `TestSurfaceCandidate.ID` (`python/pytest@.`) into `run_tests.suite`, which
+  produced an invalid pytest selector. `run_tests` now rejects a suite selector
+  that exactly equals a current typed candidate id and tells the model to use
+  `runner` / `framework` / `working_dir` instead. The same run also showed a
+  final-plan-vs-worktree drift: the final plan touched only a repository test
+  file while the adapter exported production worktree diff after stripping test
+  paths. This remains a follow-up for eval hardening: production-scope coverage
+  and "final live plan matches exported source patch" should become typed
+  telemetry/retry input, without forbidding legitimate customer requests to add
+  tests.

@@ -362,11 +362,28 @@ func compileStructuredEditPatches(ctx *types.BusContext, changes []types.FileCha
 		}
 		patch, err := compileStructuredEditsToPatch(ctx.RepoRoot, &changes[i])
 		if err != nil {
-			return err.Error()
+			return enrichStructuredEditReplanDiagnostic(ctx, err.Error())
 		}
 		changes[i].Patch = patch
 	}
 	return ""
+}
+
+func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return msg
+	}
+	if ctx == nil || ctx.Mutable == nil || !ctx.Mode.IsWrite() || ctx.PipelineStage != types.StagePlan {
+		return msg
+	}
+	if ctx.Mutable.VerifyFailureHandoff() == nil {
+		return msg
+	}
+	if !strings.Contains(msg, " is a no-op") {
+		return msg
+	}
+	return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
 }
 
 // composePatchRejectionReason mirrors composePatchRejection but

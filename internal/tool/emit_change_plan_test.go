@@ -2,6 +2,8 @@ package tool
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -238,6 +240,48 @@ func TestEmitChangePlan_EmptyChangesAllowedOnlyForTypedNoChangeReplan(t *testing
 	}
 	if pending := ctx.Mutable.WriteClosure().PendingApplies(); len(pending) != 0 {
 		t.Fatalf("no-change sentinel must not enqueue pending applies: %+v", pending)
+	}
+}
+
+func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *testing.T) {
+	tool := &EmitChangePlan{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.RepoRoot = root
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-applied",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	params := json.RawMessage(`{
+		"request": "replan after verify failure",
+		"summary": "Try to re-emit the already-applied value change.",
+		"changes": [
+			{
+				"path": "widget.py",
+				"kind": "patch",
+				"rationale": "the worktree already has this value",
+				"edits": [{"kind": "replace", "start_line": 1, "end_line": 1, "old_text": "VALUE = 42\n", "content": "VALUE = 42\n"}]
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected no-op structured edit to be rejected")
+	}
+	if !strings.Contains(res.Summary, "run_tests(dry_run=true)") || !strings.Contains(res.Summary, types.PlanStatusNoChangeRequired) {
+		t.Fatalf("replan no-op rejection should point at typed probe sentinel, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected no-op edit must not install a plan: %+v", plan)
 	}
 }
 
