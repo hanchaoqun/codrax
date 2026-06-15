@@ -634,7 +634,7 @@
         <a href="#tech-grounding">技术四 · 证据落点校验</a>
         <a href="#tech-citation">技术五 · 引用闭环</a>
         <a href="#tech-contract">技术六 · 可执行合约与停机</a>
-        <a href="#write-mode">写模式沙箱</a>
+        <a href="#write-mode">写模式 Auto Pilot</a>
         <div class="toc-group">完整示例</div>
         <a href="#example">走一个真实问题</a>
         <a href="#overview">全链路总览</a>
@@ -667,8 +667,8 @@
           <p class="lead">
             CODRAX 是一个<strong>代码分析 + 变更提议</strong>工具。默认运行在<strong>读模式</strong>，
             围绕可复核证据回答代码行为、崩溃根因、性能卡顿、默认配置、模块职责等问题，全程不碰源文件；
-            开启写模式后，还能在<strong>沙箱工作区</strong>（隔离出来的临时改动区，不直接动主仓）里走完整的
-            <code>计划 → 改动 → 验证</code> 闭环。
+            开启写模式后，由 <strong>Auto Pilot</strong> 在<strong>沙箱工作区</strong>（隔离出来的临时改动区，不直接动主仓）里
+            自动探索、应用、验证；<code>计划 → 改动 → 验证</code> 是它内部的三段。
           </p>
 
           <div class="grid grid--3">
@@ -796,9 +796,11 @@ codrax                     <span class="c"># ② 再启动，它会索引「当�
           <pre><code>codrax --log crash.log -r "解释最可能根因"
 codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
 
-          <h3>路径四 · 写模式闭环</h3>
-          <p>已经明确要改什么时用。进入改动 / 验证阶段时，所有写入都只发生在沙箱工作区。</p>
-          <pre><code>codrax --mode=write -r "修复回调幂等问题并补测试" --plan-out plan.json</code></pre>
+          <h3>路径四 · 写模式 Auto Pilot</h3>
+          <p>明确要改什么时用。描述目标即可，Auto Pilot 自动探索、拆批、应用、验证；低 / 中风险不打断，高风险才暂停审批，合回主仓仍需显式动作。所有写入只发生在沙箱工作区。</p>
+          <pre><code>codrax --mode=write -r "修复回调幂等问题并补测试"
+<span class="c"># 只想先看计划、不落地：显式用 plan 阶段</span>
+codrax --mode=write --write-phase=plan -r "修复回调幂等问题并补测试" --plan-out plan.json</code></pre>
 
           <div class="note">
             <p><span class="note-label">建议：</span>把交互控制台当成探索工作台，把单次请求 <code>-r</code> 当成稳定分析入口。
@@ -852,8 +854,7 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
           </div>
 
           <div class="note">
-            <p><span class="note-label">写模式起手式：</span><code>/mode write</code> 先生成计划和差异预览 →
-            <code>/approve</code> 后才进入改动 + 验证 → 失败可回灌计划器，成功可保留沙箱工作区继续复核。</p>
+            <p><span class="note-label">写模式起手式：</span>直接描述目标即可进入 <strong>Auto Pilot</strong>——自动探索、应用、验证，失败按 typed 证据小批量 replan；低 / 中风险不打断，高风险才暂停审批。想只看计划不落地用 <code>--write-phase=plan</code>（或 <code>/plan show</code> 审计）；<code>/mode write</code> 让后续写代码请求持续走 Auto Pilot。</p>
           </div>
         </section>
 
@@ -1232,23 +1233,23 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
 
         <!-- ============ §12 ============ -->
         <section id="write-mode">
-          <h2>写模式沙箱：能改，但不莽撞</h2>
+          <h2>写模式 Auto Pilot：能改，但不莽撞</h2>
           <p class="lead">
-            写模式不是“放开让模型改文件”，而是把改动拆成 <code>计划 → 改动 → 验证</code> 三段，每段权限都不同。
-            所有写入都只发生在独立沙箱工作区——可以理解成主仓旁边一块临时隔离施工区，里面怎么改都不会碰到主仓当前版本。
+            写模式不是“放开让模型改文件”。日常主路径是 <strong>Auto Pilot</strong>：你描述目标，系统自动探索、拆成小批次、生成有界计划、在沙箱里应用、跑验证，失败按 typed 证据小批量 replan。
+            <code>计划 → 改动 → 验证</code> 仍是它内部的三段，每段权限都不同；所有写入只发生在独立沙箱工作区——主仓旁边一块临时隔离施工区，怎么改都不碰主仓当前版本。
           </p>
 
           <div class="grid grid--2">
             <div class="card">
-              <h4>计划阶段 · 先把改什么说清楚</h4>
+              <h4>风险分级审批 · 不是每次都拦</h4>
               <ul class="list">
-                <li>生成一份改动计划，列出目标文件、改动类型、依赖顺序和验证要求。</li>
-                <li>用户先看计划和差异预览，再决定要不要批准。</li>
-                <li>没有批准，后面的写入阶段根本不会开始。</li>
+                <li><strong>低 / 中风险</strong>：Auto Pilot 自动应用 + 验证，不打断你。</li>
+                <li><strong>高风险</strong>：暂停并显示计划 / 差异，等你 <code>/approve</code> 或 <code>/reject</code>。</li>
+                <li><strong>critical</strong>：直接拒绝；合回主仓也始终需要显式动作。</li>
               </ul>
             </div>
             <div class="card">
-              <h4>执行阶段 · 只能按计划落地</h4>
+              <h4>执行边界 · 只能按计划落地</h4>
               <ul class="list">
                 <li><strong>改动范围保护</strong>：计划没写的模块，执行时不能突然去改。</li>
                 <li><strong>改动顺序保护</strong>：有依赖关系的改动必须按顺序落地。</li>
@@ -1259,8 +1260,8 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</code></pre>
 
           <div class="plain-note">
             <p><span class="pn-label">验证阶段像工程流水线，不是聊天补救：</span>会跑静态检查、预编译检查和测试工具探测；
-            <code>run_tests</code> 自动探测 12 类常见测试工具。验证失败时，系统把失败摘要、测试结果和嫌疑文件回灌给计划阶段，
-            重做下一版计划。成功后还可以保留沙箱工作区继续复核。</p>
+            <code>run_tests</code> 自动探测 12 类常见测试工具。验证失败时，Auto Pilot 把失败摘要、测试结果和嫌疑文件作为 typed 证据，
+            交给 controller 小批量 replan，再 apply 再 verify。成功后还可以保留沙箱工作区继续复核；想只看计划不落地，用 <code>--write-phase=plan</code>。</p>
           </div>
         </section>
 
