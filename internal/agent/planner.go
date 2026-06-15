@@ -83,6 +83,14 @@ type plannerEvaluator struct {
 	// calls are likely exact-byte synthesis steps, not broad exploration, so
 	// they are allowed until the hard cap.
 	handoffSynthesisActive bool
+
+	// handoffSynthesisReadBudget bounds ordinary repository-read calls after a
+	// controller/explorer handoff has already localized the batch. The planner
+	// may still read exact bytes for structured edits, but once this typed
+	// budget is exhausted the schema narrows to materialization/probe tools so
+	// planning cannot restart a broad investigation loop.
+	handoffSynthesisReadBudget int
+	handoffSynthesisReadCalls  int
 }
 
 // plannerInvestigationTopN bounds the file list rendered into the
@@ -95,6 +103,11 @@ const plannerInvestigationTopN = 12
 // runner hints) in the rendered Test surface so a monorepo with 50
 // pyproject.toml files doesn't bury the prompt.
 const plannerTestSurfaceMaxItems = 8
+
+const (
+	plannerHandoffSynthesisBaseReadBudget = 4
+	plannerHandoffSynthesisMaxReadBudget  = 8
+)
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
 // iteration cap override for later ShouldStop inspection, and returns
@@ -119,6 +132,8 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	_ = sk
 	e.structuredEmitRepairActive = false
 	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
+	e.handoffSynthesisReadBudget = plannerHandoffSynthesisReadBudget(ctx)
+	e.handoffSynthesisReadCalls = 0
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		if ctx.PlannerSoftIterCapOverride > 0 {
@@ -901,10 +916,40 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if plannerResponseCallsAny(resp, plannerStructuredEmitTools()...) {
 		return false
 	}
-	if (e.structuredEmitRepairActive || e.handoffSynthesisActive) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
+	handoffReadAllowed := e.handoffSynthesisActive && !e.handoffSynthesisReadBudgetExhausted()
+	if (e.structuredEmitRepairActive || handoffReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
 		return false
 	}
 	return true
+}
+
+// FilterToolSchemas implements ToolSchemaFilter. Controller-led source
+// exploration already spent the broad localization budget before this planner
+// dispatch. In that typed-handoff state the planner gets a small exact-byte
+// synthesis window; after that, the current turn's schema is narrowed to
+// structured plan emit tools plus the typed dry-run probe tool. This keeps the
+// model flexible enough to validate runtime assumptions while preventing a
+// second full investigation loop from consuming every planning iteration.
+func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if e == nil || len(schemas) == 0 {
+		return schemas
+	}
+	if !e.handoffSynthesisActive || e.structuredEmitRepairActive || !e.handoffSynthesisReadBudgetExhausted() {
+		return schemas
+	}
+	allowed := plannerHandoffSynthesisMaterializationToolNames()
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	for _, schema := range schemas {
+		if allowed[strings.TrimSpace(schema.Name)] {
+			out = append(out, schema)
+		}
+	}
+	if len(out) == 0 {
+		return schemas
+	}
+	logging.Debug("[planner] handoff synthesis read budget exhausted (%d/%d); narrowed tool surface to %s",
+		e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	return out
 }
 
 const (
@@ -930,6 +975,23 @@ func plannerStructuredEmitRepairTools() []string {
 	}
 }
 
+func plannerHandoffSynthesisMaterializationToolNames() map[string]bool {
+	return map[string]bool{
+		"run_tests":              true,
+		emitChangePlanToolName:   true,
+		emitPlanSkeletonToolName: true,
+		emitPlanChangeToolName:   true,
+	}
+}
+
+func plannerReadSynthesisToolNames() map[string]bool {
+	out := make(map[string]bool, len(plannerStructuredEmitRepairTools()))
+	for _, name := range plannerStructuredEmitRepairTools() {
+		out[name] = true
+	}
+	return out
+}
+
 func plannerResponseCallsAny(resp llm.Response, names ...string) bool {
 	if len(resp.ToolCalls) == 0 || len(names) == 0 {
 		return false
@@ -944,6 +1006,13 @@ func plannerResponseCallsAny(resp llm.Response, names ...string) bool {
 		}
 	}
 	return false
+}
+
+func (e *plannerEvaluator) handoffSynthesisReadBudgetExhausted() bool {
+	if e == nil || !e.handoffSynthesisActive || e.handoffSynthesisReadBudget <= 0 {
+		return false
+	}
+	return e.handoffSynthesisReadCalls >= e.handoffSynthesisReadBudget
 }
 
 func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) bool {
@@ -1000,6 +1069,14 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 // result metadata, never model prose, so it can widen the planner recovery
 // window without creating a prompt-routing hard gate.
 func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
+	if e.handoffSynthesisActive && !e.structuredEmitRepairActive {
+		readTools := plannerReadSynthesisToolNames()
+		for _, result := range obs.CurrentToolResults {
+			if readTools[strings.TrimSpace(result.ToolName)] {
+				e.handoffSynthesisReadCalls++
+			}
+		}
+	}
 	if plannerToolResultsContainSuccessfulStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = false
 		return
@@ -1007,6 +1084,35 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 	if plannerToolResultsContainFailedStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = true
 	}
+}
+
+func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		return 0
+	}
+	budget := plannerHandoffSynthesisBaseReadBudget
+	if ctx == nil || ctx.Mutable == nil {
+		return budget
+	}
+	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
+		normalized := types.NormalizeWriteExplorationHandoff(*handoff)
+		if extra := (len(normalized.TargetFiles) - 2 + 1) / 2; extra > 0 {
+			budget += extra
+		}
+		if len(normalized.EvidenceRefs) > 6 {
+			budget += 2
+		}
+	}
+	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
+		normalized := types.NormalizeWriteContextPack(*pack)
+		if len(normalized.Items) > 10 {
+			budget += 2
+		}
+	}
+	if budget > plannerHandoffSynthesisMaxReadBudget {
+		budget = plannerHandoffSynthesisMaxReadBudget
+	}
+	return budget
 }
 
 // ParseOutput reads the installed ChangePlan, or reports a clean

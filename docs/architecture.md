@@ -1396,12 +1396,12 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 
 |||
 |---|---|
-| 工具 | read_file / grep / list_files / repo_map / exec_command / emit_change_plan / emit_plan_skeleton / emit_plan_change |
+| 工具 | read_file / grep / list_files / repo_map / run_tests(dry_run=true) / emit_change_plan / emit_plan_skeleton / emit_plan_change |
 | Soft cap | per-dispatch 自适应——`agent_subtopic_planner_extra` × N + `agent_planner_complexity_extra` × complexity，硬顶 `agent_planner_scaled_iter_max=20` |
 | Hard cap | soft + recovery slack（默认 3） |
 | 冷启动 | 没分析器 IR 时回落 `agent_planner_soft_iter_cap=6` / hard 9 |
 
-planner 在 `BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()`（verify→plan retry loop 注入），并接 6 个可选 prompt section：task framing（IR shape）/ 相关文件清单（top 12 by structural+keyword rank）/ 测试面（manifest / test dir / runner）/ plan-stage probe 结果 / 迭代历史（prior attempts + failures verbatim）/ active pitfalls（来自 failure-taxonomy store）。
+planner 在 `BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()`（verify→plan retry loop 注入），并接 6 个可选 prompt section：task framing（IR shape）/ 相关文件清单（top 12 by structural+keyword rank）/ 测试面（manifest / test dir / runner）/ plan-stage probe 结果 / 迭代历史（prior attempts + failures verbatim）/ active pitfalls（来自 failure-taxonomy store）。当 controller/explorer 已经留下 typed `WriteExplorationHandoff` 或 `WriteContextPack` 时,planner 进入 handoff synthesis:按目标文件、evidence refs、context-pack items 的结构化数量获得一个 4-8 次普通读工具预算;预算耗尽后 `ToolSchemaFilter` 将本轮工具面收窄到 `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change` / `run_tests(dry_run=true)`。如果结构化 emit 工具被 schema 或 patch builder 拒绝,精确读工具重新打开用于修复当前字节。这条收束只读 typed artifacts 和工具调用计数,不解析用户关键词、模型 rationale、summary、日志或 `<think>`。
 
 planner 是单 emit ReAct loop——目标调一次 emit_change_plan / emit_plan_skeleton / emit_plan_change 完成。`emit_plan_change` 是流式多轮路径——大 plan 分多次 patch 进 Mutable.ChangePlan 直到完整。
 

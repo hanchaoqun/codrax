@@ -158,6 +158,93 @@ func TestPlannerShouldStop_HandoffSynthesisAllowsReadOnlyAtSoftCap(t *testing.T)
 	}
 }
 
+func TestPlannerFilterToolSchemas_HandoffSynthesisExhaustsReadBudget(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"xarray/core/variable.py"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			Source:    "xarray/core/variable.py",
+			LineStart: 239,
+			Summary:   "DataArray.values is forced during Variable construction",
+		}},
+	})
+	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+
+	if got := e.FilterToolSchemas(&types.AgentContext{Mutable: mu}, schemas); len(got) != len(schemas) {
+		t.Fatalf("tool surface narrowed before read budget was spent: got %v", toolSchemaNamesForTest(got))
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(nil, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "read_file",
+				Success:  true,
+			}},
+		})
+	}
+
+	got := e.FilterToolSchemas(&types.AgentContext{Mutable: mu}, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("narrowed tool surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should not extend beyond soft cap after handoff synthesis read budget is exhausted")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, e.effectiveSoftCap()) {
+		t.Fatalf("emit_change_plan should remain callable after read budget is exhausted")
+	}
+}
+
+func TestPlannerFilterToolSchemas_StructuredEmitRepairKeepsReadTools(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority: types.WriteContextP1,
+			Kind:     "target_file",
+			Text:     "pkg/fix.py",
+		}},
+	})
+	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(nil, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	e.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+		}},
+	})
+
+	got := e.FilterToolSchemas(&types.AgentContext{Mutable: mu}, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "read_file,run_tests,emit_change_plan" {
+		t.Fatalf("structured emit repair should keep exact-read tools available, got %s", names)
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should still run inside structured emit repair window")
+	}
+}
+
 func TestPlannerShouldStop_BuildInitialInstructionClearsTypedEmitRepair(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	e.ObserveToolResults(nil, LoopObservation{
@@ -368,4 +455,12 @@ func TestBuildVerifyFailureHandoffSection_EmptyWithoutHandoff(t *testing.T) {
 	if got := eval.buildVerifyFailureHandoffSection(&types.AgentContext{Mutable: mu}); got != "" {
 		t.Fatalf("no handoff must render nothing, got %q", got)
 	}
+}
+
+func toolSchemaNamesForTest(schemas []llm.ToolSchema) []string {
+	out := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		out = append(out, schema.Name)
+	}
+	return out
 }

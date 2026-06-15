@@ -3615,3 +3615,77 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Planner still sometimes edits repository tests in SWE-bench runs even when
     product-code prediction export will strip them. The new result fields make
     this measurable before considering stronger typed policy.
+
+## 2026-06-16 SWE-bench smoke 4: handoff-synthesis convergence hardening
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-requests-xarray-pylint-mpl-new-current`.
+  - Instances:
+    - `matplotlib__matplotlib-23562`: `status=predicted`,
+      `patch_bytes=603`, `plan_status=unverified`,
+      `verify_status=unavailable`, `verify_failure_kind=parser_error`.
+      Manual audit found the patch plausibly initializes the 2D face/edge color
+      mirrors before draw, while local Matplotlib env prep remained partial.
+    - `psf__requests-863`: `status=predicted`, `patch_bytes=559`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Manual audit found the patch handles
+      list-valued hook entries while preserving the existing callable path.
+    - `pydata__xarray-4493`: `status=empty_patch`, `patch_bytes=0`. The
+      explorer had already localized the relevant `DataArray.values` /
+      `Variable.__init__` path and emitted handoff evidence, but the planner
+      spent repeated dispatches on broad rereads and never installed a
+      `ChangePlan`.
+    - `pylint-dev__pylint-7228`: `status=predicted`, `patch_bytes=2541`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Manual audit found the patch likely
+      incorrect: it assumes Python `re.UNICODE` enables Unicode property
+      escapes such as `\p{Han}`. This is a runtime/library-fact probe gap, not a
+      safe keyword rule.
+  - Prediction validation accepted the four rows with `empty_patch=1`; official
+    SWE-bench harness dry-run accepted the predictions file. Local dependency
+    and parser unavailability stayed `unverified` rather than becoming a hard
+    code-failure gate.
+- Generalized gaps fixed:
+  - Planner handoff synthesis is now bounded by typed state. When
+    `WriteExplorationHandoff` or `WriteContextPack` exists, the planner receives
+    a small exact-byte read budget computed from structured target-file,
+    evidence-ref, and context-pack counts. After that budget is spent, the
+    per-iteration tool schema narrows to `emit_change_plan`,
+    `emit_plan_skeleton`, `emit_plan_change`, and `run_tests(dry_run=true)`.
+  - Structured emit repair remains open: if a plan emit is rejected by schema or
+    patch-builder validation, exact read tools reappear so the planner can fetch
+    current bytes/ranges and re-emit a valid plan.
+- Safety and prompt hygiene:
+  - Hard behavior consumes only typed handoff/context artifacts and typed tool
+    result names/counts. It does not parse user intent keywords, model rationale,
+    summaries, `<think>`, logs, or natural-language acceptance tests.
+  - `run_tests(dry_run=true)` remains available after handoff read-budget
+    exhaustion so runtime assumptions can still be checked through the typed
+    probe channel instead of broad source exploration.
+- Implementation tasks:
+  - [x] Add planner handoff synthesis read-budget state and typed budget
+    computation.
+  - [x] Add planner `ToolSchemaFilter` narrowing after read-budget exhaustion.
+  - [x] Keep structured emit rejection repair exempt from the narrowed surface.
+  - [x] Update `docs/architecture.md`, `docs/user_guide.md`,
+    `docs/user_guide.html`, and this delivery ledger.
+- Verification:
+  - Focused planner tests passed:
+    `go test ./internal/agent -run 'TestPlanner(ShouldStop_HandoffSynthesisAllowsReadOnlyAtSoftCap|FilterToolSchemas_HandoffSynthesisExhaustsReadBudget|FilterToolSchemas_StructuredEmitRepairKeepsReadTools)'`.
+  - Affected packages passed: `go test ./internal/agent ./internal/skill`.
+  - Full regression passed: `go test ./...`.
+  - Local build passed: `make`.
+  - SWE-bench prediction validation passed on the smoke-4 predictions file
+    with the expected recorded `empty_patch=1`.
+  - Local SWE-bench adapter smoke passed: `eval/swebench/smoke_local.sh`.
+  - Patch hygiene passed: `git diff --check`.
+- Remaining system gaps to track:
+  - Runtime/library capability claims such as Python `re.UNICODE` vs Unicode
+    property escapes should be proven by typed bounded probes before becoming
+    plan rationale or code. This should generalize through planner probe policy,
+    not keyword rules for any one library.
+  - Explorer evidence repair can still spend too many iterations on stale or
+    imprecise evidence rows after P1 root-cause evidence is sufficient. The
+    planner-side read budget prevents empty-patch collapse, but exploration
+    closure can still become smoother.

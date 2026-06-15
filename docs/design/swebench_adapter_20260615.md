@@ -771,3 +771,22 @@ records adapter results.
   parser/error report. The verifier now stops immediately after `run_tests`
   installs a typed passed or unavailable `ChangeReport`, and filters `run_tests`
   out of subsequent turns once any report exists.
+- 2026-06-16: Ran a four-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-requests-xarray-pylint-mpl-new-current`
+  for `matplotlib__matplotlib-23562`, `psf__requests-863`,
+  `pydata__xarray-4493`, and `pylint-dev__pylint-7228`. Matplotlib, Requests,
+  and Pylint produced non-empty predictions; Xarray exported an empty patch.
+  Prediction validation and official harness dry-run accepted the predictions
+  file with `empty_patch=1`. Manual audit found Matplotlib and Requests
+  plausible, Xarray failed because the planner repeated broad investigation
+  after a sufficient exploration handoff, and Pylint likely produced an
+  incorrect `re.UNICODE` patch for Unicode property escapes. The implemented
+  product hardening adds a planner handoff-synthesis read budget derived only
+  from typed `WriteExplorationHandoff` / `WriteContextPack` counts. Once spent,
+  planner schemas narrow to plan emit tools plus `run_tests(dry_run=true)`;
+  schema/patch-builder emit rejection still reopens exact read tools for repair.
+  This uses typed artifacts and tool-result names/counts only, not issue
+  keywords, model prose, summaries, logs, or `<think>`. Remaining adapter/product
+  follow-up: runtime/library capability claims should be verified through typed
+  bounded probes before shaping code, rather than trusting planner world
+  knowledge.
