@@ -790,3 +790,46 @@ records adapter results.
   follow-up: runtime/library capability claims should be verified through typed
   bounded probes before shaping code, rather than trusting planner world
   knowledge.
+- 2026-06-16: Started another non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-django-scikit-sphinx-sympy-handoff-budget-current`
+  for Django, Scikit-learn, Sphinx, and SymPy issue-shaped cases. The run was
+  stopped after enough evidence. Django produced `empty_patch` even though
+  exploration had already localized `django/forms/widgets.py::Media.merge` and
+  `tests/forms_tests/tests/test_media.py`; planner then spent eight ordinary
+  read/grep calls before the budget narrowed, which is too late for a
+  controller-led handoff. Scikit-learn produced an exported but unverified
+  patch; local verification was unavailable because the checkout environment
+  lacked usable Python test dependencies, and planner still spent multiple
+  rediscovery reads before emitting. Sphinx was interrupted during a broad
+  write-analysis repo_map pass, preserving a separate front-end exploration
+  cost follow-up. The implemented hardening now treats only explore-stage typed
+  localization facts (`target_file`, `evidence_ref`, `symbol`, `invariant`,
+  `test_surface`, `pattern_hint`) as exploration-grade handoff. That drops the
+  planner exact-byte synthesis window to 2-4 read calls, prevents
+  write-analysis/risk-only packs from masquerading as localized evidence, and
+  suppresses the generic likely-file rediscovery seed after a localized handoff.
+  The generic likely-file section itself is fact-only again; it no longer tells
+  the planner to call `read_file` / `grep`. All routing remains based on typed
+  artifacts, source stages, item kinds, and tool-result names/counts, not issue
+  keywords, model prose, summaries, logs, or `<think>`.
+- 2026-06-16: Re-ran the Django case after the tight handoff fix at
+  `eval/results/swebench/lite-smoke-20260616-django-tight-handoff-after-fix`.
+  The run produced a non-empty exported source patch for
+  `django/forms/widgets.py` (`patch_bytes=498`), dropped the generated test file
+  from the official prediction as intended, validated the prediction, and the
+  official harness dry-run accepted the predictions file. The planner no longer
+  spent eight rediscovery reads before materialization: after the controller's
+  `exploration_complete_ready_to_plan`, planner used two ordinary read/grep
+  turns, emitted `emit_change_plan` on the third planning turn, repaired a
+  typed `py_compile`/dry-build rejection with one exact read, and re-emitted a
+  syntactically valid plan. Local verification still failed with a real
+  `tests_failed` verdict (`MediaOrderConflictWarning` remained and the bounded
+  probe observed the wrong JS order), so the adapter marked
+  `prediction_verdict=predicted_failed_verify` and
+  `prediction_blocks_local_acceptance=True`. This confirms two separate
+  properties: missing/old local test environments are not hard-blocked when the
+  failure kind is unavailable, while real typed test failures remain visible and
+  drive `replan_batch` rather than being normalized to success. Remaining
+  product follow-up: exploration/planner should verify runtime/library
+  hypotheses with bounded typed probes earlier, because a faster handoff can
+  still converge on an incorrect patch if the localized causal theory is wrong.

@@ -105,8 +105,8 @@ const plannerInvestigationTopN = 12
 const plannerTestSurfaceMaxItems = 8
 
 const (
-	plannerHandoffSynthesisBaseReadBudget = 4
-	plannerHandoffSynthesisMaxReadBudget  = 8
+	plannerHandoffSynthesisBaseReadBudget = 2
+	plannerHandoffSynthesisMaxReadBudget  = 4
 )
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
@@ -177,8 +177,10 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	} else if handoff := e.buildWriteExplorationHandoffSection(ctx); handoff != "" {
 		sections = append(sections, handoff)
 	}
-	if seed := e.buildInvestigationSeed(ctx); seed != "" {
-		sections = append(sections, seed)
+	if !e.handoffSynthesisActive {
+		if seed := e.buildInvestigationSeed(ctx); seed != "" {
+			sections = append(sections, seed)
+		}
 	}
 	if surface := e.buildTestSurfaceSection(ctx); surface != "" {
 		sections = append(sections, surface)
@@ -562,7 +564,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 	}
 	var b strings.Builder
 	b.WriteString("## Likely-relevant files\n\n")
-	b.WriteString("Top files ranked by structural importance (repo_map) + keyword match (grep IDF) + entity boost. Use read_file / grep on these before deciding what to change. Use line_offset/limit on read_file to page through large files; line_offset is zero-based and line-based, and the response will tell you the line range.\n\n")
+	b.WriteString("Top files ranked by structural importance (repo_map) + keyword match (grep IDF) + entity boost. These are advisory candidates only; the bounded ChangePlan must still be based on current file bytes and typed workflow context.\n\n")
 	for i := 0; i < limit; i++ {
 		f := sr.Files[i]
 		fmt.Fprintf(&b, "  - %s\n", f.Path)
@@ -1046,23 +1048,50 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 		return false
 	}
 	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
-		normalized := types.NormalizeWriteExplorationHandoff(*handoff)
-		if len(normalized.TargetFiles) > 0 ||
-			len(normalized.RelevantSymbols) > 0 ||
-			len(normalized.ExistingPatterns) > 0 ||
-			len(normalized.Invariants) > 0 ||
-			len(normalized.TestSurface) > 0 ||
-			len(normalized.RiskNotes) > 0 ||
-			len(normalized.Unknowns) > 0 ||
-			len(normalized.EvidenceRefs) > 0 {
+		if plannerExplorationHandoffLocalizationCount(*handoff) > 0 {
 			return true
 		}
 	}
 	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
-		normalized := types.NormalizeWriteContextPack(*pack)
-		return len(normalized.Items) > 0
+		return plannerExplorationPackLocalizationCount(*pack) > 0
 	}
 	return false
+}
+
+func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHandoff) int {
+	normalized := types.NormalizeWriteExplorationHandoff(handoff)
+	return len(normalized.TargetFiles) +
+		len(normalized.RelevantSymbols) +
+		len(normalized.ExistingPatterns) +
+		len(normalized.Invariants) +
+		len(normalized.TestSurface) +
+		len(normalized.EvidenceRefs)
+}
+
+func plannerExplorationPackLocalizationCount(pack types.WriteContextPack) int {
+	normalized := types.NormalizeWriteContextPack(pack)
+	view := normalized.View(types.WriteConsumerPlanner, 0)
+	count := 0
+	for _, item := range view.Items {
+		stage := strings.TrimSpace(item.SourceStage)
+		if stage == "" {
+			stage = strings.TrimSpace(normalized.SourceStage)
+		}
+		if stage != "explore" || !plannerExplorationPackLocalizationKind(strings.TrimSpace(item.Kind)) {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func plannerExplorationPackLocalizationKind(kind string) bool {
+	switch kind {
+	case "target_file", "evidence_ref", "symbol", "invariant", "test_surface", "pattern_hint":
+		return true
+	default:
+		return false
+	}
 }
 
 // ObserveToolResults implements ToolResultObserver. It consumes only typed tool
@@ -1094,20 +1123,18 @@ func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
 	if ctx == nil || ctx.Mutable == nil {
 		return budget
 	}
+	localizationCount := 0
 	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
-		normalized := types.NormalizeWriteExplorationHandoff(*handoff)
-		if extra := (len(normalized.TargetFiles) - 2 + 1) / 2; extra > 0 {
-			budget += extra
-		}
-		if len(normalized.EvidenceRefs) > 6 {
-			budget += 2
-		}
+		localizationCount += plannerExplorationHandoffLocalizationCount(*handoff)
 	}
 	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
-		normalized := types.NormalizeWriteContextPack(*pack)
-		if len(normalized.Items) > 10 {
-			budget += 2
-		}
+		localizationCount += plannerExplorationPackLocalizationCount(*pack)
+	}
+	if localizationCount > 4 {
+		budget++
+	}
+	if localizationCount > 10 {
+		budget++
 	}
 	if budget > plannerHandoffSynthesisMaxReadBudget {
 		budget = plannerHandoffSynthesisMaxReadBudget

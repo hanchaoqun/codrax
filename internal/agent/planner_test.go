@@ -158,6 +158,86 @@ func TestPlannerShouldStop_HandoffSynthesisAllowsReadOnlyAtSoftCap(t *testing.T)
 	}
 }
 
+func TestPlannerHandoffSynthesisReadBudget_ExplorationPackIsTight(t *testing.T) {
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		SourceStage: "explore",
+		Items: []types.WriteContextItem{
+			{
+				Priority:    types.WriteContextP1,
+				Kind:        "target_file",
+				Text:        "pkg/fix.py",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+			{
+				Priority:    types.WriteContextP1,
+				Kind:        "evidence_ref",
+				Text:        "pkg/fix.py:12",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatalf("explore-stage localization pack should activate handoff synthesis")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != plannerHandoffSynthesisBaseReadBudget {
+		t.Fatalf("small localization pack budget = %d; want %d", got, plannerHandoffSynthesisBaseReadBudget)
+	}
+}
+
+func TestPlannerHandoffSynthesisReadBudget_WriteAnalysisOnlyDoesNotActivate(t *testing.T) {
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		SourceStage: "write_analysis",
+		Items: []types.WriteContextItem{
+			{
+				Priority:    types.WriteContextP0,
+				Kind:        "constraint",
+				Text:        "preserve read scheduler byte identity",
+				SourceStage: "write_analysis",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+			{
+				Priority:    types.WriteContextP1,
+				Kind:        "scope_anchor",
+				Text:        "internal/orchestrator",
+				SourceStage: "write_analysis",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	if plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatalf("write_analysis-only context should not activate exploration handoff synthesis")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
+		t.Fatalf("write_analysis-only budget = %d; want 0", got)
+	}
+}
+
+func TestPlannerHandoffSynthesisReadBudget_NonLocalizingExploreItemsDoNotActivate(t *testing.T) {
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:    "batch-1",
+		RiskNotes:  []string{"review generated dependency updates"},
+		Unknowns:   []string{"which exact function owns this behavior"},
+		Confidence: "medium",
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	if plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatalf("risk/unknown-only exploration handoff should not activate exact-byte synthesis")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
+		t.Fatalf("risk/unknown-only budget = %d; want 0", got)
+	}
+}
+
 func TestPlannerFilterToolSchemas_HandoffSynthesisExhaustsReadBudget(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("handoff synthesis")
@@ -210,9 +290,10 @@ func TestPlannerFilterToolSchemas_StructuredEmitRepairKeepsReadTools(t *testing.
 	mu := types.NewMutableState("handoff synthesis")
 	mu.SetWriteContextPack(&types.WriteContextPack{
 		Items: []types.WriteContextItem{{
-			Priority: types.WriteContextP1,
-			Kind:     "target_file",
-			Text:     "pkg/fix.py",
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
 		}},
 	})
 	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
