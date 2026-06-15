@@ -1589,7 +1589,7 @@ planner 下次 dispatch 在 BuildInitialInstruction 消费一次 PlanningHint—
 
 **重试停滞早停**——retry budget 不是无脑用满：
 
-1. **`shouldSuppressVerifyRetry(report)`** — `ChangeReport.FailureKind == runner_missing` 时直接 fall-through（env 类失败 LLM 解决不了）
+1. **`runner_missing` unverified lane** — `ChangeReport.FailureKind == runner_missing` 时不进入 verify→plan 重试,也不把已应用代码硬标成 `verify_failed`;它落到 `PlanStatusUnverified` / verify attempt `unverified(reason=runner_missing)`,保留安装提示和报告证据（env 类失败 LLM 解决不了）
 2. **`verifyStallReason(closure)`** — 比较 WriteClosure.fingerprints 最末两条 ApplyVerifyFingerprint：`AppliedCount` / `VerifyPassed` / `VerifyFailed` / `FailureSummaryHash` 全相等 → 视为"无进展" → 跳本轮 retry
 
 `ApplyVerifyFingerprint.FailureSummaryHash` 是 FailureSummary 的 FNV-32 hex。完全 byte-equal 才算"同信号"——任一维度变（多 apply 一个文件、多过/少过一个测试、failure 文本变样）都算有进展继续 retry。守门**通用**：不分 failure 类型，所有"原地重打"场景都生效。
@@ -1642,7 +1642,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 - **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组（失控测试 fork 出来的子孙进程能被一并 kill）；启动后挂 prlimit 设内存 (`verify_mem_limit_mb` 默认 2048) + CPU time (`verify_cpu_limit_seconds` 默认 600)
 - **Windows**：`golang.org/x/sys/windows` 创建 JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `JobMemoryLimit`，等价语义
 - **退出归类**：`SupervisedExitKind ∈ {Normal, Timeout, OOM, CPULimit}`；run_tests parser 把 OOM / CPULimit / Timeout 直接映射到 `ChangeReport.FailureKind`（7 值 enum：tests_failed / build_failure / timeout / oom / cpu_limit / crash / runner_missing）。retry-hint composer 据此分类——OOM 不会被当"测试逻辑挂了"重写一份巨大 plan，而是触发"显存/内存上限"专属 hint
-- **runner_missing 跳 retry**：`detectRunnerMissing` 在 parser 之前先看：shell exit 127 / `errors.Is(runErr, exec.ErrNotFound)` / 输出含 `<binary>: not found` 等。命中即合成 `makeRunnerMissingReport`，FailureKind=runner_missing + BuildFailed=true + FailureSummary 带 per-runner 安装 hint。`shouldSuppressVerifyRetry` 见此 FailureKind 直接 fall-through——重新规划解决不了"工具没装"。每个 runner 的安装 hint 由 `runnerInstallHint(runner)` 提供（drift-guard 测试锁定 12 个 runner 全覆盖）
+- **runner_missing 跳 retry + unverified**：`detectRunnerMissing` 在 parser 之前先看：shell exit 127 / `errors.Is(runErr, exec.ErrNotFound)` / 输出含 `<binary>: not found` 等。命中即合成 `makeRunnerMissingReport`，FailureKind=runner_missing + BuildFailed=true + FailureSummary 带 per-runner 安装 hint。调度器见此 FailureKind 不重规划代码、不硬 block 已应用改动,而是把 plan/batch 记为 `unverified(reason=runner_missing)`；重新规划解决不了"工具没装",但交付补丁仍应保留。每个 runner 的安装 hint 由 `runnerInstallHint(runner)` 提供（drift-guard 测试锁定 12 个 runner 全覆盖）
 
 ### 8.18 失败学习 — Failure Taxonomy 跨 Run 持久化
 

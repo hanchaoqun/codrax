@@ -1823,11 +1823,11 @@ Auto Pilot 内部自动:
 1. 创建临时 worktree(基于当前 branch)
 2. 在 worktree 里 `apply_patch` 每个文件改动(支持 create / modify / delete / patch / rename)
 3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
-4. 测试通过 → 标记 `applied`;失败 → 标记 `verify_failed`(可重试)
+4. 测试通过 → 标记 `applied`;测试/构建真实失败 → 标记 `verify_failed`(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 `unverified`
 
 > verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)直接 fall-through 给安装提示;fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 
@@ -2756,7 +2756,7 @@ CLI 单次模式输出:
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),自动跳过 verify→plan 重试,显示推荐安装命令(`env_recommend` 启动一条诊断 → 推荐 → 双语渲染管线;命令以 `!` 前缀给出方便复制)。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并显示推荐安装命令(`env_recommend` 启动一条诊断 → 推荐 → 双语渲染管线;命令以 `!` 前缀给出方便复制)。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
 
 **`/merge` 说 "no worktree to merge from"**
 → apply 完 worktree 被清了。`codrax.yaml` 加 `pipeline_keep_worktree_on_success: true`,下次 apply 后 worktree 会保留。

@@ -342,18 +342,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.busCtx.TaskState.LastError = ""
 			}
 			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing {
-				lastInnerErr = fmt.Errorf("verify runner missing")
-				if report != nil && strings.TrimSpace(report.FailureSummary) != "" {
-					lastInnerErr = fmt.Errorf("%s", strings.TrimSpace(report.FailureSummary))
-				}
-				run.Status = types.WriteWorkflowRunBlocked
-				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
-				appendControllerProgress(&run, run.ActiveBatchID, "runner_missing", lastInnerErr.Error())
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
+				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
+				o.busCtx.TaskState.LastError = ""
+				o.busCtx.Mutable.ResetVerifyFailureHandoff()
 				o.persistWriteWorkflowRun(&run)
-				o.publishBlockedRunGuidance(&run, "runner_missing")
-				return lastInnerErr
+				continue
 			}
-			if innerErr != nil || (report != nil && !report.Passed) {
+			if outcome.Kind == writeflow.VerifyOutcomeReportFailed || innerErr != nil || (report != nil && !report.Passed) {
 				if innerErr == nil && report != nil {
 					innerErr = fmt.Errorf("verify failed: %s", strings.TrimSpace(report.FailureSummary))
 				}
@@ -396,8 +392,8 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 						result += " — accepted with failed verification: " + strings.Join(unverified, ", ")
 					}
 				}
-				if noTests := writeflow.UnverifiedBatchCaveats(run); len(noTests) > 0 {
-					result += " — no tests executed for: " + strings.Join(noTests, ", ")
+				if caveat := writeWorkflowUnverifiedCompletionCaveat(run); caveat != "" {
+					result += " — " + caveat
 				}
 				o.busCtx.Mutable.SetResult(result)
 			}
@@ -993,6 +989,9 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 	}
 	now := time.Now()
 	switch {
+	case reportIndicatesVerificationUnavailable(report):
+		plan.Status = types.PlanStatusUnverified
+		plan.AppliedAt = &now
 	case err != nil || !report.Passed:
 		plan.Status = types.PlanStatusVerifyFailed
 		plan.AppliedAt = nil
@@ -1507,14 +1506,27 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		return decision
 	}
 	if decision.Action == writeflow.ActionReplanBatch &&
-		activeBatchCompletedWithNoTestsVerdict(run) &&
+		activeBatchCompletedWithUnverifiedVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) {
 		appendControllerProgress(run, batchID, "replan_without_failure_evidence_overridden",
-			"controller replan_batch suppressed because the active batch completed with a typed no-tests verdict and no failed-verification handoff")
+			"controller replan_batch suppressed because the active batch completed with a typed unverified verdict and no failed-verification handoff")
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 			Action:            writeflow.ActionFinish,
-			ReasonCode:        "accept_unverified_no_tests",
+			ReasonCode:        "accept_unverified_without_failure_evidence",
 			Reason:            "active batch has no typed failure evidence; finish with an unverified caveat instead of replanning from stale goal context",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+		})
+	}
+	if activeBatchCompletedWithUnverifiedVerdict(run) &&
+		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		controllerActionInterruptsUnverifiedCompletion(decision.Action) &&
+		o.busCtx.Mode != types.ModeVerify {
+		appendControllerProgress(run, batchID, "unverified_action_overridden",
+			fmt.Sprintf("controller action %s suppressed because the active batch is complete with a typed unverified verdict and no code-failure evidence", decision.Action))
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        "accept_unverified_without_failure_evidence",
+			Reason:            "active batch is complete; local verification is unavailable, but there is no typed code-failure evidence",
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}
@@ -1660,6 +1672,15 @@ func controllerActionDelaysPostApplyVerify(action writeflow.WorkflowAction) bool
 	}
 }
 
+func controllerActionInterruptsUnverifiedCompletion(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionAskUser, writeflow.ActionBlock, writeflow.ActionReplanBatch, writeflow.ActionVerifyBatch:
+		return true
+	default:
+		return false
+	}
+}
+
 func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *types.ChangePlan) bool {
 	if run == nil || plan == nil {
 		return false
@@ -1699,7 +1720,7 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 	return false
 }
 
-func activeBatchCompletedWithNoTestsVerdict(run *types.WriteWorkflowRun) bool {
+func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool {
 	if run == nil {
 		return false
 	}
@@ -1719,8 +1740,15 @@ func activeBatchCompletedWithNoTestsVerdict(run *types.WriteWorkflowRun) bool {
 			if strings.TrimSpace(attempt.Kind) != "verify" {
 				continue
 			}
-			return strings.TrimSpace(attempt.Status) == "unverified" &&
-				strings.TrimSpace(attempt.ReasonCode) == "no_tests"
+			if strings.TrimSpace(attempt.Status) != "unverified" {
+				return false
+			}
+			switch strings.TrimSpace(attempt.ReasonCode) {
+			case "no_tests", string(types.FailureKindRunnerMissing):
+				return true
+			default:
+				return false
+			}
 		}
 		return false
 	}
@@ -1775,11 +1803,14 @@ func changePlanReadyForApply(plan *types.ChangePlan) bool {
 }
 
 func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) string {
-	if err != nil {
-		return "failed"
-	}
 	if report == nil {
 		return "missing_report"
+	}
+	if reportIndicatesVerificationUnavailable(report) {
+		return "unverified"
+	}
+	if err != nil {
+		return "failed"
 	}
 	if !report.Passed {
 		return "failed"
@@ -2072,11 +2103,15 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
 		o.syncCurrentWriteContextPackToRun(run)
 	}
-	if innerErr == nil && report != nil && report.Passed {
+	outcome := writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
+	if report != nil && (outcome.Kind == writeflow.VerifyOutcomeReportPassed ||
+		outcome.Kind == writeflow.VerifyOutcomeNoTests ||
+		outcome.Kind == writeflow.VerifyOutcomeRunnerMissing) {
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
-		if len(report.NoTestsRunners) > 0 {
-			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", "no_tests")
-		} else {
+		switch outcome.Kind {
+		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing:
+			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
+		default:
 			appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
 		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
@@ -2084,8 +2119,8 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 		o.persistWriteWorkflowRun(run)
 		if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
 			result := "write workflow complete"
-			if noTests := writeflow.UnverifiedBatchCaveats(*run); len(noTests) > 0 {
-				result += " — no tests executed for: " + strings.Join(noTests, ", ")
+			if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+				result += " — " + caveat
 			}
 			o.busCtx.Mutable.SetResult(result)
 		}
@@ -2100,6 +2135,46 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	_, _ = o.persistVerifyFailureEvidence(run, report, writeflow.DeriveBatchAttemptState(*active).FailedVerifyAttempts+1)
 	o.persistWriteWorkflowRun(run)
 	return false
+}
+
+func writeWorkflowUnverifiedCompletionCaveat(run types.WriteWorkflowRun) string {
+	var entries []string
+	allNoTests := true
+	for _, batch := range run.Batches {
+		latestStatus := ""
+		latestReason := ""
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			latestStatus = strings.TrimSpace(attempt.Status)
+			latestReason = strings.TrimSpace(attempt.ReasonCode)
+			break
+		}
+		if latestStatus != "unverified" {
+			continue
+		}
+		entry := strings.TrimSpace(batch.ID)
+		if entry == "" {
+			entry = "batch"
+		}
+		if latestReason != "" && latestReason != "no_tests" {
+			entry += " (" + latestReason + ")"
+			allNoTests = false
+		}
+		if latestReason != "no_tests" {
+			allNoTests = false
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	if allNoTests {
+		return "no tests executed for: " + strings.Join(entries, ", ")
+	}
+	return "local verification unavailable for: " + strings.Join(entries, ", ")
 }
 
 // lastPlanEmitRejectionSummary returns the most recent failed plan-emit

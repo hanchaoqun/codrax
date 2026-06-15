@@ -101,8 +101,19 @@ records adapter results.
 - 2026-06-15: SWE-bench Lite smoke passed for `pallets__flask-4045` at
   `eval/results/swebench/lite-smoke-20260615-111050`. Codrax produced a
   non-empty `model_patch` of 467 bytes and the official harness dry-run consumed
-  the predictions file. Codrax internal verify ended as `verify_failed` because
-  the checked-out Flask repo had no pytest environment; this is preserved in
-  `results.jsonl` while the official harness remains the scoring authority.
+  the predictions file. This run exposed that Codrax internal verify used to
+  end as `verify_failed` when the checked-out Flask repo had no pytest
+  environment, even though the patch was exportable and the official harness
+  remains the scoring authority.
 - 2026-06-15: Regression passed: script syntax checks, local smoke,
   `git diff --check`, and `go test ./...`.
+- 2026-06-15: Follow-up hardening: typed `runner_missing` now lands as
+  `unverified(reason=runner_missing)` instead of hard-blocking / marking the
+  patch as `verify_failed`. True build/test failures still stay `verify_failed`;
+  missing customer/local test dependencies preserve the patch and surface a
+  transparent unverified caveat.
+- 2026-06-15: Verified the hardening with SWE-bench Lite
+  `pallets__flask-4045` at `eval/results/swebench/lite-smoke-20260615-113603`:
+  predictions validated, official harness dry-run consumed the file,
+  `codrax_exit_code=0`, `plan_status=unverified`, and the final user result
+  carried an unverified caveat instead of blocking on missing pytest.

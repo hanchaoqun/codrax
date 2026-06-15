@@ -984,7 +984,7 @@ func TestRunWriteControllerWorkflow_VerifyInfraBudgetBlocksWithoutReplan(t *test
 	}
 }
 
-func TestRunWriteControllerWorkflow_RunnerMissingBlocksWithoutReplan(t *testing.T) {
+func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutReplan(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("runner missing")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "runner missing"}}})
@@ -992,6 +992,7 @@ func TestRunWriteControllerWorkflow_RunnerMissingBlocksWithoutReplan(t *testing.
 		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single change"}},
 		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -1019,20 +1020,29 @@ func TestRunWriteControllerWorkflow_RunnerMissingBlocksWithoutReplan(t *testing.
 		return &agent.StageOutput{}, nil
 	}
 	steps := 0
-	if err := o.runWriteControllerWorkflow(&steps); err == nil {
-		t.Fatal("workflow should block when typed report says runner_missing")
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("workflow should complete unverified when typed report says runner_missing: %v", err)
 	}
-	if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
-		t.Fatalf("workflow should be blocked, got %+v", store.last)
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete, got %+v", store.last)
 	}
-	if !workflowProgressHasReason(store.last.ProgressLedger, "runner_missing") {
-		t.Fatalf("runner_missing progress missing: %+v", store.last.ProgressLedger)
+	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
+		t.Fatalf("runner_missing should complete as batch_unverified: %+v", store.last.ProgressLedger)
 	}
 	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
 		t.Fatalf("runner_missing should not enter replan verify_failed path: %+v", store.last.ProgressLedger)
 	}
-	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "runner_missing", "plan-runner-missing.report.json") {
+	if workflowProgressHasReason(store.last.ProgressLedger, "runner_missing") {
+		t.Fatalf("runner_missing should not block the workflow: %+v", store.last.ProgressLedger)
+	}
+	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "unverified", "runner_missing", "plan-runner-missing.report.json") {
 		t.Fatalf("runner_missing verify attempt missing: %+v", store.last.Batches[0].Attempts)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusUnverified {
+		t.Fatalf("runner_missing should leave plan unverified, got %+v", plan)
+	}
+	if result := mu.Result(); !strings.Contains(result, "local verification unavailable for: batch-1 (runner_missing)") {
+		t.Fatalf("result should carry runner_missing unverified caveat, got %q", result)
 	}
 }
 
@@ -1512,6 +1522,67 @@ func TestNormalizeControllerTypedStateDecisionReplanAfterNoTestsFinishesUnverifi
 	}
 	if !workflowProgressHasReason(run.ProgressLedger, "replan_without_failure_evidence_overridden") {
 		t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionReplanAfterRunnerMissingFinishesUnverified(t *testing.T) {
+	mu := types.NewMutableState("runner missing replan guard")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-runner-missing",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing", PlanID: "plan-1"},
+			},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch,
+		Batch:  &writeflow.WriteBatchPlan{ID: "batch-2", Goal: "try again"},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("runner-missing replan should finish with unverified caveat, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "replan_without_failure_evidence_overridden") {
+		t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionRunnerMissingSuppressesInterruptions(t *testing.T) {
+	for _, action := range []writeflow.WorkflowAction{writeflow.ActionVerifyBatch, writeflow.ActionAskUser, writeflow.ActionBlock} {
+		t.Run(string(action), func(t *testing.T) {
+			mu := types.NewMutableState("runner missing interruption guard")
+			o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+			run := &types.WriteWorkflowRun{
+				RunID:         "wf-runner-missing",
+				Status:        types.WriteWorkflowRunInProgress,
+				ActiveBatchID: "batch-1",
+				Batches: []types.WriteWorkflowBatch{{
+					ID:     "batch-1",
+					Status: types.WriteWorkflowBatchComplete,
+					Attempts: []types.WriteWorkflowAttempt{
+						{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+						{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing", PlanID: "plan-1"},
+					},
+				}},
+			}
+			got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+				Action:     action,
+				ReasonCode: "missing_runner",
+			}, run)
+			if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+				t.Fatalf("%s should finish with unverified caveat, got %+v", action, got)
+			}
+			if !workflowProgressHasReason(run.ProgressLedger, "unverified_action_overridden") {
+				t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+			}
+		})
 	}
 }
 

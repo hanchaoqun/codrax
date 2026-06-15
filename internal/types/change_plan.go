@@ -37,17 +37,13 @@ const (
 	// failed. Distinct from applied_failed so operators can tell
 	// "plan was broken" from "plan applied but surface regressed".
 	PlanStatusVerifyFailed = "verify_failed"
-	// PlanStatusUnverified means apply landed and verify ran cleanly
-	// (no crash, no failures) BUT the test runner reported zero tests
-	// discovered for the changed code. The plan's bytes are on disk in
-	// the worktree, but no assertion proved they work. Distinct from
-	// applied so operators see the difference between "tests passed"
-	// and "no tests existed to test"; distinct from verify_failed
-	// because nothing failed — there was just nothing to fail.
-	// Surfaced when ChangeReport.NoTestsRunners is non-empty AND the
-	// plan actually changed non-test source files (a docs-only or
-	// test-only change that produces zero tests is benign and stays
-	// applied).
+	// PlanStatusUnverified means apply landed but local verification did
+	// not produce a validating assertion. This covers environment/tooling
+	// gaps such as FailureKindRunnerMissing (for example pytest missing in
+	// a customer checkout) and zero-test discovery for runtime code. The
+	// plan's bytes are on disk in the worktree, but no local test verdict
+	// proved they work. Distinct from applied ("tests passed") and from
+	// verify_failed ("tests/build ran and found a code failure").
 	PlanStatusUnverified = "unverified"
 	// PlanStatusPartiallyApplied means the apply stage hit a
 	// rejection partway through plan.Changes — some files made it

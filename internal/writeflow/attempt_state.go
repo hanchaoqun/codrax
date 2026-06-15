@@ -220,9 +220,9 @@ func UnverifiedBatchSummaries(run types.WriteWorkflowRun) []string {
 }
 
 // UnverifiedBatchCaveats lists batches whose latest verify attempt completed
-// with the typed "unverified" status (a NoTests outcome on non-test code).
-// Finish paths append this as a result caveat so a run can never silently
-// read "complete" with zero executed assertions.
+// with the typed "unverified" status (for example no_tests or runner_missing).
+// Finish paths append this as a result caveat so a run can never silently read
+// "complete" without a validating local assertion.
 func UnverifiedBatchCaveats(run types.WriteWorkflowRun) []string {
 	var out []string
 	for _, batch := range run.Batches {

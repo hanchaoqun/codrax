@@ -44,7 +44,7 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeRunnerMissing,
 			Retryable:         false,
-			RecommendedAction: ActionBlock,
+			RecommendedAction: ActionFinish,
 			ReasonCode:        string(types.FailureKindRunnerMissing),
 		}
 	}

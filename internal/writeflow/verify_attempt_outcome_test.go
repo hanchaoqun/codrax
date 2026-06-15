@@ -26,10 +26,10 @@ func TestClassifyVerifyAttemptOutcome(t *testing.T) {
 			wantReason: "verify_tool_not_called",
 		},
 		{
-			name:       "runner missing blocks",
+			name:       "runner missing finishes unverified",
 			report:     &types.ChangeReport{FailureKind: types.FailureKindRunnerMissing},
 			wantKind:   VerifyOutcomeRunnerMissing,
-			wantAction: ActionBlock,
+			wantAction: ActionFinish,
 			wantReason: "runner_missing",
 		},
 		{

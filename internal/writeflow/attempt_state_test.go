@@ -286,10 +286,11 @@ func TestWorkflowActionsForMode_VerifyIsVerifyOnly(t *testing.T) {
 func TestUnverifiedBatchCaveats_ListsNoTestsBatches(t *testing.T) {
 	run := types.WriteWorkflowRun{Batches: []types.WriteWorkflowBatch{
 		{ID: "batch-1", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "unverified", ReasonCode: "no_tests"}}},
-		{ID: "batch-2", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "passed"}}},
+		{ID: "batch-2", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing"}}},
+		{ID: "batch-3", Attempts: []types.WriteWorkflowAttempt{{Kind: "verify", Status: "passed"}}},
 	}}
 	got := UnverifiedBatchCaveats(run)
-	if len(got) != 1 || got[0] != "batch-1" {
-		t.Fatalf("caveats = %v, want [batch-1]", got)
+	if len(got) != 2 || got[0] != "batch-1" || got[1] != "batch-2" {
+		t.Fatalf("caveats = %v, want [batch-1 batch-2]", got)
 	}
 }

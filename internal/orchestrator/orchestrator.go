@@ -2084,14 +2084,16 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			// can find it later. persistPlanStatus uses
 			// UpdatePlanStatusOnDisk which honours empty
 			// worktreePath as "don't touch", so we have to write
-			// it explicitly here. The status was already set
-			// (applied) by the verify post-hook or the
-			// skip-verify shortcut; we re-stamp with the same
-			// status to attach the path.
+			// it explicitly here. Preserve the current lifecycle
+			// status while attaching the path: runner-missing /
+			// no-tests outcomes are intentionally unverified and
+			// must not be re-stamped as applied just because the
+			// worktree is being kept.
 			if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
 				now := time.Now()
+				status, appliedAt := planStatusForWorktreePreserve(plan, now)
 				if err := types.UpdatePlanStatusOnDisk(o.busCtx.PlanPath,
-					types.PlanStatusApplied, &now, o.busCtx.WorktreePath); err != nil {
+					status, appliedAt, o.busCtx.WorktreePath); err != nil {
 					logging.Warning("[orchestrator] worktree preserve: persist path on plan %s failed: %v",
 						plan.ID, err)
 				}
@@ -3040,6 +3042,21 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	used := o.runTaskGraph(o.maxSteps - *stepsUsed)
 	*stepsUsed += used
 	return nil
+}
+
+func planStatusForWorktreePreserve(plan *types.ChangePlan, now time.Time) (string, *time.Time) {
+	status := types.PlanStatusApplied
+	var appliedAt *time.Time
+	if plan != nil {
+		if s := strings.TrimSpace(plan.Status); s != "" {
+			status = s
+		}
+		appliedAt = plan.AppliedAt
+	}
+	if appliedAt == nil {
+		appliedAt = &now
+	}
+	return status, appliedAt
 }
 
 // renderApplySummary formats the apply-stage Result message. Used
@@ -4040,41 +4057,50 @@ func renderVerifySuccess(report *types.ChangeReport, lang string) string {
 		total, report.PlanID)
 }
 
-// renderVerifyUnverified is the "verify ran cleanly but no tests
-// were discovered for the changed code" message. The plan's bytes
-// are on disk in the worktree, but no assertion proved they work.
-// Deliberately worded so the operator immediately understands this
-// is NOT a failure (the change applied) and NOT a success (the
-// change is unverified) — it's an explicit middle state requiring
-// either /merge (accept as-is) or adding tests (verify
-// retroactively).
+// renderVerifyUnverified is the "change applied, but local verification did
+// not produce a validating assertion" message. The plan's bytes are on disk in
+// the worktree, but no local test verdict proved they work. Deliberately worded
+// so the operator immediately understands this is NOT a code failure and NOT a
+// verified success — it's an explicit middle state.
 func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 	zh := isLangZh(lang)
-	runners := ""
 	planID := ""
+	reasonZH := "测试运行器没有发现任何测试"
+	reasonEN := "the test runner discovered zero tests for the changed code"
 	if report != nil {
-		runners = strings.Join(report.NoTestsRunners, ", ")
 		planID = report.PlanID
+		if reportIndicatesVerificationUnavailable(report) {
+			reasonZH = "本地验证环境缺少测试运行器或依赖"
+			reasonEN = "the local verification environment is missing the test runner or dependencies"
+			if summary := strings.TrimSpace(report.FailureSummary); summary != "" {
+				reasonZH += ": " + summary
+				reasonEN += ": " + summary
+			}
+		} else if runners := strings.Join(report.NoTestsRunners, ", "); runners != "" {
+			reasonZH = fmt.Sprintf("测试运行器 (%s) 没有发现任何测试", runners)
+			reasonEN = fmt.Sprintf("the test runner (%s) discovered zero tests for the changed code", runners)
+		}
 	}
 	if zh {
 		return fmt.Sprintf("\n## 未验证 (unverified)\n\n"+
-			"代码改动已落到 worktree,但测试运行器 (%s) 没有发现任何测试,所以没有断言验证过这次改动。\n\n"+
+			"代码改动已落到 worktree,但%s,所以没有断言验证过这次改动。\n\n"+
 			"建议:\n"+
 			"- 添加测试覆盖再 /verify,或\n"+
-			"- 直接 /merge 接受这次改动,或\n"+
+			"- 补齐本地验证环境后 /verify,或\n"+
+			"- 直接 /merge 接受这次未验证改动,或\n"+
 			"- /reject 退回到 plan。\n\n"+
 			"报告已存到 .codrax/plans/%s.report.json。\n",
-			runners, planID)
+			reasonZH, planID)
 	}
 	return fmt.Sprintf("\n## Unverified\n\n"+
-		"The change applied to the worktree, but the test runner (%s) discovered zero tests "+
-		"for the changed code, so no assertion verified the change.\n\n"+
+		"The change applied to the worktree, but %s, so no assertion verified the change.\n\n"+
 		"Next steps:\n"+
 		"- add test coverage and /verify, or\n"+
-		"- /merge to accept the change as-is, or\n"+
+		"- install the local verification environment and /verify, or\n"+
+		"- /merge to accept the unverified change as-is, or\n"+
 		"- /reject to roll back.\n\n"+
 		"Report saved to .codrax/plans/%s.report.json.\n",
-		runners, planID)
+		reasonEN, planID)
 }
 
 // renderChangePlanSummary formats a ChangePlan as a human-readable

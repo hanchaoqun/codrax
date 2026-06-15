@@ -912,9 +912,10 @@ func verifyPreHook(o *Orchestrator) error {
 
 // verifyPostHook persists the ChangeReport to disk + flips the plan
 // status. On verify pass: PlanStatusApplied + AppliedAt timestamp.
-// On verify fail: PlanStatusVerifyFailed (status field only). Result
-// rendering uses renderVerifySuccess (appends to apply summary) for
-// pass and renderVerifyFailure for fail.
+// On test/build failure: PlanStatusVerifyFailed (status field only).
+// On missing local verification surface (runner missing or zero tests
+// for runtime code): PlanStatusUnverified. Result rendering uses typed
+// report fields only; model prose never decides the status.
 func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if o == nil || o.busCtx == nil {
 		return nil
@@ -935,6 +936,14 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		// the planner can't structurally fix.
 		appendVerifyFingerprint(o.busCtx, report)
 	}
+	existing := o.busCtx.Mutable.Result()
+	if reportIndicatesVerificationUnavailable(report) ||
+		(report != nil && len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx)) {
+		o.busCtx.Mutable.SetResult(existing + renderVerifyUnverified(report, o.busCtx.Language))
+		now := time.Now()
+		o.persistPlanStatus(types.PlanStatusUnverified, &now)
+		return nil
+	}
 	if out != nil && out.Error != "" {
 		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language))
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
@@ -953,17 +962,20 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	//     scenarios (the user wanted to add docs / tests / config —
 	//     "0 tests for that" is not a problem); fall back to
 	//     plan.Changes inspection when WriteAnalysisIR is absent.
-	existing := o.busCtx.Mutable.Result()
-	if report != nil && len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx) {
-		o.busCtx.Mutable.SetResult(existing + renderVerifyUnverified(report, o.busCtx.Language))
-		now := time.Now()
-		o.persistPlanStatus(types.PlanStatusUnverified, &now)
-		return nil
-	}
 	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report, o.busCtx.Language))
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
+}
+
+// reportIndicatesVerificationUnavailable is the typed lane for environment
+// gaps: the change applied, but the local machine could not run the declared
+// verifier. Treat this as unverified, not as a code/test failure.
+func reportIndicatesVerificationUnavailable(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	return report.FailureKind == types.FailureKindRunnerMissing
 }
 
 // planTouchesNonTestCode reports whether the active ChangePlan
