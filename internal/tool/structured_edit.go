@@ -209,6 +209,25 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					return nil, fmt.Errorf("structured edit builder: change %q edits[%d] replace requires non-empty content; use kind=delete to remove lines", path, i)
 				}
 				insert = splitContentLines(edit.Content)
+				if structuredReplaceRepeatsOldRange(path, lines[start:end], insert) {
+					oldBytes := strings.Join(lines[start:end], "")
+					msg := fmt.Sprintf(
+						"structured edit builder: change %q edits[%d] repeats the replaced old_text range at the start of replacement content; remove the duplicate preserved line/block and resend the same bounded edit",
+						path, i)
+					return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+						ReasonCode:       "adjacent_duplicate_old_text",
+						Path:             path,
+						EditIndex:        i,
+						FileLineCount:    lineCount,
+						StartLine:        edit.StartLine,
+						EndLine:          endLine,
+						CurrentBytes:     oldBytes,
+						ExpectedOldText:  oldBytes,
+						CurrentByteLen:   len(oldBytes),
+						RetryInstruction: "remove the duplicated copy of expected_old_text from content; keep one preserved copy only when the old line/block should remain, then add only the new neighboring lines",
+						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+					})
+				}
 			}
 			compiled := compiledStructuredEdit{kind: kind, start: start, end: end, insert: insert, sourceIdx: i}
 			rangeEdits = append(rangeEdits, compiled)
@@ -433,6 +452,34 @@ func spliceLines(lines []string, start, end int, insert []string) []string {
 	next = append(next, insert...)
 	next = append(next, lines[end:]...)
 	return next
+}
+
+func structuredReplaceRepeatsOldRange(path string, oldRange, insert []string) bool {
+	if !duplicateInsertionPathEligible(path) || len(oldRange) == 0 || len(insert) < len(oldRange)*2 {
+		return false
+	}
+	if !structuredEditSourceLikeRange(oldRange) {
+		return false
+	}
+	for i := range oldRange {
+		if insert[i] != oldRange[i] || insert[i+len(oldRange)] != oldRange[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func structuredEditSourceLikeRange(lines []string) bool {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if duplicateInsertedLineIsSourceLike(trimmed) {
+			return true
+		}
+	}
+	return false
 }
 
 // structuredEditOldTextMatches compares the model-supplied old_text against

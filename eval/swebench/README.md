@@ -83,6 +83,15 @@ import the original checkout. When a Django suite is not explicitly supplied,
 the verifier derives a conservative scoped suite from typed ChangePlan paths and
 the repository `tests/` tree before falling back to a wider run.
 
+Per-instance run artifacts intentionally redact SWE-bench gold fields such as
+`patch`, `test_patch`, `FAIL_TO_PASS`, and `PASS_TO_PASS` from
+`instances/<id>/instance.json` before Codrax runs. This keeps local audit files
+near the checkout from exposing oracle information to repository tools while
+still preserving the public problem statement and metadata used to build the
+request. Python environment prep discovers import roots under the repository
+root, `src/`, and legacy `lib/` layouts before running its non-blocking import
+probe.
+
 ```bash
 SWEBENCH_PREPARE_PYTHON_ENV=0 eval/swebench/smoke_lite.sh
 ```

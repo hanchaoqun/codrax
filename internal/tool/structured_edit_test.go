@@ -35,6 +35,62 @@ func TestCompileStructuredEditsToPatch_ReplaceAndInsert(t *testing.T) {
 	}
 }
 
+func TestCompileStructuredEditsToPatch_RejectsRepeatedOldTextPrefix(t *testing.T) {
+	repo := t.TempDir()
+	seed := "def show(tw, funcargspec, fixturedef):\n    tw.line(funcargspec, green=True)\n    loc = getlocation(fixturedef.func)\n"
+	if err := os.WriteFile(filepath.Join(repo, "a.py"), []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "replace",
+			StartLine: 2,
+			OldText:   "    tw.line(funcargspec, green=True)\n",
+			Content:   "    tw.line(funcargspec, green=True)\n    tw.line(funcargspec, green=True)\n    tw.line(\"    scope: %s\" % fixturedef.scope)\n",
+		}},
+	}
+	_, err := compileStructuredEditsToPatch(repo, change)
+	if err == nil {
+		t.Fatal("adjacent repeated old_text prefix should fail")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "adjacent_duplicate_old_text" ||
+		diag.diagnostic.ExpectedOldText != "    tw.line(funcargspec, green=True)\n" ||
+		!strings.Contains(diag.diagnostic.RetryInstruction, "duplicated copy") {
+		t.Fatalf("unexpected diagnostic: %+v", diag.diagnostic)
+	}
+}
+
+func TestCompileStructuredEditsToPatch_AllowsPreservedOldTextPlusNewLine(t *testing.T) {
+	repo := t.TempDir()
+	seed := "def show(tw, funcargspec, fixturedef):\n    tw.line(funcargspec, green=True)\n    loc = getlocation(fixturedef.func)\n"
+	if err := os.WriteFile(filepath.Join(repo, "a.py"), []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "replace",
+			StartLine: 2,
+			OldText:   "    tw.line(funcargspec, green=True)\n",
+			Content:   "    tw.line(funcargspec, green=True)\n    tw.line(\"    scope: %s\" % fixturedef.scope)\n",
+		}},
+	}
+	patch, err := compileStructuredEditsToPatch(repo, change)
+	if err != nil {
+		t.Fatalf("preserved old line plus new neighbor should pass: %v", err)
+	}
+	if !strings.Contains(patch, `+    tw.line("    scope: %s" % fixturedef.scope)`) {
+		t.Fatalf("patch should include only the new neighboring line:\n%s", patch)
+	}
+}
+
 func TestCompileStructuredEditsToPatch_RejectsStaleContext(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("one\ntwo\n"), 0o644); err != nil {

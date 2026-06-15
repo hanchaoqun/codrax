@@ -3446,3 +3446,95 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     but future UX should render the typed verdict more prominently.
   - Planner handoff consumption should be further bounded so rich P0/P1/P2
     evidence is consumed before broad file rereads on Unicode/path-heavy issues.
+
+## 2026-06-16 SWE-bench additional Lite smoke and eval-integrity hardening
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-astropy-matplotlib-pytest-scikit-020456`.
+  - Instances:
+    - `astropy__astropy-12907`: `status=predicted`, `patch_bytes=506`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Manual audit against the gold patch
+      shows the product-code patch exactly matched the expected one-line
+      `_cstack` fix. Local verification probe failed because the old checkout
+      could not import `erfa`, so unverified was the correct typed verdict.
+    - `matplotlib__matplotlib-18869`: `status=predicted`,
+      `patch_bytes=543`, `plan_status=unverified`,
+      `verify_status=unavailable`, `verify_failure_kind=no_tests`. Manual audit
+      shows the generated patch exposed `version_info`, while the gold patch
+      implements `__version_info__` as a `sys.version_info`-like namedtuple. The
+      planner located the relevant files but under-modeled the requested public
+      API shape. Verification probes ran first and were classified as
+      unavailable because local imports failed under the partial build
+      environment.
+    - `pytest-dev__pytest-5221`: `status=predicted`, `patch_bytes=513`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Manual audit found a clear generated
+      patch hygiene defect: the patch repeated `tw.line(funcargspec,
+      green=True)` before adding a scope line. The gold patch changes the
+      output composition instead of duplicating the existing print line.
+    - `scikit-learn__scikit-learn-10508`: `status=predicted`,
+      `patch_bytes=866`, `plan_status=unverified`,
+      `verify_status=unavailable`, `verify_failure_kind=parser_error`. Manual
+      audit shows the patch addressed `LabelEncoder.transform([])` for string
+      classes but did not mirror the gold patch's `inverse_transform([])`
+      behavior, so read/write planning missed a symmetric API surface.
+  - Prediction validation accepted all four rows (`empty_patch=0`) and official
+    SWE-bench harness dry-run accepted the predictions file.
+- Generalized gaps fixed:
+  - SWE-bench adapter no longer writes full gold-bearing dataset rows next to
+    the checkout before Codrax runs. `instances/<id>/instance.json` is now a
+    sanitized artifact that redacts `patch`, `test_patch`, `FAIL_TO_PASS`, and
+    `PASS_TO_PASS`-style oracle fields. This preserves eval integrity even if a
+    repository tool scans parent artifacts.
+  - Python env prep now discovers import roots under legacy `lib/` layouts in
+    addition to the repository root and `src/`, so Matplotlib-style projects get
+    more truthful non-blocking import-probe diagnostics.
+  - Structured edit compilation now rejects source-like `replace` edits whose
+    replacement content starts with two adjacent copies of the exact old range.
+    This catches planner stutter like "old line, old line, new line" in the
+    typed edit artifact before the patch reaches apply/verify.
+- Safety and prompt hygiene:
+  - Gold redaction is keyed on dataset field names in the adapter artifact
+    writer, not on user intent or model output.
+  - The duplicate-old-text gate consumes only structured edit bytes, path
+    extension, and exact line equality. It does not inspect issue keywords,
+    natural-language rationale, `<think>`, or acceptance-test prose.
+  - Verification unavailable states remain non-hard-gating; generated patches
+    are still exported for the official harness when no typed code failure is
+    available.
+- Implementation tasks:
+  - [x] Redact SWE-bench gold/oracle fields from pre-run instance artifacts.
+  - [x] Include `lib/` in Python import-root discovery for env prep.
+  - [x] Add structured-edit `adjacent_duplicate_old_text` rejection with
+    diagnostic repair metadata.
+  - [x] Add tests for rejecting repeated old-text replacement prefixes while
+    allowing a single preserved old line plus a new neighboring line.
+  - [x] Update `eval/swebench/README.md` and this delivery ledger.
+- Verification:
+  - Fresh four-instance smoke produced non-empty predictions and official
+    harness dry-run consumption.
+  - Focused Go tests passed:
+    `go test ./internal/tool -run
+    'TestCompileStructuredEditsToPatch_(RejectsRepeatedOldTextPrefix|AllowsPreservedOldTextPlusNewLine|ReplaceAndInsert|RejectsAdjacentDuplicateInsertedBlock)'`.
+  - SWE-bench adapter compile passed:
+    `python3 -m py_compile eval/swebench/run_codrax_swebench.py`.
+  - Adapter self-check passed for gold redaction and `lib/` import-root
+    discovery.
+  - Full regression passed: `make test`.
+  - Patch hygiene passed: `git diff --check`.
+  - Local binary build passed: `make`.
+- Remaining system gaps to track:
+  - Matplotlib and Scikit show read/write planning should better infer symmetric
+    public API surfaces from issue text and nearby tests without reading gold
+    patches. This likely belongs in context-pack/test-surface consumption and
+    not in hard gates.
+  - Old scientific Python projects still need richer but bounded env prep
+    support for compiled extensions and module/package-name mismatches such as
+    `erfa`/`pyerfa`; these must remain best-effort diagnostics, not delivery
+    blockers.
+  - Controller soft reasoning still sometimes proposes reverify after typed
+    `unavailable`; the normalizer correctly finishes with
+    `accept_unverified`, but the prompt/typed state rendering should make that
+    terminal clearer.

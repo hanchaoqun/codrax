@@ -36,6 +36,14 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_SETTINGS = SCRIPT_DIR / "codrax_swebench.yaml"
+GOLD_ARTIFACT_FIELDS = {
+    "patch",
+    "test_patch",
+    "FAIL_TO_PASS",
+    "PASS_TO_PASS",
+    "fail_to_pass",
+    "pass_to_pass",
+}
 
 
 @dataclass
@@ -424,7 +432,7 @@ def discover_python_import_roots(repo_dir: Path) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     ignored = {"test", "tests", "docs", "doc", "example", "examples", "build", "dist"}
-    for base in (repo_dir, repo_dir / "src"):
+    for base in (repo_dir, repo_dir / "src", repo_dir / "lib"):
         if not base.is_dir():
             continue
         try:
@@ -806,12 +814,36 @@ def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     tmp.replace(path)
 
 
+def sanitized_instance_artifact(instance: dict[str, Any]) -> dict[str, Any]:
+    """Return a run artifact safe to place near the checked-out repository.
+
+    SWE-bench rows often include the gold patch and oracle test lists. The
+    adapter must never make those fields available to Codrax while it is
+    generating a prediction. The request text is built only from typed public
+    fields, and this artifact mirrors that boundary for files on disk.
+    """
+
+    out: dict[str, Any] = {}
+    redacted: list[str] = []
+    for key, value in instance.items():
+        if key in GOLD_ARTIFACT_FIELDS:
+            redacted.append(key)
+            continue
+        out[key] = value
+    if redacted:
+        out["_codrax_redacted_fields"] = sorted(redacted)
+    return out
+
+
 def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     instance_id = required_field(instance, "instance_id")
     inst_dir = Path(args.workdir).resolve() / "instances" / safe_id(instance_id)
     repo_dir = inst_dir / "repo"
     inst_dir.mkdir(parents=True, exist_ok=True)
-    (inst_dir / "instance.json").write_text(json.dumps(instance, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    (inst_dir / "instance.json").write_text(
+        json.dumps(sanitized_instance_artifact(instance), ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     result: dict[str, Any] = {
         "instance_id": instance_id,
         "repo": instance.get("repo", ""),
