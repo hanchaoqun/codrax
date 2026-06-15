@@ -75,8 +75,13 @@ pytest or partial dependency setup is not a hard code-failure gate.
 (`verify_status`, `verify_failure_kind`, `verify_summary`,
 `verify_test_count`) plus plan audit fields (`plan_target_paths`,
 `plan_change_paths`, `plan_test_change_paths`,
-`plan_verification_probe_count`) so environment dead-ends and test-edit drift
-are auditable without being treated as code failures. When a
+`plan_verification_probe_count`, `workflow_run_id`, `workflow_status`,
+`plan_context_paths`, `plan_context_covered_paths`,
+`plan_context_uncovered_paths`, and `plan_context_coverage_ratio`) so
+environment dead-ends, test-edit drift, and planner handoff coverage are
+auditable without being treated as code failures. Context coverage is derived
+only from persisted workflow/context-pack typed fields when present; it is
+audit telemetry, not an apply/verify gate. When a
 `ChangePlan` carries `verification_probes[]`, Codrax runs those bounded typed
 probes before any project-level suite; passing probes become the local behavior
 verdict while the project suite is retained as typed `TestSurface` diagnostics

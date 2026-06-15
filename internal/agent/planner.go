@@ -70,6 +70,19 @@ type plannerEvaluator struct {
 	// another repository or multi-repo focus cannot reuse a stale rank.
 	searchResult      *keywordSearchResult
 	searchFingerprint string
+
+	// structuredEmitRepairActive is set after a typed planner emit tool
+	// returns a failed ToolResult. The next few iterations may need a small
+	// read-only diagnostic step (for example re-reading exact current bytes)
+	// before the corrected emit can be sent. This flag only widens the
+	// planner's soft-cap recovery window; the hard cap still bounds the loop.
+	structuredEmitRepairActive bool
+
+	// handoffSynthesisActive is true when the dispatch has typed exploration
+	// handoff/context-pack material. In that state, soft-cap read-only tool
+	// calls are likely exact-byte synthesis steps, not broad exploration, so
+	// they are allowed until the hard cap.
+	handoffSynthesisActive bool
 }
 
 // plannerInvestigationTopN bounds the file list rendered into the
@@ -104,6 +117,8 @@ const plannerTestSurfaceMaxItems = 8
 // the soft→hard recovery window can actually run.
 func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
+	e.structuredEmitRepairActive = false
+	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		if ctx.PlannerSoftIterCapOverride > 0 {
@@ -871,18 +886,25 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		soft, hard = e.defaultSoftIterCap, e.defaultHardIterCap
 	}
 	// Two-stage cap: soft cap is the normal stop; the soft→hard window
-	// spares one extra iteration whenever the LLM is actively calling
-	// any of the planner's structured-emit tools. Streaming gateways
-	// occasionally truncate the function.arguments of a large emit
-	// payload, the tool rejects with `unexpected EOF`, and the LLM's
-	// next iteration is a clean retry. ShouldStop runs BEFORE tool
-	// execution, so a flat soft-cap break would discard that recovery
-	// before it ever runs.
-	return iterationCapShouldStop(resp, iteration,
-		soft, hard,
-		emitChangePlanToolName,
-		emitPlanSkeletonToolName,
-		emitPlanChangeToolName)
+	// spares recovery iterations when the LLM is actively calling one of the
+	// planner's structured-emit tools. It also spares a bounded read-only
+	// diagnostic step after a structured emit was rejected: some validators
+	// return typed repair data that must be consumed by re-reading exact bytes
+	// before the corrected emit can be formed. The hard cap still bounds every
+	// recovery path.
+	if iteration >= hard {
+		return true
+	}
+	if iteration < soft {
+		return false
+	}
+	if plannerResponseCallsAny(resp, plannerStructuredEmitTools()...) {
+		return false
+	}
+	if (e.structuredEmitRepairActive || e.handoffSynthesisActive) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
+		return false
+	}
+	return true
 }
 
 const (
@@ -890,6 +912,102 @@ const (
 	emitPlanSkeletonToolName = "emit_plan_skeleton"
 	emitPlanChangeToolName   = "emit_plan_change"
 )
+
+func plannerStructuredEmitTools() []string {
+	return []string{
+		emitChangePlanToolName,
+		emitPlanSkeletonToolName,
+		emitPlanChangeToolName,
+	}
+}
+
+func plannerStructuredEmitRepairTools() []string {
+	return []string{
+		"read_file",
+		"grep",
+		"list_files",
+		"repo_map",
+	}
+}
+
+func plannerResponseCallsAny(resp llm.Response, names ...string) bool {
+	if len(resp.ToolCalls) == 0 || len(names) == 0 {
+		return false
+	}
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		allowed[strings.TrimSpace(name)] = struct{}{}
+	}
+	for _, tc := range resp.ToolCalls {
+		if _, ok := allowed[strings.TrimSpace(tc.Name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.Success {
+			continue
+		}
+		switch strings.TrimSpace(result.ToolName) {
+		case emitChangePlanToolName, emitPlanSkeletonToolName, emitPlanChangeToolName:
+			return true
+		}
+	}
+	return false
+}
+
+func plannerToolResultsContainSuccessfulStructuredEmit(results []types.ToolResult) bool {
+	for _, result := range results {
+		if !result.Success {
+			continue
+		}
+		switch strings.TrimSpace(result.ToolName) {
+		case emitChangePlanToolName, emitPlanSkeletonToolName, emitPlanChangeToolName:
+			return true
+		}
+	}
+	return false
+}
+
+func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
+		normalized := types.NormalizeWriteExplorationHandoff(*handoff)
+		if len(normalized.TargetFiles) > 0 ||
+			len(normalized.RelevantSymbols) > 0 ||
+			len(normalized.ExistingPatterns) > 0 ||
+			len(normalized.Invariants) > 0 ||
+			len(normalized.TestSurface) > 0 ||
+			len(normalized.RiskNotes) > 0 ||
+			len(normalized.Unknowns) > 0 ||
+			len(normalized.EvidenceRefs) > 0 {
+			return true
+		}
+	}
+	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
+		normalized := types.NormalizeWriteContextPack(*pack)
+		return len(normalized.Items) > 0
+	}
+	return false
+}
+
+// ObserveToolResults implements ToolResultObserver. It consumes only typed tool
+// result metadata, never model prose, so it can widen the planner recovery
+// window without creating a prompt-routing hard gate.
+func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
+	if plannerToolResultsContainSuccessfulStructuredEmit(obs.CurrentToolResults) {
+		e.structuredEmitRepairActive = false
+		return
+	}
+	if plannerToolResultsContainFailedStructuredEmit(obs.CurrentToolResults) {
+		e.structuredEmitRepairActive = true
+	}
+}
 
 // ParseOutput reads the installed ChangePlan, or reports a clean
 // failure if emit_change_plan was never called successfully. The

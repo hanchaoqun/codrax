@@ -25,6 +25,10 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s\n\n", title)
 	b.WriteString("Prioritized typed handoff for this write batch. Treat it as planning and verification context only; hard gates still read ChangePlan, ChangeReport, approval records, and other typed artifacts directly.\n")
+	if note := writeContextPackConsumerGuidance(view); note != "" {
+		b.WriteString(note)
+		b.WriteByte('\n')
+	}
 	if pack.BatchID != "" {
 		fmt.Fprintf(&b, "- batch_id: %s\n", pack.BatchID)
 	}
@@ -54,4 +58,29 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func writeContextPackConsumerGuidance(view types.WriteContextView) string {
+	switch view.Consumer {
+	case types.WriteConsumerPlanner:
+		hasCoverageItem := false
+		for _, item := range view.Items {
+			if item.Priority != types.WriteContextP0 && item.Priority != types.WriteContextP1 {
+				continue
+			}
+			switch item.Kind {
+			case "constraint", "risk_note", "scope_anchor", "target_file", "evidence_ref", "invariant", "success_criterion":
+				hasCoverageItem = true
+			}
+			if hasCoverageItem {
+				break
+			}
+		}
+		if !hasCoverageItem {
+			return ""
+		}
+		return "Planner coverage guidance (soft): keep P0 constraints and P1 scope/target/evidence items visible while choosing the bounded ChangePlan. The plan may modify only the smallest correct subset, but any unmodified production surface named by those typed rows should still be covered by verification_probes/test_surface or carried forward as an explicit uncertainty. Do not turn this guidance into a hard gate; validation, approval, and verifier verdicts remain typed-artifact decisions."
+	default:
+		return ""
+	}
 }

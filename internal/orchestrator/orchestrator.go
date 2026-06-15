@@ -8079,6 +8079,10 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				extra += 2 * agentCfg.PlannerComplexityBudgetExtra
 			}
 			adjusted := base + extra
+			hasUsableExplorationHandoff := activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable)
+			if hasUsableExplorationHandoff {
+				adjusted = plannerSoftCapForCompletedExploration(base, adjusted, adjusted)
+			}
 			ceil := agentCfg.PlannerScaledIterMax
 			if ceil <= 0 {
 				ceil = 20
@@ -8091,13 +8095,13 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				logging.Debug("[orchestrator] planner scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
 					complexity, nSub, base, adjusted)
 			}
-			if activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable) {
+			if hasUsableExplorationHandoff {
 				current := agentCtx.PlannerSoftIterCapOverride
 				effectiveCurrent := current
 				if effectiveCurrent <= 0 {
 					effectiveCurrent = base
 				}
-				logging.Debug("[orchestrator] planner convergence budget: usable exploration handoff for active write batch, preserving soft cap %d",
+				logging.Debug("[orchestrator] planner convergence budget: usable exploration handoff for active write batch, synthesis soft cap %d",
 					plannerSoftCapForCompletedExploration(base, current, effectiveCurrent))
 			}
 			// Stage 3: inject relevant Failure Taxonomy entries

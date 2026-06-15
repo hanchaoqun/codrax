@@ -99,6 +99,83 @@ func TestPlannerShouldStop_SoftCapAllowsEmitRetry(t *testing.T) {
 	}
 }
 
+// TestPlannerShouldStop_SoftCapAllowsTypedEmitRepairRead pins the recovery
+// shape observed in SWE-bench-style patches: after a structured emit validator
+// rejects a plan, the next useful action may be a read-only diagnostic tool
+// call to fetch exact bytes before the corrected emit can be formed.
+func TestPlannerShouldStop_SoftCapAllowsTypedEmitRepairRead(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	e.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+			Summary:  "arbitrary validator text",
+		}},
+	})
+
+	resp := llm.Response{ToolCalls: []llm.ToolCall{
+		{Name: "read_file"},
+	}}
+	if e.ShouldStop(resp, e.effectiveSoftCap()) {
+		t.Fatalf("expected read_file to run inside the structured emit repair window")
+	}
+}
+
+func TestPlannerShouldStop_TypedEmitRepairStillHardCaps(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	e.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+		}},
+	})
+
+	resp := llm.Response{ToolCalls: []llm.ToolCall{
+		{Name: "read_file"},
+	}}
+	if !e.ShouldStop(resp, e.effectiveHardCap()) {
+		t.Fatalf("expected hard cap to stop even during structured emit repair")
+	}
+}
+
+func TestPlannerShouldStop_HandoffSynthesisAllowsReadOnlyAtSoftCap(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"pkg/fix.py"},
+	})
+	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+
+	resp := llm.Response{ToolCalls: []llm.ToolCall{
+		{Name: "read_file"},
+	}}
+	if e.ShouldStop(resp, e.effectiveSoftCap()) {
+		t.Fatalf("expected read_file to run inside handoff synthesis window")
+	}
+	if !e.ShouldStop(resp, e.effectiveHardCap()) {
+		t.Fatalf("expected handoff synthesis window to stop at hard cap")
+	}
+}
+
+func TestPlannerShouldStop_BuildInitialInstructionClearsTypedEmitRepair(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	e.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+		}},
+	})
+
+	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: e.mu}, nil)
+	resp := llm.Response{ToolCalls: []llm.ToolCall{
+		{Name: "read_file"},
+	}}
+	if !e.ShouldStop(resp, e.effectiveSoftCap()) {
+		t.Fatalf("expected new dispatch to clear structured emit repair state")
+	}
+}
+
 // TestPlannerShouldStop_HardCapAlwaysStops bounds the recovery window:
 // even when the LLM keeps spamming emit_change_plan, the hard cap
 // ensures the loop cannot run indefinitely.

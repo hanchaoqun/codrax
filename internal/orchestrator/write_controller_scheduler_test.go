@@ -363,7 +363,7 @@ func TestSeedControllerBatchPlanningHint_DegradedExplorationHandoffConverges(t *
 	}
 }
 
-func TestPlannerSoftCapForCompletedExplorationPreservesScaledBudget(t *testing.T) {
+func TestPlannerSoftCapForCompletedExplorationAppliesSynthesisFloor(t *testing.T) {
 	cases := []struct {
 		name             string
 		base             int
@@ -372,10 +372,10 @@ func TestPlannerSoftCapForCompletedExplorationPreservesScaledBudget(t *testing.T
 		want             int
 	}{
 		{name: "scaled cap is preserved", base: 6, current: 13, effectiveCurrent: 13, want: 13},
-		{name: "zero current logs base", base: 6, current: 0, effectiveCurrent: 6, want: 6},
-		{name: "low configured override is preserved", base: 6, current: 2, effectiveCurrent: 2, want: 2},
-		{name: "fallback uses current", base: 6, current: 9, effectiveCurrent: 0, want: 9},
-		{name: "final fallback uses base", base: 6, current: 0, effectiveCurrent: 0, want: 6},
+		{name: "base gets synthesis floor", base: 6, current: 0, effectiveCurrent: 6, want: 12},
+		{name: "low current gets synthesis floor", base: 6, current: 9, effectiveCurrent: 0, want: 12},
+		{name: "final fallback gets synthesis floor", base: 6, current: 0, effectiveCurrent: 0, want: 12},
+		{name: "higher configured base raises floor", base: 10, current: 10, effectiveCurrent: 10, want: 16},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

@@ -523,3 +523,61 @@ records adapter results.
   `env_prepare_`. This preserves the principle that missing pytest or partial
   dependency setup is not a code-failure hard gate while giving eval dashboards
   stable typed signals for environment quality.
+- 2026-06-16: Manual audit of the
+  `lite-smoke-20260616-astropy-django-pytest-sympy-024926` Django run exposed
+  a generalized handoff-coverage gap: the priority context pack carried P1
+  model-layer and form-layer targets, but the emitted plan changed only the form
+  layer and the bounded probe validated only that layer, so the controller
+  accepted a locally green but likely incomplete patch. Landed two non-hard-gate
+  mitigations: planner context-pack rendering now includes soft coverage
+  guidance for P0/P1 scope/target/evidence rows, and the SWE-bench adapter
+  mirrors persisted workflow/context-pack coverage into
+  `plan_context_paths`, `plan_context_covered_paths`,
+  `plan_context_uncovered_paths`, and `plan_context_coverage_ratio` when a
+  durable workflow is available. These fields are typed eval telemetry only;
+  ChangePlan validation, approval, and verifier verdicts remain the hard
+  decision artifacts.
+- 2026-06-16: Ran the targeted Django/pytest context batch at
+  `eval/results/swebench/lite-smoke-20260616-django-pytest-context-032114`.
+  Django reproduced a planner convergence gap: after `emit_change_plan` was
+  rejected by the structured line-edit builder for an exact `old_text`
+  mismatch, the planner correctly attempted to `read_file` the current bytes
+  but hit the soft iteration cap before that read-only repair step could run,
+  so the adapter exported an empty patch. The fix is scheduler-generic: planner
+  now observes typed failed structured emit ToolResults and opens a bounded
+  soft-to-hard-cap repair window for read-only diagnostic tools followed by a
+  corrected emit. It does not parse validator prose, does not relax the
+  validator, and the hard cap still stops non-converging loops. The same batch
+  also confirmed that current CLI single-shot artifacts did not expose a
+  durable workflow JSON for context-coverage telemetry (`workflow_path=""`);
+  that remains a separate persistence-chain follow-up rather than an
+  apply/verify hard gate.
+- 2026-06-16: The rebuilt Django single-instance regression
+  `lite-smoke-20260616-django-emit-repair-033210` showed an adjacent planner
+  budget gap before reaching any emit repair: after a usable typed exploration
+  handoff, the planner still needed several read-only byte/line fetches to
+  synthesize the patch and hit the normal soft cap at iteration 8 with no
+  ChangePlan, causing the scheduler to start another planning dispatch. Landed
+  a controller-only synthesis floor plus planner-side handoff synthesis window:
+  when the active batch has a completed or degraded typed exploration handoff,
+  the planner soft cap is raised to at least `base+6` (still bounded by
+  `PlannerScaledIterMax`), and read-only synthesis tools such as `read_file`,
+  `grep`, `list_files`, and `repo_map` may continue after the soft cap until
+  the hard cap. This is typed-state driven, does not inspect user keywords or
+  model prose, and does not affect read/log/trace/data/operation modes.
+- 2026-06-16: Re-ran the Django single-instance regression after the handoff
+  synthesis window at
+  `eval/results/swebench/lite-smoke-20260616-django-handoff-window-034623`.
+  The planner first hit the same structured `old_text` mismatch, then consumed
+  typed tool failure state, re-read exact bytes inside the soft-to-hard repair
+  window, emitted a corrected `ChangePlan`, applied it, and verified it as
+  `passed`. The SWE-bench adapter exported a non-empty source patch
+  (`patch_bytes=2136`, `status=predicted`, `plan_status=applied`,
+  `verify_status=passed`) and the official harness dry-run accepted one
+  prediction. This confirms the generalized fix for "emit rejected then soft
+  cap stops the repair read" and "usable exploration handoff still needs
+  bounded synthesis reads." The same run still had `workflow_path=""` because
+  the CLI artifact set exposed plan/report JSON under the blob session but no
+  durable workflow JSON; context coverage therefore remains opportunistic eval
+  telemetry when persisted workflow/context-pack data exists, not an
+  apply/verify hard gate.

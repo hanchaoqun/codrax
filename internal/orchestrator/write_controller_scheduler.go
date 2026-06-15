@@ -2111,13 +2111,23 @@ func writeExplorationHandoffHasPlanningMaterial(handoff *types.WriteExplorationH
 }
 
 func plannerSoftCapForCompletedExploration(base, current, effectiveCurrent int) int {
-	if effectiveCurrent > 0 {
-		return effectiveCurrent
+	cap := effectiveCurrent
+	if cap <= 0 {
+		cap = current
 	}
-	if current > 0 {
-		return current
+	if cap <= 0 {
+		cap = base
 	}
-	return base
+	// A completed/degraded typed exploration handoff means the planner should
+	// synthesize a bounded ChangePlan, not restart broad investigation. It still
+	// commonly needs several read-only diagnostic calls to fetch exact current
+	// bytes for line edits and old_text. Reserve that synthesis room without
+	// affecting simple write tasks that skip the exploration handoff path.
+	floor := base + 6
+	if cap < floor {
+		return floor
+	}
+	return cap
 }
 
 func askUserInterruptionsForBatch(run *types.WriteWorkflowRun, batchID string) int {

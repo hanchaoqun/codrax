@@ -21,13 +21,14 @@ git -C "$SRC" init -q -b main
 git -C "$SRC" config user.email "swebench-smoke@codrax.local"
 git -C "$SRC" config user.name "Codrax SWE-bench Smoke"
 
-python3 - "$SRC/bug.py" <<'PY'
+python3 - "$SRC/bug.py" "$SRC/helper.py" <<'PY'
 from pathlib import Path
 import sys
 
 Path(sys.argv[1]).write_text('def answer():\n    return "bad"\n', encoding='utf-8')
+Path(sys.argv[2]).write_text('def helper():\n    return "context-only"\n', encoding='utf-8')
 PY
-git -C "$SRC" add bug.py
+git -C "$SRC" add bug.py helper.py
 git -C "$SRC" commit -q -m seed
 BASE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
 
@@ -71,6 +72,7 @@ if [[ -z "$repo" ]]; then
 fi
 
 mkdir -p "$repo/.codrax/plans"
+mkdir -p "$repo/.codrax/plans/workflows"
 if [[ -n "$log_dir" ]]; then
   mkdir -p "$log_dir"
 fi
@@ -104,6 +106,46 @@ plan = {
     "applied_commit_sha": sha,
 }
 plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")
+PY_INNER
+
+python3 - "$repo/.codrax/plans/workflows/wf-fake.json" <<'PY_INNER'
+from pathlib import Path
+import json
+import sys
+
+workflow = {
+    "run_id": "wf-fake",
+    "status": "complete",
+    "active_batch_id": "batch-1",
+    "context_packs": [{
+        "pack_id": "pack-fake",
+        "batch_id": "batch-1",
+        "items": [
+            {
+                "priority": "p1",
+                "kind": "target_file",
+                "text": "bug.py",
+                "source_stage": "explore",
+                "consumers": ["planner"],
+            },
+            {
+                "priority": "p1",
+                "kind": "target_file",
+                "text": "helper.py",
+                "source_stage": "explore",
+                "consumers": ["planner"],
+            },
+            {
+                "priority": "p1",
+                "kind": "target_file",
+                "text": "tests/test_bug.py",
+                "source_stage": "explore",
+                "consumers": ["planner"],
+            },
+        ],
+    }],
+}
+Path(sys.argv[1]).write_text(json.dumps(workflow, indent=2, sort_keys=True), encoding="utf-8")
 PY_INNER
 """, encoding="utf-8")
 PY
@@ -171,6 +213,16 @@ if row.get("env_prepare_failed_step_names") != [] or env.get("failed_step_names"
     raise SystemExit("env prepare failed_step_names should be an empty list for skipped local smoke")
 if env.get("hard_gate") is not False:
     raise SystemExit("env prepare telemetry must be observational, not a hard gate")
+if row.get("workflow_run_id") != "wf-fake" or row.get("workflow_status") != "complete":
+    raise SystemExit("workflow telemetry was not exported")
+if row.get("plan_context_paths") != ["bug.py", "helper.py"]:
+    raise SystemExit(f"unexpected context paths: {row.get('plan_context_paths')!r}")
+if row.get("plan_context_covered_paths") != ["bug.py"]:
+    raise SystemExit(f"unexpected covered context paths: {row.get('plan_context_covered_paths')!r}")
+if row.get("plan_context_uncovered_paths") != ["helper.py"]:
+    raise SystemExit(f"unexpected uncovered context paths: {row.get('plan_context_uncovered_paths')!r}")
+if row.get("plan_context_coverage_ratio") != 0.5:
+    raise SystemExit(f"unexpected context coverage ratio: {row.get('plan_context_coverage_ratio')!r}")
 PY
 
 DRY_RUN=1 PREDICTIONS_PATH="$PREDICTIONS" "$ROOT/eval/swebench/run_official_harness.sh" >/dev/null

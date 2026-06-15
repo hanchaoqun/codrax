@@ -266,6 +266,10 @@ func TestPlannerWriteContextPack_RendersInsteadOfLegacyHandoff(t *testing.T) {
 		"priority pack",
 		"p0 constraint [write_analysis]",
 		"do not change read scheduler byte identity",
+		"Planner coverage guidance (soft)",
+		"unmodified production surface",
+		"verification_probes/test_surface",
+		"validation, approval, and verifier verdicts remain typed-artifact decisions",
 		"p1 target_file [explore]",
 		"internal/agent/planner.go",
 		"p3 pattern_hint [explore]",
@@ -276,6 +280,17 @@ func TestPlannerWriteContextPack_RendersInsteadOfLegacyHandoff(t *testing.T) {
 	}
 	if strings.Contains(got, "legacy.go") {
 		t.Fatalf("legacy handoff content should not render beside context pack; got:\n%s", got)
+	}
+	for _, banned := range []string{
+		"if the request says",
+		"if the user says",
+		"summary contains",
+		"rationale contains",
+		"parse prose",
+	} {
+		if strings.Contains(strings.ToLower(got), banned) {
+			t.Fatalf("planner context pack prompt contains prose-routing smell %q:\n%s", banned, got)
+		}
 	}
 }
 

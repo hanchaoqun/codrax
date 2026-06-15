@@ -776,6 +776,92 @@ def plan_change_paths(plan: dict[str, Any]) -> list[str]:
     return out
 
 
+def normalize_repo_rel_path(raw: Any) -> str:
+    text = str(raw or "").strip().strip("`'\"")
+    if not text:
+        return ""
+    text = text.replace("\\", "/")
+    if text.startswith("./"):
+        text = text[2:]
+    if text.startswith("/") or "://" in text or text in {".", ".."}:
+        return ""
+    parts = [part for part in text.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        return ""
+    return "/".join(parts)
+
+
+def load_latest_workflow_run(repo_dir: Path, inst_dir: Path) -> tuple[dict[str, Any], str]:
+    candidates: list[tuple[float, Path]] = []
+    for root in (
+        repo_dir / ".codrax" / "plans" / "workflows",
+        inst_dir / ".codrax" / "plans" / "workflows",
+    ):
+        if not root.is_dir():
+            continue
+        for path in root.glob("*.json"):
+            try:
+                row = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(row, dict) and row.get("run_id"):
+                candidates.append((path.stat().st_mtime, path))
+    if not candidates:
+        return {}, ""
+    candidates.sort(key=lambda item: item[0])
+    path = candidates[-1][1]
+    try:
+        row = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}, ""
+    return (row if isinstance(row, dict) else {}), str(path)
+
+
+def workflow_context_paths(workflow: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for pack in workflow.get("context_packs") or []:
+        if not isinstance(pack, dict):
+            continue
+        for item in pack.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            priority = str(item.get("priority") or "").strip().lower()
+            kind = str(item.get("kind") or "").strip()
+            if priority not in {"p0", "p1"}:
+                continue
+            path = ""
+            evidence = item.get("evidence_ref")
+            if kind == "evidence_ref" and isinstance(evidence, dict):
+                path = normalize_repo_rel_path(evidence.get("source"))
+            elif kind in {"target_file", "scope_anchor"}:
+                path = normalize_repo_rel_path(item.get("text"))
+            if path and not is_test_patch_path(path):
+                paths.append(path)
+    return sorted(set(paths))
+
+
+def summarize_plan_context_coverage(
+    workflow: dict[str, Any],
+    target_paths: list[str],
+    change_paths: list[str],
+) -> dict[str, Any]:
+    context_paths = workflow_context_paths(workflow)
+    plan_paths = sorted(set(
+        path for path in (normalize_repo_rel_path(p) for p in [*target_paths, *change_paths]) if path
+    ))
+    covered = [path for path in context_paths if path in plan_paths]
+    uncovered = [path for path in context_paths if path not in plan_paths]
+    ratio = None
+    if context_paths:
+        ratio = round(len(covered) / len(context_paths), 4)
+    return {
+        "plan_context_paths": context_paths,
+        "plan_context_covered_paths": covered,
+        "plan_context_uncovered_paths": uncovered,
+        "plan_context_coverage_ratio": ratio,
+    }
+
+
 def report_verification_status(report: dict[str, Any]) -> str:
     status = str(report.get("verification_status") or "").strip()
     if status:
@@ -952,6 +1038,21 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             result["plan_change_paths"] = change_paths
             result["plan_test_change_paths"] = test_change_paths
             result["plan_verification_probe_count"] = len(plan.get("verification_probes") or [])
+        workflow, workflow_path = load_latest_workflow_run(repo_dir, inst_dir)
+        result["workflow_path"] = workflow_path
+        if workflow:
+            result["workflow_run_id"] = str(workflow.get("run_id") or "")
+            result["workflow_status"] = str(workflow.get("status") or "")
+            target_paths = result.get("plan_target_paths") if isinstance(result.get("plan_target_paths"), list) else []
+            change_paths = result.get("plan_change_paths") if isinstance(result.get("plan_change_paths"), list) else []
+            result.update(summarize_plan_context_coverage(workflow, target_paths, change_paths))
+        else:
+            result.update({
+                "plan_context_paths": [],
+                "plan_context_covered_paths": [],
+                "plan_context_uncovered_paths": [],
+                "plan_context_coverage_ratio": None,
+            })
         report = load_report_for_plan(plan_path)
         if report:
             result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""

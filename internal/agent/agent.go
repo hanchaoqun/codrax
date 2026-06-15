@@ -474,6 +474,14 @@ type LoopController interface {
 	Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal
 }
 
+// ToolResultObserver is a narrower, side-effect-only hook for evaluators that
+// need to remember typed tool outcomes for their next ShouldStop decision
+// without opting into the full LoopController policy layer. It must not mutate
+// messages, request prompt injection, or decide loop termination.
+type ToolResultObserver interface {
+	ObserveToolResults(ctx *types.AgentContext, obs LoopObservation)
+}
+
 // NewBaseAgent creates a new BaseAgent.
 func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *BaseAgent {
 	maxIter := deps.MaxIterations
@@ -2642,6 +2650,20 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		currentToolResults := allToolResults[toolResultsStart:]
 		currentMCPResponses := allMCPResponses[mcpResponsesStart:]
+		if observer, ok := b.eval.(ToolResultObserver); ok {
+			observer.ObserveToolResults(ctx, LoopObservation{
+				Phase:               PhaseMidLoop,
+				Iteration:           i,
+				Response:            resp,
+				LastToolResult:      lastToolResultPtr,
+				AllToolResults:      allToolResults,
+				CurrentToolResults:  currentToolResults,
+				AllMCPResponses:     allMCPResponses,
+				CurrentMCPResponses: currentMCPResponses,
+				ToolSurfaceKnown:    true,
+				AvailableToolNames:  effectiveToolNames,
+			})
+		}
 		if toolResultsContainSuccessfulTerminalEmit(currentToolResults) && b.eval.ShouldStop(resp, i) {
 			logging.Debug("[diag %s] STOP at iter=%d (post-tool terminal emit)", b.name, i)
 			break
